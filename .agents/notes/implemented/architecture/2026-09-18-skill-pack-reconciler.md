@@ -55,6 +55,8 @@ Unit suites pin the manifest schema and the fields its refusals name, the reconc
 
 The provider of `ctx.skillPackParts` is `@deepseek-ai/dsh-experimental-skill-pack-components`, a row of its own that injects the component catalog and publishes each **offered** component as a part — its id, the npm name of the package that registered it, and that package's own version — forwarding the catalog's own subscription and its disposer. Offered rather than registered: a component the deployment did not turn on cannot be drawn, so a pack requiring it stays inactive.
 
+That same row carries the active packs' views the other way, into the index the sidebar is built from, and `PartsSource` grew the second question it asks — whether one view file can be drawn — with the `view-refused` member of `PackMissing` that answers it. [The pack-views Agent Note](2026-09-18-skill-pack-views-and-consent.md) owns both, and the question a view that opens a data page is put through.
+
 ## Alternatives considered
 
 **List withheld packs with `modelInvocable: false, userInvocable: false`.** Rejected. It hides the pack from both surfaces, but the candidate still wins its name in the merged catalog and silently shadows a same-named skill from another provider; and it leaves a pack that cannot be used sitting in `ctx.skills.list()` for any future consumer that reads the invocation-neutral catalog.

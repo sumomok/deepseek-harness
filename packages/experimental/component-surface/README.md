@@ -53,7 +53,7 @@ Every one of those is rebuilt when the catalog moves: a component plugin loaded 
 <a id="configuration"></a>
 ## Configuration
 
-Six fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. `crud` and `crudLoadTimeoutMs` are about the deployment's own page being opened in the panel instead, and the section after *that* is theirs. Everything else is fixed.
+Seven fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. `crud`, `crudLoadTimeoutMs` and `crudViewConsent` are about the deployment's own page being opened in the panel instead, and the section after *that* is theirs. Everything else is fixed.
 
 The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
 
@@ -107,6 +107,7 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 Loud rather than skipped, because a view quietly dropped is a menu row that shows an empty column when a user clicks it, with nothing anywhere saying why, and because every other trace of this failure is an absence. A repeated id and a `homeView` naming no configured view fail the same way.
 
+<a id="views-another-package-ships"></a>
 ### Views another package ships
 
 A view can also come from a package rather than from `cordis.yml`. `ctx.componentViews` is the index both end up in: the deployment's own views first, then each registered source in registration order, and a click shows either one the same way. [`skill-pack-components`](../skill-pack-components/README.md) is the source there is — it offers the views of every active skill pack and re-offers them whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart.
@@ -236,7 +237,18 @@ No property of a page may be read from another block. Every one of them is on th
 
 A call's own `tool/call` records no entry for this kind, and `recordsEntry` is what both the extractor and the invariant companion read that off, so the two count the same records. Drawing the entry from the call would put the page on screen — and its first request on the wire, with the user's own credential — before the question was answered, and would leave it there after a refusal.
 
-For the same reason a view a deployment writes may not place one: a click on the sidebar asks nobody. Such a view is refused at load, by id.
+A view may place one too, and then the click is the question. `/show-content-view` puts the same card, in the same words, to the user before anything is appended — so a sidebar row that opens a person's data is a row they agreed to open. A refusal, a question nobody answered, and a question that could not be asked at all all end the same way: nothing is drawn, and the click is answered `没有打开。`.
+
+Asking on every click of the same row would be a question nobody reads by the third time, so an answer is remembered — per signed-in visitor, per view, per table, in this process only. `crudViewConsent` decides how long it stands:
+
+| `crudViewConsent` | What a click gets |
+|---|---|
+| `per-login` (the default) | asked once, and again after the visitor signs out, after their token is renewed, after a restart, and for any other view or table |
+| `every-time` | asked on every click |
+
+The visitor is named by `ctx.loginIdentity`, which [`auth-gate`](../auth-gate/README.md) registers: the digest of the token this process holds, never the token. A deployment that composes no gate has no login to scope an answer to, and is asked every time whatever `crudViewConsent` says — the same fail-closed answer a deployment with no `approval` service gets, where no click opens a page at all.
+
+The question is also put through the approval service, which refuses to ask outside an open turn: its audit pair has to be enclosed by one, and a command handler runs wherever the user clicked. A click made while the agent is idle is therefore answered `没有打开。` without anyone being asked.
 
 ### What the user is asked
 
@@ -532,6 +544,9 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **An entry this build cannot fully accept shows nothing at all** — the seat re-judges the whole payload, so one node naming a component this catalog no longer carries costs the entry every block it could have drawn, not just that one. The one exception is a block fed by another: what it was fed is a value from the page rather than from the call, so a value that does not fit leaves the fed blocks waiting and draws the rest.
 - **The ceilings are protocol constants, not configuration** — the configuration section above states why, and what has to exist before they can become a deployment's choice.
 - **A view click's record is required on read** — `content-component/shown` carries no `ignorable` marker, because `Session.append` gives an appending plugin no way to set one, so a runtime whose session vocabulary excludes this package refuses a log holding one rather than skipping the event. Every build of this repository knows the type; a separately built runtime that dropped this package would not. The console's other two content rows are in the same position, for the same reason.
+- **A remembered answer is memory, and a renewal is a new person to it** — the consent table is keyed by the digest of the token this process holds, so a restart asks again and so does the deployment's own token renewal, which issues a different token for the same visitor. Asking once per renewal is more asking than the rule needs and less than no memory at all; keying it on a claim inside the token would mean reading a token this deployment authenticates nobody with, and the trigger is the first report that a person is asked more often than they expect.
+- **A click made while the agent is idle opens no data page** — `approval.request` refuses to ask outside an open turn, because its audit pair has to be enclosed by one, and a command handler runs wherever the user clicked. That is most clicks: the person is answered `没有打开。` with no card ever drawn, which reads as a row that does nothing. Fixing it means either a way to ask outside a turn or a turn opened for the question, both of which are changes to packages this row does not own.
+- **The one sentence covers four different things** — a refusal, an unanswered question, a question that could not be asked, and a deployment with no approval service all answer `没有打开。`. That is deliberate for the first two, which are the user's own business, and a cost for the last two, which are the deployment's: an operator learns about them from the composition rather than from the row.
 - **A contributed view that loses an id collision is dropped, and its owner is not told** — the first claim wins and the later view is left out of the index with one error line. A package whose views are meant to arrive together therefore has no way to learn that one of them did not, and a skill pack that asks before it contributes ([`skill-pack-components`](../skill-pack-components/README.md) does) is held back by its own provider rather than by this index. Telling a source about a refusal at registration means a return value the registration does not have today, and the trigger is the second source.
 - **A source is re-read only when it registers again** — the index is rebuilt from what each source last handed over, so a source whose own answer moved must register again. The one moment the index is out of date is a source between its two calls, and nothing here can see that moment.
 - **A deployment with no views serves no catalog route** — the route and the command are claimed only where `views` has an entry, so a sidebar asking a deployment that configured none gets whatever the webserver's fallback answers with rather than an empty catalog. That is the same answer it gets where this row is not composed at all, and it is a case the sidebar already contains; what it costs is that the two cannot be told apart.

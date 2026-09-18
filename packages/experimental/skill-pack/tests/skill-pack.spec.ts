@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context, Logger, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SkillRegistry, { isModelInvocable, isUserInvocable } from '@deepseek-ai/dsh-skill'
@@ -60,12 +60,21 @@ class TestParts extends Service {
 let world: string | undefined
 let context: Context | undefined
 
+/** Every withholding report the composition wrote, with the level it was written at. */
+let logLines: { type: string; text: string }[] = []
+
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
   world = undefined
+  logLines = []
 })
+
+/** The withholding reports written at one level, in order. */
+function reportsAt(type: string): string[] {
+  return logLines.filter(line => line.type === type && line.text.includes('withholding')).map(line => line.text)
+}
 
 /** Write one pack into a root: a SKILL.md carrying the manifest, and the views it declares. */
 async function writePack(
@@ -129,6 +138,9 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
   ].join('\n'))
 
   context = new Context()
+  context.logger.exporter({
+    export: (message) => { logLines.push({ type: message.type, text: Logger.format({ export() {} }, message) }) },
+  })
   context.baseUrl = pathToFileURL(world).href + '/'
   await context.plugin(Loader)
   context.loader.builtins.include = Include
@@ -173,6 +185,10 @@ describe('a pack root whose parts nothing has registered', () => {
     expect(catalog.map(skill => skill.name)).toEqual(['plain-note'])
     expect(catalog.filter(isModelInvocable).map(skill => skill.name)).toEqual(['plain-note'])
     expect(catalog.filter(isUserInvocable).map(skill => skill.name)).toEqual(['plain-note'])
+    // A pack that activates by itself once its plugin is composed is an info
+    // line: nothing here needs editing.
+    expect(reportsAt('error')).toEqual([])
+    expect(reportsAt('info')[0]).toContain(`space-data-page: ${KIT} >=0.4.0 is not installed`)
     expect(await ctx.skills.get('space-data-page')).toBeUndefined()
     expect(await ctx.skills.get('broken-pack')).toBeUndefined()
     expect(await ctx.skillPacks.activeViews()).toEqual([])
@@ -270,6 +286,10 @@ describe('a parts source arriving and going away', () => {
     })
     // Nothing of a withheld pack is offered, its views included.
     expect(await ctx.skillPacks.activeViews()).toEqual([])
+    // A pack nobody can activate by installing anything is an error line, not
+    // the info line a pack waiting for a plugin gets.
+    expect(reportsAt('error').filter(text => text.includes('space-data-page'))).toHaveLength(1)
+    expect(reportsAt('error')[0]).toContain('view views/space-layer.yml cannot be drawn: names no component of this deployment')
   })
 
   it('tells a watcher when the pack set moves, and stops when the watch is given up', async () => {

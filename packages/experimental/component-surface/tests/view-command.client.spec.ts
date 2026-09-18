@@ -22,6 +22,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SHOW_CONTENT_VIEW_COMMAND, showContentViewCommand } from '../src/view-command.ts'
+import { ViewConsentMemory } from '../src/view-consent.ts'
 import { indexViews } from '../src/views.ts'
 import type { ContentView } from '../src/types.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
@@ -47,7 +48,7 @@ function agentWithSession(session: Session): Agent {
 async function bench(): Promise<{ ctx: Context; agent: Agent; session: Session }> {
   const ctx = new Context()
   await ctx.plugin(CommandRuntime)
-  ctx.commands.register(showContentViewCommand(indexViews(KIT_CATALOG, VIEWS, undefined)))
+  ctx.commands.register(showContentViewCommand(ctx, indexViews(KIT_CATALOG, VIEWS, undefined, false), new ViewConsentMemory('per-login')))
   const session = Session.create(SessionId(`show-content-view-${++calls}`))
   return { ctx, agent: agentWithSession(session), session }
 }
@@ -126,8 +127,11 @@ describe('show-content-view command', () => {
   it('leaves the registry when the owning fiber goes away (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(CommandRuntime)
-    const views = indexViews(KIT_CATALOG, VIEWS, undefined)
-    const fiber = ctx.plugin({ inject: ['commands'], apply: (child: Context) => { child.commands.register(showContentViewCommand(views)) } })
+    const views = indexViews(KIT_CATALOG, VIEWS, undefined, false)
+    const fiber = ctx.plugin({
+      inject: ['commands'],
+      apply: (child: Context) => { child.commands.register(showContentViewCommand(child, views, new ViewConsentMemory('per-login'))) },
+    })
     await fiber.await()
     const agent = agentWithSession(Session.create(SessionId(`show-content-view-hmr-${++calls}`)))
     expect(ctx.commands.find(agent, SHOW_CONTENT_VIEW_COMMAND)).toBeDefined()

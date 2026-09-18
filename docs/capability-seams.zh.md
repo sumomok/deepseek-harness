@@ -122,6 +122,8 @@ flowchart LR
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_pack["skill-pack"]
+  pkg_auth_gate["auth-gate"]
+  svc_loginIdentity["ctx.loginIdentity<br/>Name of the signed-in visitor"]
   pkg_component_surface["component-surface"]
   svc_componentViews["ctx.componentViews<br/>Content-column view index"]
   pkg_skill_pack_components["skill-pack-components"]
@@ -251,6 +253,7 @@ flowchart LR
   pkg_attachment --> svc_attachments
   pkg_attachment_local --> svc_attachments
   pkg_attachment_spill --> svc_attachmentSpill
+  pkg_auth_gate --> svc_loginIdentity
   pkg_authorization --> svc_authorization
   pkg_bash_local --> svc_shell
   pkg_bash_sandbox --> svc_shell
@@ -411,6 +414,7 @@ flowchart LR
   svc_jobs --> pkg_tool_terminal
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
+  svc_loginIdentity --> pkg_component_surface
   svc_lsp --> pkg_tool_lsp
   svc_sandbox --> pkg_bash_sandbox
   svc_sandbox --> pkg_terminal_bash
@@ -567,6 +571,7 @@ flowchart LR
 | `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | 装着侧栏列出、`/show-content-view` 打开的那些视图，来源是这套部署自己的配置和任何注册了来源的包；每个视图都由一次 show_component 调用所走的同一道判定来判，而组件目录拒绝的那些被贡献视图会被丢掉并留下一行 error，而不是让控制台起不来。 |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | 负责 extractor 表与由它折叠出的那一条 `contentSurface` projection；每种内容 kind 注册自己在日志里认得什么，content-column 再通过按 key 索引的槽把选中的 entry 画出来。 |
 | `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | 负责对本部署自有数据后端的三次具名读取，花的是访客的访问令牌；auth-gate 用它校验过的基址和它持有的令牌构造这个服务，于是凭据留在那个包的闭包里。 |
+| `ctx.loginIdentity` | `core` | `auth-gate` | - | `component-surface` | - | 回答这个进程当前持有的那个访问令牌的 SHA-256 摘要，于是需要按登录的人记住点什么的那一行有了一个名字，却从不见到令牌本身；退出登录、换一个令牌、以及一次续期，都会改变这个答案。 |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs) | - | 生产方（后台 bash、PTY 发送和 subagent 委派）登记正在运行的工作；tool-jobs 是面向模型的控制器，用于读取、列出和终止这些工作；jobs-local 是进程本地注册表。 |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | 搜索和抓取提供方注册到同一个 ctx.web seam；tool-web 负责稳定的面向模型名称。 |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | 后端保存过大的工具文本，并返回面向模型的定位信息和取回提示；spill-policy 是 tools/post-execute 消费方，负责决定何时 spill。 |

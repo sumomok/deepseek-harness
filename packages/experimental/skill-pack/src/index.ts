@@ -256,15 +256,30 @@ export class SkillPackRegistry extends Service {
     for (const watcher of this.watchers) watcher()
   }
 
-  /** State every withheld pack and its reasons once, and again only when that report changes. */
+  /**
+   * State every withheld pack and its reasons once, and again only when that
+   * report changes.
+   *
+   * At error level where any of those reasons is a view the component surface
+   * will not draw, and at info level otherwise. The two are different events
+   * for whoever reads the log: a pack waiting for a plugin or a part is a
+   * deployment part-way through installing one, and it activates by itself the
+   * moment that row is composed; a pack whose view was judged and refused will
+   * never activate, however much of the deployment arrives afterwards, and
+   * somebody has to edit the view file or retire the pack.
+   * @param statuses - every pack in the root, active and inactive alike.
+   */
   private announce(statuses: readonly PackStatus[]): void {
-    const report = statuses
-      .filter(status => status.state === 'inactive')
+    const inactive = statuses.filter(status => status.state === 'inactive')
+    const report = inactive
       .map(status => `${status.skill}: ${status.missing.map(describeMissing).join('; ')}`)
       .join(' | ')
     if (report === this.announced) return
     this.announced = report
-    if (report !== '') this.ctx.logger.info(`skill-pack: withholding ${report}`)
+    if (report === '') return
+    const undrawable = inactive.some(status => status.missing.some(missing => missing.kind === 'view-refused'))
+    if (undrawable) this.ctx.logger.error(`skill-pack: withholding ${report}`)
+    else this.ctx.logger.info(`skill-pack: withholding ${report}`)
   }
 
   /** The provider seat: only active packs are reported, and only an active pack loads. */

@@ -418,6 +418,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
   {
+    key: 'loginIdentity',
+    pkg: 'auth-gate',
+    title: 'Name of the signed-in visitor',
+    mode: 'core',
+    consumers: ['component-surface'],
+    note: 'Answers the SHA-256 digest of the access token this process currently holds, so a row that has to remember something per signed-in person has a name for one without ever seeing the token; a sign-out, a new token and a renewal each change the answer.',
+  },
+  {
     key: 'componentViews',
     pkg: 'component-surface',
     title: 'Content-column view index',

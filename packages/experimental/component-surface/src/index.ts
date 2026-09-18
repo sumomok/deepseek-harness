@@ -71,6 +71,7 @@ import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
+import { CRUD_VIEW_CONSENTS, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
 import type { ViewIndex } from './views.ts'
 
 // The `content-component/shown` declaration lives in src/types.ts (its one
@@ -79,6 +80,7 @@ import type { ViewIndex } from './views.ts'
 export type * from './types.ts'
 export { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 export { ComponentViewRegistry } from './component-views.ts'
+export { consentKey, CRUD_VIEW_CONSENTS, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
 export type { ComponentViewOptions, ComponentViewSource } from './component-views.ts'
 export type { ContributedView, ViewJudgement, ViewRefusal } from './views.ts'
 export type {
@@ -166,6 +168,21 @@ export interface Config {
    * pays the whole deadline.
    */
   crudLoadTimeoutMs?: number
+  /**
+   * How long one visitor's answer to a data-page view stands. A view that
+   * places `toy.crud` is put to the user before it is drawn, with the card a
+   * call for that page is put through.
+   *
+   * `per-login` remembers the answer for as long as this process holds the
+   * token the visitor signed in with, so a person answers once per view and
+   * per table rather than on every click of the same sidebar row. Signing out,
+   * a renewed token and a restart each ask again, and a deployment with no
+   * `@deepseek-ai/dsh-experimental-auth-gate` has no login to remember an
+   * answer under and asks every time whatever this says.
+   *
+   * `every-time` asks on every click.
+   */
+  crudViewConsent?: CrudViewConsent
 }
 
 export const Config: z<Config> = z.object({
@@ -179,6 +196,7 @@ export const Config: z<Config> = z.object({
   dataDefaultPageSize: z.natural().default(200),
   crud: z.boolean().default(false),
   crudLoadTimeoutMs: z.natural().default(10_000),
+  crudViewConsent: z.union(CRUD_VIEW_CONSENTS).default('per-login'),
 })
 
 /**
@@ -192,6 +210,7 @@ type ResolvedConfig = Config & {
   readonly dataDefaultPageSize: number
   readonly crud: boolean
   readonly crudLoadTimeoutMs: number
+  readonly crudViewConsent: CrudViewConsent
 }
 
 /**
@@ -299,9 +318,15 @@ function installOffer(
  * @param ctx - the injected context carrying the view registry.
  * @param views - the views to publish, as the registry judged them.
  * @param homeView - the `homeView` config value, when set.
+ * @param memory - what this process remembers of earlier answers to a data page.
  * @returns the disposer of both registrations, or `undefined` where there is nothing to publish.
  */
-function publishViews(ctx: Context, views: ViewIndex, homeView: string | undefined): (() => void) | undefined {
+function publishViews(
+  ctx: Context,
+  views: ViewIndex,
+  homeView: string | undefined,
+  memory: ViewConsentMemory,
+): (() => void) | undefined {
   if (views.size === 0) return undefined
   const document: ComponentViewsDocument = {
     views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
@@ -314,7 +339,7 @@ function publishViews(ctx: Context, views: ViewIndex, homeView: string | undefin
     )
   })
   const command = ctx.inject(['commands'], (commandsCtx) => {
-    commandsCtx.commands.register(showContentViewCommand(views))
+    commandsCtx.commands.register(showContentViewCommand(commandsCtx, views, memory))
   })
   return () => {
     void route.dispose()
@@ -340,22 +365,27 @@ function publishViews(ctx: Context, views: ViewIndex, homeView: string | undefin
  * from that one.
  * @param ctx - the injected context carrying the catalog.
  * @param config - the validated config, with its defaults already applied.
+ * @param options - what this composition offers, which decides whether a view may place the data page.
  * @param homeView - the `homeView` config value, when set.
  * @throws {Error} when a configured view is one the tool would have refused,
  * which is a menu row that shows an empty column when a user clicks it.
  */
-function installViews(ctx: Context, config: ResolvedConfig, homeView: string | undefined): void {
+function installViews(ctx: Context, config: ResolvedConfig, options: ShowComponentOptions, homeView: string | undefined): void {
   // The service installs itself on the context and is withdrawn with this
   // row's fiber, so nothing here holds the instance.
   new ComponentViewRegistry(ctx, {
     views: config.views,
     ...homeView === undefined ? {} : { homeView },
+    crud: options.crud,
   })
+  // One memory for the life of the row rather than one per rebuilt command: an
+  // answer a person gave does not stop standing because a pack arrived.
+  const memory = new ViewConsentMemory(config.crudViewConsent)
   ctx.inject(['componentViews'], (viewsCtx) => {
     let held: (() => void) | undefined
     const rebuild = (): void => {
       held?.()
-      held = publishViews(viewsCtx, viewsCtx.componentViews.index, homeView)
+      held = publishViews(viewsCtx, viewsCtx.componentViews.index, homeView, memory)
     }
     viewsCtx.effect(() => {
       rebuild()
@@ -414,6 +444,6 @@ export function apply(ctx: Context, config: Config): void {
     catalogCtx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
       installComponentAction(actionCtx, pending)
     })
-    installViews(catalogCtx, resolved, config.homeView)
+    installViews(catalogCtx, resolved, options, config.homeView)
   })
 }

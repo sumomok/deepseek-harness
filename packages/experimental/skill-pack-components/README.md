@@ -85,7 +85,7 @@ From there the path is the one a configured view already takes — the sidebar l
 
 ## Model Experience
 
-No prompt, schema, tool or result of its own. What it changes is which skills a model is offered, and that is `skill-pack`'s own [Model Experience](../skill-pack/README.md#model-experience): a pack whose parts this row publishes becomes an ordinary skill in the merged catalog, and a pack whose parts it does not stays absent.
+Indirectly, through [`skill-pack`](../skill-pack/README.md#model-experience): this row registers no prompt, schema, tool or result of its own, and what it changes is which packs answer their requirements — a pack this row can answer for becomes an ordinary skill in the merged catalog, and a pack it cannot stays absent.
 
 #### KV Cache effect
 

@@ -153,6 +153,8 @@ Packs are judged in skill-name order, and an active pack claims its view ids for
 
 The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions and refusal reasons only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it.
 
+Every withheld pack is also stated once in the process log, and again only when that report changes. Its level says whether anyone has to act: a report naming a refused view is written at **error**, and every other report at **info**. A pack waiting for a plugin, a part or a version activates by itself the moment that row is composed, and a deployment part-way through installing one has nothing to fix; a pack whose view was judged and refused never activates, whatever else arrives, until somebody edits the view file or retires the pack.
+
 <a id="replacing-a-pack-root"></a>
 ## Replacing a pack root
 

@@ -83,14 +83,16 @@ kind: "package-reference"
 
 从那里往后走的就是配置视图早已走过的那条路——侧栏从 `GET /component-surface/views` 列出它，一次点击执行 `/show-content-view`，落进内容栏的是配置视图被点击时写下的那条同样的会话事件。
 
+<a id="model-experience"></a>
 ## 模型体验
 
-它自己没有任何提示词、schema、工具或结果。它改变的是模型被交出哪些技能，而那是 `skill-pack` 自己的[模型体验](../skill-pack/README.zh.md#model-experience)：部件由这一行发布出来的技能包，会以普通技能的身份进入合并技能目录；部件它没发布出来的技能包则一直不在。
+间接地，经由 [`skill-pack`](../skill-pack/README.zh.md#model-experience)：这一行自己不注册任何提示词、schema、工具或结果，它改变的是哪些技能包的要求得到了回答——这一行答得上的技能包会以普通技能的身份进入合并技能目录，答不上的则一直不在。
 
 #### KV 缓存影响
 
 只经由技能注册表的消费者。会话中途挂上或撤走一个组件插件会翻转某个技能包的状态，从而让那个消费者的持久目录失效；消费者会追加一条替换件，而不是重写前缀。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与暂缓事项
 
 - **一份组件目录，一个技能包根目录。** 这一行把唯一的 `ctx.componentCatalog` 适配到唯一的 `ctx.skillPackParts` 键上。有两个技能包根目录的部署会挂两行 `skill-pack`，而两行读到的是同一份部件——这在今天是对的，一旦技能包根目录按用户划分，它就不再对了。

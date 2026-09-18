@@ -1329,6 +1329,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'loginIdentity',
+    summary: '`ctx.loginIdentity`: who this process is serving, as an opaque name.',
+    description: '`ctx.loginIdentity`: who this process is serving, as an opaque name.\n\nRegistered wherever this row is composed, whether or not a data backend is, because the token route that fills it exists either way.',
+    methods: [
+      {
+        signature: 'current(): string | undefined',
+        description: 'The name of the login this process holds right now.\n\nRecomputed per call rather than cached, so a sign-out, a newly posted token and a renewal are all visible to the next caller without anything here having to be told about them.',
+        parameters: [],
+        returns: 'the SHA-256 digest of the held token, in lower-case hexadecimal, or `undefined` while no token is held — which is every state in which nobody is signed in, sign-out included.',
+      },
+    ],
+  },
+  {
     key: 'lsp',
     summary: 'The LSP capability seam (`ctx.lsp`).',
     description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.',

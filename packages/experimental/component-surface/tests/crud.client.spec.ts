@@ -420,10 +420,14 @@ describe('the row\'s own configuration', () => {
 })
 
 describe('a configured view', () => {
-  it('may not place the page, because a click asks nobody', () => {
-    expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined)).toThrow(
-      'component-surface: views[0] "devices" — spec.nodes[0].component — places a toy.crud block, which only a call '
-      + 'the user is asked about may place',
+  it('may place the page where the deployment offers it: the click is put to the user before it opens', () => {
+    const index = indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined, true)
+    expect(index.get('devices')?.spec.nodes[0]?.component).toBe(CRUD_ID)
+  })
+
+  it('may not place a page the deployment does not offer, and is refused by name', () => {
+    expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined, false)).toThrow(
+      'component-surface: views[0] "devices" — spec.nodes[0].component — names toy.crud, which this deployment does not offer.',
     )
   })
 })

@@ -17,6 +17,7 @@
  * not the face under test.
  */
 
+import { createHash } from 'node:crypto'
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { AddressInfo } from 'node:net'
@@ -378,6 +379,40 @@ describe('auth-gate sign-out route', () => {
     // The forward the token was still held for is the only one that reached it.
     expect(upstream?.seen.length).toBe(1)
   })
+})
+
+describe('the name of the login this process holds', () => {
+  /** The digest this service answers for one token, computed the way a reader would check it. */
+  function digestOf(token: string): string {
+    return createHash('sha256').update(token).digest('hex')
+  }
+
+  it('names nobody while no token is held', async () => {
+    const ctx = await loadComposition()
+    expect(ctx.loginIdentity.current()).toBeUndefined()
+  })
+
+  it('names the held token by its digest, and never by the token', async () => {
+    const ctx = await loadComposition()
+    await postToken(ctx, { token: TOKEN })
+    const name = ctx.loginIdentity.current()
+    expect(name).toBe(digestOf(TOKEN))
+    // What a row remembering something per person holds on to must not be the
+    // credential itself, in any part.
+    expect(name).not.toContain(TOKEN)
+    expect(TOKEN.split('.').some(part => name?.includes(part) === true)).toBe(false)
+  })
+
+  it('names a different login for a different token, and nobody again after a sign-out', async () => {
+    const ctx = await loadComposition()
+    await postToken(ctx, { token: TOKEN })
+    const first = ctx.loginIdentity.current()
+    await postToken(ctx, { token: OTHER_TOKEN })
+    expect(ctx.loginIdentity.current()).not.toBe(first)
+    await call(ctx, AUTH_GATE_LOGOUT_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' } })
+    expect(ctx.loginIdentity.current()).toBeUndefined()
+  })
+
 })
 
 describe('auth-gate MCP forwarding', () => {

@@ -13,10 +13,11 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/src/views
  */
 
-import { CRUD_ID, crudNodes, type ComponentCall, type ComponentCatalog } from './component-call.ts'
+import type { ComponentCall, ComponentCatalog } from './component-call.ts'
+import { judgeCrudNodes } from './crud.ts'
 import { applyViewParams } from './params.ts'
 import type { ContentView } from './types.ts'
-import { refuse, validateComponentCall, type ComponentCallFailure } from './validate.ts'
+import { validateComponentCall, type ComponentCallFailure } from './validate.ts'
 
 /**
  * Configured views indexed by id, in declaration order, each already tightened
@@ -66,30 +67,27 @@ function refusalDetail(failure: ComponentCallFailure): string {
  * Judge one view against the components this deployment offers.
  *
  * Parameters first, because what the catalog judges is the spec that will be
- * drawn; then the call's own judgement; then the one component a view may not
- * place.
+ * drawn; then the call's own judgement; then the rules the data page adds,
+ * which are the tool's own — a deployment that does not offer the page refuses
+ * a view placing one by name, a view placing two is refused at the second, and
+ * a sort naming both directions is refused either way.
  * @param catalog - the components this deployment offers.
+ * @param offersCrud - whether this deployment offers the data page at all.
  * @param view - the view as its writer wrote it.
  * @returns the accepted call, or the value that stopped it.
  */
-export function judgeView(catalog: ComponentCatalog, view: ContributedView): ViewJudgement {
+export function judgeView(catalog: ComponentCatalog, offersCrud: boolean, view: ContributedView): ViewJudgement {
   const substituted = applyViewParams(view.spec, view.params ?? {})
   if (!substituted.ok) {
     return { ok: false, refusal: { path: substituted.failure.path, reason: `${substituted.failure.path} — ${substituted.failure.reason}` } }
   }
   const result = validateComponentCall(catalog, { id: view.id, title: view.title, spec: substituted.spec })
   if (!result.ok) return { ok: false, refusal: { path: result.failure.path, reason: refusalDetail(result.failure) } }
-  // A data page opens only once the user has been asked, and a view asks
-  // nobody: a click on the sidebar would put the page's first request on the
-  // wire with the user's own credential and no question in front of it.
-  const page = crudNodes(result.call.spec)[0]
-  if (page !== undefined) {
-    const failure = refuse(
-      `spec.nodes[${result.call.spec.nodes.indexOf(page)}].component`,
-      `places a ${CRUD_ID} block, which only a call the user is asked about may place`,
-    )
-    return { ok: false, refusal: { path: failure.path, reason: refusalDetail(failure) } }
-  }
+  // The same three refusals a call placing a page gets. A view may place one:
+  // the click is put to the user before anything is drawn, through the request
+  // `view-command.ts` makes.
+  const failure = judgeCrudNodes(catalog, result.call.spec, offersCrud)
+  if (failure !== undefined) return { ok: false, refusal: { path: failure.path, reason: refusalDetail(failure) } }
   return { ok: true, call: result.call }
 }
 
@@ -98,19 +96,20 @@ export function judgeView(catalog: ComponentCatalog, view: ContributedView): Vie
  * @param catalog - the components this deployment offers.
  * @param views - the `views` config value, in declaration order.
  * @param homeView - the `homeView` config value, when set.
+ * @param offersCrud - whether this deployment offers the data page at all.
  * @returns the id index, in declaration order.
  * @throws {Error} when a view's id, title or spec is not one the tool would
- * have accepted, when an id repeats, when a view places the data page, or when
- * `homeView` names no configured view.
+ * have accepted, when an id repeats, or when `homeView` names no configured view.
  */
 export function indexViews(
   catalog: ComponentCatalog,
   views: readonly ContentView[],
   homeView: string | undefined,
+  offersCrud: boolean,
 ): ViewIndex {
   const index = new Map<string, ComponentCall>()
   for (const [position, view] of views.entries()) {
-    const judged = judgeView(catalog, view)
+    const judged = judgeView(catalog, offersCrud, view)
     if (!judged.ok) {
       throw new Error(`component-surface: views[${position}] ${JSON.stringify(view.id)} — ${judged.refusal.reason}`)
     }
