@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md
-2026-08-27-markdown-link-destination-fallback.md: 75864113003d8df647f6bdf239de66906771fe3f
-2026-08-27-markdown-link-destination-fallback.zh.md: 01d5eb9a2607f5af25c42ba3e5ab9091be781690
+2026-08-27-markdown-link-destination-fallback.md: c7ab677f3ee9ac4e1c23cf5fb52ddd6eb3bf44aa
+2026-08-27-markdown-link-destination-fallback.zh.md: 0fcdc87ed63f6af6a25eac569a2272233c763c3d

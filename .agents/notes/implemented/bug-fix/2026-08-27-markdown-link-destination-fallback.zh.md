@@ -26,6 +26,8 @@ Status: implemented
 
 读者始终能够看出这里曾经存在一处链接，并看到其目的地，即便该目的地无法成为活链接——补上了不受信任 markdown 渲染中一处静默丢数据的缺口。一个不被允许的链接目的地现在渲染出的文本更长（链接文字加上括号中的目的地）；两个已更新的 DOM 一致性 fixture 与 `markdown.client.spec.tsx` 中的断言固定了新文本。
 
-**如今归上游的那一半。** 上游的 `renderAnchor` 会把 `parseFileLink` 接受的目的地——本地路径，带不带 `#L24` 片段都算——先交给 `MarkdownFileLink`，根本走不到 `renderSafeLink`。有 `openFile` 委托时（会话视图总会提供）该目的地渲染成可点按钮；没有委托时该组件只渲染链接文字，目的地再次丢失。fork 不追进上游的这个组件：没有任何产品界面会在缺委托的情况下渲染 markdown。因此本补丁的作用面是文件链接解析器拒绝的每一种目的地——不支持的协议、纯片段链接、坏的百分号转义、`//host/path`，以及带查询串的路径。
+**两条通路写同一串文本。** 上游的 `renderAnchor` 会把 `parseFileLink` 接受的目的地——本地路径，带不带 `#L24` 片段都算——先交给 `MarkdownFileLink`，走不到 `renderSafeLink`。有 `openFile` 委托时该目的地渲染成可点按钮，会话视图得到的正是这个。没有委托时该组件本会只渲染链接文字，因此它改为用 `renderAnchor` 已经算好的归一化目的地写出同一串 `文本（目的地）`。产品代码里只有一处组合了 `MarkdownDelegateProvider`：`ChatView`，且只包住它的节点列表。侧栏文档预览（`MarkdownBody`）、计划预览（`PlanPreview`）、轨迹表（`TrajectoryTable`）与提问 composer（`QuestionComposer`）分别挂在 `sidebar.right.pane.tab`、`conversation.view`、`conversation.composer` 这些兄弟槽上，渲染 markdown 时根本没有委托。
+
+**订正。** 本文此前的一段，以及提交 `test(ui-primitives): follow the destination the file-link path now claims` 与 `docs(notes): name the half of the link-destination fallback upstream now owns` 的信息，断言「没有任何产品界面会在缺委托的情况下渲染 markdown」，并据此把本补丁记为局部退役。上面四处界面证伪了它：用真实的 `MarkdownBody` 渲染 `[relative](/settings)`，覆盖文件链接通路之前得到 `relative`，之后得到 `relative (/settings)`。那两条提交已推 origin、不改写历史，其前提以本段为准。
 
 **退役条件。** 本补丁是一个临时 overlay：若上游自身的 markdown renderer 不再悄悄丢弃一个不被允许的链接目的地，即退役该补丁，并让 fork 适配上游的渲染方式。
