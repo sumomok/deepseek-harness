@@ -92,6 +92,21 @@ function bracketClosed(context: ConversationNodeContext<CompactionState>): boole
 }
 
 /**
+ * Whether the step or turn holding this bracket's `compaction/start` has
+ * closed. The engine appends `turn/end` with an `interrupted` reason when a
+ * resumed or cold-read log left a turn open, so a bracket the host never
+ * closed is settled by its own location the way an unfinished tool call is.
+ *
+ * @param context - assembled business Context.
+ * @returns whether the bracket outlived its own step or turn.
+ */
+function bracketAbandoned(context: ConversationNodeContext<CompactionState>): boolean {
+  const location = context.start?.location
+  if (location?.kind === 'step' && location.step.status === 'closed') return true
+  return (location?.kind === 'step' || location?.kind === 'turn') && location.turn.status === 'closed'
+}
+
+/**
  * Derive evidence from the Matches of a Context the engine never started,
  * which is a window that did not load the `compaction/start`.
  *
@@ -114,11 +129,23 @@ function fallbackState(context: ConversationNodeContext<CompactionState>): Compa
  * checkpoint, and a failed bracket. A bracket whose start is outside the
  * loaded window shows only its checkpoint or its failure.
  *
+ * The running row is anchored at the `compaction/start` seq and the landed
+ * marker at the checkpoint's, so the node's `anchorSeq` moves forward when the
+ * replacement commits. One compaction transaction appends no event another
+ * Definition renders, so nothing sorts between the two positions.
+ *
  * Known limitation: each compaction is its own Context, keyed by its
  * `compactionId`, so a summarizer that stays down puts one failure card in the
  * transcript per step it is retried. Collapsing them would need a Definition to
  * suppress another Context's node, which this framework does not offer, and
  * the engine applies no backoff of its own between steps.
+ *
+ * Known limitation: a bracket recorded outside any turn — `compaction/start`
+ * with `turn: null`, which the idle path writes and which reaches this
+ * Definition only when its caller names no source command — resolves to the
+ * `session` Location, and that Location never closes. A host killed while such
+ * a bracket ran leaves one `Compacting context…` row in the reopened session
+ * until the log itself closes that bracket.
  */
 export const compactionDefinition: ConversationNodeDefinition<CompactionState> = {
   kind: 'compaction',
@@ -155,12 +182,18 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
       const data: CompactionFailureChatData = { reason: failureReason(event) ?? null }
       return chatNode(context, 'compaction-failure', event.seq, data)
     }
-    // A bracket that closed with neither a checkpoint nor a usable reason was
-    // cancelled, and a window without the start carries no evidence that a
-    // bracket is open. Both show nothing rather than a row that never settles.
+    // A window without the start carries no evidence that a bracket is open,
+    // and no Context in that state ever published a Node, so returning null
+    // withdraws nothing.
     const start = context.start
-    if (start === undefined || bracketClosed(context)) return null
-    return chatNode(context, 'compaction-running', start.event.seq, null)
+    if (start === undefined) return null
+    // A bracket that closed with neither a checkpoint nor a usable reason was
+    // cancelled, and one whose own step or turn closed first was abandoned.
+    // Both stop showing the row, and both keep publishing the same key hidden:
+    // a live Context that already materialized the row may not withdraw it.
+    const settled = bracketClosed(context) || bracketAbandoned(context)
+    const options = settled ? { visibility: 'hidden' as const } : {}
+    return chatNode(context, 'compaction-running', start.event.seq, null, options)
   },
 }
 
