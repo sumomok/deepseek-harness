@@ -77,7 +77,10 @@ describe('Markdown file links', () => {
         <MarkdownText text={`[source](${target})`} />
       </MarkdownDelegateProvider>,
     )
-    expect(view.getByText('source')).toBeTruthy()
+    // Inert, but not silent: the link text keeps the destination beside it as
+    // plain prose, which is what this fork's renderer does with every
+    // destination the allowlist rejects.
+    expect(view.container.textContent).toBe(`source (${target})`)
     expect(view.container.querySelector('button, a')).toBeNull()
     expect(openFile).not.toHaveBeenCalled()
   })

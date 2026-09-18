@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { SlotTestRuntime, TestRemote, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -161,8 +161,9 @@ describe('ApprovalDiffPreview', () => {
 
 describe('approvalDiffPreview registration', () => {
   it('claims one approval-detail key per previewable file-mutation tool', async () => {
+    // SlotTestRuntime now provides `remote` itself; a second TestRemote on the
+    // same context is refused by the service registry.
     const runtime = await SlotTestRuntime.create()
-    new TestRemote(runtime.ctx)
     await runtime.root.declare(
       { 'conversation.approval.detail': { kind: 'keyed', scope: 'session' } },
       () => null,
