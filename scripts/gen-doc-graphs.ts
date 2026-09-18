@@ -1257,54 +1257,9 @@ export function collectPackageSources(project: TypeScriptProject): PackageSource
   }).sort((left, right) => left.rel.localeCompare(right.rel))
 }
 
-/** Event relations, with the package sources the scan was able to read them from. */
-interface EventRelationScan {
-  /** Dispatchers and listeners per event name. */
-  readonly relations: Map<string, EventRelation>
-  /** Repository-relative paths of the package sources this scan visited. */
-  readonly scanned: ReadonlySet<string>
-}
-
-function collectEventRelations(): EventRelationScan {
+function collectEventRelations(): Map<string, EventRelation> {
   const project = new TypeScriptProject(root)
-  const sources = collectPackageSources(project)
-  return {
-    relations: new EventRelationCollector(project, sources).collect(),
-    scanned: new Set(sources.map(source => source.rel)),
-  }
-}
-
-/** Strip the line number a declaration site carries, leaving the file the scan indexes by. */
-function declarationFile(source: string): string {
-  return source.replace(/:\d+$/, '')
-}
-
-/**
- * Name the declared events this scan can prove nobody dispatches.
- *
- * Every declared event needs a dispatcher: zero means dead vocabulary or an
- * unrecognized semantic dispatch form. Listener-free extension points remain
- * valid. An event whose own declaration the scan never visited proves nothing
- * either way and is left out: the scan seeds the HOST aggregate program alone
- * (host+client cannot share one program — the cordis Context merges collide),
- * so a Client-face package's dispatch sites are structurally invisible here
- * wherever that package sits in the tree. Their rows stay in the table for the
- * declarations' sake.
- * @param events - every declared harness event.
- * @param relations - dispatchers and listeners the scan recovered.
- * @param scanned - repository-relative paths of the sources the scan visited.
- * @returns the undispatched event names, sorted.
- */
-export function undispatchedEvents(
-  events: readonly EventEntry[],
-  relations: ReadonlyMap<string, EventRelation>,
-  scanned: ReadonlySet<string>,
-): string[] {
-  return [...events]
-    .filter(event => scanned.has(declarationFile(event.source)))
-    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
-    .map(event => event.name)
-    .sort()
+  return new EventRelationCollector(project, collectPackageSources(project)).collect()
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
@@ -1321,7 +1276,7 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
 }
 
 function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
-  const { relations, scanned } = collectEventRelations()
+  const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
   const lines = generatedHeader('Event Producer And Consumer Matrix')
@@ -1335,7 +1290,17 @@ function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): strin
     const relation = relations.get(event.name) ?? { dispatchers: new Map<string, Set<string>>(), listeners: new Set<string>() }
     lines.push(`| \`${event.name}\` | \`${event.mode}\` | ${sourceLink(event.source)} | ${relationPackages(relation.dispatchers, pkgsByShort)} | ${listenerPackages(relation.listeners, pkgsByShort)} |`)
   }
-  const undispatched = undispatchedEvents(events, relations, scanned)
+  // Every declared event needs a dispatcher: zero means dead vocabulary or an
+  // unrecognized semantic dispatch form. Listener-free extension points remain
+  // valid. Client-declared events are exempt: the relation scan seeds the HOST
+  // aggregate program only (host+client cannot share one program — the cordis
+  // Context merges collide), so client dispatch sites are structurally
+  // invisible here; their rows stay in the table for the declarations' sake.
+  const undispatched = [...events]
+    .filter(event => !event.source.startsWith('packages/client/'))
+    .filter(event => (relations.get(event.name)?.dispatchers.size ?? 0) === 0)
+    .map(event => event.name)
+    .sort()
   if (undispatched.length > 0) {
     throw new Error(
       `event-producer-consumer matrix: no dispatcher found for declared event${undispatched.length > 1 ? 's' : ''} `

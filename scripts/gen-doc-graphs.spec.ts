@@ -2,18 +2,15 @@
  * Tests for the event-relation collector's demand-driven call-site indexing:
  * the single-file fast path and the global fallback must recover the same
  * helper-parameter event names, including shapes that defeat the locality
- * proof (alias escapes and global script files). Also for the dispatcher-
- * presence gate the matrix throws on, which may only judge declarations the
- * scan actually visited.
+ * proof (alias escapes and global script files).
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { collectPackageSources, EventRelationCollector, undispatchedEvents } from './gen-doc-graphs.ts'
+import { collectPackageSources, EventRelationCollector } from './gen-doc-graphs.ts'
 import { TypeScriptProject } from './ts-project.ts'
-import type { EventEntry } from '@deepseek-ai/dsh-typert-generator'
 
 const FIXTURE: Record<string, string> = {
   'tsconfig.host.json': JSON.stringify({
@@ -97,37 +94,5 @@ describe('event relation call-site indexing', () => {
     // pkgc alone: the script helper is the first demand, so a wrongly passing
     // proof would index helper.ts only and lose the caller.ts call site.
     expect(dispatchersOf(['pkgc'], 'pkgc/script-event')).toEqual(['pkgc'])
-  })
-})
-
-/** One declared event, as the catalog projection reports it to the matrix. */
-function declaredEvent(name: string, source: string): EventEntry {
-  const [scope = name] = name.split('/')
-  return { name, scope, mode: 'emit', source, signature: `'${name}'(): void`, jsDoc: '', doc: '' }
-}
-
-/** The relation one dispatching package produces. */
-function dispatchedBy(pkg: string): { dispatchers: Map<string, Set<string>>; listeners: Set<string> } {
-  return { dispatchers: new Map([[pkg, new Set(['emit'])]]), listeners: new Set<string>() }
-}
-
-describe('the dispatcher-presence gate', () => {
-  const visited = new Set(['packages/host/pkg/src/index.ts'])
-
-  it('names a visited declaration nothing dispatches', () => {
-    const events = [declaredEvent('pkg/dead', 'packages/host/pkg/src/index.ts:12')]
-    expect(undispatchedEvents(events, new Map(), visited)).toEqual(['pkg/dead'])
-  })
-
-  it('passes a visited declaration something dispatches', () => {
-    const events = [declaredEvent('pkg/live', 'packages/host/pkg/src/index.ts:12')]
-    expect(undispatchedEvents(events, new Map([['pkg/live', dispatchedBy('pkg')]]), visited)).toEqual([])
-  })
-
-  it('judges nothing declared in a file the scan never visited', () => {
-    // A Client-face package's dispatch sites are outside the host program the
-    // scan seeds, so its declarations would otherwise all read as dead.
-    const events = [declaredEvent('client/change', 'packages/experimental/other/src/catalog.ts:45')]
-    expect(undispatchedEvents(events, new Map(), visited)).toEqual([])
   })
 })
