@@ -59,6 +59,7 @@ import { en, NS, zh } from './locales.ts'
 import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow, type ViewCommandRowInjected } from './ViewCommandRow.tsx'
 
+export { COMPONENT_KIT_ENTRIES } from '../component-call.ts'
 export { NS } from './locales.ts'
 export { ComponentRendererRegistry } from './registry.ts'
 export type { ContentComponentKey } from './locales.ts'

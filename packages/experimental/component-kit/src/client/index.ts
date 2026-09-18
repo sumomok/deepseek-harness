@@ -31,7 +31,7 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the renderer registry's Context merge (ctx.componentRenderers).
 import type {} from '@deepseek-ai/dsh-experimental-component-surface/client'
-import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
+import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import type { BrowserComponent } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
 import { CrudRenderer } from './CrudRenderer.tsx'
