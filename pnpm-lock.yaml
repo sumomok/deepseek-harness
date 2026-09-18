@@ -5788,6 +5788,27 @@ importers:
         specifier: ^7.8.0
         version: 7.8.0
 
+  packages/experimental/skill-pack-components:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-experimental-component-surface':
+        specifier: workspace:^
+        version: link:../component-surface
+      '@deepseek-ai/dsh-experimental-skill-pack':
+        specifier: workspace:^
+        version: link:../skill-pack
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+
   packages/experimental/tool-agent-team:
     dependencies:
       '@deepseek-ai/schemastery':

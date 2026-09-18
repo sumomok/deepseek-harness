@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-skill-pack-reconciler.md
-2026-09-18-skill-pack-reconciler.md: 89bf7e9c386869f92adeeb954829b60ded7bed6b
-2026-09-18-skill-pack-reconciler.zh.md: 9cd765b4559353b75660d962e14ce4b739cd6a94
+2026-09-18-skill-pack-reconciler.md: d47ce0bc03b75ab72f00ba76cb2b53900a094ca7
+2026-09-18-skill-pack-reconciler.zh.md: 0e769454aa65f53a3bdec3563fc8dabdca627aa2

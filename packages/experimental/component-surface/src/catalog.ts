@@ -26,6 +26,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { EMPTY_CATALOG, readCatalog, type ComponentCatalog, type ComponentCatalogEntry } from './component-call.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -67,6 +68,24 @@ function sourceName(source: ComponentSource): string {
   return `${source.package}@${source.version}`
 }
 
+/** What the row installing the registry states about this deployment's own offer. */
+export interface ComponentCatalogConfig {
+  /**
+   * Catalog ids this deployment registers and will not place, which is what
+   * {@link ComponentCatalogRegistry.offered} leaves out. Written by the row
+   * that owns `show_component`, off the same config the tool's own offer is
+   * read from; an id nothing registers is simply never seen.
+   */
+  withheld?: string[]
+}
+
+/**
+ * {@link ComponentCatalogConfig} after the schema below has run: `withheld`
+ * carries its own default, so a row that installs the registry without one
+ * reaches the constructor with an empty list rather than with nothing.
+ */
+type ResolvedCatalogConfig = ComponentCatalogConfig & { readonly withheld: readonly string[] }
+
 /**
  * `ctx.componentCatalog`: the components a `show_component` call may place.
  *
@@ -75,6 +94,10 @@ function sourceName(source: ComponentSource): string {
  * the tool's description included — is rebuilt without them.
  */
 export class ComponentCatalogRegistry extends Service {
+  static Config: z<ComponentCatalogConfig> = z.object({
+    withheld: z.array(z.string()).default([]),
+  })
+
   /** Every registered component, in registration order, keyed by id for the duplicate check. */
   private readonly registered = new Map<string, CatalogedComponent>()
 
@@ -84,12 +107,18 @@ export class ComponentCatalogRegistry extends Service {
   /** The derived catalog, rebuilt whenever {@link registered} changes. */
   private derived: ComponentCatalog = EMPTY_CATALOG
 
+  /** Ids {@link offered} leaves out, fixed for the life of the registry. */
+  private readonly withheld: ReadonlySet<string>
+
   /**
    * Create and install the registry as `ctx.componentCatalog`.
    * @param ctx - Cordis context that owns the service.
+   * @param config - what the installing row states about this deployment's own
+   *   offer, with the schema's own default already applied.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: ComponentCatalogConfig) {
     super(ctx, 'componentCatalog')
+    this.withheld = new Set((config as ResolvedCatalogConfig).withheld)
   }
 
   /** The components this deployment offers, with the id index and the depth ceiling already derived. */
@@ -100,6 +129,21 @@ export class ComponentCatalogRegistry extends Service {
   /** Every registered component with the package that contributed it, in registration order. */
   get components(): readonly CatalogedComponent[] {
     return [...this.registered.values()]
+  }
+
+  /**
+   * The registered components this deployment will actually place.
+   *
+   * Registering a component is the contributing plugin's act; offering it is
+   * the deployment's, and the two differ wherever a component needs something
+   * the deployment did not turn on — the data page on a deployment that left
+   * `crud` off is the one that does today. A reader asking what this
+   * deployment can draw reads this rather than {@link components}, so a
+   * withheld component counts as absent to everyone outside the tool's own
+   * description, which leaves it out by the same rule.
+   */
+  get offered(): readonly CatalogedComponent[] {
+    return [...this.registered.values()].filter(one => !this.withheld.has(one.entry.id))
   }
 
   /**

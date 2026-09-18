@@ -115,7 +115,7 @@ interface PartsSource {
 }
 ```
 
-A composition with no provider of that key sees an empty part list, which is the correct answer rather than a degraded one: a pack that names a part nothing has registered cannot draw its page, so it stays inactive. The adapter from the component catalog's own registry to this interface is the follow-up wiring; nothing here reaches into that package.
+A composition with no provider of that key sees an empty part list, which is the correct answer rather than a degraded one: a pack that names a part nothing has registered cannot draw its page, so it stays inactive. [`skill-pack-components`](../skill-pack-components/README.md) is the row that implements the interface over the real component catalog; nothing here reaches into that package.
 
 <a id="reading-what-a-deployment-holds"></a>
 ## Reading what a deployment holds
@@ -156,7 +156,7 @@ The skill registry's consumer owns the durable catalog message and its append-on
 - **One delivered set per deployment.** `root` is a single directory and `syncPackRoot` replaces all of it, so every user of a deployment sees the same packs. Per-user sets would need an identity this package does not have; the trigger is the multi-user decision.
 - **Two packs may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack.
 - **Every read re-reads the root.** `statuses()`, `activeViews()` and each provider call scan the pack root and re-parse every manifest. That keeps the answer current with no cache to go stale, and it is why the status route is not for polling at interactive rates.
-- **The parts adapter does not exist yet.** Until a provider of `ctx.skillPackParts` is mounted, every pack naming a part is inactive. That is the correct fail-closed state, but a deployment composing this row alone gets a pack root where nothing with a view is ever offered.
+- **A pack root with no parts provider offers nothing with a view.** Until a provider of `ctx.skillPackParts` is mounted, every pack naming a part is inactive. That is the correct fail-closed state and an easy one to mistake for a bug, which is what the status route is for. [`skill-pack-components`](../skill-pack-components/README.md) is the provider a deployment composes.
 - **Not covered by an assembled snapshot** — the package is exercised by its own specs, including a real Loader composition over a real pack root; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
 **Runtime invariant:** No companion is published. This package keeps no mutable state that an independent observation could contradict: every read is computed from the pack root and the parts source at the moment of the call, and the one retained value is the last withheld-pack report, which exists so an unchanged report is not logged twice.

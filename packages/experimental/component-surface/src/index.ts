@@ -67,7 +67,7 @@ import { installComponentAction } from './command.ts'
 import { PendingLoads } from './crud.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
-import { offeredEntries, showComponentTool, type ShowComponentOptions } from './tool.ts'
+import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
 import { indexViews, type ViewIndex } from './views.ts'
@@ -77,7 +77,12 @@ import { indexViews, type ViewIndex } from './views.ts'
 // the module edge in the emitted index.d.ts.
 export type * from './types.ts'
 export { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
-export type { CatalogedComponent, ComponentContribution, ComponentSource } from './catalog.ts'
+export type {
+  CatalogedComponent,
+  ComponentCatalogConfig,
+  ComponentContribution,
+  ComponentSource,
+} from './catalog.ts'
 export {
   catalogId,
   COMPONENT_KIT_ENTRIES,
@@ -381,7 +386,10 @@ export function apply(ctx: Context, config: Config): void {
   // waits in it, and the page's report arrives through the command.
   const pending = new PendingLoads()
   const needs = offerNeeds(options)
-  ctx.plugin(ComponentCatalogRegistry)
+  // The registry is installed with this deployment's own offer, so a reader
+  // outside this package asking what can be drawn here is answered without
+  // re-deriving a rule the tool's description already applies.
+  ctx.plugin(ComponentCatalogRegistry, { withheld: [...withheldComponents(options)] })
   ctx.inject(['componentCatalog'], (catalogCtx) => {
     if (needs.length === 0) {
       installOffer(catalogCtx, options, pending, needs)

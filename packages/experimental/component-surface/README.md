@@ -255,6 +255,8 @@ One tool for every component, rather than one tool per component. Which blocks e
 
 The catalog is `ctx.componentCatalog`, and it starts empty. A component plugin registers a batch of definitions into it together with the package that wrote them — read from that package's own manifest — and gets back the disposer that takes them out again; a second package claiming a registered id is refused at registration, naming both. The browser has the matching registry, `ctx.componentRenderers`, which takes the same definitions paired with the renderers that draw them, so the two halves of a component arrive together and a page that loaded no component plugin refuses a payload rather than drawing a blank block.
 
+Registering a component is the contributing plugin's act; offering it is the deployment's. `ctx.componentCatalog.offered` is the second: the registered components minus the ones this deployment will not place, which today is the data page on a console that left `crud` off. The tool's description applies that rule to what a model reads, and `offered` is how a reader outside this package — [`skill-pack-components`](../skill-pack-components/README.md) is the one there is — asks what can actually be drawn here without re-deriving it.
+
 [`component-kit`](../component-kit/README.md) is the component plugin this repository ships, and its six entries are what every composition here offers:
 
 | Component | 名称 | What it draws | What comes back | What another block can read |

@@ -208,6 +208,27 @@ describe('the component catalog registry', () => {
     expect(ctx.componentCatalog.catalog.entries).toEqual([])
     expect(ctx.componentCatalog.components).toEqual([])
   })
+
+  it('answers what this deployment offers, which is the registration minus what it withholds', async () => {
+    // Registering a component is the contributing plugin's act and offering it
+    // is the deployment's: a row installed with the data page withheld
+    // registers it, judges a call against it, and answers every reader outside
+    // this package that it is not there.
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(ComponentCatalogRegistry, { withheld: [CRUD_ID] }).await()
+    ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
+    expect(ctx.componentCatalog.components.map(one => one.entry.id)).toContain(CRUD_ID)
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).not.toContain(CRUD_ID)
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== CRUD_ID))
+  })
+
+  it('offers every registered component where the deployment withholds none', async () => {
+    const ctx = await registry()
+    ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
+    expect(ctx.componentCatalog.offered).toEqual(ctx.componentCatalog.components)
+  })
 })
 
 describe('the tool the registry decides', () => {

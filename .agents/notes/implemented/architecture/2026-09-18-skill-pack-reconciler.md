@@ -18,7 +18,7 @@ The delivery side also needs a way to replace what a deployment holds. Packs are
 
 **This package is the skill provider for the pack root.** `ctx.skills` merges what its providers report and exposes no filter, veto or waterfall over another provider's catalog, so the only place a pack can be withheld is the provider that would otherwise have reported it. Listing a withheld pack with both invocation flags false would hide it from every surface but would still win its name in the merged catalog and shadow a same-named skill from another provider, so a withheld pack is not listed at all. A deployment points the generic filesystem provider at its other skill roots. Withholding is enforced at the load as well: a load re-reads the root and answers `undefined` unless the pack is still active, because the registry caches a completed catalog and a selection can outlive the state it was made in.
 
-**The parts come from one optional service this package declares, `ctx.skillPackParts`.** Its `PartsSource` interface is `list(): readonly ProvidedPart[]` plus `onChange(listener): () => void`, where a `ProvidedPart` is `{ id, plugin, version }`. Until a provider of that key is mounted the part list is empty, so every pack naming a part is inactive — the correct fail-closed answer. The adapter over the component catalog's own registry is separate wiring; nothing here reaches into that package.
+**The parts come from one optional service this package declares, `ctx.skillPackParts`.** Its `PartsSource` interface is `list(): readonly ProvidedPart[]` plus `onChange(listener): () => void`, where a `ProvidedPart` is `{ id, plugin, version }`. Until a provider of that key is mounted the part list is empty, so every pack naming a part is inactive — the correct fail-closed answer. The adapter over the component catalog's own registry is a row of its own; nothing here reaches into that package.
 
 **State flips without a restart.** `onChange` and a watched pack root both invalidate the skill catalog through the provider's registration-scoped `invalidate()`, and the next read recomputes. Every read — `statuses()`, `activeViews()`, and each provider call — is computed from the pack root and the parts source at the moment of the call, so there is no cache of our own to go stale.
 
@@ -51,9 +51,9 @@ The delivery side also needs a way to replace what a deployment holds. Packs are
 
 Unit suites pin the manifest schema and the fields its refusals name, the reconciler's closed union and its fixed ordering, view-file parsing, the pack-root scan, and the installer's first install, add/replace/retire, idempotence, drift repair, code-file rejection, path-escape rejection, symbolic-link rejection and its failure-leaves-the-root-alone guarantee. A real Loader composition over a real pack root boots the skill registry, the web server and this row, and asserts the merged catalog, the model and user invocation filters, the loaded body, the status document, the 405, the views, the flip in both directions as a parts source arrives, changes and is disposed, a pack arriving in a watched root, the refusal to load a pack the root no longer offers, and provider withdrawal on fiber disposal. Per-file coverage of `src` is 100%.
 
-## Deferred
+## The adapter
 
-The adapter from the component catalog to `ctx.skillPackParts` is not in this change, and `packages/experimental/component-surface` is untouched. The adapter needs to publish, for each registered part, its `id`, the npm package name of the plugin that registered it, and that package's own version, and to notify on registration and withdrawal.
+The provider of `ctx.skillPackParts` is `@deepseek-ai/dsh-experimental-skill-pack-components`, a row of its own that injects the component catalog and publishes each **offered** component as a part — its id, the npm name of the package that registered it, and that package's own version — forwarding the catalog's own subscription and its disposer. Offered rather than registered: a component the deployment did not turn on cannot be drawn, so a pack requiring it stays inactive.
 
 ## Alternatives considered
 

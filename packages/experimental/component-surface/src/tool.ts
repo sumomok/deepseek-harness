@@ -221,11 +221,23 @@ function describeCrud(): string {
 }
 
 /**
- * The components one composition offers.
+ * The components one composition registers and will not place.
  *
  * The data page needs a question answered before it opens, so a composition
  * that cannot ask leaves it out of the list a model reads — the same rule the
- * `dataSource` parameter follows, applied to a component.
+ * `dataSource` parameter follows, applied to a component. The one home of that
+ * rule: the tool's description reads it through {@link offeredEntries}, and the
+ * catalog registry is installed with it so everything else asking what this
+ * deployment can draw gets the same answer.
+ * @param options - what this composition offers.
+ * @returns the withheld catalog ids, empty for a composition that offers every registered component.
+ */
+export function withheldComponents(options: ShowComponentOptions): readonly string[] {
+  return options.crud ? [] : [CRUD_ID]
+}
+
+/**
+ * The components one composition offers.
  * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @returns the registered components with the ones this composition cannot honour left out.
@@ -234,7 +246,8 @@ export function offeredEntries(
   catalog: ComponentCatalog,
   options: ShowComponentOptions,
 ): readonly ComponentCatalogEntry[] {
-  return options.crud ? catalog.entries : catalog.entries.filter(entry => entry.id !== CRUD_ID)
+  const withheld = new Set(withheldComponents(options))
+  return catalog.entries.filter(entry => !withheld.has(entry.id))
 }
 
 /**

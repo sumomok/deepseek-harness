@@ -255,6 +255,8 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 目录就是 `ctx.componentCatalog`，出厂是空的。组件插件把一批定义连同写出它们的那个包（包名版本从那个包自己的清单里读）注册进来，拿回把它们取出去的 disposer；第二个包来认领已注册的 id，会在注册时被点名拒绝。浏览器有一张对应的注册表 `ctx.componentRenderers`，收的是同一批定义与画它们的渲染器配好的对，因此一个组件的两个半边总是一起到场，而没装过组件插件的页面会拒绝载荷，而不是画出一块空白。
 
+注册一个组件是贡献插件的动作，交出它是部署方的动作。`ctx.componentCatalog.offered` 是后者：注册了的组件减去这套部署不会摆的那些，今天就是把 `crud` 关着的控制台上那个完整数据页。工具描述把这条规则用在模型读到的名单上，而 `offered` 是这个包之外的读者——今天只有 [`skill-pack-components`](../skill-pack-components/README.zh.md) 这一个——用来问「这里究竟能画出什么」而不必自己再推一遍的那条路。
+
 [`component-kit`](../component-kit/README.zh.md) 是本仓提供的那个组件插件，它的六项就是这里每个组合所提供的：
 
 | 组件 | 名称 | 画出来是什么 | 什么会回来 | 另一块能读到什么 |

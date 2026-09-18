@@ -332,6 +332,7 @@
     { "path": "./packages/experimental/server-base" },
     { "path": "./packages/experimental/library-skills" },
     { "path": "./packages/experimental/skill-pack" },
+    { "path": "./packages/experimental/skill-pack-components" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-worker-thread" },
     { "path": "./packages/workflow/tool-workflow" },

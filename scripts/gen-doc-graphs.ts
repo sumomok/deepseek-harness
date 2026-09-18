@@ -429,6 +429,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'skill-pack',
     title: 'Component parts a pack may require',
     mode: 'seam',
+    implementations: ['skill-pack-components'],
     consumers: ['skill-pack'],
     note: 'Declares what a pack\'s requirements are judged against — each registered part\'s id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive.',
   },
