@@ -22,9 +22,9 @@ Status: implemented
 
 **取消与被抛下。** Stop 会用一条带 abort 措辞的 `compaction/end` 闭合标记对。`failureReason` 把这种措辞读作取消、不记为失败，于是这一行不再显示——但它是靠「用同一个 key 发布 `visibility: 'hidden'` 的节点」停止显示的，不是靠返回 null。实时尾部按 key 构造 upsert，会拒绝一个撤回自己已物化目标的 Definition，而这次拒绝抛在 `flush` 清空脏集合之前，此后每一条新事件都会被挡在视图之外。标记对还开着而它自己的 step 或 turn 先关闭时，走同一个隐藏出口：`bracketAbandoned` 读的正是工具卡 `interruption()` 读的那个位置状态。因真实错误闭合的标记对显示失败提示，该提示优先于运行行。
 
-**窗口与未闭合的标记对。** 从未加载 `compaction/start` 的窗口没有 State，`fallbackState` 只从 Match 推导证据；没有 start Match 就没有任何证据表明标记对是打开的，而处于这种状态的 Context 也从未发布过节点，所以返回 null 撤不掉任何东西，这种窗口一如既往只显示已落地标记或失败。日志停在打开的标记对里——宿主被杀、机器断电——这一行在所在轮次关闭的那一刻消失，用的正是未完成工具调用读的同一个闭合信号：agent-loop 续跑会为「最后一轮从未结束」的存档日志补写带 `interrupted` 原因的 `turn/end`，session-query 冷读时也会合成一条。
+**窗口与未闭合的标记对。** 从未加载 `compaction/start` 的窗口没有 State，`fallbackState` 只从 Match 推导证据；没有 start Match 就没有任何证据表明标记对是打开的，而处于这种状态的 Context 也从未发布过节点，所以返回 null 撤不掉任何东西，这种窗口一如既往只显示已落地标记或失败。日志停在打开的标记对里——宿主被杀、机器断电——这一行在所在轮次关闭的那一刻消失，用的正是未完成工具调用读的同一个闭合信号：agent-loop 续跑会为「最后一轮从未结束」的存档日志补写带 `interrupted` 原因的 `turn/end`，session-query 冷读时也会合成一条。这只适用于有所属轮次的标记对，即 `compactIfNeeded` 以 `owner: 'current-turn'` 在两个触发点（步间压力、上下文溢出恢复）打开的那种。在任何轮次之外打开的标记对没有这个信号，代价见下一段。
 
-**已知限制。** 记录在任何轮次之外的标记对——`compaction/start` 的 `turn: null`，由 idle 路径写出，且只有在调用方不指名来源命令时才会到达本 Definition——落到 `session` 位置，而横跨整个会话的位置永不关闭。宿主在这种标记对进行中被杀时，该会话重开后会保留一行「正在压缩…」，直到该标记对在日志里得到闭合。另一条路是让 Definition 为引擎并不记录的生命周期编造一个闭合信号。
+**已知限制。** 记录在任何轮次之外的标记对——`compaction/start` 的 `turn: null`——落到 `session` 位置，而横跨整个会话的位置永不关闭，因此这一行能挺过之后任意多个轮次，也挺过冷读重开。这是本 fork 到达本 Definition 的主路径，不是边角：随包 `auto-compact` 插件的轮末压缩调用 `compactNow(agent, signal)`、不传 `sourceCommandId`（`idle-compaction.ts:191`），`compaction-basic` 以 `owner: null` 执行并记成 `turn: null`。宿主在这种标记对运行的那几秒里被杀，该会话重开后就永久保留一行「正在压缩…」：它没有轮次归属，既不是过程成员也不可折叠，按钮又是禁用的，用户没有任何手段消除它。压缩锁本身会被释放——未配对 start 之上出现 `session/end-seed` 后 `assertCompactionInactive` 即放行——所以后续压缩照常运行。同一条 `session/end-seed` 边界就是 Definition 可以读的闭合信号，只是它不在本 Context 的 Matches 里。
 
 `compaction-running` 不向 `chat-snapshot-builder.ts` 里的旧版对话节点流贡献任何东西。它在那里与 `turn-tail`、`system-prompt` 并列登记为「已知但不贡献」的行，于是那个 switch 的默认分支保住了它自己的含义：本次构建不认识的类别。
 
