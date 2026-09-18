@@ -349,12 +349,12 @@ describe('MarkdownText', () => {
 
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('img')).toBeNull()
-    // A destination the allowlist rejects is neither dropped nor a live link:
-    // link text and destination both stay visible, as plain text. A
-    // local-path destination is the one exception — the file-link path claims
-    // it first and, with no `openFile` delegate, renders the text alone.
+    // A disallowed destination is neither dropped nor a live link: the link
+    // text and the destination both stay visible, as plain text. That holds
+    // for a local path too, which reaches the file-link path first: with no
+    // `openFile` delegate it writes the same prose.
     const neutralized = [...container.querySelectorAll('p')]
-      .find(paragraph => paragraph.textContent === 'script (javascript:alert(1)) relative')
+      .find(paragraph => paragraph.textContent === 'script (javascript:alert(1)) relative (/settings)')
     expect(neutralized).toBeTruthy()
     expect(neutralized?.querySelector('a')).toBeNull()
     expect(screen.getByRole('link', { name: 'mail' }).getAttribute('target')).toBeNull()
@@ -783,17 +783,17 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'mail' })).toBeTruthy()
   })
 
-  it('a local-path-shaped destination with no referents provider falls through to the file-link path', () => {
+  it('a local-path-shaped destination with no referents provider falls through to the existing disallowed-scheme fallback unchanged', () => {
     const { container } = render(<MarkdownText text="[relative](/settings)" />)
-    expect(container.textContent).toBe('relative')
+    expect(container.textContent).toBe('relative (/settings)')
     expect(container.querySelector('a')).toBeNull()
     expect(container.querySelector('button')).toBeNull()
   })
 
-  it('a local-path-shaped destination with a provider that declares no resolveLink falls through the same way', () => {
+  it('a local-path-shaped destination with a provider that declares no resolveLink falls through to the existing fallback unchanged', () => {
     const referents: MarkdownProseReferents = { scan: () => [], open: () => {} }
     const { container } = render(<MarkdownText text="[relative](/settings)" referents={referents} />)
-    expect(container.textContent).toBe('relative')
+    expect(container.textContent).toBe('relative (/settings)')
   })
 
   it('a Windows drive-letter link destination is offered to resolveLink like a POSIX absolute path', () => {

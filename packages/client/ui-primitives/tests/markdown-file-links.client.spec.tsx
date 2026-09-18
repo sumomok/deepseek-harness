@@ -85,6 +85,21 @@ describe('Markdown file links', () => {
     expect(openFile).not.toHaveBeenCalled()
   })
 
+  it.each([
+    'src/a.ts',
+    '/workspace/src/index.ts#L24',
+    '../docs/My%20Notes.md#L24-L30',
+    'C:/work/file.ts#L2',
+  ])('shows the destination %s as inert prose when no delegate offers an opener', (target) => {
+    // The document preview, the plan preview, the trajectory table, and the
+    // question composer all render markdown outside any
+    // MarkdownDelegateProvider. Without this fallback the destination would be
+    // dropped on every one of them.
+    const view = render(<MarkdownText text={`[source](${target})`} />)
+    expect(view.container.textContent).toBe(`source (${target})`)
+    expect(view.container.querySelector('button, a')).toBeNull()
+  })
+
   it('preserves external links and leaves local links inert without an opener', () => {
     const view = render(<MarkdownText text={'[web](https://example.com/a#L1) [mail](mailto:a@example.com) [file](src/a.ts)'} />)
     expect(view.getByRole('link', { name: 'web' }).getAttribute('target')).toBe('_blank')
@@ -156,7 +171,7 @@ describe('Markdown file links', () => {
     expect(first).toHaveBeenCalledOnce()
     view.rerender(scope())
     expect(view.queryByRole('button')).toBeNull()
-    expect(view.getByText('source')).toBeTruthy()
+    expect(view.container.textContent).toBe('source (src/a.ts)')
     expect(outer).not.toHaveBeenCalled()
   })
 })

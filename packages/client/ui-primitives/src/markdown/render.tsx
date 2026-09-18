@@ -24,8 +24,9 @@
  * renders its display text in plain inline-code style with the destination
  * on `title` — never as trailing inert text, which would put a long path
  * back in the visible prose. No provider, or no `resolveLink`: the
- * destination falls through to the allowlist exactly as before this seam
- * existed.
+ * destination falls through to the anchor path, where `parseFileLink` claims
+ * it for the file delegate; with no `openFile` delegate that path writes the
+ * same `text (destination)` prose the allowlist branch writes.
  *
  * Merge-extensible node unions fall through the documented default (render
  * nothing) rather than ending in assertNever: grammars registered elsewhere
@@ -125,7 +126,8 @@ function linkPlainText(nodes: readonly Md.RootContent[]): string {
  * method. Verified: a `css.fileMention` button, matching `scan` hits.
  * Unverified: plain inline-code style with the destination on `title`.
  * @returns The rendered node, or `undefined` when no provider/`resolveLink`
- * is available — the caller then falls through to the existing allowlist.
+ * is available — the caller then falls through to the anchor path
+ * (`parseFileLink` first, the allowlist after it).
  */
 function renderLocalLinkDestination(
   destination: string,
@@ -781,20 +783,29 @@ function MarkdownAnchor({ href, glyph, children }: {
 
 /** Local destinations use the scoped file delegate after settlement. */
 function renderAnchor(url: string, children: ReactNode[], key: Key, glyph = true, streaming = false): ReactNode {
+  const href = normalizeUri(url)
   const file = streaming ? undefined : parseFileLink(url)
   if (file !== undefined) {
-    return <MarkdownFileLink key={key} file={file} glyph={glyph}>{children}</MarkdownFileLink>
+    return <MarkdownFileLink key={key} file={file} href={href} glyph={glyph}>{children}</MarkdownFileLink>
   }
-  return renderSafeLink(normalizeUri(url), children, key, glyph)
+  return renderSafeLink(href, children, key, glyph)
 }
 
-function MarkdownFileLink({ file, glyph, children }: {
+/**
+ * @param href - the normalized destination, shown as trailing inert text when
+ * no delegate offers an opener. Only surfaces inside a `MarkdownDelegateProvider`
+ * that supplies `openFile` reach the button; the sidebar document preview, the
+ * plan preview, the trajectory table, and the question composer render markdown
+ * outside any provider, and there the destination would otherwise vanish.
+ */
+function MarkdownFileLink({ file, href, glyph, children }: {
   readonly file: { path: string; line?: number }
+  readonly href: string
   readonly glyph: boolean
   readonly children: ReactNode[]
 }): ReactNode {
   const { openFile } = useMarkdownDelegate()
-  if (openFile === undefined) return <>{children}</>
+  if (openFile === undefined) return <>{children}{` (${href})`}</>
   return (
     <button
       type="button"
