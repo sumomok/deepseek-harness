@@ -1,0 +1,15 @@
+# One view of this pack: the deployment's own layer table, drawn by the
+# `toy.crud` part the manifest requires. `spec` is the structure the component
+# catalog judges, and `params` are the values this pack fills it with; the pack
+# root's provider carries both through without reading either.
+id: space-layer
+title: 图层数据
+spec:
+  - id: layer-table
+    component: toy.crud
+    props:
+      relatedMeta: sys_layer
+      isInitQuery: true
+params:
+  relatedMeta: sys_layer
+  metaLabel: 图层
