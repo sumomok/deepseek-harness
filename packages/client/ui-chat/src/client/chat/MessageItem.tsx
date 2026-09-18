@@ -389,6 +389,13 @@ export const CompactionNodeView = memo(function CompactionNodeView({ node, t }: 
   return <CompactionItem node={node.data} t={t} />
 })
 
+/** Open automatic-compaction bracket keyed Chat renderer. */
+export const CompactionRunningNodeView = memo(function CompactionRunningNodeView(
+  { t }: ChatNodeViewProps<'compaction-running'>,
+) {
+  return <CompactionItem node={null} t={t} />
+})
+
 /** Correlated retry-chain keyed Chat renderer. */
 export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeViewProps<'model-retry'>) {
   const data = node.data

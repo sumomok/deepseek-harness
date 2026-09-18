@@ -17,6 +17,7 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 - [Reference previews](#reference-previews)
 - [System prompt row](#system-prompt-row)
 - [Turn token usage](#turn-token-usage)
+- [Automatic compaction](#automatic-compaction)
 - [Completed-turn footer](#completed-turn-footer)
 - [Turn Process Folding](#turn-process-folding)
 - [Scroll ownership](#scroll-ownership)
@@ -44,6 +45,11 @@ Each nonempty appended `system/message` owns a collapsed prompt row, including a
 A completed Turn shows an expandable usage row only when the loaded window includes `turn/start` and every started model attempt reports safe, exact usage. The row omits unavailable optional buckets. Incomplete or contradictory accounting hides the complete disclosure instead of presenting a partial total.
 
 After Assistant replies settle, the completed-turn timing dialog omits TTFT and decoding speed, both after live replies and after reopening history. Elapsed turn time remains available. The Session Stats pill reads timing independently from its durable projection.
+
+<a id="automatic-compaction"></a>
+## Automatic compaction
+
+An automatic compaction owns one row for its whole lifetime: `Compacting context…` while its bracket is open, then `Context compacted` with the shadowed item and approximate token counts once the replacement lands, expandable to the summary the backend wrote. A bracket cancelled by Stop leaves no row, one that closes on an error shows the failure notice instead, and a bracket whose start is outside the loaded window shows only its landed marker.
 
 <a id="completed-turn-footer"></a>
 ## Completed-turn footer

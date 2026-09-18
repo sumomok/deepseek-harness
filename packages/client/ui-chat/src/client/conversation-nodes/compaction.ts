@@ -12,6 +12,12 @@ declare module '../contract/chat-nodes.ts' {
   interface ChatNodeDataMap {
     /** Automatic compaction checkpoint marker. */
     compaction: CompactionSummaryNode
+    /**
+     * Automatic compaction bracket that has opened and has not yet landed a
+     * checkpoint, recorded a failure, or closed. The card's copy is fixed and
+     * its position is the node's `anchorSeq`, so the kind carries no payload.
+     */
+    'compaction-running': null
     /** Automatic compaction bracket that closed without replacing any history. */
     'compaction-failure': CompactionFailureChatData
   }
@@ -73,6 +79,25 @@ function failureReason(event: SessionEventLike): string | null | undefined {
   return UNUSABLE_REASONS.includes(error.trim()) ? null : error
 }
 
+/**
+ * Whether this bracket's `compaction/end` is in the loaded window. The other
+ * fact an open bracket needs is the `compaction/start` the engine keeps as the
+ * Context's start Match, so both are read from Matches rather than State.
+ *
+ * @param context - assembled business Context.
+ * @returns whether the bracket has closed.
+ */
+function bracketClosed(context: ConversationNodeContext<CompactionState>): boolean {
+  return context.matches.some(match => match.event.type === 'compaction/end')
+}
+
+/**
+ * Derive evidence from the Matches of a Context the engine never started,
+ * which is a window that did not load the `compaction/start`.
+ *
+ * @param context - assembled business Context with no State.
+ * @returns the evidence its Matches carry.
+ */
 function fallbackState(context: ConversationNodeContext<CompactionState>): CompactionState {
   const summary = context.matches.find(match => match.event.type === 'compaction/summary')
   const checkpoint = context.matches.find(match => compactSource(match.event) !== undefined)
@@ -85,8 +110,9 @@ function fallbackState(context: ConversationNodeContext<CompactionState>): Compa
 }
 
 /**
- * Automatic compaction lifecycle, landed checkpoint, and failed-bracket
- * Definition.
+ * Automatic compaction lifecycle Definition: an open bracket, its landed
+ * checkpoint, and a failed bracket. A bracket whose start is outside the
+ * loaded window shows only its checkpoint or its failure.
  *
  * Known limitation: each compaction is its own Context, keyed by its
  * `compactionId`, so a summarizer that stays down puts one failure card in the
@@ -124,10 +150,17 @@ export const compactionDefinition: ConversationNodeDefinition<CompactionState> =
       const marker = compactSummary(state.summary, state.checkpoint)
       return chatNode(context, 'compaction', marker.seq, marker)
     }
-    if (state.failure === undefined) return null
-    const event = state.failure.event
-    const data: CompactionFailureChatData = { reason: failureReason(event) ?? null }
-    return chatNode(context, 'compaction-failure', event.seq, data)
+    if (state.failure !== undefined) {
+      const event = state.failure.event
+      const data: CompactionFailureChatData = { reason: failureReason(event) ?? null }
+      return chatNode(context, 'compaction-failure', event.seq, data)
+    }
+    // A bracket that closed with neither a checkpoint nor a usable reason was
+    // cancelled, and a window without the start carries no evidence that a
+    // bracket is open. Both show nothing rather than a row that never settles.
+    const start = context.start
+    if (start === undefined || bracketClosed(context)) return null
+    return chatNode(context, 'compaction-running', start.event.seq, null)
   },
 }
 
