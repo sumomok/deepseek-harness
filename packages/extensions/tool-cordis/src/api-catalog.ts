@@ -2139,6 +2139,44 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'skillPackParts',
+    summary: 'The parts half of the component catalog, as `ctx.skillPackParts`.',
+    description: 'The parts half of the component catalog, as `ctx.skillPackParts`.\n\nThis package declares the service key and consumes it; the adapter that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.',
+    methods: [
+      {
+        signature: 'list(): readonly ProvidedPart[]',
+        description: 'The parts registered right now.',
+        parameters: [],
+        returns: 'every registered part, in no guaranteed order.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Observe registrations and withdrawals.',
+        parameters: [{ name: 'listener', description: 'called after the registered set changes; it reads {@link PartsSource.list} for the new set.' }],
+        returns: 'the disposer that stops the notifications.',
+      },
+    ],
+  },
+  {
+    key: 'skillPacks',
+    summary: '`ctx.skillPacks`: the pack root\'s skill provider, and the reader of what it decided.',
+    description: '`ctx.skillPacks`: the pack root\'s skill provider, and the reader of what it decided.\n\nBoth reads answer from the pack root and the parts source as they stand at the moment of the call rather than from a retained snapshot, so a caller cannot observe a state that the skill catalog has already moved past.',
+    methods: [
+      {
+        signature: 'async statuses(): Promise<PackStatus[]>',
+        description: 'Judge every pack in the root as it stands now.',
+        parameters: [],
+        returns: 'one status per pack, active and inactive alike, in skill-name order.',
+      },
+      {
+        signature: 'async activeViews(): Promise<ActivePackView[]>',
+        description: 'The views of every active pack, in pack order and then manifest order. An inactive pack contributes none, including views that read cleanly.',
+        parameters: [],
+        returns: 'each active pack\'s declared views, carrying the pack that declared them.',
+      },
+    ],
+  },
+  {
     key: 'skills',
     summary: 'Layered registry of skill providers, the host+per-scope shape the tools registry established.',
     description: 'Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context\'s scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset\'s standing composition lands in that preset\'s layer. A read merges the global layer with the viewing scope\'s chain — the nearest layer\'s entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted invocation-neutral summaries and loads full skill bodies on demand.',
@@ -3467,6 +3505,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'ActivePackView',
+    declaration: 'export interface ActivePackView extends PackView {\n    readonly pack: string;\n}',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -4639,6 +4681,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type OptionalSessionSeq = SessionSeq | null;',
   },
   {
+    name: 'PackMissing',
+    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n};',
+  },
+  {
+    name: 'PackStatus',
+    declaration: 'export interface PackStatus {\n    readonly skill: string;\n    readonly version?: string;\n    readonly state: \'active\' | \'inactive\';\n    readonly missing: readonly PackMissing[];\n}',
+  },
+  {
+    name: 'PackView',
+    declaration: 'export interface PackView {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: unknown;\n    readonly params: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
@@ -4737,6 +4791,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSectionOrderName',
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
+  },
+  {
+    name: 'ProvidedPart',
+    declaration: 'export interface ProvidedPart {\n    readonly id: string;\n    readonly plugin: string;\n    readonly version: string;\n}',
   },
   {
     name: 'ProviderRequestId',
