@@ -136,6 +136,41 @@ onChange(listener: (catalog: ComponentCatalog) => void): () => void
 
 Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
 
+<a id="ctxcomponentviews--componentviewregistry"></a>
+
+### `ctx.componentViews` — `ComponentViewRegistry`
+
+`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.
+
+```ts cordis-catalog
+/**
+ * Judge one view against the catalog as it stands, without registering it.
+ *
+ * What a source asks before it contributes, so a view that cannot be drawn is
+ * refused where the file it came from can be named rather than dropped here
+ * with one log line.
+ * @param view - the view as its writer wrote it.
+ * @returns the accepted call, or the value that stopped it.
+ */
+judge(view: ContributedView): ViewJudgement
+
+/**
+ * Offer one package's views for as long as the calling fiber lives.
+ * @param source - the contributing package and the views it offers now.
+ * @returns the exact disposer that withdraws them.
+ */
+register(source: ComponentViewSource): () => void
+
+/**
+ * Watch the index for as long as the calling fiber lives.
+ * @param listener - called on every change, never for the current index; read {@link index} for that.
+ * @returns the disposer that stops the watch, which the calling fiber also runs.
+ */
+onChange(listener: () => void): () => void
+```
+
+Source: [`packages/experimental/component-surface/src/component-views.ts`](../../packages/experimental/component-surface/src/component-views.ts)
+
 <a id="ctxcontentsurface--contentsurfaceregistry"></a>
 
 ### `ctx.contentSurface` — `ContentSurfaceRegistry`

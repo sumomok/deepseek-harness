@@ -89,16 +89,22 @@ spec 和它的 params 是原样带过去、不读的。一份 spec 里能放什�
 <a id="where-the-parts-come-from"></a>
 ## 部件从哪里来
 
-部件是通过一个可选服务 `ctx.skillPackParts` 读到的，它的接口由这个包声明：
+组件表面是通过一个可选服务 `ctx.skillPackParts` 读到的，它的接口由这个包声明。它回答两个问题——有哪些部件，以及某一份视图文件画不画得出来——因为两者都出自同一份目录、同时变化：如果一套部署能只挂上部件表而不挂上判定，就会出现「技能包的部件已知、它的视图没判过」这种状态，而那个技能包会带着一个谁也画不出来的视图被交出去。
 
 ```ts type-equiv
 /**
- * The parts half of the component catalog, as `ctx.skillPackParts`.
+ * The component surface, as a pack's requirements read it: `ctx.skillPackParts`.
  *
- * This package declares the service key and consumes it; the adapter that
- * implements it over the real component catalog is separate wiring. Until a
- * provider of the key is mounted every pack sees an empty part list, so a pack
- * that requires any part stays inactive.
+ * Both questions come from one catalog and change together, so they are one
+ * key: a deployment that could mount the part list without the judgement would
+ * have a state where a pack's parts are known and its views are unjudged, and
+ * the pack would be offered with a view nobody can draw — which is the state
+ * this package exists to prevent.
+ *
+ * This package declares the key and consumes it; the row that implements it
+ * over the real component catalog is separate wiring. Until a provider of the
+ * key is mounted every pack sees an empty part list, so a pack that requires
+ * any part stays inactive.
  */
 interface PartsSource {
   /**
@@ -112,6 +118,20 @@ interface PartsSource {
    * @returns the disposer that stops the notifications.
    */
   onChange(listener: () => void): () => void
+  /**
+   * Judge one view file against the surface that would draw it.
+   *
+   * The judgement is the component surface's own, so a view a pack ships and a
+   * block the model places are accepted on identical terms. This package reads
+   * neither the spec nor the params it hands over.
+   * @param view - the parsed view file.
+   * @param claimed - view ids already taken by the deployment's own
+   *   configuration or by a pack judged before this one; a view repeating one
+   *   is refused, because two views under one id is one menu row whose owner is
+   *   decided by load order.
+   * @returns the refusal, or `undefined` when the view can be drawn here.
+   */
+  judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
 }
 ```
 
@@ -127,7 +147,9 @@ interface PartsSource {
 | `statuses()` | 根目录里的每个技能包，激活的和未激活的都在，按技能名排序，各自带着版本和每一条没满足的要求。 |
 | `activeViews()` | 每个激活技能包所声明的视图，带上声明它的那个技能包。未激活的技能包一个也不贡献，包括那些本身读得干干净净的视图。 |
 
-一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`view-unreadable` 带文件。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
+一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`view-unreadable` 带文件，`view-refused` 带文件、文件里的那个值，以及组件表面自己对那个值说的那句话。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
+
+技能包按技能名顺序判定，而一个激活的技能包会为排在它之后判定的技能包占下自己的视图 id：两个技能包交出同一个视图 id 就是一条由加载顺序决定归属的菜单项，所以后面那个技能包会被扣下。因为别的原因未激活的技能包不占任何 id。
 
 这条路由存在，是因为被扣下的技能包按设计在别的地方一律不可见，否则一套装了技能包却找不到它的部署将无处可读。它只带名字、版本和被拒原因——不带文件内容、不带技能包内部路径、不带配置——并且不做任何缓存，因为技能包的状态会随它周围的插件翻转。
 
@@ -157,6 +179,7 @@ interface PartsSource {
 - **缺插件只报告，绝不安装。** 一个需要某组件插件而这套部署没有的技能包，会一直未激活到有人把它装上为止。这里没有任何代码去取或挂一个插件：一条从技能包数据跑起来的安装路，正是技能包规则要堵死的那条装代码的路。重新考虑的触发条件，是发放侧能把插件和技能包打成一个包一起发。
 - **一套部署一份发放集。** `root` 是单个目录，`syncPackRoot` 把它整个替换，所以这套部署的每个用户看到的技能包都一样。按用户分集需要一个这个包没有的身份；触发条件是多用户那个决定。
 - **两个技能包可能占同一个技能名。** 两个都会被 `statuses()` 报出来，而技能注册表按它自己的 rank 与顺序规则悄悄解决这个重名。既没有拒绝，也没有哪份报告点名被盖掉的那个技能包。
+- **技能包的视图由提供部件的那一方来判，没人提供时就不判。** 没有 `ctx.skillPackParts` 的提供方时，解析通过的视图会被原样带过去，因为反正谁也画不出来；这时技能包会带着没有任何表面看过的视图被交出去。这与部件表所处的 fail-closed 位置相同，只是再往前一步。
 - **每次读都重新读根目录。** `statuses()`、`activeViews()` 以及每次提供方调用都会扫一遍技能包根目录、重新解析每份清单。这让答案始终跟得上现状、没有会过期的缓存，也正因如此这条状态路由不适合按交互频率轮询。
 - **没挂部件提供方的技能包根目录交不出任何带视图的技能包。** 在有人挂上 `ctx.skillPackParts` 的提供方之前，每个点名了部件的技能包都是未激活。这是正确的 fail-closed 状态，也是很容易被当成 bug 的一种状态——状态路由就是为它存在的。部署方组合的那个提供方是 [`skill-pack-components`](../skill-pack-components/README.zh.md)。
 - **没有被组装快照覆盖** —— 这个包由它自己的用例覆盖，其中包括一次跑在真实技能包根目录上的真实 Loader 组合；快照泳道重放的是发行组合，而那里不组合任何 experimental 行。

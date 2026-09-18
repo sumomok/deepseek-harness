@@ -141,6 +141,87 @@ describe('pack reconciliation', () => {
   })
 })
 
+/** One view file that parsed, as the pack root hands it to reconciliation. */
+function view(path: string, id: string): PackObservation['views'][number] {
+  return { ok: true, path, view: { id, title: id, spec: { nodes: [] }, params: {} } }
+}
+
+describe('the views a pack declares, judged by the surface that would draw them', () => {
+  it('withholds a pack whose view the surface refuses, naming the file, the value and the reason', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+      () => ({ path: 'spec.nodes[0].component', reason: 'names no component of this deployment' }),
+    )
+    expect(status?.state).toBe('inactive')
+    expect(status?.missing).toEqual([{
+      kind: 'view-refused',
+      view: 'views/a.yml',
+      path: 'spec.nodes[0].component',
+      reason: 'names no component of this deployment',
+    }])
+  })
+
+  it('names every refused view of one pack, so a pack with two wrong ones is corrected once', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml', 'views/b.yml'] }, [view('views/a.yml', 'layers'), view('views/b.yml', 'sites')])],
+      [],
+      PLATFORM,
+      () => ({ path: 'spec', reason: 'is refused' }),
+    )
+    expect(status?.missing.map(missing => missing.kind)).toEqual(['view-refused', 'view-refused'])
+  })
+
+  it('judges only the views that parsed, and reports the unreadable one on its own', () => {
+    const judged: string[] = []
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml', 'views/b.yml'] }, [
+        { ok: false, path: 'views/a.yml', reason: 'has no title' },
+        view('views/b.yml', 'sites'),
+      ])],
+      [],
+      PLATFORM,
+      (one) => {
+        judged.push(one.id)
+        return undefined
+      },
+    )
+    expect(judged).toEqual(['sites'])
+    expect(status?.missing).toEqual([{ kind: 'view-unreadable', view: 'views/a.yml', reason: 'has no title' }])
+  })
+
+  it('hands each pack the view ids the packs before it claimed, and only the offered ones claim any', () => {
+    const claims: string[][] = []
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+        pack('b-pack', { parts: ['toy.crud'], views: ['views/b.yml'] }, [view('views/b.yml', 'sites')]),
+        pack('c-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'alerts')]),
+      ],
+      [],
+      PLATFORM,
+      (_one, claimed) => {
+        claims.push([...claimed])
+        return undefined
+      },
+    )
+    // `b-pack` is withheld for its missing part, so the id its view would have
+    // claimed is not held away from anyone.
+    expect(statuses.map(status => status.state)).toEqual(['active', 'inactive', 'active'])
+    expect(claims).toEqual([[], ['layers'], ['layers']])
+  })
+
+  it('carries a view through unjudged where no component surface is composed', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+    )
+    expect(status?.state).toBe('active')
+  })
+})
+
 describe('missing-requirement sentences', () => {
   it('states each refused value', () => {
     const cases: [PackMissing, string][] = [
@@ -155,6 +236,10 @@ describe('missing-requirement sentences', () => {
       [
         { kind: 'view-unreadable', view: 'views/b.yml', reason: 'has no title' },
         'view views/b.yml is unreadable: has no title',
+      ],
+      [
+        { kind: 'view-refused', view: 'views/b.yml', path: 'spec.nodes[0].component', reason: 'names no component of this deployment' },
+        'view views/b.yml cannot be drawn: names no component of this deployment',
       ],
     ]
     expect(cases.map(([missing]) => describeMissing(missing))).toEqual(cases.map(([, sentence]) => sentence))

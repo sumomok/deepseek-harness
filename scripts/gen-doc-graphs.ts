@@ -418,6 +418,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },
   {
+    key: 'componentViews',
+    pkg: 'component-surface',
+    title: 'Content-column view index',
+    mode: 'seam',
+    implementations: ['skill-pack-components'],
+    consumers: ['component-surface'],
+    note: 'Holds the views the sidebar lists and /show-content-view shows, from the deployment\'s own configuration and from any package that registers a source; every view is judged by the pass a show_component call is judged by, and a contributed view the catalog refuses is dropped with one error line rather than failing the console.',
+  },
+  {
     key: 'skillPacks',
     pkg: 'skill-pack',
     title: 'Skill-pack root provider',

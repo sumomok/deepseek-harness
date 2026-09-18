@@ -120,9 +120,11 @@ flowchart LR
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_pack["skill-pack"]
+  pkg_component_surface["component-surface"]
+  svc_componentViews["ctx.componentViews<br/>Content-column view index"]
+  pkg_skill_pack_components["skill-pack-components"]
   svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
   svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
-  pkg_skill_pack_components["skill-pack-components"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   pkg_agent_default_model["agent-default-model"]
@@ -187,7 +189,6 @@ flowchart LR
   pkg_experimental_client_ui_agent_team["experimental-client-ui-agent-team"]
   pkg_inspector["inspector"]
   svc_inspector["ctx.inspector<br/>Cross-realm runtime inspection"]
-  pkg_component_surface["component-surface"]
   svc_componentCatalog["ctx.componentCatalog<br/>Content-panel component catalog"]
   pkg_component_kit["component-kit"]
   pkg_content_surface["content-surface"]
@@ -260,6 +261,7 @@ flowchart LR
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
   pkg_component_surface --> svc_componentCatalog
+  pkg_component_surface --> svc_componentViews
   pkg_content_surface --> svc_contentSurface
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -322,6 +324,7 @@ flowchart LR
   pkg_skill_pack --> svc_skillPackParts
   pkg_skill_pack --> svc_skillPacks
   pkg_skill_pack --> svc_skills
+  pkg_skill_pack_components --> svc_componentViews
   pkg_skill_pack_components --> svc_skillPackParts
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
@@ -381,6 +384,7 @@ flowchart LR
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
   svc_componentCatalog --> pkg_component_kit
+  svc_componentViews --> pkg_component_surface
   svc_contentSurface --> pkg_component_surface
   svc_contentSurface --> pkg_content_frame
   svc_contentSurface --> pkg_vue2_echarts_tool_poc
@@ -536,6 +540,7 @@ flowchart LR
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | Domains register state-driven fold units; the eager drive keeps per-session watermark states and the Session controller serves baselines and pushes changed values. |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`subagent`](../packages/subagent/subagent) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), `skill-pack` | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
+| `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | Holds the views the sidebar lists and /show-content-view shows, from the deployment's own configuration and from any package that registers a source; every view is judged by the pass a show_component call is judged by, and a contributed view the catalog refuses is dropped with one error line rather than failing the console. |
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | Owns one pack root: it judges every pack against the registered component parts, contributes only the active ones to ctx.skills, and publishes each pack's state and unmet requirements on its own route. |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | Declares what a pack's requirements are judged against — each registered part's id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |

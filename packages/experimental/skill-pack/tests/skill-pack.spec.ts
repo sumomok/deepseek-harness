@@ -18,7 +18,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SkillRegistry, { isModelInvocable, isUserInvocable } from '@deepseek-ai/dsh-skill'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import SkillPackRegistry, { SKILL_PACK_STATUS_ROUTE } from '../src/index.ts'
-import type { PackStatusDocument, ProvidedPart } from '../src/types.ts'
+import type { PackStatusDocument, PackView, PackViewRefusal, ProvidedPart } from '../src/types.ts'
 
 const PLATFORM_VERSION = '0.5.2'
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
@@ -41,6 +41,13 @@ class TestParts extends Service {
   onChange(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
+  }
+
+  /** Every view this stand-in refuses, by the id the view declares. */
+  refused = new Set<string>()
+
+  judgeView(view: PackView): PackViewRefusal | undefined {
+    return this.refused.has(view.id) ? { path: 'spec.nodes[0].component', reason: 'names no component of this deployment' } : undefined
   }
 
   /** Register or withdraw parts without remounting, the way a component plugin's catalog changes. */
@@ -240,6 +247,44 @@ describe('a parts source arriving and going away', () => {
 
     parts.replace([CRUD])
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note', 'space-data-page'])
+  })
+
+  it('withholds a pack whose view the surface refuses, and says which file and which value', async () => {
+    const { ctx } = await loadComposition(false, false)
+    await ctx.plugin(TestParts, { parts: [CRUD] })
+    const parts = ctx.skillPackParts as TestParts
+    parts.refused.add('space-layer')
+    parts.replace([CRUD])
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note'])
+    expect((await ctx.skillPacks.statuses()).find(status => status.skill === 'space-data-page')).toEqual({
+      skill: 'space-data-page',
+      version: '1.0.0',
+      state: 'inactive',
+      missing: [{
+        kind: 'view-refused',
+        view: 'views/space-layer.yml',
+        path: 'spec.nodes[0].component',
+        reason: 'names no component of this deployment',
+      }],
+    })
+    // Nothing of a withheld pack is offered, its views included.
+    expect(await ctx.skillPacks.activeViews()).toEqual([])
+  })
+
+  it('tells a watcher when the pack set moves, and stops when the watch is given up', async () => {
+    const { ctx } = await loadComposition(false, false)
+    let changes = 0
+    const stop = ctx.skillPacks.onChange(() => { changes += 1 })
+    await ctx.plugin(TestParts, { parts: [CRUD] })
+    const parts = ctx.skillPackParts as TestParts
+    expect(changes).toBeGreaterThan(0)
+    const mounted = changes
+    parts.replace([])
+    expect(changes).toBe(mounted + 1)
+    stop()
+    parts.replace([CRUD])
+    expect(changes).toBe(mounted + 1)
   })
 
   it('takes the pack back when the parts source itself is disposed', async () => {

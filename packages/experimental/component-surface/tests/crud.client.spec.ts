@@ -422,7 +422,8 @@ describe('the row\'s own configuration', () => {
 describe('a configured view', () => {
   it('may not place the page, because a click asks nobody', () => {
     expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined)).toThrow(
-      'component-surface: views[0] "devices" — places a toy.crud block, which only a call the user is asked about may place',
+      'component-surface: views[0] "devices" — spec.nodes[0].component — places a toy.crud block, which only a call '
+      + 'the user is asked about may place',
     )
   })
 })

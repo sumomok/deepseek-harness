@@ -23,13 +23,27 @@ export interface ProvidedPart {
   readonly version: string
 }
 
+/** One view file the component surface will not draw: where in it, and why. */
+export interface PackViewRefusal {
+  /** Parameter path of the offending value inside the view, such as `spec.nodes[0].component`. */
+  readonly path: string
+  /** What is wrong with that value, in the words the component surface refuses a call in. */
+  readonly reason: string
+}
+
 /**
- * The parts half of the component catalog, as `ctx.skillPackParts`.
+ * The component surface, as a pack's requirements read it: `ctx.skillPackParts`.
  *
- * This package declares the service key and consumes it; the adapter that
- * implements it over the real component catalog is separate wiring. Until a
- * provider of the key is mounted every pack sees an empty part list, so a pack
- * that requires any part stays inactive.
+ * Both questions come from one catalog and change together, so they are one
+ * key: a deployment that could mount the part list without the judgement would
+ * have a state where a pack's parts are known and its views are unjudged, and
+ * the pack would be offered with a view nobody can draw — which is the state
+ * this package exists to prevent.
+ *
+ * This package declares the key and consumes it; the row that implements it
+ * over the real component catalog is separate wiring. Until a provider of the
+ * key is mounted every pack sees an empty part list, so a pack that requires
+ * any part stays inactive.
  */
 export interface PartsSource {
   /**
@@ -43,6 +57,20 @@ export interface PartsSource {
    * @returns the disposer that stops the notifications.
    */
   onChange(listener: () => void): () => void
+  /**
+   * Judge one view file against the surface that would draw it.
+   *
+   * The judgement is the component surface's own, so a view a pack ships and a
+   * block the model places are accepted on identical terms. This package reads
+   * neither the spec nor the params it hands over.
+   * @param view - the parsed view file.
+   * @param claimed - view ids already taken by the deployment's own
+   *   configuration or by a pack judged before this one; a view repeating one
+   *   is refused, because two views under one id is one menu row whose owner is
+   *   decided by load order.
+   * @returns the refusal, or `undefined` when the view can be drawn here.
+   */
+  judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
 }
 
 /** What a pack's `metadata.pack` block states about the pack itself. */
@@ -110,6 +138,8 @@ export type PackMissing =
   | { readonly kind: 'part-absent'; readonly part: string }
   /** A declared view file could not be read or parsed. */
   | { readonly kind: 'view-unreadable'; readonly view: string; readonly reason: string }
+  /** A declared view parsed, and the component surface will not draw it. */
+  | { readonly kind: 'view-refused'; readonly view: string; readonly path: string; readonly reason: string }
 
 /** One pack's state and, when it is inactive, every reason it is. */
 export interface PackStatus {
@@ -119,7 +149,7 @@ export interface PackStatus {
   readonly version?: string
   /** `active` exactly when `missing` is empty. */
   readonly state: 'active' | 'inactive'
-  /** Every unmet requirement, in a fixed order: manifest, platform, plugins, parts, views. */
+  /** Every unmet requirement, in a fixed order: manifest, platform, plugins, parts, unreadable views, refused views. */
   readonly missing: readonly PackMissing[]
 }
 

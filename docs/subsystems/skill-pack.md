@@ -32,9 +32,11 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.skillPackParts` — `PartsSource`
 
-The parts half of the component catalog, as `ctx.skillPackParts`.
+The component surface, as a pack's requirements read it: `ctx.skillPackParts`.
 
-This package declares the service key and consumes it; the adapter that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.
+Both questions come from one catalog and change together, so they are one key: a deployment that could mount the part list without the judgement would have a state where a pack's parts are known and its views are unjudged, and the pack would be offered with a view nobody can draw — which is the state this package exists to prevent.
+
+This package declares the key and consumes it; the row that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.
 
 ```ts cordis-catalog
 /**
@@ -49,6 +51,21 @@ list(): readonly ProvidedPart[]
  * @returns the disposer that stops the notifications.
  */
 onChange(listener: () => void): () => void
+
+/**
+ * Judge one view file against the surface that would draw it.
+ *
+ * The judgement is the component surface's own, so a view a pack ships and a
+ * block the model places are accepted on identical terms. This package reads
+ * neither the spec nor the params it hands over.
+ * @param view - the parsed view file.
+ * @param claimed - view ids already taken by the deployment's own
+ *   configuration or by a pack judged before this one; a view repeating one
+ *   is refused, because two views under one id is one menu row whose owner is
+ *   decided by load order.
+ * @returns the refusal, or `undefined` when the view can be drawn here.
+ */
+judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
 ```
 
 Source: [`packages/experimental/skill-pack/src/types.ts`](../../packages/experimental/skill-pack/src/types.ts)
@@ -67,6 +84,20 @@ Both reads answer from the pack root and the parts source as they stand at the m
  * @returns one status per pack, active and inactive alike, in skill-name order.
  */
 async statuses(): Promise<PackStatus[]>
+
+/**
+ * Watch for a change in what this root offers, for as long as the calling
+ * fiber lives.
+ *
+ * What a caller placing a pack's views needs: the answer is recomputed on
+ * every read rather than cached, so the only way to learn that it moved is to
+ * be told. A listener is called after the invalidation, so the read it makes
+ * sees the new state.
+ * @param listener - called on every change; it reads {@link SkillPackRegistry.activeViews} or
+ *   {@link SkillPackRegistry.statuses} for the new answer.
+ * @returns the disposer that stops the watch, which the calling fiber also runs.
+ */
+onChange(listener: () => void): () => void
 
 /**
  * The views of every active pack, in pack order and then manifest order.

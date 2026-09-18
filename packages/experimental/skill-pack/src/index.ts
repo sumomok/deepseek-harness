@@ -120,6 +120,9 @@ export class SkillPackRegistry extends Service {
   /** The last announced withheld-pack report, so a refresh that changes nothing logs nothing. */
   private announced = ''
 
+  /** Subscribers, in registration order, which is the order a change reaches them in. */
+  private readonly watchers = new Set<() => void>()
+
   /**
    * Create the registry, claim the pack root's provider seat, and mount the
    * optional parts source, root watcher and status route.
@@ -144,12 +147,12 @@ export class SkillPackRegistry extends Service {
     ctx.inject(['skillPackParts'], (partsCtx: Context) => {
       partsCtx.effect(() => {
         this.parts = partsCtx.skillPackParts
-        const stop = this.parts.onChange(() => { this.invalidate?.() })
-        this.invalidate?.()
+        const stop = this.parts.onChange(() => { this.moved() })
+        this.moved()
         return () => {
           stop()
           this.parts = undefined
-          this.invalidate?.()
+          this.moved()
         }
       }, 'skill-pack: the component parts source')
     })
@@ -157,7 +160,7 @@ export class SkillPackRegistry extends Service {
     if (config.watch !== false) {
       ctx.effect(() => {
         const watcher = chokidar.watch(this.root, { ignoreInitial: true, depth: PACK_WATCH_DEPTH })
-        watcher.on('all', () => { this.invalidate?.() })
+        watcher.on('all', () => { this.moved() })
         /* v8 ignore start -- chokidar reports a watch failure only from the platform watcher, which no in-process test can make fail. */
         watcher.on('error', (error: unknown) => {
           this.ctx.logger.warn(`skill-pack: pack root watch failed: ${String(error)}`)
@@ -184,6 +187,26 @@ export class SkillPackRegistry extends Service {
   }
 
   /**
+   * Watch for a change in what this root offers, for as long as the calling
+   * fiber lives.
+   *
+   * What a caller placing a pack's views needs: the answer is recomputed on
+   * every read rather than cached, so the only way to learn that it moved is to
+   * be told. A listener is called after the invalidation, so the read it makes
+   * sees the new state.
+   * @param listener - called on every change; it reads {@link SkillPackRegistry.activeViews} or
+   *   {@link SkillPackRegistry.statuses} for the new answer.
+   * @returns the disposer that stops the watch, which the calling fiber also runs.
+   */
+  onChange(listener: () => void): () => void {
+    const dispose = this.ctx.effect(() => {
+      this.watchers.add(listener)
+      return () => this.watchers.delete(listener)
+    }, 'skill-pack: a pack-set watcher')
+    return () => void dispose()
+  }
+
+  /**
    * The views of every active pack, in pack order and then manifest order.
    * An inactive pack contributes none, including views that read cleanly.
    * @returns each active pack's declared views, carrying the pack that declared them.
@@ -204,7 +227,13 @@ export class SkillPackRegistry extends Service {
    */
   private async judge(): Promise<{ statuses: PackStatus[]; active: Map<string, ActivePack> }> {
     const sources = await readPackRoot(this.root)
-    const statuses = reconcilePacks(sources, this.parts?.list() ?? [], this.platformVersion)
+    const parts = this.parts
+    const statuses = reconcilePacks(
+      sources,
+      parts?.list() ?? [],
+      this.platformVersion,
+      parts === undefined ? undefined : ((view, claimed) => parts.judgeView(view, claimed)),
+    )
     this.announce(statuses)
     const offered = new Set(statuses.filter(status => status.state === 'active').map(status => status.skill))
     const active = new Map<string, ActivePack>()
@@ -213,6 +242,18 @@ export class SkillPackRegistry extends Service {
       active.set(source.skill, { source, manifest: source.manifest.manifest })
     }
     return { statuses, active }
+  }
+
+  /**
+   * Invalidate the registry's completed catalogs and tell everyone watching
+   * this root.
+   *
+   * One settlement point for both, so a watcher cannot read a catalog the
+   * invalidation has not reached yet.
+   */
+  private moved(): void {
+    this.invalidate?.()
+    for (const watcher of this.watchers) watcher()
   }
 
   /** State every withheld pack and its reasons once, and again only when that report changes. */

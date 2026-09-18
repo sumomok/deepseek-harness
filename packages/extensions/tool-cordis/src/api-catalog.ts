@@ -777,6 +777,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'componentViews',
+    summary: '`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.',
+    description: '`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.',
+    methods: [
+      {
+        signature: 'judge(view: ContributedView): ViewJudgement',
+        description: 'Judge one view against the catalog as it stands, without registering it.\n\nWhat a source asks before it contributes, so a view that cannot be drawn is refused where the file it came from can be named rather than dropped here with one log line.',
+        parameters: [{ name: 'view', description: 'the view as its writer wrote it.' }],
+        returns: 'the accepted call, or the value that stopped it.',
+      },
+      {
+        signature: 'register(source: ComponentViewSource): () => void',
+        description: 'Offer one package\'s views for as long as the calling fiber lives.',
+        parameters: [{ name: 'source', description: 'the contributing package and the views it offers now.' }],
+        returns: 'the exact disposer that withdraws them.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Watch the index for as long as the calling fiber lives.',
+        parameters: [{ name: 'listener', description: 'called on every change, never for the current index; read {@link index} for that.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
+      },
+    ],
+  },
+  {
     key: 'contentSurface',
     summary: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.',
     description: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.\n\n**Registration timing is free.** The projection registry fixes a unit\'s fold and its `stateVersion` at registration and caches one folded cell per session, so a table read live inside one long-lived unit would leave every cell built before a late extractor arrived permanently missing that kind\'s history. This registry therefore registers a NEW unit for every table change: the registry drops the old unit\'s cells with it, and each session\'s next touch refolds `init` over its whole in-memory log through the new table. `stateVersion` is derived from the table for the same reason, so a persisted checkpoint written under a different set of kinds is discarded rather than forward-applied.\n\nThe one cost is push latency: the registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session\'s next event.',
@@ -2160,8 +2185,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'skillPackParts',
-    summary: 'The parts half of the component catalog, as `ctx.skillPackParts`.',
-    description: 'The parts half of the component catalog, as `ctx.skillPackParts`.\n\nThis package declares the service key and consumes it; the adapter that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.',
+    summary: 'The component surface, as a pack\'s requirements read it: `ctx.skillPackParts`.',
+    description: 'The component surface, as a pack\'s requirements read it: `ctx.skillPackParts`.\n\nBoth questions come from one catalog and change together, so they are one key: a deployment that could mount the part list without the judgement would have a state where a pack\'s parts are known and its views are unjudged, and the pack would be offered with a view nobody can draw — which is the state this package exists to prevent.\n\nThis package declares the key and consumes it; the row that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.',
     methods: [
       {
         signature: 'list(): readonly ProvidedPart[]',
@@ -2175,6 +2200,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'listener', description: 'called after the registered set changes; it reads {@link PartsSource.list} for the new set.' }],
         returns: 'the disposer that stops the notifications.',
       },
+      {
+        signature: 'judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined',
+        description: 'Judge one view file against the surface that would draw it.\n\nThe judgement is the component surface\'s own, so a view a pack ships and a block the model places are accepted on identical terms. This package reads neither the spec nor the params it hands over.',
+        parameters: [{ name: 'view', description: 'the parsed view file.' }, { name: 'claimed', description: 'view ids already taken by the deployment\'s own configuration or by a pack judged before this one; a view repeating one is refused, because two views under one id is one menu row whose owner is decided by load order.' }],
+        returns: 'the refusal, or `undefined` when the view can be drawn here.',
+      },
     ],
   },
   {
@@ -2187,6 +2218,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Judge every pack in the root as it stands now.',
         parameters: [],
         returns: 'one status per pack, active and inactive alike, in skill-name order.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Watch for a change in what this root offers, for as long as the calling fiber lives.\n\nWhat a caller placing a pack\'s views needs: the answer is recomputed on every read rather than cached, so the only way to learn that it moved is to be told. A listener is called after the invalidation, so the read it makes sees the new state.',
+        parameters: [{ name: 'listener', description: 'called on every change; it reads {@link SkillPackRegistry.activeViews} or {@link SkillPackRegistry.statuses} for the new answer.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
       },
       {
         signature: 'async activeViews(): Promise<ActivePackView[]>',
@@ -3893,6 +3930,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ComponentActionNotice {\n    readonly text: string;\n    readonly summary: string;\n}',
   },
   {
+    name: 'ComponentCall',
+    declaration: 'export interface ComponentCall {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: ComponentSpec;\n}',
+  },
+  {
     name: 'ComponentCatalog',
     declaration: 'export interface ComponentCatalog {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly byId: ReadonlyMap<string, ComponentCatalogEntry>;\n    readonly maxSpecDepth: number;\n}',
   },
@@ -3915,6 +3956,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ComponentSource',
     declaration: 'export interface ComponentSource {\n    readonly package: string;\n    readonly version: string;\n}',
+  },
+  {
+    name: 'ComponentSpec',
+    declaration: 'export interface ComponentSpec {\n    readonly nodes: readonly ComponentNode[];\n    readonly layout?: LayoutNode;\n}',
+  },
+  {
+    name: 'ComponentViewSource',
+    declaration: 'export interface ComponentViewSource {\n    readonly owner: string;\n    readonly views: readonly ContributedView[];\n}',
   },
   {
     name: 'CompositionRowEnablement',
@@ -3949,6 +3998,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContentSurfaceResolved {\n    readonly title: string;\n    readonly payload: unknown;\n}',
   },
   {
+    name: 'ContentView',
+    declaration: 'export interface ContentView {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: unknown;\n}',
+  },
+  {
     name: 'ContextFormed',
     declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
   },
@@ -3975,6 +4028,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContinuableSubagentDescriptorData',
     declaration: 'export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly agentReasoningEffort?: ReasoningEffortId;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
+  },
+  {
+    name: 'ContributedView',
+    declaration: 'export interface ContributedView extends ContentView {\n    readonly params?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'CordisDynamicPackageId',
@@ -4509,6 +4566,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
   },
   {
+    name: 'LayoutBlock',
+    declaration: 'export interface LayoutBlock {\n    readonly node: \'component\';\n    readonly id: string;\n    readonly flex?: number;\n}',
+  },
+  {
+    name: 'LayoutChild',
+    declaration: 'export type LayoutChild = LayoutBlock | LayoutStack;',
+  },
+  {
+    name: 'LayoutDirection',
+    declaration: 'export type LayoutDirection = \'row\' | \'col\';',
+  },
+  {
+    name: 'LayoutGap',
+    declaration: 'export type LayoutGap = \'sm\' | \'md\' | \'lg\';',
+  },
+  {
+    name: 'LayoutNode',
+    declaration: 'export type LayoutNode = LayoutStack;',
+  },
+  {
+    name: 'LayoutStack',
+    declaration: 'export interface LayoutStack {\n    readonly node: \'stack\';\n    readonly dir: LayoutDirection;\n    readonly gap?: LayoutGap;\n    readonly wrap?: boolean;\n    readonly flex?: number;\n    readonly children: readonly LayoutChild[];\n}',
+  },
+  {
     name: 'LlmAdapter',
     declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
@@ -4766,7 +4847,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PackMissing',
-    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n};',
+    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-refused\';\n    readonly view: string;\n    readonly path: string;\n    readonly reason: string;\n};',
   },
   {
     name: 'PackStatus',
@@ -4775,6 +4856,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PackView',
     declaration: 'export interface PackView {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: unknown;\n    readonly params: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'PackViewRefusal',
+    declaration: 'export interface PackViewRefusal {\n    readonly path: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'PermissionSelect',
@@ -6303,6 +6388,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'ViewJudgement',
+    declaration: 'export type ViewJudgement = {\n    readonly ok: true;\n    readonly call: ComponentCall;\n} | {\n    readonly ok: false;\n    readonly refusal: ViewRefusal;\n};',
+  },
+  {
+    name: 'ViewRefusal',
+    declaration: 'export interface ViewRefusal {\n    readonly path: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'WebBootBatch',

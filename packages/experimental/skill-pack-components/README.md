@@ -13,11 +13,15 @@ Two packages that must not depend on each other meet here. [`component-surface`]
 
 It publishes the components this deployment **offers** rather than the ones it registered. A component the deployment did not turn on cannot be drawn, so a pack requiring it must stay inactive — the deployment's own data page on a console that left `crud` off is that case, and it is why the catalog answers an offer at all.
 
+Views travel the other way. Every active pack's views are offered to `ctx.componentViews` as one source and re-offered whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart.
+
 ## Table of Contents
 
 - [Mount it](#mount-it)
 - [What one part carries](#what-one-part-carries)
 - [Offered, not registered](#offered-not-registered)
+- [Judging a pack's views](#judging-a-packs-views)
+- [Placing them](#placing-them)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -65,6 +69,20 @@ The change notification is the catalog's own subscription, disposer included. A 
 
 Today one component is in that position: `toy.crud`, the deployment's own data page, which every `show_component` composition leaves out of the model's list unless `crud: true`. A console that composed the component plugin and left `crud` off registers the page and cannot draw it, so a pack whose views place it is offered to nobody — the model is never told the skill exists, and `GET /skill-pack/status` says `no component plugin registers the part toy.crud`.
 
+<a id="judging-a-packs-views"></a>
+## Judging a pack's views
+
+A pack root asks before it offers anything: every view file a pack declares is handed to `ctx.componentViews.judge`, which is the pass a real `show_component` call is judged by. A view the catalog will not draw makes its **whole pack** inactive, named on `GET /skill-pack/status` with the file, the value inside it and the sentence the model would have been refused with. A pack with a view nobody can draw is worse than a pack that is not there, which is why the refusal lands on the pack rather than on the view.
+
+An id already offered is refused the same way. The deployment's own configured views own their ids; a pack claiming one is held back rather than losing that view, and so is the later of two packs claiming one id, which the pack root decides in skill-name order.
+
+<a id="placing-them"></a>
+## Placing them
+
+Everything the packs do offer is registered into `ctx.componentViews` as one source under this package's name. The read is asynchronous and the registration is not, so each reading carries the number of the refresh that asked for it: a reading a later refresh has superseded, and one arriving after this row has gone, are both dropped.
+
+From there the path is the one a configured view already takes — the sidebar lists it off `GET /component-surface/views`, a click runs `/show-content-view`, and what lands in the column is the same session event a configured view's click writes.
+
 ## Model Experience
 
 No prompt, schema, tool or result of its own. What it changes is which skills a model is offered, and that is `skill-pack`'s own [Model Experience](../skill-pack/README.md#model-experience): a pack whose parts this row publishes becomes an ordinary skill in the merged catalog, and a pack whose parts it does not stays absent.
@@ -78,6 +96,7 @@ Through the skill registry's consumer only. A component plugin mounted or withdr
 - **One catalog, one pack root.** The row adapts the single `ctx.componentCatalog` to the single `ctx.skillPackParts` key. A deployment with two pack roots mounts two `skill-pack` rows, and both read the same parts — which is correct today and would stop being correct the moment a pack root is scoped to a user.
 - **A part is a component, and nothing smaller.** A pack requires `toy.crud` and is told whether that component exists; it cannot require a property of one, an action of one, or a version of the component itself. The component's version is its package's, so two components shipped by one package can never be required at different versions.
 - **The version a range is matched against is the package's, not the component's.** A plugin that renamed or dropped a component in a patch release still satisfies `>=0.4.0`, and the pack activates onto a component that changed under it. What stops that today is `requires.parts`, which names the id and is checked for presence.
+- **A pack that loses an id collision learns it from the status route and nowhere else.** The refusal names the id and says it is already offered; it does not name which configured view or which other pack holds it, because the judgement runs before the index is built and only the index knows the holder. What the operator has is the two documents side by side.
 - **Not covered by an assembled snapshot** — the row is exercised by its own real-composition spec; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
 **Runtime invariant:** No companion is published because this package holds no state: both reads are computed from `ctx.componentCatalog` at the moment of the call, and there is nothing an independent observation could contradict.

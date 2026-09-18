@@ -122,9 +122,11 @@ flowchart LR
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_pack["skill-pack"]
+  pkg_component_surface["component-surface"]
+  svc_componentViews["ctx.componentViews<br/>Content-column view index"]
+  pkg_skill_pack_components["skill-pack-components"]
   svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
   svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
-  pkg_skill_pack_components["skill-pack-components"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   pkg_agent_default_model["agent-default-model"]
@@ -189,7 +191,6 @@ flowchart LR
   pkg_experimental_client_ui_agent_team["experimental-client-ui-agent-team"]
   pkg_inspector["inspector"]
   svc_inspector["ctx.inspector<br/>Cross-realm runtime inspection"]
-  pkg_component_surface["component-surface"]
   svc_componentCatalog["ctx.componentCatalog<br/>Content-panel component catalog"]
   pkg_component_kit["component-kit"]
   pkg_content_surface["content-surface"]
@@ -262,6 +263,7 @@ flowchart LR
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
   pkg_component_surface --> svc_componentCatalog
+  pkg_component_surface --> svc_componentViews
   pkg_content_surface --> svc_contentSurface
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -324,6 +326,7 @@ flowchart LR
   pkg_skill_pack --> svc_skillPackParts
   pkg_skill_pack --> svc_skillPacks
   pkg_skill_pack --> svc_skills
+  pkg_skill_pack_components --> svc_componentViews
   pkg_skill_pack_components --> svc_skillPackParts
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
@@ -383,6 +386,7 @@ flowchart LR
   svc_codeRuntime --> pkg_tools
   svc_compaction --> pkg_compaction_basic
   svc_componentCatalog --> pkg_component_kit
+  svc_componentViews --> pkg_component_surface
   svc_contentSurface --> pkg_component_surface
   svc_contentSurface --> pkg_content_frame
   svc_contentSurface --> pkg_vue2_echarts_tool_poc
@@ -560,6 +564,7 @@ flowchart LR
 | `ctx.agentTeams` | `core` | [`experimental-agent-team`](../packages/experimental/agent-team) | - | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team), [`experimental-client-ui-agent-team`](../packages/experimental/client-ui-agent-team) | - | 负责隐式 Root roster、持久 peer mailbox、共享任务 DAG、continuable child 生命周期与生成式 Team Remote method；tool-agent-team 提供模型控制工具，client-ui-agent-team 挂载浏览器 contribution。 |
 | `ctx.inspector` | `core` | `inspector` | - | - | - | 负责 Worker 托管的 CDP target，以及独立于传输的 Host 和 Client observation 与 Cordis tree query API。 |
 | `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | 负责一次 `show_component` 调用可以落位哪些组件；组件插件把宿主侧定义注册到这里，把渲染器注册到浏览器半边同名的注册表，所以一个组件插件都不组合的部署既没有组件，也拿不到这个工具。 |
+| `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | 装着侧栏列出、`/show-content-view` 打开的那些视图，来源是这套部署自己的配置和任何注册了来源的包；每个视图都由一次 show_component 调用所走的同一道判定来判，而组件目录拒绝的那些被贡献视图会被丢掉并留下一行 error，而不是让控制台起不来。 |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | 负责 extractor 表与由它折叠出的那一条 `contentSurface` projection；每种内容 kind 注册自己在日志里认得什么，content-column 再通过按 key 索引的槽把选中的 entry 画出来。 |
 | `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | 负责对本部署自有数据后端的三次具名读取，花的是访客的访问令牌；auth-gate 用它校验过的基址和它持有的令牌构造这个服务，于是凭据留在那个包的闭包里。 |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs) | - | 生产方（后台 bash、PTY 发送和 subagent 委派）登记正在运行的工作；tool-jobs 是面向模型的控制器，用于读取、列出和终止这些工作；jobs-local 是进程本地注册表。 |

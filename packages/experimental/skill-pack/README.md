@@ -89,16 +89,22 @@ Withholding is enforced at the load as well as at the listing. The registry cach
 <a id="where-the-parts-come-from"></a>
 ## Where the parts come from
 
-The parts are read through one optional service, `ctx.skillPackParts`, whose interface this package declares:
+The component surface is read through one optional service, `ctx.skillPackParts`, whose interface this package declares. It answers two questions — which parts exist, and whether one view file can be drawn — because both come from one catalog and change together: a deployment that could mount the part list without the judgement would have a state where a pack's parts are known and its views are unjudged, and the pack would be offered with a view nobody can draw.
 
 ```ts type-equiv
 /**
- * The parts half of the component catalog, as `ctx.skillPackParts`.
+ * The component surface, as a pack's requirements read it: `ctx.skillPackParts`.
  *
- * This package declares the service key and consumes it; the adapter that
- * implements it over the real component catalog is separate wiring. Until a
- * provider of the key is mounted every pack sees an empty part list, so a pack
- * that requires any part stays inactive.
+ * Both questions come from one catalog and change together, so they are one
+ * key: a deployment that could mount the part list without the judgement would
+ * have a state where a pack's parts are known and its views are unjudged, and
+ * the pack would be offered with a view nobody can draw — which is the state
+ * this package exists to prevent.
+ *
+ * This package declares the key and consumes it; the row that implements it
+ * over the real component catalog is separate wiring. Until a provider of the
+ * key is mounted every pack sees an empty part list, so a pack that requires
+ * any part stays inactive.
  */
 interface PartsSource {
   /**
@@ -112,6 +118,20 @@ interface PartsSource {
    * @returns the disposer that stops the notifications.
    */
   onChange(listener: () => void): () => void
+  /**
+   * Judge one view file against the surface that would draw it.
+   *
+   * The judgement is the component surface's own, so a view a pack ships and a
+   * block the model places are accepted on identical terms. This package reads
+   * neither the spec nor the params it hands over.
+   * @param view - the parsed view file.
+   * @param claimed - view ids already taken by the deployment's own
+   *   configuration or by a pack judged before this one; a view repeating one
+   *   is refused, because two views under one id is one menu row whose owner is
+   *   decided by load order.
+   * @returns the refusal, or `undefined` when the view can be drawn here.
+   */
+  judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
 }
 ```
 
@@ -127,7 +147,9 @@ A composition with no provider of that key sees an empty part list, which is the
 | `statuses()` | Every pack in the root, active and inactive alike, in skill-name order, each with its version and every unmet requirement. |
 | `activeViews()` | Each active pack's declared views, carrying the pack that declared them. An inactive pack contributes none, including views that read cleanly. |
 
-An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `view-unreadable` with the file. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
+An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `view-unreadable` with the file, and `view-refused` with the file, the value inside it and the component surface's own sentence about that value. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
+
+Packs are judged in skill-name order, and an active pack claims its view ids for the packs judged after it: two packs offering one view id is one menu row whose owner would otherwise be decided by load order, so the later pack is withheld. A pack that is inactive for another reason claims nothing.
 
 The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions and refusal reasons only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it.
 
@@ -155,6 +177,7 @@ The skill registry's consumer owns the durable catalog message and its append-on
 - **A missing plugin is reported, never installed.** A pack that needs a component plugin the deployment does not have stays inactive until somebody installs it. Nothing here fetches or mounts a plugin: an install path that runs from pack data would be the code-install route the pack rules exist to close. The trigger for revisiting is a delivery side that ships plugin and pack together as one bundle.
 - **One delivered set per deployment.** `root` is a single directory and `syncPackRoot` replaces all of it, so every user of a deployment sees the same packs. Per-user sets would need an identity this package does not have; the trigger is the multi-user decision.
 - **Two packs may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack.
+- **A pack's views are judged by whoever provides the parts, and unjudged where nobody does.** Without a provider of `ctx.skillPackParts` a view that parsed is carried through, because nothing could draw it either way; the pack is then offered with views no surface has seen. It is the same fail-closed position the part list is in, one step further along.
 - **Every read re-reads the root.** `statuses()`, `activeViews()` and each provider call scan the pack root and re-parse every manifest. That keeps the answer current with no cache to go stale, and it is why the status route is not for polling at interactive rates.
 - **A pack root with no parts provider offers nothing with a view.** Until a provider of `ctx.skillPackParts` is mounted, every pack naming a part is inactive. That is the correct fail-closed state and an easy one to mistake for a bug, which is what the status route is for. [`skill-pack-components`](../skill-pack-components/README.md) is the provider a deployment composes.
 - **Not covered by an assembled snapshot** — the package is exercised by its own specs, including a real Loader composition over a real pack root; the snapshot lanes replay the shipped composition, which composes no experimental row.

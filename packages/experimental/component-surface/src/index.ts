@@ -63,6 +63,7 @@ import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
+import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './crud.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
@@ -70,13 +71,16 @@ import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
-import { indexViews, type ViewIndex } from './views.ts'
+import type { ViewIndex } from './views.ts'
 
 // The `content-component/shown` declaration lives in src/types.ts (its one
 // home); this re-export projects the type face onto the package root and keeps
 // the module edge in the emitted index.d.ts.
 export type * from './types.ts'
 export { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
+export { ComponentViewRegistry } from './component-views.ts'
+export type { ComponentViewOptions, ComponentViewSource } from './component-views.ts'
+export type { ContributedView, ViewJudgement, ViewRefusal } from './views.ts'
 export type {
   CatalogedComponent,
   ComponentCatalogConfig,
@@ -285,53 +289,55 @@ function installOffer(
 }
 
 /**
- * Judge the configured views, and say so in the process log when they fail.
+ * Publish one index of views and the command that shows one from it.
  *
- * The sentence reaches nobody otherwise. The refusal travels back to the
- * registration that completed the catalog, and a contributing row's fiber
- * carries a rejection without printing it, so an operator whose `views` block
- * is wrong meets a deployment with no components, no views and no tool, and a
- * process log with nothing in it. One line per contribution the views could not
- * be judged against, at error level, carrying the whole refusal and what it
- * cost.
- * @param ctx - the injected context, whose logger is named after this row.
- * @param catalog - the components this deployment offers.
- * @param config - the validated config, with its defaults already applied.
+ * Both pieces exist only where views do, and each waits for the seam it needs
+ * the way every other piece of this row does. A deployment that configures
+ * views composes the console's webserver and command registry — the overlay
+ * that inserts this row is what guarantees it — and one that composes neither
+ * has no sidebar to click in either.
+ * @param ctx - the injected context carrying the view registry.
+ * @param views - the views to publish, as the registry judged them.
  * @param homeView - the `homeView` config value, when set.
- * @returns the accepted views, indexed by id.
- * @throws {Error} whatever the judgement refused the config with, after logging it.
+ * @returns the disposer of both registrations, or `undefined` where there is nothing to publish.
  */
-function judgeViews(
-  ctx: Context,
-  catalog: ComponentCatalog,
-  config: ResolvedConfig,
-  homeView: string | undefined,
-): ViewIndex {
-  try {
-    return indexViews(catalog, config.views, homeView)
-  } catch (refusal) {
-    ctx.logger.error(
-      '%s; this deployment comes up with no components, no views and no show_component tool until that view is '
-      + 'corrected or removed',
-      refusal,
+function publishViews(ctx: Context, views: ViewIndex, homeView: string | undefined): (() => void) | undefined {
+  if (views.size === 0) return undefined
+  const document: ComponentViewsDocument = {
+    views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
+    ...homeView === undefined ? {} : { homeView },
+  }
+  const route = ctx.inject(['webServer'], (serverCtx) => {
+    serverCtx.effect(
+      () => serverCtx.webServer.register(viewCatalogRoute(document)),
+      'show-component: the view catalog route',
     )
-    throw refusal
+  })
+  const command = ctx.inject(['commands'], (commandsCtx) => {
+    commandsCtx.commands.register(showContentViewCommand(views))
+  })
+  return () => {
+    void route.dispose()
+    void command.dispose()
   }
 }
 
 /**
- * Publish the deployment's own views and the command that shows one.
+ * Install the view registry and keep the catalog route and the command in step
+ * with what it holds.
  *
  * Judged against the catalog rather than at load, because what a view may place
  * is what the composed component plugins offer: a view is accepted by exactly
- * the pass a tool call takes, so a deployment writing one and the model writing
- * one are refused on identical terms and neither can drift from the other.
+ * the pass a tool call takes, so a deployment writing one, a pack shipping one
+ * and the model writing one are refused on identical terms and none can drift
+ * from the others.
  *
  * A composition with no component registered publishes no views, for the reason
  * it is offered no tool: there is no component for a view to place, so a
  * refusal naming every view would say only that this deployment composed no
- * component plugin. The first catalog that holds one is where a broken view
- * fails, which is the earliest point the failure can be told from that one.
+ * component plugin. The first catalog that holds one is where a broken
+ * configured view fails, which is the earliest point the failure can be told
+ * from that one.
  * @param ctx - the injected context carrying the catalog.
  * @param config - the validated config, with its defaults already applied.
  * @param homeView - the `homeView` config value, when set.
@@ -339,33 +345,27 @@ function judgeViews(
  * which is a menu row that shows an empty column when a user clicks it.
  */
 function installViews(ctx: Context, config: ResolvedConfig, homeView: string | undefined): void {
-  trackCatalog(ctx, (catalog) => {
-    if (catalog.entries.length === 0) return undefined
-    const views = judgeViews(ctx, catalog, config, homeView)
-    if (views.size === 0) return undefined
-    // Both pieces exist only where views do, and each waits for the seam it
-    // needs the way every other piece of this row does. A deployment that
-    // configures views composes the console's webserver and command registry —
-    // the overlay that inserts this row is what guarantees it — and one that
-    // composes neither has no sidebar to click in either.
-    const document: ComponentViewsDocument = {
-      views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
-      ...homeView === undefined ? {} : { homeView },
+  // The service installs itself on the context and is withdrawn with this
+  // row's fiber, so nothing here holds the instance.
+  new ComponentViewRegistry(ctx, {
+    views: config.views,
+    ...homeView === undefined ? {} : { homeView },
+  })
+  ctx.inject(['componentViews'], (viewsCtx) => {
+    let held: (() => void) | undefined
+    const rebuild = (): void => {
+      held?.()
+      held = publishViews(viewsCtx, viewsCtx.componentViews.index, homeView)
     }
-    const route = ctx.inject(['webServer'], (serverCtx) => {
-      serverCtx.effect(
-        () => serverCtx.webServer.register(viewCatalogRoute(document)),
-        'show-component: the view catalog route',
-      )
-    })
-    const command = ctx.inject(['commands'], (commandsCtx) => {
-      commandsCtx.commands.register(showContentViewCommand(views))
-    })
-    return () => {
-      void route.dispose()
-      void command.dispose()
-    }
-  }, 'show-component: the configured views')
+    viewsCtx.effect(() => {
+      rebuild()
+      return () => {
+        held?.()
+        held = undefined
+      }
+    }, 'show-component: the view catalog and the command that shows one')
+    viewsCtx.componentViews.onChange(rebuild)
+  })
 }
 
 /**
