@@ -98,6 +98,28 @@ The projection registry fixes a unit's `apply`, `view`, and `stateVersion` at re
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcomponentcatalog--componentcatalogregistry"></a>
+
+### `ctx.componentCatalog` — `ComponentCatalogRegistry`
+
+`ctx.componentCatalog`: the components a `show_component` call may place.
+
+Registration is an effect on the calling context's fiber, so disposing the component row takes its components out of the catalog and every reader — the tool's description included — is rebuilt without them.
+
+```ts cordis-catalog
+/**
+ * Register one package's components.
+ * @param contribution - the components, and the package contributing them.
+ * @returns the exact disposer that unregisters this contribution.
+ * @throws {Error} when the contribution repeats an id within itself or claims
+ * one another package already registered; the refusal names both packages and
+ * nothing of the contribution is registered.
+ */
+register(contribution: ComponentContribution): () => void
+```
+
+Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
+
 <a id="ctxcontentsurface--contentsurfaceregistry"></a>
 
 ### `ctx.contentSurface` — `ContentSurfaceRegistry`
@@ -120,4 +142,29 @@ register<D>(extractor: ContentSurfaceExtractor<D>): () => void
 ```
 
 Source: [`packages/experimental/content-surface/src/index.ts`](../../packages/experimental/content-surface/src/index.ts)
+
+<a id="component-catalog-events"></a>
+
+### `component-catalog/*` events
+
+<a id="component-catalogchange--emit"></a>
+
+#### `component-catalog/change` — emit
+
+The registered components changed: one package's contribution arrived, or one was disposed. Every model-visible and user-visible consequence of the catalog is rebuilt from this — the tool's description above all, which is why the notification carries the catalog rather than only saying that it moved.
+
+```ts cordis-catalog
+/**
+ * The registered components changed: one package's contribution arrived, or
+ * one was disposed. Every model-visible and user-visible consequence of the
+ * catalog is rebuilt from this — the tool's description above all, which is
+ * why the notification carries the catalog rather than only saying that it
+ * moved.
+ * @param catalog - the catalog as it stands after the change.
+ * @mode emit
+ */
+'component-catalog/change'(catalog: ComponentCatalog): void
+```
+
+Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
 <!-- END GENERATED cordis-surface -->

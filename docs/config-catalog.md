@@ -741,7 +741,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/component-kit/src/index.ts:34`](../packages/experimental/component-kit/src/index.ts)
+Source: [`packages/experimental/component-kit/src/index.ts:44`](../packages/experimental/component-kit/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-component-surface"></a>
 
@@ -831,7 +831,7 @@ export interface ContentView {
 }
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:91`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:102`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 

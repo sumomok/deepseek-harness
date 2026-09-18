@@ -757,6 +757,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'componentCatalog',
+    summary: '`ctx.componentCatalog`: the components a `show_component` call may place.',
+    description: '`ctx.componentCatalog`: the components a `show_component` call may place.\n\nRegistration is an effect on the calling context\'s fiber, so disposing the component row takes its components out of the catalog and every reader — the tool\'s description included — is rebuilt without them.',
+    methods: [
+      {
+        signature: 'register(contribution: ComponentContribution): () => void',
+        description: 'Register one package\'s components.',
+        parameters: [{ name: 'contribution', description: 'the components, and the package contributing them.' }],
+        returns: 'the exact disposer that unregisters this contribution.',
+        throws: ['{Error} when the contribution repeats an id within itself or claims one another package already registered; the refusal names both packages and nothing of the contribution is registered.'],
+      },
+    ],
+  },
+  {
     key: 'contentSurface',
     summary: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.',
     description: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.\n\n**Registration timing is free.** The projection registry fixes a unit\'s fold and its `stateVersion` at registration and caches one folded cell per session, so a table read live inside one long-lived unit would leave every cell built before a late extractor arrived permanently missing that kind\'s history. This registry therefore registers a NEW unit for every table change: the registry drops the old unit\'s cells with it, and each session\'s next touch refolds `init` over its whole in-memory log through the new table. `stateVersion` is derived from the table for the same reason, so a persisted checkpoint written under a different set of kinds is discarded rather than forward-applied.\n\nThe one cost is push latency: the registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session\'s next event.',
@@ -3119,6 +3133,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'component-catalog/change',
+    mode: 'emit',
+    signature: '\'component-catalog/change\'(catalog: ComponentCatalog): void',
+    summary: 'The registered components changed: one package\'s contribution arrived, or one was disposed.',
+    description: 'The registered components changed: one package\'s contribution arrived, or one was disposed. Every model-visible and user-visible consequence of the catalog is rebuilt from this — the tool\'s description above all, which is why the notification carries the catalog rather than only saying that it moved.',
+    parameters: [{ name: 'catalog', description: 'the catalog as it stands after the change.' }],
+  },
+  {
     name: 'cordis/dynamic-package',
     mode: 'emit',
     signature: '\'cordis/dynamic-package\'(pkg: DynamicCordisPackage): void',
@@ -3467,6 +3489,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the Service and Event signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'ActionReport',
+    declaration: 'export type ActionReport = \'silent\' | \'context\' | \'wake\';',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -3557,6 +3583,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequestEvent',
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ArrayFieldSchema',
+    declaration: 'export interface ArrayFieldSchema {\n    readonly kind: \'array\';\n    readonly item: PropsFieldSchema;\n    readonly minItems: number;\n    readonly maxItems: number;\n    readonly uniqueBy?: string;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -3707,12 +3737,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
   },
   {
+    name: 'BooleanFieldSchema',
+    declaration: 'export interface BooleanFieldSchema {\n    readonly kind: \'boolean\';\n}',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
   {
     name: 'BrandedNumber',
     declaration: 'export type BrandedNumber<B extends string> = number & {\n    readonly [BRAND]: B;\n};',
+  },
+  {
+    name: 'CatalogId',
+    declaration: 'export type CatalogId = Branded<\'ComponentCatalogId\'>;',
   },
   {
     name: 'ChunkRow',
@@ -3801,6 +3839,42 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionTrigger',
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
+  },
+  {
+    name: 'ComponentActionContext',
+    declaration: 'export interface ComponentActionContext {\n    readonly entryId: string;\n    readonly entryTitle: string;\n    readonly node: ComponentNode;\n    readonly component: ComponentCatalogEntry;\n    readonly payload: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'ComponentActionDefinition',
+    declaration: 'export interface ComponentActionDefinition {\n    readonly id: string;\n    readonly report: ActionReport;\n    readonly payloadSchema: PropsSchema;\n    readonly describe: (context: ComponentActionContext) => ComponentActionNotice | undefined;\n}',
+  },
+  {
+    name: 'ComponentActionNotice',
+    declaration: 'export interface ComponentActionNotice {\n    readonly text: string;\n    readonly summary: string;\n}',
+  },
+  {
+    name: 'ComponentCatalog',
+    declaration: 'export interface ComponentCatalog {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly byId: ReadonlyMap<string, ComponentCatalogEntry>;\n    readonly maxSpecDepth: number;\n}',
+  },
+  {
+    name: 'ComponentCatalogEntry',
+    declaration: 'export interface ComponentCatalogEntry {\n    readonly id: CatalogId;\n    readonly label: string;\n    readonly purpose: string;\n    readonly propsSchema: PropsSchema;\n    readonly actions: readonly ComponentActionDefinition[];\n    readonly outputs: readonly ComponentOutput[];\n    readonly sanitize?: SanitizeRules;\n}',
+  },
+  {
+    name: 'ComponentContribution',
+    declaration: 'export interface ComponentContribution {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly source: ComponentSource;\n}',
+  },
+  {
+    name: 'ComponentNode',
+    declaration: 'export interface ComponentNode {\n    readonly id: string;\n    readonly component: string;\n    readonly props: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'ComponentOutput',
+    declaration: 'export interface ComponentOutput {\n    readonly id: string;\n    readonly shape: PropsFieldSchema;\n}',
+  },
+  {
+    name: 'ComponentSource',
+    declaration: 'export interface ComponentSource {\n    readonly package: string;\n    readonly version: string;\n}',
   },
   {
     name: 'CompositionRowEnablement',
@@ -4101,6 +4175,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EncodedImageAttachment',
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
+  },
+  {
+    name: 'EnumFieldSchema',
+    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n}',
   },
   {
     name: 'EpochHeader',
@@ -4627,6 +4705,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ModelReasoningEffort {\n    readonly id: string;\n    readonly name: string;\n    readonly description?: string;\n}',
   },
   {
+    name: 'NumberFieldSchema',
+    declaration: 'export interface NumberFieldSchema {\n    readonly kind: \'number\';\n    readonly min: number;\n    readonly max: number;\n    readonly integer?: true;\n}',
+  },
+  {
+    name: 'ObjectFieldSchema',
+    declaration: 'export interface ObjectFieldSchema {\n    readonly kind: \'object\';\n    readonly fields: PropsSchema;\n}',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -4739,6 +4825,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
   },
   {
+    name: 'PropsField',
+    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n}',
+  },
+  {
+    name: 'PropsFieldSchema',
+    declaration: 'export type PropsFieldSchema = StringFieldSchema | NumberFieldSchema | BooleanFieldSchema | ScalarFieldSchema | EnumFieldSchema | ObjectFieldSchema | RecordFieldSchema | ArrayFieldSchema;',
+  },
+  {
+    name: 'PropsSchema',
+    declaration: 'export type PropsSchema = Readonly<Record<string, PropsField>>;',
+  },
+  {
     name: 'ProviderRequestId',
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
@@ -4769,6 +4867,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'RecordFieldSchema',
+    declaration: 'export interface RecordFieldSchema {\n    readonly kind: \'record\';\n    readonly key: StringFieldSchema;\n    readonly maxKeys: number;\n    readonly maxValueLength: number;\n    readonly minValue: number;\n    readonly maxValue: number;\n    readonly sanitize?: SanitizeRules;\n}',
   },
   {
     name: 'RedactedSecret',
@@ -4871,6 +4973,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
   },
   {
+    name: 'SanitizeClass',
+    declaration: 'export type SanitizeClass = \'path\' | \'color\' | \'related-component\';',
+  },
+  {
+    name: 'SanitizeRules',
+    declaration: 'export type SanitizeRules = Readonly<Record<string, SanitizeClass>>;',
+  },
+  {
     name: 'SaveFileAttachment',
     declaration: 'export interface SaveFileAttachment {\n    data: Uint8Array;\n    name: string;\n}',
   },
@@ -4881,6 +4991,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SaveTextSpill',
     declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+  },
+  {
+    name: 'ScalarFieldSchema',
+    declaration: 'export interface ScalarFieldSchema {\n    readonly kind: \'scalar\';\n    readonly maxLength: number;\n    readonly maxItems: number;\n}',
   },
   {
     name: 'ScheduledToolDispatch',
@@ -5589,6 +5703,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StreamChunk',
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
+  },
+  {
+    name: 'StringCharset',
+    declaration: 'export interface StringCharset {\n    readonly allowed: RegExp;\n    readonly hint: string;\n}',
+  },
+  {
+    name: 'StringFieldSchema',
+    declaration: 'export interface StringFieldSchema {\n    readonly kind: \'string\';\n    readonly maxLength: number;\n    readonly charset?: StringCharset;\n}',
   },
   {
     name: 'SubagentCapabilities',
