@@ -16,10 +16,10 @@
  *
  * A link destination shaped like a local filesystem path (a leading `/`,
  * `~/`, a drive letter, or a UNC `\\` share) and not an http(s)/mailto URL
- * never falls to that `text (destination)` text: it is decoded
- * (`decodeURIComponent`, best-effort — an undecodable destination keeps its
- * raw text) and offered to `MarkdownProseReferents.resolveLink`, when a
- * referents provider composed one in. A verified destination renders
+ * skips that `text (destination)` text while a referents provider declaring
+ * `resolveLink` is composed in: it is decoded (`decodeURIComponent`,
+ * best-effort — an undecodable destination keeps its raw text) and offered to
+ * `MarkdownProseReferents.resolveLink`. A verified destination renders
  * clickable, in the same style `referents.scan` hits use; an unverified one
  * renders its display text in plain inline-code style with the destination
  * on `title` — never as trailing inert text, which would put a long path
