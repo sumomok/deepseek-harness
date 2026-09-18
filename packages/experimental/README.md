@@ -41,6 +41,7 @@ The experimental group contains prototype capabilities that are not part of any 
 | [`server-base`](server-base/README.md) | Tells the browser which path prefix this process is served under, so every URL the page builds keeps it | — |
 | [`server-layout`](server-layout/README.md) | Service-line shell: a permanent four-track frame (session, content, chat, details) replacing the shipped one | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.md) | Product console sidebar: a fixed workbench/navigation/workflows console replacing the shipped one, plus the de-terminology layer a customer-form page needs | — |
+| [`skill-pack`](skill-pack/README.md) | Skill provider for a pack root: a pack is offered only once every component plugin part its views place is registered | `ctx.skillPacks` |
 | [`tool-agent-team`](tool-agent-team/README.md) | Nine tools that let the model create, message, and coordinate teammates | registers scoped tools on `ctx.tools` |
 | [`vue-ui-poc`](vue-ui-poc/README.md) | Feasibility probe: a Vue 3 component hosted in a React slot through a thin bridge | — |
 | [`vue2-echarts-poc`](vue2-echarts-poc/README.md) | Component library: an ECharts bar chart written as a Vue 2.7 component, bridged into React | — |

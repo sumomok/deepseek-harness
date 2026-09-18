@@ -41,6 +41,7 @@ kind: "package-group"
 | [`server-base`](server-base/README.zh.md) | 告诉浏览器：这个进程被挂在哪个路径前缀下，让页面构造的每个 URL 都带上它 | — |
 | [`server-layout`](server-layout/README.zh.md) | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.zh.md) | 产品控制台侧边栏：用固定的工作台/导航/工作流控制台替换出厂侧边栏，并承载客户表单页所需的去术语层 | — |
+| [`skill-pack`](skill-pack/README.zh.md) | 技能包根目录的技能提供方：只有某个技能包的视图所摆放的每个组件插件部件都已注册，它才会被交出去 | `ctx.skillPacks` |
 | [`tool-agent-team`](tool-agent-team/README.zh.md) | 让模型创建、发消息与协调 teammate 的九个工具 | 按作用域注册工具到 `ctx.tools` |
 | [`vue-ui-poc`](vue-ui-poc/README.zh.md) | 可行性验证：通过一座薄桥把 Vue 3 组件挂进 React slot | — |
 | [`vue2-echarts-poc`](vue2-echarts-poc/README.zh.md) | 组件库：以 Vue 2.7 组件写成、经桥接入 React 的 ECharts 柱状图 | — |

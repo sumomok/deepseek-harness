@@ -1178,6 +1178,26 @@ export interface Config {
 
 来源：[`packages/experimental/server-sidebar/src/index.ts:53`](../packages/experimental/server-sidebar/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-skill-pack"></a>
+
+## `@deepseek-ai/dsh-experimental-skill-pack`
+
+需要：`skills`
+
+```ts config-catalog
+/** Where the packs are, which platform version they are judged against, and whether the root is watched. */
+export interface Config {
+  /** Absolute path of the pack root: one directory per pack. */
+  root: string
+  /** The console platform's own exact version, which a pack's `pack.platform` range is matched against. */
+  platformVersion: string
+  /** Whether the pack root is watched, so a pack arriving or leaving takes effect without a restart. */
+  watch?: boolean
+}
+```
+
+来源：[`packages/experimental/skill-pack/src/index.ts:88`](../packages/experimental/skill-pack/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
