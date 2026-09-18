@@ -70,7 +70,7 @@ import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
-import { indexViews } from './views.ts'
+import { indexViews, type ViewIndex } from './views.ts'
 
 // The `content-component/shown` declaration lives in src/types.ts (its one
 // home); this re-export projects the type face onto the package root and keeps
@@ -280,6 +280,41 @@ function installOffer(
 }
 
 /**
+ * Judge the configured views, and say so in the process log when they fail.
+ *
+ * The sentence reaches nobody otherwise. The refusal travels back to the
+ * registration that completed the catalog, and a contributing row's fiber
+ * carries a rejection without printing it, so an operator whose `views` block
+ * is wrong meets a deployment with no components, no views and no tool, and a
+ * process log with nothing in it. One line per contribution the views could not
+ * be judged against, at error level, carrying the whole refusal and what it
+ * cost.
+ * @param ctx - the injected context, whose logger is named after this row.
+ * @param catalog - the components this deployment offers.
+ * @param config - the validated config, with its defaults already applied.
+ * @param homeView - the `homeView` config value, when set.
+ * @returns the accepted views, indexed by id.
+ * @throws {Error} whatever the judgement refused the config with, after logging it.
+ */
+function judgeViews(
+  ctx: Context,
+  catalog: ComponentCatalog,
+  config: ResolvedConfig,
+  homeView: string | undefined,
+): ViewIndex {
+  try {
+    return indexViews(catalog, config.views, homeView)
+  } catch (refusal) {
+    ctx.logger.error(
+      '%s; this deployment comes up with no components, no views and no show_component tool until that view is '
+      + 'corrected or removed',
+      refusal,
+    )
+    throw refusal
+  }
+}
+
+/**
  * Publish the deployment's own views and the command that shows one.
  *
  * Judged against the catalog rather than at load, because what a view may place
@@ -301,7 +336,7 @@ function installOffer(
 function installViews(ctx: Context, config: ResolvedConfig, homeView: string | undefined): void {
   trackCatalog(ctx, (catalog) => {
     if (catalog.entries.length === 0) return undefined
-    const views = indexViews(catalog, config.views, homeView)
+    const views = judgeViews(ctx, catalog, config, homeView)
     if (views.size === 0) return undefined
     // Both pieces exist only where views do, and each waits for the seam it
     // needs the way every other piece of this row does. A deployment that

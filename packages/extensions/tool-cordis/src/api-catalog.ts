@@ -768,6 +768,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that unregisters this contribution.',
         throws: ['{Error} when the contribution repeats an id within itself or claims one another package already registered; the refusal names both packages and nothing of the contribution is registered.'],
       },
+      {
+        signature: 'onChange(listener: (catalog: ComponentCatalog) => void): () => void',
+        description: 'Watch the catalog for as long as the calling fiber lives.\n\nA subscription rather than a Cordis event because a refusal has to travel: a listener that rejects the catalog a contribution makes refuses that contribution, and a dispatched event contains its listeners\' failures by design. Subscribers are called in registration order, one after another, with the catalog as it stands after the change — so the first one to refuse it stops the rest, and the contribution is withdrawn before any of them is told again.',
+        parameters: [{ name: 'listener', description: 'called on every change, never for the current catalog; read {@link catalog} for that.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
+      },
     ],
   },
   {
@@ -3131,14 +3137,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A command was registered or unregistered.',
     description: 'A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view. Observer failures are contained and cannot veto the registry mutation.',
     parameters: [],
-  },
-  {
-    name: 'component-catalog/change',
-    mode: 'emit',
-    signature: '\'component-catalog/change\'(catalog: ComponentCatalog): void',
-    summary: 'The registered components changed: one package\'s contribution arrived, or one was disposed.',
-    description: 'The registered components changed: one package\'s contribution arrived, or one was disposed. Every model-visible and user-visible consequence of the catalog is rebuilt from this — the tool\'s description above all, which is why the notification carries the catalog rather than only saying that it moved.',
-    parameters: [{ name: 'catalog', description: 'the catalog as it stands after the change.' }],
   },
   {
     name: 'cordis/dynamic-package',

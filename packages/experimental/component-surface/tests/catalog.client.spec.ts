@@ -131,6 +131,44 @@ describe('the component catalog registry', () => {
     expect(ctx.componentCatalog.catalog.entries).toEqual([])
   })
 
+  it('tells watchers in registration order, and only about changes', async () => {
+    const ctx = await registry()
+    const seen: string[] = []
+    ctx.componentCatalog.onChange(catalog => seen.push(`first:${catalog.entries.length}`))
+    ctx.componentCatalog.onChange(catalog => seen.push(`second:${catalog.entries.length}`))
+    // Nothing yet: a watcher hears about changes, and reads the catalog it
+    // starts from itself.
+    expect(seen).toEqual([])
+
+    const dispose = ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
+    dispose()
+    expect(seen).toEqual(['first:2', 'second:2', 'first:0', 'second:0'])
+  })
+
+  it('stops telling a watcher its disposer took out', async () => {
+    const ctx = await registry()
+    const seen: number[] = []
+    const stop = ctx.componentCatalog.onChange(catalog => seen.push(catalog.entries.length))
+    stop()
+    ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
+    expect(seen).toEqual([])
+  })
+
+  it('stops telling a watcher whose fiber went (HMR safety)', async () => {
+    const ctx = await registry()
+    const seen: number[] = []
+    const fiber = ctx.plugin({
+      inject: ['componentCatalog'],
+      apply: (child: Context) => {
+        child.componentCatalog.onChange(catalog => seen.push(catalog.entries.length))
+      },
+    })
+    await fiber.await()
+    await fiber.dispose()
+    ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
+    expect(seen).toEqual([])
+  })
+
   it('rebuilds a tracked registration on every change, and releases it with the fiber', async () => {
     const ctx = await registry()
     const seen: number[] = []

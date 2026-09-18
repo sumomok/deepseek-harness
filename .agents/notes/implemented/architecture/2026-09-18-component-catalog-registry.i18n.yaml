@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-component-catalog-registry.md
-2026-09-18-component-catalog-registry.md: 275f2a24f0a5c85f3076a7b8d6095efd2ba8f6a9
-2026-09-18-component-catalog-registry.zh.md: 0ffd9a0d340d94e3ef151e995967273ac3071b65
+2026-09-18-component-catalog-registry.md: 3d72b9a8b7e0ec03256339c5bd2479fd6e1c3fdc
+2026-09-18-component-catalog-registry.zh.md: 956daa5c262420daee8ef71aa93c4bb4406a9c45

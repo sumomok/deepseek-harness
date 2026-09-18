@@ -12,7 +12,9 @@ Status: implemented
 
 ## 决定
 
-**目录就是 `ctx.componentCatalog`，一个由 `component-surface` 持有的 Service Definition，出厂是空的。** 组件插件把一批定义连同写出它们的那个包一起注册进来；`register` 返回 disposer、走 `ctx.effect`，遇到别的包已注册过的 id 就点名两个包和两个版本后拒绝。贡献方的包名与版本在注册时从它自己的 `package.json` 里读，写在调用旁边的版本号不可能过期。服务对外给出当前目录，并发出 `component-catalog/change`。
+**目录就是 `ctx.componentCatalog`，一个由 `component-surface` 持有的 Service Definition，出厂是空的。** 组件插件把一批定义连同写出它们的那个包一起注册进来；`register` 返回 disposer、走 `ctx.effect`，遇到别的包已注册过的 id 就点名两个包和两个版本后拒绝。贡献方的包名与版本在注册时从它自己的 `package.json` 里读，写在调用旁边的版本号不可能过期。服务对外给出当前目录，以及一个订阅口 `onChange`。
+
+**变更通知做成服务上的订阅，而不是 Cordis 事件。** 拒绝必须传得回去：读者拒掉某笔贡献造出的目录，拒的就是那笔贡献，而派发式事件按设计会把监听方的失败兜住。`onChange(listener)` 在调用方的 context 上走 `ctx.effect` 注册，于是一个订阅方随它自己的 fiber 一起释放；订阅方按注册顺序被叫到，第一个拒绝的那个会拦住其余。它也把本仓的事件词表挡在一个 Client 面的包之外——那种包的派发点，宿主种子的文档门禁根本看不见。
 
 **每个读者拿到的是一个 `ComponentCatalog` 值，而不是去读模块级全局量。** `readCatalog(entries)` 每次变化派生一次 id 索引与嵌套上限；`validate.ts`、`tool.ts`、`crud.ts`、`views.ts`、`surface.ts`、`command.ts`、`action-state.ts` 以及浏览器的 `spec.ts` 都把它当参数收。`trackCatalog(ctx, install, label)` 按目录版本重建一处注册，这正是工具描述、内容抽取器和手势折叠不会拿着一份已经变了的目录继续作答的原因。
 
@@ -29,7 +31,7 @@ Status: implemented
 | # | 问题 | 回答 |
 |---|---|---|
 | 0 | 哪条既有原则已经把它定了 | **一条能力缝由 Service Definition / Service Provider / Consumer 三个角色构成；它是完整的，从来不是单独一个角色**（`AGENTS.md`）。条目来自别的包的目录就是一个有提供方的 Service Definition，而那张静态表是一个替提供方保管数据的 Consumer。触发条件表自己的注释早就写明了。 |
-| 1 | 新增长期表面的数量与清单 | **六个。** `ctx.componentCatalog`（宿主 Service Definition：`catalog`、`components`、`register`）；`component-catalog/change` 这个 Cordis 事件；`trackCatalog()`；`ctx.componentRenderers`（浏览器 Service Definition：`catalog`、`rendererFor`、`register`）；搬进 `component-surface/client` 的 `ComponentRendererProps` / `ComponentRenderer` / `ComponentRendererTable`；`contentComponent` 这个 locale 命名空间。 |
+| 1 | 新增长期表面的数量与清单 | **五个。** `ctx.componentCatalog`（宿主 Service Definition：`catalog`、`components`、`register`、`onChange`）；`trackCatalog()`；`ctx.componentRenderers`（浏览器 Service Definition：`catalog`、`rendererFor`、`register`）；搬进 `component-surface/client` 的 `ComponentRendererProps` / `ComponentRenderer` / `ComponentRendererTable`；`contentComponent` 这个 locale 命名空间。 |
 | 2 | 能证明它的最小版本 | `component-kit` 在两个半边各注册自己的六项，外加一个不组合它、因而拿不到工具的组合（`composition.client.spec.ts` 的 “offers no tool where no component plugin is composed”）。再小——只有一个包能填的注册表，或只有宿主侧的注册表——就等于让浏览器那一端继续决定有哪些组件，包依赖也继续反着走。 |
 | 3 | 做缝还是写死，点名 ≥2 个近期真实变体 | **做缝。** 三个真实贡献方：`component-kit`（本次已迁移）；`vue2-echarts-tool-poc`，它之所以自带 `show_chart` 和一个 `chart` 内容种类，就是因为没有目录可以让它贡献一个 `toy.chart`——它的定义会是一项、一个动作、一个渲染器；以及按客户定制的组件库，那正是内容面存在的理由，而它们根本不可能写进本仓的某张表里。 |
 | 4 | 六向边界表 | 见下 |
@@ -41,7 +43,7 @@ Status: implemented
 | id 归属 | 一个 id 一个包，先注册者得，第二个在注册时被拒 | 两个包在同一个 id 下画不同的东西，由加载顺序决定谁赢 | 永久 |
 | 宿主 ⇄ 浏览器 | 两个半边收同一批定义；浏览器那份不带包身份 | 页面拿自己画不出来的组件去判定载荷；或者要求浏览器做它根本做不到的清单读取 | 永久 |
 | 读者何时看到变化 | 每一处依赖目录的注册都经 `trackCatalog` 按目录版本重建，绝不实时读 | 描述、折叠或抽取器拿着「第一个调用者到达时恰好在位的那份目录」继续作答 | 永久 |
-| 部署自写视图在哪里判定 | 在第一份带组件的目录上判定，失败则让「把目录补齐的那一笔贡献」失败 | 一条谁都画不出来、且哪里都没说为什么的菜单行 | 暂缓 —— 复查触发器：插件系统提供一种加载屏障，让这一行能等齐所有已组合的贡献方；届时拒绝就能落回配置写错的那一行 |
+| 部署自写视图在哪里判定 | 在第一份带组件的目录上判定，失败则让「把目录补齐的那一笔贡献」失败，并由配置写错的那一行以 error 级记下整句拒绝与它的代价 | 一条谁都画不出来、且哪里都没说为什么的菜单行 | 暂缓 —— 复查触发器：插件系统提供一种加载屏障，让这一行能等齐所有已组合的贡献方；届时拒绝就能落回配置写错的那一行 |
 
 ## 考虑过的其他做法
 
@@ -57,7 +59,9 @@ Status: implemented
 
 `snapshots/console/cordis.yml` 现在组合了 `component-kit` 的 node 半边；不组合它时，那条泳道的 `show_component` 调用答的是 `UNKNOWN_TOOL`。固件没有变，这正是六项及其顺序在这次搬家中原样存活的证据。
 
-一个 spec 被目录拒掉的部署自写视图，不再从本行自己的 `apply` 里让启动失败。失败的是「把目录补齐的那一笔贡献」，那笔贡献被撤回，部署起来时既没有组件、也没有视图、也没有工具。两份 README 都把它记在 Known Limitations 里，连同能让它挪回去的那个条件。
+一个 spec 被目录拒掉的部署自写视图，不再从本行自己的 `apply` 里让启动失败。失败的是「把目录补齐的那一笔贡献」，那笔贡献被撤回，部署起来时既没有组件、也没有视图、也没有工具。
+
+除此之外，这次失败留下的一切都只是「没有」。在起好的组合上实测：没有任何一行报失败状态，没有任何 fiber 带着看得见的错误，工具表是空的——所以本行以自己的名字、error 级记下整句拒绝和它的代价，然后重新抛出。cordis 会对同一个 fiber 再记一次同样的 rejection，带栈、不带代价。在出厂组合上两者都到不了终端：本仓没有任何 profile 组合 `@deepseek-ai/cordis-plugin-logger-console`，于是 `ctx.logger` 的输出只进缓冲区，从不打印。两份 README 都把这条记在 Known Limitations 里。
 
 `block.unsupported` 现在只有「页面持有某个组件的定义却没有画它的渲染器」时才到得了，而注册接口不会造出这种页面；载荷点名一个未注册组件时，实际会发生的是整条条目被拒——因为座位拿的是它手上真有的那份目录，跑的是宿主那套判定。
 

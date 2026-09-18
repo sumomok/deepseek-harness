@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Logger } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -80,9 +80,17 @@ const VIEWS_BLOCK = [
 let world: string | undefined
 let context: Context | undefined
 
+/** Every error record the booted composition logged, as `[logger name] text`. */
+let errorLog: string[] = []
+
+/** The clause the row's own refusal line carries and no other record does. */
+const CONSEQUENCE = 'this deployment comes up with no components, no views and no show_component tool '
+  + 'until that view is corrected or removed'
+
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
+  errorLog = []
   if (world !== undefined) await rm(world, { recursive: true, force: true })
   world = undefined
 })
@@ -120,6 +128,13 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
 
   const ctx = new Context()
   context = ctx
+  // The sink a console exporter is: what a row logs while booting is what an
+  // operator reads, so the assertions are made on the rendered text.
+  ctx.logger.exporter({
+    export: (message) => {
+      if (message.type === 'error') errorLog.push(`[${message.name}] ${Logger.format({ export() {} }, message)}`)
+    },
+  })
   ctx.baseUrl = pathToFileURL(world).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
@@ -291,8 +306,33 @@ describe('a deployment whose views the tool would refuse', () => {
     expect((await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${COMPONENT_VIEWS_ROUTE}`)).status).not.toBe(200)
   })
 
+  it('says so in the process log, naming the view, the whole refusal and what it cost', async () => {
+    // Everything else about this failure is an absence — no tool, no route, no
+    // view — and the refusal itself travels to the registration that completed
+    // the catalog. This line is the only one that tells an operator which view
+    // is wrong and what the deployment lost for it; cordis logs the same
+    // rejection again under the same row with a stack and no consequence,
+    // which is why the assertion is on the row's own sentence.
+    await loadComposition({
+      views: [
+        '    views:',
+        '      - id: site-overview',
+        '        title: 站点概览',
+        `        spec: ${JSON.stringify({ nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })}`,
+      ],
+    })
+    const told = errorLog.filter(line => line.includes(CONSEQUENCE))
+    expect(told).toHaveLength(1)
+    expect(told[0]).toContain('[show-component] ')
+    expect(told[0]).toContain('component-surface: views[0] "site-overview" — spec.nodes[0].component')
+    expect(told[0]).toContain('names no component of this deployment. Available components:')
+  })
+
   it('refuses a homeView naming no configured view the same way', async () => {
     const ctx = await loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' })
     expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
+    const told = errorLog.filter(line => line.includes(CONSEQUENCE))
+    expect(told).toHaveLength(1)
+    expect(told[0]).toContain('component-surface: homeView "alerts" names no configured view')
   })
 })

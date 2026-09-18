@@ -116,6 +116,22 @@ Registration is an effect on the calling context's fiber, so disposing the compo
  * nothing of the contribution is registered.
  */
 register(contribution: ComponentContribution): () => void
+
+/**
+ * Watch the catalog for as long as the calling fiber lives.
+ *
+ * A subscription rather than a Cordis event because a refusal has to travel:
+ * a listener that rejects the catalog a contribution makes refuses that
+ * contribution, and a dispatched event contains its listeners' failures by
+ * design. Subscribers are called in registration order, one after another,
+ * with the catalog as it stands after the change — so the first one to refuse
+ * it stops the rest, and the contribution is withdrawn before any of them is
+ * told again.
+ * @param listener - called on every change, never for the current catalog;
+ *   read {@link catalog} for that.
+ * @returns the disposer that stops the watch, which the calling fiber also runs.
+ */
+onChange(listener: (catalog: ComponentCatalog) => void): () => void
 ```
 
 Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
@@ -142,29 +158,4 @@ register<D>(extractor: ContentSurfaceExtractor<D>): () => void
 ```
 
 Source: [`packages/experimental/content-surface/src/index.ts`](../../packages/experimental/content-surface/src/index.ts)
-
-<a id="component-catalog-events"></a>
-
-### `component-catalog/*` events
-
-<a id="component-catalogchange--emit"></a>
-
-#### `component-catalog/change` — emit
-
-The registered components changed: one package's contribution arrived, or one was disposed. Every model-visible and user-visible consequence of the catalog is rebuilt from this — the tool's description above all, which is why the notification carries the catalog rather than only saying that it moved.
-
-```ts cordis-catalog
-/**
- * The registered components changed: one package's contribution arrived, or
- * one was disposed. Every model-visible and user-visible consequence of the
- * catalog is rebuilt from this — the tool's description above all, which is
- * why the notification carries the catalog rather than only saying that it
- * moved.
- * @param catalog - the catalog as it stands after the change.
- * @mode emit
- */
-'component-catalog/change'(catalog: ComponentCatalog): void
-```
-
-Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
 <!-- END GENERATED cordis-surface -->

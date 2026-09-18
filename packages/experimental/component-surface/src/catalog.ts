@@ -32,18 +32,6 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     componentCatalog: ComponentCatalogRegistry
   }
-  interface Events {
-    /**
-     * The registered components changed: one package's contribution arrived, or
-     * one was disposed. Every model-visible and user-visible consequence of the
-     * catalog is rebuilt from this — the tool's description above all, which is
-     * why the notification carries the catalog rather than only saying that it
-     * moved.
-     * @param catalog - the catalog as it stands after the change.
-     * @mode emit
-     */
-    'component-catalog/change'(catalog: ComponentCatalog): void
-  }
 }
 
 /** The package one contribution came from, read from that package's own manifest. */
@@ -89,6 +77,9 @@ function sourceName(source: ComponentSource): string {
 export class ComponentCatalogRegistry extends Service {
   /** Every registered component, in registration order, keyed by id for the duplicate check. */
   private readonly registered = new Map<string, CatalogedComponent>()
+
+  /** Subscribers, in registration order, which is the order a change reaches them in. */
+  private readonly watchers = new Set<(catalog: ComponentCatalog) => void>()
 
   /** The derived catalog, rebuilt whenever {@link registered} changes. */
   private derived: ComponentCatalog = EMPTY_CATALOG
@@ -158,12 +149,34 @@ export class ComponentCatalogRegistry extends Service {
   }
 
   /**
-   * Rebuild the derived catalog and tell everyone reading it.
-   * @throws whatever a reader refuses the new catalog with.
+   * Watch the catalog for as long as the calling fiber lives.
+   *
+   * A subscription rather than a Cordis event because a refusal has to travel:
+   * a listener that rejects the catalog a contribution makes refuses that
+   * contribution, and a dispatched event contains its listeners' failures by
+   * design. Subscribers are called in registration order, one after another,
+   * with the catalog as it stands after the change — so the first one to refuse
+   * it stops the rest, and the contribution is withdrawn before any of them is
+   * told again.
+   * @param listener - called on every change, never for the current catalog;
+   *   read {@link catalog} for that.
+   * @returns the disposer that stops the watch, which the calling fiber also runs.
+   */
+  onChange(listener: (catalog: ComponentCatalog) => void): () => void {
+    const dispose = this.ctx.effect(() => {
+      this.watchers.add(listener)
+      return () => this.watchers.delete(listener)
+    }, 'componentCatalog.onChange()')
+    return () => void dispose()
+  }
+
+  /**
+   * Rebuild the derived catalog and tell everyone watching it.
+   * @throws whatever a watcher refuses the new catalog with.
    */
   private resync(): void {
     this.derived = readCatalog([...this.registered.values()].map(one => one.entry))
-    this.ctx.emit('component-catalog/change', this.derived)
+    for (const watcher of this.watchers) watcher(this.derived)
   }
 }
 
@@ -197,5 +210,5 @@ export function trackCatalog(
       held = undefined
     }
   }, label)
-  ctx.on('component-catalog/change', rebuild)
+  ctx.componentCatalog.onChange(rebuild)
 }
