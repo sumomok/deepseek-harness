@@ -5,7 +5,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ISession, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  RemoteError, SlotTestRuntime, TestRemote, stubSettingsScope, usePinnedBrowserLanguages,
+  RemoteError, SlotTestRuntime, stubSettingsScope, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
@@ -269,7 +269,7 @@ describe('Chat inject API', () => {
 
   it('referents (chat view face) is undefined with no proseReferents provider composed in', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents).toBeUndefined()
     await b.runtime.dispose()
   })
@@ -278,7 +278,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
     b.runtime.ctx.provide('proseReferents', { scan })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents).toBeDefined()
     injected.referents!.scan('see /proj/src/a.ts', true)
     expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
@@ -288,7 +288,7 @@ describe('Chat inject API', () => {
   it('referents.resolveLink is undefined when the provider declares no resolveLink', async () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.resolveLink).toBeUndefined()
     await b.runtime.dispose()
@@ -299,7 +299,7 @@ describe('Chat inject API', () => {
     const span = { start: 0, end: 9, kind: 'file' as const, target: '/proj/report.md', raw: '/proj/report.md' }
     const resolveLink = vi.fn(() => span)
     b.runtime.ctx.provide('proseReferents', { scan: () => [], resolveLink })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents!.resolveLink!('/proj/report.md', 'report.md')).toBe(span)
     expect(resolveLink).toHaveBeenCalledWith('/proj/report.md', 'report.md', { cwd: '/proj', home: '/home/fixture' })
     await b.runtime.dispose()
@@ -308,7 +308,7 @@ describe('Chat inject API', () => {
   it('referents.subscribe is undefined when the provider declares no subscribe', async () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.subscribe).toBeUndefined()
     await b.runtime.dispose()
@@ -319,7 +319,7 @@ describe('Chat inject API', () => {
     const unsubscribe = vi.fn()
     const subscribe = vi.fn(() => unsubscribe)
     b.runtime.ctx.provide('proseReferents', { scan: () => [], subscribe })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     const listener = (): void => {}
     const returned = injected.referents!.subscribe!(listener)
     expect(subscribe).toHaveBeenCalledWith(listener)
@@ -335,7 +335,7 @@ describe('Chat inject API', () => {
     let captured: unknown
     // Claims (never calls next): the default open action never runs.
     b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(injected.referents!.scan('src/a.ts', true)[0]!)
     await vi.waitFor(() => { expect(captured).toBeDefined() })
     expect(captured).toEqual({
@@ -349,7 +349,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
@@ -362,7 +362,7 @@ describe('Chat inject API', () => {
     const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
@@ -379,7 +379,7 @@ describe('Chat inject API', () => {
       ok: false,
       error: new RemoteError('session/path-not-found', 'path does not exist: /proj/deleted.md', { path: '/proj/deleted.md' }),
     })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
@@ -392,7 +392,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const opened: unknown[] = []
     b.runtime.ctx.on('referent/open', (ref: unknown) => { opened.push(ref); return Promise.resolve() })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // ProducedFiles opens the workspace root as '.'; no richer file/dir signal
     // reaches this closure, so the two cases are the whole vocabulary.
     await injected.openFile('.')
@@ -414,7 +414,7 @@ describe('Chat inject API', () => {
       return { ok: false, error: new RemoteError('session/path-not-found', 'gone', { path: '/proj/deleted.md' }) }
     })
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => { expect(settle).toBeDefined() })
     // The session closes while the open is still in flight: its composer, and
@@ -437,7 +437,7 @@ describe('Chat inject API', () => {
       error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
     })
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(errorSpy).toHaveBeenCalledWith('ui-chat: chat-prose referent open failed', expect.any(Error))
