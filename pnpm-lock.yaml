@@ -5254,6 +5254,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-experimental-component-surface':
+        specifier: workspace:^
+        version: link:../component-surface
       '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
         specifier: workspace:^
         version: link:../vue2-echarts-poc
@@ -5269,6 +5272,9 @@ importers:
 
   packages/experimental/component-surface:
     dependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:^
+        version: link:../../util/brand
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
