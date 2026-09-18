@@ -98,13 +98,14 @@
 
 ## disallowed-link-destination-notice — 被阻止的链接目标不再静默丢弃
 
-- **改了什么**：`packages/client/ui-primitives` 的 markdown 渲染在链接目标不被允许时保留可读文本与目标串，而不是渲染成空。
+- **改了什么**：`packages/client/ui-primitives` 的 markdown 渲染在链接目标不被允许时保留可读文本与目标串，而不是渲染成空。本轮起覆盖两条通路：`renderSafeLink` 的 `safeHref === ''` 分支，以及上游新增的 `MarkdownFileLink` 在 `openFile === undefined` 时的分支（`renderAnchor` 把归一化后的目标串一并传下去，两条通路写出同一串 `文本（目标）`）。
 - **为什么**：模型写出的本地路径或非允许协议链接被静默丢成空元素，读者既看不到文本也看不到目标。
 - **要达到的效果**：被阻止的目标仍以纯文本呈现，用户能读到模型实际写了什么。
 - **退役条件**：上游 `renderSafeLink` 自己对不被允许的目标保留可读文本。
-- **状态**：局部退役（`core-patches-v11`）。族整体在役，核实依据：上游 `renderSafeLink` 的 `safeHref === ''` 分支仍返回只含 children 的 `Fragment`，目标串仍被丢弃；`parseFileLink` 拒绝的目标（不支持的协议、`#L2` 之类的纯片段、坏的百分号转义、`//host/path`、带查询串的路径——上游自己的清单共 17 种）全部仍走本补丁的 `文本（目标）`。一处局部退役：
-  1. **本地路径形状的目标**。上游新增 `parseFileLink` + `MarkdownFileLink`（上游 PR #4379）：`renderAnchor` 先把这类目标交给文件链接通路，`renderSafeLink` 再也看不到它们。有 `openFile` 委托时（会话视图总是提供）它渲染成可点按钮，比本补丁的惰性文本更强；没有委托时它只渲染链接文字、目标再次丢失——那不是产品里的配置，本补丁不追进上游的新组件。
-- **本轮适配**：上游把 anchor 渲染拆成 `MarkdownAnchor` 组件、由 `MarkdownDelegateProvider` 提供 `openExternalLink`（上游 PR #4379），本补丁只改那条被拒分支，允许分支改为返回上游的 `MarkdownAnchor`；`ui-primitives` README 的「Rendering agent output」整段被上游重写，本补丁那半句重新落在 `MarkdownText` 段里；上游新增的 `markdown-file-links.client.spec.ts` 那 17 条惰性目标断言改成本 fork 的渲染，`links-and-autolinks.settled.txt` 重录一段。
+- **状态**：在役（`core-patches-v11`）。核实依据：上游 `renderSafeLink` 的 `safeHref === ''` 分支仍返回只含 children 的 `Fragment`，上游 `MarkdownFileLink` 在 `openFile === undefined` 时仍 `return <>{children}</>`，两条通路都仍丢目标串（`git show upstream/master:packages/client/ui-primitives/src/markdown/render.tsx`）。
+- **本轮适配**：上游把 anchor 渲染拆成 `MarkdownAnchor` 组件、由 `MarkdownDelegateProvider` 提供 `openExternalLink`（上游 PR #4379），本补丁只改那条被拒分支，允许分支改为返回上游的 `MarkdownAnchor`；`ui-primitives` README 的「Rendering agent output」整段被上游重写，本补丁那半句重新落在 `MarkdownText` 段里；上游同一 PR 新增的 `parseFileLink`／`MarkdownFileLink` 把本地路径形状的目标从 `renderSafeLink` 手里接走，本补丁跟进到那条新通路的无委托分支上；上游新增的 `markdown-file-links.client.spec.tsx` 那 17 条惰性目标断言与 1 条撤委托断言改成本 fork 的渲染，并新增 4 条无委托用例。
+- **判错订正（本轮）**：本族一度被记成「局部退役」，理由是「没有委托时目标丢失不是产品里的配置」。该前提不成立：全仓产品代码里 `MarkdownDelegateProvider` 只有 `packages/client/ui-chat/src/client/chat/ChatView.tsx` 一处，且只包住 `ChatNodeList`；`ui-sidebar-documentpreview` 的 `MarkdownBody`、`ui-plan` 的 `PlanPreview`、`ui-trajectory` 的 `TrajectoryTable`、`ui-user-questions` 的 `QuestionComposer` 四处分别挂在 `sidebar.right.pane.tab`／`conversation.view`／`conversation.composer` 上，都是 `conversation.chat` 的兄弟槽，不可能落进那棵子树。实测真实的 `MarkdownBody` 渲染 `[relative](/settings) and [js](javascript:alert(1))`：跟进前是 `relative and js (javascript:alert(1))`（本地路径目标被丢），跟进后是 `relative (/settings) and js (javascript:alert(1))`。因此这是本轮新引入的用户可见回归（`file-link.ts` 在上一轮基座上不存在），不是上游接管。族整体维持在役。
+- **提交信息订正**：提交 `test(ui-primitives): follow the destination the file-link path now claims` 与 `docs(notes): name the half of the link-destination fallback upstream now owns` 的信息写「no product surface renders markdown without the delegate」及等价中文表述，该前提按上一条订正；两条提交已推 origin、不改写历史，以本条为准。
 - **Agent Note**：[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
 
 ## factory-zero-deepseek-egress — 出厂零 DeepSeek 出站
@@ -212,7 +213,7 @@
 - **为什么**：该来源种类由本 fork 的产品线写入，V3 边不认识它就拒绝整份会话日志，而一次拒绝会让派生索引的整轮观察中止、内容搜索全库退回名称匹配。
 - **要达到的效果**：携带该来源种类的会话能迁移、能索引；接受面仍是一份按盘上实测列出的名单，不是通用放行。
 - **退役条件**：上游把该来源种类纳入已发布来源词表，或为来源分类提供自定义扩展点，或语料里不再存在它。
-- **状态**：在役（`core-patches-v11`）。
+- **状态**：在役（`core-patches-v11`）。核实依据：`git grep -c 'LEGACY_UNINTERPRETED_SOURCE_KINDS\|at-file-mention' upstream/master -- packages/session` 零命中，上游既没纳入该来源种类也没开扩展点；备份 home 语料（`~/.dsh.backup-2026-09-02-before-rc27` 的 121 份日志）里 `at-file-mention` 仍命中 8 份。
 - **Agent Note**：[`v2-to-v3-legacy-source-kind`](../.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md)
 
 ## session-format-out-of-repo-events — 已落盘的仓外历史事件过迁移边
@@ -231,7 +232,7 @@
 - **为什么**：这三种形状由本 fork 发过的构建写下，v0 边拒绝它们，对应会话打不开，并连带让内容搜索全库不可用。
 - **要达到的效果**：携带这三种形状的会话能打开、迁移、索引；接受面仍窄——其他多余成员、其他描述符版本、未点名的事件类型一律仍被拒绝。
 - **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移、把这些内容事件类型纳入清单，或为迁移边提供自定义词汇扩展点，或语料里不再存在写下它们的构建的产物。
-- **状态**：在役（`core-patches-v11`）。
+- **状态**：在役（`core-patches-v11`）。核实依据：`git show upstream/master:packages/session/session-format-v0-to-v1/src/dispositions.ts` 里 `'permission/preset'` 仍是 `disposition(['preset'])`、不含 `origin`；`LEGACY_SUBAGENT_DESCRIPTOR_VERSION` 在上游零命中（descriptor 版本 2→3 的迁移仍是 fork 独有）；备份 home 语料（121 份日志）里 `content/shown` 命中 6 份（共 46 处）、`content-surface/` 命中 2 份（共 40 处）、`permissionRules/decision` 命中 3 份。
 - **Agent Note**：[`v0-migration-legacy-shapes`](../.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md)
 
 ## session-index-generation-identity — 派生索引身份带上 Session 世代
