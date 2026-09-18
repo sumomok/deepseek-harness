@@ -1,5 +1,5 @@
 ---
-description: "内容面板 `component` 类目背后的 React 渲染器，以及给它们命名的目录 id 表，包含经桥接绘制的 Vue 2 原件；面向拿自己那份目录去钉住这张表的落位包，以及维护这些组件的人。"
+description: "内容面板 `component` 类目背后的六个组件——每个都由一份主机侧定义（说明一次调用可以发什么、会回来什么）和画它的 React 渲染器组成，成对注册进落位包的目录，包含经桥接绘制的 Vue 2 原件；面向组合这一行的部署，以及维护这些组件的人。"
 kind: "package-reference"
 ---
 
@@ -9,15 +9,17 @@ kind: "package-reference"
 
 ## 概述
 
-内容面板 `component` 类目背后的组件行。它提供 React 渲染器和给它们命名的表：不声明插槽，也不认识任何布局。一块内容画在哪里由落位包决定，画成什么样由这一行决定。
+内容面板 `component` 类目背后的组件行：六个组件，每个都由一份主机侧定义（说明一次调用可以发什么、会回来什么）和画它的 React 渲染器组成。它不声明插槽，也不认识任何布局。一块内容画在哪里由落位包决定；有哪些块、画成什么样，由这一行决定。
 
-node 半边提供一条路由。它送的是浏览器半边自己算不出来的那一个值——`bizBasePath`，即 `toy.crud` 数据页请求自己那张表所走的路径前缀；这一行的 `cordis.yml` 条目同时也是浏览器产物靠 `dsh.client` 被发现的原因。
+两个半边都注册进 [`component-surface`](../component-surface/README.zh.md) 的目录——node 半边注册进 `ctx.componentCatalog`，浏览器半边注册进 `ctx.componentRenderers`——所以只组合落位行、不组合这一行的部署一个组件都没有，也拿不到 `show_component` 这个工具。两次注册都不要求对方先在：各自用 `ctx.inject` 等自己那个注册表，所以组合顺序随意。
+
+node 半边还提供一条路由。它送的是浏览器半边自己算不出来的那一个值——`bizBasePath`，即 `toy.crud` 数据页请求自己那张表所走的路径前缀；这一行的 `cordis.yml` 条目同时也是浏览器产物靠 `dsh.client` 被发现的原因。
 
 这里住着两类组件。一类是仓内用普通 React 写的，不依赖别的任何东西；另一类是仓外编译好的 Vue 2 组件，经一层桥挂到另一行拥有的那份 Vue 运行时上。下面的**原件怎么进来**记着为此付出的全部代价。其中一件原件还会自己发请求取数据，**数据页**一节记着*那件事*的全部代价。
 
 ## 目录
 
-- [渲染器表](#the-renderer-table)
+- [这一行注册了什么](#what-this-row-registers)
 - [渲染器收到什么](#what-a-renderer-receives)
 - [文案](#copy)
 - [组件清单](#components)
@@ -30,12 +32,14 @@ node 半边提供一条路由。它送的是浏览器半边自己算不出来的
 
 -----
 
-<a id="the-renderer-table"></a>
-## 渲染器表
+<a id="what-this-row-registers"></a>
+## 这一行注册了什么
 
-`COMPONENT_RENDERERS` 把目录 id 映射到画它的组件。键是字面量 id，因此落位包只要让自己那份目录**派生出** id 的联合类型，再写一句 `satisfies Record<CatalogId, ComponentRenderer>`，就把两张表钉在了一起：目录里有条目而这一行没有对应渲染器，会在那里变成编译错误，而不是运行时的一块空白。钉住的前提是那个联合类型确实从目录派生；在目录旁边手写一份同名联合，什么都钉不住。写好的那一句在 `component-surface` 的 `ComponentSurface.tsx` 里，对着它的 `COMPONENT_CATALOG` 派生出的 `CatalogId`。
+六个组件，两个半边各注册一次，每次都是一整批。node 半边把定义连同写出它们的那个包交给 `ctx.componentCatalog.register`；包名和版本从这个包自己的 `package.json` 里读，不写死在调用旁边，所以目录里记着每个组件由哪个包贡献，第二个包来认领这几个 id 中的任何一个都会被点名拒绝。浏览器半边把同一批定义与画它们的 React 组件配好，连同这一行自己的翻译函数交给 `ctx.componentRenderers.register`——渲染器的文案留在这一行的词典里，座位的文案留在座位自己那里。
 
-取到这张表是一次跨包的值导入，因此消费方声明 `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-kit/client']`，由加载器从这一行自己的产物里答复该 require。
+两个半边读的是同一份定义清单，所以一个组件不可能只出现在一边。`componentKitRenderers()` 拿那份清单去配渲染器表，发现某个定义没人画就在注册时拒绝；这就是原先那句对着派生 id 联合类型的 `satisfies` 所做的检查：目录 id 现在是运行时的值，已经没有字面量联合类型可钉了。
+
+取到落位包的浏览器注册表是一次跨包的值导入，因此这一行声明 `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-surface/client']`，由加载器从那一行自己的产物里答复该 require。
 
 <a id="what-a-renderer-receives"></a>
 ## 渲染器收到什么
@@ -127,9 +131,9 @@ node 半边提供一条路由。它送的是浏览器半边自己算不出来的
 <a id="composition"></a>
 ## 组合
 
-这一行由 [`component-surface`](../component-surface/README.zh.md) 画出来，它的覆盖层同时组合两者。两者都不属于任何发行包。
+这一行由 [`component-surface`](../component-surface/README.zh.md) 落位，它的覆盖层同时组合两者。两者都不属于任何发行包。只组合落位行、不组合这一行，落位行的目录就是空的，那是一个对模型既没有组件也没有工具的部署。
 
-只有一个字段。`bizBasePath` 是数据页请求自己那张表所走的根绝对路径前缀，默认 `/`；不画数据页的组合可以不管它。提供这个值的那条路由是等 `webServer` 而不是要求它，所以没有 webserver 的组合照样拿得到渲染器表。
+只有一个字段。`bizBasePath` 是数据页请求自己那张表所走的根绝对路径前缀，默认 `/`；不画数据页的组合可以不管它。提供这个值的那条路由是等 `webServer` 而不是要求它，注册组件同样是等 `componentCatalog`，所以两者都没有的组合照样能把这一行装上。
 
 ```yml
 - id: component-kit
@@ -140,7 +144,7 @@ node 半边提供一条路由。它送的是浏览器半边自己算不出来的
 
 ## Model Experience
 
-None, as this row is a browser component library and registers no tool, prompt, or result.
+None, as 这一行不注册任何属于自己的工具、提示词或结果，它到达模型的唯一路径是落位行 `show_component` 的描述——描述里列出每个已注册组件，其 token 代价由那一行自己说明。
 
 #### KV Cache effect
 

@@ -15,17 +15,21 @@
 #   already be composed: this row registers the `component` extractor through
 #   `ctx.inject`, which simply never fires without the router, and the tool is
 #   then offered with nothing to draw it.
-# - `component-kit` carries the renderers and their copy; the row below requires
-#   it through the loader's module table, which is what keeps one copy of the
-#   components in the page.
+# - `component-kit` is the component plugin: it registers the six components —
+#   their host definitions and the renderers that draw them — into the row
+#   below's two registries, so a composition without it offers no component and
+#   is offered no `show_component` at all. Its browser half requires that row's
+#   `/client` through the loader's module table, which is what keeps one copy of
+#   the components in the page.
 # - `vue2-echarts-poc` owns the page's only Vue 2.7 runtime, which `component-kit`
 #   requires through the same module table for the components it draws with Vue.
 #   Vue 2 reactivity does not cross runtime copies, so this row is what keeps
 #   there being one; a composition without it leaves `component-kit` requesting a
 #   module nothing provides.
-# - `component-surface` offers `show_component`, judges each call against the
-#   catalog, claims the `component` kind of the column, and claims the seat that
-#   draws it.
+# - `component-surface` owns the catalog both halves register into, offers
+#   `show_component` for as long as that catalog holds a component, judges each
+#   call against it, claims the `component` kind of the column, and claims the
+#   seat that draws it.
 # - The return channel — `/component-action`, the command a drawn block reports
 #   a press through — additionally needs the command registry and the projection
 #   registry the entry is read out of. The console composition carries both, and

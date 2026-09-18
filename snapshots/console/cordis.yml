@@ -184,11 +184,19 @@
       config:
         verdictTimeoutMs: 1000
 
-    # The component tool. Its browser seat and the component row that draws the
-    # blocks are absent here for the same reason the column is: they register
-    # nothing a transcript can see. What this row contributes is the offer
-    # itself — the catalog spliced into the description, the three parameters,
-    # and the result line a call reads back.
+    # The component row, node half. It contributes the six components the tool
+    # offers, and nothing else reaches a transcript from it: its browser seat
+    # and the settings route both wait for seams this lane does not compose.
+    # Without it the catalog is empty and `show_component` is not offered at
+    # all, which is the whole of what the registry buys — which components exist
+    # is a deployment's composition rather than a table in the row below.
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+
+    # The component tool. Its browser seat is absent here for the same reason
+    # the column is: it registers nothing a transcript can see. What this row
+    # contributes is the offer itself — the catalog spliced into the
+    # description, the three parameters, and the result line a call reads back.
     #
     # `views` is the other half of this row, and it is here for what booting
     # proves rather than for what a transcript carries: a deployment's own view

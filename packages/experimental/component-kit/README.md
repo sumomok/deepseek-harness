@@ -1,5 +1,5 @@
 ---
-description: "The React renderers behind the content panel's `component` kind and the catalog-id table that names them, including the Vue 2 originals drawn through a bridge; for the placement package pinning its catalog against this table and whoever maintains those components."
+description: "The six components behind the content panel's `component` kind — each a host definition and the React renderer that draws it, registered together into the placement package's catalog — including the Vue 2 originals drawn through a bridge; for a deployment composing this row and whoever maintains those components."
 kind: "package-reference"
 ---
 
@@ -9,15 +9,17 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The component row behind the content panel's `component` kind. It ships React renderers and the table that names them: it declares no slot and knows no layout. A placement package decides where a block is drawn; this row decides what a block looks like.
+The component row behind the content panel's `component` kind: six components, each a host definition saying what a call may send it and what comes back, and the React renderer that draws it. It declares no slot and knows no layout. A placement package decides where a block is drawn; this row decides which blocks exist and what they look like.
 
-The node half serves one route. It carries the single value the browser half cannot compute for itself — `bizBasePath`, the path prefix under which the `toy.crud` data page requests its table — and the row's `cordis.yml` entry is also what makes the browser bundle discoverable through `dsh.client`.
+Both halves register into [`component-surface`](../component-surface/README.md)'s catalog — the node half into `ctx.componentCatalog`, the browser half into `ctx.componentRenderers` — so a deployment that composes the placement row without this one offers no component at all and is offered no `show_component` tool. Neither registration requires the other row: each waits for the registry through `ctx.inject`, so composition order is free.
+
+The node half also serves one route. It carries the single value the browser half cannot compute for itself — `bizBasePath`, the path prefix under which the `toy.crud` data page requests its table — and the row's `cordis.yml` entry is also what makes the browser bundle discoverable through `dsh.client`.
 
 Two kinds of component live here. One is written in this repository as ordinary React and depends on nothing else. The other is a Vue 2 component compiled outside it, drawn through a bridge onto a Vue runtime another row owns. **How the originals get here**, below, records the whole of what that costs. One of those originals also requests its own data, and **The data page** records the whole of what *that* costs.
 
 ## Table of Contents
 
-- [The renderer table](#the-renderer-table)
+- [What this row registers](#what-this-row-registers)
 - [What a renderer receives](#what-a-renderer-receives)
 - [Copy](#copy)
 - [Components](#components)
@@ -30,17 +32,19 @@ Two kinds of component live here. One is written in this repository as ordinary 
 
 -----
 
-<a id="the-renderer-table"></a>
-## The renderer table
+<a id="what-this-row-registers"></a>
+## What this row registers
 
-`COMPONENT_RENDERERS` maps a catalog id to the component that draws it. The keys are literal ids, so a placement package whose catalog derives a union of its own ids pins the table against that union with one `satisfies Record<CatalogId, ComponentRenderer>`, and a catalog entry this row has no renderer for becomes a compile error there rather than a blank block at runtime. The pin holds only where that union is derived from the catalog itself; a union restated by hand beside the catalog pins nothing. `ComponentSurface.tsx` in `component-surface` is the pin as written, over the `CatalogId` its `COMPONENT_CATALOG` derives.
+Six components, on both halves, as one contribution each. The node half hands `ctx.componentCatalog.register` the definitions and the package that wrote them, read from this package's own `package.json` rather than written down beside the call, so the catalog records which package contributed each component and a second package claiming one of these ids is refused by name. The browser half hands `ctx.componentRenderers.register` the same definitions paired with the React component that draws each, together with this row's own translate — the renderers keep their copy in this row's dictionary while the seat keeps its own.
 
-Reaching the table is a value import across packages, so the consumer declares `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-kit/client']` and the loader answers the require from this row's own bundle.
+The two halves read one list of definitions, so a component cannot arrive on one side and not the other. `componentKitRenderers()` pairs that list against the renderer table and refuses at registration when a definition has nothing to draw it, which is the check that used to be a `satisfies` against a derived id union: a catalog id is a runtime value now, and there is no literal union left to pin against.
+
+Reaching the placement package's browser registry is a value import across packages, so this row declares `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-surface/client']` and the loader answers the require from that row's own bundle.
 
 <a id="what-a-renderer-receives"></a>
 ## What a renderer receives
 
-Every component in the row takes the same six props (`ComponentRendererProps`): `nodeId`, the block's identity within one placement; `props`, the block's properties as the placement package's schema accepted them; `onAction(actionId, payload)`, where a user gesture goes, carrying the action's id and the properties that action declares; `onOutput(outputId, value)`, where the block's own current reading of itself goes, for the blocks beside it to take a property from; `state`, how far the gesture this block last reported got (`idle` / `sending` / `sent` / `queued` / `refused`); and `t`, this row's translate.
+Every component in the row takes the same six props (`ComponentRendererProps`, declared by the placement package and narrowed here to this row's translate): `nodeId`, the block's identity within one placement; `props`, the block's properties as the placement package's schema accepted them; `onAction(actionId, payload)`, where a user gesture goes, carrying the action's id and the properties that action declares; `onOutput(outputId, value)`, where the block's own current reading of itself goes, for the blocks beside it to take a property from; `state`, how far the gesture this block last reported got (`idle` / `sending` / `sent` / `queued` / `refused`); and `t`, this row's translate.
 
 `onAction` and `onOutput` are different things and a component keeps them apart. A gesture is news: something the placement package records and the agent may read. An output is not — nothing is recorded, nothing reaches the agent, and a block that publishes one has still reported nothing. What a component publishes is republished on every change, including the change back to nothing, so a block fed by it can go back to waiting; every value must survive `JSON.stringify` and must be treated as read-only, because the placement package hands it straight to another block as a property. Which outputs a component publishes is the placement package's catalog to declare, exactly as for an action.
 
@@ -127,9 +131,9 @@ Some of these components were not written here. `@sumomok/toy-surface-kit` is a 
 <a id="composition"></a>
 ## Composition
 
-This row is drawn by [`component-surface`](../component-surface/README.md), whose overlay composes both. Neither is part of any shipped bundle.
+This row is placed by [`component-surface`](../component-surface/README.md), whose overlay composes both. Neither is part of any shipped bundle. Composing the placement row without this one leaves its catalog empty, which is a deployment that offers the model no component and no tool.
 
-One field. `bizBasePath` is the root-absolute path prefix the data page requests its table under, `/` by default; a composition that draws no data page can leave it alone. The route that serves it waits for `webServer` rather than requiring it, so a composition with no webserver still gets the renderer table.
+One field. `bizBasePath` is the root-absolute path prefix the data page requests its table under, `/` by default; a composition that draws no data page can leave it alone. The route that serves it waits for `webServer` rather than requiring it, and the contribution waits for `componentCatalog` the same way, so a composition with neither still loads this row.
 
 ```yml
 - id: component-kit
@@ -140,7 +144,7 @@ One field. `bizBasePath` is the root-absolute path prefix the data page requests
 
 ## Model Experience
 
-None, as this row is a browser component library and registers no tool, prompt, or result.
+None, as this row registers no tool, prompt, or result of its own and reaches a model only through the placement row's `show_component` description, which lists every registered component and whose token cost that row states.
 
 #### KV Cache effect
 

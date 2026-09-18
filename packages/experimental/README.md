@@ -31,7 +31,7 @@ The experimental group contains prototype capabilities that are not part of any 
 | [`biz-backend`](biz-backend/README.md) | Three reads of a deployment's own data backend, made with the visitor's own access token | `ctx.bizBackend` |
 | [`client-ui-agent-team`](client-ui-agent-team/README.md) | Team roster, task board, and teammate navigation for Web | — |
 | [`code-runtime-python`](code-runtime-python/README.md) | CPython subprocess backend for the code-execution seam | `ctx.codeRuntime` |
-| [`component-kit`](component-kit/README.md) | Component row: the React renderers a placement package draws a validated block with, and the table that names them | — |
+| [`component-kit`](component-kit/README.md) | Component row: the six components it registers into a placement package's catalog, each a host definition and the React renderer that draws it | — |
 | [`component-surface`](component-surface/README.md) | The `show_component` tool and the content column's `component` kind: blocks from a fixed catalog, judged before anything is drawn | — |
 | [`content-column`](content-column/README.md) | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
 | [`content-frame`](content-frame/README.md) | Serves one operator-configured static web application and contributes it as the content column's `page` kind | — |

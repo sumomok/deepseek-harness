@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number, the deployment's own full data page for a table — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
+`show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number, the deployment's own full data page for a table — in the content panel beside the conversation, chosen from the catalog this deployment's composed component plugins registered and judged against that catalog before anything is drawn.
 
-The package is both halves. The host half offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: the renderers come from [`component-kit`](../component-kit/README.md), which knows no layout, and this package is what puts one of its blocks in a column.
+The package is both halves. The host half owns the catalog registry, offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half owns the renderer registry, claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: a component plugin registers its definition and its renderer together, and this package is what puts one of its blocks in a column. [`component-kit`](../component-kit/README.md) is the one this repository ships, and a deployment that composes none is offered no `show_component` at all.
 
 What the user then does inside a block comes back the other way, through one command this row owns: `/component-action`.
 
@@ -45,7 +45,9 @@ Nothing the agent does appends a session event. A call's record is the `tool/cal
 
 [`overlay/component-surface.patch.yml`](overlay/component-surface.patch.yml) inserts this row and the component row over the service-line console composition, which already carries the content surface and the content column. The overlay's own comments carry the launch line.
 
-The row activates in three independent pieces. The tool needs a tool runtime and nothing else, so a composition with no content column still offers it and still records its calls. The extractor needs the content-surface router; without it the calls are in the log and no column reads them, which is exactly what a composition growing a column later wants. The return channel needs all three of the command registry, that router, and the projection registry the entry is read out of — with no column there is nothing on screen for an action to name, so the command is absent rather than answering every gesture with a refusal.
+The row activates in three independent pieces, all of them behind the catalog. The tool needs a tool runtime and at least one registered component, so a composition with no content column still offers it and still records its calls, and one with no component plugin offers nothing at all — the description's whole substance is the component list, and a list with no entries is an offer the model could only spend a refused call discovering. The extractor needs the content-surface router; without it the calls are in the log and no column reads them, which is exactly what a composition growing a column later wants. The return channel needs all three of the command registry, that router, and the projection registry the entry is read out of — with no column there is nothing on screen for an action to name, so the command is absent rather than answering every gesture with a refusal.
+
+Every one of those is rebuilt when the catalog moves: a component plugin loaded later widens the description, the judgement and the fold together, and one disposed narrows them the same way. The changed description reaches the log the way every description does — the request header records the assembled tool schemas verbatim, so a re-registration is a header the next request is reconstructable from and this row still appends no session event of its own.
 
 <a id="configuration"></a>
 ## Configuration
@@ -249,9 +251,11 @@ The model is told the entry it placed, and then what the page loaded — the tab
 <a id="the-catalog"></a>
 ## The catalog
 
-One tool for every component, rather than one tool per component. Which blocks exist is a deployment's catalog, and a catalog is cheaper to state once inside a description than to spread across a growing tool list the model reads on every request. The catalog is a static table in `component-call.ts`; replace it with a registered seam when a package this one does not own needs to contribute a component.
+One tool for every component, rather than one tool per component. Which blocks exist is a deployment's catalog, and a catalog is cheaper to state once inside a description than to spread across a growing tool list the model reads on every request.
 
-Today it holds six entries:
+The catalog is `ctx.componentCatalog`, and it starts empty. A component plugin registers a batch of definitions into it together with the package that wrote them — read from that package's own manifest — and gets back the disposer that takes them out again; a second package claiming a registered id is refused at registration, naming both. The browser has the matching registry, `ctx.componentRenderers`, which takes the same definitions paired with the renderers that draw them, so the two halves of a component arrive together and a page that loaded no component plugin refuses a payload rather than drawing a blank block.
+
+[`component-kit`](../component-kit/README.md) is the component plugin this repository ships, and its six entries are what every composition here offers:
 
 | Component | 名称 | What it draws | What comes back | What another block can read |
 |---|---|---|---|---|
@@ -450,7 +454,7 @@ One fixed description plus the parameter schema, on every request where the tool
 
 #### KV Cache effect
 
-The description is assembled once when the row loads and depends on nothing but the catalog, so the tool block is byte-identical across every request in a deployment and the prefix holds.
+The description is assembled from the catalog when the row loads and depends on nothing else, so the tool block is byte-identical across every request in a deployment whose component plugins are all composed at boot — which is every shipped composition — and the prefix holds. Loading or disposing a component plugin mid-session re-registers the tool and therefore writes a new request header, which is a prefix break paid once per such change.
 
 ### Tool-call result
 
@@ -477,6 +481,7 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **Rows in the log are checkpoint weight** — a filled spec is up to 65536 bytes, once per live entry, carried in every checkpoint the content surface writes. It is the same cost a chart's whole option document already has, and this route pays it per read.
 - **The card says the page size, never the page number** — a read of page three is described to the user as `取最多 200 条`, the same words a read of page one gets. What the model asked for and what the user is told about it therefore differ on which rows, and only on which rows; the identifier line and the column list are unaffected.
 - **A view the deployment wrote cannot read its own rows** — `dataSource` is a parameter of the call, so a view configured in `cordis.yml` carries whatever rows the person who wrote it typed there and nothing else. A console whose home view is meant to show live data has no way to say so today. Giving a view its own read means asking the user at click time rather than at call time, since a configured view has no model turn to hang the question on, and that is the next slice rather than this one.
+- **A configured view is judged when the catalog first carries components, not at load** — what a view may place is what the composed component plugins offer, so the judgement cannot run in this row's own `apply`. A view the catalog refuses fails the contribution that completed the catalog: that contribution is taken back out, the component row carries the sentence, and the deployment comes up with no components, no views and no tool rather than with a menu row nothing can draw. It is loud, but it lands on the component row rather than on the row whose config is wrong. Moving it back would need a load barrier the plugin system does not offer.
 - **A cell the table cannot draw is dropped, not refused** — the rows are text, numbers and yes-or-no; a null, a nested record or a list is left out of the row rather than failing the read, because an absent cell is what a table already draws for one. Where the backend returns a different number of stored rows than displayed ones, the stored rows are left out entirely, since the table's two lists stand one for one.
 - **A `load` naming another table is reported to nobody, and says so in the conversation** — a page reports on the entry it was drawn in, and a later call under the same entry id is a different table's page; a report whose `meta` is not the block's own is dropped rather than delivered. It is not silence: the handler answers 这个动作没能记下来。 and the chat row draws that refusal, for a gesture the user never made, beside a page that is on screen and working. The window is small — it closes as soon as the replacing page loads — and what it costs is one wrong-looking line rather than a wrong sentence to the agent.
 - **A page opened in a composition no browser attaches to costs the whole deadline** — the call waits `crudLoadTimeoutMs` for a report that cannot come, once per such call. The ACP snapshot lane sets it to one second for exactly this; a headless deployment that offers `crud` should do the same.
