@@ -42,7 +42,7 @@
  */
 
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
-import { COMPONENT_KIND, type ComponentSpec, type ComponentSurfacePayload } from './component-call.ts'
+import { COMPONENT_KIND, type ComponentCatalog, type ComponentSpec, type ComponentSurfacePayload } from './component-call.ts'
 import { readComponentEvent, recordsEntry } from './projection.ts'
 import { validateComponentCall } from './validate.ts'
 
@@ -90,16 +90,17 @@ export function readComponentSurfaceData(data: unknown): ComponentSurfaceData | 
 
 /**
  * Build the `component` extractor.
+ * @param catalog - the components this deployment offers, as they stand when the extractor is registered.
  * @returns the extractor to hand to `ctx.contentSurface.register`.
  */
-export function componentExtractor(): ContentSurfaceExtractor<ComponentSurfaceData> {
+export function componentExtractor(catalog: ComponentCatalog): ContentSurfaceExtractor<ComponentSurfaceData> {
   return {
     kind: COMPONENT_KIND,
     dataVersion: 2,
     read: (event) => {
       const args = readComponentEvent(event)
       if (args === undefined) return undefined
-      const result = validateComponentCall(args)
+      const result = validateComponentCall(catalog, args)
       if (!result.ok) return undefined
       if (!recordsEntry(event, result.call.spec)) return undefined
       return { entryId: result.call.id, data: { title: result.call.title, spec: result.call.spec } }

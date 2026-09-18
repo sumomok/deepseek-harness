@@ -38,6 +38,7 @@ import { PendingLoads } from '../src/crud.ts'
 import { readComponentEvent } from '../src/projection.ts'
 import { componentExtractor } from '../src/surface.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed a data backend. */
 const READING: ShowComponentOptions = { dataSource: true, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
@@ -189,7 +190,7 @@ async function bench(
       return Promise.resolve(script.search?.(request) ?? { rawValue: RAW, displayValue: DISPLAY, total: 89 })
     },
   } as never)
-  const definition = showComponentTool(ctx, options, new PendingLoads())
+  const definition = showComponentTool(ctx, KIT_CATALOG, options, new PendingLoads())
   ctx.tools.register(definition)
   return {
     definition,
@@ -247,7 +248,7 @@ describe('the dataSource offer', () => {
     const { definition } = await bench('allowed-once', {}, PLAIN)
     expect(Object.keys((definition.parameters as { properties: object }).properties)).toEqual(['id', 'title', 'spec'])
     expect(definition.description).not.toContain('dataSource')
-    expect(definition.description).toBe(describeShowComponent(PLAIN))
+    expect(definition.description).toBe(describeShowComponent(KIT_CATALOG, PLAIN))
   })
 })
 
@@ -775,7 +776,7 @@ describe('a question the user did not grant', () => {
     const request = vi.fn()
     ctx.provide('approval', { request } as never)
     ctx.provide('bizBackend', { describe: request, search: request } as never)
-    ctx.tools.register(showComponentTool(ctx, READING, new PendingLoads()))
+    ctx.tools.register(showComponentTool(ctx, KIT_CATALOG, READING, new PendingLoads()))
     const result = await ctx.tools.execute({
       callId: ToolCallId('call-orphan'),
       name: SHOW_COMPONENT_TOOL_NAME,
@@ -1290,7 +1291,7 @@ describe('what the column reads out of the log', () => {
     const { run, session } = await bench()
     await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })
     const [event] = resolvedEvents(session)
-    const extractor = componentExtractor()
+    const extractor = componentExtractor(KIT_CATALOG)
     expect(extractor.dataVersion).toBe(2)
     const read = extractor.read(event as SessionEvent)
     expect(read?.entryId).toBe('layers')
@@ -1314,14 +1315,14 @@ describe('what the column reads out of the log', () => {
       },
     } as unknown as SessionEvent
     expect(readComponentEvent(call)).toMatchObject({ id: 'layers', title: '图层', spec: SPEC })
-    expect(componentExtractor().read(call)).toBeUndefined()
+    expect(componentExtractor(KIT_CATALOG).read(call)).toBeUndefined()
   })
 
   it('lets a later read on the same entry id replace the earlier one', async () => {
     const { run, session } = await bench()
     await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })
     await run({ id: 'layers', title: '图层（新）', spec: SPEC, dataSource: SOURCE })
-    const reads = resolvedEvents(session).map(event => componentExtractor().read(event as SessionEvent))
+    const reads = resolvedEvents(session).map(event => componentExtractor(KIT_CATALOG).read(event as SessionEvent))
     expect(reads.map(read => read?.entryId)).toEqual(['layers', 'layers'])
     expect(reads.map(read => read?.data.title)).toEqual(['图层', '图层（新）'])
   })

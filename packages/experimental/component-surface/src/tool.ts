@@ -37,7 +37,6 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   BINDING_KEY,
   catalogLabels,
-  COMPONENT_CATALOG,
   CRUD_ID,
   crudNodes,
   describeCatalog,
@@ -55,6 +54,7 @@ import {
   TABLE_ID,
   TOKEN_HINT,
   type ComponentCall,
+  type ComponentCatalog,
   type ComponentCatalogEntry,
   type ComponentNode,
 } from './component-call.ts'
@@ -226,11 +226,15 @@ function describeCrud(): string {
  * The data page needs a question answered before it opens, so a composition
  * that cannot ask leaves it out of the list a model reads — the same rule the
  * `dataSource` parameter follows, applied to a component.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
- * @returns the catalog with the components this composition cannot honour left out.
+ * @returns the registered components with the ones this composition cannot honour left out.
  */
-function offeredCatalog(options: ShowComponentOptions): readonly ComponentCatalogEntry[] {
-  return options.crud ? COMPONENT_CATALOG : COMPONENT_CATALOG.filter(entry => entry.id !== CRUD_ID)
+export function offeredEntries(
+  catalog: ComponentCatalog,
+  options: ShowComponentOptions,
+): readonly ComponentCatalogEntry[] {
+  return options.crud ? catalog.entries : catalog.entries.filter(entry => entry.id !== CRUD_ID)
 }
 
 /**
@@ -249,14 +253,15 @@ function offeredCatalog(options: ShowComponentOptions): readonly ComponentCatalo
  * read from another. Which values can be read is not in the paragraph — it is
  * the `outputs:` line of the component that reports them, beside the properties
  * that accept them.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @returns the complete description.
  */
-export function describeShowComponent(options: ShowComponentOptions): string {
+export function describeShowComponent(catalog: ComponentCatalog, options: ShowComponentOptions): string {
   return 'Put a block of interface in the content panel beside the conversation — the area the user sees '
     + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
     + 'while you talk about it.\n\nComponents:\n'
-    + describeCatalog(offeredCatalog(options))
+    + describeCatalog(offeredEntries(catalog, options))
     + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
     + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
     + 'display, reuse that entry\'s id.\n\n'
@@ -284,11 +289,12 @@ export function describeShowComponent(options: ShowComponentOptions): string {
 
 /**
  * The sentence an accepted call answers with.
+ * @param catalog - every component registered into this deployment.
  * @param call - the call as validation accepted it.
  * @returns the sentence.
  */
-function acceptedText(call: ComponentCall): string {
-  return `Now showing "${call.title}" in the content panel: ${catalogLabels(call.spec.nodes)}. `
+function acceptedText(catalog: ComponentCatalog, call: ComponentCall): string {
+  return `Now showing "${call.title}" in the content panel: ${catalogLabels(catalog, call.spec.nodes)}. `
     + `Call ${SHOW_COMPONENT_TOOL_NAME} with id "${call.id}" again to replace it; `
     + 'a different id adds a second entry beside it.'
 }
@@ -587,6 +593,7 @@ async function readAll(
  * rows — then the filled result is judged again by the pass a hand-written call
  * gets. Nothing is appended and nothing is drawn unless that last pass accepts.
  * @param ctx - the injected context carrying the data backend and the approval service.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param args - the call's arguments, however malformed.
  * @param written - the `dataSource` argument, however malformed.
@@ -596,6 +603,7 @@ async function readAll(
  */
 async function runDataSource(
   ctx: Context,
+  catalog: ComponentCatalog,
   options: ShowComponentOptions,
   args: { readonly id?: unknown; readonly title?: unknown; readonly spec?: unknown },
   written: unknown,
@@ -609,7 +617,7 @@ async function runDataSource(
   // in each table it wants read: everything a call can be refused for that the
   // rows have no part in is settled here, in one judgement rather than a list
   // of ceilings restated beside the read.
-  const judged = validateComponentCall({
+  const judged = validateComponentCall(catalog, {
     id: args.id,
     title: args.title,
     spec: probeDataSourceSpec(args.spec, resolved.nodes, resolved.targets),
@@ -620,7 +628,7 @@ async function runDataSource(
   // that is the reason this call cannot open one, and telling the model to move
   // it into a call of its own would send it to write a call refused the same way.
   if (crudNodes(judged.call.spec).length > 0) {
-    throw new Error((options.crud ? crudBesideDataSource(judged.call.spec) : crudNotOffered(judged.call.spec)).text)
+    throw new Error((options.crud ? crudBesideDataSource(judged.call.spec) : crudNotOffered(catalog, judged.call.spec)).text)
   }
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
@@ -649,7 +657,7 @@ async function runDataSource(
   if (bytes > MAX_SPEC_BYTES) {
     throw new Error(dataSourceOversize(first.meta, summaries.reduce((count, summary) => count + summary.rows, 0), bytes))
   }
-  const result = validateComponentCall({ id: args.id, title: args.title, spec })
+  const result = validateComponentCall(catalog, { id: args.id, title: args.title, spec })
   if (!result.ok) {
     const { failure } = result
     throw new Error(dataSourceUndrawable(first.meta, failure.text.slice(failure.text.indexOf(failure.path))))
@@ -667,7 +675,7 @@ async function runDataSource(
       columns: [...summary.columns],
     })),
   })
-  return { entryId: result.call.id, text: acceptedText(result.call) + fetchedText(summaries) }
+  return { entryId: result.call.id, text: acceptedText(catalog, result.call) + fetchedText(summaries) }
 }
 
 /**
@@ -681,6 +689,7 @@ async function runDataSource(
  * to report its columns. Nothing is requested of any backend from here: the
  * page reads its table from the browser with the user's own credential.
  * @param ctx - the injected context carrying the approval service.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param call - the call, as validation accepted it.
  * @param page - the one data page block the call places.
@@ -691,6 +700,7 @@ async function runDataSource(
  */
 async function runCrud(
   ctx: Context,
+  catalog: ComponentCatalog,
   options: ShowComponentOptions,
   call: ComponentCall,
   page: ComponentNode,
@@ -720,20 +730,32 @@ async function runCrud(
   })
   const report = await pending.settle(agent.session, call.id, options.crudLoadTimeoutMs, exec.signal)
   const loaded = report === undefined ? crudUnreportedText(page, options.crudLoadTimeoutMs) : crudLoadedText(page, report)
-  return { entryId: call.id, text: acceptedText(call) + loaded }
+  return { entryId: call.id, text: acceptedText(catalog, call) + loaded }
 }
 
 /**
  * Build the `show_component` tool.
+ *
+ * The catalog is the one in force when the tool is registered rather than a
+ * live read: the description is model-visible and the request header records
+ * it, so a catalog change re-registers the tool and the changed description
+ * reaches the log as a new header rather than silently replacing the one the
+ * model was already given.
  * @param ctx - the context the tool is registered on, carrying the data backend and the approval service wherever the offer includes them.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param pending - the table a call opening a data page waits on for that page's report.
  * @returns the definition to hand to `ctx.tools.register`.
  */
-export function showComponentTool(ctx: Context, options: ShowComponentOptions, pending: PendingLoads): ToolDefinition {
+export function showComponentTool(
+  ctx: Context,
+  catalog: ComponentCatalog,
+  options: ShowComponentOptions,
+  pending: PendingLoads,
+): ToolDefinition {
   return defineTool({
     name: SHOW_COMPONENT_TOOL_NAME,
-    description: describeShowComponent(options),
+    description: describeShowComponent(catalog, options),
     parameters: {
       id: {
         type: 'string',
@@ -782,16 +804,16 @@ export function showComponentTool(ctx: Context, options: ShowComponentOptions, p
     },
     execute(args, exec): Promise<ShowComponentValue> {
       const written: unknown = (args as { dataSource?: unknown }).dataSource
-      if (options.dataSource && written !== undefined) return runDataSource(ctx, options, args, written, exec)
-      const result = validateComponentCall(args)
+      if (options.dataSource && written !== undefined) return runDataSource(ctx, catalog, options, args, written, exec)
+      const result = validateComponentCall(catalog, args)
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
       const page = crudNodes(result.call.spec)[0]
-      if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(result.call) })
-      const refusal = judgeCrudNodes(result.call.spec, options.crud)
+      if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(catalog, result.call) })
+      const refusal = judgeCrudNodes(catalog, result.call.spec, options.crud)
       if (refusal !== undefined) throw new Error(refusal.text)
-      return runCrud(ctx, options, result.call, page, exec, pending)
+      return runCrud(ctx, catalog, options, result.call, page, exec, pending)
     },
     presentCall: (args): GenericCallView => ({
       card: 'generic',

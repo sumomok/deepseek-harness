@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/src/views
  */
 
-import { CRUD_ID, crudNodes, type ComponentCall } from './component-call.ts'
+import { CRUD_ID, crudNodes, type ComponentCall, type ComponentCatalog } from './component-call.ts'
 import type { ContentView } from './types.ts'
 import { validateComponentCall, type ComponentCallFailure } from './validate.ts'
 
@@ -38,6 +38,7 @@ function refusalDetail(failure: ComponentCallFailure): string {
 
 /**
  * Judge the configured views and index them by id.
+ * @param catalog - the components this deployment offers.
  * @param views - the `views` config value, in declaration order.
  * @param homeView - the `homeView` config value, when set.
  * @returns the id index, in declaration order.
@@ -45,10 +46,14 @@ function refusalDetail(failure: ComponentCallFailure): string {
  * have accepted, when an id repeats, when a view places the data page, or when
  * `homeView` names no configured view.
  */
-export function indexViews(views: readonly ContentView[], homeView: string | undefined): ViewIndex {
+export function indexViews(
+  catalog: ComponentCatalog,
+  views: readonly ContentView[],
+  homeView: string | undefined,
+): ViewIndex {
   const index = new Map<string, ComponentCall>()
   for (const [position, view] of views.entries()) {
-    const result = validateComponentCall(view)
+    const result = validateComponentCall(catalog, view)
     if (!result.ok) {
       throw new Error(
         `component-surface: views[${position}] ${JSON.stringify(view.id)} — ${refusalDetail(result.failure)}`)

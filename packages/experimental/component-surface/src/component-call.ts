@@ -1,10 +1,10 @@
 /**
  * What one `show_component` call is from outside the tool body, and what one
  * action reported back out of a drawn block is: the wire tool name, the command
- * name the seat reports through, the content kind the call claims, the catalog
- * of components a call may place with the actions each of them reports and the
- * values another block may read from them, the layout tree a call arranges its
- * blocks in, and the protocol ceilings both directions are measured against.
+ * name the seat reports through, the content kind the call claims, what one
+ * component of the catalog declares — the actions it reports and the values
+ * another block may read from it — the layout tree a call arranges its blocks
+ * in, and the protocol ceilings both directions are measured against.
  *
  * One home, because three readers must agree on the same rules. The tool
  * refuses a call the seat could not draw; the content-surface extractor decides
@@ -14,10 +14,21 @@
  * column with nothing said about it, and a ceiling the two halves disagree on
  * is that same failure with an extra round trip in front of it.
  *
- * The module imports nothing, so the node half, the browser bundle, and the
- * session fold all read one copy of the rules.
+ * Which components exist is not decided here. A deployment's catalog is
+ * assembled at runtime from the component plugins it composes
+ * ({@link module:@deepseek-ai/dsh-experimental-component-surface/src/catalog}),
+ * so every reader is handed a {@link ComponentCatalog} rather than reading one
+ * off this module. What this module still owns is the six components
+ * `component-kit` registers ({@link COMPONENT_KIT_ENTRIES}) and every rule the
+ * two halves judge a call by.
+ *
+ * The module's only import is the compile-time brand helper, which carries no
+ * runtime identity, so the node half, the browser bundle, and the session fold
+ * all read one copy of the rules.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/component-call
  */
+
+import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 
 /** The wire tool name this package offers the model. */
 export const SHOW_COMPONENT_TOOL_NAME = 'show_component'
@@ -545,10 +556,31 @@ export interface ComponentOutput {
   readonly shape: PropsFieldSchema
 }
 
+/**
+ * Catalog id of one component, as the registry and both halves of the seam
+ * spell it.
+ *
+ * Branded rather than a union derived from a table: which components exist is a
+ * deployment's runtime fact now, so no closed set of ids exists to derive one
+ * from. The brand is what keeps a node's `component` — model-written text that
+ * has not been looked up yet — from standing where a component this deployment
+ * admits is required.
+ */
+export type CatalogId = Branded<'ComponentCatalogId'>
+
+/**
+ * Admit one id string as a catalog id.
+ * @param id - the id a component plugin declares for its own component.
+ * @returns the same string, branded.
+ */
+export function catalogId(id: string): CatalogId {
+  return brandString<CatalogId>(id)
+}
+
 /** One component a call may place. */
 export interface ComponentCatalogEntry {
   /** Stable id the model writes in `spec.nodes[i].component`. */
-  readonly id: string
+  readonly id: CatalogId
   /** The name the end user reads. Chinese, because it is user-facing copy rather than model-facing text. */
   readonly label: string
   /** One model-facing sentence saying when the component is worth using; spliced into the tool description. */
@@ -564,7 +596,7 @@ export interface ComponentCatalogEntry {
 }
 
 /** Catalog id of the confirmation bar. */
-export const CONFIRM_BAR_ID = 'el.confirm-bar'
+export const CONFIRM_BAR_ID = catalogId('el.confirm-bar')
 
 /** The confirmation bar's declared properties. */
 const CONFIRM_BAR_PROPS: PropsSchema = {
@@ -649,7 +681,7 @@ const CONFIRM_BAR_ACTIONS: readonly ComponentActionDefinition[] = [{
 }]
 
 /** Catalog id of the record detail. */
-export const RECORD_DETAIL_ID = 'toy.record'
+export const RECORD_DETAIL_ID = catalogId('toy.record')
 
 /**
  * The record detail's declared properties.
@@ -763,7 +795,7 @@ const FIELD_NAME: StringFieldSchema = {
 const MAX_RECORD_NUMBER = Number.MAX_SAFE_INTEGER
 
 /** Catalog id of the data table. */
-export const TABLE_ID = 'toy.table'
+export const TABLE_ID = catalogId('toy.table')
 
 /**
  * Largest accepted row count of one table.
@@ -1204,7 +1236,7 @@ const TABLE_OUTPUTS: readonly ComponentOutput[] = [
 ]
 
 /** Catalog id of the filter bar. */
-export const FILTER_BAR_ID = 'el.filter-bar'
+export const FILTER_BAR_ID = catalogId('el.filter-bar')
 
 /** Largest accepted attribute count of one filter bar. */
 export const MAX_FILTER_ATTRIBUTES = 40
@@ -1473,7 +1505,7 @@ const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
 ]
 
 /** Catalog id of the metric ball. */
-export const METRIC_ID = 'el.metric'
+export const METRIC_ID = catalogId('el.metric')
 
 /**
  * The metric ball's declared properties.
@@ -1492,7 +1524,7 @@ const METRIC_PROPS: PropsSchema = {
 }
 
 /** Catalog id of the data page: the deployment's own full page for one table, opened with the user's own credential. */
-export const CRUD_ID = 'toy.crud'
+export const CRUD_ID = catalogId('toy.crud')
 
 /** The user-facing name of the data page, as the approval card and every notice about it name it. */
 export const CRUD_LABEL = '完整数据页'
@@ -1770,18 +1802,20 @@ const CRUD_ACTIONS: readonly ComponentActionDefinition[] = [
 ]
 
 /**
- * Every component a call may place.
+ * The six components `@deepseek-ai/dsh-experimental-component-kit` registers.
  *
- * A static table rather than a registry service, because one package owns every
- * entry: the seat that draws a kind and the schema that admits it ship
- * together. `as const` is what keeps the ids literal, so {@link CatalogId} is
- * derived from this table instead of restated beside it, and the seat's
- * `satisfies Record<CatalogId, ComponentRenderer>` turns "a catalog entry with
- * no renderer" into a compile error rather than a blank block at runtime.
- * Replace it with a registered seam when a package this one does not own needs
- * to contribute a component.
+ * A library value, not a catalog: nothing reads it to decide what a call may
+ * place. The component row imports it and hands it to
+ * `ctx.componentCatalog.register()` on both halves, so a deployment that
+ * composes no component plugin offers no component at all, and the definitions
+ * and the renderers that draw them are contributed by one package in one act.
+ *
+ * They live here rather than in that row because moving them costs the
+ * judgement modules their one-import rule — the
+ * [Agent Note](../../../../.agents/notes/implemented/architecture/2026-09-18-component-catalog-registry.md)
+ * records the move as the follow-up.
  */
-export const COMPONENT_CATALOG = [
+export const COMPONENT_KIT_ENTRIES = [
   {
     id: CONFIRM_BAR_ID,
     label: '确认条',
@@ -1850,14 +1884,6 @@ export function crudNodes(spec: ComponentSpec): readonly ComponentNode[] {
   return spec.nodes.filter(node => node.component === CRUD_ID)
 }
 
-/**
- * Every id {@link COMPONENT_CATALOG} declares, as a union.
- *
- * Derived from the table rather than written beside it: adding a component
- * widens this union in the same edit, which is what makes the seat's renderer
- * table fail to compile until that component has a renderer.
- */
-export type CatalogId = (typeof COMPONENT_CATALOG)[number]['id']
 
 /** Levels a spec spends before a declared property's value: the spec object, `nodes`, one node, and its `props`. */
 const SPEC_FRAME_DEPTH = 4
@@ -1905,12 +1931,12 @@ function schemaDepth(schema: PropsSchema): number {
  * documents a component declares as legal and the depth a spec is refused at
  * cannot drift apart: a component declaring a nested property widens the
  * ceiling by exactly what that property needs. The layout tree is the spec's
- * other deep document and is measured separately, in {@link MAX_SPEC_DEPTH}.
- * @param catalog - the components a call may place.
+ * other deep document and is measured separately, in {@link LAYOUT_SPEC_DEPTH}.
+ * @param entries - the components a call may place.
  * @returns levels the deepest legal node of that catalog occupies.
  */
-export function maxSpecDepthOf(catalog: readonly ComponentCatalogEntry[]): number {
-  return SPEC_FRAME_DEPTH + catalog.reduce((deepest, entry) => Math.max(deepest, schemaDepth(entry.propsSchema)), 0)
+export function maxSpecDepthOf(entries: readonly ComponentCatalogEntry[]): number {
+  return SPEC_FRAME_DEPTH + entries.reduce((deepest, entry) => Math.max(deepest, schemaDepth(entry.propsSchema)), 0)
 }
 
 /** Levels a spec spends before a layout's own children: the spec object, and the stack it starts with. */
@@ -1920,22 +1946,58 @@ const LAYOUT_FRAME_DEPTH = 2
 const LAYOUT_LEVEL_DEPTH = 2
 
 /**
- * Deepest accepted nesting inside `spec` for this deployment's catalog.
+ * Deepest nesting the layout tree alone makes legal, whatever the catalog holds.
  *
- * The deeper of the two documents a spec carries — a node's properties, and the
- * layout tree over those nodes — plus one layout level of slack. The slack is
- * what lets a layout that opens one stack too many be refused at the stack that
- * opened it, rather than answered with a sentence about how deep `spec` may
- * nest, which names nothing the model can act on. Anything past this is
- * malformed regardless of which component it names, and refusing it before
- * anything else bounds the work every later walk does — the byte measurement
- * included, which is why the depth walk is the one that stops at a ceiling by
- * construction.
+ * The layout is the spec's other deep document, and it carries one level of
+ * slack: that slack is what lets a layout that opens one stack too many be
+ * refused at the stack that opened it, rather than answered with a sentence
+ * about how deep `spec` may nest, which names nothing the model can act on.
+ * It is also the floor an empty catalog is measured against, so a deployment
+ * with no component registered still refuses a malformed document by depth
+ * rather than by division.
  */
-export const MAX_SPEC_DEPTH = Math.max(
-  maxSpecDepthOf(COMPONENT_CATALOG),
-  LAYOUT_FRAME_DEPTH + LAYOUT_LEVEL_DEPTH * (MAX_LAYOUT_DEPTH + 1),
-)
+export const LAYOUT_SPEC_DEPTH = LAYOUT_FRAME_DEPTH + LAYOUT_LEVEL_DEPTH * (MAX_LAYOUT_DEPTH + 1)
+
+/**
+ * The components one deployment offers, with everything derivable from them
+ * already derived.
+ *
+ * Built once per catalog change rather than recomputed per call: the id index
+ * and the depth ceiling are pure functions of the entries, and a call is judged
+ * against both on every node it places.
+ */
+export interface ComponentCatalog {
+  /** The components a call may place, in the order they were registered. */
+  readonly entries: readonly ComponentCatalogEntry[]
+  /** Those components by id, which is how a node's `component` is resolved. */
+  readonly byId: ReadonlyMap<string, ComponentCatalogEntry>
+  /**
+   * Deepest accepted nesting inside `spec` for this catalog.
+   *
+   * The deeper of the two documents a spec carries — a node's properties, and
+   * the layout tree over those nodes. Anything past it is malformed regardless
+   * of which component it names, and refusing it before anything else bounds
+   * the work every later walk does — the byte measurement included, which is
+   * why the depth walk is the one that stops at a ceiling by construction.
+   */
+  readonly maxSpecDepth: number
+}
+
+/**
+ * Derive one deployment's catalog from the components registered into it.
+ * @param entries - the registered components, in registration order.
+ * @returns the catalog every judgement reads.
+ */
+export function readCatalog(entries: readonly ComponentCatalogEntry[]): ComponentCatalog {
+  return {
+    entries,
+    byId: new Map(entries.map(entry => [entry.id as string, entry])),
+    maxSpecDepth: Math.max(maxSpecDepthOf(entries), LAYOUT_SPEC_DEPTH),
+  }
+}
+
+/** A catalog with no component in it, which is what a deployment composing no component plugin judges against. */
+export const EMPTY_CATALOG: ComponentCatalog = readCatalog([])
 
 /**
  * Look one action up on the component that declares it.
@@ -1949,11 +2011,12 @@ export function catalogAction(component: ComponentCatalogEntry, actionId: unknow
 
 /**
  * Look one component up by the id a call named.
+ * @param catalog - the components this deployment offers.
  * @param id - the `component` value, however malformed.
  * @returns the catalog entry, or `undefined` when the deployment has no such component.
  */
-export function catalogEntry(id: unknown): ComponentCatalogEntry | undefined {
-  return COMPONENT_CATALOG.find(entry => entry.id === id)
+export function catalogEntry(catalog: ComponentCatalog, id: unknown): ComponentCatalogEntry | undefined {
+  return typeof id === 'string' ? catalog.byId.get(id) : undefined
 }
 
 /**
@@ -1979,12 +2042,13 @@ export function catalogOutput(component: ComponentCatalogEntry, outputId: unknow
  *
  * Read off the catalog rather than off the document, so the browser seat and
  * the session fold decide it the same way from the same table.
+ * @param catalog - the components this deployment offers.
  * @param componentId - the `componentId` an action document carried, however malformed.
  * @param actionId - the `actionId` it carried, however malformed.
  * @returns true when that component declares that action as a `wake`.
  */
-export function answersBlock(componentId: unknown, actionId: unknown): boolean {
-  const component = catalogEntry(componentId)
+export function answersBlock(catalog: ComponentCatalog, componentId: unknown, actionId: unknown): boolean {
+  const component = catalogEntry(catalog, componentId)
   if (component === undefined) return false
   return catalogAction(component, actionId)?.report === 'wake'
 }
@@ -2165,11 +2229,11 @@ function describeOutputs(outputs: readonly ComponentOutput[]): string {
  * reports and in what form, for the same reason: a binding is refused unless
  * the output exists and the property accepts its form, and both of those are
  * facts of this table.
- * @param catalog - the components a call may place.
+ * @param entries - the components a call may place.
  * @returns two lines per component — `- id — label — purpose`, then its properties — and a third for its outputs.
  */
-export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): string {
-  return catalog
+export function describeCatalog(entries: readonly ComponentCatalogEntry[]): string {
+  return entries
     .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
       + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`
       + (entry.outputs.length === 0 ? '' : `\n  outputs: ${describeOutputs(entry.outputs)}`))
@@ -2179,11 +2243,12 @@ export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): stri
 /**
  * Name the components one validated spec places, in the wording the end user
  * sees on screen.
+ * @param catalog - the components this deployment offers.
  * @param nodes - the spec's nodes, in order.
  * @returns the labels joined for a result line; a node naming no catalog entry contributes its raw id.
  */
-export function catalogLabels(nodes: readonly ComponentNode[]): string {
-  return nodes.map(node => catalogEntry(node.component)?.label ?? node.component).join('、')
+export function catalogLabels(catalog: ComponentCatalog, nodes: readonly ComponentNode[]): string {
+  return nodes.map(node => catalogEntry(catalog, node.component)?.label ?? node.component).join('、')
 }
 
 /** One block a call places: which component, and the properties it is given. */

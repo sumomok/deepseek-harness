@@ -10,12 +10,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  catalogId,
   answersBlock,
   BINDING_KEY,
   catalogEntry,
   catalogLabels,
   catalogOutput,
-  COMPONENT_CATALOG,
+  COMPONENT_KIT_ENTRIES,
   COMPONENT_KIND,
   CONFIRM_BAR_ID,
   describeCatalog,
@@ -23,7 +24,6 @@ import {
   FILTER_BAR_ID,
   isBindingValue,
   MATCH_OPERATORS,
-  MAX_SPEC_DEPTH,
   maxSpecDepthOf,
   METRIC_ID,
   parseBindingReference,
@@ -36,6 +36,7 @@ import {
   TABLE_SELECTION_DETAIL_OUTPUT,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 describe('component catalog', () => {
   it('claims one wire tool name and one content kind', () => {
@@ -44,39 +45,39 @@ describe('component catalog', () => {
   })
 
   it('offers the confirmation bar under a Chinese name the user reads', () => {
-    const entry = catalogEntry(CONFIRM_BAR_ID)
+    const entry = catalogEntry(KIT_CATALOG, CONFIRM_BAR_ID)
     expect(entry?.label).toBe('确认条')
     expect(Object.keys(entry?.propsSchema ?? {})).toEqual(['title', 'message', 'buttons'])
   })
 
   it('offers the record detail under a Chinese name, with nothing coming back from it', () => {
-    const entry = catalogEntry(RECORD_DETAIL_ID)
+    const entry = catalogEntry(KIT_CATALOG, RECORD_DETAIL_ID)
     expect(entry?.label).toBe('记录详情')
     expect(Object.keys(entry?.propsSchema ?? {})).toEqual(['dataList', 'labelWidth', 'columnNum'])
     expect(entry?.actions).toEqual([])
   })
 
   it('offers the data table, the filter bar and the metric ball under Chinese names', () => {
-    expect(catalogEntry(TABLE_ID)?.label).toBe('数据表')
-    expect(Object.keys(catalogEntry(TABLE_ID)?.propsSchema ?? {})).toEqual([
+    expect(catalogEntry(KIT_CATALOG, TABLE_ID)?.label).toBe('数据表')
+    expect(Object.keys(catalogEntry(KIT_CATALOG, TABLE_ID)?.propsSchema ?? {})).toEqual([
       'tableConfig', 'displayValueList', 'rawValueList', 'selectMode',
       'isNameClick', 'tableSortable', 'customOperations', 'operationColumnWidth',
     ])
-    expect(catalogEntry(FILTER_BAR_ID)?.label).toBe('筛选条件')
-    expect(Object.keys(catalogEntry(FILTER_BAR_ID)?.propsSchema ?? {}))
+    expect(catalogEntry(KIT_CATALOG, FILTER_BAR_ID)?.label).toBe('筛选条件')
+    expect(Object.keys(catalogEntry(KIT_CATALOG, FILTER_BAR_ID)?.propsSchema ?? {}))
       .toEqual(['relatedMeta', 'metaConfig', 'attrEqEnums', 'confStyle'])
-    expect(catalogEntry(METRIC_ID)?.label).toBe('指标球')
-    expect(catalogEntry(METRIC_ID)?.actions).toEqual([])
+    expect(catalogEntry(KIT_CATALOG, METRIC_ID)?.label).toBe('指标球')
+    expect(catalogEntry(KIT_CATALOG, METRIC_ID)?.actions).toEqual([])
   })
 
   it('declares the four gestures a table reports, at the grade each one means', () => {
-    expect(catalogEntry(TABLE_ID)?.actions.map(action => [action.id, action.report])).toEqual([
+    expect(catalogEntry(KIT_CATALOG, TABLE_ID)?.actions.map(action => [action.id, action.report])).toEqual([
       ['select', 'context'],
       ['row-click', 'context'],
       ['sort', 'silent'],
       ['operation', 'wake'],
     ])
-    expect(catalogEntry(FILTER_BAR_ID)?.actions.map(action => [action.id, action.report]))
+    expect(catalogEntry(KIT_CATALOG, FILTER_BAR_ID)?.actions.map(action => [action.id, action.report]))
       .toEqual([['submit', 'wake'], ['change', 'silent']])
   })
 
@@ -91,23 +92,23 @@ describe('component catalog', () => {
   })
 
   it('knows no component it does not list', () => {
-    expect(catalogEntry('toy.chart')).toBeUndefined()
-    expect(catalogEntry(42)).toBeUndefined()
+    expect(catalogEntry(KIT_CATALOG, 'toy.chart')).toBeUndefined()
+    expect(catalogEntry(KIT_CATALOG, 42)).toBeUndefined()
   })
 
   it('calls a wake the block\'s own answer, and nothing else', () => {
-    expect(answersBlock('el.confirm-bar', 'press')).toBe(true)
-    expect(answersBlock('toy.table', 'operation')).toBe(true)
-    expect(answersBlock('el.filter-bar', 'submit')).toBe(true)
-    expect(answersBlock('toy.table', 'select')).toBe(false)
-    expect(answersBlock('toy.table', 'sort')).toBe(false)
-    expect(answersBlock('el.filter-bar', 'change')).toBe(false)
-    expect(answersBlock('toy.table', 'double-press')).toBe(false)
-    expect(answersBlock('toy.chart', 'press')).toBe(false)
+    expect(answersBlock(KIT_CATALOG, 'el.confirm-bar', 'press')).toBe(true)
+    expect(answersBlock(KIT_CATALOG, 'toy.table', 'operation')).toBe(true)
+    expect(answersBlock(KIT_CATALOG, 'el.filter-bar', 'submit')).toBe(true)
+    expect(answersBlock(KIT_CATALOG, 'toy.table', 'select')).toBe(false)
+    expect(answersBlock(KIT_CATALOG, 'toy.table', 'sort')).toBe(false)
+    expect(answersBlock(KIT_CATALOG, 'el.filter-bar', 'change')).toBe(false)
+    expect(answersBlock(KIT_CATALOG, 'toy.table', 'double-press')).toBe(false)
+    expect(answersBlock(KIT_CATALOG, 'toy.chart', 'press')).toBe(false)
   })
 
   it('renders every component as an identity line and the properties it declares', () => {
-    expect(describeCatalog(COMPONENT_CATALOG)).toBe(
+    expect(describeCatalog(COMPONENT_KIT_ENTRIES)).toBe(
       '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.'
       + '\n  props: title?, message?, buttons[{id, label, tone? (primary|default|danger)}] (1–5)'
       + '\n- toy.record — 记录详情 — One record laid out as label-and-value pairs, for putting the details of a single thing'
@@ -145,24 +146,24 @@ describe('component catalog', () => {
     )
     // Two lines per component, and a third wherever another block can read
     // something out of one.
-    expect(describeCatalog(COMPONENT_CATALOG).split('\n'))
-      .toHaveLength(2 * COMPONENT_CATALOG.length + COMPONENT_CATALOG.filter(entry => entry.outputs.length > 0).length)
+    expect(describeCatalog(COMPONENT_KIT_ENTRIES).split('\n'))
+      .toHaveLength(2 * COMPONENT_KIT_ENTRIES.length + COMPONENT_KIT_ENTRIES.filter(entry => entry.outputs.length > 0).length)
   })
 
   it('states what another block can read out of a component, and only where there is something', () => {
     // The `outputs:` line is what makes a binding writable: the reference names
     // one of these ids, and whether the property it is bound to accepts the
     // value is decided against the form stated here.
-    const lines = describeCatalog(COMPONENT_CATALOG).split('\n').filter(line => line.startsWith('  outputs: '))
+    const lines = describeCatalog(COMPONENT_KIT_ENTRIES).split('\n').filter(line => line.startsWith('  outputs: '))
     expect(lines).toEqual(['  outputs: selectionDetail [{label, display}] (0–30)'])
-    expect(catalogEntry(CONFIRM_BAR_ID)?.outputs).toEqual([])
-    expect(catalogEntry(RECORD_DETAIL_ID)?.outputs).toEqual([])
-    expect(catalogEntry(FILTER_BAR_ID)?.outputs).toEqual([])
-    expect(catalogEntry(METRIC_ID)?.outputs).toEqual([])
+    expect(catalogEntry(KIT_CATALOG, CONFIRM_BAR_ID)?.outputs).toEqual([])
+    expect(catalogEntry(KIT_CATALOG, RECORD_DETAIL_ID)?.outputs).toEqual([])
+    expect(catalogEntry(KIT_CATALOG, FILTER_BAR_ID)?.outputs).toEqual([])
+    expect(catalogEntry(KIT_CATALOG, METRIC_ID)?.outputs).toEqual([])
   })
 
   it('looks one output up on the component that declares it', () => {
-    const table = catalogEntry(TABLE_ID)
+    const table = catalogEntry(KIT_CATALOG, TABLE_ID)
     if (table === undefined) throw new Error('the catalog has no table')
     expect(catalogOutput(table, TABLE_SELECTION_DETAIL_OUTPUT)?.id).toBe('selectionDetail')
     expect(catalogOutput(table, TABLE_SELECTION_DETAIL_OUTPUT)?.shape.kind).toBe('array')
@@ -182,7 +183,7 @@ describe('component catalog', () => {
     // The keys are the model's to choose, so what the line has to carry is that
     // they are field names and that each one holds a scalar.
     const probe: ComponentCatalogEntry = {
-      id: 'toy.probe',
+      id: catalogId('toy.probe'),
       label: '探针',
       purpose: 'Described, never placed.',
       propsSchema: {
@@ -207,7 +208,7 @@ describe('component catalog', () => {
     // refusing the call, so a model not told the notation is never told why
     // what it sent disappeared.
     const probe: ComponentCatalogEntry = {
-      id: 'toy.probe',
+      id: catalogId('toy.probe'),
       label: '探针',
       purpose: 'Described, never placed.',
       propsSchema: {
@@ -227,7 +228,7 @@ describe('component catalog', () => {
     const list = (item: ComponentCatalogEntry['propsSchema'][string]['schema']): ComponentCatalogEntry['propsSchema'][string] =>
       ({ required: true, schema: { kind: 'array', minItems: 1, maxItems: 2, item } })
     const probe: ComponentCatalogEntry = {
-      id: 'toy.probe',
+      id: catalogId('toy.probe'),
       label: '探针',
       purpose: 'Described, never placed.',
       propsSchema: {
@@ -251,7 +252,7 @@ describe('component catalog', () => {
     // Not written beside the catalog: a property the schema grows and the
     // description does not is a property no model will ever send.
     const probe: ComponentCatalogEntry = {
-      id: 'toy.probe',
+      id: catalogId('toy.probe'),
       label: '探针',
       purpose: 'Described, never placed.',
       propsSchema: {
@@ -277,14 +278,14 @@ describe('component catalog', () => {
   it('says on a component\'s own line that nothing comes back from it, and only there', () => {
     // The model reads this list one line at a time; a component that answers
     // nothing and one that answers a press must not read alike.
-    const lines = describeCatalog(COMPONENT_CATALOG).split('\n')
+    const lines = describeCatalog(COMPONENT_KIT_ENTRIES).split('\n')
     const silent = lines.filter(line => line.includes('Nothing comes back from it.'))
-    expect(silent).toHaveLength(COMPONENT_CATALOG.filter(entry => entry.actions.length === 0).length)
+    expect(silent).toHaveLength(COMPONENT_KIT_ENTRIES.filter(entry => entry.actions.length === 0).length)
     expect(silent[0]).toContain(RECORD_DETAIL_ID)
   })
 
   it('names the components a spec places in the wording shown on screen', () => {
-    expect(catalogLabels([
+    expect(catalogLabels(KIT_CATALOG, [
       { id: 'a', component: CONFIRM_BAR_ID, props: {} },
       { id: 'b', component: RECORD_DETAIL_ID, props: {} },
     ])).toBe('确认条、记录详情')
@@ -294,14 +295,14 @@ describe('component catalog', () => {
     // Reachable from a persisted entry written before a component was renamed:
     // `resolve` deliberately consults no catalog, so a stored spec can outlive
     // the table the call was accepted against.
-    expect(catalogLabels([{ id: 'a', component: 'toy.chart', props: {} }])).toBe('toy.chart')
+    expect(catalogLabels(KIT_CATALOG, [{ id: 'a', component: 'toy.chart', props: {} }])).toBe('toy.chart')
   })
 })
 
 describe('the spec nesting ceiling', () => {
   /** One catalog entry around a declared property, for measuring what that property costs. */
   function entryWith(schema: ComponentCatalogEntry['propsSchema']): ComponentCatalogEntry {
-    return { id: 'toy.probe', label: '探针', purpose: 'Measured, never placed.', propsSchema: schema, actions: [], outputs: [] }
+    return { id: catalogId('toy.probe'), label: '探针', purpose: 'Measured, never placed.', propsSchema: schema, actions: [], outputs: [] }
   }
 
   it('leaves room for the deepest document this deployment declares as legal, and one layout level over', () => {
@@ -311,7 +312,7 @@ describe('the spec nesting ceiling', () => {
     // that, so a layout opening a fifth stack is still walked far enough to be
     // refused at the stack that opened it rather than as a document too deep to
     // read.
-    expect(MAX_SPEC_DEPTH).toBe(12)
+    expect(KIT_CATALOG.maxSpecDepth).toBe(12)
   })
 
   it('spends four levels on a component whose properties are all scalars', () => {
@@ -350,7 +351,7 @@ describe('the spec nesting ceiling', () => {
     // the table's tableConfig, its gridItems list, one column, and that
     // column's renderer configuration — the shallower of the two documents, and
     // the one this function measures.
-    expect(maxSpecDepthOf([...COMPONENT_CATALOG, nested])).toBe(8)
+    expect(maxSpecDepthOf([...COMPONENT_KIT_ENTRIES, nested])).toBe(8)
   })
 })
 

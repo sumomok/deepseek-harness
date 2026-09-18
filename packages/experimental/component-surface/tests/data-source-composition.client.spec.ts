@@ -32,6 +32,7 @@ import UserApproval from '@deepseek-ai/dsh-user-approval'
 import type { BizMetaResult, BizSearchRequest, BizSearchResult } from '@deepseek-ai/dsh-experimental-biz-backend'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ShowComponent from '../src/index.ts'
+import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
 let world: string | undefined
 let context: Context | undefined
@@ -142,6 +143,7 @@ async function loadComposition(composition: Composition = {}): Promise<Context> 
     '  config:',
     `    policy: ${composition.policy ?? 'never'}`,
     ...composition.backend === false ? [] : ["- name: 'stub-biz-backend'"],
+    `- name: '${COMPONENT_PLUGIN_NAME}'`,
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     ...rowConfig.length === 0 ? [] : ['  config:', ...rowConfig],
@@ -153,6 +155,7 @@ async function loadComposition(composition: Composition = {}): Promise<Context> 
   await context.plugin(Loader)
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    [COMPONENT_PLUGIN_NAME, componentPlugin()],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session', SessionStore],

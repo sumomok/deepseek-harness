@@ -30,6 +30,7 @@
 import {
   catalogEntry,
   MAX_NODES,
+  type ComponentCatalog,
   type ComponentNode,
   type ComponentSurfacePayload,
 } from '../component-call.ts'
@@ -129,12 +130,13 @@ function readSpecDocument(payload: unknown): SpecDocument | undefined {
 /**
  * Whether one node cannot be drawn yet: a property its component requires is
  * bound to an output nothing has published.
+ * @param catalog - the components this page can draw.
  * @param componentId - the component the node names.
  * @param unresolved - the bound properties with nothing to stand for them.
  * @returns true when one of them is required.
  */
-function awaitsAnOutput(componentId: string, unresolved: readonly string[]): boolean {
-  const schema = catalogEntry(componentId)?.propsSchema
+function awaitsAnOutput(catalog: ComponentCatalog, componentId: string, unresolved: readonly string[]): boolean {
+  const schema = catalogEntry(catalog, componentId)?.propsSchema
   // No catalog entry: validation refuses the node by name, which is a better
   // answer than a waiting line for a component that does not exist.
   if (schema === undefined) return false
@@ -143,12 +145,14 @@ function awaitsAnOutput(componentId: string, unresolved: readonly string[]): boo
 
 /**
  * Judge the nodes that are drawable, with every resolved binding in place.
+ * @param catalog - the components this page can draw.
  * @param doc - the document.
  * @param waiting - ids to leave out of the judgement.
  * @param props - each node's properties with its bindings resolved, by node id.
  * @returns the accepted nodes by id, or `undefined` when the document is one this build refuses.
  */
 function acceptNodes(
+  catalog: ComponentCatalog,
   doc: SpecDocument,
   waiting: ReadonlySet<string>,
   props: ReadonlyMap<string, Readonly<Record<string, unknown>>>,
@@ -157,7 +161,7 @@ function acceptNodes(
   // Every block is waiting on something: there is no document left to judge,
   // and the entry is a stack of waiting lines rather than an unreadable one.
   if (drawn.length === 0) return new Map()
-  const result = validateComponentSpec({
+  const result = validateComponentSpec(catalog, {
     ...doc.rest,
     nodes: drawn.map(node => ({ ...node.record, props: props.get(node.id) })),
   })
@@ -167,6 +171,7 @@ function acceptNodes(
 
 /**
  * Read one entry's payload into the blocks to draw and their arrangement.
+ * @param catalog - the components this page can draw.
  * @param payload - the entry's payload, as the column handed it over.
  * @param outputs - what this entry's blocks have published so far.
  * @param previous - the blocks the last reading of this same payload produced,
@@ -174,6 +179,7 @@ function acceptNodes(
  * @returns the reading, or `undefined` when this build cannot draw the payload at all.
  */
 export function acceptSurface(
+  catalog: ComponentCatalog,
   payload: unknown,
   outputs: OutputValues,
   previous: readonly SurfaceBlock[],
@@ -182,17 +188,17 @@ export function acceptSurface(
   if (doc === undefined) return undefined
   const bound = doc.nodes.map(node => ({ node, resolved: resolveBindings(node, outputs) }))
   const waiting = new Set(bound
-    .filter(one => awaitsAnOutput(one.node.component, one.resolved.unresolved))
+    .filter(one => awaitsAnOutput(catalog, one.node.component, one.resolved.unresolved))
     .map(one => one.node.id))
   const props = new Map(bound.map(one => [one.node.id, one.resolved.props] as const))
-  let accepted = acceptNodes(doc, waiting, props)
+  let accepted = acceptNodes(catalog, doc, waiting, props)
   if (accepted === undefined) {
     const fed = bound.filter(one => one.resolved.bindingKey !== undefined)
     // Nothing was fed anything, so the refusal is the document's own and there
     // is no smaller one to try.
     if (fed.length === 0) return undefined
     for (const one of fed) waiting.add(one.node.id)
-    accepted = acceptNodes(doc, waiting, props)
+    accepted = acceptNodes(catalog, doc, waiting, props)
     if (accepted === undefined) return undefined
   }
   const blocks = holdSteady(previous, bound.map(one => ({

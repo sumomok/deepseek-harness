@@ -13,17 +13,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   BINDING_KEY,
-  COMPONENT_CATALOG,
+  COMPONENT_KIT_ENTRIES,
   MAX_FLEX,
   MAX_LAYOUT_CHILDREN,
   MAX_LAYOUT_DEPTH,
-  MAX_SPEC_DEPTH,
   RECORD_DETAIL_ID,
   TABLE_ID,
   type LayoutStack,
   type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsOutput, validateComponentSpec, type ComponentCallFailure } from '../src/validate.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One table, which is the only component with something to read out of it. */
 function table(id: string, props: Record<string, unknown> = {}): Record<string, unknown> {
@@ -50,14 +50,14 @@ function from(reference: string): Record<string, unknown> {
 
 /** The refusal one spec produced; fails the spec when it was accepted. */
 function refusal(spec: unknown): ComponentCallFailure {
-  const result = validateComponentSpec(spec)
+  const result = validateComponentSpec(KIT_CATALOG, spec)
   if (result.ok) throw new Error('expected a refusal, got an accepted spec')
   return result.failure
 }
 
 /** The spec one document was accepted as; fails the spec when it was refused. */
 function accepted(spec: unknown): ReturnType<typeof validateComponentSpec> & { ok: true } {
-  const result = validateComponentSpec(spec)
+  const result = validateComponentSpec(KIT_CATALOG, spec)
   if (!result.ok) throw new Error(result.failure.text)
   return result
 }
@@ -141,7 +141,7 @@ describe('a layout', () => {
   })
 
   it(`accepts ${MAX_LAYOUT_DEPTH} stacks and refuses the one that opens a further one`, () => {
-    expect(validateComponentSpec({ nodes: [table('t')], layout: nest(MAX_LAYOUT_DEPTH, 't') }).ok).toBe(true)
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [table('t')], layout: nest(MAX_LAYOUT_DEPTH, 't') }).ok).toBe(true)
     const failure = refusal({ nodes: [table('t')], layout: nest(MAX_LAYOUT_DEPTH + 1, 't') })
     // Named at the stack that opened it, which is the one to drop.
     expect(failure.path).toBe('spec.layout.children[0].children[0].children[0].children[0]')
@@ -153,7 +153,7 @@ describe('a layout', () => {
     // past which the depth walk ends the call before the layout pass sees it.
     const failure = refusal({ nodes: [table('t')], layout: nest(MAX_LAYOUT_DEPTH + 2, 't') })
     expect(failure.path).toBe('spec')
-    expect(failure.text).toContain(`nests deeper than ${MAX_SPEC_DEPTH} levels`)
+    expect(failure.text).toContain(`nests deeper than ${KIT_CATALOG.maxSpecDepth} levels`)
   })
 
   it.each([
@@ -317,7 +317,7 @@ describe('a property read from another block', () => {
   it('accepts a bound property in place of the required value it stands for', () => {
     // `dataList` is required, and a call carrying only the binding is a call
     // whose property is present — the value arrives later, from the seat.
-    expect(validateComponentSpec({ nodes: [table('t'), detail('d', from('node:t.selectionDetail'))] }).ok).toBe(true)
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [table('t'), detail('d', from('node:t.selectionDetail'))] }).ok).toBe(true)
   })
 
   it('keeps the tightening pass running over every property that is not one', () => {
@@ -485,7 +485,7 @@ describe('which way a value can travel', () => {
     // user did in it, and what a report is read against is the call that placed
     // it — so every property a reporting component draws from is one no other
     // block may write, and a chain of bindings can only ever run one way.
-    const reporting = COMPONENT_CATALOG.filter(entry => entry.outputs.length > 0)
+    const reporting = COMPONENT_KIT_ENTRIES.filter(entry => entry.outputs.length > 0)
     expect(reporting.map(entry => entry.id)).toEqual(Object.keys(REPORTING))
     for (const source of reporting) {
       for (const target of reporting) {

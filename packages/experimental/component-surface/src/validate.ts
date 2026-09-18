@@ -35,7 +35,6 @@ import {
   BLOCK_KEYS,
   catalogEntry,
   catalogOutput,
-  COMPONENT_CATALOG,
   describeCatalog,
   describeSchema,
   isBindingValue,
@@ -48,7 +47,6 @@ import {
   MAX_NODE_ID_LENGTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
-  MAX_SPEC_DEPTH,
   MAX_TITLE_LENGTH,
   readBinding,
   STACK_KEYS,
@@ -57,6 +55,7 @@ import {
   type ComponentBinding,
   type ComponentCall,
   type ComponentCallArguments,
+  type ComponentCatalog,
   type ComponentCatalogEntry,
   type ComponentNode,
   type ComponentSpec,
@@ -173,7 +172,7 @@ function readBoundedString(
  *
  * Bounded recursion by construction: the walk stops at the ceiling rather than
  * at the bottom of the value, so measuring a hostile document costs at most
- * {@link MAX_SPEC_DEPTH} frames.
+ * the catalog's own {@link ComponentCatalog.maxSpecDepth} frames.
  * @param value - the value to measure.
  * @param remaining - levels still available at this value.
  * @returns true when the value is deeper than `remaining` levels.
@@ -740,6 +739,7 @@ type NodeResult =
  * @returns the accepted node, the catalog entry it names, and the properties it reads from other blocks; or the refusal.
  */
 function validateNode(
+  catalog: ComponentCatalog,
   value: unknown,
   path: string,
   takenIds: ReadonlySet<string>,
@@ -766,13 +766,13 @@ function validateNode(
   if (takenIds.has(id)) {
     return { ok: false, failure: refuse(`${path}.id`, `repeats ${JSON.stringify(id)}; every node in one call needs its own id.`) }
   }
-  const entry = catalogEntry(record['component'])
+  const entry = catalogEntry(catalog, record['component'])
   if (entry === undefined) {
     return {
       ok: false,
       failure: refuse(
         `${path}.component`,
-        `names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_CATALOG)}`,
+        `names no component of this deployment. Available components:\n${describeCatalog(catalog.entries)}`,
       ),
     }
   }
@@ -1089,19 +1089,20 @@ function resolveBindings(
  * depth walk is bounded by construction. The layout and the bindings come last
  * because both are about the whole spec: which nodes exist and what each of
  * them reports is not settled until every node is in.
+ * @param catalog - the components this deployment offers.
  * @param value - the `spec` argument, however malformed.
  * @returns the accepted spec, or the refusal.
  */
-export function validateComponentSpec(value: unknown): ComponentSpecResult {
+export function validateComponentSpec(catalog: ComponentCatalog, value: unknown): ComponentSpecResult {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return { ok: false, failure: refuse('spec', 'must be an object carrying a nodes array.') }
   }
-  if (exceedsDepth(value, MAX_SPEC_DEPTH)) {
+  if (exceedsDepth(value, catalog.maxSpecDepth)) {
     return {
       ok: false,
       failure: refuse(
         'spec',
-        `nests deeper than ${MAX_SPEC_DEPTH} levels. Send the properties the components declare, arranged in at most `
+        `nests deeper than ${catalog.maxSpecDepth} levels. Send the properties the components declare, arranged in at most `
         + `${MAX_LAYOUT_DEPTH} stacks, and nothing around them.`,
       ),
     }
@@ -1131,7 +1132,7 @@ export function validateComponentSpec(value: unknown): ComponentSpecResult {
   const placed = new Map<string, ComponentCatalogEntry>()
   const bindings: PlacedBinding[] = []
   for (const [index, node] of nodes.entries()) {
-    const result = validateNode(node, `spec.nodes[${index}]`, takenIds)
+    const result = validateNode(catalog, node, `spec.nodes[${index}]`, takenIds)
     if (!result.ok) return result
     takenIds.add(result.node.id)
     accepted.push(result.node)
@@ -1193,10 +1194,11 @@ export function acceptsActionPayload(payload: unknown, schema: PropsSchema): Act
  * tool refused is still recorded, and running the same judgement over the
  * recorded arguments is what keeps a refused call from becoming an entry the
  * seat cannot draw.
+ * @param catalog - the components this deployment offers.
  * @param args - the call's arguments, however malformed.
  * @returns the accepted call, or the refusal.
  */
-export function validateComponentCall(args: ComponentCallArguments): ComponentCallResult {
+export function validateComponentCall(catalog: ComponentCatalog, args: ComponentCallArguments): ComponentCallResult {
   const id = readBoundedString(
     args.id,
     'id',
@@ -1212,7 +1214,7 @@ export function validateComponentCall(args: ComponentCallArguments): ComponentCa
     'the short phrase the user reads on this block, in the language the user is writing in',
   )
   if (!title.ok) return title
-  const spec = validateComponentSpec(args.spec)
+  const spec = validateComponentSpec(catalog, args.spec)
   if (!spec.ok) return spec
   return { ok: true, call: { id: id.value, title: title.value, spec: spec.spec } }
 }

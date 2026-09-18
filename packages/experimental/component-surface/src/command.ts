@@ -47,6 +47,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections, which the entry is read through.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ContentSurfaceRecord } from '@deepseek-ai/dsh-experimental-content-surface/types'
+import { trackCatalog } from './catalog.ts'
 import {
   catalogAction,
   catalogEntry,
@@ -61,6 +62,7 @@ import {
   type ActionReport,
   type ComponentAction,
   type ComponentActionNotice,
+  type ComponentCatalog,
 } from './component-call.ts'
 import { componentActionsProjection } from './action-projection.ts'
 import type { CrudLoadReport, PendingLoads } from './crud.ts'
@@ -157,11 +159,13 @@ const UNRESOLVED: ActionResolution = { kind: 'unresolved' }
  * exists, the node is one the entry draws, the component is the one that node
  * names, the action is one that component declares, and the payload is what
  * that action declares.
+ * @param catalog - the components this deployment offers.
  * @param records - the session's folded content-surface records.
  * @param action - the reported action, as the command line carried it.
  * @returns what the action came to.
  */
 function resolveAction(
+  catalog: ComponentCatalog,
   records: readonly ContentSurfaceRecord[],
   action: ComponentAction,
 ): ActionResolution {
@@ -172,9 +176,9 @@ function resolveAction(
   // and that judgement is what gives the node its accepted properties.
   const stored = readComponentSurfaceData(record.data)
   if (stored === undefined) return UNRESOLVED
-  const spec = validateComponentSpec(stored.spec)
+  const spec = validateComponentSpec(catalog, stored.spec)
   if (!spec.ok) return UNRESOLVED
-  const component = catalogEntry(action.componentId)
+  const component = catalogEntry(catalog, action.componentId)
   if (component === undefined) return UNRESOLVED
   const node = spec.spec.nodes.find(one => one.id === action.nodeId)
   if (node === undefined) return UNRESOLVED
@@ -333,7 +337,7 @@ export function deliverAction(
  * waiting, and is delivered as an ordinary notice where it is not. The report
  * is looked up under the reporting session, so a call in another session
  * waiting on the same entry id is not settled by it.
- * @param ctx - context carrying the projection registry the entry is resolved through.
+ * @param ctx - context carrying the projection registry the entry is resolved through and the component catalog the gesture is named from.
  * @param memory - the wake budget and the unclaimed context notices, per agent.
  * @param pending - the calls waiting for their data page's report.
  * @returns the definition to hand to `ctx.commands.register`.
@@ -357,7 +361,7 @@ export function componentActionCommand(ctx: Context, memory: ActionMemory, pendi
       if (action === undefined) return { kind: 'error', text: ACTION_NOT_RECORDED }
       const session: Session = invocation.agent.session
       const records = ctx.sessionProjections.stateOf(session, 'contentSurface')?.records ?? NO_RECORDS
-      const resolved = resolveAction(records, action)
+      const resolved = resolveAction(ctx.componentCatalog.catalog, records, action)
       if (resolved.kind === 'too-large') return { kind: 'error', text: ACTION_TOO_LARGE }
       if (resolved.kind === 'unresolved') return { kind: 'error', text: ACTION_NOT_RECORDED }
       // A report the placing call is still waiting for goes into that call's
@@ -391,7 +395,11 @@ export function componentActionCommand(ctx: Context, memory: ActionMemory, pendi
  * this command's own records: where the command exists, the browser can read
  * back what each press became, and where it does not, there are no presses to
  * read.
- * @param ctx - context carrying the command registry and the projection registry.
+ * The fold is rebuilt whenever the catalog changes, because which gestures are
+ * a block's own answer is the catalog's fact: a unit registered against an
+ * older catalog would keep answering from it, and replacing the unit drops its
+ * cached cells so every session refolds against the catalog it now has.
+ * @param ctx - context carrying the command registry, the projection registry, and the component catalog.
  * @param pending - the calls waiting for their data page's report, shared with the tool.
  */
 export function installComponentAction(ctx: Context, pending: PendingLoads): void {
@@ -405,8 +413,9 @@ export function installComponentAction(ctx: Context, pending: PendingLoads): voi
     () => ctx.commands.register(componentActionCommand(ctx, memory, pending)),
     `show-component: the /${COMPONENT_ACTION_COMMAND} command`,
   )
-  ctx.effect(
-    () => ctx.sessionProjections.register(componentActionsProjection()),
+  trackCatalog(
+    ctx,
+    catalog => ctx.sessionProjections.register(componentActionsProjection(catalog)),
     'show-component: the componentActions projection unit',
   )
 }

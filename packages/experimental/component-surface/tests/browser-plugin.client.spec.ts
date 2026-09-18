@@ -1,22 +1,30 @@
 // @vitest-environment jsdom
 /**
  * The show-component browser half against the real SlotRegistry: the wait for
- * the content column's declaration, the kind key it claims, the component row's
- * namespace it translates through, the action face it injects, the two
- * `conversation.chat.commandview` registrations that own what this package's
- * commands draw in the chat, and removal on fiber teardown (HMR safety).
+ * the content column's declaration, the kind key it claims, its own namespace,
+ * the renderer registry it installs for component plugins to fill, the action
+ * face it injects, the two `conversation.chat.commandview` registrations that
+ * own what this package's commands draw in the chat, and removal on fiber
+ * teardown (HMR safety).
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import { NS } from '@deepseek-ai/dsh-experimental-component-kit/client'
+import { NS } from '../src/client/locales.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
 import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
-import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
+import { COMPONENT_KIT_ENTRIES, CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
+
+/** One component a plugin would contribute, drawn by nothing in particular. */
+const CONFIRM_BAR = COMPONENT_KIT_ENTRIES.filter(entry => entry.id === CONFIRM_BAR_ID)
+  .map(entry => ({ entry, render: () => null }))
+
+/** The translate a contributing row binds to its own namespace. */
+const translate = (key: string): string => key
 
 /**
  * Declare the content column and its kind slot the way `content-column` does,
@@ -93,16 +101,48 @@ describe('show-component browser half', () => {
     },
   )
 
-  it('claims the component key against the component row\'s namespace, and teardown removes it (HMR safety)', async () => {
+  it('claims the component key against its own namespace, and teardown removes it (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     const [entry] = ctx.slots.entries('content.surface.kind')
     expect(entry?.component).toBe(ComponentSurface)
     expect(entry?.options.key).toBe('component')
-    // The seat has no dictionary of its own: it reads the component row's.
+    // The seat draws its own lines in place of a block, so the namespace is its
+    // own; a renderer's copy travels with the contribution that registered it.
     expect(entry?.locale).toBe(NS)
 
     await fiber.dispose()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
+  })
+
+  it('installs the registry a component plugin fills, and releases a contribution with its fiber', async () => {
+    const { ctx } = await bench()
+    expect(ctx.componentRenderers.catalog.entries).toEqual([])
+    expect(ctx.componentRenderers.rendererFor(CONFIRM_BAR_ID)).toBeUndefined()
+
+    const dispose = ctx.componentRenderers.register({ components: CONFIRM_BAR, t: translate })
+    expect(ctx.componentRenderers.catalog.entries.map(entry => entry.id)).toEqual([CONFIRM_BAR_ID])
+    expect(ctx.componentRenderers.rendererFor(CONFIRM_BAR_ID)?.t).toBe(translate)
+
+    dispose()
+    expect(ctx.componentRenderers.catalog.entries).toEqual([])
+    expect(ctx.componentRenderers.rendererFor(CONFIRM_BAR_ID)).toBeUndefined()
+  })
+
+  it('refuses a second contribution claiming a component this page already draws', async () => {
+    const { ctx } = await bench()
+    ctx.componentRenderers.register({ components: CONFIRM_BAR, t: translate })
+    expect(() => ctx.componentRenderers.register({ components: CONFIRM_BAR, t: translate }))
+      .toThrow('component-surface: a component is already registered for "el.confirm-bar"')
+  })
+
+  it('hands the seat the live registry, so a component row loaded later is drawable', async () => {
+    const { ctx } = await bench()
+    const [entry] = ctx.slots.entries('content.surface.kind')
+    const injected = entry?.inject?.() as unknown as ComponentSurfaceInjected
+    expect(injected.components.catalog.entries).toEqual([])
+
+    ctx.componentRenderers.register({ components: CONFIRM_BAR, t: translate })
+    expect(injected.components.catalog.entries.map(one => one.id)).toEqual([CONFIRM_BAR_ID])
   })
 
   it('injects an action face that executes component-action against the named session', async () => {

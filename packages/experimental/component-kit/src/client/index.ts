@@ -1,16 +1,14 @@
 /**
- * Component row, browser half. It registers its dictionaries and exports the
- * renderer table; it declares no slot and knows no layout, so a placement
- * package decides where a block is drawn.
+ * Component row, browser half. It registers its dictionaries and its six
+ * components' renderers; it declares no slot and knows no layout, so a
+ * placement package decides where a block is drawn.
  *
- * The table is the row's whole surface. A placement package requests it through
- * the loader's module table
- * (`dsh.client.external: ['@deepseek-ai/dsh-experimental-component-kit/client']`),
- * looks a component up by the id a validated block names, and hands the block's
- * properties over as {@link ComponentRendererProps}. The table's keys stay
- * literal ids, so a placement package whose catalog derives a union of its own
- * ids can require this table to cover that union, and fails to compile the day
- * its catalog names a component this row cannot draw.
+ * The registration is the row's whole surface. Each component goes in with the
+ * same definition this row's host half registers and the React component that
+ * draws it, so what a block may carry and what draws it arrive together and a
+ * page loaded without this row simply cannot draw these six. The placement
+ * package hands each renderer the block's already-validated properties as
+ * {@link ComponentRendererProps} and this row's own translate.
  *
  * This row's host half serves one setting, and this half reads it once at
  * start: the base path the data page requests its table under. Every other
@@ -28,8 +26,13 @@
  * @module @deepseek-ai/dsh-experimental-component-kit/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the renderer registry's Context merge (ctx.componentRenderers).
+import type {} from '@deepseek-ai/dsh-experimental-component-surface/client'
+import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
+import type { BrowserComponent } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
 import { CrudRenderer } from './CrudRenderer.tsx'
 import { settleCrudBasePath } from './crud-settings.ts'
@@ -46,12 +49,11 @@ export { CRUD_REPORT_LIMITS } from './crud-limits.ts'
 export { installElementUI } from './element-ui.ts'
 export { freezeDeep } from './freeze.ts'
 export { useVueComponent, VueBridge } from './vue2-bridge.tsx'
-export type { ComponentKitKey } from './locales.ts'
+export type { ComponentKitKey, ComponentKitTranslate } from './locales.ts'
 export type {
   ComponentActionHandler,
   ComponentActionPayload,
   ComponentActionState,
-  ComponentKitTranslate,
   ComponentOutputHandler,
   ComponentRenderer,
   ComponentRendererProps,
@@ -67,15 +69,12 @@ export type { VueComponentOptions, VueInstance } from './vue-shim.ts'
 /**
  * Every component this row offers, by the catalog id a block names.
  *
- * A plain object with literal keys rather than a registry service: one package
- * owns every entry, and the literal keys are what let a placement package check
- * this table against the id union its own catalog derives, turning "a catalog
- * id with no renderer" into a compile error instead of a blank block. The
- * `satisfies` here only pins what the values are; which keys must exist is the
- * placement package's check, because the catalog is its fact rather than this
- * row's.
+ * Which ids must appear is no longer a compile-time claim: a catalog id is a
+ * runtime value now, so there is no literal union for this table to be checked
+ * against. {@link componentKitRenderers} refuses at registration instead, and
+ * `browser-plugin.client.spec.ts` pairs the two tables both ways.
  */
-export const COMPONENT_RENDERERS = {
+const COMPONENT_RENDERERS = {
   'el.confirm-bar': ConfirmBar,
   'el.filter-bar': TuQueryCondAdvRenderer,
   'el.metric': TcProcessBallRenderer,
@@ -84,23 +83,59 @@ export const COMPONENT_RENDERERS = {
   'toy.table': TableDetailRenderer,
 } satisfies Readonly<Record<string, ComponentRenderer>>
 
+/**
+ * Pair each of this row's definitions with the renderer that draws it.
+ * @param table - the renderers to pair them against; this row's own by default.
+ * @returns the contribution's components, in the order the host half offers them.
+ * @throws {Error} when a definition has no renderer in the table.
+ */
+export function componentKitRenderers(
+  table: Readonly<Record<string, ComponentRenderer>> = COMPONENT_RENDERERS,
+): readonly BrowserComponent[] {
+  return COMPONENT_KIT_ENTRIES.map((entry) => {
+    const render = table[entry.id as string]
+    if (render === undefined) throw new Error(`component-kit: no renderer draws ${entry.id}`)
+    return { entry, render }
+  })
+}
+
 /** Required service: the locale registry this row's dictionaries land in. */
 export const inject = ['locale']
 
 /**
- * Client plugin body: register this package's dictionaries, install element-ui
- * onto the Vue 2 runtime this row shares, and start the one read of this row's
- * settings that the data page waits on before it is drawn.
+ * Client plugin body: register this package's dictionaries and its six
+ * components, install element-ui onto the Vue 2 runtime this row shares, and
+ * start the one read of this row's settings that the data page waits on before
+ * it is drawn.
  *
- * The installation is not an effect: `Vue.use` has no counterpart, so tearing
- * this row down leaves element-ui's components registered on a runtime other
- * rows also hold. It is idempotent instead, which is what makes a reload safe.
- * The settings read is not awaited here: every other renderer draws without
- * it, and the one that needs it waits on the promise itself.
+ * The components are registered with this row's own translate, bound once:
+ * `bind` reads the active locale at call time and the seat re-renders on a
+ * language switch, so a renderer's copy follows the user's language without
+ * this row holding a copy of it.
+ *
+ * The registry is waited for rather than required, so a page that loads this
+ * row without a placement row still gets its dictionaries and its settings.
+ *
+ * The element-ui installation is not an effect: `Vue.use` has no counterpart,
+ * so tearing this row down leaves element-ui's components registered on a
+ * runtime other rows also hold. It is idempotent instead, which is what makes a
+ * reload safe. The settings read is not awaited here: every other renderer
+ * draws without it, and the one that needs it waits on the promise itself.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'component-kit: dictionaries')
+  ctx.inject(['componentRenderers'], (registryCtx) => {
+    registryCtx.componentRenderers.register({
+      components: componentKitRenderers(),
+      // Widened at the boundary: the registry stores a translate whose key
+      // domain is the contributing row's own, and this row narrows it back for
+      // its own renderers at `ComponentRendererProps`. A translate accepting
+      // every string is what any renderer can be handed, so the cast loses the
+      // key check here and keeps it where the keys are written.
+      t: registryCtx.locale.bind(NS) as Translate,
+    })
+  })
   installElementUI()
   void settleCrudBasePath()
 }

@@ -52,6 +52,7 @@ import {
   type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsActionPayload, validateComponentSpec, type ActionPayloadVerdict } from '../src/validate.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /**
  * Build one block's account of one gesture, over a spec this deployment accepts.
@@ -69,10 +70,10 @@ function notice(
   payload: Record<string, unknown>,
   entryTitle = '设备列表',
 ): ComponentActionNotice | undefined {
-  const result = validateComponentSpec({ nodes: [{ id: 'block', component: componentId, props }] })
+  const result = validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'block', component: componentId, props }] })
   if (!result.ok) throw new Error(result.failure.text)
   const node = result.spec.nodes[0]
-  const component = catalogEntry(componentId)
+  const component = catalogEntry(KIT_CATALOG, componentId)
   if (node === undefined || component === undefined) throw new Error(`no ${componentId} block was built`)
   const action = catalogAction(component, actionId)
   if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
@@ -81,7 +82,7 @@ function notice(
 
 /** The payload schema of one catalog action. */
 function payloadSchema(componentId: string, actionId: string): Parameters<typeof acceptsActionPayload>[1] {
-  const component = catalogEntry(componentId)
+  const component = catalogEntry(KIT_CATALOG, componentId)
   const action = component === undefined ? undefined : catalogAction(component, actionId)
   if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
   return action.payloadSchema

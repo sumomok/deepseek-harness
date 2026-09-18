@@ -19,13 +19,13 @@
 
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
-  COMPONENT_CATALOG,
   CRUD_ID,
   crudColumnPhrase,
   crudMeta,
   crudNodes,
   MAX_CRUD_REPORTED_COLUMNS,
   SHOW_COMPONENT_TOOL_NAME,
+  type ComponentCatalog,
   type ComponentNode,
   type ComponentSpec,
   type CrudColumn,
@@ -198,12 +198,13 @@ export const CRUD_NOT_APPROVED
  * deployment that does not offer the page cannot open it for any other reason
  * either: telling the model to move the page into a call of its own would send
  * it to write a second call this deployment refuses in the same words.
+ * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it, carrying at least one data page.
  * @returns the refusal, naming the first page and the components this deployment does offer.
  */
-export function crudNotOffered(spec: ComponentSpec): ComponentCallFailure {
+export function crudNotOffered(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure {
   const first = crudNodes(spec)[0] as ComponentNode
-  const others = COMPONENT_CATALOG.map(entry => entry.id).filter(id => id !== CRUD_ID).join(', ')
+  const others = catalog.entries.map(entry => entry.id as string).filter(id => id !== (CRUD_ID as string)).join(', ')
   return refuse(
     `spec.nodes[${spec.nodes.indexOf(first)}].component`,
     `names ${CRUD_ID}, which this deployment does not offer. Offered components: ${others}.`,
@@ -218,15 +219,16 @@ export function crudNotOffered(spec: ComponentSpec): ComponentCallFailure {
  * components it does offer. A second page in one call is refused, because a
  * call asks one question and a page is a whole table's worth of screen. A sort
  * naming both directions is refused the way a `dataSource` sort is.
+ * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @param offered - whether this deployment offers the data page at all.
  * @returns the refusal, or `undefined` when the call may proceed to the question.
  */
-export function judgeCrudNodes(spec: ComponentSpec, offered: boolean): ComponentCallFailure | undefined {
+export function judgeCrudNodes(catalog: ComponentCatalog, spec: ComponentSpec, offered: boolean): ComponentCallFailure | undefined {
   const pages = crudNodes(spec)
   const first = pages[0]
   if (first === undefined) return undefined
-  if (!offered) return crudNotOffered(spec)
+  if (!offered) return crudNotOffered(catalog, spec)
   const second = pages[1]
   if (second !== undefined) {
     return refuse(

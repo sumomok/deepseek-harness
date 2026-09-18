@@ -45,6 +45,7 @@ import {
   formatComponentActionLine,
 } from '../src/component-call.ts'
 import * as ShowComponent from '../src/index.ts'
+import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
 let world: string | undefined
 let context: Context | undefined
@@ -92,6 +93,7 @@ async function loadComposition(): Promise<Context> {
     '  config:',
     '    allowParallelInProgress: false',
     "- name: '@deepseek-ai/dsh-experimental-content-surface'",
+    `- name: '${COMPONENT_PLUGIN_NAME}'`,
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     '',
@@ -103,6 +105,7 @@ async function loadComposition(): Promise<Context> {
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    [COMPONENT_PLUGIN_NAME, componentPlugin()],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session', SessionStore],

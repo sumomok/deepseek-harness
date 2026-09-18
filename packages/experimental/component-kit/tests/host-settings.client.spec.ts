@@ -1,15 +1,26 @@
 /**
- * The node half against the real webserver: the base path is judged at load,
- * served on its route with no caching, refused on every other method, and
- * absent — with the row still loading — where no webserver is composed.
+ * The node half against the real webserver and the real catalog registry: the
+ * base path is judged at load, served on its route with no caching, refused on
+ * every other method, and absent — with the row still loading — where no
+ * webserver is composed; and the row's six components reach the catalog under
+ * this package's own name and version and leave with the fiber.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
  */
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
+import { COMPONENT_KIT_ENTRIES, ComponentCatalogRegistry } from '@deepseek-ai/dsh-experimental-component-surface'
+import { readComponentKitSource } from '../src/manifest.ts'
 import * as ComponentKit from '../src/index.ts'
+
+/** This package's own manifest, which is what the row registers its components under. */
+const OWN = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+  name: string
+  version: string
+}
 
 const contexts: Context[] = []
 
@@ -74,5 +85,55 @@ describe('the component-kit node half', () => {
     await fiber.dispose()
     // The first registration is still there; the second's route went with it.
     expect(await (await fetch(settingsUrl(ctx))).json()).toEqual({ bizBasePath: '/' })
+  })
+
+  it('falls back to the root path where apply is reached with no configured one', () => {
+    // The schema fills the field, so this is the path a caller reaching `apply`
+    // directly takes — the Loader never does.
+    const ctx = new Context()
+    contexts.push(ctx)
+    expect(() => { ComponentKit.apply(ctx, {}) }).not.toThrow()
+  })
+
+  it('loads without a catalog and contributes nothing', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(ComponentKit, {}).await()
+    expect(ctx.get('componentCatalog')).toBeUndefined()
+  })
+
+  it('registers its six components under its own package name and version', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(ComponentCatalogRegistry).await()
+    const fiber = ctx.plugin(ComponentKit, {})
+    await fiber.await()
+    // The contribution lives in a grandchild fiber waiting on the registry, and
+    // the row's own await does not reach it.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.componentCatalog.catalog.entries.map(entry => entry.id))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
+    expect(ctx.componentCatalog.components.map(one => one.source))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(() => ({ package: OWN.name, version: OWN.version })))
+  })
+
+  it('refuses a manifest carrying no name and version to attribute its components to', () => {
+    expect(() => readComponentKitSource({ name: '@deepseek-ai/dsh-experimental-component-kit' }))
+      .toThrow('component-kit: own package.json carries no name and version to register its components under')
+    expect(() => readComponentKitSource(undefined))
+      .toThrow('component-kit: own package.json carries no name and version to register its components under')
+  })
+
+  it('takes its components back out of the catalog with the fiber', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(ComponentCatalogRegistry).await()
+    const fiber = ctx.plugin(ComponentKit, {})
+    await fiber.await()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.componentCatalog.catalog.entries).toHaveLength(COMPONENT_KIT_ENTRIES.length)
+
+    await fiber.dispose()
+    expect(ctx.componentCatalog.catalog.entries).toEqual([])
   })
 })

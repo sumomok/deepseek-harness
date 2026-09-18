@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import {
   catalogAction,
   catalogEntry,
-  COMPONENT_CATALOG,
+  COMPONENT_KIT_ENTRIES,
   CRUD_ID,
   CRUD_QUERY_ID,
   describeCatalog,
@@ -21,7 +21,6 @@ import {
   MAX_ENTRY_ID_LENGTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
-  MAX_SPEC_DEPTH,
   MAX_TITLE_LENGTH,
   METRIC_ID,
   TABLE_ID,
@@ -35,6 +34,7 @@ import {
   validateComponentSpec,
   type ComponentCallFailure,
 } from '../src/validate.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted confirmation bar, the shape every rejection case starts from. */
 function confirmBar(props: Record<string, unknown> = { buttons: [{ id: 'ok', label: '确认' }] }): Record<string, unknown> {
@@ -48,7 +48,7 @@ function call(spec: unknown): { id: string; title: string; spec: unknown } {
 
 /** The refusal one call produced; fails the spec when the call was accepted. */
 function refusal(args: { id?: unknown; title?: unknown; spec?: unknown }): ComponentCallFailure {
-  const result = validateComponentCall(args)
+  const result = validateComponentCall(KIT_CATALOG, args)
   if (result.ok) throw new Error('expected a refusal, got an accepted call')
   return result.failure
 }
@@ -60,7 +60,7 @@ function propsRefusal(props: Record<string, unknown>): ComponentCallFailure {
 
 describe('an accepted call', () => {
   it('keeps the trimmed identity, the title, and the nodes in order', () => {
-    const result = validateComponentCall({
+    const result = validateComponentCall(KIT_CATALOG, {
       id: '  budget  ',
       title: '  预算确认  ',
       spec: {
@@ -86,13 +86,13 @@ describe('an accepted call', () => {
   })
 
   it('accepts a spec on its own, the pass the browser seat repeats on the wire', () => {
-    expect(validateComponentSpec({ nodes: [confirmBar()] }).ok).toBe(true)
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [confirmBar()] }).ok).toBe(true)
   })
 
   it('leaves an accepted node\'s properties frozen, which is what a Vue renderer is given', () => {
     // The seat reaches every renderer through here, so this is where a block's
     // properties become something a framework below cannot rewrite.
-    const result = validateComponentSpec({ nodes: [confirmBar({ title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] })] })
+    const result = validateComponentSpec(KIT_CATALOG, { nodes: [confirmBar({ title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] })] })
     if (!result.ok) throw new Error(result.failure.text)
     const props = result.spec.nodes[0]?.props as Record<string, unknown>
     expect(Object.isFrozen(props)).toBe(true)
@@ -107,7 +107,7 @@ describe('an accepted call', () => {
     // properties in the schema's order, whatever order the call wrote them in.
     const buttons = [{ label: '确认', id: 'ok' }]
     const props = { buttons, message: '同意后立即生效。' }
-    const result = validateComponentSpec({ nodes: [confirmBar(props)] })
+    const result = validateComponentSpec(KIT_CATALOG, { nodes: [confirmBar(props)] })
     if (!result.ok) throw new Error(result.failure.text)
     const accepted = result.spec.nodes[0]?.props as Record<string, unknown>
     expect(accepted).not.toBe(props)
@@ -144,8 +144,8 @@ describe('the deepest document the catalog declares as legal', () => {
   // a component's own schema and the depth a spec is refused at cannot drift
   // apart, so a catalog entry declaring a deeper property fails here rather than
   // reaching a model as a spec refused for nesting it was invited to write.
-  it.each(COMPONENT_CATALOG.map(entry => [entry.id, entry] as const))('accepts a fully populated %s', (id, entry) => {
-    expect(validateComponentSpec({ nodes: [{ id: 'n1', component: id, props: sampleProps(entry.propsSchema) }] }))
+  it.each(COMPONENT_KIT_ENTRIES.map(entry => [entry.id, entry] as const))('accepts a fully populated %s', (id, entry) => {
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'n1', component: id, props: sampleProps(entry.propsSchema) }] }))
       .toMatchObject({ ok: true })
   })
 })
@@ -157,7 +157,7 @@ describe('the record detail', () => {
   }
 
   it('accepts rows, an optional label width, and an optional column count', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [record({
         dataList: [{ label: '编号', display: 'A-1' }, { label: '状态', display: '在用' }],
         labelWidth: 120,
@@ -167,7 +167,7 @@ describe('the record detail', () => {
   })
 
   it('accepts two rows carrying the same label, because a row is not something the user points at', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [record({ dataList: [{ label: '附件', display: 'a.pdf' }, { label: '附件', display: 'b.pdf' }] })],
     })).toMatchObject({ ok: true })
   })
@@ -210,11 +210,11 @@ describe('the data table', () => {
   }
 
   it('accepts the narrowest table: one column and one row', () => {
-    expect(validateComponentSpec({ nodes: [table(MINIMAL)] })).toMatchObject({ ok: true })
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [table(MINIMAL)] })).toMatchObject({ ok: true })
   })
 
   it('accepts every declared property at once', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [table({
         tableConfig: {
           gridItems: [
@@ -234,7 +234,7 @@ describe('the data table', () => {
   })
 
   it('accepts two rows carrying the same values, because a row is not something the call identifies', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [table(withProps({ displayValueList: [{ zh_label: 'A-1' }, { zh_label: 'A-1' }] }))],
     })).toMatchObject({ ok: true })
   })
@@ -283,7 +283,7 @@ describe('the filter bar', () => {
   }
 
   it('accepts every declared property at once', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [filter({
         relatedMeta: 'device',
         metaConfig: {
@@ -299,7 +299,7 @@ describe('the filter bar', () => {
   })
 
   it('accepts a bar that declares no strategies, which offers all fifteen', () => {
-    expect(validateComponentSpec({ nodes: [filter(MINIMAL)] })).toMatchObject({ ok: true })
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [filter(MINIMAL)] })).toMatchObject({ ok: true })
   })
 
   it.each([
@@ -324,7 +324,7 @@ describe('the metric ball', () => {
   }
 
   it('accepts a measurement, its word, its size and its three colors', () => {
-    expect(validateComponentSpec({
+    expect(validateComponentSpec(KIT_CATALOG, {
       nodes: [metric({ size: 160, process: 72, text: '在用率', background: '#00D27A', borderColor: 'rgb(0,210,122)', pointColor: '#0d2', isPointShow: false })],
     })).toMatchObject({ ok: true })
   })
@@ -392,14 +392,14 @@ describe('refusing a spec', () => {
 
   it('refuses a spec nested deeper than the protocol accepts', () => {
     // Depth is measured before size, so a hostile document is walked at most
-    // MAX_SPEC_DEPTH frames deep whatever else is wrong with it. Six levels of
+    // KIT_CATALOG.maxSpecDepth frames deep whatever else is wrong with it. Six levels of
     // nothing inside a button's tone is past the ceiling by one, and the value
     // is never judged against the property it sits on.
     let tone: unknown = 1
     for (let level = 0; level < 7; level++) tone = { deeper: tone }
     const failure = refusal(call({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认', tone }] })] }))
     expect(failure.path).toBe('spec')
-    expect(failure.text).toContain(`nests deeper than ${MAX_SPEC_DEPTH} levels`)
+    expect(failure.text).toContain(`nests deeper than ${KIT_CATALOG.maxSpecDepth} levels`)
   })
 
   it('refuses a spec past the byte ceiling', () => {
@@ -466,7 +466,7 @@ describe('refusing a node', () => {
     // The whole list, not a count: a model that guessed wrong is told the same
     // catalog it was offered, so the next call needs no extra round trip.
     expect(failure.text).toBe(
-      `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_CATALOG)}`,
+      `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_KIT_ENTRIES)}`,
     )
   })
 })
@@ -515,7 +515,7 @@ describe('refusing a component\'s properties', () => {
   })
 
   it('accepts a declared property whose value is missing but optional', () => {
-    expect(validateComponentSpec({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认' }] })] }).ok).toBe(true)
+    expect(validateComponentSpec(KIT_CATALOG, { nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认' }] })] }).ok).toBe(true)
   })
 
   it('accepts a null where a value is expected only as a refusal, never as a blank', () => {
@@ -530,7 +530,7 @@ describe('refusing a component\'s properties', () => {
 describe('a scalar property', () => {
   /** The data page's condition list, the one place the catalog declares a scalar. */
   function page(value: unknown) {
-    return validateComponentSpec({ nodes: [{ id: 'p', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备', conditions: [{ key: 'city', op: 'EQ', value }] } }] })
+    return validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'p', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备', conditions: [{ key: 'city', op: 'EQ', value }] } }] })
   }
 
   it.each([
@@ -572,7 +572,7 @@ describe('a scalar property', () => {
 describe('a count declared whole', () => {
   /** The three counts one answered query reports, read off the catalog rather than restated here. */
   function queryCounts(): PropsSchema {
-    const component = catalogEntry(CRUD_ID)
+    const component = catalogEntry(KIT_CATALOG, CRUD_ID)
     const action = component === undefined ? undefined : catalogAction(component, CRUD_QUERY_ID)
     if (action === undefined) throw new Error(`${CRUD_ID} declares no ${CRUD_QUERY_ID}`)
     return action.payloadSchema

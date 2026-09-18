@@ -50,6 +50,7 @@ import * as ShowComponent from '../src/index.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { validateComponentSpec } from '../src/validate.ts'
 import { indexViews } from '../src/views.ts'
+import { installKitCatalog, KIT_CATALOG } from './kit-catalog.client.ts'
 
 const contexts: Context[] = []
 
@@ -88,7 +89,7 @@ const CARD = '用您的账号打开「设备台账」的完整数据页，可以
 
 /** The validated node of {@link PAGE}. */
 function pageNode(spec: unknown = SPEC) {
-  const result = validateComponentSpec(spec)
+  const result = validateComponentSpec(KIT_CATALOG, spec)
   if (!result.ok) throw new Error(result.failure.text)
   return result.spec.nodes[0] as NonNullable<(typeof result.spec.nodes)[0]>
 }
@@ -113,12 +114,12 @@ describe('the card', () => {
 
 describe('judging the page before the question', () => {
   it('lets one page through, and a call placing none', () => {
-    expect(judgeCrudNodes(validateSpec(SPEC), true)).toBeUndefined()
-    expect(judgeCrudNodes(validateSpec({ nodes: [{ id: 'f', component: 'toy.record', props: { dataList: [{ label: 'a', display: 'b' }] } }] }), false)).toBeUndefined()
+    expect(judgeCrudNodes(KIT_CATALOG, validateSpec(SPEC), true)).toBeUndefined()
+    expect(judgeCrudNodes(KIT_CATALOG, validateSpec({ nodes: [{ id: 'f', component: 'toy.record', props: { dataList: [{ label: 'a', display: 'b' }] } }] }), false)).toBeUndefined()
   })
 
   it('refuses the page where the deployment does not offer it, naming what it does offer', () => {
-    expect(judgeCrudNodes(validateSpec(SPEC), false)).toEqual({
+    expect(judgeCrudNodes(KIT_CATALOG, validateSpec(SPEC), false)).toEqual({
       path: 'spec.nodes[0].component',
       text: 'show_component: spec.nodes[0].component — names toy.crud, which this deployment does not offer. '
         + 'Offered components: el.confirm-bar, toy.record, toy.table, el.filter-bar, el.metric.',
@@ -128,14 +129,14 @@ describe('judging the page before the question', () => {
 
   it('refuses a second page in one call', () => {
     const two = validateSpec({ nodes: [PAGE, { ...PAGE, id: 'again' }] })
-    expect(judgeCrudNodes(two, true)?.text).toBe(
+    expect(judgeCrudNodes(KIT_CATALOG, two, true)?.text).toBe(
       'show_component: spec.nodes[1] — places a second toy.crud block. A call opens one data page; place another in a call of its own.',
     )
   })
 
   it('refuses a sort naming both directions, the way a data source does', () => {
     const both = validateSpec({ nodes: [{ ...PAGE, props: { ...PAGE.props, querySort: { asc: 'city', desc: 'state' } } }] })
-    expect(judgeCrudNodes(both, true)?.text).toBe(
+    expect(judgeCrudNodes(KIT_CATALOG, both, true)?.text).toBe(
       'show_component: spec.nodes[0].props.querySort.desc — cannot be sent beside asc. Sort by one attribute, in one direction.',
     )
   })
@@ -241,7 +242,7 @@ describe('the table of waiting calls', () => {
 
 describe('the offer', () => {
   it('lists the page and explains it only where the deployment asked for it', () => {
-    const offered = describeShowComponent(OPENING)
+    const offered = describeShowComponent(KIT_CATALOG, OPENING)
     expect(offered).toContain('- toy.crud — 完整数据页 —')
     expect(offered).toContain('A toy.crud block is this deployment\'s own full page for one table, opened in the panel with the '
       + 'user\'s own credential. You choose the table (`relatedMeta`), its name in the user\'s language (`metaLabel`, which '
@@ -250,7 +251,7 @@ describe('the offer', () => {
       + 'asked once before it opens, and a refused question draws nothing. What comes back to you is the page\'s first 20 '
       + 'columns once it has loaded — in the result line when the page loads in time, as a notice otherwise — then each '
       + 'query\'s row count and the row and column of a cell the user clicks; the rows themselves stay in the panel.')
-    const withheld = describeShowComponent(PLAIN)
+    const withheld = describeShowComponent(KIT_CATALOG, PLAIN)
     expect(withheld).not.toContain('toy.crud')
     expect(withheld).toContain('- el.metric — 指标球 —')
   })
@@ -286,7 +287,7 @@ async function bench(outcome: ApprovalOutcome = 'allowed-once', options: ShowCom
   // the page is refused by the page rule and not by a missing seam.
   ctx.provide('bizBackend', { holdsCredential: () => true } as never)
   const pending = new PendingLoads()
-  ctx.tools.register(showComponentTool(ctx, options, pending))
+  ctx.tools.register(showComponentTool(ctx, KIT_CATALOG, options, pending))
   return {
     session,
     asked,
@@ -420,7 +421,7 @@ describe('the row\'s own configuration', () => {
 
 describe('a configured view', () => {
   it('may not place the page, because a click asks nobody', () => {
-    expect(() => indexViews([{ id: 'devices', title: '设备', spec: SPEC }], undefined)).toThrow(
+    expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined)).toThrow(
       'component-surface: views[0] "devices" — places a toy.crud block, which only a call the user is asked about may place',
     )
   })
@@ -448,6 +449,7 @@ async function composed(crudLoadTimeoutMs: number): Promise<{ ctx: Context; aske
     },
   } as never)
   await ctx.plugin(ShowComponent, { crud: true, crudLoadTimeoutMs })
+  await installKitCatalog(ctx)
   return { ctx, asked }
 }
 
@@ -577,7 +579,7 @@ describe('the page reporting back through the composition', () => {
 
 /** Validate one spec or throw, for the cases that hand a validated spec to the judgement. */
 function validateSpec(spec: unknown) {
-  const result = validateComponentSpec(spec)
+  const result = validateComponentSpec(KIT_CATALOG, spec)
   if (!result.ok) throw new Error(result.failure.text)
   return result.spec
 }

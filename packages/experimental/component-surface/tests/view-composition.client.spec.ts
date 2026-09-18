@@ -37,6 +37,7 @@ import { COMPONENT_KIND } from '../src/component-call.ts'
 import { COMPONENT_VIEWS_ROUTE } from '../src/route.ts'
 import { SHOW_CONTENT_VIEW_COMMAND } from '../src/view-command.ts'
 import * as ShowComponent from '../src/index.ts'
+import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
 /**
  * The configured view the whole file is written against: a table above the
@@ -110,6 +111,7 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
     "- name: '@deepseek-ai/dsh-session-projection'",
     "- name: '@deepseek-ai/dsh-commands'",
     "- name: '@deepseek-ai/dsh-experimental-content-surface'",
+    `- name: '${COMPONENT_PLUGIN_NAME}'`,
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     ...config.length === 0 ? [] : ['  config:', ...config],
@@ -122,6 +124,7 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    [COMPONENT_PLUGIN_NAME, componentPlugin()],
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
@@ -268,23 +271,28 @@ describe('a click on a configured view', () => {
 })
 
 describe('a deployment whose views the tool would refuse', () => {
-  it('fails the boot, naming the view and the value inside it', async () => {
-    // Loud at load: a view whose spec the tool would refuse is a menu row that
-    // shows an empty column when a user clicks it, with nothing anywhere saying
-    // why. The Loader carries the sentence out of `apply` and the composition
-    // does not come up at all.
-    await expect(loadComposition({
+  it('refuses the contribution that completes the catalog, and offers nothing', async () => {
+    // A view whose spec the tool would refuse is a menu row that shows an empty
+    // column when a user clicks it, so the row refuses it rather than
+    // publishing it. Which components exist is another row's contribution, so
+    // the refusal lands where the catalog was completed: that contribution is
+    // taken back out, the component row carries the sentence, and the
+    // deployment comes up with no components and no tool at all rather than
+    // with a menu row nothing can draw.
+    const ctx = await loadComposition({
       views: [
         '    views:',
         '      - id: site-overview',
         '        title: 站点概览',
         `        spec: ${JSON.stringify({ nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })}`,
       ],
-    })).rejects.toThrow(/component-surface: views\[0\] "site-overview" — spec\.nodes\[0\]\.component — names no component/)
+    })
+    expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
+    expect((await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${COMPONENT_VIEWS_ROUTE}`)).status).not.toBe(200)
   })
 
-  it('fails the boot when homeView names no configured view', async () => {
-    await expect(loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' }))
-      .rejects.toThrow('component-surface: homeView "alerts" names no configured view')
+  it('refuses a homeView naming no configured view the same way', async () => {
+    const ctx = await loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' })
+    expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
   })
 })

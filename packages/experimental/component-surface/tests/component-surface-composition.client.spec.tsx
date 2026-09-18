@@ -13,15 +13,19 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { en } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import { RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
+import { en } from '../src/client/locales.ts'
+import { kitRendererTable } from './renderer-table.client.ts'
 
 beforeAll(installElementUI)
 afterEach(cleanup)
 
 const t: ComponentSurfaceProps['t'] = makeTranslate(en)
+
+/** The components this page draws, as the component row registers them. */
+const components = kitRendererTable()
 
 /**
  * Let Vue finish: el-table draws its rows from each column component's own
@@ -80,6 +84,7 @@ async function mount(nodes: readonly unknown[]): Promise<Mounted> {
       useSessions,
       onAction,
       pending: new Map(),
+      components,
       t,
     } as unknown as ComponentSurfaceProps} />
   )

@@ -27,6 +27,7 @@ import { COMPONENT_KIND, type ComponentSpec } from '../src/component-call.ts'
 import { componentExtractor, type ComponentSurfaceData } from '../src/surface.ts'
 // Type-only: this package's own `content-component/shown` SessionEventMap merge.
 import type {} from '../src/types.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted confirmation-bar spec, and a second one differing only in its text. */
 const FIRST = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] } }] }
@@ -53,7 +54,7 @@ async function bench(): Promise<Bench> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ContentSurfaceRegistry).await()
-  ctx.contentSurface.register(componentExtractor())
+  ctx.contentSurface.register(componentExtractor(KIT_CATALOG))
   const session = (ctx.get('sessions') as unknown as SessionStore).create()
   return {
     session,
@@ -223,7 +224,7 @@ describe('one stored component record', () => {
   it('resolves into the switcher line and the spec its renderer receives', () => {
     // No catalog lookup: a record persisted before a component was renamed must
     // still resolve, and it is the seat that reports a block it cannot draw.
-    expect(componentExtractor().resolve({ title: '预算确认', spec: FIRST }))
+    expect(componentExtractor(KIT_CATALOG).resolve({ title: '预算确认', spec: FIRST }))
       .toEqual({ title: '预算确认', payload: { spec: FIRST } })
   })
 
@@ -242,7 +243,7 @@ describe('one stored component record', () => {
   ])('answers with an unreadable entry for %s', (_case, stored) => {
     // The cast is the erased call the router actually makes: `resolve` gets the
     // stored value back with nothing between it and the checkpoint.
-    expect(componentExtractor().resolve(stored as ComponentSurfaceData))
+    expect(componentExtractor(KIT_CATALOG).resolve(stored as ComponentSurfaceData))
       .toEqual({ title: '无法显示的内容', payload: undefined })
   })
 })

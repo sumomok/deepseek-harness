@@ -13,6 +13,7 @@
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import type { ComponentCatalog } from './component-call.ts'
 import {
   applyComponentAction,
   componentActionsView,
@@ -56,14 +57,17 @@ const STATE_VERSION = 2
 
 /**
  * Build the `componentActions` unit.
+ * @param catalog - the components this deployment offers, as they stand when
+ *   the unit is registered; a catalog change replaces the unit, which drops its
+ *   cached cells and refolds every session against the new one.
  * @returns the definition to hand to `ctx.sessionProjections.register`.
  */
-export function componentActionsProjection(): ComponentActionsProjectionDefinition {
+export function componentActionsProjection(catalog: ComponentCatalog): ComponentActionsProjectionDefinition {
   return {
     key: 'componentActions',
     stateSchema,
     init: () => [],
-    apply: applyComponentAction,
+    apply: (state, event) => applyComponentAction(catalog, state, event),
     wire: { viewSchema, view: componentActionsView },
     stateVersion: STATE_VERSION,
   }

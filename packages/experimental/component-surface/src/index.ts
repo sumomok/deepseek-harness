@@ -61,12 +61,13 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 // Type-only: resolves ctx.approval, which that child asks the user through.
 import type {} from '@deepseek-ai/dsh-user-approval'
-import { MAX_TABLE_ROWS } from './component-call.ts'
+import { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
+import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
 import { installComponentAction } from './command.ts'
 import { PendingLoads } from './crud.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
-import { showComponentTool, type ShowComponentOptions } from './tool.ts'
+import { offeredEntries, showComponentTool, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
 import { indexViews } from './views.ts'
@@ -75,6 +76,16 @@ import { indexViews } from './views.ts'
 // home); this re-export projects the type face onto the package root and keeps
 // the module edge in the emitted index.d.ts.
 export type * from './types.ts'
+export { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
+export type { CatalogedComponent, ComponentContribution, ComponentSource } from './catalog.ts'
+export {
+  catalogId,
+  COMPONENT_KIT_ENTRIES,
+  readCatalog,
+  type CatalogId,
+  type ComponentCatalog,
+  type ComponentCatalogEntry,
+} from './component-call.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-component'
@@ -236,63 +247,130 @@ function offerNeeds(options: ShowComponentOptions): readonly string[] {
  */
 
 /**
- * Claim the tool, the content kind and its return channel wherever a column is
- * composed, and — where the deployment configured any — the view catalog and
- * the command that shows one.
+ * Offer `show_component` for as long as this deployment has a component to
+ * place with it.
+ *
+ * Not offered at all while the catalog holds nothing this composition can
+ * honour: the description's whole substance is the component list, and a tool
+ * offering a list with no entries in it is an offer the model can only spend a
+ * refused call discovering. Re-registered on every catalog change, which is how
+ * the changed description reaches the log — the request header records the
+ * assembled schemas verbatim, so a re-registration is a header the model's next
+ * request is reconstructable from.
+ * @param ctx - the injected context carrying the tool runtime and the catalog.
+ * @param options - what this composition offers.
+ * @param pending - the table a call opening a data page waits in.
+ * @param needs - the services this offer waited for, named in the effect label.
+ */
+function installOffer(
+  ctx: Context,
+  options: ShowComponentOptions,
+  pending: PendingLoads,
+  needs: readonly string[],
+): void {
+  trackCatalog(
+    ctx,
+    (catalog: ComponentCatalog) => (offeredEntries(catalog, options).length === 0
+      ? undefined
+      : ctx.tools.register(showComponentTool(ctx, catalog, options, pending))),
+    needs.length === 0
+      ? 'show-component: the show_component tool'
+      : `show-component: the show_component tool, with ${needs.join(' and ')}`,
+  )
+}
+
+/**
+ * Publish the deployment's own views and the command that shows one.
+ *
+ * Judged against the catalog rather than at load, because what a view may place
+ * is what the composed component plugins offer: a view is accepted by exactly
+ * the pass a tool call takes, so a deployment writing one and the model writing
+ * one are refused on identical terms and neither can drift from the other.
+ *
+ * A composition with no component registered publishes no views, for the reason
+ * it is offered no tool: there is no component for a view to place, so a
+ * refusal naming every view would say only that this deployment composed no
+ * component plugin. The first catalog that holds one is where a broken view
+ * fails, which is the earliest point the failure can be told from that one.
+ * @param ctx - the injected context carrying the catalog.
+ * @param config - the validated config, with its defaults already applied.
+ * @param homeView - the `homeView` config value, when set.
+ * @throws {Error} when a configured view is one the tool would have refused,
+ * which is a menu row that shows an empty column when a user clicks it.
+ */
+function installViews(ctx: Context, config: ResolvedConfig, homeView: string | undefined): void {
+  trackCatalog(ctx, (catalog) => {
+    if (catalog.entries.length === 0) return undefined
+    const views = indexViews(catalog, config.views, homeView)
+    if (views.size === 0) return undefined
+    // Both pieces exist only where views do, and each waits for the seam it
+    // needs the way every other piece of this row does. A deployment that
+    // configures views composes the console's webserver and command registry —
+    // the overlay that inserts this row is what guarantees it — and one that
+    // composes neither has no sidebar to click in either.
+    const document: ComponentViewsDocument = {
+      views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
+      ...homeView === undefined ? {} : { homeView },
+    }
+    const route = ctx.inject(['webServer'], (serverCtx) => {
+      serverCtx.effect(
+        () => serverCtx.webServer.register(viewCatalogRoute(document)),
+        'show-component: the view catalog route',
+      )
+    })
+    const command = ctx.inject(['commands'], (commandsCtx) => {
+      commandsCtx.commands.register(showContentViewCommand(views))
+    })
+    return () => {
+      void route.dispose()
+      void command.dispose()
+    }
+  }, 'show-component: the configured views')
+}
+
+/**
+ * Install the catalog registry, then claim the tool, the content kind and its
+ * return channel wherever a column is composed, and — where the deployment
+ * configured any — the view catalog and the command that shows one.
+ *
+ * Every one of those is a function of the catalog, and the catalog is a
+ * function of which component plugins this deployment composed, so all of them
+ * live under one child that waits for the registry and rebuilds when it moves.
  * @param ctx - plugin context carrying the tool runtime.
- * @param config - validated {@link Config}; the views are judged before anything is claimed.
+ * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  // Loud at load: a view whose spec the tool would refuse is a menu row that
-  // shows an empty column when a user clicks it, with nothing anywhere saying
-  // why. The judgement is the tool's own, so what a deployment may write is
-  // exactly what the model may send.
   const resolved = config as ResolvedConfig
-  const views = indexViews(resolved.views, config.homeView)
   const options = offerOptions(resolved)
   // One table for the tool and the command: a call that opened a data page
   // waits in it, and the page's report arrives through the command.
   const pending = new PendingLoads()
   const needs = offerNeeds(options)
-  if (needs.length === 0) {
-    ctx.effect(() => ctx.tools.register(showComponentTool(ctx, options, pending)), 'show-component: the show_component tool')
-  } else {
-    ctx.inject([...needs], (offerCtx) => {
-      offerCtx.effect(
-        () => offerCtx.tools.register(showComponentTool(offerCtx, options, pending)),
-        `show-component: the show_component tool, with ${needs.join(' and ')}`,
+  ctx.plugin(ComponentCatalogRegistry)
+  ctx.inject(['componentCatalog'], (catalogCtx) => {
+    if (needs.length === 0) {
+      installOffer(catalogCtx, options, pending, needs)
+    } else {
+      catalogCtx.inject([...needs], (offerCtx) => { installOffer(offerCtx, options, pending, needs) })
+    }
+    catalogCtx.inject(['contentSurface'], (surfaceCtx) => {
+      // `register` scopes its own disposer to the injected child, which is what
+      // releases the kind when the fiber goes away; the catalog decides which
+      // recorded calls the extractor reads into entries, so it is re-registered
+      // when the catalog moves and the column refolds.
+      trackCatalog(
+        surfaceCtx,
+        catalog => surfaceCtx.contentSurface.register(componentExtractor(catalog)),
+        'show-component: the component content kind',
       )
     })
-  }
-  ctx.inject(['contentSurface'], (surfaceCtx) => {
-    // `register` scopes its own disposer to the injected child, which is what
-    // releases the kind when the fiber goes away.
-    surfaceCtx.contentSurface.register(componentExtractor())
-  })
-  // The return channel needs all three: the registry the command lives in, the
-  // router that made the entry, and the projection the entry is read out of.
-  // Without a column there is nothing on screen for an action to name, so the
-  // command is absent rather than answering every gesture with a refusal.
-  ctx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
-    installComponentAction(actionCtx, pending)
-  })
-  if (views.size === 0) return
-  // Both pieces exist only where views do, and each waits for the seam it needs
-  // the way every other piece of this row does. A deployment that configures
-  // views composes the console's webserver and command registry — the overlay
-  // that inserts this row is what guarantees it — and one that composes neither
-  // has no sidebar to click in either.
-  const catalog: ComponentViewsDocument = {
-    views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
-    ...config.homeView === undefined ? {} : { homeView: config.homeView },
-  }
-  ctx.inject(['webServer'], (serverCtx) => {
-    serverCtx.effect(
-      () => serverCtx.webServer.register(viewCatalogRoute(catalog)),
-      'show-component: the view catalog route',
-    )
-  })
-  ctx.inject(['commands'], (commandsCtx) => {
-    commandsCtx.commands.register(showContentViewCommand(views))
+    // The return channel needs all three: the registry the command lives in, the
+    // router that made the entry, and the projection the entry is read out of.
+    // Without a column there is nothing on screen for an action to name, so the
+    // command is absent rather than answering every gesture with a refusal.
+    catalogCtx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
+      installComponentAction(actionCtx, pending)
+    })
+    installViews(catalogCtx, resolved, config.homeView)
   })
 }

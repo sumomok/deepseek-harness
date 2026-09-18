@@ -19,6 +19,7 @@ import {
   type ComponentActionCell,
 } from '../src/action-state.ts'
 import { COMPONENT_ACTION_COMMAND, formatComponentActionLine, type ComponentAction } from '../src/component-call.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The gesture this suite folds, and the block it belongs to. */
 const PRESS: ComponentAction = {
@@ -56,7 +57,7 @@ function done(seq: number, commandId: string, settlement: { kind: 'success' | 'e
 
 /** Fold a whole run of events from the empty table. */
 function fold(events: readonly SessionEvent[]): ComponentActionCell[] {
-  return events.reduce<ComponentActionCell[]>(applyComponentAction, [])
+  return events.reduce<ComponentActionCell[]>((state, event) => applyComponentAction(KIT_CATALOG, state, event), [])
 }
 
 /** What one block's state is after folding a run of events. */
@@ -174,7 +175,7 @@ describe('the per-block gesture fold', () => {
 
   it('leaves every other event alone, by reference', () => {
     const before = fold([run(10, 'cmd-1', args(PRESS))])
-    const after = applyComponentAction(before, { type: 'turn/start', seq: SessionSeq(12), time: 0, data: { turn: 1 } })
+    const after = applyComponentAction(KIT_CATALOG, before, { type: 'turn/start', seq: SessionSeq(12), time: 0, data: { turn: 1 } })
     expect(after).toBe(before)
   })
 

@@ -27,6 +27,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ShowComponent from '../src/index.ts'
+import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
 let world: string | undefined
 let context: Context | undefined
@@ -40,8 +41,13 @@ afterEach(async () => {
 
 const SPEC = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { buttons: [{ id: 'ok', label: '确认' }] } }] }
 
-/** Write a cordis.yml and boot it through the real Loader. */
-async function loadComposition(withColumn = true): Promise<Context> {
+/**
+ * Write a cordis.yml and boot it through the real Loader.
+ * @param withColumn - compose the content-surface router beside the row.
+ * @param withComponents - compose a component plugin, which is what fills the catalog.
+ * @returns the booted context.
+ */
+async function loadComposition(withColumn = true, withComponents = true): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-show-component-'))
   const configPath = join(world, 'cordis.yml')
   await writeFile(configPath, [
@@ -50,6 +56,7 @@ async function loadComposition(withColumn = true): Promise<Context> {
     "- name: '@deepseek-ai/dsh-session'",
     "- name: '@deepseek-ai/dsh-session-projection'",
     ...withColumn ? ["- name: '@deepseek-ai/dsh-experimental-content-surface'"] : [],
+    ...withComponents ? [`- name: '${COMPONENT_PLUGIN_NAME}'`] : [],
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     '',
@@ -60,6 +67,7 @@ async function loadComposition(withColumn = true): Promise<Context> {
   await context.plugin(Loader)
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    [COMPONENT_PLUGIN_NAME, componentPlugin()],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session', SessionStore],
@@ -123,6 +131,17 @@ describe('the composed row', () => {
     // Nothing folds the calls here, and nothing has to: the log carries them,
     // and a composition that later grows a column reads them from it.
     expect(ctx.sessionProjections.snapshot(newSession(ctx)).values.contentSurface).toBeUndefined()
+  })
+
+  it('offers no tool where no component plugin is composed', async () => {
+    // The description's whole substance is the component list, so a catalog
+    // nothing has contributed to is an offer the model could only spend a
+    // refused call discovering. The row still loads, still claims the kind, and
+    // starts offering the tool the moment a component plugin arrives.
+    const ctx = await loadComposition(true, false)
+    expect(ctx.componentCatalog.catalog.entries).toEqual([])
+    expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
+    expect(ctx.sessionProjections.snapshot(newSession(ctx)).values.contentSurface?.entries).toEqual([])
   })
 
   it('releases the tool and the kind when the row unloads', async () => {

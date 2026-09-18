@@ -62,23 +62,17 @@
  * remounts every block it draws.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the useSessions seat's own merge, and the branded id its rows are keyed by.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import {
-  COMPONENT_RENDERERS,
-  type ComponentActionHandler,
-  type ComponentActionState,
-  type ComponentKitTranslate,
-  type ComponentOutputHandler,
-  type ComponentRenderer,
-} from '@deepseek-ai/dsh-experimental-component-kit/client'
-import {
-  answersBlock,
-  type CatalogId,
-  type ComponentAction,
-  type ComponentNode,
-} from '../component-call.ts'
+import { answersBlock, type ComponentAction, type ComponentNode } from '../component-call.ts'
+import type {
+  ComponentActionHandler,
+  ComponentActionState,
+  ComponentOutputHandler,
+  ComponentRenderer,
+} from './renderer.ts'
+import type { ComponentRendererTable } from './registry.ts'
 import {
   latestComponentAction,
   type ComponentActionRecord,
@@ -89,20 +83,6 @@ import { NO_OUTPUTS, outputKey, type OutputSink, type OutputValues } from './bin
 import { acceptSurface, type SurfaceBlock } from './spec.ts'
 import { StackLayout } from './StackLayout.tsx'
 import css from './ComponentSurface.module.css'
-
-/**
- * Every component this seat can draw.
- *
- * `CatalogId` is derived from `COMPONENT_CATALOG` itself, so this line is where
- * the two tables are tied together: a catalog entry this deployment has no
- * renderer for leaves the union carrying a key the renderer table lacks, and
- * fails to compile here instead of becoming a blank block a user has to report.
- * A renderer no catalog entry names is unreachable rather than wrong, and passes.
- */
-const RENDERERS = COMPONENT_RENDERERS satisfies Record<CatalogId, ComponentRenderer>
-
-/** The same table, keyed for lookup by the id a validated node names. */
-const RENDERER_BY_ID: ReadonlyMap<string, ComponentRenderer> = new Map(Object.entries(RENDERERS))
 
 /** Where one block's gestures go, with the session they happened in already bound. */
 type SeatReport = (action: ComponentAction) => Promise<ActionDispatch>
@@ -139,13 +119,19 @@ export interface ComponentSurfaceInjected {
    * every unmount the column performs.
    */
   pending: PendingPresses
+  /**
+   * The components this page can draw, as the component plugins registered
+   * them: the catalog an arriving payload is judged against, and the renderer
+   * and translate each accepted block is drawn with.
+   */
+  components: ComponentRendererTable
 }
 
 /** Composed props: the kind-seat runtime share, this registration's injected face, and the component row's locale seat. */
 export type ComponentSurfaceProps =
   & PropsRuntime<'content.surface.kind', 'component'>
   & ComponentSurfaceInjected
-  & PropsLocale<'componentKit'>
+  & PropsLocale<'contentComponent'>
 
 /**
  * What the entry's blocks have published, and which placing call published it.
@@ -179,6 +165,8 @@ const NOTHING_HELD: HeldBlocks = { payload: undefined, blocks: [] }
 
 /** One block's own render inputs. */
 interface ComponentBlockProps {
+  /** The components this page can draw. */
+  readonly components: ComponentRendererTable
   /** The entry the block belongs to. */
   readonly entryId: string
   /** Log sequence of the call that currently owns the entry. */
@@ -195,8 +183,8 @@ interface ComponentBlockProps {
   readonly recorded: ComponentActionRecord | undefined
   /** Where this block's own current reading of itself goes, for the blocks beside it. */
   readonly publish: OutputSink
-  /** The component row's translate, for the copy a renderer owns. */
-  readonly t: ComponentKitTranslate
+  /** The seat's own translate, for the line it draws in place of a block it cannot draw. */
+  readonly t: TranslateNS<'contentComponent'>
 }
 
 /**
@@ -226,10 +214,11 @@ interface ComponentBlockProps {
  * renderer receives is a fact about that block alone: a block is rebuilt when
  * its own entry is replaced or its own gesture moves, and a redraw somewhere
  * else in the stack leaves it holding exactly the props it already had.
- * @param props - the block, its entry's identity, its row in the page's table, its recorded gesture, the output sink, and the translate.
+ * @param props - the page's components, the block, its entry's identity, its row in the page's table, its recorded
+ *   gesture, the output sink, and the seat's translate.
  * @returns the component the block names, or the notice for one this build cannot draw.
  */
-function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recorded, publish, t }: ComponentBlockProps) {
+function ComponentBlock({ components, entryId, seq, node, report, pending, pendingKey, recorded, publish, t }: ComponentBlockProps) {
   // Seeded from the page's table, so a block drawn afresh while its press is
   // still travelling comes up waiting rather than answerable. The key is fixed
   // for this mount — the seat gives each block the React identity of its own
@@ -255,8 +244,8 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
     }
   }, [awaiting, inFlight, pending, pendingKey])
   return useMemo(() => {
-    const Renderer = RENDERER_BY_ID.get(node.component)
-    if (Renderer === undefined) {
+    const registered = components.rendererFor(node.component)
+    if (registered === undefined) {
       return (
         <p className={css.notice} data-component-surface-unsupported={node.component}>
           {t('block.unsupported')}
@@ -271,7 +260,7 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
       // A gesture that is not the block's own answer leaves no cell in the fold,
       // so there is no settlement for it to wait on: filing a row for it would
       // pin the block at `sending` for the rest of the session.
-      if (!answersBlock(node.component, actionId)) {
+      if (!answersBlock(components.catalog, node.component, actionId)) {
         void report(action)
         return
       }
@@ -296,8 +285,18 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
     // Bound here for the same reason the action handler is: the seat holds the
     // block's identity, so a renderer says only what it is publishing.
     const onOutput: ComponentOutputHandler = (outputId, value) => { publish(node.id, outputId, value) }
-    return <Renderer nodeId={node.id} props={node.props} onAction={onAction} onOutput={onOutput} state={state} t={t} />
-  }, [entryId, seq, node, report, pending, pendingKey, recorded, state, publish, t])
+    const Renderer: ComponentRenderer = registered.render
+    return (
+      <Renderer
+        nodeId={node.id}
+        props={node.props}
+        onAction={onAction}
+        onOutput={onOutput}
+        state={state}
+        t={registered.t}
+      />
+    )
+  }, [components, entryId, seq, node, report, pending, pendingKey, recorded, state, publish, t])
 }
 
 /**
@@ -305,7 +304,7 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
  * @param props - the column's selection, the session feed, the action sink, and the locale seat.
  * @returns the caption and the blocks, or nothing while another kind is selected.
  */
-export function ComponentSurface({ sessionId, entry, useSessions, onAction, pending, t }: ComponentSurfaceProps) {
+export function ComponentSurface({ sessionId, entry, useSessions, onAction, pending, components, t }: ComponentSurfaceProps) {
   const payload = entry?.payload
   // The entry and the call that placed it, which is what the published values
   // belong to: a later call under the same id starts with nothing published.
@@ -329,10 +328,10 @@ export function ComponentSurface({ sessionId, entry, useSessions, onAction, pend
   const view = useMemo(() => {
     const read = payload === undefined
       ? undefined
-      : acceptSurface(payload, values, held.current.payload === payload ? held.current.blocks : [])
+      : acceptSurface(components.catalog, payload, values, held.current.payload === payload ? held.current.blocks : [])
     held.current = { payload, blocks: read?.blocks ?? [] }
     return read
-  }, [payload, values])
+  }, [components, payload, values])
   // The gestures this session's log records, read where the column reads its own
   // entries. Per session by construction: another session's presses sit under
   // another session's row and are never in reach here.
@@ -383,6 +382,7 @@ export function ComponentSurface({ sessionId, entry, useSessions, onAction, pend
     return (
       <ComponentBlock
         key={key}
+        components={components}
         entryId={entry.entryId}
         seq={entry.seq}
         node={block.node}

@@ -15,9 +15,10 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { COMPONENT_CATALOG, CRUD_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import { COMPONENT_KIT_ENTRIES, CRUD_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import { PendingLoads } from '../src/crud.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
 const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
@@ -35,7 +36,7 @@ async function bench(): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const definition = showComponentTool(ctx, PLAIN, new PendingLoads())
+  const definition = showComponentTool(ctx, KIT_CATALOG, PLAIN, new PendingLoads())
   ctx.tools.register(definition)
   return {
     definition,
@@ -69,7 +70,7 @@ describe('show_component model-visible surface', () => {
       'Put a block of interface in the content panel beside the conversation — the area the user sees '
       + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
       + 'while you talk about it.\n\nComponents:\n'
-      + describeCatalog(COMPONENT_CATALOG.filter(entry => entry.id !== CRUD_ID))
+      + describeCatalog(COMPONENT_KIT_ENTRIES.filter(entry => entry.id !== CRUD_ID))
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'
@@ -92,7 +93,7 @@ describe('show_component model-visible surface', () => {
       + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
       + 'question with.',
     )
-    expect(describeShowComponent(PLAIN)).toBe(definition.description)
+    expect(describeShowComponent(KIT_CATALOG, PLAIN)).toBe(definition.description)
     expect(definition.description).toContain('- toy.table — 数据表 —')
     expect(definition.description).toContain('- el.filter-bar — 筛选条件 —')
     expect(definition.description).toContain('- el.metric — 指标球 — ')

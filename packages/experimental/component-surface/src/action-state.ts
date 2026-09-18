@@ -33,7 +33,12 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the command registry's `command/run` / `command/done` SessionEventMap merge.
 import type {} from '@deepseek-ai/dsh-commands/types'
-import { answersBlock, COMPONENT_ACTION_COMMAND, parseComponentActionLine } from './component-call.ts'
+import {
+  answersBlock,
+  COMPONENT_ACTION_COMMAND,
+  parseComponentActionLine,
+  type ComponentCatalog,
+} from './component-call.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -121,11 +126,17 @@ function settledOutcome(settlement: { kind: 'success' | 'error'; text?: string }
 
 /**
  * Fold one committed event into the per-block gesture table.
+ * @param catalog - the components this deployment offers, which is what says
+ *   whether a reported gesture is the answer its block was placed for.
  * @param state - the table covering all prior events.
  * @param event - the next committed session event.
  * @returns the next table, or `state` itself when the event is not this fold's.
  */
-export function applyComponentAction(state: ComponentActionCell[], event: SessionEvent): ComponentActionCell[] {
+export function applyComponentAction(
+  catalog: ComponentCatalog,
+  state: ComponentActionCell[],
+  event: SessionEvent,
+): ComponentActionCell[] {
   if (event.type === 'command/run') {
     if (event.data.name !== COMPONENT_ACTION_COMMAND) return state
     // The same reading the handler does, over the same verbatim input, and only
@@ -140,7 +151,7 @@ export function applyComponentAction(state: ComponentActionCell[], event: Sessio
     // rest — a selection, a sort, an unsubmitted edit — are reported and leave
     // no cell, so the block they came from is neither answered by them nor
     // stopped from being answered later.
-    if (!answersBlock(action.componentId, action.actionId)) return state
+    if (!answersBlock(catalog, action.componentId, action.actionId)) return state
     const cell: ComponentActionCell = {
       entryId: action.entryId,
       nodeId: action.nodeId,

@@ -60,10 +60,10 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../biz-backend"
+      "path": "../../util/brand"
     },
     {
-      "path": "../component-kit"
+      "path": "../biz-backend"
     },
     {
       "path": "../content-column"

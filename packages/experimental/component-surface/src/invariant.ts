@@ -10,7 +10,9 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ContentSurfaceRecord } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { COMPONENT_KIND, SHOW_COMPONENT_TOOL_NAME } from './component-call.ts'
+// Type-only: resolves ctx.componentCatalog, which the audit judges a recorded call against.
+import type {} from './catalog.ts'
+import { COMPONENT_KIND, SHOW_COMPONENT_TOOL_NAME, type ComponentCatalog } from './component-call.ts'
 import { readComponentEvent, recordsEntry } from './projection.ts'
 import { validateComponentCall } from './validate.ts'
 
@@ -34,15 +36,16 @@ export const inject = ['invariants']
  * call, one per view the user opened, and one per call whose rows were read
  * from the data backend, counted by the same reader the extractor uses, so the
  * audit's two sides cannot drift by counting different things.
+ * @param catalog - the components this deployment offers.
  * @param session - the session whose log is read.
  * @returns the authorized entry ids.
  */
-function authorizedEntryIds(session: Session): Set<string> {
+function authorizedEntryIds(catalog: ComponentCatalog, session: Session): Set<string> {
   const ids = new Set<string>()
   for (const event of session.snapshotEvents()) {
     const args = readComponentEvent(event)
     if (args === undefined) continue
-    const result = validateComponentCall(args)
+    const result = validateComponentCall(catalog, args)
     if (result.ok && recordsEntry(event, result.call.spec)) ids.add(result.call.id)
   }
   return ids
@@ -62,7 +65,7 @@ function authorizedEntryIds(session: Session): Set<string> {
  *
  * The log walk happens only once a component record exists, so a session that
  * never showed one costs a single map lookup per audit.
- * @param ctx - the installer's context, carrying the projection registry.
+ * @param ctx - the installer's context, carrying the projection registry and the component catalog.
  * @param session - the session to audit.
  * @param fail - reporter bound to this package.
  */
@@ -70,7 +73,7 @@ function auditSession(ctx: Context, session: Session, fail: InvariantFailure): v
   const records: readonly ContentSurfaceRecord[] | undefined = ctx.sessionProjections.stateOf(session, 'contentSurface')?.records
   const owned = (records ?? []).filter(record => record.kind === COMPONENT_KIND)
   if (owned.length === 0) return
-  const authorized = authorizedEntryIds(session)
+  const authorized = authorizedEntryIds(ctx.componentCatalog.catalog, session)
   for (const record of owned) {
     if (!authorized.has(record.entryId)) {
       fail(`session ${session.id} carries a ${COMPONENT_KIND} content entry ${JSON.stringify(record.entryId)} that nothing in its log recorded: no accepted ${SHOW_COMPONENT_TOOL_NAME} call and no ${APPENDED_EVENTS.join(' or ')} event`)
@@ -85,7 +88,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (eventName !== 'session/event') return
     auditSession(ctx, (args as [Session])[0], fail)
   }, { global: true })
-}, { inject: ['sessions', 'sessionProjections'] })
+}, { inject: ['sessions', 'sessionProjections', 'componentCatalog'] })
 
 /**
  * Register this package's invariant companion.

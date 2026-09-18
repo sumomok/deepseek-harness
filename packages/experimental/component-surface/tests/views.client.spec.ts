@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest'
 import { indexViews } from '../src/views.ts'
 import type { ContentView } from '../src/types.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted two-block view: a table above the details of whatever row is picked. */
 const OVERVIEW = {
@@ -49,7 +50,7 @@ function view(id: string, title: string, spec: unknown): ContentView {
 
 describe('the configured view list', () => {
   it('indexes accepted views by id, in declaration order, already tightened', () => {
-    const index = indexViews([view('site-overview', '站点概览', OVERVIEW), view('facts', '记录', SINGLE)], undefined)
+    const index = indexViews(KIT_CATALOG, [view('site-overview', '站点概览', OVERVIEW), view('facts', '记录', SINGLE)], undefined)
     expect([...index.keys()]).toEqual(['site-overview', 'facts'])
     // What the index holds is what an accepted call holds, which is what the
     // command appends and the seat draws.
@@ -57,11 +58,11 @@ describe('the configured view list', () => {
   })
 
   it('accepts a deployment that configures no views at all', () => {
-    expect(indexViews([], undefined).size).toBe(0)
+    expect(indexViews(KIT_CATALOG, [], undefined).size).toBe(0)
   })
 
   it('accepts a homeView naming a configured view', () => {
-    expect(indexViews([view('facts', '记录', SINGLE)], 'facts').size).toBe(1)
+    expect(indexViews(KIT_CATALOG, [view('facts', '记录', SINGLE)], 'facts').size).toBe(1)
   })
 
   it('refuses a spec the tool would have refused, naming the view and the value inside it', () => {
@@ -70,29 +71,29 @@ describe('the configured view list', () => {
     // from loading, and the sentence carries both the id a person edits and the
     // path inside that view's spec.
     const broken = view('site-overview', '站点概览', { nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })
-    expect(() => indexViews([view('facts', '记录', SINGLE), broken], undefined))
+    expect(() => indexViews(KIT_CATALOG, [view('facts', '记录', SINGLE), broken], undefined))
       .toThrow(/^component-surface: views\[1\] "site-overview" — spec\.nodes\[0\]\.component /)
   })
 
   it('refuses an id the tool would not have accepted as an entry id', () => {
     // The id becomes a content-column entry id, so it is read on exactly the
     // terms a call's is: same alphabet, same ceiling.
-    expect(() => indexViews([view('site overview', '站点概览', SINGLE)], undefined))
+    expect(() => indexViews(KIT_CATALOG, [view('site overview', '站点概览', SINGLE)], undefined))
       .toThrow(/^component-surface: views\[0\] "site overview" — id — may use only /)
   })
 
   it('refuses a title the tool would not have accepted', () => {
-    expect(() => indexViews([view('facts', '   ', SINGLE)], undefined))
+    expect(() => indexViews(KIT_CATALOG, [view('facts', '   ', SINGLE)], undefined))
       .toThrow(/^component-surface: views\[0\] "facts" — title — must be a non-blank string/)
   })
 
   it('refuses a repeated id, which would leave one view unreachable', () => {
-    expect(() => indexViews([view('facts', '记录', SINGLE), view('facts', '另一份记录', SINGLE)], undefined))
+    expect(() => indexViews(KIT_CATALOG, [view('facts', '记录', SINGLE), view('facts', '另一份记录', SINGLE)], undefined))
       .toThrow('component-surface: duplicate view id "facts" at views[1]')
   })
 
   it('refuses a homeView naming no configured view', () => {
-    expect(() => indexViews([view('facts', '记录', SINGLE)], 'site-overview'))
+    expect(() => indexViews(KIT_CATALOG, [view('facts', '记录', SINGLE)], 'site-overview'))
       .toThrow('component-surface: homeView "site-overview" names no configured view')
   })
 })
