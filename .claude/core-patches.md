@@ -232,7 +232,7 @@
 - **为什么**：这三种形状由本 fork 发过的构建写下，v0 边拒绝它们，对应会话打不开，并连带让内容搜索全库不可用。
 - **要达到的效果**：携带这三种形状的会话能打开、迁移、索引；接受面仍窄——其他多余成员、其他描述符版本、未点名的事件类型一律仍被拒绝。
 - **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移、把这些内容事件类型纳入清单，或为迁移边提供自定义词汇扩展点，或语料里不再存在写下它们的构建的产物。
-- **状态**：在役（`core-patches-v11`）。核实依据：`git show upstream/master:packages/session/session-format-v0-to-v1/src/dispositions.ts` 里 `'permission/preset'` 仍是 `disposition(['preset'])`、不含 `origin`；`LEGACY_SUBAGENT_DESCRIPTOR_VERSION` 在上游零命中（descriptor 版本 2→3 的迁移仍是 fork 独有）；备份 home 语料（121 份日志）里 `content/shown` 命中 6 份（共 46 处）、`content-surface/` 命中 2 份（共 40 处）、`permissionRules/decision` 命中 3 份。
+- **状态**：在役（`core-patches-v11`）。核实依据：`git show upstream/master:packages/session/session-format-v0-to-v1/src/dispositions.ts` 里 `'permission/preset'` 仍是 `disposition(['preset'])`、不含 `origin`；`LEGACY_SUBAGENT_DESCRIPTOR_VERSION` 在上游零命中（descriptor 版本 2→3 的迁移仍是 fork 独有）；备份 home 语料（121 份日志）里本族三种形状各自的命中：`permission/preset` 带 `origin` 11 份、`subagent/descriptor` 的 `version: 2` 4 份、六种内容事件类型里 `content/shown` 6 份（共 46 处）与 `content-surface/*` 2 份（共 40 处）。`attachment/materialized` 与 `permissionRules/decision` 虽与本族共用 `LEGACY_UNINTERPRETED_EVENT_TYPES` 这一张表，归属的是 `session-format-out-of-repo-events`，语料数字记在那一族。
 - **Agent Note**：[`v0-migration-legacy-shapes`](../.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md)
 
 ## session-index-generation-identity — 派生索引身份带上 Session 世代
