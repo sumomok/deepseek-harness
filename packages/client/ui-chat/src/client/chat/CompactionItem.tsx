@@ -11,10 +11,12 @@ import {
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { markdownLabels } from '../markdown-labels.ts'
 import type { CompactionSummaryNode } from '../contract/snapshot.ts'
+import a11yCss from './accessibility.module.css'
 import css from './MessageItem.module.css'
 
 interface CompactionItemProps {
-  node: CompactionSummaryNode
+  /** Landed checkpoint marker, or null while the bracket is still open. */
+  node: CompactionSummaryNode | null
   /** Optional command title for a manual compaction folded into this marker. */
   title?: string
   /** Command settlement text used when structured compaction counts are unavailable. */
@@ -24,8 +26,9 @@ interface CompactionItemProps {
 }
 
 /**
- * Renders the model-history compaction marker.
- * @param props - the marker node off the snapshot cache.
+ * Renders the model-history compaction marker. An open bracket reads as the
+ * running title alone: it has no counts to state and no summary to disclose.
+ * @param props - the marker node off the snapshot cache, or null while running.
  * @returns the marker row, with the summary disclosure when one is available.
  */
 export const CompactionItem = memo(function CompactionItem({
@@ -36,17 +39,23 @@ export const CompactionItem = memo(function CompactionItem({
 }: CompactionItemProps) {
   const [expanded, setExpanded] = useState(false)
   const labels = useMemo(() => markdownLabels(t), [t])
-  const expandable = node.summary !== null
+  const summaryText = node?.summary ?? null
+  const expandable = summaryText !== null
   const open = expandable && expanded
-  const summary = node.shadowedItemCount !== null && node.shadowedTokenCount !== null
-    ? t('message.compaction.completed', {
-      items: node.shadowedItemCount,
-      tokens: node.shadowedTokenCount,
-    })
-    : fallbackSummary
-      ?? (expandable ? t('message.compaction.expand') : t('message.compaction.unavailable'))
+  const titleText = title
+    ?? (node === null ? t('message.compaction.running') : t('message.compaction'))
+  const summary = node === null
+    ? null
+    : node.shadowedItemCount !== null && node.shadowedTokenCount !== null
+      ? t('message.compaction.completed', {
+        items: node.shadowedItemCount,
+        tokens: node.shadowedTokenCount,
+      })
+      : fallbackSummary
+        ?? (expandable ? t('message.compaction.expand') : t('message.compaction.unavailable'))
   return (
     <div className={css.compactionRow}>
+      {node === null && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       <button
         type="button"
         className={css.compactionButton}
@@ -65,12 +74,15 @@ export const CompactionItem = memo(function CompactionItem({
             {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
           </span>
         </span>
-        <span className={css.compactionTitle}>{title ?? t('message.compaction')}</span>
-        <span className={css.compactionSep} aria-hidden />
-        <span className={css.compactionSummary}>{summary}</span>
+        <span className={css.compactionTitle}>{titleText}</span>
+        {summary !== null && (
+          <>
+            <span className={css.compactionSep} aria-hidden />
+            <span className={css.compactionSummary}>{summary}</span>
+          </>
+        )}
       </button>
-      {open && node.summary !== null
-        && <div className={css.compactionBody}><MarkdownText text={node.summary} labels={labels} /></div>}
+      {open && <div className={css.compactionBody}><MarkdownText text={summaryText} labels={labels} /></div>}
     </div>
   )
 })
