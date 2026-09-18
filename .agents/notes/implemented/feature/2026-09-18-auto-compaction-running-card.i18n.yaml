@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-auto-compaction-running-card.md
+2026-09-18-auto-compaction-running-card.md: ab8417988183947e5718c2cf2197a4d93076c265
+2026-09-18-auto-compaction-running-card.zh.md: 39b47e0bd4272acce7af9dc2293a19059fc9a40a

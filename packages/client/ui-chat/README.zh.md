@@ -17,6 +17,7 @@ kind: "package-reference"
 - [引用预览](#reference-previews)
 - [系统提示词行](#system-prompt-row)
 - [轮次 token 用量](#turn-token-usage)
+- [自动压缩](#automatic-compaction)
 - [已完成轮次的页脚](#completed-turn-footer)
 - [轮次过程折叠](#turn-process-folding)
 - [滚动归属](#scroll-ownership)
@@ -42,6 +43,11 @@ kind: "package-reference"
 ## 轮次 token 用量
 
 只有当已加载窗口包含 `turn/start`，且每次已启动的模型尝试都报告安全、精确的用量时，已完成轮次才显示可展开的用量行。该行会省略不可用的可选用量桶。记账不完整或相互矛盾时，整个详情都不显示，避免把部分总量冒充完整结果。
+
+<a id="automatic-compaction"></a>
+## 自动压缩
+
+一次自动压缩在整个生命周期里只占一行：标记对打开期间显示 `正在压缩…`，替换落地后变为 `上下文已压缩` 并附被遮蔽的条目数与近似 token 数，可展开查看后端写下的摘要。被 Stop 取消的标记对不留下任何行，因错误闭合的标记对改为显示失败提示，起点位于已加载窗口之外的标记对只显示其已落地的标记。
 
 <a id="completed-turn-footer"></a>
 ## 已完成轮次的页脚
