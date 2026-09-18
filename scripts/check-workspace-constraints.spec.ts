@@ -12,7 +12,6 @@ import {
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
   checkPrivateAppManifest,
-  checkWorkspaceManifest,
   expectedDshPackageFiles,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
