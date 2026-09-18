@@ -112,6 +112,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/experimental/vue2-echarts-poc': { kind: 'none', reason: 'Browser-side chart components hosted in a Vue 2.7 bridge; registers nothing model-facing.' },
   'packages/experimental/content-column': { kind: 'none', reason: 'Browser-side content column and its kind seats; registers nothing model-facing.' },
   'packages/experimental/component-kit': { kind: 'none', reason: 'Browser-side React renderers drawn by a placement package; registers nothing model-facing.' },
+  'packages/experimental/skill-pack': { kind: 'indirect', reason: 'The package contributes skills to ctx.skills and registers no prompt, schema, or result of its own; dsh-tool-skill owns the catalog line and the loaded body a model reads.' },
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-browse': { kind: 'none', reason: 'Browser-side directory-browsing surface; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-native': { kind: 'none', reason: 'Browser-side surface driving the host OS chooser; registers nothing model-facing.' },
