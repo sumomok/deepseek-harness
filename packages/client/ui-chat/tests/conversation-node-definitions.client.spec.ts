@@ -165,6 +165,24 @@ function node(value: ChatSnapshot, kind: string): ChatConversationViewNode | und
   return value.nodes.values().find(candidate => candidate.kind === kind)
 }
 
+/** The same lookup restricted to the published render order, which omits hidden Nodes. */
+function visibleNode(value: ChatSnapshot, kind: string): ChatConversationViewNode | undefined {
+  return value.order
+    .map(key => value.nodes.get(key))
+    .find((candidate): candidate is ChatConversationViewNode => candidate?.kind === kind)
+}
+
+/**
+ * Drive one event through the live tail path: `append` then `flush`, which
+ * builds keyed upserts and rejects a Definition that withdraws a Node it
+ * already materialized. The `assembler` helper replays through the tolerant
+ * whole-window replacement instead, where a withdrawn Node is merely dropped.
+ */
+function live(value: ConversationNodeAssembler, entry: SessionEventLikeEntry): void {
+  value.append(entry)
+  value.flush()
+}
+
 function textMessage(id: string, text: string) {
   return {
     id,
@@ -2268,7 +2286,7 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
-  it('leaves no running card behind when the bracket is cancelled', () => {
+  it('hides the running row when the bracket is cancelled', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-stopped', turn: 2 }),
       at(11, 'compaction/end', {
@@ -2278,9 +2296,63 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction-running')?.visibility).toBe('hidden')
+    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
     expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
+  })
+
+  it('hides a live running row without withdrawing it when the bracket is cancelled', () => {
+    const value = assembler()
+    live(value, at(10, 'compaction/start', { compactionId: 'compact-live-stop', turn: 2 }))
+    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+
+    expect(() => {
+      live(value, at(11, 'compaction/end', {
+        compactionId: 'compact-live-stop',
+        turn: 2,
+        error: 'DeepSeek request aborted by caller: The user aborted a request.',
+      }))
+    }).not.toThrow()
+    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
+
+    live(value, at(12, 'user/message', textMessage('after-stop', 'next question'), { surfaceOp: 'append' }))
+    expect(visibleNode(snapshot(value), 'user')?.anchorSeq).toBe(12)
+  })
+
+  it('replaces a live running row with the landed checkpoint', () => {
+    const value = assembler()
+    live(value, at(10, 'compaction/start', { compactionId: 'compact-live-land', turn: 2 }))
+    live(value, at(11, 'compaction/summary', {
+      compactionId: 'compact-live-land',
+      summary: [{ type: 'text', text: 'landed summary' }],
+      shadowedSeqs: [1, 2, 3],
+      shadowedTokenCount: 42,
+    }))
+    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+
+    live(value, at(12, 'user/message', {
+      ...textMessage('checkpoint-live', 'checkpoint'),
+      source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-live-land' },
+    }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }))
+    live(value, at(13, 'compaction/end', { compactionId: 'compact-live-land', turn: 2 }))
+
+    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(visibleNode(snapshot(value), 'compaction')?.anchorSeq).toBe(12)
+    expect(snapshot(value).nodes.values().filter(candidate => candidate.kind === 'compaction')).toHaveLength(1)
+  })
+
+  it('replaces a live running row with the failure notice', () => {
+    const value = assembler()
+    live(value, at(10, 'compaction/start', { compactionId: 'compact-live-fail', turn: 2 }))
+    live(value, at(11, 'compaction/end', {
+      compactionId: 'compact-live-fail',
+      turn: 2,
+      error: 'summarizer unavailable',
+    }))
+
+    expect(node(snapshot(value), 'compaction-running')).toBeUndefined()
+    expect(visibleNode(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: 'summarizer unavailable' })
   })
 
   it('leaves no running card behind when the bracket closes on an error', () => {
@@ -2293,13 +2365,24 @@ describe('built-in conversation node Definitions', () => {
     expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: 'summarizer unavailable' })
   })
 
-  it('keeps the running card for a bracket the log never closed', () => {
+  it('keeps the running row while the bracket\'s own turn is open', () => {
     const value = assembler([
-      at(10, 'compaction/start', { compactionId: 'compact-cut', turn: 2 }),
-      at(11, 'turn/end', { turn: 2, reason: { kind: 'complete' } }),
+      at(9, 'turn/start', { turn: 2 }),
+      at(10, 'compaction/start', { compactionId: 'compact-live', turn: 2 }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+    expect(visibleNode(snapshot(value), 'compaction-running')?.anchorSeq).toBe(10)
+  })
+
+  it('hides the running row for a bracket its own turn outlived', () => {
+    const value = assembler([
+      at(9, 'turn/start', { turn: 2 }),
+      at(10, 'compaction/start', { compactionId: 'compact-cut', turn: 2 }),
+      at(11, 'turn/end', { turn: 2, reason: { kind: 'interrupted' } }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-running')?.visibility).toBe('hidden')
+    expect(visibleNode(snapshot(value), 'compaction-running')).toBeUndefined()
   })
 
   it('shows no running card for a window that never loaded the bracket start', () => {
