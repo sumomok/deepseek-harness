@@ -37,7 +37,7 @@
 - **为什么**：文件改动等待审批时，卡片只显示工具名与参数摘要，看不到它将写入的路径与行；`single` 槽一次只能有一个占用者，第三方无法只为文件类工具换一张卡。
 - **要达到的效果**：文件改动的审批卡显示路径与将写入的行，diff 模型与会话行共用一份；其余工具的审批卡不变。
 - **退役条件**：上游把 `conversation.approval.detail` 改成按工具名键控的槽，或自己为文件改动的审批卡渲染 diff。
-- **状态**：在役（`core-patches-v11`）。核实依据：上游 `packages/client/ui-approval/src/client/index.ts` 仍声明 `kind: 'single'`。
+- **状态**：在役（`core-patches-v11`）。核实依据：上游 `packages/client/ui-approval/src/client/index.ts` 仍声明 `kind: 'single'`。本轮适配两处上游改动：`SessionSummary` 新增必填的 `retainedBy`、`SessionListState` 去掉 `current` 与 `currentAddress`（上游 PR #4368），本族 diff 行的列表桩照上游自有卡片 spec 的写法重建；`SlotTestRuntime` 自己提供 `remote`（上游 PR #4231），本族注册用例不再另建一个 `TestRemote`。
 - **Agent Note**：[`approval-detail-keyed-by-tool`](../.agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.md)
 
 ## chat-prose-referents — Assistant 正文的 proseReferents 缝
@@ -47,7 +47,7 @@
 - **要达到的效果**：正文命中渲染成与文件提及同一枚常显按钮；`ui-primitives` 不依赖运行时的 `ReferentKind`；无提供者时行为与改动前一致。
 - **子件：正文引用 not-found 竞态降级**。`buildProseReferents.open` 的 stat-到-click 竞态失败复用 composer 的通知通道给出用户可见提示，而不是只写 console。它有自己的退役条款，与父族的不同：`git grep path-not-found upstream/master -- packages/client` 非空即退役（本轮为空），或父族整体退役时随之消失。
 - **退役条件**：上游自己的会话 UI 原生扫描并派发 Assistant 正文里的可点引用。
-- **状态**：在役（`core-patches-v11`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `upstream/master` 零命中；子件的判据 `git grep path-not-found upstream/master -- packages/client` 同样为空。本轮适配三处上游改动：`ui-chat` 的 `inject` 列表新增 `uiWorkspace`（上游 PR #4368），本族的 `connection` 与它并列；`ChatView` 的 props 新增 `openExternalLink`（上游 PR #4379），`referents` 与它并列；`MarkdownText` 新增 `variant` prop（上游 PR #4390），`referents` 与 `referentsRevision` 与它同在参数表与依赖数组里；`renderAnchor` 的调用点新增 `context.streaming` 实参（上游 PR #4379），本族的本地路径分支仍在该调用之前返回。
+- **状态**：在役（`core-patches-v11`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `upstream/master` 零命中；子件的判据 `git grep path-not-found upstream/master -- packages/client` 同样为空。本轮适配三处上游改动：`ui-chat` 的 `inject` 列表新增 `uiWorkspace`（上游 PR #4368），本族的 `connection` 与它并列；`ChatView` 的 props 新增 `openExternalLink`（上游 PR #4379），`referents` 与它并列；`MarkdownText` 新增 `variant` prop（上游 PR #4390），`referents` 与 `referentsRevision` 与它同在参数表与依赖数组里；`renderAnchor` 的调用点新增 `context.streaming` 实参（上游 PR #4379），本族的本地路径分支仍在该调用之前返回；`apply-inject` 测试台的 `chatViewApi` 改收 `SessionReference` 而不是裸 `SessionId`（上游 PR #4368），本族 13 条用例改传 `b.rootReference`。
 - **Agent Note**：[`chat-prose-referents-seam-port`](../.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md)、[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
 
 ## claude-skills-roots — 扫描项目与用户的 `.claude/skills` 根
@@ -65,7 +65,7 @@
 - **为什么**：全新会话里把一条命令作为第一条消息发出，host 已执行并落盘，但界面停在欢迎页、侧栏不列出该会话——host 折叠只认 `turn/start`。而「每条命令都转正」同样错：欢迎页自己的访问模式 chip 运行的就是 `/permission`，会话若因此转正，人在为尚未开始的会话设访问模式的那一刻就失去欢迎页。
 - **要达到的效果**：只跑过转正命令的会话有侧栏行、打开在自己的转录上；只跑过 `/plan`／`/permission` 的会话一切照旧。翻转点是 `command/run` 而非 `command/done`。
 - **退役条件**：上游自己让命令声明是否使会话转正（`CommandDefinition` 出现等价字段，或 `applySessionListMetadata` 自己按某种声明在 `command/run` 上清除 `blank`），且客户端镜像在同一判据上转正。两半各自判定。
-- **状态**：在役（`core-patches-v11`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；`git show upstream/master:packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 与 v9 基座逐字相同（折叠仍只认 `turn/start`），上游既没加字段也没改折叠，退役条件两半都未满足。**本轮 `list.ts` 与 `session-list-blank.host.spec.ts` 相对上一轮基座逐字未变**（两份文件在 `0d1f50007f` 与 `ddefc45fbc` 上 `diff` 为空）。本轮适配两处上游改动：`Session.appendLive` 的 `queueMirror.acceptDurable` 调用被上游删除（上游 PR #2746），`observeEngagement(event)` 改挂在 `eventSource.append` 之后、`observeSubmissionEvent` 之前的原位；`ui-commands` 的测试台新增 `bindings` 与 `focuses`（上游 PR #4231），本族撤下的 `engaged` 探针与它们互不相干。
+- **状态**：在役（`core-patches-v11`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；`git show upstream/master:packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 与 v9 基座逐字相同（折叠仍只认 `turn/start`），上游既没加字段也没改折叠，退役条件两半都未满足。**本轮 `list.ts` 与 `session-list-blank.host.spec.ts` 相对上一轮基座逐字未变**（上一轮基座是上游 PR #4192 的合并提交，本轮是 #4469，两份文件在这两棵树上 `diff` 为空）。本轮适配两处上游改动：`Session.appendLive` 的 `queueMirror.acceptDurable` 调用被上游删除（上游 PR #2746），`observeEngagement(event)` 改挂在 `eventSource.append` 之后、`observeSubmissionEvent` 之前的原位；`ui-commands` 的测试台新增 `bindings` 与 `focuses`（上游 PR #4231），本族撤下的 `engaged` 探针与它们互不相干。
 - **待拍板：要不要继续背这条语义分歧**。`upstream/master` 该 spec 的模块头注释明写「standalone plugin events — command lifecycle records … never flip it」，与本族的契约相反；该注释在 v9 基座上就已经是这样，v9 已经覆盖它，不是本轮新出现的冲突。上游的意图是明示的，不是疏忽，fork 的「退化条款」（上游一改同处即退役去适配）在字面上未触发（上游没改 `list.ts`），但这正是该条款想覆盖的情形，需要显式确认「继续背」。
 - **已知后果（未立案迁移）**：`applySessionListMetadata` 的 `stateVersion` 有意停在 1（`packages/api/session-controller/src/list.ts` 的注释写明理由：升版会让每个未重开的会话丢掉 `lastPromptAt`，整条侧栏改按创建时间排序与标注，代价大于纠正 `blank`）。因此**本次构建之前跑过命令的会话保留旧的 blank 判决，不会自愈**；要不要做一次性迁移未定。
 - **Agent Note**：[`command-engages-blank-session`](../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)
@@ -102,7 +102,9 @@
 - **为什么**：模型写出的本地路径或非允许协议链接被静默丢成空元素，读者既看不到文本也看不到目标。
 - **要达到的效果**：被阻止的目标仍以纯文本呈现，用户能读到模型实际写了什么。
 - **退役条件**：上游 `renderSafeLink` 自己对不被允许的目标保留可读文本。
-- **状态**：在役（`core-patches-v11`）。核实依据：上游 `renderSafeLink` 的 `safeHref === ''` 分支仍返回只含 children 的 `Fragment`，目标串仍被丢弃。本轮适配一处上游改动：上游把 anchor 渲染拆成 `MarkdownAnchor` 组件、由 `MarkdownDelegateProvider` 提供 `openExternalLink`（上游 PR #4379），本补丁只改那条被拒分支，允许分支改为返回上游的 `MarkdownAnchor`；`ui-primitives` README 的「Rendering agent output」整段被上游重写，本补丁那半句重新落在 `MarkdownText` 段里。
+- **状态**：局部退役（`core-patches-v11`）。族整体在役，核实依据：上游 `renderSafeLink` 的 `safeHref === ''` 分支仍返回只含 children 的 `Fragment`，目标串仍被丢弃；`parseFileLink` 拒绝的目标（不支持的协议、`#L2` 之类的纯片段、坏的百分号转义、`//host/path`、带查询串的路径——上游自己的清单共 17 种）全部仍走本补丁的 `文本（目标）`。一处局部退役：
+  1. **本地路径形状的目标**。上游新增 `parseFileLink` + `MarkdownFileLink`（上游 PR #4379）：`renderAnchor` 先把这类目标交给文件链接通路，`renderSafeLink` 再也看不到它们。有 `openFile` 委托时（会话视图总是提供）它渲染成可点按钮，比本补丁的惰性文本更强；没有委托时它只渲染链接文字、目标再次丢失——那不是产品里的配置，本补丁不追进上游的新组件。
+- **本轮适配**：上游把 anchor 渲染拆成 `MarkdownAnchor` 组件、由 `MarkdownDelegateProvider` 提供 `openExternalLink`（上游 PR #4379），本补丁只改那条被拒分支，允许分支改为返回上游的 `MarkdownAnchor`；`ui-primitives` README 的「Rendering agent output」整段被上游重写，本补丁那半句重新落在 `MarkdownText` 段里；上游新增的 `markdown-file-links.client.spec.ts` 那 17 条惰性目标断言改成本 fork 的渲染，`links-and-autolinks.settled.txt` 重录一段。
 - **Agent Note**：[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
 
 ## factory-zero-deepseek-egress — 出厂零 DeepSeek 出站
@@ -265,7 +267,7 @@
 - **为什么**：本 fork 在 `apps/*` 下有只随客户端构建分发、从不发到 npm 的产品装配，却被当成发布成员校验，四条发布元数据规则同时落空；上游自己只按名字排除了它自有的两个目录，覆盖不到 fork 的目录。私有 app 带的是各自的产品发行版本（桌面更新源与已安装外壳据以比对的那一个），不能由 dsh 家族共享版本占有。
 - **要达到的效果**：`apps/*` 下未发布的产品装配通过门禁，同时仍受工作区卫生规则约束；判别只靠 `private: true` 一个布尔字段。
 - **退役条件**：上游的 `check-workspace-constraints.ts` 自己区分 `apps/*` 下未发布的私有产品装配与发布成员，或 fork 不再拥有此类目录。
-- **状态**：在役（`core-patches-v11`）。核实依据：`isPrivateApp` 在 `upstream/master` 零命中。
+- **状态**：在役（`core-patches-v11`）。核实依据：`isPrivateApp` 在 `upstream/master` 零命中。本轮适配一处上游改动：上游自己的 `check-workspace-constraints.spec.ts` 也导入了 `checkWorkspaceManifest`，变基把两份导入表并了起来，本族只保留自己新增的 `checkPrivateAppManifest`。
 - **Agent Note**：[`private-apps-are-not-release-members`](../.agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md)
 
 ## attachment-text-file-kind — 持久附件缝的文本文件种类
