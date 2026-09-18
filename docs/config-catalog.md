@@ -824,6 +824,17 @@ export interface Config {
    * `every-time` asks on every click.
    */
   crudViewConsent?: CrudViewConsent
+  /**
+   * How long one drawn data-page card stays answerable, in seconds.
+   *
+   * The card carries a one-time value the agreeing click sends back, and this
+   * is how long that value lives. Long enough that a person can read the card
+   * and decide; short enough that a value left in a transcript nobody answered
+   * is dead before anyone reads the log it was recorded in. A card answered
+   * after the deadline is redrawn with a fresh value, so the only cost of a
+   * short deadline is one extra click.
+   */
+  crudViewConsentTtlSeconds?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -853,7 +864,7 @@ export type CrudViewConsent =
   | 'every-time'
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:113`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:123`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 

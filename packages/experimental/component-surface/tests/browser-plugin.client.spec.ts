@@ -16,7 +16,7 @@ import { NS } from '../src/client/locales.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
-import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
+import { ViewCommandRow, type ViewCommandRowInjected } from '../src/client/ViewCommandRow.tsx'
 import { COMPONENT_KIT_ENTRIES, CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
 
 /** One component a plugin would contribute, drawn by nothing in particular. */
@@ -163,6 +163,15 @@ describe('show-component browser half', () => {
       `/component-action {"entryId":"budget","componentId":"${CONFIRM_BAR_ID}","actionId":"${CONFIRM_BAR_PRESS_ID}","nodeId":"ask","payload":{"buttonId":"approve"}}`,
       [],
     )
+  })
+
+  it('injects a consent face that runs the view command again with the card\'s own value', async () => {
+    const { ctx, execute } = await bench()
+    const entry = ctx.slots.entries('conversation.chat.commandview').find(one => one.options.key === 'show-content-view')
+    const injected = (entry?.inject as ((sessionId: string) => unknown) | undefined)?.('session-a') as ViewCommandRowInjected
+    injected.onConsent({ view: 'layers', card: '打开数据页。', nonce: 'a'.repeat(32) as never })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(execute).toHaveBeenCalledWith('session-a', `/show-content-view layers ${'a'.repeat(32)}`, [])
   })
 
   it('injects one in-flight table for the page, not one per mounted seat', async () => {

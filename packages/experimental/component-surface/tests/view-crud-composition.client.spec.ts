@@ -2,12 +2,16 @@
  * REAL-composition coverage for the one view that is a question before it is a
  * draw: a sidebar row that opens the deployment's own data page.
  *
- * The approval service, the sign-on gate, the command registry, the session
- * store and the content-surface router are all the shipped ones, because what
- * these cases are about is what a person is asked and what is remembered of
- * their answer — and the card is read back off the real `approval/asked` record
- * rather than off the builder that wrote it, so the words a person sees and the
- * words a call's card carries cannot change apart.
+ * The sign-on gate, the command registry, the session store and the
+ * content-surface router are all the shipped ones, because what these cases are
+ * about is what a person is asked and what is remembered of their answer — and
+ * the card is read back off the settled command rather than off the builder
+ * that wrote it, so the words a person sees and the words a call's card carries
+ * cannot change apart.
+ *
+ * Every click here is made in a session with no turn open, which is where
+ * almost every sidebar click lands: a person picks a row while the agent is
+ * idle. That is the case the question has to work in.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -23,17 +27,17 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
+import type { CommandResult } from '@deepseek-ai/dsh-commands'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import UserApproval from '@deepseek-ai/dsh-user-approval'
-import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import * as AuthGate from '@deepseek-ai/dsh-experimental-auth-gate'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import { COMPONENT_KIND, CRUD_ID } from '../src/component-call.ts'
+import { consentNonce, readConsentQuestion, type ConsentQuestion } from '../src/consent-question.ts'
 import { crudApprovalReason } from '../src/crud.ts'
 import * as ShowComponent from '../src/index.ts'
 import { SHOW_CONTENT_VIEW_COMMAND } from '../src/view-command.ts'
@@ -46,6 +50,9 @@ const PAGE_NODE = {
   props: { relatedMeta: 'SpaceLayer', metaLabel: '图层配置', conditions: [{ key: 'status', op: 'EQ', value: 'on' }] },
 }
 const PAGE_SPEC = { nodes: [PAGE_NODE] }
+
+/** A second view placing no data page, for the click that is never a question. */
+const PLAIN_SPEC = { nodes: [{ id: 'ball', component: 'el.metric', props: { process: 42, text: '告警' } }] }
 
 /** Two JWT-shaped tokens: one visitor signing in, and a different login. */
 const TOKEN = 'aaa.bbb.ccc'
@@ -67,22 +74,12 @@ interface Deployment {
   readonly consent?: 'per-login' | 'every-time'
   /** Whether the sign-on gate is composed at all. */
   readonly gate?: boolean
-  /** Whether an approval answerer is composed; without one every question fails closed. */
-  readonly answerer?: boolean
-  /** Whether the approval service is composed at all. */
-  readonly approval?: boolean
+  /** How long a drawn card stays answerable; the row's own default when omitted. */
+  readonly ttlSeconds?: number
 }
-
-/** Every question the composed answerer was asked, in order. */
-let asked: string[] = []
-
-/** What the composed answerer says next. */
-let answer: ApprovalOutcome = 'allowed-once'
 
 /** Boot the console rows this view needs. */
 async function loadComposition(deployment: Deployment = {}): Promise<Context> {
-  asked = []
-  answer = 'allowed-once'
   world = await mkdtemp(join(tmpdir(), 'dsh-crud-view-'))
   const configPath = join(world, 'cordis.yml')
   await writeFile(configPath, [
@@ -96,7 +93,6 @@ async function loadComposition(deployment: Deployment = {}): Promise<Context> {
     "- name: '@deepseek-ai/dsh-session-projection'",
     "- name: '@deepseek-ai/dsh-commands'",
     "- name: '@deepseek-ai/dsh-experimental-content-surface'",
-    ...deployment.approval === false ? [] : ["- name: '@deepseek-ai/dsh-user-approval'"],
     ...deployment.gate === false ? [] : [
       "- name: '@deepseek-ai/dsh-experimental-auth-gate'",
       '  config:',
@@ -111,10 +107,14 @@ async function loadComposition(deployment: Deployment = {}): Promise<Context> {
     '  config:',
     '    crud: true',
     `    crudViewConsent: ${deployment.consent ?? 'per-login'}`,
+    ...deployment.ttlSeconds === undefined ? [] : [`    crudViewConsentTtlSeconds: ${deployment.ttlSeconds}`],
     '    views:',
     '      - id: layers',
     '        title: 图层数据',
     `        spec: ${JSON.stringify(PAGE_SPEC)}`,
+    '      - id: alerts',
+    '        title: 告警',
+    `        spec: ${JSON.stringify(PLAIN_SPEC)}`,
     '',
   ].join('\n'))
 
@@ -132,7 +132,6 @@ async function loadComposition(deployment: Deployment = {}): Promise<Context> {
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-commands', CommandRuntime],
     ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
-    ['@deepseek-ai/dsh-user-approval', UserApproval],
     ['@deepseek-ai/dsh-experimental-auth-gate', AuthGate],
     ['@deepseek-ai/dsh-experimental-component-surface', ShowComponent],
   ])
@@ -145,20 +144,12 @@ async function loadComposition(deployment: Deployment = {}): Promise<Context> {
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
-  if (deployment.answerer !== false) {
-    ctx.on('approval/request', (request) => {
-      asked.push(request.reason ?? '')
-      return Promise.resolve(answer)
-    })
-  }
   return ctx
 }
 
-/** A fresh session with a turn open, which is where a click made mid-answer lands. */
-function sessionInTurn(ctx: Context): Session {
-  const session = (ctx.get('sessions') as unknown as SessionStore).create()
-  session.append('turn/start', { turn: 1 })
-  return session
+/** A fresh session with no turn open, which is where a sidebar click lands. */
+function idleSession(ctx: Context): Session {
+  return (ctx.get('sessions') as unknown as SessionStore).create()
 }
 
 /** A minimal Agent the command runtime can log lifecycle events against. */
@@ -166,16 +157,36 @@ function agentOn(session: Session): Agent {
   return { id: session.id, session } as unknown as Agent
 }
 
-/** Click the view through the same registry boundary the sidebar's menu uses. */
-async function click(ctx: Context, session: Session): Promise<unknown> {
+/** Click one view through the same registry boundary the sidebar's menu uses. */
+async function click(ctx: Context, session: Session, line: string): Promise<CommandResult | undefined> {
   const execution = await ctx.commands.execute(
-    agentOn(session), `/${SHOW_CONTENT_VIEW_COMMAND} layers`, [], new AbortController().signal)
+    agentOn(session), `/${SHOW_CONTENT_VIEW_COMMAND} ${line}`, [], new AbortController().signal)
   return execution?.result
+}
+
+/** Click the data-page view and read the card it was answered with. */
+async function ask(ctx: Context, session: Session): Promise<ConsentQuestion> {
+  const result = await click(ctx, session, 'layers')
+  const question = readConsentQuestion(result?.kind === 'success' ? result.text : undefined)
+  if (question === undefined) throw new Error(`expected a question, got ${JSON.stringify(result)}`)
+  return question
+}
+
+/** Agree to one drawn card, the way the chat row's own button does. */
+async function agree(ctx: Context, session: Session, question: ConsentQuestion): Promise<CommandResult | undefined> {
+  return await click(ctx, session, `${question.view} ${question.nonce}`)
 }
 
 /** The content entries the session's log folds into. */
 function entries(ctx: Context, session: Session): readonly unknown[] {
   return ctx.sessionProjections.snapshot(session).values.contentSurface?.entries ?? []
+}
+
+/** Every `content-component/shown` payload the session recorded, in order. */
+function shown(session: Session): unknown[] {
+  return session.snapshotEvents()
+    .filter((event: SessionEvent) => event.type === 'content-component/shown')
+    .map((event: SessionEvent) => event.data)
 }
 
 /** Post one token to the gate, the way the browser half does. */
@@ -198,104 +209,148 @@ async function signOut(ctx: Context): Promise<void> {
 }
 
 describe('a click on a view that opens the data page', () => {
-  it('asks the user the same question a call for that page asks, before anything is drawn', { timeout: 60_000 }, async () => {
+  it('asks while the agent is idle, with the same card a call for that page carries, and draws nothing yet', { timeout: 60_000 }, async () => {
     const ctx = await loadComposition()
     await signIn(ctx, TOKEN)
-    const session = sessionInTurn(ctx)
-    expect(await click(ctx, session)).toEqual({ kind: 'success' })
-    // Read back off the real audit record rather than off the builder: what a
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    // Read back off the settled command rather than off the builder: what a
     // person sees and what a call's card carries cannot change apart.
-    const card = session.snapshotEvents()
-      .filter((event: SessionEvent) => event.type === 'approval/asked')
-      .map(event => event.data.reason)
-    expect(card).toEqual([crudApprovalReason(PAGE_NODE as never)])
-    expect(card[0]).toContain('\n数据表：SpaceLayer')
-    expect(entries(ctx, session)).toEqual([expect.objectContaining({ kind: COMPONENT_KIND, entryId: 'layers' })])
+    expect(question.card).toBe(crudApprovalReason(PAGE_NODE as never))
+    expect(question.card).toContain('\n数据表：SpaceLayer')
+    expect(question.view).toBe('layers')
+    expect(entries(ctx, session)).toEqual([])
+    expect(shown(session)).toEqual([])
   })
 
-  it('draws nothing and says so when the user does not open it', async () => {
+  it('places the page on the click that carries the answer, and records the view and the table', async () => {
     const ctx = await loadComposition()
     await signIn(ctx, TOKEN)
-    const session = sessionInTurn(ctx)
-    answer = 'rejected'
-    expect(await click(ctx, session)).toEqual({ kind: 'error', text: '没有打开。' })
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    expect(await agree(ctx, session, question)).toEqual({ kind: 'success' })
+    expect(entries(ctx, session)).toEqual([expect.objectContaining({ kind: COMPONENT_KIND, entryId: 'layers' })])
+    // What the person agreed to is reconstructable from the log alone: the
+    // entry names the view, and the spec it carries names the table.
+    expect(shown(session)).toEqual([{ entryId: 'layers', title: '图层数据', spec: PAGE_SPEC, by: 'user' }])
+  })
+
+  it('draws nothing for a click that never came back, because a card nobody answered opens nothing', async () => {
+    const ctx = await loadComposition()
+    await signIn(ctx, TOKEN)
+    const session = idleSession(ctx)
+    await ask(ctx, session)
     expect(entries(ctx, session)).toEqual([])
-    expect(session.snapshotEvents().some(event => event.type === 'content-component/shown')).toBe(false)
   })
 
   it('asks once per login, not once per click', async () => {
     const ctx = await loadComposition()
     await signIn(ctx, TOKEN)
-    const first = sessionInTurn(ctx)
-    await click(ctx, first)
+    const first = idleSession(ctx)
+    await agree(ctx, first, await ask(ctx, first))
     // A second click, and a click in another session of the same visitor: the
     // answer is the person's, not the conversation's.
-    await click(ctx, first)
-    const second = sessionInTurn(ctx)
-    expect(await click(ctx, second)).toEqual({ kind: 'success' })
-    expect(asked).toHaveLength(1)
+    expect(await click(ctx, first, 'layers')).toEqual({ kind: 'success' })
+    const second = idleSession(ctx)
+    expect(await click(ctx, second, 'layers')).toEqual({ kind: 'success' })
     expect(entries(ctx, second)).toEqual([expect.objectContaining({ entryId: 'layers' })])
   })
 
   it('asks again after the visitor signs out, and again for a different token', async () => {
     const ctx = await loadComposition()
     await signIn(ctx, TOKEN)
-    await click(ctx, sessionInTurn(ctx))
-    expect(asked).toHaveLength(1)
+    const session = idleSession(ctx)
+    await agree(ctx, session, await ask(ctx, session))
 
     await signOut(ctx)
-    await click(ctx, sessionInTurn(ctx))
-    expect(asked).toHaveLength(2)
+    await ask(ctx, session)
 
     await signIn(ctx, OTHER_TOKEN)
-    await click(ctx, sessionInTurn(ctx))
-    expect(asked).toHaveLength(3)
+    await ask(ctx, session)
+  })
+
+  it('refuses an answer minted for another login, and asks again', async () => {
+    const ctx = await loadComposition()
+    await signIn(ctx, TOKEN)
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    await signIn(ctx, OTHER_TOKEN)
+    const again = readConsentQuestion((await agree(ctx, session, question) as { text?: string }).text)
+    expect(again?.nonce).not.toBe(question.nonce)
+    expect(entries(ctx, session)).toEqual([])
+  })
+
+  it('refuses an answer that was already spent, and asks again', async () => {
+    const ctx = await loadComposition({ consent: 'every-time' })
+    await signIn(ctx, TOKEN)
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    expect(await agree(ctx, session, question)).toEqual({ kind: 'success' })
+    const again = readConsentQuestion((await agree(ctx, session, question) as { text?: string }).text)
+    expect(again?.nonce).not.toBe(question.nonce)
+    // One placement, from the click that spent the answer the first time.
+    expect(shown(session)).toHaveLength(1)
+  })
+
+  it('refuses an answer nobody minted, and asks again', async () => {
+    const ctx = await loadComposition()
+    await signIn(ctx, TOKEN)
+    const session = idleSession(ctx)
+    const forged = { view: 'layers', card: '', nonce: consentNonce('0'.repeat(32)) }
+    const asked = readConsentQuestion((await agree(ctx, session, forged) as { text?: string }).text)
+    expect(asked?.view).toBe('layers')
+    expect(entries(ctx, session)).toEqual([])
+  })
+
+  it('refuses an answer the deadline has passed, and asks again', async () => {
+    // One second is the shortest deadline the schema admits, which is what
+    // makes this the whole of the wait.
+    const ctx = await loadComposition({ ttlSeconds: 1 })
+    await signIn(ctx, TOKEN)
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    const again = readConsentQuestion((await agree(ctx, session, question) as { text?: string }).text)
+    expect(again?.nonce).not.toBe(question.nonce)
+    expect(entries(ctx, session)).toEqual([])
   })
 
   it('asks on every click where the deployment says so', async () => {
     const ctx = await loadComposition({ consent: 'every-time' })
     await signIn(ctx, TOKEN)
-    const session = sessionInTurn(ctx)
-    await click(ctx, session)
-    await click(ctx, session)
-    expect(asked).toHaveLength(2)
+    const session = idleSession(ctx)
+    await agree(ctx, session, await ask(ctx, session))
+    // The answer stood for the click that carried it and for nothing after it.
+    await ask(ctx, session)
+    expect(shown(session)).toHaveLength(1)
   })
 
-  it('asks every time where there is no login to remember an answer under', async () => {
+  it('asks every time where there is no login to remember an answer under, and still opens on the answer', async () => {
     const ctx = await loadComposition({ gate: false })
-    const session = sessionInTurn(ctx)
-    await click(ctx, session)
-    await click(ctx, session)
-    expect(asked).toHaveLength(2)
+    const session = idleSession(ctx)
+    const question = await ask(ctx, session)
+    expect(await agree(ctx, session, question)).toEqual({ kind: 'success' })
+    // Bound to the conversation rather than to a person, so nothing outlives
+    // the click that carried it.
+    await ask(ctx, session)
+    expect(shown(session)).toHaveLength(1)
   })
 
-  it('draws nothing where the deployment composed no approval service', async () => {
-    // A page nobody can be asked about is one nobody may open, which is the
-    // rule the tool already applies to its own offer.
-    const ctx = await loadComposition({ approval: false })
-    await signIn(ctx, TOKEN)
-    const session = sessionInTurn(ctx)
-    expect(await click(ctx, session)).toEqual({ kind: 'error', text: '没有打开。' })
-    expect(entries(ctx, session)).toEqual([])
+  it('refuses an answer minted in another session where there is no login', async () => {
+    const ctx = await loadComposition({ gate: false })
+    const first = idleSession(ctx)
+    const question = await ask(ctx, first)
+    const second = idleSession(ctx)
+    const again = readConsentQuestion((await agree(ctx, second, question) as { text?: string }).text)
+    expect(again?.nonce).not.toBe(question.nonce)
+    expect(entries(ctx, second)).toEqual([])
   })
 
-  it('draws nothing where the question reached no answerer', async () => {
-    const ctx = await loadComposition({ answerer: false })
-    await signIn(ctx, TOKEN)
-    const session = sessionInTurn(ctx)
-    expect(await click(ctx, session)).toEqual({ kind: 'error', text: '没有打开。' })
-    expect(entries(ctx, session)).toEqual([])
-  })
-
-  it('draws nothing where the question could not be put at all, and asks nobody', async () => {
-    // A command handler runs wherever the user clicked, and the approval
-    // service refuses to ask between turns: its audit pair has to be enclosed
-    // by one. The click is answered the way a refusal is.
+  it('places a view that opens no data page on the first click, with no question at all', async () => {
     const ctx = await loadComposition()
     await signIn(ctx, TOKEN)
-    const session = (ctx.get('sessions') as unknown as SessionStore).create()
-    expect(await click(ctx, session)).toEqual({ kind: 'error', text: '没有打开。' })
-    expect(asked).toEqual([])
-    expect(entries(ctx, session)).toEqual([])
+    const session = idleSession(ctx)
+    expect(await click(ctx, session, 'alerts')).toEqual({ kind: 'success' })
+    expect(entries(ctx, session)).toEqual([expect.objectContaining({ entryId: 'alerts' })])
   })
 })

@@ -14,10 +14,12 @@
  * produced it.
  *
  * One view is a question before it is a draw: a view that places `toy.crud`
- * opens the deployment's own data page with the visitor's own credential, so
- * the click is put to the user through the same approval request, with the same
- * card, a `show_component` call asking for that page is put through. Nothing is
- * appended and nothing is drawn unless the answer is a grant.
+ * opens the deployment's own data page with the visitor's own credential. The
+ * question is the clicking person's, not a model's, so it is put where this
+ * command's own answer is already drawn rather than through the agent's
+ * approval card — the first click is answered with the card and an agreement to
+ * carry back, and the page is placed by the second click, the one that carries
+ * it. Nothing is appended and nothing is asked of any backend until then.
  *
  * The command name is a small wire contract the sidebar package keeps a literal
  * copy of rather than importing, mirroring how it already treats this
@@ -29,13 +31,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { CommandDefinition, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-// Type-only: resolves ctx.approval, the question a data page is put through.
-import type {} from '@deepseek-ai/dsh-user-approval'
 // Type-only: resolves ctx.loginIdentity, which names the login an answer is remembered under.
 import type {} from '@deepseek-ai/dsh-experimental-auth-gate'
-import { crudMeta, crudNodes, SHOW_COMPONENT_TOOL_NAME, type ComponentCall, type ComponentNode } from './component-call.ts'
+import { crudMeta, crudNodes, type ComponentCall, type ComponentNode } from './component-call.ts'
+import { encodeConsentQuestion, parseViewCommandInput } from './consent-question.ts'
 import { crudApprovalReason } from './crud.ts'
-import { consentKey, type ViewConsentMemory } from './view-consent.ts'
+import { loginBinding, sessionBinding, type ConsentTickets, type ViewConsentMemory } from './view-consent.ts'
 import type { ViewIndex } from './views.ts'
 
 /**
@@ -58,79 +59,77 @@ export const SHOW_CONTENT_VIEW_COMMAND = 'show-content-view'
 const NO_SUCH_VIEW = '没有这个视图。'
 
 /**
- * What a click on a data page that was not agreed to is answered with.
+ * What this command needs to decide whether one data page may be drawn.
  *
- * One sentence for every way the question can end other than a grant, and for
- * every way it could not be asked at all, because the four are one thing from
- * where the person is sitting: they clicked and the page did not open.
+ * The two tables are the row's, for the life of the row: an answer a person
+ * gave and a card they have not answered yet both outlive the rebuild a pack
+ * arriving causes, so neither can live in the command the rebuild replaces.
  */
-const NOT_OPENED = '没有打开。'
+export interface ViewConsentGate {
+  /** The answers this process has been given. */
+  readonly memory: ViewConsentMemory
+  /** The cards it has drawn and not yet seen come back. */
+  readonly tickets: ConsentTickets
+}
 
 /**
- * Put one data page to the user, unless this person already agreed to it.
+ * Decide one data page: draw it, or answer with the question.
  *
- * The approval service has one grant, `allowed-once`, and no store, so the
- * memory of an answer is this row's own: it is keyed by the login, the view and
- * the table, and it is in this process only. A composition with no login to
- * scope an answer to remembers nothing and asks every time, which is the
- * fail-closed answer.
- *
- * Asking is impossible outside an open turn — the audit pair the approval
- * service writes has to be enclosed by one — and a command handler runs
- * wherever the user clicked. That refusal, an approval service that is not
- * composed, and a user who says no all reach the same place: nothing is drawn.
- * @param ctx - the context the command is registered on, carrying the optional approval and identity services.
- * @param memory - what this process remembers of earlier answers.
- * @param invocation - the click, carrying the agent to ask for and the cancellation to ask under.
- * @param viewId - the view that was clicked, which the answer is remembered against.
- * @param page - the data page block the view places.
- * @returns whether the page may be drawn.
+ * The person is named by `ctx.loginIdentity` where an `auth-gate` row is
+ * composed, and by the session otherwise. Both can carry an agreement through
+ * one exchange; only a login can be remembered, because a session is not a
+ * person and a second conversation is not the same seat.
+ * @param ctx - the context the command is registered on, carrying the optional identity service.
+ * @param gate - what this process remembers, and the cards it has drawn.
+ * @param invocation - the click, carrying the session it was made in.
+ * @param view - the view that was clicked, already found in the index.
+ * @param page - the data page block that view places.
+ * @returns `undefined` when the page may be drawn, or the settlement to answer the click with.
  */
-async function allowDataPage(
+function judgeDataPage(
   ctx: Context,
-  memory: ViewConsentMemory,
+  gate: ViewConsentGate,
   invocation: CommandInvocation,
-  viewId: string,
+  view: ComponentCall,
   page: ComponentNode,
-): Promise<boolean> {
+): CommandResult | undefined {
+  const meta = crudMeta(page)
   const login = ctx.get('loginIdentity')?.current()
-  const key = login === undefined ? undefined : consentKey(login, viewId, crudMeta(page))
-  if (key !== undefined && memory.holds(key)) return true
-  const approval = ctx.get('approval')
-  if (approval === undefined) return false
-  let outcome
-  try {
-    outcome = await approval.request({
-      agent: invocation.agent,
-      // The tool the question is about, which is what draws the card: the page
-      // this click opens is the one a `show_component` call opens, and a
-      // question about it that read differently would be a second card for one
-      // thing.
-      toolName: SHOW_COMPONENT_TOOL_NAME,
-      reason: crudApprovalReason(page),
-      signal: invocation.signal,
-    })
-  } catch (_couldNotAsk) {
-    // Swallowed here and nowhere else: the approval service throws when there
-    // is no open turn to enclose its audit pair, which is where a click made
-    // between turns lands, and it throws when either audit append fails. Both
-    // mean the same thing — the user was not asked — and the answer below says
-    // the page did not open.
-    return false
+  const binding = login === undefined
+    ? sessionBinding(invocation.agent.session.id)
+    : loginBinding(login)
+  if (login !== undefined && gate.memory.holds(binding, view.id, meta)) return undefined
+  const { nonce } = parseViewCommandInput(invocation.rawInput)
+  if (nonce !== undefined && gate.tickets.redeem(nonce, binding, view.id, meta)) {
+    // Remembered only for a person this process can name again. A session-bound
+    // agreement is spent by the click that carried it and nothing outlives it.
+    if (login !== undefined) gate.memory.remember(binding, view.id, meta)
+    return undefined
   }
-  if (outcome !== 'allowed-once') return false
-  if (key !== undefined) memory.remember(key)
-  return true
+  // Every other way in ends here, the spent and the expired agreement included:
+  // a fresh card with a fresh agreement is the one answer that leaves the
+  // person able to open the page, and it never reads as a failure.
+  return {
+    kind: 'success',
+    text: encodeConsentQuestion({
+      view: view.id,
+      // The card a `show_component` call for this page is put through, word for
+      // word: the page this click opens is that page, and a question about it
+      // that read differently would be a second card for one thing.
+      card: crudApprovalReason(page),
+      nonce: gate.tickets.mint(binding, view.id, meta),
+    }),
+  }
 }
 
 /**
  * Build the `show-content-view` command for one deployment's view index.
- * @param ctx - the context the command is registered on, carrying the optional approval and identity services.
+ * @param ctx - the context the command is registered on, carrying the optional identity service.
  * @param views - the validated view index.
- * @param memory - what this process remembers of earlier answers to a data page.
+ * @param gate - what this process remembers of earlier answers, and the cards it has drawn.
  * @returns the definition to hand to `ctx.commands.register`.
  */
-export function showContentViewCommand(ctx: Context, views: ViewIndex, memory: ViewConsentMemory): CommandDefinition {
+export function showContentViewCommand(ctx: Context, views: ViewIndex, gate: ViewConsentGate): CommandDefinition {
   return {
     name: SHOW_CONTENT_VIEW_COMMAND,
     // Chinese, and free of any noun the console does not show the person
@@ -142,15 +141,16 @@ export function showContentViewCommand(ctx: Context, views: ViewIndex, memory: V
     // instruction they are meant to type.
     description: '点侧栏里的条目就会打开，内容出现在对话旁边；这一行不用手动输入。',
     input: { hint: '名称' },
-    handler: async (invocation): Promise<CommandResult> => {
-      const view: ComponentCall | undefined = views.get(invocation.rawInput.trim())
+    handler: (invocation): CommandResult => {
+      const view: ComponentCall | undefined = views.get(parseViewCommandInput(invocation.rawInput).viewId)
       if (view === undefined) return { kind: 'error', text: NO_SUCH_VIEW }
       const page = crudNodes(view.spec)[0]
       // Before anything is appended: an entry in the log is an entry the column
       // draws, and drawing the page is what puts its first request on the wire
       // with the user's own credential.
-      if (page !== undefined && !await allowDataPage(ctx, memory, invocation, view.id, page)) {
-        return { kind: 'error', text: NOT_OPENED }
+      if (page !== undefined) {
+        const asked = judgeDataPage(ctx, gate, invocation, view, page)
+        if (asked !== undefined) return asked
       }
       // The column is per-session state living in the session log; a command
       // invocation always carries the receiving agent, unlike a tool call.

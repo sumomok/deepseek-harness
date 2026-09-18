@@ -417,6 +417,15 @@ describe('the row\'s own configuration', () => {
     await expect(ctx.plugin(ShowComponent, { crud: true, crudLoadTimeoutMs: 0 }))
       .rejects.toThrow('component-surface: crudLoadTimeoutMs must be a positive number of milliseconds, received 0')
   })
+
+  it('refuses to load with a card deadline of zero, rather than asking a person again for every answer they give', async () => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await expect(ctx.plugin(ShowComponent, { crud: true, crudViewConsentTtlSeconds: 0 }))
+      .rejects.toThrow('component-surface: crudViewConsentTtlSeconds must be a positive number of seconds, received 0')
+  })
 })
 
 describe('a configured view', () => {

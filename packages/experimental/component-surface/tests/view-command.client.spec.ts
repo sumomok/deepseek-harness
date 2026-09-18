@@ -17,12 +17,12 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import type { CommandExecution } from '@deepseek-ai/dsh-commands'
+import type { CommandExecution, CommandSource } from '@deepseek-ai/dsh-commands'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { SHOW_CONTENT_VIEW_COMMAND, showContentViewCommand } from '../src/view-command.ts'
-import { ViewConsentMemory } from '../src/view-consent.ts'
+import { SHOW_CONTENT_VIEW_COMMAND, showContentViewCommand, type ViewConsentGate } from '../src/view-command.ts'
+import { ConsentTickets, ViewConsentMemory } from '../src/view-consent.ts'
 import { indexViews } from '../src/views.ts'
 import type { ContentView } from '../src/types.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
@@ -39,6 +39,11 @@ const VIEWS: ContentView[] = [
 
 let calls = 0
 
+/** A gate no case here reaches: none of these views places a data page. */
+function gate(): ViewConsentGate {
+  return { memory: new ViewConsentMemory('per-login'), tickets: new ConsentTickets(120_000) }
+}
+
 /** A minimal Agent the runtime can log lifecycle events against — only `.session` is ever read. */
 function agentWithSession(session: Session): Agent {
   return { id: session.id, session } as unknown as Agent
@@ -48,7 +53,7 @@ function agentWithSession(session: Session): Agent {
 async function bench(): Promise<{ ctx: Context; agent: Agent; session: Session }> {
   const ctx = new Context()
   await ctx.plugin(CommandRuntime)
-  ctx.commands.register(showContentViewCommand(ctx, indexViews(KIT_CATALOG, VIEWS, undefined, false), new ViewConsentMemory('per-login')))
+  ctx.commands.register(showContentViewCommand(ctx, indexViews(KIT_CATALOG, VIEWS, undefined, false), gate()))
   const session = Session.create(SessionId(`show-content-view-${++calls}`))
   return { ctx, agent: agentWithSession(session), session }
 }
@@ -124,13 +129,33 @@ describe('show-content-view command', () => {
     expect(shown(session)).toEqual([])
   })
 
+  it('is reachable from one producer only, which is what keeps a data page out of the model\'s reach', async () => {
+    // `CommandInvocation` carries no source, and the executor writes
+    // `source: { kind: 'user' }` into every `command/run` it appends
+    // (`packages/interaction/commands/src/index.ts`), because `CommandSourceMap`
+    // has one member. A handler therefore cannot branch on a source, and there
+    // is no non-user producer for it to refuse — what stands between a model and
+    // a data page is the nonce the second click carries, which this row mints
+    // only for a card it drew.
+    //
+    // This assertion exists so that stops being true loudly: a second member of
+    // that merge-extensible map makes the assignment below fail to compile, at
+    // exactly the change that would need this command to start refusing one.
+    const onlyUser: CommandSource extends { kind: 'user' } ? true : never = true
+    expect(onlyUser).toBe(true)
+    const { ctx, agent, session } = await bench()
+    await run(ctx, agent, ' alerts')
+    const started = session.snapshotEvents().find((event: SessionEvent) => event.type === 'command/run')
+    expect(started?.type === 'command/run' && started.data.source).toEqual({ kind: 'user' })
+  })
+
   it('leaves the registry when the owning fiber goes away (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(CommandRuntime)
     const views = indexViews(KIT_CATALOG, VIEWS, undefined, false)
     const fiber = ctx.plugin({
       inject: ['commands'],
-      apply: (child: Context) => { child.commands.register(showContentViewCommand(child, views, new ViewConsentMemory('per-login'))) },
+      apply: (child: Context) => { child.commands.register(showContentViewCommand(child, views, gate())) },
     })
     await fiber.await()
     const agent = agentWithSession(Session.create(SessionId(`show-content-view-hmr-${++calls}`)))

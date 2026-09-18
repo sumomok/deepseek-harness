@@ -70,8 +70,8 @@ import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
-import { showContentViewCommand } from './view-command.ts'
-import { CRUD_VIEW_CONSENTS, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
+import { showContentViewCommand, type ViewConsentGate } from './view-command.ts'
+import { ConsentTickets, CRUD_VIEW_CONSENTS, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
 import type { ViewIndex } from './views.ts'
 
 // The `content-component/shown` declaration lives in src/types.ts (its one
@@ -80,7 +80,17 @@ import type { ViewIndex } from './views.ts'
 export type * from './types.ts'
 export { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 export { ComponentViewRegistry } from './component-views.ts'
-export { consentKey, CRUD_VIEW_CONSENTS, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
+export { ConsentTickets, CRUD_VIEW_CONSENTS, loginBinding, sessionBinding, ViewConsentMemory, type CrudViewConsent } from './view-consent.ts'
+export {
+  consentNonce,
+  encodeConsentQuestion,
+  formatViewCommandLine,
+  parseViewCommandInput,
+  readConsentQuestion,
+  type ConsentNonce,
+  type ConsentQuestion,
+  type ViewCommandInput,
+} from './consent-question.ts'
 export type { ComponentViewOptions, ComponentViewSource } from './component-views.ts'
 export type { ContributedView, ViewJudgement, ViewRefusal } from './views.ts'
 export type {
@@ -183,6 +193,17 @@ export interface Config {
    * `every-time` asks on every click.
    */
   crudViewConsent?: CrudViewConsent
+  /**
+   * How long one drawn data-page card stays answerable, in seconds.
+   *
+   * The card carries a one-time value the agreeing click sends back, and this
+   * is how long that value lives. Long enough that a person can read the card
+   * and decide; short enough that a value left in a transcript nobody answered
+   * is dead before anyone reads the log it was recorded in. A card answered
+   * after the deadline is redrawn with a fresh value, so the only cost of a
+   * short deadline is one extra click.
+   */
+  crudViewConsentTtlSeconds?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -197,6 +218,7 @@ export const Config: z<Config> = z.object({
   crud: z.boolean().default(false),
   crudLoadTimeoutMs: z.natural().default(10_000),
   crudViewConsent: z.union(CRUD_VIEW_CONSENTS).default('per-login'),
+  crudViewConsentTtlSeconds: z.natural().default(120),
 })
 
 /**
@@ -211,13 +233,15 @@ type ResolvedConfig = Config & {
   readonly crud: boolean
   readonly crudLoadTimeoutMs: number
   readonly crudViewConsent: CrudViewConsent
+  readonly crudViewConsentTtlSeconds: number
 }
 
 /**
- * Read the four offer fields into what the tool takes.
+ * Read the four offer fields into what the tool takes, refusing every deadline
+ * and ceiling this row cannot run on.
  * @param config - the validated config, with its defaults already applied.
  * @returns what this composition's `show_component` offers.
- * @throws {Error} when the default row count is outside what a table can draw, or the page deadline is zero.
+ * @throws {Error} when the default row count is outside what a table can draw, or either deadline is zero.
  */
 function offerOptions(config: ResolvedConfig): ShowComponentOptions {
   if (config.dataDefaultPageSize < 1 || config.dataDefaultPageSize > MAX_TABLE_ROWS) {
@@ -228,6 +252,11 @@ function offerOptions(config: ResolvedConfig): ShowComponentOptions {
   // no diagnostic pointing at the row that set it.
   if (config.crudLoadTimeoutMs < 1) {
     throw new Error(`component-surface: crudLoadTimeoutMs must be a positive number of milliseconds, received ${config.crudLoadTimeoutMs}`)
+  }
+  // And a card deadline of zero kills every card as it is drawn, so a person
+  // clicking a data page would be asked again for every answer they gave.
+  if (config.crudViewConsentTtlSeconds < 1) {
+    throw new Error(`component-surface: crudViewConsentTtlSeconds must be a positive number of seconds, received ${config.crudViewConsentTtlSeconds}`)
   }
   return {
     dataSource: config.dataSource,
@@ -318,14 +347,14 @@ function installOffer(
  * @param ctx - the injected context carrying the view registry.
  * @param views - the views to publish, as the registry judged them.
  * @param homeView - the `homeView` config value, when set.
- * @param memory - what this process remembers of earlier answers to a data page.
+ * @param gate - what this process remembers of earlier answers, and the cards it has drawn.
  * @returns the disposer of both registrations, or `undefined` where there is nothing to publish.
  */
 function publishViews(
   ctx: Context,
   views: ViewIndex,
   homeView: string | undefined,
-  memory: ViewConsentMemory,
+  gate: ViewConsentGate,
 ): (() => void) | undefined {
   if (views.size === 0) return undefined
   const document: ComponentViewsDocument = {
@@ -339,7 +368,7 @@ function publishViews(
     )
   })
   const command = ctx.inject(['commands'], (commandsCtx) => {
-    commandsCtx.commands.register(showContentViewCommand(commandsCtx, views, memory))
+    commandsCtx.commands.register(showContentViewCommand(commandsCtx, views, gate))
   })
   return () => {
     void route.dispose()
@@ -378,14 +407,18 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
     ...homeView === undefined ? {} : { homeView },
     crud: options.crud,
   })
-  // One memory for the life of the row rather than one per rebuilt command: an
-  // answer a person gave does not stop standing because a pack arrived.
-  const memory = new ViewConsentMemory(config.crudViewConsent)
+  // One gate for the life of the row rather than one per rebuilt command: an
+  // answer a person gave does not stop standing because a pack arrived, and a
+  // card they are still reading stays answerable across the same rebuild.
+  const gate: ViewConsentGate = {
+    memory: new ViewConsentMemory(config.crudViewConsent),
+    tickets: new ConsentTickets(config.crudViewConsentTtlSeconds * 1000),
+  }
   ctx.inject(['componentViews'], (viewsCtx) => {
     let held: (() => void) | undefined
     const rebuild = (): void => {
       held?.()
-      held = publishViews(viewsCtx, viewsCtx.componentViews.index, homeView, memory)
+      held = publishViews(viewsCtx, viewsCtx.componentViews.index, homeView, gate)
     }
     viewsCtx.effect(() => {
       rebuild()
