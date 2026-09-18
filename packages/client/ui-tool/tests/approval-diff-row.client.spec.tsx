@@ -24,14 +24,12 @@ function listStore(cwd: string | undefined) {
     ids: [SID],
     byId: {
       [SID]: {
-        id: SID, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0,
+        id: SID, title: 'r', displayTitle: 'r', running: false, retainedBy: {}, blank: false, updatedAt: 0,
         ...(cwd === undefined ? {} : { cwd }),
       },
     },
-    current: undefined,
     phase: 'ready',
     subagentsByParent: {}, jobsBySession: {},
-    currentAddress: undefined,
   })
 }
 
