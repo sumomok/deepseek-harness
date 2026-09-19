@@ -1,65 +1,9 @@
 /* What a view click can draw in the chat, where the emptied command row would
-   have been: the host's refusal, and the question a data page is put through.
-   Tokens only. */
+   have been: the host's refusal. Tokens only. */
 
 .refusal {
   margin: 0;
   color: var(--dsw-alias-state-error-primary);
   font-size: 13px;
   line-height: 24px;
-}
-
-/* The question is not a failure, so it reads as an ordinary panel rather than
-   in the error colour: a person is being asked, not told something went wrong. */
-.question {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
-}
-
-/* The host's own card, drawn as it was written: it already carries its own line
-   breaks, and the line naming the table is the one part a person can check the
-   rest against. */
-.card {
-  margin: 0;
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 24px;
-  white-space: pre-wrap;
-}
-
-.answers {
-  display: flex;
-  gap: 8px;
-}
-
-.answer {
-  padding: 4px 16px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 24px;
-  cursor: pointer;
-}
-
-.answer:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* The agreeing answer carries the weight, because it is the one that opens a
-   page holding somebody's data. */
-.allow {
-  border-color: transparent;
-  background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-.allow:hover {
-  background: var(--dsw-alias-button-primary-hover);
 }

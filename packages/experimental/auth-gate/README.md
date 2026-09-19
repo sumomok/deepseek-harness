@@ -19,7 +19,6 @@ It exists for one deployment shape: a reverse proxy in front of many dsh process
 - [Routes](#routes)
 - [Forwarding MCP requests with the token](#forwarding-mcp-requests-with-the-token)
 - [Reading the deployment's data backend](#reading-the-deployments-data-backend)
-- [Naming the login without handing out the token](#naming-the-login-without-handing-out-the-token)
 - [Composition](#composition)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -150,19 +149,6 @@ The deployment that issues the token also serves its own data. `bizUpstream` giv
 
 The token reaches those reads the same way it reaches a forward: by reference, as the closure this package holds it in. The reads spend it on both the `Authorization` and `CertificationToken` headers, and give it up through the same closure when the backend refuses it — which is this package's own sign-out state, and what the limitations below record.
 
-<a id="naming-the-login-without-handing-out-the-token"></a>
-## Naming the login without handing out the token
-
-A row that has to remember something per signed-in person — one such row exists, the sidebar answer [`dsh-experimental-component-surface`](../component-surface/README.md) keeps for a view that opens a data page — needs a name that is the same for as long as one person is signed in and different afterwards. It must not need the token to get one. `ctx.loginIdentity` is that name, and it is the only thing in this process besides the forward and the data-backend reads that the held credential reaches:
-
-| Member | Answer |
-|---|---|
-| `current()` | The SHA-256 digest of the held token, in lower-case hexadecimal, or `undefined` while no token is held — which is every state in which nobody is signed in, sign-out included. |
-
-The digest is computed per call rather than cached, so a sign-out, a newly posted token and a renewal are all visible to the next caller without anything here having to be told about them. It is a digest rather than a claim read out of the token because this package authenticates nobody and reads no claim: a name derived from the bytes it was handed is the only one it can honestly give. The token itself does not leave the closure — a digest cannot be inverted back into a credential, and nothing logs, stores, or answers with either one.
-
-The service is constructed whether or not `bizUpstream` is configured, because the token route that fills it exists either way. A composition with no auth-gate row has no `ctx.loginIdentity`, and a consumer that reads it through `ctx.get('loginIdentity')` gets `undefined` — which every consumer must treat as *nobody has been named*, not as *one anonymous person*.
-
 -----
 
 <a id="composition"></a>
@@ -208,7 +194,6 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **A failed periodic renewal says nothing.** Nothing on screen, nothing in the console, nothing in the node half: a deployment whose renewal endpoint has been refusing for hours looks exactly like one that has not, until the expiry margin arrives and the visitor is sent to the login page. The alternative — reporting an attempt that the next tick may well recover from — is noise on every transient failure.
 - **The deployment this was written for issues no fresh token, which leaves the renewal inert there.** Every answer it gave carried back the token that was sent, the one asked for 2.3 minutes before `exp` included, and 100 seconds after `exp` both that endpoint and a metadata read answered 401: its JWT `exp` is the real expiry. The two fields stay unconfigured on that console, which therefore keeps the margin-to-login path it already had, and this package buys it nothing the old behavior did not. Every endpoint these tests answer from is a fake; a deployment whose endpoint answers with a later `exp` is what would show the renewal working end to end.
 - **A deployment that sets `isAuth` is not gated at all.** `toy-core` switches every token key to `accessTokenAuth` and `accessTokenTimeAuth` when `getLocalConfig().isAuth` is set, and both halves of this package name the default keys only. Under such a deployment the gate reads a key that deployment's login page never writes, so a visitor is sent to the login page, signed in, and sent there again; nothing configures the key names, and nothing reports the mismatch.
-- **A renewal is a new login.** `ctx.loginIdentity` names the token, not the person, so a renewed token, a second sign-in by the same person, and a different person are three names this package cannot tell apart from each other. Whatever a consumer remembers per login is therefore asked again after every renewal. The alternative — naming the person by a claim such as `sub` — would be this package asserting an identity out of a token it does not verify, which is the one thing its deployment shape says the proxy in front of it has already done and it has not.
 - **The forward is HTTP only.** There is no upgrade route, so an MCP server reached over WebSocket cannot be forwarded through it; streamable-HTTP and its event streams are what the route serves.
 - **One token for the whole process.** The node half holds the newest token any browser posted. That matches the deployment this package is for — one process per signed-in person — and would be wrong for a process several people reach, where the last browser to load a page would decide whose credential every MCP call spends.
 - **Only the gate's own three login decisions sign out.** `POST /auth-gate/logout` drops the held token, and nothing but the browser half's boot, storage-change, and expiry paths calls it — there is no sign-out control, and no interruption of whatever the agent loop is doing at the time. A visitor who closes the tab instead leaves the process holding the token until it ends or another browser posts a newer one.

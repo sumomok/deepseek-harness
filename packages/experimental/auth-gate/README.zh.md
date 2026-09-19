@@ -19,7 +19,6 @@ kind: "package-reference"
 - [路由](#routes)
 - [带着 token 转发 MCP 请求](#forwarding-mcp-requests-with-the-token)
 - [读这套部署自己的数据后端](#reading-the-deployments-data-backend)
-- [给这次登录一个名字，而不把 token 交出去](#naming-the-login-without-handing-out-the-token)
 - [组合](#composition)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -150,19 +149,6 @@ token 被放在插件内部的一个闭包里，且不写去任何地方：没�
 
 token 抵达这些读取的方式与抵达转发的方式相同：按引用，就是本包持有它的那个闭包。这些读取把它花在 `Authorization` 与 `CertificationToken` 两个头上，并在后端拒绝它时通过同一个闭包交出它——那正是本包自己的登出终态，也是下面那些限制所记录的东西。
 
-<a id="naming-the-login-without-handing-out-the-token"></a>
-## 给这次登录一个名字，而不把 token 交出去
-
-有些行必须按登录用户记住一点东西——现存的正是这样一行：[`dsh-experimental-component-surface`](../component-surface/README.zh.md) 为「会打开数据页的视图」保存的那个侧栏回答——它需要一个名字：同一个人登录期间保持不变，人一换就不同。而它不该为了拿到这个名字而需要 token。`ctx.loginIdentity` 就是这个名字，也是本进程里除转发与数据后端读取之外，持有的凭据唯一还能抵达的地方：
-
-| 成员 | 答复 |
-|---|---|
-| `current()` | 所持 token 的 SHA-256 摘要，小写十六进制；未持有 token 时为 `undefined`——也就是一切无人登录的状态，含登出。 |
-
-摘要是每次调用现算而非缓存的，于是登出、新投递的一枚 token、一次续期，下一个调用者都直接看得见，这里不需要被谁通知。它取的是摘要而不是从 token 里读出的 claim，因为本包既不认证任何人也不读任何 claim：从它拿到的那串字节派生出的名字，是它唯一能诚实给出的名字。token 本身不离开闭包——摘要无法反推回凭据，而两者都不会被写日志、被存下、或被答出去。
-
-无论 `bizUpstream` 配没配，这个服务都会构造，因为填充它的那条 token 路由两种情况下都在。没有 auth-gate 这一行的组合就没有 `ctx.loginIdentity`，用 `ctx.get('loginIdentity')` 读它的消费方拿到 `undefined`——每一个消费方都必须把它当作「没有任何人被命名」，而不是「有一位匿名的人」。
-
 -----
 
 <a id="composition"></a>
@@ -208,7 +194,6 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **周期性续期失败什么也不说。** 屏幕上没有，控制台里没有，node 半边也没有：一个续期端点已经拒了几个钟头的部署，看上去与没拒过的一模一样，直到过期余量到来、访客被送去登录页。另一种做法——把下一次滴答很可能就能挽回的一次尝试报出来——会在每一次瞬时失败上都变成噪声。
 - **本包所面向的那套部署不签发新 token，续期在那里因此是空转。** 它给出的每一份答复带回来的都是发出去的那一枚，包括在 `exp` 之前 2.3 分钟要的那一次；而 `exp` 之后 100 秒，那个端点与一次元数据读取都答 401：它的 JWT `exp` 就是真正的过期时间。那两个字段在那个控制台上保持不配置，于是它保留本来就有的「余量→登录页」那条路，本包给它的东西不比旧行为多。这里每一个测试的答复都来自假端点；要看到续期端到端地跑起来，需要的是一个端点会答更晚 `exp` 的部署。
 - **设了 `isAuth` 的部署根本进不了这道闸。** `getLocalConfig().isAuth` 为真时，`toy-core` 会把所有 token 键换成 `accessTokenAuth` 与 `accessTokenTimeAuth`，而本包两个半边都只认默认的那两个键名。在这样的部署下，闸门读的是那个部署的登录页从不写入的键，于是访客被送去登录页、登录、再被送去一次；键名无从配置，这处不匹配也没有任何东西会报出来。
-- **续期一次就是一次新登录。** `ctx.loginIdentity` 命名的是 token 而不是人，因此续期后的一枚、同一个人再登一次、换一个人，这三者本包分辨不开。于是消费方按登录记住的东西，在每次续期之后都会被重新问一遍。另一种做法——用 `sub` 之类的 claim 来命名这个人——等于本包从一枚它并不验签的 token 里断言身份，而它的部署形态恰恰说的是：这件事立在它前面的代理已经做完了，它自己没有做。
 - **转发只走 HTTP。** 没有 upgrade 路由，因此以 WebSocket 抵达的 MCP 服务器无法经它转发；这条路由服务的是 streamable-HTTP 及其事件流。
 - **整个进程只有一枚 token。** node 半边持有任何浏览器投递过的最新一枚。这与本包面向的部署形态相符——一位登录用户一个进程——而对于多人共用一个进程的场景则是错的：那时最后加载页面的那个浏览器会决定每一次 MCP 调用花谁的凭据。
 - **只有闸门自己那三处登录决定会登出。** `POST /auth-gate/logout` 会丢掉持有的 token，而调用它的只有 browser 半边的启动、storage 变化与过期这三条路径——没有登出控件，也不会打断此刻正在跑的 agent loop。访客若是直接关掉标签页，进程就会继续持有那枚 token，直到进程结束，或另一个浏览器投递了更新的一枚。

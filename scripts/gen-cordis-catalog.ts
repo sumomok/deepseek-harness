@@ -62,7 +62,6 @@ export const SERVICE_PAGE: Record<string, string> = {
   attachments: 'attachment.md',
   attachmentSpill: 'attachment.md',
   bizBackend: 'biz-backend.md',
-  loginIdentity: 'biz-backend.md',
   skillPacks: 'skill-pack.md',
   skillPackParts: 'skill-pack.md',
   shell: 'shell.md',

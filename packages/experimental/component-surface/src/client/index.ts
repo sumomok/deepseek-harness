@@ -53,11 +53,10 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { postAction, type PendingPresses } from './action.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
-import { postConsent } from './consent.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
 import { en, NS, zh } from './locales.ts'
 import { ComponentRendererRegistry } from './registry.ts'
-import { ViewCommandRow, type ViewCommandRowInjected } from './ViewCommandRow.tsx'
+import { ViewCommandRow } from './ViewCommandRow.tsx'
 
 export { COMPONENT_KIT_ENTRIES } from '../component-call.ts'
 export { NS } from './locales.ts'
@@ -78,8 +77,7 @@ export type {
   ComponentRendererProps,
 } from './renderer.ts'
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
-export type { ConsentReport } from './consent.ts'
-export type { ViewCommandRowInjected, ViewCommandRowProps } from './ViewCommandRow.tsx'
+export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
 
 /**
  * Required services: the slot registry, the locale registry this row's own
@@ -137,12 +135,5 @@ export function apply(ctx: ClientContext): void {
     // deployment that configures no views: the key is free either way, and a
     // command that is never invoked has no row to draw.
     key: 'show-content-view',
-    // This row asks a person a question, so it needs words of its own and a way
-    // to carry the answer back; the other two rows draw only sentences the host
-    // wrote and need neither.
-    locale: NS,
-    inject: (sessionId): ViewCommandRowInjected => ({
-      onConsent: (question) => { postConsent(ctx, sessionId, question) },
-    }),
   }, ViewCommandRow))
 }

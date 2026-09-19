@@ -21,9 +21,8 @@
  * The token is held in memory and written nowhere — no session event, no
  * settings document, no log line, no diagnostic. It is dropped when the browser
  * half gives it up, which is what the sign-out route is for; when the data
- * backend refuses it; and otherwise when the process ends. What a row that has
- * to remember something per signed-in person gets instead is `ctx.loginIdentity`,
- * the held token's digest, which nothing can read the token back out of.
+ * backend refuses it; and otherwise when the process ends. Nothing else in the
+ * process can read it, and nothing else is offered a name derived from it.
  * @module @deepseek-ai/dsh-experimental-auth-gate
  */
 
@@ -32,7 +31,6 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { BizBackendService, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { answerJson, decodeJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
-import { LoginIdentityService } from './identity.ts'
 import { forwardWithToken, resolveUpstreams } from './proxy.ts'
 import {
   AUTH_GATE_LOGOUT_ROUTE,
@@ -46,7 +44,6 @@ import {
   type AuthGateSettings,
 } from './route.ts'
 
-export { LoginIdentityService } from './identity.ts'
 export {
   ACCESS_TOKEN_STORAGE_KEY,
   AUTH_GATE_LOGOUT_ROUTE,
@@ -374,11 +371,9 @@ export function apply(ctx: Context, config: Config): void {
     ? undefined
     : requireBizUpstream(config.bizUpstream)
   const credential = holdCredential()
-  // The two services install themselves on the context and are withdrawn with
-  // this plugin's fiber, so nothing here holds either instance. The name of the
-  // login exists wherever this row does, because the token route that fills it
-  // does; the data backend exists only where one is configured.
-  new LoginIdentityService(ctx, credential)
+  // The service installs itself on the context and is withdrawn with this
+  // plugin's fiber, so nothing here holds the instance. It exists only where a
+  // data backend is configured.
   if (bizUpstream !== undefined) new BizBackendService(ctx, bizUpstream, credential)
 
   ctx.effect(() => ctx.webServer.register({

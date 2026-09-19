@@ -417,19 +417,10 @@ describe('the row\'s own configuration', () => {
     await expect(ctx.plugin(ShowComponent, { crud: true, crudLoadTimeoutMs: 0 }))
       .rejects.toThrow('component-surface: crudLoadTimeoutMs must be a positive number of milliseconds, received 0')
   })
-
-  it('refuses to load with a card deadline of zero, rather than asking a person again for every answer they give', async () => {
-    const ctx = new Context()
-    contexts.push(ctx)
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await expect(ctx.plugin(ShowComponent, { crud: true, crudViewConsentTtlSeconds: 0 }))
-      .rejects.toThrow('component-surface: crudViewConsentTtlSeconds must be a positive number of seconds, received 0')
-  })
 })
 
 describe('a configured view', () => {
-  it('may place the page where the deployment offers it: the click is put to the user before it opens', () => {
+  it('may place the page where the deployment offers it, and a click opens it', () => {
     const index = indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined, true)
     expect(index.get('devices')?.spec.nodes[0]?.component).toBe(CRUD_ID)
   })

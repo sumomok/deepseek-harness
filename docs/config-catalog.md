@@ -652,7 +652,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/auth-gate/src/index.ts:66`](../packages/experimental/auth-gate/src/index.ts)
+Source: [`packages/experimental/auth-gate/src/index.ts:63`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 
@@ -809,32 +809,6 @@ export interface Config {
    * pays the whole deadline.
    */
   crudLoadTimeoutMs?: number
-  /**
-   * How long one visitor's answer to a data-page view stands. A view that
-   * places `toy.crud` is put to the user before it is drawn, with the card a
-   * call for that page is put through.
-   *
-   * `per-login` remembers the answer for as long as this process holds the
-   * token the visitor signed in with, so a person answers once per view and
-   * per table rather than on every click of the same sidebar row. Signing out,
-   * a renewed token and a restart each ask again, and a deployment with no
-   * `@deepseek-ai/dsh-experimental-auth-gate` has no login to remember an
-   * answer under and asks every time whatever this says.
-   *
-   * `every-time` asks on every click.
-   */
-  crudViewConsent?: CrudViewConsent
-  /**
-   * How long one drawn data-page card stays answerable, in seconds.
-   *
-   * The card carries a one-time value the agreeing click sends back, and this
-   * is how long that value lives. Long enough that a person can read the card
-   * and decide; short enough that a value left in a transcript nobody answered
-   * is dead before anyone reads the log it was recorded in. A card answered
-   * after the deadline is redrawn with a fresh value, so the only cost of a
-   * short deadline is one extra click.
-   */
-  crudViewConsentTtlSeconds?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -855,16 +829,9 @@ export interface ContentView {
    */
   readonly spec: unknown
 }
-
-/** How long one answer to the data-page question stands. */
-export type CrudViewConsent =
-  /** Until the visitor signs out, the token changes, or the process restarts. */
-  | 'per-login'
-  /** Not at all: every click is asked about again. */
-  | 'every-time'
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:123`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:111`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 

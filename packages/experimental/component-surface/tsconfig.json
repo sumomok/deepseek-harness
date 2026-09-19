@@ -63,9 +63,6 @@
       "path": "../../util/brand"
     },
     {
-      "path": "../auth-gate"
-    },
-    {
       "path": "../biz-backend"
     },
     {

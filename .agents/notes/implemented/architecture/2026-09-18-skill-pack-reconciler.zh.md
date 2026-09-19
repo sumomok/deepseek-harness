@@ -55,7 +55,7 @@ Status: implemented
 
 `ctx.skillPackParts` 的提供方是 `@deepseek-ai/dsh-experimental-skill-pack-components`，它是单独一行：注入组件目录，把每个**交出去的**组件发布成一个部件——它的 id、注册它的那个包的 npm 名、以及那个包自己的版本——并把组件目录自己的订阅连同它的销毁器一起转发出去。是交出去的而不是注册了的：部署没有打开的组件画不出来，所以要求它的技能包保持未激活。
 
-同一行也把激活技能包的视图往另一个方向带，送进侧栏据以构建的那个索引；而 `PartsSource` 长出了它要问的第二个问题——一个视图文件画不画得出来——以及回答它的 `PackMissing` 成员 `view-refused`。[技能包视图那篇](2026-09-18-skill-pack-views-and-consent.zh.md)拥有这两样，也拥有打开数据页的视图要过的那句问话。
+同一行也把激活技能包的视图往另一个方向带，送进侧栏据以构建的那个索引；而 `PartsSource` 长出了它要问的第二个问题——一个视图文件画不画得出来——以及回答它的 `PackMissing` 成员 `view-refused`。[技能包视图那篇](2026-09-18-skill-pack-views.zh.md)拥有这两样，也拥有「点一下就打开装着数据页的视图」这件事。
 
 ## Alternatives considered
 

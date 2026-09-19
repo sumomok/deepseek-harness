@@ -1,7 +1,7 @@
 /**
  * `conversation.chat.commandview` registrant for `SHOW_CONTENT_VIEW_COMMAND`:
- * nothing for a click the host took, the host's own sentence for one that named
- * no view, and the question a click on a data page is answered with.
+ * nothing for a click the host took, and the host's own sentence for one that
+ * named no view.
  *
  * A click runs that command for the durable record it writes — the
  * `content-component/shown` the column is folded from — not to narrate in chat
@@ -11,21 +11,12 @@
  * `dsh-client-ui-conversation`'s default `GenericCommandCard` fallback, whose
  * row would read `show-content-view · Completed`.
  *
- * The two settlements that draw something are the two nobody else says. A click
+ * The one settlement that draws something is the one nobody else says: a click
  * that named no view puts nothing in the column, and a person who clicked a
- * menu row and watched nothing happen is owed the sentence saying so. And a
- * view that opens the deployment's own data page for a table is a question
- * before it is a draw: the host answers the first click with the card a call
- * for that page is put through, and this row is where that card is put to the
- * person who clicked. Agreeing runs the same command again with the value the
- * card carried; declining draws one line and sends nothing.
- *
- * The answer is this row's own state and nothing durable, because there is
- * nothing durable to write: a decline is a page that was not opened, and an
- * agreement has the command it runs to be read back from. A transcript loaded
- * again therefore shows the card as it was asked, and pressing it then is one
- * more click that ends at a fresh card (the README's Known Limitations records
- * it).
+ * menu row and watched nothing happen is owed the sentence saying so. The
+ * question a data-page click raises is not drawn here — a chat row is not on
+ * screen for a session that has never run a turn, which is where most of these
+ * clicks are made (see `ViewConsentDock.tsx`).
  *
  * The row's DOM anchor still exists after this returns null. What removes the
  * resulting empty flex item is the stylesheet
@@ -36,76 +27,23 @@
  * rule leaves it alone.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/ViewCommandRow
  */
-import { useState } from 'react'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { readConsentQuestion } from '../consent-question.ts'
-import type { ConsentReport } from './consent.ts'
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './ViewCommandRow.module.css'
 
-/** What this row needs beside the folded command: where an agreement goes. */
-export interface ViewCommandRowInjected {
-  /**
-   * Run the same command again with the card's own value, against the session
-   * the card was drawn in. The registration binds the session, so the row
-   * hands over the card and nothing else.
-   */
-  readonly onConsent: ConsentReport
-}
-
-/** Full props of this row: the chat's own share, the dispatch, and this package's dictionary. */
-export type ViewCommandRowProps =
-  & PropsRuntime<'conversation.chat.commandview', 'show-content-view'>
-  & ViewCommandRowInjected
-  & PropsLocale<'contentComponent'>
-
-/** What this row's own reader has answered, for as long as it stays mounted. */
-type Answer = 'allowed' | 'declined'
+/** Full props of this row: the chat's own share and nothing else. */
+export type ViewCommandRowProps = PropsRuntime<'conversation.chat.commandview', 'show-content-view'>
 
 /**
  * Render the `show-content-view` command's row.
- * @param props - the folded command lifecycle node, the dispatch, and the translate.
- * @returns the question the click raised, the refusal it earned, or `null` for a click the host took and for one still running.
+ * @param props - the folded command lifecycle node.
+ * @returns the refusal the click earned, or `null` for a click the host took and for one still running.
  */
-export function ViewCommandRow({ node, onConsent, t }: ViewCommandRowProps) {
-  const [answer, setAnswer] = useState<Answer | undefined>(undefined)
+export function ViewCommandRow({ node }: ViewCommandRowProps) {
   const outcome = node.outcome
-  const question = readConsentQuestion(outcome?.text)
-  if (question !== undefined) {
-    // An agreement draws nothing here for the reason a taken click does: the
-    // page arriving in the column is the answer, and the command it runs draws
-    // its own row.
-    if (answer === 'allowed') return null
-    if (answer === 'declined') return <p className={css.refusal} data-content-view-declined>{t('consent.declined')}</p>
-    return (
-      <div className={css.question} data-content-view-consent={question.view}>
-        <p className={css.card}>{question.card}</p>
-        <div className={css.answers}>
-          <button
-            type="button"
-            className={`${css.answer} ${css.allow}`}
-            data-content-view-allow
-            onClick={() => {
-              setAnswer('allowed')
-              onConsent(question)
-            }}
-          >
-            {t('consent.allow')}
-          </button>
-          <button
-            type="button"
-            className={css.answer}
-            data-content-view-decline
-            onClick={() => { setAnswer('declined') }}
-          >
-            {t('consent.decline')}
-          </button>
-        </div>
-      </div>
-    )
-  }
   // Everything but a refusal draws nothing: a click the host took is answered
-  // by the column, and a settlement with no sentence — a `done` whose `run`
-  // fell outside the window folds into one — has nothing to draw either.
+  // by the column, a question is answered above the composer, and a settlement
+  // with no sentence — a `done` whose `run` fell outside the window folds into
+  // one — has nothing to draw either.
   if (outcome === null || outcome.kind !== 'error' || outcome.text === undefined) return null
   return <p className={css.refusal} data-content-view-refused>{outcome.text}</p>
 }

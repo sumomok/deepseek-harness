@@ -84,8 +84,8 @@ export function judgeView(catalog: ComponentCatalog, offersCrud: boolean, view: 
   const result = validateComponentCall(catalog, { id: view.id, title: view.title, spec: substituted.spec })
   if (!result.ok) return { ok: false, refusal: { path: result.failure.path, reason: refusalDetail(result.failure) } }
   // The same three refusals a call placing a page gets. A view may place one:
-  // the click is put to the user before anything is drawn, through the request
-  // `view-command.ts` makes.
+  // the click that shows it is the user's own, so it opens on that click
+  // (`view-command.ts`).
   const failure = judgeCrudNodes(catalog, result.call.spec, offersCrud)
   if (failure !== undefined) return { ok: false, refusal: { path: failure.path, reason: refusalDetail(failure) } }
   return { ok: true, call: result.call }
