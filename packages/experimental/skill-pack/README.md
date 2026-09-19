@@ -54,6 +54,8 @@ Mount the row beside `@deepseek-ai/dsh-skill`, and point the generic filesystem 
 | `deliveries.maxFileBytes` | `4194304` | Largest single file an archive may carry. |
 | `deliveries.maxFiles` | `512` | Most entries an archive may carry, its manifest among them. |
 
+A watched root is re-read when the watch arms and again on every event it delivers. A pack that lands between the watcher's own first listing and its native stream starting is in neither, and without that first reading it would be offered only after the next unrelated change to the root.
+
 A relative `root`, a relative `deliveries.directory`, and a `platformVersion` that is not an exact semantic version are refused when the row loads, because both would otherwise be discovered one pack at a time: a relative root reads whatever directory the process happens to be in, and an unreadable platform version satisfies no range, so every pack stating one would go quietly inactive.
 
 <a id="what-a-pack-says-about-itself"></a>

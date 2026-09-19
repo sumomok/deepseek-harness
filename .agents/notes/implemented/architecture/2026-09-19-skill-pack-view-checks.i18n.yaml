@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-skill-pack-view-checks.md
-2026-09-19-skill-pack-view-checks.md: 25a4f26433fdcc871c1488c29e150b8232c7589b
-2026-09-19-skill-pack-view-checks.zh.md: 53091724466daed355f34d77a8a11c8b91253d72
+2026-09-19-skill-pack-view-checks.md: 9aa8760a51068cc355696a2c1ea26a60590f6a08
+2026-09-19-skill-pack-view-checks.zh.md: 1bfb921792d3751f2386c89ffa436ce225332d40

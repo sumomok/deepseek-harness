@@ -248,6 +248,11 @@ export class SkillPackRegistry extends Service {
     if (config.watch !== false) {
       ctx.effect(() => {
         const watcher = chokidar.watch(this.root, { ignoreInitial: true, depth: PACK_WATCH_DEPTH })
+        // Invalidated once the watch is armed, and again on every event. A pack
+        // that arrived between the watcher's own first listing and the events
+        // starting to arrive is in neither, so without this reading it would be
+        // offered only after the next unrelated change to the root.
+        watcher.on('ready', () => { this.moved() })
         watcher.on('all', () => { this.moved() })
         /* v8 ignore start -- chokidar reports a watch failure only from the platform watcher, which no in-process test can make fail. */
         watcher.on('error', (error: unknown) => {

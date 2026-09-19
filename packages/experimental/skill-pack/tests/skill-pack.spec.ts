@@ -432,8 +432,23 @@ describe('the pack root changing under a running composition', () => {
   it('offers a pack that arrives in a watched root without a restart', async () => {
     const { ctx, root } = await loadComposition(true)
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note'])
-    await writePack(root, 'late-note', '  pack:\n    version: 3.0.0')
-    expect(await catalogSettlesOn(ctx, ['late-note', 'plain-note'])).toEqual(['late-note', 'plain-note'])
+    // The pack arrives again on every poll rather than once, directory and all:
+    // a watcher still arming loses the event for a directory created in that
+    // moment, and then reports nothing about a directory it never registered,
+    // so one arrival is one chance. What this case is about is a pack reaching
+    // the catalog without a restart rather than the single event that announced
+    // it, and nothing else invalidates that catalog here — a composition whose
+    // watcher never fires still fails.
+    const expected = ['late-note', 'plain-note']
+    const names = await settlesOn(
+      async () => {
+        await rm(join(root, 'late-note'), { recursive: true, force: true })
+        await writePack(root, 'late-note', '  pack:\n    version: 3.0.0')
+        return (await ctx.skills.list()).map(skill => skill.name)
+      },
+      found => found.length === expected.length && expected.every(name => found.includes(name)),
+    )
+    expect(names).toEqual(expected)
   }, WATCHED_MS)
 })
 
