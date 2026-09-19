@@ -213,7 +213,7 @@ A deployment sets `dataPage: true`, and the row then waits for `approval` before
 
 Where the page requests its table is [`component-kit`](../component-kit/README.md)'s own `bizBasePath` and not a field here, because those requests are the browser's under the shell's own origin and this half is never on that path.
 
-Eight properties are the model's — the eight below, of which seven reach the page and `metaLabel` stops here, on the card — and the block is read-only over the table whatever the call writes: [`component-kit`](../component-kit/README.md) spreads a frozen record of host-fixed properties after them — every write, import and export key hidden, the menu and card subtrees off, `isReadOnly` on — and the build behind it compiles the page's write dialogs to empty stubs.
+Eight properties are the model's — the eight below, of which seven reach the page and `metaLabel` stops here, on the card — and a page a call places is read-only over the table whatever else that call writes: the arrangement is refused, so the page opens with its own defaults, and its own default is refusing every write, which hides the add button, the two exports and the row's modify button with it. What opens it for writing is `readOnly: false` in the file whoever wrote the page down wrote, and from there each press is the deployment's own answer to the request the page makes with the visitor's credential.
 
 | Property | Required | What it is |
 |---|---|---|
@@ -223,8 +223,8 @@ Eight properties are the model's — the eight below, of which seven reach the p
 | `matchMode` | | `AND` or `OR` |
 | `querySort` | | `{asc}` or `{desc}`, one attribute; sending both is refused |
 | `selectMode` | | `checkbox` or `radio`; rows can then be ticked, and the ticks stay in the panel |
-| `isExpandQuery` | | whether the query panel opens expanded |
 | `isInitQuery` | | whether the first query runs without the user pressing anything |
+| `customOperations` | | at most five `{name, label}`, each drawn as a button on every row; a press reports the `name` and that row's drawn cells |
 
 No property of a page may be read from another block. Every one of them is on the card the user answers, and the card is drawn from the call before anything another block could resolve exists.
 
@@ -287,7 +287,7 @@ Registering a component is the contributing plugin's act; offering it is the dep
 | `toy.table` | 数据表 | one to thirty columns over one to five hundred rows, each column reading its cell out of a row by field name and optionally drawn by one of five cell renderers; optionally a selection column, clickable row names, up to five custom operation buttons, and an operation column width | `select`, `row-click`, `sort` and `operation` | `selectionDetail`, the first ticked row as label-and-value rows |
 | `el.filter-bar` | 筛选条件 | one to forty attributes the user builds conditions over, optionally narrowed to some of the sixteen match strategies | `submit` and `change` | nothing |
 | `el.metric` | 指标球 | one measurement from 0 to 100 drawn as a filling ball, with an optional word, size, and three colors | nothing | nothing |
-| `toy.data-page` | 完整数据页 | the deployment's own full page for one table, opened with the visitor's own credential once they agree; read-only whatever a call writes, and arranged by whoever wrote the page down | `load`, `query`, `select`, `cell-click`, `card-open`, `card-close`, `added`, `modified` and `operation` | nothing |
+| `toy.data-page` | 完整数据页 | the deployment's own full page for one table, opened with the visitor's own credential once they agree; read-only whatever a call writes, and arranged by whoever wrote the page down | `load`, `query`, `select`, `cell-click`, `card-open`, `card-close`, `added`, `modified`, `operation` and `exported` | nothing |
 
 An action and an output are two different things. An action is news the agent is told about and a record in the log; an output is a value that stays inside the panel, for another block of the same call to draw from. A table therefore reports a selection twice over — once to the agent, as the rows the user ticked, and once to the panel, where a record detail can be drawn from it without the agent being involved at all. An output is declared only where some property in this catalog accepts it: what a block reports and nobody can read would be a binding the model is offered and then refused.
 
@@ -378,6 +378,7 @@ A block reports what the user did by running one command: `/component-action <js
 | `toy.data-page` `card-open` / `card-close` | the `name` of the row a side card opened on; nothing when it closes | `context` |
 | `toy.data-page` `added` / `modified` | a `record` of at most eight drawn cells of the saved row, read through the columns the page's last `load` reported | `context` |
 | `toy.data-page` `operation` | the pressed operation's `opId` and the `row`'s drawn cells | `context` |
+| `toy.data-page` `exported` | which of the two toolbar exports the page submitted as `mode`, and the `fileType` the press named where it named one; the export is a task on the deployment's own backend and the file is collected from that deployment's own task list, so the task number it answered with reaches nobody here | `context` |
 
 Nothing the block sends is shown as written. The entry, the node, the component, and the action are identifiers resolved against the log; the words the agent and the user then read — the entry's title, the component's name, the pressed button's label, a row's name, a column's header, the wording of a match strategy — are read back out of the catalog and out of the spec the model itself wrote. A block reporting a button its entry does not draw, a row past the ones it listed, an operation it does not carry, an attribute its filter does not offer, a node the entry does not carry, or a property its action does not declare reports nothing at all, and the person who clicked is told the gesture was not recorded. One refusal is told apart from those: a gesture carrying more than its action accepts — more conditions than a filter submits, more of anything than a ceiling admits — is answered with the sentence saying there is too much, which is the only one of these a person can act on.
 

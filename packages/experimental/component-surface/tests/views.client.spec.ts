@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { indexViews } from '../src/views.ts'
+import { indexViews, judgeView } from '../src/views.ts'
 import type { ContentView } from '../src/types.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
 
@@ -95,5 +95,56 @@ describe('the configured view list', () => {
   it('refuses a homeView naming no configured view', () => {
     expect(() => indexViews(KIT_CATALOG, [view('facts', '记录', SINGLE)], 'site-overview', false))
       .toThrow('component-surface: homeView "site-overview" names no configured view')
+  })
+})
+
+describe('a view arranging a data page toolbar', () => {
+  /** One view drawing a data page whose toolbar keeps the named buttons. */
+  function toolbar(...buttons: readonly string[]): ContentView {
+    return view('layers', '图层数据', {
+      nodes: [{
+        id: 'layer-table',
+        component: 'toy.data-page',
+        props: { relatedMeta: 'sys_layer', metaLabel: '图层', toolbarButtons: buttons, readOnly: false },
+      }],
+    })
+  }
+
+  it('keeps the buttons the page draws something for', () => {
+    expect(judgeView(KIT_CATALOG, true, toolbar('add', 'exp', 'gridexp', 'search', 'clear')).ok).toBe(true)
+  })
+
+  it.each([['imp'], ['batch']])('refuses %s, and says what the button would have done', (withdrawn) => {
+    // Whoever writes the view is told what this page does with the buttons it
+    // accepts, rather than only that theirs is not among them: an import panel
+    // and a batch panel are what the page would need to draw for either of
+    // these, and it draws neither.
+    expect(judgeView(KIT_CATALOG, true, toolbar('add', withdrawn))).toEqual({
+      ok: false,
+      refusal: {
+        path: 'spec.nodes[0].props.toolbarButtons[1]',
+        reason: 'spec.nodes[0].props.toolbarButtons[1] — must be one of "add", "exp", "gridexp", "search", "clear". '
+          + 'This page draws no import panel and no batch panel, so "imp" and "batch" are not on the list: either '
+          + 'button would draw and answer nothing when it was pressed.',
+      },
+    })
+  })
+
+  it('refuses a row operation the page draws no panel for, in the same words', () => {
+    const deleting = view('layers', '图层数据', {
+      nodes: [{
+        id: 'layer-table',
+        component: 'toy.data-page',
+        props: { relatedMeta: 'sys_layer', metaLabel: '图层', rowOperations: ['delete'], readOnly: false },
+      }],
+    })
+    expect(judgeView(KIT_CATALOG, true, deleting)).toEqual({
+      ok: false,
+      refusal: {
+        path: 'spec.nodes[0].props.rowOperations[0]',
+        reason: 'spec.nodes[0].props.rowOperations[0] — must be one of "modify". This page draws no delete '
+          + 'confirmation, so "delete" is not on the list: the button would draw and answer nothing when it was pressed.',
+      },
+    })
   })
 })

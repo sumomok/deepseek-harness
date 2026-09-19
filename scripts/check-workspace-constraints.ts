@@ -165,7 +165,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The tool entry and the invariant companion both judge a call with the same
   // catalog and validator, so tsdown shares those modules through one hashed
   // runtime chunk rather than emitting the judgement twice.
-  '@deepseek-ai/dsh-experimental-component-surface': ['lib/validate-*.js'],
+  '@deepseek-ai/dsh-experimental-component-surface': ['lib/projection-*.js', 'lib/validate-*.js'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   // The bundled library-knowledge SKILLs are the package: its patch mounts
   // this directory as one isolated skill root, so they travel with its version.

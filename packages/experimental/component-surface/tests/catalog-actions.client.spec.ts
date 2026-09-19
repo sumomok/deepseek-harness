@@ -26,6 +26,7 @@ import {
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
   DATA_PAGE_CELL_CLICK_ID,
+  DATA_PAGE_EXPORTED_ID,
   DATA_PAGE_ID,
   DATA_PAGE_LOAD_ID,
   DATA_PAGE_MODIFIED_ID,
@@ -564,6 +565,12 @@ describe('a data page reporting back', () => {
     ['a click whose cell is longer than a report carries', DATA_PAGE_CELL_CLICK_ID, { attr: 'a', label: 'A', row: { a: 'x'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1) } }, 'too-large'],
     ['a click on a column outside the field alphabet', DATA_PAGE_CELL_CLICK_ID, { attr: '1st', label: 'A', row: {} }, 'refused'],
     ['a click carrying a cell that is not a scalar', DATA_PAGE_CELL_CLICK_ID, { attr: 'a', label: 'A', row: { a: { nested: true } } }, 'refused'],
+    ['an export naming a file type', DATA_PAGE_EXPORTED_ID, { mode: 'excel', fileType: 'csv' }, 'accepted'],
+    ['an export naming none', DATA_PAGE_EXPORTED_ID, { mode: 'grid_csv' }, 'accepted'],
+    ['an export of neither toolbar export', DATA_PAGE_EXPORTED_ID, { mode: 'pdf' }, 'refused'],
+    ['an export naming no mode at all', DATA_PAGE_EXPORTED_ID, { fileType: 'csv' }, 'refused'],
+    ['an export whose file type is longer than a field name', DATA_PAGE_EXPORTED_ID, { mode: 'excel', fileType: 'c'.repeat(MAX_FIELD_NAME_LENGTH + 1) }, 'too-large'],
+    ['an export carrying the task number the backend answered with', DATA_PAGE_EXPORTED_ID, { mode: 'excel', uuid: 'f47ac10b' }, 'refused'],
   ])('judges %s: %s', (_case, actionId, payload, verdict) => {
     expect(accepts(DATA_PAGE_ID, actionId, payload)).toBe(verdict)
   })
@@ -654,6 +661,25 @@ describe('the data page\'s own accounts', () => {
       row: { zh_label: '北京-核心-01' },
     })
     expect(bare).toBeUndefined()
+  })
+
+  it('says which export was submitted, that it is a task, and where the file is collected', () => {
+    expect(page(DATA_PAGE_EXPORTED_ID, { mode: 'excel', fileType: 'csv' })).toEqual({
+      text: 'The user submitted a template export (exp) as csv from the data page of "device" in content panel entry '
+        + '"devices" ("设备列表"), on the 完整数据页 block "block". This deployment\'s backend queued it as a task, and '
+        + 'the file is collected from that deployment\'s own task list; nothing was downloaded here, and this block '
+        + 'reports neither the rows the export covers nor where the file ends up.',
+      summary: '用户在「设备列表」里提交了模板导出任务，文件要到这套系统自己的任务列表里取',
+    })
+    // A press on the button's own body names no file type, and the account then
+    // states the export alone rather than a type nobody chose.
+    expect(page(DATA_PAGE_EXPORTED_ID, { mode: 'grid_csv' })).toEqual({
+      text: 'The user submitted a table export (gridexp) from the data page of "device" in content panel entry '
+        + '"devices" ("设备列表"), on the 完整数据页 block "block". This deployment\'s backend queued it as a task, and '
+        + 'the file is collected from that deployment\'s own task list; nothing was downloaded here, and this block '
+        + 'reports neither the rows the export covers nor where the file ends up.',
+      summary: '用户在「设备列表」里提交了表格导出任务，文件要到这套系统自己的任务列表里取',
+    })
   })
 
   it('reads a backend cell back on one line, the way every other account does', () => {
@@ -749,6 +775,7 @@ describe('the declarations the drawing row holds itself to', () => {
       namedRows: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_SELECT_ID)['names']?.schema, 'array').maxItems,
       number: row.maxValue,
       uniqueColumnBy: columns.uniqueBy,
+      exportModes: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_EXPORTED_ID)['mode']?.schema, 'enum').values,
     })
     // The record's keys are attribute names too, and the counts a query reports
     // and the numbers a row carries are bounded by the same one number either

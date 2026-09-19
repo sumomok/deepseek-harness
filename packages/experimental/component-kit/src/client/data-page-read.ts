@@ -22,12 +22,14 @@
 import type {
   CrudQuerySuccessPayload,
   CrudTableCellClickPayload,
+  DataPageExportTaskPayload,
   DataPageInfoCardOpenPayload,
   DataPageLoadPayload,
   ToyRow,
 } from '@sumomok/toy-crud-kit'
 import {
   ATTRIBUTE_NAME,
+  EXPORT_MODES,
   MAX_ATTRIBUTE_LENGTH,
   MAX_RIGHT_LENGTH,
   MAX_CELL_LENGTH,
@@ -163,6 +165,22 @@ export type CardOpenReport = {
 export type SaveReport = {
   /** The saved row's drawn cells, at most {@link MAX_SAVED_FIELDS} of them, read exactly as a clicked row's are. */
   readonly record: Readonly<Record<string, ScalarValue>>
+}
+
+/**
+ * What one submitted export reports: which of the two toolbar exports it was,
+ * and the file type the press named.
+ *
+ * Neither the task the backend queued nor anything the export covers: the page
+ * hands over a task number this row has no use for, and the rows the export
+ * ranges over are the page's current query or its ticked rows, which the agent
+ * has already been told about through the query and the selection.
+ */
+export type ExportReport = {
+  /** The export the page submitted, as the page's own event names it. */
+  readonly mode: DataPageExportTaskPayload['mode']
+  /** The file type the press named, absent where it named none this report may carry. */
+  readonly fileType?: string
 }
 
 /** What one pressed row operation reports: which operation, and the row it was pressed on. */
@@ -555,4 +573,21 @@ export function readOperation(
   const pressed = readRecord(row)
   if (opId === undefined || pressed === undefined) return undefined
   return { opId, row: readRow(pressed, columns, MAX_REPORTED_CELLS) }
+}
+
+/**
+ * Reduce one submitted export to which export it was and the file type it named.
+ *
+ * The file type is read the way an attribute is, and a press that named none —
+ * the button's own body rather than an entry in its list — reports the export
+ * alone, exactly as a save whose answer held no drawn cell still reports the
+ * save. The mode is the whole gesture, so a payload naming an export neither
+ * this row nor the catalog knows is not reported at all.
+ * @param payload - the `export-task-created` event's payload.
+ * @returns the report, or `undefined` when the payload names no export a report may state.
+ */
+export function readExportTask(payload: DataPageExportTaskPayload): ExportReport | undefined {
+  if (!EXPORT_MODES.includes(payload.mode)) return undefined
+  const fileType = readAttribute(payload.fileType)
+  return fileType === undefined ? { mode: payload.mode } : { mode: payload.mode, fileType }
 }

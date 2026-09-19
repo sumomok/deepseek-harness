@@ -371,7 +371,7 @@ function validateEnum(
 ): ComponentCallFailure | undefined {
   if ((typeof value === 'string' || typeof value === 'number') && schema.values.includes(value)) return undefined
   const accepted = schema.values.map(one => JSON.stringify(one)).join(', ')
-  return refuse(path, `must be one of ${accepted}.`)
+  return refuse(path, `must be one of ${accepted}.${schema.hint === undefined ? '' : ` ${schema.hint}`}`)
 }
 
 /**

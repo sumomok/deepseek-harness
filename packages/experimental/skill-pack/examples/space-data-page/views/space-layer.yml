@@ -10,10 +10,13 @@
 # name the table, narrow it and sort it, and a page it places opens read-only
 # with the page's own arrangement. What is written here reproduces the page this
 # deployment's own console shows for this table — the query panel collapsed to
-# one row, 新增 on the toolbar beside the query buttons, a modify button on each
-# row, the side card that narrows the table when it opens, and the full-page
-# add and modify panels — and `readOnly: false` is what lets the backend's own
-# rights decide whether a press succeeds.
+# one row, 新增 and the two exports on the toolbar beside the query buttons, a
+# modify button on each row, the side card that narrows the table when it opens,
+# and the full-page add and modify panels — and `readOnly: false` is what lets
+# the backend's own rights decide whether a press succeeds. Each export submits
+# a task to this deployment's backend and the file is collected from that
+# deployment's own task list; 模板导出 is drawn only where the table's scheme
+# carries a modify template.
 #
 # `flex: 1` is what gives the block the column's own height: the page is
 # `height: 100%` over a query panel, a table and a pager, and a cell carrying no
@@ -38,7 +41,7 @@ spec:
           infoCard: true
           addForm: true
           modifyForm: true
-        toolbarButtons: [add, search, clear]
+        toolbarButtons: [add, exp, gridexp, search, clear]
         rowOperations: [modify]
         readOnly: false
   layout:

@@ -57,6 +57,15 @@ export const MAX_REPORTED_NUMBER = Number.MAX_SAFE_INTEGER
 const UNIQUE_COLUMN_BY = 'attr'
 
 /**
+ * The two exports the page's toolbar submits, as the page's own event names
+ * them: the template export and the table export.
+ *
+ * A closed set here as well as in the catalog, so a payload naming a third
+ * export is not reported at all rather than reported and refused.
+ */
+export const EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
+
+/**
  * Every declaration as one record, for the placement package to pin against
  * the catalog that declares them: each pair must be one value, or a gesture
  * this block reports is one the catalog refuses.
@@ -75,4 +84,5 @@ export const DATA_PAGE_REPORT_LIMITS = Object.freeze({
   namedRows: MAX_NAMED_ROWS,
   number: MAX_REPORTED_NUMBER,
   uniqueColumnBy: UNIQUE_COLUMN_BY,
+  exportModes: EXPORT_MODES,
 })

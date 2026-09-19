@@ -449,7 +449,7 @@ describe('toy.data-page', () => {
     expect(page.$props['regions']).toEqual({
       query: true, toolbar: true, table: true, operate: true, pagination: true, infoCard: true, addForm: true, modifyForm: true,
     })
-    expect(page.$props['toolbarButtons']).toEqual(['add', 'imp', 'exp', 'gridexp', 'batch', 'search', 'clear'])
+    expect(page.$props['toolbarButtons']).toEqual(['add', 'exp', 'gridexp', 'search', 'clear'])
     expect(page.$props['rowOperations']).toEqual(['modify'])
     expect(page.$props['queryExpanded']).toBe(false)
     expect(page.$props['selectMode']).toBe('checkbox')
@@ -533,12 +533,21 @@ describe('toy.data-page', () => {
     expect(onAction).toHaveBeenLastCalledWith('modified', { record: {} })
     page.$emit('table-operation-custom', { $index: 0, row: ROWS[0] }, { name: 'ping', label: '测试连通' }, ROWS[0])
     expect(onAction).toHaveBeenLastCalledWith('operation', { opId: 'ping', row: { zh_label: '北京-核心-01', city: '北京', state: '在用' } })
+    // The two exports report which of them the page submitted and the file
+    // type the press named, and never the task number the backend answered
+    // with: it names a task on the deployment's own task list, which is where
+    // the file is collected and which nothing here can reach.
+    page.$emit('export-task-created', { mode: 'excel', fileType: 'csv', uuid: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' })
+    expect(onAction).toHaveBeenLastCalledWith('exported', { mode: 'excel', fileType: 'csv' })
+    page.$emit('export-task-created', { mode: 'grid_csv', fileType: null, uuid: 'f47ac10b' })
+    expect(onAction).toHaveBeenLastCalledWith('exported', { mode: 'grid_csv' })
     // A gesture naming something no report may carry reaches nobody, and a
     // selection larger than a report may count is one of them.
     const before = onAction.mock.calls.length
     page.$emit('info-card-open', { id: '', name: '', type: '' })
     page.$emit('table-operation-custom', { $index: 0, row: ROWS[0] }, { label: '没有 name' }, ROWS[0])
     page.$emit('table-selection-change', Array.from({ length: DATA_PAGE_REPORT_LIMITS.tickedRows + 1 }, () => ROWS[0]), [])
+    page.$emit('export-task-created', { mode: 'pdf', fileType: null, uuid: 'f47ac10b' })
     expect(onAction.mock.calls).toHaveLength(before)
   })
 

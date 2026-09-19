@@ -272,6 +272,17 @@ export interface EnumFieldSchema {
   readonly kind: 'enum'
   /** The accepted values, in the order a refusal lists them. */
   readonly values: readonly (string | number)[]
+  /**
+   * Why a value outside {@link values} is not there; absent where the list
+   * speaks for itself.
+   *
+   * Model-facing, spliced into the refusal after the accepted values, and for
+   * the same reason {@link StringCharset.hint} exists: a set that leaves out a
+   * value somebody has every reason to write is a set whose refusal has to say
+   * what the value would have meant here. It states what this component does
+   * with the values it accepts, and names nothing to do instead.
+   */
+  readonly hint?: string
 }
 
 /**
@@ -1648,11 +1659,27 @@ export const READ_CONDITION: ObjectFieldSchema = {
 /** Whether one of the page's regions is drawn; absent leaves the page's own answer standing. */
 const DATA_PAGE_REGION: PropsField = { required: false, schema: { kind: 'boolean' } }
 
-/** The toolbar buttons a written-down page may keep. */
-const DATA_PAGE_TOOLBAR_BUTTONS: readonly string[] = ['add', 'imp', 'exp', 'gridexp', 'batch', 'search', 'clear']
+/**
+ * The toolbar buttons a written-down page may keep.
+ *
+ * The vendored page's own `DATA_PAGE_TOOLBAR_BUTTONS`, value for value and in
+ * its order, which `component-kit` asserts: this list is what the catalog
+ * admits and that one is what the page's prop validator admits, and a view
+ * accepted here and refused there would be a button nobody drew and nothing
+ * reported.
+ */
+export const DATA_PAGE_TOOLBAR_BUTTONS: readonly string[] = ['add', 'exp', 'gridexp', 'search', 'clear']
+
+/** Why a page keeps no import or batch button, stated where a view asking for one is refused. */
+const DATA_PAGE_TOOLBAR_HINT = 'This page draws no import panel and no batch panel, so "imp" and "batch" are not on '
+  + 'the list: either button would draw and answer nothing when it was pressed.'
 
 /** The row operations a written-down page may keep. */
-const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify']
+export const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify']
+
+/** Why a row keeps no delete button, stated where a view asking for one is refused. */
+const DATA_PAGE_ROW_OPERATION_HINT = 'This page draws no delete confirmation, so "delete" is not on the list: the '
+  + 'button would draw and answer nothing when it was pressed.'
 
 /** The sections a written-down page's info card may draw. */
 const DATA_PAGE_INFO_CARD_TABS: readonly string[] = ['wrong-info', 'operation', 'related-stat', 'useage', 'attributes']
@@ -1803,7 +1830,7 @@ const DATA_PAGE_PROPS: PropsSchema = {
       kind: 'array',
       minItems: 0,
       maxItems: DATA_PAGE_TOOLBAR_BUTTONS.length,
-      item: { kind: 'enum', values: DATA_PAGE_TOOLBAR_BUTTONS },
+      item: { kind: 'enum', values: DATA_PAGE_TOOLBAR_BUTTONS, hint: DATA_PAGE_TOOLBAR_HINT },
     },
     ...DATA_PAGE_ARRANGED,
   },
@@ -1813,7 +1840,7 @@ const DATA_PAGE_PROPS: PropsSchema = {
       kind: 'array',
       minItems: 0,
       maxItems: DATA_PAGE_ROW_OPERATIONS.length,
-      item: { kind: 'enum', values: DATA_PAGE_ROW_OPERATIONS },
+      item: { kind: 'enum', values: DATA_PAGE_ROW_OPERATIONS, hint: DATA_PAGE_ROW_OPERATION_HINT },
     },
     ...DATA_PAGE_ARRANGED,
   },
@@ -1872,6 +1899,18 @@ export const DATA_PAGE_MODIFIED_ID = 'modified'
 
 /** Action id the data page reports a pressed row operation under. */
 export const DATA_PAGE_OPERATION_ID = 'operation'
+
+/** Action id the data page reports a submitted export task under. */
+export const DATA_PAGE_EXPORTED_ID = 'exported'
+
+/** The two exports the page's toolbar submits, as the page's own event names them. */
+const DATA_PAGE_EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
+
+/** What each export mode is called where a gesture is accounted for, in the toolbar key the arrangement keeps it by. */
+const DATA_PAGE_EXPORT_NAMES: Readonly<Record<string, NoticePhrase>> = {
+  excel: { agent: 'a template export (exp)', user: '模板导出' },
+  grid_csv: { agent: 'a table export (gridexp)', user: '表格导出' },
+}
 
 /** One column a loaded page reports, as validation accepted it. */
 export interface DataPageColumn {
@@ -1971,23 +2010,24 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
 }
 
 /**
- * The nine things a data page reports, all of them `context`.
+ * The ten things a data page reports, all of them `context`.
  *
  * None is the answer the block was placed for: the page was placed to be used,
  * and what comes back is what the agent needs to talk about it — what the page
  * loaded and what this deployment grants this user on it, how many rows each
  * query matched,
  * which rows the user ticked, which cell they clicked, which side card they
- * opened, what they saved, and which row operation they pressed. None wakes the
- * agent, because none of them is a question the user is waiting on an answer
- * to; working in a page is the user working.
+ * opened, what they saved, which row operation they pressed, and which export
+ * they submitted. None wakes the agent, because none of them is a question the
+ * user is waiting on an answer to; working in a page is the user working.
  *
  * No result set is ever in a payload. A query reports three counts, a selection
  * reports how many rows are ticked and what the first few of them are called, a
  * click and a row operation report one row's drawn cells, a save reports the
- * saved row's drawn cells, and a load reports column names — which is what
- * keeps the page's data out of the log and out of the conversation while the
- * agent still knows what the page is showing.
+ * saved row's drawn cells, a load reports column names, and an export reports
+ * which of the two toolbar exports was submitted and in which file type —
+ * which is what keeps the page's data out of the log and out of the
+ * conversation while the agent still knows what the page is showing.
  *
  * A load names the table it loaded, and is reported to nobody where that is
  * not the table the block was opened on: the seat reports on the block it
@@ -2167,6 +2207,25 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       return {
         text: `The user pressed ${label.agent} (${opId}) on row ${name.agent} in ${place(context)}.`,
         summary: `用户在「${entryName(context)}」里对「${name.user}」按了「${label.user}」`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_EXPORTED_ID,
+    report: 'context',
+    payloadSchema: {
+      mode: { required: true, schema: { kind: 'enum', values: DATA_PAGE_EXPORT_MODES } },
+      fileType: { required: false, schema: FIELD_NAME },
+    },
+    describe: (context) => {
+      const export_ = DATA_PAGE_EXPORT_NAMES[context.payload['mode'] as string] as NoticePhrase
+      const fileType = context.payload['fileType'] as string | undefined
+      return {
+        text: `The user submitted ${export_.agent}${fileType === undefined ? '' : ` as ${fileType}`} from the data page `
+          + `of "${dataPageMeta(context.node)}" in ${place(context)}. This deployment's backend queued it as a task, `
+          + 'and the file is collected from that deployment\'s own task list; nothing was downloaded here, and this '
+          + 'block reports neither the rows the export covers nor where the file ends up.',
+        summary: `用户在「${entryName(context)}」里提交了${export_.user}任务，文件要到这套系统自己的任务列表里取`,
       }
     },
   },

@@ -8,9 +8,16 @@ import { describe, expect, it } from 'vitest'
 import {
   DATA_PAGE_LAYOUT_PROPS,
   DATA_PAGE_MODEL_SETTABLE_PROPS,
+  DATA_PAGE_ROW_OPERATIONS as PAGE_ROW_OPERATIONS,
+  DATA_PAGE_TOOLBAR_BUTTONS as PAGE_TOOLBAR_BUTTONS,
   type CrudTableCellClickPayload,
 } from '@sumomok/toy-crud-kit'
-import { DATA_PAGE_MODEL_PROP_NAMES, DATA_PAGE_VIEW_PROP_NAMES } from '@deepseek-ai/dsh-experimental-component-surface'
+import {
+  DATA_PAGE_MODEL_PROP_NAMES,
+  DATA_PAGE_ROW_OPERATIONS,
+  DATA_PAGE_TOOLBAR_BUTTONS,
+  DATA_PAGE_VIEW_PROP_NAMES,
+} from '@deepseek-ai/dsh-experimental-component-surface'
 import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import {
   loadReport,
@@ -18,6 +25,7 @@ import {
   readCardOpen,
   readCellClick,
   readDataPage,
+  readExportTask,
   readLoadedColumns,
   readOperation,
   readQuery,
@@ -160,6 +168,15 @@ describe('the prop record', () => {
     // `metaLabel` is the one property the host keeps: it is the name on the
     // card the user answered, and the page has no use for it.
     expect(reached).not.toContain('metaLabel')
+  })
+
+  it('offers the buttons and the row operations the vendored page itself accepts, value for value', () => {
+    // The catalog admits these two lists and the page's own prop validator
+    // admits those two; a view accepted here and refused there would be a
+    // button nobody drew and nothing reported, and a view refused here and
+    // accepted there would be a button this deployment could not ask for.
+    expect(DATA_PAGE_TOOLBAR_BUTTONS).toEqual([...PAGE_TOOLBAR_BUTTONS])
+    expect(DATA_PAGE_ROW_OPERATIONS).toEqual([...PAGE_ROW_OPERATIONS])
   })
 
   it('refuses a block that names no table rather than opening the page on nothing', () => {
@@ -374,5 +391,37 @@ describe('a pressed row operation', () => {
     expect(readOperation({ name: '1st' }, { zh_label: 'A-1' }, COLUMNS)).toBeUndefined()
     expect(readOperation({}, { zh_label: 'A-1' }, COLUMNS)).toBeUndefined()
     expect(readOperation({ name: 'ping' }, undefined, COLUMNS)).toBeUndefined()
+  })
+})
+
+describe('a submitted export', () => {
+  it('names which of the two exports it was and the file type the press named', () => {
+    expect(readExportTask({ mode: 'excel', fileType: 'csv', uuid: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' }))
+      .toEqual({ mode: 'excel', fileType: 'csv' })
+    expect(readExportTask({ mode: 'grid_csv', fileType: 'qrcode', uuid: '41' })).toEqual({ mode: 'grid_csv', fileType: 'qrcode' })
+  })
+
+  it('never carries the task the backend queued', () => {
+    // The task number names a row of the deployment's own task list, which is
+    // where the file is collected and which nothing on this side can reach, so
+    // the agent is told the export was submitted and no more.
+    expect(readExportTask({ mode: 'excel', fileType: null, uuid: 'f47ac10b' })).not.toHaveProperty('uuid')
+  })
+
+  it('reports the export alone where the press named no file type a report may carry', () => {
+    // A press on the button's own body names none at all, and a type outside
+    // the alphabet or past the ceiling an attribute is read by is left out
+    // rather than taking the export with it: that an export was submitted is
+    // the fact the agent needs.
+    expect(readExportTask({ mode: 'excel', fileType: null, uuid: '41' })).toEqual({ mode: 'excel' })
+    expect(readExportTask({ mode: 'excel', fileType: '1st', uuid: '41' })).toEqual({ mode: 'excel' })
+    expect(readExportTask({ mode: 'excel', fileType: 'c'.repeat(DATA_PAGE_REPORT_LIMITS.attributeLength + 1), uuid: '41' }))
+      .toEqual({ mode: 'excel' })
+    expect(readExportTask({ mode: 'grid_csv', fileType: 7 as unknown as string, uuid: '41' })).toEqual({ mode: 'grid_csv' })
+  })
+
+  it('is not reported at all for an export neither this row nor the catalog knows', () => {
+    expect(readExportTask({ mode: 'pdf' as unknown as 'excel', fileType: null, uuid: '41' })).toBeUndefined()
+    expect(readExportTask({ mode: '' as unknown as 'excel', fileType: 'csv', uuid: '41' })).toBeUndefined()
   })
 })

@@ -21,7 +21,7 @@
  * it succeeds is the deployment's own answer to the request the page makes with
  * the user's credential.
  *
- * Nine things come back, each a `context` gesture of the placement package's
+ * Ten things come back, each a `context` gesture of the placement package's
  * catalog and each bounded the way that catalog bounds it — `data-page-read.ts`
  * holds the readings and the ceilings: on `load`, the table, the first drawn
  * columns and the rights this deployment answered with for this user; on
@@ -30,7 +30,10 @@
  * `table-cell-click` and `table-operation-custom`, the one row's drawn cells;
  * on `info-card-open` and `info-card-close`, that the side card opened on a
  * named row and that it closed; on `add-save-success` and
- * `modify-save-success`, that a record was saved and the fields that name it. A
+ * `modify-save-success`, that a record was saved and the fields that name it;
+ * on `export-task-created`, which of the two toolbar exports the page submitted
+ * to this deployment's backend and in which file type — the task number the
+ * backend answered with goes no further than the page. A
  * load or a query identical to the one this block last reported for the same
  * placing call is not reported again, which is what keeps a tab switch — the
  * column drops and redraws a block, and the page loads and queries afresh —
@@ -73,6 +76,7 @@ import {
   DataPage,
   type CrudQuerySuccessPayload,
   type CrudTableCellClickPayload,
+  type DataPageExportTaskPayload,
   type DataPageInfoCardOpenPayload,
   type DataPageLoadPayload,
   type ToyRow,
@@ -83,6 +87,7 @@ import {
   readCardOpen,
   readCellClick,
   readDataPage,
+  readExportTask,
   readLoadedColumns,
   readOperation,
   readQuery,
@@ -126,6 +131,9 @@ const MODIFIED_ACTION_ID = 'modified'
 
 /** Action id a pressed row operation is reported under. */
 const OPERATION_ACTION_ID = 'operation'
+
+/** Action id a submitted export task is reported under. */
+const EXPORTED_ACTION_ID = 'exported'
 
 /**
  * What one placing call's block has already told the agent, so a redraw of the
@@ -247,6 +255,11 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
       const current = context.current
       const report = readOperation(item, scope.row, current.memory.columns)
       if (report !== undefined) current.onAction(OPERATION_ACTION_ID, report)
+    },
+    'export-task-created': (payload: DataPageExportTaskPayload) => {
+      const current = context.current
+      const report = readExportTask(payload)
+      if (report !== undefined) current.onAction(EXPORTED_ACTION_ID, report)
     },
   }), [])
   const host = useVueComponent<HTMLDivElement>({ component: DataPage, props: vueProps, on })
