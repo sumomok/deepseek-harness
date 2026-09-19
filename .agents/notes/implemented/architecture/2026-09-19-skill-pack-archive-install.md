@@ -14,7 +14,7 @@ A packed file also arrives from outside. A directory on the box was already what
 
 ## Decision
 
-**An archive is a third delivery kind, not a second installer.** `PackDelivery` grows `{ kind: 'archive', name, bytes, limits }`, and `syncPackRoot` reads it into the same delivered set a directory produces, holds it to the same pack rules, stages it into the same sibling directory and swaps it in by the same rename. The root ends up equal to the delivered set, a repeated delivery writes nothing, and a failure leaves the old root byte-identical, because those are properties of the one install path rather than of the archive.
+**An archive is a third delivery kind, not a second installer.** `PackDelivery` grows `{ kind: 'archive', name, bytes, limits }`, and `syncPackRoot` reads it into the same delivered set a directory produces, holds it to the same pack rules — including the manifest, view-format and view-file checks [the view-checks note](2026-09-19-skill-pack-view-checks.md) added to the staged tree — stages it into the same sibling directory and swaps it in by the same rename. The root ends up equal to the delivered set, a repeated delivery writes nothing, and a failure leaves the old root byte-identical, because those are properties of the one install path rather than of the archive.
 
 **The manifest is the authority, and it is verified whole before anything is staged.** `pack-delivery.json` at the archive root states `format`, the set's `id` and `version`, and one SHA-256 per file; every pack file sits under `packs/<pack>/`. An archive is refused for an unknown format version, a manifest that is not one, an entry the manifest does not declare, a file it declares and the archive does not carry, a digest that does not match, a path naming no pack directory, an entry name or manifest path delivered twice, and a size or entry count over the limits it is read under. `PackInstallRefusal` carries each as a closed-union member, beside the `code-file`, `path-escape`, `symlink` and `not-a-pack` members a directory delivery already had.
 
@@ -73,7 +73,7 @@ The delivery directory is exercised directly — an absent directory, an empty o
 
 ## Consequences
 
-A delivery console can hand a deployment one file, and an operator can install it by copying it into a directory. What the deployment holds afterwards is exactly what that file carries, including packs it retires and packs it adds that this deployment cannot yet offer — those install, stay inactive, and say on the status route which plugin or part they are waiting for.
+A delivery console can hand a deployment one file, and an operator can install it by copying it into a directory. What the deployment holds afterwards is exactly what that file carries, including packs it retires and packs it adds that this deployment cannot yet offer — those install, stay inactive, and say on the status route which plugin or part they are waiting for. A pack that is not waiting but broken is the other case, and [the view-checks note](2026-09-19-skill-pack-view-checks.md) refuses the delivery carrying it.
 
 The cost is that the delivery directory is as trusted as the host's own write permissions on it, and that a deployment behind a proxy still has no way for a console to deliver over the network. Both are recorded above with what would change them.
 

@@ -58,14 +58,14 @@ onChange(listener: () => void): () => void
  * The judgement is the component surface's own, so a view a pack ships and a
  * block the model places are accepted on identical terms. This package reads
  * neither the spec nor the params it hands over.
+ *
+ * A view id the deployment's own configuration already claims is refused
+ * here, because the deployment's views own their ids. Two packs claiming one
+ * id is settled by the pack root instead, which withholds both of them.
  * @param view - the parsed view file.
- * @param claimed - view ids already taken by the deployment's own
- *   configuration or by a pack judged before this one; a view repeating one
- *   is refused, because two views under one id is one menu row whose owner is
- *   decided by load order.
  * @returns the refusal, or `undefined` when the view can be drawn here.
  */
-judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
+judgeView(view: PackView): PackViewRefusal | undefined
 ```
 
 Source: [`packages/experimental/skill-pack/src/types.ts`](../../packages/experimental/skill-pack/src/types.ts)

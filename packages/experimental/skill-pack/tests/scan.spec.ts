@@ -55,6 +55,7 @@ describe('reading a pack root', () => {
       'metadata:',
       '  pack:',
       '    version: 1.0.0',
+      '    viewFormat: 1',
       '  views:',
       '    - views/space-layer.yml',
     ].join('\n'))
@@ -82,6 +83,7 @@ describe('reading a pack root', () => {
       'metadata:',
       '  pack:',
       '    version: 1.0.0',
+      '    viewFormat: 1',
       '  views:',
       '    - views/gone.yml',
       '    - views/bad.yml',
@@ -103,6 +105,7 @@ describe('reading a pack root', () => {
       'metadata:',
       '  pack:',
       '    version: 1.0.0',
+      '    viewFormat: 1',
       '  views:',
       '    - ../elsewhere.yml',
     ].join('\n'))
@@ -140,12 +143,14 @@ describe('reading a pack root', () => {
     expect(await readPack(base, 'empty')).toBeUndefined()
   })
 
-  it('sorts packs by directory name', async () => {
+  it('sorts packs by directory name, by code unit rather than by the host\'s locale', async () => {
     const base = await packRoot()
-    for (const name of ['zulu', 'alpha', 'mike']) {
-      await writePack(join(base, name), `name: ${name}\ndescription: d\nmetadata:\n  pack:\n    version: 1.0.0`)
+    // A locale collation would answer alpha, mike, Zulu; the directories differ
+    // by more than case, so a case-insensitive filesystem holds all three.
+    for (const name of ['Zulu', 'alpha', 'mike']) {
+      await writePack(join(base, name), `name: ${name.toLowerCase()}\ndescription: d\nmetadata:\n  pack:\n    version: 1.0.0`)
     }
-    expect((await readPackRoot(base)).map(source => source.skill)).toEqual(['alpha', 'mike', 'zulu'])
+    expect((await readPackRoot(base)).map(source => source.skill)).toEqual(['zulu', 'alpha', 'mike'])
   })
 
   it('reads a pack whose SKILL.md is reached through a link, because a link is not what withholds a pack', async () => {

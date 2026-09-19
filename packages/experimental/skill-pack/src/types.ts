@@ -64,14 +64,14 @@ export interface PartsSource {
    * The judgement is the component surface's own, so a view a pack ships and a
    * block the model places are accepted on identical terms. This package reads
    * neither the spec nor the params it hands over.
+   *
+   * A view id the deployment's own configuration already claims is refused
+   * here, because the deployment's views own their ids. Two packs claiming one
+   * id is settled by the pack root instead, which withholds both of them.
    * @param view - the parsed view file.
-   * @param claimed - view ids already taken by the deployment's own
-   *   configuration or by a pack judged before this one; a view repeating one
-   *   is refused, because two views under one id is one menu row whose owner is
-   *   decided by load order.
    * @returns the refusal, or `undefined` when the view can be drawn here.
    */
-  judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
+  judgeView(view: PackView): PackViewRefusal | undefined
 }
 
 /** What a pack's `metadata.pack` block states about the pack itself. */
@@ -80,6 +80,12 @@ export interface PackIdentity {
   readonly version: string
   /** Semantic-version range the console platform must satisfy; absent means any platform. */
   readonly platform?: string
+  /**
+   * Which version of the view-file format the pack's view files are written
+   * in, stated once for the whole pack. Required of a pack that declares
+   * views, and meaningless on one that declares none.
+   */
+  readonly viewFormat?: number
 }
 
 /** What a pack's `metadata.requires` block states it needs before it may be offered. */
@@ -137,10 +143,14 @@ export type PackMissing =
   | { readonly kind: 'plugin-version'; readonly plugin: string; readonly range: string; readonly present: string }
   /** No component plugin has registered this part id. */
   | { readonly kind: 'part-absent'; readonly part: string }
+  /** The pack declares views in a view-file format this build does not read, or states none at all. */
+  | { readonly kind: 'view-format'; readonly stated?: number; readonly reads: readonly number[] }
   /** A declared view file could not be read or parsed. */
   | { readonly kind: 'view-unreadable'; readonly view: string; readonly reason: string }
   /** A declared view parsed, and the component surface will not draw it. */
   | { readonly kind: 'view-refused'; readonly view: string; readonly path: string; readonly reason: string }
+  /** Another pack this root would otherwise offer declares one of this pack's view ids, so neither is offered. */
+  | { readonly kind: 'view-id-conflict'; readonly id: string; readonly pack: string }
 
 /** One pack's state and, when it is inactive, every reason it is. */
 export interface PackStatus {
@@ -150,7 +160,12 @@ export interface PackStatus {
   readonly version?: string
   /** `active` exactly when `missing` is empty. */
   readonly state: 'active' | 'inactive'
-  /** Every unmet requirement, in a fixed order: manifest, platform, plugins, parts, unreadable views, refused views. */
+  /**
+   * Every unmet requirement, in a fixed order: manifest, platform, plugins,
+   * parts, view format, unreadable views, refused views. A pack withheld for a
+   * contested view id carries that one reason and no other, because it had no
+   * other.
+   */
   readonly missing: readonly PackMissing[]
 }
 

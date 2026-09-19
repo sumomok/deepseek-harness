@@ -15,6 +15,8 @@
 
 import semver from 'semver'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { readsDeclaredViews, viewFormatMissing } from './manifest.ts'
+import { compareCodeUnits } from './order.ts'
 import type {
   PackManifestResult,
   PackMissing,
@@ -46,7 +48,15 @@ export interface PackObservation {
 }
 
 /** How one view file is judged against the surface that would draw it, where a surface is composed. */
-export type ViewJudge = (view: PackView, claimed: readonly string[]) => PackViewRefusal | undefined
+export type ViewJudge = (view: PackView) => PackViewRefusal | undefined
+
+/** One pack as it was judged before the view ids of the whole root were compared. */
+interface JudgedPack {
+  /** The pack's state and reasons, before a contested view id is counted among them. */
+  readonly status: PackStatus
+  /** The ids of the views that parsed, empty where this build does not read the format they are written in. */
+  readonly viewIds: readonly string[]
+}
 
 /**
  * Judge every pack against the registered parts and the platform version.
@@ -56,18 +66,18 @@ export type ViewJudge = (view: PackView, claimed: readonly string[]) => PackView
  * platform-bearing pack inactive, which is why the plugin refuses it at load
  * instead.
  *
- * Packs are judged in skill-name order, and an active pack claims its view ids
- * for the packs judged after it: two packs offering one view id is one menu row
- * whose owner would otherwise be decided by load order. A pack that is inactive
- * for another reason claims nothing, so a pack nobody is offered cannot hold an
- * id away from one that would be.
+ * Two packs this root would otherwise offer that declare one view id are both
+ * withheld: one menu row cannot have two owners, and choosing the first of them
+ * would make what a deployment offers depend on the order its packs were read
+ * in. A pack that is inactive for another reason claims nothing, so a pack
+ * nobody is offered cannot withhold one that would be.
  * @param packs - every pack found in the pack root, in any order.
  * @param providedParts - the parts registered right now; an empty list is the state before any component plugin is mounted.
  * @param platformVersion - the console platform's own exact version.
  * @param judgeView - how a view file is judged; absent where no component
  *   surface is composed, and then a view that parsed is carried through
  *   unjudged, because nothing could draw it either way.
- * @returns one status per pack, in skill-name order.
+ * @returns one status per pack, in skill-name order by code unit.
  */
 export function reconcilePacks(
   packs: readonly PackObservation[],
@@ -81,21 +91,44 @@ export function reconcilePacks(
     if (!pluginVersions.has(part.plugin)) pluginVersions.set(part.plugin, part.version)
     partIds.add(part.id)
   }
-  const claimed: string[] = []
-  const statuses: PackStatus[] = []
-  for (const pack of [...packs].sort((left, right) => left.skill.localeCompare(right.skill))) {
-    const { status, viewIds } = judgePack(pack, pluginVersions, partIds, platformVersion, judgeView, claimed)
-    if (status.state === 'active') claimed.push(...viewIds)
-    statuses.push(status)
+  const judged = [...packs]
+    .sort((left, right) => compareCodeUnits(left.skill, right.skill))
+    .map(pack => judgePack(pack, pluginVersions, partIds, platformVersion, judgeView))
+  return withContestedIds(judged)
+}
+
+/**
+ * Withhold both packs wherever two this root would otherwise offer declare one
+ * view id.
+ *
+ * Judged over the whole root rather than pack by pack, because which pack is
+ * being judged cannot decide the answer: a rule that let the first of them keep
+ * the id would answer differently depending on where each pack sits in the
+ * list.
+ * @param judged - every pack, already judged for everything but a contested id.
+ * @returns one status per pack, in the order they were judged.
+ */
+function withContestedIds(judged: readonly JudgedPack[]): PackStatus[] {
+  const claimants = new Map<string, string[]>()
+  for (const { status, viewIds } of judged) {
+    if (status.missing.length > 0) continue
+    for (const id of viewIds) claimants.set(id, [...claimants.get(id) ?? [], status.skill])
   }
-  return statuses
+  const contested = new Map([...claimants].filter(([, skills]) => skills.length > 1))
+  return judged.map(({ status, viewIds }) => {
+    if (status.missing.length > 0) return status
+    const missing = viewIds.flatMap(id => (contested.get(id) ?? [])
+      .filter(other => other !== status.skill)
+      .map((other): PackMissing => ({ kind: 'view-id-conflict', id, pack: other })))
+    return missing.length === 0 ? status : { ...status, state: 'inactive', missing }
+  })
 }
 
 /**
  * Judge one pack; `missing` comes back in the fixed order manifest, platform,
- * plugins, parts, unreadable views, refused views. `viewIds` is what the pack
- * claims once it is offered, read off the same walk that reports an unreadable
- * view.
+ * plugins, parts, view format, unreadable views, refused views. `viewIds` is
+ * what the pack claims once it is offered, read off the same walk that reports
+ * an unreadable view.
  */
 function judgePack(
   pack: PackObservation,
@@ -103,8 +136,7 @@ function judgePack(
   partIds: ReadonlySet<string>,
   platformVersion: string,
   judgeView: ViewJudge | undefined,
-  claimed: readonly string[],
-): { status: PackStatus; viewIds: readonly string[] } {
+): JudgedPack {
   if (!pack.manifest.ok) {
     const missing: PackMissing = {
       kind: 'manifest-invalid',
@@ -131,18 +163,25 @@ function judgePack(
     if (!partIds.has(part)) missing.push({ kind: 'part-absent', part })
   }
   const viewIds: string[] = []
-  for (const view of pack.views) {
-    if (view.ok) viewIds.push(view.view.id)
-    else missing.push({ kind: 'view-unreadable', view: view.path, reason: view.reason })
-  }
-  if (judgeView !== undefined) {
-    // Every view of the pack, so the report names all of them rather than one
-    // at a time: a pack whose two views are both wrong is corrected once.
+  // A format this build does not read is the pack's only view reason: what
+  // each of those files parsed into was read under rules written for another
+  // version, so nothing further about them is worth reporting.
+  if (!readsDeclaredViews(manifest)) {
+    missing.push(viewFormatMissing(manifest))
+  } else {
     for (const view of pack.views) {
-      if (!view.ok) continue
-      const refusal = judgeView(view.view, claimed)
-      if (refusal !== undefined) {
-        missing.push({ kind: 'view-refused', view: view.path, path: refusal.path, reason: refusal.reason })
+      if (view.ok) viewIds.push(view.view.id)
+      else missing.push({ kind: 'view-unreadable', view: view.path, reason: view.reason })
+    }
+    if (judgeView !== undefined) {
+      // Every view of the pack, so the report names all of them rather than one
+      // at a time: a pack whose two views are both wrong is corrected once.
+      for (const view of pack.views) {
+        if (!view.ok) continue
+        const refusal = judgeView(view.view)
+        if (refusal !== undefined) {
+          missing.push({ kind: 'view-refused', view: view.path, path: refusal.path, reason: refusal.reason })
+        }
       }
     }
   }
@@ -174,10 +213,15 @@ export function describeMissing(missing: PackMissing): string {
       return `${missing.plugin} is installed at ${missing.present}, outside ${missing.range}`
     case 'part-absent':
       return `no component plugin registers the part ${missing.part}`
+    case 'view-format':
+      return `declares views ${missing.stated === undefined ? 'without metadata.pack.viewFormat' : `in view format ${String(missing.stated)}`}`
+        + `; this build reads ${missing.reads.join(', ')}`
     case 'view-unreadable':
       return `view ${missing.view} is unreadable: ${missing.reason}`
     case 'view-refused':
       return `view ${missing.view} cannot be drawn: ${missing.reason}`
+    case 'view-id-conflict':
+      return `the view id ${missing.id} is declared by ${missing.pack} as well`
     /* v8 ignore start -- PackMissing is a closed union; a future member must fail compilation here. */
     default:
       return assertNever(missing, 'PackMissing.kind')

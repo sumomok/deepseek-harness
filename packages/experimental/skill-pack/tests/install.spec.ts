@@ -32,11 +32,26 @@ async function workspace(): Promise<string> {
   return world
 }
 
+/** One pack a delivery carries: the manifest a pack root reads it by, and the one view it declares. */
 function pack(name: string, body: string, view = 'id: v\ntitle: V\nspec: []\n'): DeliveredPack {
   return {
     name,
     files: [
-      { path: 'SKILL.md', content: `---\nname: ${name}\ndescription: d\n---\n${body}` },
+      {
+        path: 'SKILL.md',
+        content: [
+          '---',
+          `name: ${name}`,
+          'description: d',
+          'metadata:',
+          '  pack:',
+          '    version: 1.0.0',
+          '    viewFormat: 1',
+          '  views: [views/v.yml]',
+          '---',
+          body,
+        ].join('\n'),
+      },
       { path: 'views/v.yml', content: view },
     ],
   }
@@ -119,8 +134,9 @@ describe('replacing a pack root', () => {
     const base = await workspace()
     const source = join(base, 'delivery')
     await mkdir(join(source, 'a', 'views'), { recursive: true })
-    await writeFile(join(source, 'a', 'SKILL.md'), '---\nname: a\ndescription: d\n---\nA.\n')
-    await writeFile(join(source, 'a', 'views', 'v.yml'), 'id: v\ntitle: V\nspec: []\n')
+    for (const file of pack('a', 'A.').files) {
+      await writeFile(join(source, 'a', ...file.path.split('/')), file.content)
+    }
     const root = join(base, 'packs')
     expect(await syncPackRoot(root, { kind: 'directory', path: source }))
       .toEqual({ changed: true, packs: ['a'], retired: [] })
@@ -299,6 +315,22 @@ describe('installing a pack root from one archive', () => {
     expect(await readdir(base)).toEqual(['packs'])
   })
 
+  it('refuses what the packs route refuses, for the same reason', async () => {
+    const base = await workspace()
+    const broken = [{ name: 'a', files: [{ path: 'SKILL.md', content: '---\nname: a\ndescription: d\n---\nA.' }] }]
+    const direct = syncPackRoot(join(base, 'direct'), { kind: 'packs', packs: broken })
+    await expect(direct).rejects.toMatchObject({ refusal: 'pack-manifest', entry: 'a/SKILL.md' })
+
+    const packed = syncPackRoot(join(base, 'packed'), {
+      kind: 'archive',
+      name: 'delivery.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: broken }, SET),
+      limits: LIMITS,
+    })
+    await expect(packed).rejects.toMatchObject({ refusal: 'pack-manifest', entry: 'a/SKILL.md' })
+    expect(await readdir(base)).toEqual([])
+  })
+
   it('refuses an archive whose manifest declares a file a pack may not carry, or a path leaving its pack', async () => {
     const base = await workspace()
     const root = join(base, 'packs')
@@ -320,5 +352,134 @@ describe('installing a pack root from one archive', () => {
       await expect(attempt).rejects.toBeInstanceOf(PackInstallError)
     }
     await expect(stat(root)).rejects.toThrow()
+  })
+})
+
+/** One pack whose SKILL.md carries exactly the manifest lines a case is about, and the view files beside it. */
+function packWith(name: string, pack: string[], views: Record<string, string>): DeliveredPack {
+  return {
+    name,
+    files: [
+      {
+        path: 'SKILL.md',
+        content: ['---', `name: ${name}`, 'description: d', 'metadata:', '  pack:', ...pack, '---', 'Instructions.'].join('\n'),
+      },
+      ...Object.entries(views).map(([file, body]) => ({ path: `views/${file}`, content: body })),
+    ],
+  }
+}
+
+describe('the views a delivery carries, checked before the root is replaced', () => {
+  it('refuses a delivery declaring a view file it does not carry, and leaves the root byte-identical', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    const before = await digests(root)
+
+    const attempt = syncPackRoot(root, {
+      kind: 'packs',
+      packs: [packWith('b', ['    version: 1.0.0', '    viewFormat: 1', '  views: [views/gone.yml]'], {})],
+    })
+    await expect(attempt).rejects.toBeInstanceOf(PackInstallError)
+    await expect(attempt).rejects.toMatchObject({ refusal: 'pack-view', entry: 'b/views/gone.yml' })
+    expect(await digests(root)).toEqual(before)
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  it('refuses a delivery whose view file is not a view, naming the file and what it lacks', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const attempt = syncPackRoot(root, {
+      kind: 'packs',
+      packs: [packWith('b', ['    version: 1.0.0', '    viewFormat: 1', '  views: [views/v.yml]'], {
+        'v.yml': 'id: layers\nspec: []\n',
+      })],
+    })
+    await expect(attempt).rejects.toMatchObject({ refusal: 'pack-view', entry: 'b/views/v.yml' })
+    await expect(attempt).rejects.toThrow('has no title')
+    await expect(stat(root)).rejects.toThrow()
+  })
+
+  it('refuses a delivery whose views are written in a format this build does not read', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    for (const stated of [['    viewFormat: 7'], []]) {
+      const attempt = syncPackRoot(root, {
+        kind: 'packs',
+        packs: [packWith('b', ['    version: 1.0.0', ...stated, '  views: [views/v.yml]'], {
+          'v.yml': 'id: layers\ntitle: 图层\nspec: []\n',
+        })],
+      })
+      await expect(attempt).rejects.toMatchObject({ refusal: 'pack-view-format', entry: 'b/SKILL.md' })
+      await expect(attempt).rejects.toThrow('this build reads 1')
+    }
+    await expect(stat(root)).rejects.toThrow()
+  })
+
+  it('installs a pack whose required part nothing here registers, because that pack is waiting rather than wrong', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const waiting = packWith('b', [
+      '    version: 1.0.0',
+      '    viewFormat: 1',
+      '  requires:',
+      '    parts: [toy.data-page]',
+      '  views: [views/v.yml]',
+    ], { 'v.yml': 'id: layers\ntitle: 图层\nspec: []\n' })
+    expect(await syncPackRoot(root, { kind: 'packs', packs: [waiting] }))
+      .toEqual({ changed: true, packs: ['b'], retired: [] })
+    expect(await tree(root)).toEqual(['b/SKILL.md', 'b/views/v.yml'])
+  })
+
+  it('hands every delivered pack to the caller\'s own surface, and installs what it does not refuse', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const seen: string[][] = []
+    const result = await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.'), pack('b', 'B.')] }, (packs) => {
+      seen.push(packs.map(staged => `${staged.name}:${staged.skill}:${String(staged.views.length)}`))
+      return undefined
+    })
+    expect(result).toEqual({ changed: true, packs: ['a', 'b'], retired: [] })
+    expect(seen).toEqual([['a:a:1', 'b:b:1']])
+  })
+
+  it('refuses the whole delivery for one view that surface will not draw, naming the pack, the file and the reason', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    const before = await digests(root)
+
+    const attempt = syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.'), pack('b', 'B.')] }, packs => packs
+      .filter(staged => staged.name === 'b')
+      .map(staged => ({ pack: staged.name, file: 'views/v.yml', reason: 'spec — names no component of this deployment' }))[0])
+    await expect(attempt).rejects.toMatchObject({ refusal: 'pack-view-refused', entry: 'b/views/v.yml' })
+    await expect(attempt).rejects.toThrow('names no component of this deployment')
+    expect(await digests(root)).toEqual(before)
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  it('asks that surface nothing when the root already holds what the delivery carries', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const packs = [pack('a', 'A.')]
+    await syncPackRoot(root, { kind: 'packs', packs })
+    let asked = 0
+    const result = await syncPackRoot(root, { kind: 'packs', packs }, () => {
+      asked += 1
+      return undefined
+    })
+    expect(result.changed).toBe(false)
+    expect(asked).toBe(0)
+  })
+
+  it('judges a directory that carries no SKILL.md as the non-pack it is, and installs it', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const result = await syncPackRoot(root, {
+      kind: 'packs',
+      packs: [pack('a', 'A.'), { name: 'shared', files: [{ path: 'logo.png', content: 'png' }] }],
+    })
+    expect(result).toEqual({ changed: true, packs: ['a', 'shared'], retired: [] })
+    expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml', 'shared/logo.png'])
   })
 })

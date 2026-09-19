@@ -14,10 +14,21 @@
 
 import semver from 'semver'
 import { z } from 'zod'
-import type { PackManifestResult } from './types.ts'
+import type { PackManifest, PackManifestResult, PackMissing } from './types.ts'
 
 /** The `metadata` key under which a pack manifest is read, and the prefix every refused field carries. */
 const MANIFEST_FIELD = 'metadata'
+
+/**
+ * The view-file format versions this build reads.
+ *
+ * A pack states one of them in `metadata.pack.viewFormat`, once for the whole
+ * pack, and it states one exactly when it declares views. The version governs
+ * what a view file may say, so a build that meets a version it does not know
+ * withholds the pack by name rather than reading the file under rules that
+ * were written for something else.
+ */
+export const PACK_VIEW_FORMATS: readonly number[] = [1]
 
 const exactVersion = z.string().refine(value => semver.valid(value) !== null, {
   message: 'must be an exact semantic version',
@@ -31,6 +42,7 @@ const manifestSchema = z.strictObject({
   pack: z.strictObject({
     version: exactVersion,
     platform: versionRange.optional(),
+    viewFormat: z.int().optional(),
   }),
   requires: z.strictObject({
     components: z.record(z.string().min(1), versionRange).optional(),
@@ -76,6 +88,7 @@ export function parsePackManifest(metadata: unknown): PackManifestResult {
       pack: {
         version: pack.version,
         ...pack.platform !== undefined ? { platform: pack.platform } : {},
+        ...pack.viewFormat !== undefined ? { viewFormat: pack.viewFormat } : {},
       },
       requires: {
         components: requires?.components ?? {},
@@ -83,5 +96,37 @@ export function parsePackManifest(metadata: unknown): PackManifestResult {
       },
       views: views ?? [],
     },
+  }
+}
+
+/**
+ * Whether this build reads the view files one manifest declares.
+ *
+ * A pack that declares no views states no format and is read whatever it
+ * states, because there is no file the version would govern.
+ * @param manifest - the parsed manifest.
+ * @returns `true` when the pack declares no views, or states a format in {@link PACK_VIEW_FORMATS}.
+ */
+export function readsDeclaredViews(manifest: PackManifest): boolean {
+  if (manifest.views.length === 0) return true
+  const stated = manifest.pack.viewFormat
+  return stated !== undefined && PACK_VIEW_FORMATS.includes(stated)
+}
+
+/**
+ * The unmet requirement a manifest earns when this build cannot read the view
+ * files it declares.
+ *
+ * One home for the member and for the sentence `describeMissing` states it in,
+ * so the status route and an install refusal name the same two versions.
+ * @param manifest - the parsed manifest, which {@link readsDeclaredViews} has refused.
+ * @returns the `view-format` member, carrying the version the pack stated where it stated one.
+ */
+export function viewFormatMissing(manifest: PackManifest): PackMissing {
+  const stated = manifest.pack.viewFormat
+  return {
+    kind: 'view-format',
+    ...stated !== undefined ? { stated } : {},
+    reads: PACK_VIEW_FORMATS,
   }
 }

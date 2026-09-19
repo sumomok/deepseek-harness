@@ -148,6 +148,7 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
     '  pack:',
     '    version: 1.0.0',
     '    platform: ">=0.5.0"',
+    '    viewFormat: 1',
     '  requires:',
     '    components:',
     `      "${KIT}": ">=0.4.0"`,
@@ -269,6 +270,7 @@ function deliverySet(noteVersion = '2.0.0'): DeliveredPack[] {
       '  pack:',
       '    version: 1.0.0',
       '    platform: ">=0.5.0"',
+      '    viewFormat: 1',
       '  requires:',
       '    components:',
       `      "${KIT}": ">=0.4.0"`,
@@ -352,7 +354,7 @@ describe('a parts source arriving and going away', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note', 'space-data-page'])
     const loaded = await ctx.skills.get('space-data-page')
     expect(loaded?.content.trim()).toBe('Instructions for space-data-page.')
-    expect(loaded?.metadata).toEqual({ pack: { version: '1.0.0', platform: '>=0.5.0' } })
+    expect(loaded?.metadata).toEqual({ pack: { version: '1.0.0', platform: '>=0.5.0', viewFormat: 1 } })
     expect(await ctx.skillPacks.activeViews()).toEqual([
       { pack: 'space-data-page', id: 'space-layer', title: '图层数据', spec: [], params: { relatedMeta: 'sys_layer' } },
     ])
@@ -517,6 +519,38 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('v2.dshpack was not installed'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
+  }, WATCHED_MS)
+
+  it('refuses a delivery whose view the composed surface will not draw, and keeps the root it had', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+
+    await ctx.plugin(TestParts, { parts: [CRUD] })
+    const parts = ctx.skillPackParts as TestParts
+    parts.refused.add('space-layer')
+
+    await deliver(deliveries, 'v2.dshpack', deliverySet())
+    expect(await logSettlesOn('space-data-page/views/space-layer.yml'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(await readdir(root)).toEqual(['plain-note'])
+    expect((await ctx.skillPacks.statuses()).map(status => status.skill)).toEqual(['plain-note'])
+  }, WATCHED_MS)
+
+  it('installs a pack that is waiting for a plugin, whatever this surface makes of the views it cannot draw yet', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    await ctx.plugin(TestParts, { parts: [] })
+    const parts = ctx.skillPackParts as TestParts
+    parts.refused.add('space-layer')
+
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+    expect((await readdir(root)).sort()).toEqual(['plain-note', 'space-data-page'])
+    // Installed and withheld, with every reason on the route: the plugin it is
+    // waiting for is what makes the view undrawable, and a plugin arrives.
+    expect((await ctx.skillPacks.statuses())
+      .find(status => status.skill === 'space-data-page')?.missing.map(missing => missing.kind))
+      .toEqual(['plugin-absent', 'part-absent', 'view-refused'])
   }, WATCHED_MS)
 
   it('refuses an archive larger than the size this deployment reads one under', async () => {

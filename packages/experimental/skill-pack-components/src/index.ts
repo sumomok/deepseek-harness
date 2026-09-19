@@ -68,11 +68,12 @@ export function componentSurfaceSource(ctx: Context): PartsSource {
     // wrapping it in a second notifier would add a way for the two to disagree
     // about when it happened.
     onChange: (listener: () => void): (() => void) => ctx.componentCatalog.onChange(listener),
-    judgeView: (view: PackView, claimed: readonly string[]): PackViewRefusal | undefined => {
+    judgeView: (view: PackView): PackViewRefusal | undefined => {
       // The deployment's own views own their ids: a pack repeating one would be
       // a menu row whose owner is decided by load order, so the pack is held
-      // back instead and the refusal names both.
-      if (ctx.componentViews.configuredIds.includes(view.id) || claimed.includes(view.id)) {
+      // back instead. Two packs claiming one id is the pack root's own
+      // question, which it answers by withholding both of them.
+      if (ctx.componentViews.configuredIds.includes(view.id)) {
         return { path: 'id', reason: `the view id ${JSON.stringify(view.id)} is already offered by this deployment` }
       }
       const judged = ctx.componentViews.judge(view)

@@ -21,7 +21,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PACK_ARCHIVE_EXTENSION } from './archive.ts'
-import { syncPackRoot } from './install.ts'
+import { syncPackRoot, type VerifyStagedPacks } from './install.ts'
 import type { PackArchiveLimits } from './types.ts'
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
@@ -45,12 +45,14 @@ export type DeliveryReport = (level: 'info' | 'error', text: string) => void
  * @param delivery - the directory to read, and the limits one archive there is read under.
  * @param report - told what was installed and what was refused; nothing is reported when the
  *   directory names no delivery, or names one this root already holds.
+ * @param verify - how the delivered views are judged against a composed surface; absent where the caller composes none.
  * @returns whether the pack root changed, which is when a reader of it has to be told.
  */
 export async function installDelivery(
   root: string,
   delivery: DeliveryDirectory,
   report: DeliveryReport,
+  verify?: VerifyStagedPacks,
 ): Promise<boolean> {
   const names = await listArchives(delivery.directory)
   const [name] = names
@@ -75,7 +77,7 @@ export async function installDelivery(
       name,
       bytes: await readFile(path),
       limits: delivery.limits,
-    })
+    }, verify)
     if (!result.changed) return false
     report('info', `skill-pack: installed ${result.set.id} ${result.set.version} from ${name}: `
       + `packs [${result.packs.join(', ')}], retired [${result.retired.join(', ')}]`)

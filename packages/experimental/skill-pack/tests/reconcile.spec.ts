@@ -20,13 +20,22 @@ function pack(skill: string, metadata: {
   components?: Record<string, string>
   parts?: string[]
   views?: string[]
-}, views: PackObservation['views'] = []): PackObservation {
+  viewFormat?: number | null
+} = {}, views: PackObservation['views'] = []): PackObservation {
+  // `null` is a pack that declares views and states no format at all; a number
+  // is the format it states; absence is the format a pack declaring views has
+  // to state, which is the one this build reads.
+  const viewFormat = metadata.viewFormat === undefined ? 1 : metadata.viewFormat
   return {
     skill,
     manifest: {
       ok: true,
       manifest: {
-        pack: { version: '1.0.0', ...metadata.platform !== undefined ? { platform: metadata.platform } : {} },
+        pack: {
+          version: '1.0.0',
+          ...metadata.platform !== undefined ? { platform: metadata.platform } : {},
+          ...viewFormat === null ? {} : { viewFormat },
+        },
         requires: { components: metadata.components ?? {}, parts: metadata.parts ?? [] },
         views: metadata.views ?? [],
       },
@@ -139,6 +148,75 @@ describe('pack reconciliation', () => {
     expect(status?.missing.map(missing => missing.kind))
       .toEqual(['platform-version', 'plugin-absent', 'part-absent', 'view-unreadable'])
   })
+
+  it('puts packs in code-unit order, so two hosts holding the same root answer the same list', () => {
+    const statuses = reconcilePacks(
+      [pack('图层'), pack('asset-page'), pack('Asset-page'), pack('asset-page'), pack('资产')],
+      [],
+      PLATFORM,
+    )
+    expect(statuses.map(status => status.skill)).toEqual(['Asset-page', 'asset-page', 'asset-page', '图层', '资产'])
+  })
+})
+
+describe('the view-file format a pack declares its views in', () => {
+  it('offers a pack whose views are written in a format this build reads', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml'], viewFormat: 1 }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+    )
+    expect(status?.state).toBe('active')
+  })
+
+  it('withholds a pack whose views are written in a format this build does not read, naming both', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml'], viewFormat: 7 }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+    )
+    expect(status?.state).toBe('inactive')
+    expect(status?.missing).toEqual([{ kind: 'view-format', stated: 7, reads: [1] }])
+  })
+
+  it('withholds a pack that declares views and states no format, because the files say nothing about themselves', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { views: ['views/a.yml'], viewFormat: null }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+    )
+    expect(status?.missing).toEqual([{ kind: 'view-format', reads: [1] }])
+  })
+
+  it('reports the unreadable format instead of what each file parsed into, and claims no view id', () => {
+    const judged: string[] = []
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml', 'views/b.yml'], viewFormat: 7 }, [
+          view('views/a.yml', 'layers'),
+          { ok: false, path: 'views/b.yml', reason: 'has no title' },
+        ]),
+        pack('b-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'layers')]),
+      ],
+      [],
+      PLATFORM,
+      (one) => {
+        judged.push(one.id)
+        return undefined
+      },
+    )
+    expect(judged).toEqual(['layers'])
+    expect(statuses.map(status => status.missing.map(missing => missing.kind))).toEqual([['view-format'], []])
+  })
+
+  it('says nothing about the format of a pack that declares no views, whatever it states', () => {
+    const statuses = reconcilePacks(
+      [pack('plain-note', { viewFormat: null }), pack('other-note', { viewFormat: 7 })],
+      [],
+      PLATFORM,
+    )
+    expect(statuses.every(status => status.state === 'active')).toBe(true)
+  })
 })
 
 /** One view file that parsed, as the pack root hands it to reconciliation. */
@@ -191,27 +269,6 @@ describe('the views a pack declares, judged by the surface that would draw them'
     expect(status?.missing).toEqual([{ kind: 'view-unreadable', view: 'views/a.yml', reason: 'has no title' }])
   })
 
-  it('hands each pack the view ids the packs before it claimed, and only the offered ones claim any', () => {
-    const claims: string[][] = []
-    const statuses = reconcilePacks(
-      [
-        pack('a-pack', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
-        pack('b-pack', { parts: ['toy.data-page'], views: ['views/b.yml'] }, [view('views/b.yml', 'sites')]),
-        pack('c-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'alerts')]),
-      ],
-      [],
-      PLATFORM,
-      (_one, claimed) => {
-        claims.push([...claimed])
-        return undefined
-      },
-    )
-    // `b-pack` is withheld for its missing part, so the id its view would have
-    // claimed is not held away from anyone.
-    expect(statuses.map(status => status.state)).toEqual(['active', 'inactive', 'active'])
-    expect(claims).toEqual([[], ['layers'], ['layers']])
-  })
-
   it('carries a view through unjudged where no component surface is composed', () => {
     const [status] = reconcilePacks(
       [pack('space-data-page', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')])],
@@ -219,6 +276,79 @@ describe('the views a pack declares, judged by the surface that would draw them'
       PLATFORM,
     )
     expect(status?.state).toBe('active')
+  })
+})
+
+describe('one view id claimed by two packs', () => {
+  it('withholds both of them, each naming the id and the other pack', () => {
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+        pack('b-pack', { views: ['views/b.yml'] }, [view('views/b.yml', 'layers')]),
+      ],
+      [],
+      PLATFORM,
+    )
+    expect(statuses).toEqual([
+      {
+        skill: 'a-pack',
+        version: '1.0.0',
+        state: 'inactive',
+        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'b-pack' }],
+      },
+      {
+        skill: 'b-pack',
+        version: '1.0.0',
+        state: 'inactive',
+        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'a-pack' }],
+      },
+    ])
+  })
+
+  it('answers the same whichever order the packs arrive in, and whatever their names sort like', () => {
+    const contenders = [
+      pack('Zulu', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+      pack('图层包', { views: ['views/b.yml'] }, [view('views/b.yml', 'layers')]),
+      pack('alpha', { views: ['views/c.yml'] }, [view('views/c.yml', 'alerts')]),
+    ]
+    const forwards = reconcilePacks(contenders, [], PLATFORM)
+    const backwards = reconcilePacks([...contenders].reverse(), [], PLATFORM)
+    expect(forwards).toEqual(backwards)
+    expect(forwards.map(status => [status.skill, status.state]))
+      .toEqual([['Zulu', 'inactive'], ['alpha', 'active'], ['图层包', 'inactive']])
+  })
+
+  it('names every pack that contests an id, and every id one pack contests', () => {
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml', 'views/b.yml'] }, [view('views/a.yml', 'layers'), view('views/b.yml', 'sites')]),
+        pack('b-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'layers')]),
+        pack('c-pack', { views: ['views/d.yml'] }, [view('views/d.yml', 'sites')]),
+        pack('d-pack', { views: ['views/e.yml'] }, [view('views/e.yml', 'layers')]),
+      ],
+      [],
+      PLATFORM,
+    )
+    expect(statuses[0]?.missing).toEqual([
+      { kind: 'view-id-conflict', id: 'layers', pack: 'b-pack' },
+      { kind: 'view-id-conflict', id: 'layers', pack: 'd-pack' },
+      { kind: 'view-id-conflict', id: 'sites', pack: 'c-pack' },
+    ])
+    expect(statuses.map(status => status.state)).toEqual(['inactive', 'inactive', 'inactive', 'inactive'])
+  })
+
+  it('leaves a pack that was withheld for another reason holding no id, so nobody loses one to it', () => {
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { parts: ['toy.data-page'], views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
+        pack('b-pack', { views: ['views/b.yml'] }, [view('views/b.yml', 'layers')]),
+      ],
+      [],
+      PLATFORM,
+    )
+    expect(statuses.map(status => [status.skill, status.state]))
+      .toEqual([['a-pack', 'inactive'], ['b-pack', 'active']])
+    expect(statuses[0]?.missing).toEqual([{ kind: 'part-absent', part: 'toy.data-page' }])
   })
 })
 
@@ -233,6 +363,11 @@ describe('missing-requirement sentences', () => {
         'kit is installed at 0.4.0, outside >=1.0.0',
       ],
       [{ kind: 'part-absent', part: 'toy.data-page' }, 'no component plugin registers the part toy.data-page'],
+      [{ kind: 'view-format', stated: 7, reads: [1, 2] }, 'declares views in view format 7; this build reads 1, 2'],
+      [
+        { kind: 'view-format', reads: [1] },
+        'declares views without metadata.pack.viewFormat; this build reads 1',
+      ],
       [
         { kind: 'view-unreadable', view: 'views/b.yml', reason: 'has no title' },
         'view views/b.yml is unreadable: has no title',
@@ -240,6 +375,10 @@ describe('missing-requirement sentences', () => {
       [
         { kind: 'view-refused', view: 'views/b.yml', path: 'spec.nodes[0].component', reason: 'names no component of this deployment' },
         'view views/b.yml cannot be drawn: names no component of this deployment',
+      ],
+      [
+        { kind: 'view-id-conflict', id: 'layers', pack: 'other-pack' },
+        'the view id layers is declared by other-pack as well',
       ],
     ]
     expect(cases.map(([missing]) => describeMissing(missing))).toEqual(cases.map(([, sentence]) => sentence))

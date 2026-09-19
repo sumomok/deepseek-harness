@@ -49,7 +49,13 @@ async function deployment(limits = LIMITS, create = true): Promise<Deployment> {
 }
 
 function pack(name: string, body: string): DeliveredPack {
-  return { name, files: [{ path: 'SKILL.md', content: `---\nname: ${name}\ndescription: d\n---\n${body}` }] }
+  return {
+    name,
+    files: [{
+      path: 'SKILL.md',
+      content: `---\nname: ${name}\ndescription: d\nmetadata:\n  pack:\n    version: 1.0.0\n---\n${body}`,
+    }],
+  }
 }
 
 /** Copy one archive into the delivery directory under the given name. */
