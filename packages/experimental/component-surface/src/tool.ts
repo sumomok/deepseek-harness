@@ -37,12 +37,13 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   BINDING_KEY,
   catalogLabels,
-  CRUD_ID,
-  crudNodes,
+  DATA_PAGE_ID,
+  DATA_PAGE_MODEL_PROP_NAMES,
+  dataPageNodes,
   describeCatalog,
   MATCH_OPERATOR_IDS,
   MAX_COLUMN_ALIAS_LENGTH,
-  MAX_CRUD_REPORTED_COLUMNS,
+  MAX_DATA_PAGE_REPORTED_COLUMNS,
   MAX_ENTRY_ID_LENGTH,
   MAX_FLEX,
   MAX_LAYOUT_DEPTH,
@@ -59,16 +60,16 @@ import {
   type ComponentNode,
 } from './component-call.ts'
 import {
-  crudApprovalReason,
-  crudBesideDataSource,
-  crudLoadedText,
-  crudNotOffered,
-  crudUnreportedText,
-  CRUD_NOT_APPROVED,
-  CRUD_NO_SESSION,
-  judgeCrudNodes,
+  dataPageApprovalReason,
+  dataPageBesideDataSource,
+  dataPageLoadedText,
+  dataPageNotOffered,
+  dataPageUnreportedText,
+  DATA_PAGE_NOT_APPROVED,
+  DATA_PAGE_NO_SESSION,
+  judgeDataPageNodes,
   type PendingLoads,
-} from './crud.ts'
+} from './data-page.ts'
 import {
   applyDataSourceRows,
   dataSourceApprovalReason,
@@ -132,14 +133,14 @@ export interface ShowComponentOptions {
   /** Rows one read asks for when the call names no count of its own. */
   readonly defaultPageSize: number
   /**
-   * Whether a call may open the deployment's own data page (`toy.crud`) in
-   * the panel. False wherever the deployment composed no approval answerer,
+   * Whether a call may open the deployment's own data page (`toy.data-page`)
+   * in the panel. False wherever the deployment composed no approval answerer,
    * and the component is then absent from the description — a block nobody
    * can be asked about is one nobody may place.
    */
-  readonly crud: boolean
+  readonly dataPage: boolean
   /** How long a call waits for the opened page to report its columns before answering without them. */
-  readonly crudLoadTimeoutMs: number
+  readonly dataPageLoadTimeoutMs: number
 }
 
 /** What one table's read returned, as the model is told it and the log records it. */
@@ -209,15 +210,18 @@ function describeDataSource(defaultPageSize: number): string {
  * comes back, and no other tool.
  * @returns the paragraph.
  */
-function describeCrud(): string {
-  return `\n\nA ${CRUD_ID} block is this deployment's own full page for one table, opened in the panel with the `
-    + 'user\'s own credential. You choose the table (`relatedMeta`), its name in the user\'s language '
-    + '(`metaLabel`, which is what the user is shown when asked), optional `conditions` the page applies without '
-    + 'showing them, `matchMode`, one `querySort` direction, and `selectMode`; the page itself is read-only, and a '
+function describeDataPage(): string {
+  return `\n\nA ${DATA_PAGE_ID} block is this deployment's own full page for one table, opened in the panel with the `
+    + `user's own credential. You choose ${DATA_PAGE_MODEL_PROP_NAMES.join(', ')} — the table, its name in the user's `
+    + 'language (which is what the user is shown when asked), optional conditions the page applies without showing '
+    + 'them, how they join, one sort direction, whether rows can be ticked, whether the first query runs on its own, '
+    + 'and any row operations you want pressable. How the page is arranged and whether it can be written in are '
+    + 'settled where the page was written down, so a page you place opens read-only with its own arrangement, and a '
     + 'call opens one page. The user is asked once before it opens, and a refused question draws nothing. What comes '
-    + `back to you is the page's first ${MAX_CRUD_REPORTED_COLUMNS} columns once it has loaded — in the result line `
-    + 'when the page loads in time, as a notice otherwise — then each query\'s row count and the row and column of a '
-    + 'cell the user clicks; the rows themselves stay in the panel.'
+    + `back to you is the page's first ${MAX_DATA_PAGE_REPORTED_COLUMNS} columns once it has loaded — in the result `
+    + 'line when the page loads in time, as a notice otherwise — then each query\'s row count, the rows the user '
+    + 'ticks, the cell they click, the side card they open and any row operation they press; the rows themselves stay '
+    + 'in the panel.'
 }
 
 /**
@@ -233,7 +237,7 @@ function describeCrud(): string {
  * @returns the withheld catalog ids, empty for a composition that offers every registered component.
  */
 export function withheldComponents(options: ShowComponentOptions): readonly string[] {
-  return options.crud ? [] : [CRUD_ID]
+  return options.dataPage ? [] : [DATA_PAGE_ID]
 }
 
 /**
@@ -297,7 +301,7 @@ export function describeShowComponent(catalog: ComponentCatalog, options: ShowCo
     + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
     + 'question with.'
     + (options.dataSource ? describeDataSource(options.defaultPageSize) : '')
-    + (options.crud ? describeCrud() : '')
+    + (options.dataPage ? describeDataPage() : '')
 }
 
 /**
@@ -640,8 +644,8 @@ async function runDataSource(
   // deployment that does not offer the page refuses it by name instead, because
   // that is the reason this call cannot open one, and telling the model to move
   // it into a call of its own would send it to write a call refused the same way.
-  if (crudNodes(judged.call.spec).length > 0) {
-    throw new Error((options.crud ? crudBesideDataSource(judged.call.spec) : crudNotOffered(catalog, judged.call.spec)).text)
+  if (dataPageNodes(judged.call.spec).length > 0) {
+    throw new Error((options.dataPage ? dataPageBesideDataSource(judged.call.spec) : dataPageNotOffered(catalog, judged.call.spec)).text)
   }
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
@@ -711,7 +715,7 @@ async function runDataSource(
  * @returns the accepted outcome.
  * @throws {Error} carrying the one model-facing sentence for whatever stopped the page.
  */
-async function runCrud(
+async function runDataPage(
   ctx: Context,
   catalog: ComponentCatalog,
   options: ShowComponentOptions,
@@ -723,15 +727,15 @@ async function runCrud(
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
   // nowhere to record what was allowed.
-  if (agent === undefined) throw new Error(CRUD_NO_SESSION)
+  if (agent === undefined) throw new Error(DATA_PAGE_NO_SESSION)
   const outcome = await ctx.approval.request({
     agent,
     toolName: SHOW_COMPONENT_TOOL_NAME,
     callId: exec.callId,
-    reason: crudApprovalReason(page),
+    reason: dataPageApprovalReason(page),
     signal: exec.signal,
   })
-  if (outcome !== 'allowed-once') throw new Error(CRUD_NOT_APPROVED)
+  if (outcome !== 'allowed-once') throw new Error(DATA_PAGE_NOT_APPROVED)
   // The same record a read appends, with nothing fetched: the host read
   // nothing, and what the column needs is the spec the user agreed to.
   agent.session.append('content-component/resolved', {
@@ -741,8 +745,10 @@ async function runCrud(
     spec: call.spec,
     fetched: [],
   })
-  const report = await pending.settle(agent.session, call.id, options.crudLoadTimeoutMs, exec.signal)
-  const loaded = report === undefined ? crudUnreportedText(page, options.crudLoadTimeoutMs) : crudLoadedText(page, report)
+  const report = await pending.settle(agent.session, call.id, options.dataPageLoadTimeoutMs, exec.signal)
+  const loaded = report === undefined
+    ? dataPageUnreportedText(page, options.dataPageLoadTimeoutMs)
+    : dataPageLoadedText(page, report)
   return { entryId: call.id, text: acceptedText(catalog, call) + loaded }
 }
 
@@ -822,11 +828,11 @@ export function showComponentTool(
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
-      const page = crudNodes(result.call.spec)[0]
+      const page = dataPageNodes(result.call.spec)[0]
       if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(catalog, result.call) })
-      const refusal = judgeCrudNodes(catalog, result.call.spec, options.crud)
+      const refusal = judgeDataPageNodes(catalog, result.call.spec, options.dataPage, false)
       if (refusal !== undefined) throw new Error(refusal.text)
-      return runCrud(ctx, catalog, options, result.call, page, exec, pending)
+      return runDataPage(ctx, catalog, options, result.call, page, exec, pending)
     },
     presentCall: (args): GenericCallView => ({
       card: 'generic',

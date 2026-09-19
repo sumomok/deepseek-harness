@@ -1,6 +1,7 @@
-# Agent Note：把部署自己的数据页开进面板，用访客自己的凭据
+# Agent Note: 把部署自己的数据页开进面板，用访客自己的凭据
 
 Status: implemented
+Archived: 2026-09-19
 
 [English](2026-09-10-toy-crud-kind.md) | 中文
 

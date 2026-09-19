@@ -12,7 +12,7 @@ import type { PackMissing, ProvidedPart } from '../src/types.ts'
 
 const PLATFORM = '0.5.2'
 
-const KIT: ProvidedPart = { id: 'toy.crud', plugin: '@deepseek-ai/dsh-experimental-component-kit', version: '0.4.0' }
+const KIT: ProvidedPart = { id: 'toy.data-page', plugin: '@deepseek-ai/dsh-experimental-component-kit', version: '0.4.0' }
 const CHART: ProvidedPart = { id: 'toy.chart', plugin: '@deepseek-ai/dsh-experimental-component-kit', version: '0.4.0' }
 
 function pack(skill: string, metadata: {
@@ -39,7 +39,7 @@ describe('pack reconciliation', () => {
   it('offers a pack whose every requirement is met, in skill-name order', () => {
     const statuses = reconcilePacks(
       [
-        pack('space-data-page', { parts: ['toy.crud'], components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.4.0' } }),
+        pack('space-data-page', { parts: ['toy.data-page'], components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.4.0' } }),
         pack('asset-page', { platform: '>=0.5.0' }),
       ],
       [KIT],
@@ -52,12 +52,12 @@ describe('pack reconciliation', () => {
   })
 
   it('withholds a pack whose parts nothing has registered, which is the state before any component plugin is mounted', () => {
-    const [status] = reconcilePacks([pack('space-data-page', { parts: ['toy.crud'] })], [], PLATFORM)
+    const [status] = reconcilePacks([pack('space-data-page', { parts: ['toy.data-page'] })], [], PLATFORM)
     expect(status).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
       state: 'inactive',
-      missing: [{ kind: 'part-absent', part: 'toy.crud' }],
+      missing: [{ kind: 'part-absent', part: 'toy.data-page' }],
     })
   })
 
@@ -84,7 +84,7 @@ describe('pack reconciliation', () => {
   })
 
   it('judges a prerelease by its release numbers, because every package here carries one', () => {
-    const rc: ProvidedPart = { id: 'toy.crud', plugin: 'kit', version: '0.4.0-rc.1' }
+    const rc: ProvidedPart = { id: 'toy.data-page', plugin: 'kit', version: '0.4.0-rc.1' }
     const [status] = reconcilePacks(
       [pack('space-data-page', { platform: '>=0.5.0', components: { kit: '>=0.3.0' } })],
       [rc],
@@ -130,7 +130,7 @@ describe('pack reconciliation', () => {
       [pack('space-data-page', {
         platform: '>=9.0.0',
         components: { kit: '>=1.0.0' },
-        parts: ['toy.crud'],
+        parts: ['toy.data-page'],
         views: ['views/b.yml'],
       }, [{ ok: false, path: 'views/b.yml', reason: 'is not a YAML mapping' }])],
       [],
@@ -196,7 +196,7 @@ describe('the views a pack declares, judged by the surface that would draw them'
     const statuses = reconcilePacks(
       [
         pack('a-pack', { views: ['views/a.yml'] }, [view('views/a.yml', 'layers')]),
-        pack('b-pack', { parts: ['toy.crud'], views: ['views/b.yml'] }, [view('views/b.yml', 'sites')]),
+        pack('b-pack', { parts: ['toy.data-page'], views: ['views/b.yml'] }, [view('views/b.yml', 'sites')]),
         pack('c-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'alerts')]),
       ],
       [],
@@ -232,7 +232,7 @@ describe('missing-requirement sentences', () => {
         { kind: 'plugin-version', plugin: 'kit', range: '>=1.0.0', present: '0.4.0' },
         'kit is installed at 0.4.0, outside >=1.0.0',
       ],
-      [{ kind: 'part-absent', part: 'toy.crud' }, 'no component plugin registers the part toy.crud'],
+      [{ kind: 'part-absent', part: 'toy.data-page' }, 'no component plugin registers the part toy.data-page'],
       [
         { kind: 'view-unreadable', view: 'views/b.yml', reason: 'has no title' },
         'view views/b.yml is unreadable: has no title',

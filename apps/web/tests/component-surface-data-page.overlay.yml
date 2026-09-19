@@ -2,7 +2,7 @@
 # opening the deployment's own data page needs: the gate that signs the visitor
 # in (the page carries the visitor's own token from the browser, which the
 # gate's login flow is what stores), the base path the component row's data
-# page requests its table under, and the `crud` offer on the tool itself. The
+# page requests its table under, and the `dataPage` offer on the tool itself. The
 # approval service the page asks its one question through is already in the
 # shipped composition.
 #
@@ -30,12 +30,12 @@
     - id: auth-gate
       name: '@deepseek-ai/dsh-experimental-auth-gate'
       config:
-        loginUrl: /component-surface-crud-login/#/
+        loginUrl: /component-surface-data-page-login/#/
         cookieName: accessToken
         refreshMarginSeconds: 300
         mcpUpstreams: {}
     - id: show-component
       name: '@deepseek-ai/dsh-experimental-component-surface'
       config:
-        crud: true
-        crudLoadTimeoutMs: 20000
+        dataPage: true
+        dataPageLoadTimeoutMs: 20000

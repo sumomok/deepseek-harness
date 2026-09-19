@@ -27,10 +27,10 @@ function substituted(spec: unknown, params: Record<string, unknown>): unknown {
 describe('a view file\'s parameter references', () => {
   it('replaces a whole property value, however deep the property sits', () => {
     const spec = {
-      nodes: [{ id: 'page', component: 'toy.crud', props: { relatedMeta: { $param: 'meta' }, isInitQuery: { $param: 'open' } } }],
+      nodes: [{ id: 'page', component: 'toy.data-page', props: { relatedMeta: { $param: 'meta' }, isInitQuery: { $param: 'open' } } }],
     }
     expect(substituted(spec, { meta: 'sys_layer', open: true })).toEqual({
-      nodes: [{ id: 'page', component: 'toy.crud', props: { relatedMeta: 'sys_layer', isInitQuery: true } }],
+      nodes: [{ id: 'page', component: 'toy.data-page', props: { relatedMeta: 'sys_layer', isInitQuery: true } }],
     })
   })
 

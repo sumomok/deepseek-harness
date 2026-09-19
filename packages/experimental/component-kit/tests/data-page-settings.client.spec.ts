@@ -27,19 +27,19 @@ function serve(document: unknown, status = 200): { requested: string[] } {
 }
 
 /** A fresh copy of the module, so each case starts before the row's browser half ran. */
-async function fresh(): Promise<typeof import('../src/client/crud-settings.ts')> {
-  return import('../src/client/crud-settings.ts')
+async function fresh(): Promise<typeof import('../src/client/data-page-settings.ts')> {
+  return import('../src/client/data-page-settings.ts')
 }
 
 describe('the data page\'s base path', () => {
   it('is read once, applied to the request layer, and handed to every waiter', async () => {
     const { requested } = serve({ bizBasePath: '/probe-base' })
     const settings = await fresh()
-    const first = settings.settleCrudBasePath()
-    const second = settings.settleCrudBasePath()
+    const first = settings.settleDataPageBasePath()
+    const second = settings.settleDataPageBasePath()
     expect(second).toBe(first)
     expect(await first).toBe('/probe-base/')
-    expect(await settings.crudBasePathReady()).toBe('/probe-base/')
+    expect(await settings.dataPageBasePathReady()).toBe('/probe-base/')
     expect(getBizBasePath()).toBe('/probe-base/')
     expect(requested).toEqual([new URL(COMPONENT_KIT_SETTINGS_ROUTE.slice(1), `${location.origin}/`).href])
   })
@@ -48,8 +48,8 @@ describe('the data page\'s base path', () => {
     serve({ bizBasePath: 'relative' })
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const settings = await fresh()
-    await expect(settings.settleCrudBasePath()).rejects.toThrow('answered a document with no usable bizBasePath')
-    await expect(settings.crudBasePathReady()).rejects.toThrow('answered a document with no usable bizBasePath')
+    await expect(settings.settleDataPageBasePath()).rejects.toThrow('answered a document with no usable bizBasePath')
+    await expect(settings.dataPageBasePathReady()).rejects.toThrow('answered a document with no usable bizBasePath')
     expect(error).toHaveBeenCalledTimes(1)
     expect(String(error.mock.calls[0]?.[0])).toContain('component-kit: the data page cannot open')
   })
@@ -58,11 +58,11 @@ describe('the data page\'s base path', () => {
     serve(undefined, 503)
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const settings = await fresh()
-    await expect(settings.settleCrudBasePath()).rejects.toThrow('answered 503')
+    await expect(settings.settleDataPageBasePath()).rejects.toThrow('answered 503')
   })
 
   it('refuses a page drawn before the row\'s browser half started', async () => {
     const settings = await fresh()
-    await expect(settings.crudBasePathReady()).rejects.toThrow('drawn before the row\'s browser half started')
+    await expect(settings.dataPageBasePathReady()).rejects.toThrow('drawn before the row\'s browser half started')
   })
 })

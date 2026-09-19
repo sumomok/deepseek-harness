@@ -8,14 +8,14 @@
  * read. So the value is not written ahead of the module; it is applied after,
  * through the kit's own `setBizBasePath`, which rewrites both the captured
  * default and the live request instance. What keeps that from being a race is
- * the renderer: it mounts nothing until {@link crudBasePathReady} has settled,
+ * the renderer: it mounts nothing until {@link dataPageBasePathReady} has settled,
  * so no request leaves before the path is the configured one.
  *
  * A failed read is a block that cannot open rather than a row that fails: the
  * other renderers here request nothing and draw exactly as before, and the
  * data page draws the line saying its address is not configured. That line is
  * the loud failure; the console also carries the reason.
- * @module @deepseek-ai/dsh-experimental-component-kit/src/client/crud-settings
+ * @module @deepseek-ai/dsh-experimental-component-kit/src/client/data-page-settings
  */
 import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { setBizBasePath } from '@sumomok/toy-crud-kit'
@@ -51,7 +51,7 @@ async function readAndApply(): Promise<string> {
  * read, and reported once to the console rather than left unhandled.
  * @returns the base path in force, once applied.
  */
-export function settleCrudBasePath(): Promise<string> {
+export function settleDataPageBasePath(): Promise<string> {
   if (settled === undefined) {
     settled = readAndApply()
     settled.catch((reason: unknown) => { console.error(`component-kit: the data page cannot open: ${String(reason)}`) })
@@ -64,7 +64,7 @@ export function settleCrudBasePath(): Promise<string> {
  * @returns the base path in force, once applied.
  * @throws {Error} when the row's browser half has not started, which is a placement outside this row's plugin.
  */
-export function crudBasePathReady(): Promise<string> {
+export function dataPageBasePathReady(): Promise<string> {
   if (settled === undefined) {
     return Promise.reject(new Error('component-kit: the data page was drawn before the row\'s browser half started'))
   }

@@ -1,6 +1,7 @@
 # Agent Note: the deployment's own data page, opened in the panel with the visitor's credential
 
 Status: implemented
+Archived: 2026-09-19
 
 English | [中文](2026-09-10-toy-crud-kind.zh.md)
 

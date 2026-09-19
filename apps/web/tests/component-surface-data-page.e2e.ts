@@ -38,8 +38,8 @@ import { launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } fr
 import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
-const OVERLAY = fileURLToPath(new URL('./component-surface-crud.overlay.yml', import.meta.url))
-const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-crud/session.jsonl', import.meta.url))
+const OVERLAY = fileURLToPath(new URL('./component-surface-data-page.overlay.yml', import.meta.url))
+const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-data-page/session.jsonl', import.meta.url))
 
 /** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
@@ -66,7 +66,7 @@ function composerInput(page: Page): Locator {
 }
 
 /** The stub login page's path, matching the `loginUrl` the overlay configures. */
-const LOGIN_PATH = '/component-surface-crud-login/'
+const LOGIN_PATH = '/component-surface-data-page-login/'
 
 /** The base path the overlay configures the page to request under, on the shell's own origin. */
 const API_PREFIX = '/ini-server'
@@ -149,7 +149,7 @@ function schemeRow(schemaType: number): Record<string, unknown> {
  * apart.
  */
 const CARD = '用您的账号打开「图层配置」的完整数据页，可以在里面查询、翻页、排序；'
-  + '小助手看不到表里的内容，只会知道有哪些列、每次查到多少条，以及您点到的那一行。'
+  + '小助手看不到表里的内容，只会知道有哪些列、每次查到多少条，以及您点到或勾选的那几行。'
   + `\n数据表：${META}`
 
 /** What the result line tells the model once the page has reported its columns. */
@@ -250,7 +250,7 @@ function loginPage(): string {
  * there, leaving an empty record that reads as containment holding.
  */
 const WATCH_CONTAINMENT = `
-  window.__crudNodes = [];
+  window.__dataPageNodes = [];
   new MutationObserver(function (records) {
     for (var i = 0; i < records.length; i += 1) {
       var added = records[i].addedNodes;
@@ -258,7 +258,7 @@ const WATCH_CONTAINMENT = `
         var node = added[j];
         if (node.nodeType !== 1) continue;
         if (node.id !== 'nprogress' && node.id !== 'is-loading-full-overlay') continue;
-        window.__crudNodes.push({ id: node.id, inBox: node.closest('[data-toy-crud-box]') !== null });
+        window.__dataPageNodes.push({ id: node.id, inBox: node.closest('[data-toy-crud-box]') !== null });
       }
     }
   }).observe(document, { childList: true, subtree: true });
@@ -275,7 +275,7 @@ interface WatchedNode {
  * @returns the harness home.
  */
 async function harnessHomeWithRowLinks(): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-component-crud-'))
+  const home = await mkdtemp(join(tmpdir(), 'dsh-component-data-page-'))
   const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
   await mkdir(scope, { recursive: true })
   for (const [name, dir] of ROWS) {
@@ -342,7 +342,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
   }
 
   it('asks the user before the page requests anything, then draws the page inside its own box', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-crud'))
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-data-page'))
     const input = composerInput(page)
     await input.waitFor({ timeout: 30_000 })
     await writeComposerDraft(page, input, PROMPT)
@@ -354,16 +354,16 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
     await panel.waitFor({ timeout: 60_000 })
     const asked = await panel.innerText()
     expect(asked).toContain(CARD)
-    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-crud-card.png'), fullPage: true })
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-data-page-card.png'), fullPage: true })
 
     // Nothing has been requested yet: the page is not on screen, and the host
     // reads nothing for this kind at all.
     expect(seen).toEqual([])
-    expect(await seat(page).locator('[data-component-block="toy.crud"]').count()).toBe(0)
+    expect(await seat(page).locator('[data-component-block="toy.data-page"]').count()).toBe(0)
 
     await panel.getByRole('button', { name: 'Allow once' }).click()
 
-    const block = seat(page).locator('[data-component-block="toy.crud"]')
+    const block = seat(page).locator('[data-component-block="toy.data-page"]')
     await block.waitFor({ timeout: 60_000 })
     const box = block.locator('[data-toy-crud-box]')
     await box.waitFor({ timeout: 30_000 })
@@ -382,7 +382,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
       async () => await block.locator('.el-table__header-wrapper th .cell').allTextContents(),
       { timeout: 15_000 },
     ).toEqual(HEADERS)
-    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-crud-page.png'), fullPage: true })
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-data-page-page.png'), fullPage: true })
 
     // Read-only: no write button and no dialog. Every button in the box is
     // listed, icon-only ones included — the query panel's two, and the pager's
@@ -413,7 +413,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
 
     // The request layer's progress bar and overlay were seen, and every one of
     // them landed inside the box rather than on the document.
-    const watched = await page.evaluate(() => (window as unknown as { __crudNodes: WatchedNode[] }).__crudNodes)
+    const watched = await page.evaluate(() => (window as unknown as { __dataPageNodes: WatchedNode[] }).__dataPageNodes)
     expect(watched.map(node => node.id)).toContain('nprogress')
     expect(watched.filter(node => !node.inBox)).toEqual([])
 
@@ -439,11 +439,13 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
   }, 180_000)
 
   it('carries the cell the user clicks to the model with their next message', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-crud-click'))
-    const block = seat(page).locator('[data-component-block="toy.crud"]')
-    // The name column is fixed, so element-ui draws it twice; the topic column
-    // is drawn once, in the body that takes a click.
-    await block.locator('.el-table__body-wrapper tbody tr').first().locator('td').nth(2).click()
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-data-page-click'))
+    const block = seat(page).locator('[data-component-block="toy.data-page"]')
+    // element-ui draws the body three times — the scrolling one and a clone per
+    // fixed side — and only the scrolling one takes a click, so the row is
+    // filtered to the one that is on screen.
+    const row = block.locator('.el-table__body-wrapper tbody tr').filter({ visible: true }).first()
+    await row.locator('td').nth(2).click()
     await expect.poll(
       () => liveEvents().filter(event => event.type === 'command/run'
         && event.data.args?.includes('"actionId":"cell-click"') === true).length,
@@ -458,7 +460,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
     await page.keyboard.press('Enter')
     await expect.poll(async () => await page.getByText(CLICK_REPLY, { exact: false }).count(), { timeout: 60_000 })
       .toBeGreaterThan(0)
-    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-crud-click.png'), fullPage: true })
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-data-page-click.png'), fullPage: true })
   }, 180_000)
 
   it('leaves the console clean', () => {

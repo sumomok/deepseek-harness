@@ -66,7 +66,7 @@ metadata:
   requires:
     components:
       "@deepseek-ai/dsh-experimental-component-kit": ">=0.3.0"
-    parts: [toy.crud]
+    parts: [toy.data-page]
   views: [views/space-layer.yml]
 ---
 ```

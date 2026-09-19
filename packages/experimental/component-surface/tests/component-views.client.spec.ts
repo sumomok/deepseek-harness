@@ -31,7 +31,7 @@ function record(id: string, title: string, display: unknown = 'A-1'): Contribute
 }
 
 /** A registry over a catalog the caller fills, with the row's error lines captured. */
-function bench(views: ContributedView[] = [], crud = false): Context {
+function bench(views: ContributedView[] = [], dataPage = false): Context {
   const ctx = new Context()
   contexts.push(ctx)
   ctx.logger.exporter({
@@ -40,7 +40,7 @@ function bench(views: ContributedView[] = [], crud = false): Context {
     },
   })
   new ComponentCatalogRegistry(ctx, { withheld: [] })
-  new ComponentViewRegistry(ctx, { views, crud })
+  new ComponentViewRegistry(ctx, { views, dataPage })
   return ctx
 }
 

@@ -159,7 +159,7 @@ describe('the component-entry invariant', () => {
 
 describe('a call that opens the data page', () => {
   /** One data page block, whose call is a question before it is an entry. */
-  const PAGE = { nodes: [{ id: 'page', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备台账' } }] }
+  const PAGE = { nodes: [{ id: 'page', component: 'toy.data-page', props: { relatedMeta: 'device', metaLabel: '设备台账' } }] }
 
   /** A producer standing in for a column that drew the page off the call alone, before the user had answered. */
   const early: ContentSurfaceExtractor<{ title: string; spec: unknown }> = {

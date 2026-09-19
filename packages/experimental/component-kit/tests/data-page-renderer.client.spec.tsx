@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
- * `toy.crud`: that the vendored data page mounts nothing before its base path
- * is in force, requests its table under that path with the token the visitor
- * has stored and no token the address bar carries, draws only the query and
- * clear buttons, keeps its overlay and progress bar inside its own box, leaves
- * the shared element-ui defaults alone, and reports to the agent exactly the
- * three bounded gestures the placement package's catalog declares — the same
- * load and query once per placing call, however often the block is redrawn.
+ * `toy.data-page`: that the vendored data page mounts nothing before its base
+ * path is in force, requests its table under that path with the token the
+ * visitor has stored and no token the address bar carries, opens read-only
+ * where the block arranged nothing, keeps its overlay and progress bar inside
+ * its own box, leaves the shared element-ui defaults alone, and reports to the
+ * agent exactly the bounded gestures the placement package's catalog declares —
+ * the same load and query once per placing call, however often the block is
+ * redrawn.
  *
  * The backend is a stub on `XMLHttpRequest`, which is what the page's own
  * request layer uses under jsdom, serving the smallest scheme the page accepts
@@ -15,11 +16,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { CRUD_READ_ONLY_PROPS, setBizBasePath } from '@sumomok/toy-crud-kit'
+import { setBizBasePath } from '@sumomok/toy-crud-kit'
 import { Vue as SuppliedVue } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
 import { installElementUI } from '../src/client/element-ui.ts'
-import { CrudRenderer } from '../src/client/CrudRenderer.tsx'
-import { CRUD_REPORT_LIMITS } from '../src/client/crud-limits.ts'
+import { DataPageRenderer } from '../src/client/DataPageRenderer.tsx'
+import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import { en } from '../src/client/locales.ts'
 import type { ComponentActionHandler, ComponentRendererProps } from '../src/client/renderer.ts'
 import type { VueInstance } from '../src/client/vue-shim.ts'
@@ -27,9 +28,9 @@ import type { VueInstance } from '../src/client/vue-shim.ts'
 /** What the base-path read answers with, per case: a path, or a refusal. */
 let basePath: Promise<string> = Promise.resolve('/probe-base/')
 
-vi.mock('../src/client/crud-settings.ts', () => ({
-  crudBasePathReady: (): Promise<string> => basePath,
-  settleCrudBasePath: (): Promise<string> => basePath,
+vi.mock('../src/client/data-page-settings.ts', () => ({
+  dataPageBasePathReady: (): Promise<string> => basePath,
+  settleDataPageBasePath: (): Promise<string> => basePath,
 }))
 
 const t: ComponentRendererProps['t'] = makeTranslate(en)
@@ -239,7 +240,7 @@ function flush(): Promise<void> {
 
 /** Draw one page block over the properties under test, watching what lands inside its box. */
 function draw(props: Record<string, unknown> = pageProps(), onAction = vi.fn<ComponentActionHandler>()) {
-  const view = render(<CrudRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={vi.fn()} t={t} />)
+  const view = render(<DataPageRenderer nodeId="page-1" props={props} state="idle" onAction={onAction} onOutput={vi.fn()} t={t} />)
   const boxWatch = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
@@ -277,12 +278,12 @@ async function loaded(onAction: ReturnType<typeof vi.fn>): Promise<void> {
   await flush()
 }
 
-/** The `Crud` instance under one drawn block. */
-function crudOf(container: HTMLElement): VueInstance & { $props: Record<string, unknown> } {
+/** The `DataPage` instance under one drawn block, which is where its events are raised. */
+function pageOf(container: HTMLElement): VueInstance & { $props: Record<string, unknown> } {
   const box = container.querySelector('[data-toy-crud-box]') as HTMLElement
   const rootEl = box.firstElementChild?.firstElementChild as HTMLElement & { __vue__?: VueInstance }
   let instance = rootEl.__vue__ as VueInstance
-  while (instance.$options.name !== 'Crud') instance = instance.$children[0] as VueInstance
+  while (instance.$options.name !== 'ToyDataPage') instance = instance.$children[0] as VueInstance
   return instance as VueInstance & { $props: Record<string, unknown> }
 }
 
@@ -301,12 +302,12 @@ function buttons(container: HTMLElement): { text: string; cls: string }[] {
     .map(button => ({ text: button.textContent?.trim() ?? '', cls: button.getAttribute('class') ?? '' }))
 }
 
-describe('toy.crud', () => {
+describe('toy.data-page', () => {
   it('mounts nothing before the base path is in force, and says so', async () => {
     let release: (path: string) => void = () => {}
     basePath = new Promise((resolve) => { release = resolve })
     const { view, onAction } = draw()
-    expect(view.container.querySelector('[data-crud-stalled="preparing"]')?.textContent).toBe(en['crud.preparing'])
+    expect(view.container.querySelector('[data-page-stalled="preparing"]')?.textContent).toBe(en['dataPage.preparing'])
     expect(view.container.querySelector('[data-toy-crud-box]')).toBeNull()
     expect(seen).toEqual([])
     release('/probe-base/')
@@ -344,7 +345,7 @@ describe('toy.crud', () => {
     basePath = Promise.reject(new Error('component-kit: answered 503'))
     const { view, onAction } = draw()
     await vi.waitFor(() => {
-      expect(view.container.querySelector('[data-crud-stalled="address"]')?.textContent).toBe(en['crud.unavailable'])
+      expect(view.container.querySelector('[data-page-stalled="address"]')?.textContent).toBe(en['dataPage.unavailable'])
     })
     expect(seen).toEqual([])
     expect(onAction).not.toHaveBeenCalled()
@@ -357,7 +358,7 @@ describe('toy.crud', () => {
     let release: (path: string) => void = () => {}
     basePath = new Promise((resolve) => { release = resolve })
     const { view, onAction } = draw(Object.freeze({ metaLabel: '演示设备' }))
-    expect(view.container.querySelector('[data-crud-stalled="table"]')?.textContent).toBe(en['crud.noTable'])
+    expect(view.container.querySelector('[data-page-stalled="table"]')?.textContent).toBe(en['dataPage.noTable'])
     release('/probe-base/')
     await flush()
     expect(view.container.querySelector('[data-toy-crud-box]')).toBeNull()
@@ -373,9 +374,9 @@ describe('toy.crud', () => {
     const { view, onAction } = draw()
     await loaded(onAction)
     const box = view.container.querySelector('[data-toy-crud-box]') as HTMLElement
-    const crud = crudOf(view.container)
+    const page = pageOf(view.container)
     let containedAtDestroy: boolean | undefined
-    crud.$once('hook:beforeDestroy', () => { containedAtDestroy = box.hasAttribute('data-toy-crud-box') })
+    page.$once('hook:beforeDestroy', () => { containedAtDestroy = box.hasAttribute('data-toy-crud-box') })
     view.unmount()
     expect(containedAtDestroy).toBe(true)
     expect(box.hasAttribute('data-toy-crud-box')).toBe(false)
@@ -384,7 +385,7 @@ describe('toy.crud', () => {
   it('requests its table under the configured base path with the token the page carries, inside a contained box', async () => {
     const { view, onAction, boxWatch } = draw()
     await loaded(onAction)
-    const block = view.container.querySelector('[data-component-block="toy.crud"]')
+    const block = view.container.querySelector('[data-component-block="toy.data-page"]')
     expect(block?.getAttribute('data-component-node')).toBe('page-1')
     // Every request went where the deployment said, with the visitor's own token.
     expect(seen.length).toBeGreaterThan(0)
@@ -440,16 +441,46 @@ describe('toy.crud', () => {
       { text: '', cls: 'btn-next' },
     ])
     expect(view.container.querySelector('.el-dialog')).toBeNull()
-    const crud = crudOf(view.container)
-    expect(crud.$props['isReadOnly']).toBe(true)
-    expect(crud.$props['type']).toBe('default')
-    expect(crud.$props['urlConfig']).toBeNull()
-    expect(crud.$props['hideButton']).toEqual(CRUD_READ_ONLY_PROPS.hideButton)
-    expect(crud.$props['hideComp']).toEqual({ menu: true, card: true })
-    expect(crud.$props['selectMode']).toBe('checkbox')
-    expect(crud.$props['relatedMeta']).toBe(META)
+    const page = pageOf(view.container)
+    // The block arranged nothing, so the page is holding its own defaults: it
+    // refuses every write, and every region and toolbar button is on the table
+    // it would draw if it could.
+    expect(page.$props['readOnly']).toBe(true)
+    expect(page.$props['regions']).toEqual({
+      query: true, toolbar: true, table: true, operate: true, pagination: true, infoCard: true, addForm: true, modifyForm: true,
+    })
+    expect(page.$props['toolbarButtons']).toEqual(['add', 'imp', 'exp', 'gridexp', 'batch', 'search', 'clear'])
+    expect(page.$props['rowOperations']).toEqual(['modify'])
+    expect(page.$props['queryExpanded']).toBe(false)
+    expect(page.$props['selectMode']).toBe('checkbox')
+    expect(page.$props['relatedMeta']).toBe(META)
     // The card's name is the host's, and never reaches the page.
-    expect(crud.$props['metaLabel']).toBeUndefined()
+    expect(page.$props['metaLabel']).toBeUndefined()
+  })
+
+  it('draws the arrangement a written-down page wrote, and opens it for writing when that page says so', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      regions: {
+        query: true, toolbar: true, table: true, operate: true, pagination: true, infoCard: true, addForm: true, modifyForm: true,
+      },
+      toolbarButtons: ['add', 'search', 'clear'],
+      rowOperations: ['modify'],
+      queryExpanded: false,
+      pageSize: 20,
+      pageSizes: [10, 20],
+      readOnly: false,
+    }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    expect(page.$props['readOnly']).toBe(false)
+    expect(page.$props['toolbarButtons']).toEqual(['add', 'search', 'clear'])
+    expect(page.$props['pageSizes']).toEqual([10, 20])
+    // The rights the stub answered with left every write on, so the toolbar
+    // draws 新增 beside the two query buttons — which is the backend's answer
+    // rather than a decision anything here made.
+    expect(buttons(view.container).map(button => button.text)).toEqual(['新增', '查询', '清空', '', ''])
   })
 
   it('reports the drawn columns once loaded, and the counts of the first query', async () => {
@@ -459,17 +490,64 @@ describe('toy.crud', () => {
       meta: META,
       columns: [{ attr: 'zh_label', alias: '名称' }, { attr: 'city', alias: '城市' }, { attr: 'state', alias: '状态' }],
       total: 3,
+      // The block arranged nothing, so the page is read-only and the rights it
+      // resolved are the page's own read-only record: it may read and export,
+      // and it may write nothing.
+      rights: ['search', 'exp', 'searchSetting'],
     })
     expect(onAction).toHaveBeenCalledWith('query', { total: 3, rows: 3, page: 1 })
     expect(onAction.mock.calls.map(call => call[0])).toEqual(['load', 'query'])
   })
 
+  it('names the buttons the deployment\'s own rights left pressable once the page can be written in', async () => {
+    const { onAction } = draw(Object.freeze({ relatedMeta: META, metaLabel: '演示设备', readOnly: false }))
+    await loaded(onAction)
+    const load = onAction.mock.calls.find(call => call[0] === 'load')?.[1] as { rights: readonly string[] }
+    // The stub backend grants every right it knows about; what is named here is
+    // that row, read back, and nothing this row decided.
+    expect(load.rights).toEqual(expect.arrayContaining(['search', 'add', 'update', 'delete', 'imp', 'exp']))
+  })
+
+  it('reports what the user ticked, opened, saved and pressed, each bounded the way its report is', async () => {
+    const { view, onAction } = draw(Object.freeze({
+      relatedMeta: META,
+      metaLabel: '演示设备',
+      selectMode: 'checkbox',
+      customOperations: [{ name: 'ping', label: '测试连通' }],
+    }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    page.$emit('table-selection-change', ROWS, ROWS)
+    expect(onAction).toHaveBeenLastCalledWith('select', { count: 3, names: ['北京-核心-01', '济南-接入-07', '上海-汇聚-03'] })
+    page.$emit('info-card-open', { id: '1', name: '北京-核心-01', type: 'device' })
+    expect(onAction).toHaveBeenLastCalledWith('card-open', { name: '北京-核心-01' })
+    page.$emit('info-card-close')
+    expect(onAction).toHaveBeenLastCalledWith('card-close', {})
+    // The save answers with the record the backend wrote, key and hidden
+    // attributes included; what is reported is the drawn cells of it, read
+    // through the columns the load remembered, so `int_id`, `code` and the
+    // scheme's hidden `secret_col` reach nobody.
+    page.$emit('add-save-success', { code: 0, int_id: '4', zh_label: '新建-01', secret_col: 'x', city: '青岛' })
+    expect(onAction).toHaveBeenLastCalledWith('added', { record: { zh_label: '新建-01', city: '青岛' } })
+    page.$emit('modify-save-success', { int_id: '1' })
+    expect(onAction).toHaveBeenLastCalledWith('modified', { record: {} })
+    page.$emit('table-operation-custom', { $index: 0, row: ROWS[0] }, { name: 'ping', label: '测试连通' }, ROWS[0])
+    expect(onAction).toHaveBeenLastCalledWith('operation', { opId: 'ping', row: { zh_label: '北京-核心-01', city: '北京', state: '在用' } })
+    // A gesture naming something no report may carry reaches nobody, and a
+    // selection larger than a report may count is one of them.
+    const before = onAction.mock.calls.length
+    page.$emit('info-card-open', { id: '', name: '', type: '' })
+    page.$emit('table-operation-custom', { $index: 0, row: ROWS[0] }, { label: '没有 name' }, ROWS[0])
+    page.$emit('table-selection-change', Array.from({ length: DATA_PAGE_REPORT_LIMITS.tickedRows + 1 }, () => ROWS[0]), [])
+    expect(onAction.mock.calls).toHaveLength(before)
+  })
+
   it('reports a clicked cell with the row\'s drawn cells, cut to what a report carries', async () => {
     const { view, onAction } = draw()
     await loaded(onAction)
-    const crud = crudOf(view.container)
-    const long = 'x'.repeat(CRUD_REPORT_LIMITS.cellLength + 5)
-    crud.$emit('table-cell-click', {
+    const page = pageOf(view.container)
+    const long = 'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength + 5)
+    page.$emit('table-cell-click', {
       row: { zh_label: '北京-核心-01', city: long, state: { nested: true }, secret: 's1' },
       column: { property: 'city', label: '城市' },
       cell: null,
@@ -478,14 +556,14 @@ describe('toy.crud', () => {
     expect(onAction).toHaveBeenLastCalledWith('cell-click', {
       attr: 'city',
       label: '城市',
-      row: { zh_label: '北京-核心-01', city: `${'x'.repeat(CRUD_REPORT_LIMITS.cellLength - 1)}…` },
+      row: { zh_label: '北京-核心-01', city: `${'x'.repeat(DATA_PAGE_REPORT_LIMITS.cellLength - 1)}…` },
     })
     // A click on a column the catalog would refuse is reported to nobody, and
     // a header the page has none of is stood in for by the attribute.
     const before = onAction.mock.calls.length
-    crud.$emit('table-cell-click', { row: ROWS[0], column: { property: '1st' }, cell: null, event: new Event('click') })
+    page.$emit('table-cell-click', { row: ROWS[0], column: { property: '1st' }, cell: null, event: new Event('click') })
     expect(onAction.mock.calls).toHaveLength(before)
-    crud.$emit('table-cell-click', { row: ROWS[0], column: { property: 'state' }, cell: null, event: new Event('click') })
+    page.$emit('table-cell-click', { row: ROWS[0], column: { property: 'state' }, cell: null, event: new Event('click') })
     expect(onAction).toHaveBeenLastCalledWith('cell-click', {
       attr: 'state',
       label: 'state',
@@ -496,13 +574,13 @@ describe('toy.crud', () => {
   it('reports no query out of an answer carrying no counts a report may state', async () => {
     const { view, onAction } = draw()
     await loaded(onAction)
-    const crud = crudOf(view.container)
+    const page = pageOf(view.container)
     const before = onAction.mock.calls.length
-    crud.$emit('query-success', { rawValue: [], displayValue: [], ref: [], page: { total: 3, currentPage: 0, pageSize: 20 } })
-    crud.$emit('query-success', { rawValue: [], displayValue: null, ref: [], page: { total: 3, currentPage: 1, pageSize: 20 } })
+    page.$emit('query-success', { rawValue: [], displayValue: [], ref: [], page: { total: 3, currentPage: 0, pageSize: 20 } })
+    page.$emit('query-success', { rawValue: [], displayValue: null, ref: [], page: { total: 3, currentPage: 1, pageSize: 20 } })
     expect(onAction.mock.calls).toHaveLength(before)
     // A different answer is a new query, reported once more.
-    crud.$emit('query-success', { rawValue: [], displayValue: [], ref: [], page: { total: 0, currentPage: 2, pageSize: 20 } })
+    page.$emit('query-success', { rawValue: [], displayValue: [], ref: [], page: { total: 0, currentPage: 2, pageSize: 20 } })
     expect(onAction).toHaveBeenLastCalledWith('query', { total: 0, rows: 0, page: 2 })
   })
 
@@ -531,18 +609,18 @@ describe('toy.crud', () => {
       conditions: [{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3, true] }, { op: 'EQ', value: 1 }, 7],
       matchMode: 'OR',
       querySort: { desc: 'city' },
-      isExpandQuery: true,
       isInitQuery: false,
     })
     await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
     await flush()
-    const crud = crudOf(view.container)
-    expect(crud.$props['conditions']).toEqual([{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3] }])
-    expect(crud.$props['matchMode']).toBe('OR')
-    expect(crud.$props['querySort']).toEqual({ desc: 'city' })
-    expect(crud.$props['isExpandQuery']).toBe(true)
-    expect(crud.$props['isInitQuery']).toBe(false)
-    expect(crud.$props['selectMode']).toBeNull()
+    const page = pageOf(view.container)
+    expect(page.$props['conditions']).toEqual([{ key: 'city', op: 'EQ', value: '北京' }, { key: 'state', op: 'IN', value: ['在用', 3] }])
+    expect(page.$props['matchMode']).toBe('OR')
+    expect(page.$props['querySort']).toEqual({ desc: 'city' })
+    expect(page.$props['isInitQuery']).toBe(false)
+    // The block named neither, so the page's own defaults stand.
+    expect(page.$props['selectMode']).toBe('checkbox')
+    expect(page.$props['readOnly']).toBe(true)
     // No first query was asked for, so nothing was searched and nothing counted.
     await flush()
     expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toEqual([])

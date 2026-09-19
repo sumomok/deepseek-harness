@@ -9,7 +9,7 @@ metadata:
     components:
       "@deepseek-ai/dsh-experimental-component-kit": ">=0.1.0"
     parts:
-      - toy.crud
+      - toy.data-page
   views:
     - views/space-layer.yml
 ---

@@ -731,7 +731,7 @@ export interface Config {
 /** Plugin config: where the data page's requests go. */
 export interface Config {
   /**
-   * Root-absolute path prefix the `toy.crud` data page requests its table
+   * Root-absolute path prefix the `toy.data-page` component requests its table
    * under, such as `/` or `/nrms-server/`; a trailing `/` is added where
    * missing. The page requests from the browser, so the prefix names a path on
    * the shell's own origin — the reverse proxy in front of the console is what
@@ -792,7 +792,7 @@ export interface Config {
   dataDefaultPageSize?: number
   /**
    * Whether a call may open this deployment's own full data page for one
-   * table (`toy.crud`) in the panel. Off by default, because the page reads
+   * table (`toy.data-page`) in the panel. Off by default, because the page reads
    * its table from the browser with the signed-in visitor's own credential and
    * a deployment has to say that it wants that.
    *
@@ -802,7 +802,7 @@ export interface Config {
    * kind; what the page requests, it requests from the browser under the base
    * path `@deepseek-ai/dsh-experimental-component-kit` is configured with.
    */
-  crud?: boolean
+  dataPage?: boolean
   /**
    * How long a call that opened a data page waits for the browser to report
    * the page's columns before answering without them, in milliseconds. The
@@ -810,7 +810,7 @@ export interface Config {
    * composition no browser attaches to sets it low, because every such call
    * pays the whole deadline.
    */
-  crudLoadTimeoutMs?: number
+  dataPageLoadTimeoutMs?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */

@@ -34,16 +34,29 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
-import { COMPONENT_KIND, CRUD_ID } from '../src/component-call.ts'
+import { COMPONENT_KIND, DATA_PAGE_ID } from '../src/component-call.ts'
 import * as ShowComponent from '../src/index.ts'
 import { SHOW_CONTENT_VIEW_COMMAND } from '../src/view-command.ts'
 import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
-/** The one view every case here clicks: the deployment's own page for one table. */
+/**
+ * The one view every case here clicks: the deployment's own page for one table,
+ * arranged the way a person writing a view arranges it — the whole point of a
+ * view being a file rather than a call, and the group of properties a call is
+ * refused for sending.
+ */
 const PAGE_NODE = {
   id: 'page',
-  component: CRUD_ID as string,
-  props: { relatedMeta: 'SpaceLayer', metaLabel: '图层配置', conditions: [{ key: 'status', op: 'EQ', value: 'on' }] },
+  component: DATA_PAGE_ID as string,
+  props: {
+    relatedMeta: 'SpaceLayer',
+    metaLabel: '图层配置',
+    conditions: [{ key: 'status', op: 'EQ', value: 'on' }],
+    queryExpanded: false,
+    toolbarButtons: ['add', 'search', 'clear'],
+    rowOperations: ['modify'],
+    readOnly: false,
+  },
 }
 const PAGE_SPEC = { nodes: [PAGE_NODE] }
 
@@ -62,7 +75,7 @@ afterEach(async () => {
 
 /** Boot the console rows this view needs. */
 async function loadComposition(): Promise<Context> {
-  world = await mkdtemp(join(tmpdir(), 'dsh-crud-view-'))
+  world = await mkdtemp(join(tmpdir(), 'dsh-data-page-view-'))
   const configPath = join(world, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
@@ -79,7 +92,7 @@ async function loadComposition(): Promise<Context> {
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     '  config:',
-    '    crud: true',
+    '    dataPage: true',
     '    views:',
     '      - id: layers',
     '        title: 图层数据',
@@ -166,6 +179,17 @@ describe('a click on a view that opens the data page', () => {
     expect(await click(ctx, session, 'layers')).toEqual({ kind: 'success' })
     expect(await click(ctx, session, 'layers')).toEqual({ kind: 'success' })
     expect(shown(session)).toHaveLength(2)
+  })
+
+  it('carries the arrangement its writer wrote into the log the column replays from', async () => {
+    // A call may not send any of these, and this composition boots with them in
+    // a file: what a view is for is exactly this, and the record a click leaves
+    // is what the column redraws the page from.
+    const ctx = await loadComposition()
+    const session = idleSession(ctx)
+    expect(await click(ctx, session, 'layers')).toEqual({ kind: 'success' })
+    const [record] = shown(session) as readonly { readonly spec: { readonly nodes: readonly { readonly props: unknown }[] } }[]
+    expect(record?.spec.nodes[0]?.props).toEqual(PAGE_NODE.props)
   })
 
   it('opens a view that places no data page the same way', async () => {

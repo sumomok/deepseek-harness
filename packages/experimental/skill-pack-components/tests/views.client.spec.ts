@@ -114,6 +114,8 @@ interface Deployment {
   readonly packs: Record<string, Record<string, string>>
   /** The `views` block of the deployment's own configuration, as cordis.yml lines. */
   readonly configured?: readonly string[]
+  /** The view ids this deployment ends up offering, which the boot is awaited against. */
+  readonly offered: readonly string[]
 }
 
 /** Boot the whole path over a freshly written pack root. */
@@ -178,17 +180,43 @@ async function loadComposition(deployment: Deployment): Promise<Context> {
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
-  // The pack root is read asynchronously, so the first offer of its views lands
-  // one turn of the event loop after the boot settles.
-  await settle(ctx)
+  await settle(ctx, deployment.offered)
   return ctx
 }
 
-/** Wait until the views a pack offers have reached the index. */
-async function settle(ctx: Context): Promise<void> {
+/**
+ * Wait until the view index holds exactly these ids.
+ *
+ * A pack root is read from disk, so a pack's views reach the index after the
+ * boot settles — and `statuses()` answering the judgement is not that moment,
+ * because the registration the catalog route and the `show-content-view`
+ * command are built from follows it. The wait is therefore on the index
+ * itself, through the change the registry publishes, and it is what the case
+ * that clicks a view depends on: the command exists only while the index
+ * holds something, so a case that clicked before the offer landed found no
+ * command and was answered with nothing at all.
+ * @param ctx - the booted composition.
+ * @param offered - the view ids the deployment offers once it has settled, in any order.
+ * @throws {Error} when the index still holds something else after 20 seconds.
+ */
+async function settle(ctx: Context, offered: readonly string[]): Promise<void> {
   await ctx.skillPacks.statuses()
-  await Promise.resolve()
-  await Promise.resolve()
+  const wanted = [...offered].sort().join(',')
+  const held = (): string => [...ctx.componentViews.index.keys()].sort().join(',')
+  if (held() === wanted) return
+  let stop: (() => void) | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await new Promise<void>((resolve, reject) => {
+      timer = setTimeout(() => { reject(new Error(`the view index holds "${held()}" while this case waits for "${wanted}"`)) }, 20_000)
+      stop = ctx.componentViews.onChange(() => { if (held() === wanted) resolve() })
+    })
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    // Stopped after the promise settles rather than inside the handler, so the
+    // registry is never asked to drop a subscription while it is dispatching.
+    stop?.()
+  }
 }
 
 /** The catalog the sidebar reads. */
@@ -220,7 +248,7 @@ async function click(ctx: Context, agent: Agent, id: string): Promise<unknown> {
 
 describe('a pack\'s views', () => {
   it('reach the sidebar\'s catalog, with their params already in them', { timeout: 60_000 }, async () => {
-    const ctx = await loadComposition({ packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
+    const ctx = await loadComposition({ offered: ['layers'], packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
     expect(await statusOf(ctx, 'space-data-page')).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
@@ -231,7 +259,7 @@ describe('a pack\'s views', () => {
   })
 
   it('are shown by the same command a configured view is', async () => {
-    const ctx = await loadComposition({ packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
+    const ctx = await loadComposition({ offered: ['layers'], packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
     const session = newSession(ctx)
     expect(await click(ctx, agentOn(session), 'layers')).toEqual({ kind: 'success' })
     expect(ctx.sessionProjections.snapshot(session).values.contentSurface?.entries).toEqual([{
@@ -253,6 +281,7 @@ describe('a pack\'s views', () => {
       '        spec: {"nodes":[{"id":"facts","component":"toy.record","props":{"dataList":[{"label":"表","display":"own"}]}}]}',
     ]
     const ctx = await loadComposition({
+      offered: ['layers', 'sites'],
       configured,
       packs: {
         'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') },
@@ -278,6 +307,7 @@ describe('a pack\'s views', () => {
 
   it('hold their pack back when the component surface will not draw one of them', async () => {
     const ctx = await loadComposition({
+      offered: [],
       packs: {
         'space-data-page': {
           'layers.yml': recordView('layers', '图层数据', 'sys_layer'),
@@ -299,20 +329,20 @@ describe('a pack\'s views', () => {
   })
 
   it('leave with the component plugin that made them drawable, with no restart', async () => {
-    const ctx = await loadComposition({ packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
+    const ctx = await loadComposition({ offered: ['layers'], packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
     expect((await readCatalog(ctx)).status).toBe(200)
     await [...ctx.loader.entries()].find(entry => entry.options.name === COMPONENT_PLUGIN_NAME)?.fiber?.dispose()
-    await settle(ctx)
+    await settle(ctx, [])
     expect((await statusOf(ctx, 'space-data-page'))?.state).toBe('inactive')
     expect((await readCatalog(ctx)).status).not.toBe(200)
   })
 
   it('leave with this row (HMR safety)', async () => {
-    const ctx = await loadComposition({ packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
+    const ctx = await loadComposition({ offered: ['layers'], packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } } })
     expect((await readCatalog(ctx)).status).toBe(200)
     await [...ctx.loader.entries()]
       .find(entry => entry.options.name === '@deepseek-ai/dsh-experimental-skill-pack-components')?.fiber?.dispose()
-    await settle(ctx)
+    await settle(ctx, [])
     expect((await readCatalog(ctx)).status).not.toBe(200)
   })
 })

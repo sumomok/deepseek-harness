@@ -65,7 +65,7 @@ import { ComponentCatalogRegistry, trackCatalog } from './catalog.ts'
 import { MAX_TABLE_ROWS, type ComponentCatalog } from './component-call.ts'
 import { ComponentViewRegistry } from './component-views.ts'
 import { installComponentAction } from './command.ts'
-import { PendingLoads } from './crud.ts'
+import { PendingLoads } from './data-page.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
 import { offeredEntries, showComponentTool, withheldComponents, type ShowComponentOptions } from './tool.ts'
@@ -90,6 +90,8 @@ export type {
 export {
   catalogId,
   COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_MODEL_PROP_NAMES,
+  DATA_PAGE_VIEW_PROP_NAMES,
   readCatalog,
   type CatalogId,
   type ComponentCatalog,
@@ -147,7 +149,7 @@ export interface Config {
   dataDefaultPageSize?: number
   /**
    * Whether a call may open this deployment's own full data page for one
-   * table (`toy.crud`) in the panel. Off by default, because the page reads
+   * table (`toy.data-page`) in the panel. Off by default, because the page reads
    * its table from the browser with the signed-in visitor's own credential and
    * a deployment has to say that it wants that.
    *
@@ -157,7 +159,7 @@ export interface Config {
    * kind; what the page requests, it requests from the browser under the base
    * path `@deepseek-ai/dsh-experimental-component-kit` is configured with.
    */
-  crud?: boolean
+  dataPage?: boolean
   /**
    * How long a call that opened a data page waits for the browser to report
    * the page's columns before answering without them, in milliseconds. The
@@ -165,7 +167,7 @@ export interface Config {
    * composition no browser attaches to sets it low, because every such call
    * pays the whole deadline.
    */
-  crudLoadTimeoutMs?: number
+  dataPageLoadTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -177,8 +179,8 @@ export const Config: z<Config> = z.object({
   homeView: z.string(),
   dataSource: z.boolean().default(false),
   dataDefaultPageSize: z.natural().default(200),
-  crud: z.boolean().default(false),
-  crudLoadTimeoutMs: z.natural().default(10_000),
+  dataPage: z.boolean().default(false),
+  dataPageLoadTimeoutMs: z.natural().default(10_000),
 })
 
 /**
@@ -190,8 +192,8 @@ type ResolvedConfig = Config & {
   readonly views: readonly ContentView[]
   readonly dataSource: boolean
   readonly dataDefaultPageSize: number
-  readonly crud: boolean
-  readonly crudLoadTimeoutMs: number
+  readonly dataPage: boolean
+  readonly dataPageLoadTimeoutMs: number
 }
 
 /**
@@ -208,14 +210,15 @@ function offerOptions(config: ResolvedConfig): ShowComponentOptions {
   }
   // Loud at load: a zero deadline would answer every page as unreported, with
   // no diagnostic pointing at the row that set it.
-  if (config.crudLoadTimeoutMs < 1) {
-    throw new Error(`component-surface: crudLoadTimeoutMs must be a positive number of milliseconds, received ${config.crudLoadTimeoutMs}`)
+  if (config.dataPageLoadTimeoutMs < 1) {
+    throw new Error(
+      `component-surface: dataPageLoadTimeoutMs must be a positive number of milliseconds, received ${config.dataPageLoadTimeoutMs}`)
   }
   return {
     dataSource: config.dataSource,
     defaultPageSize: config.dataDefaultPageSize,
-    crud: config.crud,
-    crudLoadTimeoutMs: config.crudLoadTimeoutMs,
+    dataPage: config.dataPage,
+    dataPageLoadTimeoutMs: config.dataPageLoadTimeoutMs,
   }
 }
 
@@ -233,7 +236,7 @@ function offerOptions(config: ResolvedConfig): ShowComponentOptions {
 function offerNeeds(options: ShowComponentOptions): readonly string[] {
   return [
     ...options.dataSource ? ['bizBackend'] : [],
-    ...options.dataSource || options.crud ? ['approval'] : [],
+    ...options.dataSource || options.dataPage ? ['approval'] : [],
   ]
 }
 
@@ -356,7 +359,7 @@ function installViews(ctx: Context, config: ResolvedConfig, options: ShowCompone
   new ComponentViewRegistry(ctx, {
     views: config.views,
     ...homeView === undefined ? {} : { homeView },
-    crud: options.crud,
+    dataPage: options.dataPage,
   })
   ctx.inject(['componentViews'], (viewsCtx) => {
     let held: (() => void) | undefined

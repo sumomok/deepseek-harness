@@ -1,5 +1,5 @@
 /**
- * `toy.crud` on the host: the question the user is asked before the
+ * `toy.data-page` on the host: the question the user is asked before the
  * deployment's own data page opens in the panel, every sentence the model is
  * refused or answered with about it, and the table of calls waiting for the
  * page to say which columns it loaded.
@@ -14,21 +14,23 @@
  * Host-only, like `data-source.ts`, and for the same reason: the browser seat
  * draws the block out of the record the tool appends once the user has
  * answered, and nothing about the question survives into that record.
- * @module @deepseek-ai/dsh-experimental-component-surface/src/crud
+ * @module @deepseek-ai/dsh-experimental-component-surface/src/data-page
  */
 
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
-  CRUD_ID,
-  crudColumnPhrase,
-  crudMeta,
-  crudNodes,
-  MAX_CRUD_REPORTED_COLUMNS,
+  catalogEntry,
+  DATA_PAGE_ID,
+  dataPageColumnPhrase,
+  dataPageMeta,
+  dataPageNodes,
+  MAX_DATA_PAGE_REPORTED_COLUMNS,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentCatalog,
+  type ComponentCatalogEntry,
   type ComponentNode,
   type ComponentSpec,
-  type CrudColumn,
+  type DataPageColumn,
 } from './component-call.ts'
 import { refuse, type ComponentCallFailure } from './validate.ts'
 
@@ -38,20 +40,22 @@ import { refuse, type ComponentCallFailure } from './validate.ts'
  * in a result line and a column named in a notice are the same value read the
  * same way.
  */
-export type CrudLoadColumn = CrudColumn
+export type DataPageLoadColumn = DataPageColumn
 
-/** What one loaded data page reported: the table it loaded, and the columns it shows. */
-export interface CrudLoadReport {
+/** What one loaded data page reported: the table it loaded, the columns it shows, and the rights it resolved. */
+export interface DataPageLoadReport {
   /** The table, by its name in the backend. */
   readonly meta: string
-  /** The first {@link MAX_CRUD_REPORTED_COLUMNS} drawn columns, in the page's own order. */
-  readonly columns: readonly CrudLoadColumn[]
+  /** The first {@link MAX_DATA_PAGE_REPORTED_COLUMNS} drawn columns, in the page's own order. */
+  readonly columns: readonly DataPageLoadColumn[]
   /** How many columns the page draws in all. */
   readonly total: number
+  /** The rights this deployment answered with for this user on this table, by the page's own key for each. */
+  readonly rights: readonly string[]
 }
 
 /** What one waiting call is answered with, once its page reports or its deadline passes. */
-type LoadWaiter = (report: CrudLoadReport | undefined) => void
+type LoadWaiter = (report: DataPageLoadReport | undefined) => void
 
 /**
  * The calls waiting for their data page to report what it loaded.
@@ -102,14 +106,14 @@ export class PendingLoads {
    * @param signal - the execution's cancellation; an abort ends the wait like a timeout.
    * @returns the report, or `undefined` when none arrived in time.
    */
-  async settle(session: Session, entryId: string, timeoutMs: number, signal: AbortSignal): Promise<CrudLoadReport | undefined> {
+  async settle(session: Session, entryId: string, timeoutMs: number, signal: AbortSignal): Promise<DataPageLoadReport | undefined> {
     const table = this.tableOf(session)
     // One deadline for both ways this wait can end without an answer, so there
     // is a single settlement point rather than a timer racing a listener.
     const deadline = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
     let own: LoadWaiter | undefined
     try {
-      return await new Promise<CrudLoadReport | undefined>((resolve) => {
+      return await new Promise<DataPageLoadReport | undefined>((resolve) => {
         if (deadline.aborted) {
           resolve(undefined)
           return
@@ -130,7 +134,7 @@ export class PendingLoads {
    * @param report - what the page loaded.
    * @returns whether a waiting call took it; `false` leaves the report to be delivered as a notice.
    */
-  report(session: Session, entryId: string, report: CrudLoadReport): boolean {
+  report(session: Session, entryId: string, report: DataPageLoadReport): boolean {
     const table = this.waiting.get(session)
     const resolve = table?.get(entryId)
     if (table === undefined || resolve === undefined) return false
@@ -141,12 +145,12 @@ export class PendingLoads {
 }
 
 /** The metaLabel one data page block carries, as validation accepted it. */
-function crudLabel(node: ComponentNode): string {
+function dataPageLabel(node: ComponentNode): string {
   return node.props['metaLabel'] as string
 }
 
 /** How many hidden conditions one data page block narrows its table by. */
-function crudConditionCount(node: ComponentNode): number {
+function dataPageConditionCount(node: ComponentNode): number {
   const conditions = node.props['conditions'] as readonly unknown[] | undefined
   return conditions?.length ?? 0
 }
@@ -154,9 +158,10 @@ function crudConditionCount(node: ComponentNode): number {
 /**
  * Build the sentence the user is asked before the page opens.
  *
- * In the register of the data-source card, and true of what this block does:
- * the page is the user's to query, and what reaches the agent is column names,
- * counts, and the one row they click. A hidden condition is counted, never
+ * In the register of the data-source card, and true of what a placed block
+ * does: the page is the user's to query, it opens read-only because a call may
+ * not ask for anything else, and what reaches the agent is column names,
+ * counts, and the rows they point at. A hidden condition is counted, never
  * shown — its value is the model's text, and the page itself draws none of it.
  * The table's own name in the backend is written on a line of its own, the way
  * a `dataSource` card writes it and for the same reason: a person who wants to
@@ -168,16 +173,16 @@ function crudConditionCount(node: ComponentNode): number {
  * @param node - the data page block, as validation accepted it.
  * @returns the card's text.
  */
-export function crudApprovalReason(node: ComponentNode): string {
-  const conditions = crudConditionCount(node)
+export function dataPageApprovalReason(node: ComponentNode): string {
+  const conditions = dataPageConditionCount(node)
   const narrowed = conditions === 0 ? '' : `，预设了 ${conditions} 个筛选条件`
-  return `用您的账号打开「${crudLabel(node)}」的完整数据页，可以在里面查询、翻页、排序${narrowed}；`
-    + '小助手看不到表里的内容，只会知道有哪些列、每次查到多少条，以及您点到的那一行。'
-    + `\n数据表：${crudMeta(node)}`
+  return `用您的账号打开「${dataPageLabel(node)}」的完整数据页，可以在里面查询、翻页、排序${narrowed}；`
+    + '小助手看不到表里的内容，只会知道有哪些列、每次查到多少条，以及您点到或勾选的那几行。'
+    + `\n数据表：${dataPageMeta(node)}`
 }
 
 /** Refusal for a call with no session behind it: nothing can be asked, and nothing can be recorded. */
-export const CRUD_NO_SESSION
+export const DATA_PAGE_NO_SESSION
   = `${SHOW_COMPONENT_TOOL_NAME}: this call is not running in a session, so the user could not be asked to open the `
     + 'data page. Nothing on the panel changed.'
 
@@ -188,7 +193,7 @@ export const CRUD_NO_SESSION
  * the three are one thing from where the model is sitting: the page does not
  * open, and why is the user's business.
  */
-export const CRUD_NOT_APPROVED
+export const DATA_PAGE_NOT_APPROVED
   = `${SHOW_COMPONENT_TOOL_NAME}: the user did not open the data page, so nothing was drawn. Nothing on the panel changed.`
 
 /**
@@ -202,38 +207,75 @@ export const CRUD_NOT_APPROVED
  * @param spec - the spec, as validation accepted it, carrying at least one data page.
  * @returns the refusal, naming the first page and the components this deployment does offer.
  */
-export function crudNotOffered(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure {
-  const first = crudNodes(spec)[0] as ComponentNode
-  const others = catalog.entries.map(entry => entry.id as string).filter(id => id !== (CRUD_ID as string)).join(', ')
+export function dataPageNotOffered(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure {
+  const first = dataPageNodes(spec)[0] as ComponentNode
+  const others = catalog.entries.map(entry => entry.id as string).filter(id => id !== (DATA_PAGE_ID as string)).join(', ')
   return refuse(
     `spec.nodes[${spec.nodes.indexOf(first)}].component`,
-    `names ${CRUD_ID}, which this deployment does not offer. Offered components: ${others}.`,
+    `names ${DATA_PAGE_ID}, which this deployment does not offer. Offered components: ${others}.`,
   )
 }
 
 /**
- * Judge the data page blocks of one accepted call, before anything is asked.
+ * The first property of one call's data page that only a written-down page may
+ * set.
  *
- * Three things end a call here, each named by the path the model has to fix.
- * A deployment that does not offer the page refuses it by name, with the
+ * The sentence is the catalog's own `viewOnly` declaration rather than one
+ * written here: the same declaration keeps the property out of the tool's
+ * description, so a model is neither offered it nor refused in different words
+ * for sending it.
+ * @param catalog - the components this deployment offers.
+ * @param spec - the spec, as validation accepted it.
+ * @param page - the data page block of that spec.
+ * @returns the refusal, or `undefined` when the call set none of them.
+ */
+function refuseArrangement(
+  catalog: ComponentCatalog,
+  spec: ComponentSpec,
+  page: ComponentNode,
+): ComponentCallFailure | undefined {
+  // The cast is what validation proved: the node reached here only through
+  // this catalog's own entry for its component.
+  const declared = (catalogEntry(catalog, page.component) as ComponentCatalogEntry).propsSchema
+  const written = Object.entries(declared)
+    .find(([name, field]) => field.viewOnly !== undefined && page.props[name] !== undefined)
+  if (written === undefined) return undefined
+  return refuse(`spec.nodes[${spec.nodes.indexOf(page)}].props.${written[0]}`, written[1].viewOnly as string)
+}
+
+/**
+ * Judge the data page blocks of one accepted call or view, before anything is
+ * asked.
+ *
+ * Four things end a call here, each named by the path that has to change. A
+ * deployment that does not offer the page refuses it by name, with the
  * components it does offer. A second page in one call is refused, because a
  * call asks one question and a page is a whole table's worth of screen. A sort
- * naming both directions is refused the way a `dataSource` sort is.
+ * naming both directions is refused the way a `dataSource` sort is. And a
+ * property only a written page may set is refused for a call and accepted for
+ * a view, which is the one judgement the two sources do not share: a view is a
+ * file a person wrote, and the arrangement in it is that person's.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @param offered - whether this deployment offers the data page at all.
+ * @param written - whether the spec is a page somebody wrote down, which may carry its own arrangement.
  * @returns the refusal, or `undefined` when the call may proceed to the question.
  */
-export function judgeCrudNodes(catalog: ComponentCatalog, spec: ComponentSpec, offered: boolean): ComponentCallFailure | undefined {
-  const pages = crudNodes(spec)
+export function judgeDataPageNodes(
+  catalog: ComponentCatalog,
+  spec: ComponentSpec,
+  offered: boolean,
+  written: boolean,
+): ComponentCallFailure | undefined {
+  const pages = dataPageNodes(spec)
   const first = pages[0]
   if (first === undefined) return undefined
-  if (!offered) return crudNotOffered(catalog, spec)
+  if (!offered) return dataPageNotOffered(catalog, spec)
   const second = pages[1]
   if (second !== undefined) {
     return refuse(
       `spec.nodes[${spec.nodes.indexOf(second)}]`,
-      `places a second ${CRUD_ID} block. A call opens one data page; place another in a call of its own.`,
+      `places a second ${DATA_PAGE_ID} block. A call opens one data page; place another in a call of its own.`,
     )
   }
   const sort = first.props['querySort'] as { readonly asc?: string; readonly desc?: string } | undefined
@@ -243,7 +285,7 @@ export function judgeCrudNodes(catalog: ComponentCatalog, spec: ComponentSpec, o
       'cannot be sent beside asc. Sort by one attribute, in one direction.',
     )
   }
-  return undefined
+  return written ? undefined : refuseArrangement(catalog, spec, first)
 }
 
 /**
@@ -251,11 +293,11 @@ export function judgeCrudNodes(catalog: ComponentCatalog, spec: ComponentSpec, o
  * @param spec - the spec, as validation accepted it, carrying at least one data page.
  * @returns the refusal, naming the first page.
  */
-export function crudBesideDataSource(spec: ComponentSpec): ComponentCallFailure {
-  const first = crudNodes(spec)[0] as ComponentNode
+export function dataPageBesideDataSource(spec: ComponentSpec): ComponentCallFailure {
+  const first = dataPageNodes(spec)[0] as ComponentNode
   return refuse(
     `spec.nodes[${spec.nodes.indexOf(first)}]`,
-    `places a ${CRUD_ID} block, which cannot be sent beside dataSource. Open the data page in a call of its own.`,
+    `places a ${DATA_PAGE_ID} block, which cannot be sent beside dataSource. Open the data page in a call of its own.`,
   )
 }
 
@@ -265,14 +307,14 @@ export function crudBesideDataSource(spec: ComponentSpec): ComponentCallFailure 
  * @param report - what the page loaded.
  * @returns the sentence, with a leading space.
  */
-export function crudLoadedText(node: ComponentNode, report: CrudLoadReport): string {
+export function dataPageLoadedText(node: ComponentNode, report: DataPageLoadReport): string {
   const rest = report.total > report.columns.length ? ` and ${report.total - report.columns.length} more` : ''
   const columns = report.columns.length === 0
     ? 'no columns'
-    : `${report.total} column${report.total === 1 ? '' : 's'}: ${report.columns.map(crudColumnPhrase).join(', ')}${rest}`
-  return ` The user opened the data page of "${crudMeta(node)}" in block "${node.id}" with their own credential; it has `
-    + `loaded and shows ${columns}. What the user queries in it stays in the panel; each query's row count and the `
-    + 'cell they click come back to you.'
+    : `${report.total} column${report.total === 1 ? '' : 's'}: ${report.columns.map(dataPageColumnPhrase).join(', ')}${rest}`
+  return ` The user opened the data page of "${dataPageMeta(node)}" in block "${node.id}" with their own credential; it has `
+    + `loaded and shows ${columns}. What the user queries in it stays in the panel; each query's row count, the rows they `
+    + 'tick and the cell they click come back to you.'
 }
 
 /**
@@ -287,9 +329,9 @@ export function crudLoadedText(node: ComponentNode, report: CrudLoadReport): str
  * @param timeoutMs - the deadline that passed.
  * @returns the sentence, with a leading space.
  */
-export function crudUnreportedText(node: ComponentNode, timeoutMs: number): string {
-  return ` The user opened the data page of "${crudMeta(node)}" in block "${node.id}" with their own credential; no `
+export function dataPageUnreportedText(node: ComponentNode, timeoutMs: number): string {
+  return ` The user opened the data page of "${dataPageMeta(node)}" in block "${node.id}" with their own credential; no `
     + `client reported its columns within ${timeoutMs / 1000}s. The page loads when the user views it, and its `
-    + `first ${MAX_CRUD_REPORTED_COLUMNS} columns, each query's row count and the cell they click then reach you as `
+    + `first ${MAX_DATA_PAGE_REPORTED_COLUMNS} columns, each query's row count and the rows they touch then reach you as `
     + 'notices — do not place it again because of this.'
 }

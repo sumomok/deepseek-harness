@@ -15,13 +15,13 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { COMPONENT_KIT_ENTRIES, CRUD_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
-import { PendingLoads } from '../src/crud.ts'
+import { COMPONENT_KIT_ENTRIES, DATA_PAGE_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import { PendingLoads } from '../src/data-page.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
-const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
+const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
 
 let calls = 0
 
@@ -70,7 +70,7 @@ describe('show_component model-visible surface', () => {
       'Put a block of interface in the content panel beside the conversation — the area the user sees '
       + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
       + 'while you talk about it.\n\nComponents:\n'
-      + describeCatalog(COMPONENT_KIT_ENTRIES.filter(entry => entry.id !== CRUD_ID))
+      + describeCatalog(COMPONENT_KIT_ENTRIES.filter(entry => entry.id !== DATA_PAGE_ID))
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'

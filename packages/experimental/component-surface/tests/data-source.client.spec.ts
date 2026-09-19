@@ -34,17 +34,17 @@ import {
   resolveDataSourceTargets,
   type DataSourceBlock,
 } from '../src/data-source.ts'
-import { PendingLoads } from '../src/crud.ts'
+import { PendingLoads } from '../src/data-page.ts'
 import { readComponentEvent } from '../src/projection.ts'
 import { componentExtractor } from '../src/surface.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed a data backend. */
-const READING: ShowComponentOptions = { dataSource: true, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
+const READING: ShowComponentOptions = { dataSource: true, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
 
 /** The offer of a deployment that composed none. */
-const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
+const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
 
 /** The table this deployment's own dictionary declares, in the order it lists them. */
 const ATTRIBUTES = [

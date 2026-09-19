@@ -9,7 +9,7 @@
  * The one thing only a composition can show is the point of the row: the parts
  * a pack is judged against are the components this deployment *offers*, so a
  * pack requiring the data page is withheld from a deployment that registered
- * it and left `crud` off.
+ * it and left `dataPage` off.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -94,11 +94,11 @@ const DATA_PAGE_PACK = [
   '  requires:',
   '    components:',
   `      "${KIT}": ">=0.4.0"`,
-  '    parts: [toy.crud]',
+  '    parts: [toy.data-page]',
 ]
 
 /** Boot the four rows over a freshly written pack root. */
-async function loadComposition(crud: boolean): Promise<Context> {
+async function loadComposition(dataPage: boolean): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-components-'))
   const root = join(world, 'packs')
   await writePack(root, 'space-data-page', DATA_PAGE_PACK)
@@ -112,7 +112,7 @@ async function loadComposition(crud: boolean): Promise<Context> {
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     '  config:',
-    `    crud: ${String(crud)}`,
+    `    dataPage: ${String(dataPage)}`,
     "- name: '@deepseek-ai/dsh-experimental-skill-pack'",
     '  config:',
     `    root: ${JSON.stringify(root)}`,
@@ -168,14 +168,14 @@ describe('the component catalog as a pack reads it', () => {
   it('publishes each offered component with the package that registered it and that package\'s own version', async () => {
     const ctx = await loadComposition(true)
     const parts = ctx.skillPackParts.list()
-    expect(parts).toContainEqual({ id: 'toy.crud', plugin: KIT, version: KIT_VERSION })
+    expect(parts).toContainEqual({ id: 'toy.data-page', plugin: KIT, version: KIT_VERSION })
     // Every registered component is a part, not only the one the pack names:
     // which parts a pack may require is the pack's business.
     expect(parts.map(part => part.id)).toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
   })
 
   it('withholds a pack whose part the deployment registered and does not offer', async () => {
-    // `crud: false` is a deployment that composed the component plugin and did
+    // `dataPage: false` is a deployment that composed the component plugin and did
     // not turn the data page on. The page cannot be drawn here, so the pack
     // that places it is offered to nobody — the part is absent as far as a
     // pack is concerned, which is the whole reason this row reads the offer
@@ -185,10 +185,10 @@ describe('the component catalog as a pack reads it', () => {
       skill: 'space-data-page',
       version: '1.0.0',
       state: 'inactive',
-      missing: [{ kind: 'part-absent', part: 'toy.crud' }],
+      missing: [{ kind: 'part-absent', part: 'toy.data-page' }],
     })
     expect(await skillNames(ctx)).not.toContain('space-data-page')
-    expect(ctx.skillPackParts.list().map(part => part.id)).not.toContain('toy.crud')
+    expect(ctx.skillPackParts.list().map(part => part.id)).not.toContain('toy.data-page')
   })
 
   it('withdraws the pack when the component plugin goes away, with no restart', async () => {
@@ -201,7 +201,7 @@ describe('the component catalog as a pack reads it', () => {
       state: 'inactive',
       missing: [
         { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },
-        { kind: 'part-absent', part: 'toy.crud' },
+        { kind: 'part-absent', part: 'toy.data-page' },
       ],
     })
     expect(await skillNames(ctx)).not.toContain('space-data-page')

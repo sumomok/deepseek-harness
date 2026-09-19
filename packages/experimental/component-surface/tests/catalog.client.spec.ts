@@ -16,7 +16,7 @@ import { ComponentCatalogRegistry, trackCatalog, type ComponentSource } from '..
 import {
   CONFIRM_BAR_ID,
   COMPONENT_KIT_ENTRIES,
-  CRUD_ID,
+  DATA_PAGE_ID,
   describeCatalog,
   LAYOUT_SPEC_DEPTH,
   METRIC_ID,
@@ -216,12 +216,12 @@ describe('the component catalog registry', () => {
     // this package that it is not there.
     const ctx = new Context()
     contexts.push(ctx)
-    await ctx.plugin(ComponentCatalogRegistry, { withheld: [CRUD_ID] }).await()
+    await ctx.plugin(ComponentCatalogRegistry, { withheld: [DATA_PAGE_ID] }).await()
     ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
-    expect(ctx.componentCatalog.components.map(one => one.entry.id)).toContain(CRUD_ID)
-    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).not.toContain(CRUD_ID)
+    expect(ctx.componentCatalog.components.map(one => one.entry.id)).toContain(DATA_PAGE_ID)
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).not.toContain(DATA_PAGE_ID)
     expect(ctx.componentCatalog.offered.map(one => one.entry.id))
-      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== CRUD_ID))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
   })
 
   it('offers every registered component where the deployment withholds none', async () => {
@@ -268,7 +268,7 @@ describe('the tool the registry decides', () => {
   it('is not offered where the only registered component is one this deployment does not offer', async () => {
     const ctx = await row()
     ctx.componentCatalog.register({
-      entries: COMPONENT_KIT_ENTRIES.filter(entry => entry.id === CRUD_ID),
+      entries: COMPONENT_KIT_ENTRIES.filter(entry => entry.id === DATA_PAGE_ID),
       source: KIT_SOURCE,
     })
     // `crud` is off, so the data page is left out of the offer — and nothing
@@ -283,7 +283,7 @@ describe('what a call is judged against', () => {
     const result = validateComponentCall(catalog, {
       id: 'budget',
       title: '预算',
-      spec: { nodes: [{ id: 'x', component: CRUD_ID, props: {} }] },
+      spec: { nodes: [{ id: 'x', component: DATA_PAGE_ID, props: {} }] },
     })
     expect(result.ok).toBe(false)
     if (result.ok) return

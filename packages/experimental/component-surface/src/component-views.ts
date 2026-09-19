@@ -54,7 +54,7 @@ export interface ComponentViewOptions {
    * a view may place one: a view that opens a page the deployment did not turn
    * on is refused by name, exactly as a call for it is.
    */
-  readonly crud: boolean
+  readonly dataPage: boolean
 }
 
 /** The npm name the deployment's own configured views are refused and reported under. */
@@ -124,7 +124,7 @@ export class ComponentViewRegistry extends Service {
    * @returns the accepted call, or the value that stopped it.
    */
   judge(view: ContributedView): ViewJudgement {
-    return judgeView(this.ctx.componentCatalog.catalog, this.options.crud, view)
+    return judgeView(this.ctx.componentCatalog.catalog, this.options.dataPage, view)
   }
 
   /**
@@ -189,7 +189,7 @@ export class ComponentViewRegistry extends Service {
           dropped.push(`${source.owner} offers the view ${JSON.stringify(view.id)}, which ${this.holderOf(view.id)} already offers`)
           continue
         }
-        const judged = judgeView(catalog, this.options.crud, view)
+        const judged = judgeView(catalog, this.options.dataPage, view)
         if (!judged.ok) {
           dropped.push(`${source.owner}'s view ${JSON.stringify(view.id)} cannot be drawn: ${judged.refusal.reason}`)
           continue
@@ -216,7 +216,7 @@ export class ComponentViewRegistry extends Service {
    */
   private judgeConfigured(catalog: ComponentCatalog): ViewIndex {
     try {
-      return indexViews(catalog, this.options.views, this.options.homeView, this.options.crud)
+      return indexViews(catalog, this.options.views, this.options.homeView, this.options.dataPage)
     } catch (refusal) {
       this.ctx.logger.error(
         '%s; this deployment comes up with no components, no views and no show_component tool until that view is '

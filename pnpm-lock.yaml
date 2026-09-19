@@ -5224,8 +5224,8 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       '@sumomok/toy-crud-kit':
-        specifier: file:./vendor/sumomok-toy-crud-kit-0.2.3.tgz
-        version: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
+        specifier: file:./vendor/sumomok-toy-crud-kit-0.4.1.tgz
+        version: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
       '@sumomok/toy-surface-kit':
         specifier: file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz
         version: file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
@@ -14322,9 +14322,9 @@ packages:
       react-dom:
         optional: true
 
-  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz':
-    resolution: {integrity: sha512-k1ufPu0NHQDGAZul7NQbnAfZdSFexChc4pcg4yraySW8bMJk2EUAmFlaL8xyzbs9oOwBCfPaKxVKS2qaj1dEgw==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz}
-    version: 0.2.3
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.1.tgz':
+    resolution: {integrity: sha512-xj/wwI787GgurRebhsWJ7SxrY3uy2rnicSjjPok7Tpv8Z600xLoW/FS2pKj/i70nbqMFLw4fsAtCvluz9BMo4Q==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.1.tgz}
+    version: 0.4.1
     peerDependencies:
       element-ui: ^2.15.14
       vue: ^2.7.0
@@ -21232,7 +21232,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
     dependencies:
       dayjs: 1.11.21
       element-ui: 2.15.14(vue@2.7.16)

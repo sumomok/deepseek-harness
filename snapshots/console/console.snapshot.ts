@@ -340,7 +340,7 @@ const AGENT = {
  * for, so its log carries the sentence a model reads when its conditions matched
  * nothing rather than one saying the data source could not be read.
  *
- * `show-crud-turn` is the other path that asks the user a question. It opens the
+ * `show-data-page-turn` is the other path that asks the user a question. It opens the
  * deployment's own full data page for one table, which the host reads nothing
  * for: the card, the `allow_once`, and the `content-component/resolved` that
  * carries the spec the user agreed to with nothing fetched are in its log, and
@@ -374,7 +374,7 @@ const CONTROLLER_CASES: readonly { readonly name: string, readonly env: NodeJS.P
   { name: 'refuse-datasource-turn', env: REFUSE_ENV },
   { name: 'show-default-columns-turn', env: DEFAULT_COLUMNS_ENV },
   { name: 'empty-datasource-turn', env: EMPTY_ENV },
-  { name: 'show-crud-turn', env: SHARED_ENV },
+  { name: 'show-data-page-turn', env: SHARED_ENV },
 ] as const
 
 /** The scenarios that must hold the visitor's token before their model turn. */

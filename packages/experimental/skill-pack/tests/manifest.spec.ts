@@ -10,14 +10,14 @@ describe('pack manifest', () => {
   it('reads a complete manifest and fills the requirements a pack left out', () => {
     const complete = parsePackManifest({
       pack: { version: '1.0.0', platform: '>=0.5.0' },
-      requires: { components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.3.0' }, parts: ['toy.crud'] },
+      requires: { components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.3.0' }, parts: ['toy.data-page'] },
       views: ['views/space-layer.yml'],
     })
     expect(complete).toEqual({
       ok: true,
       manifest: {
         pack: { version: '1.0.0', platform: '>=0.5.0' },
-        requires: { components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.3.0' }, parts: ['toy.crud'] },
+        requires: { components: { '@deepseek-ai/dsh-experimental-component-kit': '>=0.3.0' }, parts: ['toy.data-page'] },
         views: ['views/space-layer.yml'],
       },
     })
@@ -28,10 +28,10 @@ describe('pack manifest', () => {
       manifest: { pack: { version: '0.1.0' }, requires: { components: {}, parts: [] }, views: [] },
     })
 
-    const halfFilled = parsePackManifest({ pack: { version: '0.1.0' }, requires: { parts: ['toy.crud'] } })
+    const halfFilled = parsePackManifest({ pack: { version: '0.1.0' }, requires: { parts: ['toy.data-page'] } })
     expect(halfFilled).toEqual({
       ok: true,
-      manifest: { pack: { version: '0.1.0' }, requires: { components: {}, parts: ['toy.crud'] }, views: [] },
+      manifest: { pack: { version: '0.1.0' }, requires: { components: {}, parts: ['toy.data-page'] }, views: [] },
     })
   })
 
@@ -60,11 +60,11 @@ describe('pack manifest', () => {
   })
 
   it('refuses a key it does not know, so a misspelled requirement is not a requirement dropped', () => {
-    expect(parsePackManifest({ pack: { version: '1.0.0' }, require: { parts: ['toy.crud'] } }))
+    expect(parsePackManifest({ pack: { version: '1.0.0' }, require: { parts: ['toy.data-page'] } }))
       .toMatchObject({ ok: false, field: 'metadata.require' })
     expect(parsePackManifest({ pack: { version: '1.0.0', platfrom: '>=1.0.0' } }))
       .toMatchObject({ ok: false, field: 'metadata.pack.platfrom' })
-    expect(parsePackManifest({ pack: { version: '1.0.0' }, requires: { part: ['toy.crud'] } }))
+    expect(parsePackManifest({ pack: { version: '1.0.0' }, requires: { part: ['toy.data-page'] } }))
       .toMatchObject({ ok: false, field: 'metadata.requires.part' })
   })
 })

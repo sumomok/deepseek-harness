@@ -11,7 +11,7 @@ const VIEW = [
   'title: 图层数据',
   'spec:',
   '  - id: layer-table',
-  '    component: toy.crud',
+  '    component: toy.data-page',
   'params:',
   '  relatedMeta: sys_layer',
   '  metaLabel: 图层',
@@ -26,7 +26,7 @@ describe('pack view files', () => {
       view: {
         id: 'space-layer',
         title: '图层数据',
-        spec: [{ id: 'layer-table', component: 'toy.crud' }],
+        spec: [{ id: 'layer-table', component: 'toy.data-page' }],
         params: { relatedMeta: 'sys_layer', metaLabel: '图层' },
       },
     })

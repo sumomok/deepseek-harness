@@ -16,9 +16,9 @@
  * — imports `vue` or `element-ui`: their compiled components are option objects
  * that run on whatever runtime renders them and resolve their `el-*` tags
  * through the global registration `installElementUI()` performs. That is what
- * makes the function load-bearing rather than a convenience, and the crud kit
- * is what makes it load-bearing for a whole page: `Crud` is built out of `el-*`
- * tags and nothing else registers them.
+ * makes the function load-bearing rather than a convenience, and the data
+ * page's kit is what makes it load-bearing for a whole page: `DataPage` is
+ * built out of `el-*` tags and nothing else registers them.
  *
  * That alias is why **no file under `src/` may import `vue` itself**: an import
  * here would be aliased back onto this module and close a cycle.

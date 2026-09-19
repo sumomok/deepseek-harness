@@ -22,7 +22,7 @@ import type { PackStatusDocument, PackView, PackViewRefusal, ProvidedPart } from
 
 const PLATFORM_VERSION = '0.5.2'
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
-const CRUD: ProvidedPart = { id: 'toy.crud', plugin: KIT, version: '0.4.0' }
+const CRUD: ProvidedPart = { id: 'toy.data-page', plugin: KIT, version: '0.4.0' }
 
 /** A parts source standing in for the component catalog's registered parts. */
 class TestParts extends Service {
@@ -116,7 +116,7 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
     '  requires:',
     '    components:',
     `      "${KIT}": ">=0.4.0"`,
-    '    parts: [toy.crud]',
+    '    parts: [toy.data-page]',
     '  views: [views/space-layer.yml]',
   ].join('\n'), { 'space-layer.yml': 'id: space-layer\ntitle: 图层数据\nspec: []\nparams:\n  relatedMeta: sys_layer\n' })
   await writePack(root, 'plain-note', '  pack:\n    version: 2.0.0', {}, 'When the user asks for the note.')
@@ -229,7 +229,7 @@ describe('a pack root whose parts nothing has registered', () => {
         state: 'inactive',
         missing: [
           { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },
-          { kind: 'part-absent', part: 'toy.crud' },
+          { kind: 'part-absent', part: 'toy.data-page' },
         ],
       },
     ])

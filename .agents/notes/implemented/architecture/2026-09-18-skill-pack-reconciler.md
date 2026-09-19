@@ -6,7 +6,7 @@ English | [中文](2026-09-18-skill-pack-reconciler.zh.md)
 
 ## Problem
 
-A deployment wants to ship a skill and the interface that skill talks about as one installable thing: instructions, plus the views that place a component plugin's parts. Skills already install as directories, and the filesystem skill provider passes a skill's frontmatter `metadata` through untouched, so a directory can carry both. What was missing is the judgement. A skill whose views place `toy.crud` is useless — worse than absent — in a composition that has no component plugin registering `toy.crud`: the model is told the skill exists, follows it, and the user gets a page with a hole in it or nothing at all.
+A deployment wants to ship a skill and the interface that skill talks about as one installable thing: instructions, plus the views that place a component plugin's parts. Skills already install as directories, and the filesystem skill provider passes a skill's frontmatter `metadata` through untouched, so a directory can carry both. What was missing is the judgement. A skill whose views place `toy.data-page` is useless — worse than absent — in a composition that has no component plugin registering `toy.data-page`: the model is told the skill exists, follows it, and the user gets a page with a hole in it or nothing at all.
 
 The delivery side also needs a way to replace what a deployment holds. Packs are retired upstream, packs are edited by hand on the box, and a merge-shaped install leaves a root nobody can reason about.
 

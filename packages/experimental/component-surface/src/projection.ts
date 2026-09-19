@@ -26,7 +26,7 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import {
-  crudNodes,
+  dataPageNodes,
   parseComponentCall,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
@@ -83,5 +83,5 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
  */
 export function recordsEntry(event: SessionEvent, spec: ComponentSpec): boolean {
   const isCall = event.type === 'tool/call' || event.type === 'tool/code-dispatch-start'
-  return !(isCall && crudNodes(spec).length > 0)
+  return !(isCall && dataPageNodes(spec).length > 0)
 }

@@ -34,8 +34,8 @@ import type {} from '@deepseek-ai/dsh-experimental-component-surface/client'
 import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import type { BrowserComponent } from '@deepseek-ai/dsh-experimental-component-surface/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
-import { CrudRenderer } from './CrudRenderer.tsx'
-import { settleCrudBasePath } from './crud-settings.ts'
+import { DataPageRenderer } from './DataPageRenderer.tsx'
+import { settleDataPageBasePath } from './data-page-settings.ts'
 import { installElementUI } from './element-ui.ts'
 import { en, NS, zh } from './locales.ts'
 import { TableDetailRenderer } from './TableDetailRenderer.tsx'
@@ -45,7 +45,7 @@ import { TuQueryCondAdvRenderer } from './TuQueryCondAdvRenderer.tsx'
 import type { ComponentRenderer } from './renderer.ts'
 
 export { NS } from './locales.ts'
-export { CRUD_REPORT_LIMITS } from './crud-limits.ts'
+export { DATA_PAGE_REPORT_LIMITS } from './data-page-limits.ts'
 export { installElementUI } from './element-ui.ts'
 export { freezeDeep } from './freeze.ts'
 export { useVueComponent, VueBridge } from './vue2-bridge.tsx'
@@ -78,7 +78,7 @@ const COMPONENT_RENDERERS = {
   'el.confirm-bar': ConfirmBar,
   'el.filter-bar': TuQueryCondAdvRenderer,
   'el.metric': TcProcessBallRenderer,
-  'toy.crud': CrudRenderer,
+  'toy.data-page': DataPageRenderer,
   'toy.record': TcFormDetailRenderer,
   'toy.table': TableDetailRenderer,
 } satisfies Readonly<Record<string, ComponentRenderer>>
@@ -137,5 +137,5 @@ export function apply(ctx: ClientContext): void {
     })
   })
   installElementUI()
-  void settleCrudBasePath()
+  void settleDataPageBasePath()
 }

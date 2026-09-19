@@ -14,7 +14,7 @@ import { ComponentRendererRegistry } from '@deepseek-ai/dsh-experimental-compone
 import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
 import { apply, componentKitRenderers, inject } from '../src/client/index.ts'
 import { ConfirmBar } from '../src/client/ConfirmBar.tsx'
-import { CrudRenderer } from '../src/client/CrudRenderer.tsx'
+import { DataPageRenderer } from '../src/client/DataPageRenderer.tsx'
 import { COMPONENT_KIT_SETTINGS_ROUTE } from '../src/route.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { TcProcessBallRenderer } from '../src/client/TcProcessBallRenderer.tsx'
@@ -84,7 +84,7 @@ describe('component-kit browser half', () => {
       ['toy.table', TableDetailRenderer],
       ['el.filter-bar', TuQueryCondAdvRenderer],
       ['el.metric', TcProcessBallRenderer],
-      ['toy.crud', CrudRenderer],
+      ['toy.data-page', DataPageRenderer],
     ])
   })
 

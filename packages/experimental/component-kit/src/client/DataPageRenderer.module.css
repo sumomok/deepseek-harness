@@ -1,0 +1,36 @@
+/* `DataPage` is `height: 100%` over a query panel, a toolbar, an `el-table` and
+   a pager, so the block it is mounted in carries a height of its own or the
+   whole page collapses to one row — without an error, which is why the height
+   is written here rather than left to the page. The section takes the height of
+   the cell it was placed in, so a page given a share of the column fills it;
+   the box falls back to a fixed height where the cell has none, so a page
+   placed with no arrangement at all is still a page. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+.box {
+  /* `containCrud` makes this the positioned ancestor the request layer's
+     overlay and progress bar are confined to. */
+  position: relative;
+  flex: 1;
+  min-block-size: 32rem;
+  inline-size: 100%;
+  overflow: hidden;
+}
+
+.host {
+  block-size: 100%;
+  inline-size: 100%;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--dsh-text-muted, #6b7280);
+  font-size: 0.875rem;
+}

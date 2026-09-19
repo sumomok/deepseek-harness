@@ -13,8 +13,8 @@
  * view id — an entry the log can replay without the configuration file that
  * produced it.
  *
- * Every view opens on the click, the one that places `toy.crud` included. The
- * click is the user's own decision about a menu row they can read the title of,
+ * Every view opens on the click, the one that places `toy.data-page` included.
+ * The click is the user's own decision about a menu row they can read the title of,
  * and no card in front of it could be more than a second press of the same
  * button: the page it opens is drawn in the console's own origin, beside the
  * deployment's other pages, which open on a click too. A model cannot reach

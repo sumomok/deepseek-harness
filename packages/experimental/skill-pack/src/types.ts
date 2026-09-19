@@ -15,7 +15,7 @@
  * at which version that package is installed.
  */
 export interface ProvidedPart {
-  /** The part id a pack names in `requires.parts`, such as `toy.crud`. */
+  /** The part id a pack names in `requires.parts`, such as `toy.data-page`. */
   readonly id: string
   /** The npm package name of the component plugin that registered the part. */
   readonly plugin: string

@@ -25,7 +25,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
 import { actionMemory, componentActionCommand, deliverAction } from '../src/command.ts'
-import { PendingLoads } from '../src/crud.ts'
+import { PendingLoads } from '../src/data-page.ts'
 import {
   catalogAction,
   catalogEntry,

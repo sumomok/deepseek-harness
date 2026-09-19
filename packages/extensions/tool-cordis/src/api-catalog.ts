@@ -4963,7 +4963,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PropsField',
-    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n}',
+    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n    readonly viewOnly?: string;\n}',
   },
   {
     name: 'PropsFieldSchema',

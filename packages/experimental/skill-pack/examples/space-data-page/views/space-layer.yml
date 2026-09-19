@@ -1,19 +1,51 @@
 # One view of this pack: the deployment's own layer table, drawn by the
-# `toy.crud` part the manifest requires. `spec` is the structure the component
-# catalog judges — the same structure a `show_component` call writes — and
-# `params` are the values this pack fills its `{"$param": …}` references with
-# when the view is loaded. The pack root's provider carries both through
+# `toy.data-page` part the manifest requires. `spec` is the structure the
+# component catalog judges — the same structure a `show_component` call writes —
+# and `params` are the values this pack fills its `{"$param": …}` references
+# with when the view is loaded. The pack root's provider carries both through
 # without reading either.
+#
+# Everything under `props` past the table and its name is the page's
+# arrangement, and a view file is the only place it may be written: a call may
+# name the table, narrow it and sort it, and a page it places opens read-only
+# with the page's own arrangement. What is written here reproduces the page this
+# deployment's own console shows for this table — the query panel collapsed to
+# one row, 新增 on the toolbar beside the query buttons, a modify button on each
+# row, the side card that narrows the table when it opens, and the full-page
+# add and modify panels — and `readOnly: false` is what lets the backend's own
+# rights decide whether a press succeeds.
+#
+# `flex: 1` is what gives the block the column's own height: the page is
+# `height: 100%` over a query panel, a table and a pager, and a cell carrying no
+# share of the column leaves it at its own fixed height instead.
 id: space-layer
 title: 图层数据
 spec:
   nodes:
     - id: layer-table
-      component: toy.crud
+      component: toy.data-page
       props:
         relatedMeta: { $param: table }
         metaLabel: { $param: label }
         isInitQuery: true
+        queryExpanded: false
+        regions:
+          query: true
+          toolbar: true
+          table: true
+          operate: true
+          pagination: true
+          infoCard: true
+          addForm: true
+          modifyForm: true
+        toolbarButtons: [add, search, clear]
+        rowOperations: [modify]
+        readOnly: false
+  layout:
+    node: stack
+    dir: col
+    children:
+      - { node: component, id: layer-table, flex: 1 }
 params:
   table: sys_layer
   label: 图层

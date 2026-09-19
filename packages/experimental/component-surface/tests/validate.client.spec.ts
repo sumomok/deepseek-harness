@@ -14,8 +14,8 @@ import {
   catalogAction,
   catalogEntry,
   COMPONENT_KIT_ENTRIES,
-  CRUD_ID,
-  CRUD_QUERY_ID,
+  DATA_PAGE_ID,
+  DATA_PAGE_QUERY_ID,
   describeCatalog,
   FILTER_BAR_ID,
   MAX_ENTRY_ID_LENGTH,
@@ -530,7 +530,7 @@ describe('refusing a component\'s properties', () => {
 describe('a scalar property', () => {
   /** The data page's condition list, the one place the catalog declares a scalar. */
   function page(value: unknown) {
-    return validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'p', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备', conditions: [{ key: 'city', op: 'EQ', value }] } }] })
+    return validateComponentSpec(KIT_CATALOG, { nodes: [{ id: 'p', component: 'toy.data-page', props: { relatedMeta: 'device', metaLabel: '设备', conditions: [{ key: 'city', op: 'EQ', value }] } }] })
   }
 
   it.each([
@@ -572,9 +572,9 @@ describe('a scalar property', () => {
 describe('a count declared whole', () => {
   /** The three counts one answered query reports, read off the catalog rather than restated here. */
   function queryCounts(): PropsSchema {
-    const component = catalogEntry(KIT_CATALOG, CRUD_ID)
-    const action = component === undefined ? undefined : catalogAction(component, CRUD_QUERY_ID)
-    if (action === undefined) throw new Error(`${CRUD_ID} declares no ${CRUD_QUERY_ID}`)
+    const component = catalogEntry(KIT_CATALOG, DATA_PAGE_ID)
+    const action = component === undefined ? undefined : catalogAction(component, DATA_PAGE_QUERY_ID)
+    if (action === undefined) throw new Error(`${DATA_PAGE_ID} declares no ${DATA_PAGE_QUERY_ID}`)
     return action.payloadSchema
   }
 

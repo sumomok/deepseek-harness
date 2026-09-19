@@ -14,6 +14,13 @@
      scrolls sideways instead. */
   min-width: 0;
   min-height: 0;
+  /* Grows into the viewport's spare height and never shrinks below its own
+     content: the outermost stack is the viewport's only flex item, so this is
+     what gives a cell carrying a share of the column a height to divide, while
+     content taller than the viewport still scrolls it rather than being cut.
+     A nested stack sits inside a cell, which is not a flex container, so this
+     reaches the outermost one alone. */
+  flex: 1 0 auto;
 }
 
 .stack[data-component-stack='col'] {

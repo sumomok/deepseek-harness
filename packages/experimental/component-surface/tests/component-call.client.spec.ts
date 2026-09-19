@@ -19,6 +19,7 @@ import {
   COMPONENT_KIT_ENTRIES,
   COMPONENT_KIND,
   CONFIRM_BAR_ID,
+  DATA_PAGE_VIEW_PROP_NAMES,
   describeCatalog,
   describeSchema,
   FILTER_BAR_ID,
@@ -136,14 +137,21 @@ describe('component catalog', () => {
       + '\n  props: size? (40–400), process (0–100), text?, background? (#RGB|#RRGGBB|rgb()|rgba()),'
       + ' borderColor? (#RGB|#RRGGBB|rgb()|rgba()), pointColor? (#RGB|#RRGGBB|rgb()|rgba()),'
       + ' isPointShow? (true|false)'
-      + '\n- toy.crud — 完整数据页 — This deployment\'s own full data page for one table, opened with the user\'s own'
+      + '\n- toy.data-page — 完整数据页 — This deployment\'s own full data page for one table, opened with the user\'s own'
       + ' credential once they agree: they query, page and sort in it themselves, and you are told its columns, each'
-      + ' query\'s row count, and the row and column of a cell they click — no row they do not click.'
+      + ' query\'s row count, the rows they tick, and the row and column of a cell they click — no row they do not'
+      + ' touch.'
       + '\n  props: relatedMeta, metaLabel, conditions?[{key, op (EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL'
       + '|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN),'
       + ' value (text|number|true|false|[text|number])}] (1–10), matchMode? (AND|OR), querySort?{asc?, desc?},'
-      + ' selectMode? (checkbox|radio), isExpandQuery? (true|false), isInitQuery? (true|false)',
+      + ' selectMode? (checkbox|radio), isInitQuery? (true|false), customOperations?[{name, label}] (1–5)',
     )
+    // A property only a written-down page may set is not in the offer: a model
+    // reading one would write it and be refused, and the refusal it would be
+    // refused in is the same declaration that leaves it out here.
+    for (const name of DATA_PAGE_VIEW_PROP_NAMES) {
+      expect(describeCatalog(COMPONENT_KIT_ENTRIES)).not.toContain(`${name}?`)
+    }
     // Two lines per component, and a third wherever another block can read
     // something out of one.
     expect(describeCatalog(COMPONENT_KIT_ENTRIES).split('\n'))

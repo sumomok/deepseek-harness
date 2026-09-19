@@ -15,7 +15,7 @@
  *
  * The row also serves its browser half the one setting a component here cannot
  * do without: `bizBasePath`, the path prefix the vendored data page
- * (`toy.crud`) requests its table under, from the browser and with the
+ * (`toy.data-page`) requests its table under, from the browser and with the
  * visitor's own credential. The page's request layer reads it once, at module
  * evaluation, so the browser half applies it before the page is first drawn;
  * what this half does is judge it at load and answer it on a route.
@@ -43,7 +43,7 @@ export const name = 'component-kit'
 /** Plugin config: where the data page's requests go. */
 export interface Config {
   /**
-   * Root-absolute path prefix the `toy.crud` data page requests its table
+   * Root-absolute path prefix the `toy.data-page` component requests its table
    * under, such as `/` or `/nrms-server/`; a trailing `/` is added where
    * missing. The page requests from the browser, so the prefix names a path on
    * the shell's own origin — the reverse proxy in front of the console is what

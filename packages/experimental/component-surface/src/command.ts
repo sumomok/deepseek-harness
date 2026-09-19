@@ -54,8 +54,8 @@ import {
   COMPONENT_ACTION_COMMAND,
   COMPONENT_ACTION_PLUGIN,
   COMPONENT_KIND,
-  CRUD_ID,
-  CRUD_LOAD_ID,
+  DATA_PAGE_ID,
+  DATA_PAGE_LOAD_ID,
   MAX_ACTION_PAYLOAD_BYTES,
   parseComponentActionLine,
   WAKE_BUDGET,
@@ -65,7 +65,7 @@ import {
   type ComponentCatalog,
 } from './component-call.ts'
 import { componentActionsProjection } from './action-projection.ts'
-import type { CrudLoadReport, PendingLoads } from './crud.ts'
+import type { DataPageLoadReport, PendingLoads } from './data-page.ts'
 import { readComponentSurfaceData } from './surface.ts'
 import { acceptsActionPayload, validateComponentSpec } from './validate.ts'
 
@@ -129,7 +129,7 @@ export interface ResolvedAction {
    * because a call may still be waiting to put these columns in its own
    * result line, and a report that call takes is delivered nowhere else.
    */
-  readonly load?: CrudLoadReport
+  readonly load?: DataPageLoadReport
 }
 
 /**
@@ -203,8 +203,8 @@ function resolveAction(
   const key = JSON.stringify([record.entryId, node.id, definition.id])
   // The payload passed the load action's own schema and `describe` accepted
   // it as this block's table, so the cast records what has already been judged.
-  const load = component.id === CRUD_ID && definition.id === CRUD_LOAD_ID
-    ? action.payload as unknown as CrudLoadReport
+  const load = component.id === DATA_PAGE_ID && definition.id === DATA_PAGE_LOAD_ID
+    ? action.payload as unknown as DataPageLoadReport
     : undefined
   return { kind: 'resolved', action: { notice, report: definition.report, key, ...load === undefined ? {} : { load } } }
 }
