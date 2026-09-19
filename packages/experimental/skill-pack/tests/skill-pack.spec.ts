@@ -7,20 +7,39 @@
  * and what all four answer as the parts source arrives and goes away.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Logger, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SkillRegistry, { isModelInvocable, isUserInvocable } from '@deepseek-ai/dsh-skill'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
-import SkillPackRegistry, { SKILL_PACK_STATUS_ROUTE } from '../src/index.ts'
-import type { PackStatusDocument, PackView, PackViewRefusal, ProvidedPart } from '../src/types.ts'
+import { PACK_ARCHIVE_MANIFEST } from '../src/archive.ts'
+import SkillPackRegistry, { buildPackArchive, SKILL_PACK_STATUS_ROUTE } from '../src/index.ts'
+import type {
+  DeliveredPack,
+  PackStatusDocument,
+  PackView,
+  PackViewRefusal,
+  ProvidedPart,
+} from '../src/types.ts'
 
 const PLATFORM_VERSION = '0.5.2'
+
+/** How long a poll waits for a watcher's event to reach the composition. */
+const SETTLE_MS = 10_000
+
+/**
+ * Timeout for a test that waits on a watcher. Longer than the poll it makes,
+ * so a slow host reports what the poll found rather than which second it
+ * ran out of.
+ */
+const WATCHED_MS = 20_000
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
 const CRUD: ProvidedPart = { id: 'toy.data-page', plugin: KIT, version: '0.4.0' }
 
@@ -76,6 +95,21 @@ function reportsAt(type: string): string[] {
   return logLines.filter(line => line.type === type && line.text.includes('withholding')).map(line => line.text)
 }
 
+/** One pack's SKILL.md: the frontmatter a pack is read from, the manifest inside it, and the instructions. */
+function skillText(name: string, metadata: string, whenToUse?: string): string {
+  return [
+    '---',
+    `name: ${name}`,
+    `description: ${name} description.`,
+    ...whenToUse === undefined ? [] : [`whenToUse: ${whenToUse}`],
+    'metadata:',
+    metadata,
+    '---',
+    `Instructions for ${name}.`,
+    '',
+  ].join('\n')
+}
+
 /** Write one pack into a root: a SKILL.md carrying the manifest, and the views it declares. */
 async function writePack(
   root: string,
@@ -86,18 +120,19 @@ async function writePack(
 ): Promise<void> {
   const directory = join(root, name)
   await mkdir(join(directory, 'views'), { recursive: true })
-  await writeFile(join(directory, 'SKILL.md'), [
-    '---',
-    `name: ${name}`,
-    `description: ${name} description.`,
-    ...whenToUse === undefined ? [] : [`whenToUse: ${whenToUse}`],
-    'metadata:',
-    metadata,
-    '---',
-    `Instructions for ${name}.`,
-    '',
-  ].join('\n'))
+  await writeFile(join(directory, 'SKILL.md'), skillText(name, metadata, whenToUse))
   for (const [file, body] of Object.entries(views)) await writeFile(join(directory, 'views', file), body)
+}
+
+/** The same pack as a delivery carries it, for an archive rather than for a root. */
+function deliveredPack(name: string, metadata: string, views: Record<string, string> = {}): DeliveredPack {
+  return {
+    name,
+    files: [
+      { path: 'SKILL.md', content: skillText(name, metadata) },
+      ...Object.entries(views).map(([file, body]) => ({ path: `views/${file}`, content: body })),
+    ],
+  }
 }
 
 /**
@@ -122,18 +157,31 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
   await writePack(root, 'plain-note', '  pack:\n    version: 2.0.0', {}, 'When the user asks for the note.')
   if (broken) await writePack(root, 'broken-pack', '  pack:\n    version: one')
 
-  const configPath = join(world, 'cordis.yml')
+  return { ctx: await boot(skillPackRow(root, watch)), root }
+}
+
+/** The plugin row this package is mounted through, with the pack-root config every composition here gives it. */
+function skillPackRow(root: string, watch: boolean, deliveries: string[] = []): string[] {
+  return [
+    "- name: '@deepseek-ai/dsh-experimental-skill-pack'",
+    '  config:',
+    `    root: ${JSON.stringify(root)}`,
+    `    platformVersion: '${PLATFORM_VERSION}'`,
+    `    watch: ${String(watch)}`,
+    ...deliveries,
+  ]
+}
+
+/** Boot the skill registry, the web server and the given rows through the Loader, over the test world. */
+async function boot(rows: string[]): Promise<Context> {
+  const configPath = join(world!, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-skill'",
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
-    "- name: '@deepseek-ai/dsh-experimental-skill-pack'",
-    '  config:',
-    `    root: ${JSON.stringify(root)}`,
-    `    platformVersion: '${PLATFORM_VERSION}'`,
-    `    watch: ${String(watch)}`,
+    ...rows,
     '',
   ].join('\n'))
 
@@ -141,7 +189,7 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
   context.logger.exporter({
     export: (message) => { logLines.push({ type: message.type, text: Logger.format({ export() {} }, message) }) },
   })
-  context.baseUrl = pathToFileURL(world).href + '/'
+  context.baseUrl = pathToFileURL(world!).href + '/'
   await context.plugin(Loader)
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
@@ -158,7 +206,7 @@ async function loadComposition(watch = false, broken = true): Promise<{ ctx: Con
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
-  return { ctx: context, root }
+  return context
 }
 
 /** Read the status route the composition serves. */
@@ -168,14 +216,66 @@ async function fetchStatus(ctx: Context, method = 'GET'): Promise<Response> {
 
 /** Poll the merged catalog until it holds the expected names, so a watch event has somewhere to arrive. */
 async function catalogSettlesOn(ctx: Context, expected: string[]): Promise<string[]> {
-  const deadline = Date.now() + 10_000
-  let names: string[] = []
-  while (Date.now() < deadline) {
-    names = (await ctx.skills.list()).map(skill => skill.name)
-    if (names.length === expected.length && expected.every(name => names.includes(name))) return names
+  return await settlesOn(
+    async () => (await ctx.skills.list()).map(skill => skill.name),
+    names => names.length === expected.length && expected.every(name => names.includes(name)),
+  )
+}
+
+/** Poll one read until it answers what the caller is waiting for, or give up and let the assertion say what it found. */
+async function settlesOn<T>(read: () => Promise<T>, done: (value: T) => boolean): Promise<T> {
+  const deadline = Date.now() + SETTLE_MS
+  let value = await read()
+  while (Date.now() < deadline && !done(value)) {
     await new Promise(resolve => setTimeout(resolve, 50))
+    value = await read()
   }
-  return names
+  return value
+}
+
+/** Poll the process log until a line carries the fragment; the assertion reads the lines it found. */
+async function logSettlesOn(fragment: string): Promise<string[]> {
+  return await settlesOn(
+    () => Promise.resolve(logLines.map(line => `${line.type} ${line.text}`)),
+    lines => lines.some(line => line.includes(fragment)),
+  )
+}
+
+/** Boot a composition whose pack root is empty and whose packs arrive as one archive in a delivery directory. */
+async function loadDeliveryComposition(limits: string[] = []): Promise<{ ctx: Context; root: string; deliveries: string }> {
+  world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
+  const root = join(world, 'packs')
+  const deliveries = join(world, 'deliveries')
+  await mkdir(deliveries, { recursive: true })
+  const ctx = await boot(skillPackRow(root, false, [
+    '    deliveries:',
+    `      directory: ${JSON.stringify(deliveries)}`,
+    ...limits,
+  ]))
+  return { ctx, root, deliveries }
+}
+
+/** Replace whatever the delivery directory held with one archive, the way ops hands a deployment its packs. */
+async function deliver(directory: string, name: string, packs: DeliveredPack[], version = '1.0.0'): Promise<void> {
+  for (const stale of await readdir(directory)) await rm(join(directory, stale))
+  await writeFile(join(directory, name), await buildPackArchive({ kind: 'packs', packs }, { id: 'space-console', version }))
+}
+
+/** The two packs every delivery test starts from: one that needs a part, and one that needs nothing. */
+function deliverySet(noteVersion = '2.0.0'): DeliveredPack[] {
+  return [
+    deliveredPack('plain-note', `  pack:\n    version: ${noteVersion}`),
+    deliveredPack('space-data-page', [
+      '  pack:',
+      '    version: 1.0.0',
+      '    platform: ">=0.5.0"',
+      '  requires:',
+      '    components:',
+      `      "${KIT}": ">=0.4.0"`,
+      '    parts: [toy.data-page]',
+      '  views: [views/space-layer.yml]',
+    ].join('\n'), { 'space-layer.yml': 'id: space-layer\ntitle: 图层数据\nspec: []\nparams:\n  relatedMeta: sys_layer\n' }),
+  ]
 }
 
 describe('a pack root whose parts nothing has registered', () => {
@@ -332,6 +432,131 @@ describe('the pack root changing under a running composition', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note'])
     await writePack(root, 'late-note', '  pack:\n    version: 3.0.0')
     expect(await catalogSettlesOn(ctx, ['late-note', 'plain-note'])).toEqual(['late-note', 'plain-note'])
+  }, WATCHED_MS)
+})
+
+describe('a delivery archive copied into the delivery directory', () => {
+  it('installs the set it carries and withholds the pack whose part nothing registers', async () => {
+    const { ctx, deliveries } = await loadDeliveryComposition()
+    await deliver(deliveries, 'set.dshpack', deliverySet())
+
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+    expect(await ctx.skillPacks.statuses()).toEqual([
+      { skill: 'plain-note', version: '2.0.0', state: 'active', missing: [] },
+      {
+        skill: 'space-data-page',
+        version: '1.0.0',
+        state: 'inactive',
+        missing: [
+          { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },
+          { kind: 'part-absent', part: 'toy.data-page' },
+        ],
+      },
+    ])
+    // The delivered pack is installed and its view file is readable; nothing
+    // about it is offered, the view included, until its part is registered.
+    expect(await ctx.skillPacks.activeViews()).toEqual([])
+    expect(await logSettlesOn(
+      'installed space-console 1.0.0 from set.dshpack: packs [plain-note, space-data-page], retired []',
+    )).toEqual(expect.arrayContaining([expect.stringContaining('info')]))
+
+    await ctx.plugin(TestParts, { parts: [CRUD] })
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note', 'space-data-page'])
+    expect(await ctx.skillPacks.activeViews()).toEqual([
+      { pack: 'space-data-page', id: 'space-layer', title: '图层数据', spec: [], params: { relatedMeta: 'sys_layer' } },
+    ])
+  }, WATCHED_MS)
+
+  it('adds and replaces a pack on an upgrade, and takes one away on a downgrade', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+
+    await deliver(deliveries, 'v2.dshpack', [
+      ...deliverySet('2.1.0'),
+      deliveredPack('late-note', '  pack:\n    version: 3.0.0'),
+    ], '2.0.0')
+    expect(await catalogSettlesOn(ctx, ['late-note', 'plain-note'])).toEqual(['late-note', 'plain-note'])
+    expect((await ctx.skills.get('plain-note'))?.metadata).toEqual({ pack: { version: '2.1.0' } })
+
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+    expect(await readdir(root)).toEqual(['plain-note'])
+    expect(await logSettlesOn('retired [late-note, space-data-page]'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('info')]))
+  }, WATCHED_MS)
+
+  it('installs nothing while the directory holds two archives, because one of them is not the delivery', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+
+    await writeFile(
+      join(deliveries, 'v2.dshpack'),
+      await buildPackArchive({ kind: 'packs', packs: deliverySet() }, { id: 'space-console', version: '2.0.0' }),
+    )
+    expect(await logSettlesOn('holds 2 archives (v1.dshpack, v2.dshpack)'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(await readdir(root)).toEqual(['plain-note'])
+  }, WATCHED_MS)
+
+  it('leaves the root as it was when the archive does not verify against its own manifest', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+
+    for (const stale of await readdir(deliveries)) await rm(join(deliveries, stale))
+    await writeFile(join(deliveries, 'v2.dshpack'), Buffer.from(zipSync({
+      [PACK_ARCHIVE_MANIFEST]: Buffer.from(JSON.stringify({
+        format: 1,
+        set: { id: 'space-console', version: '2.0.0' },
+        files: [{ path: 'late-note/SKILL.md', sha256: createHash('sha256').update('signed').digest('hex') }],
+      })),
+      'packs/late-note/SKILL.md': Buffer.from('edited between the console and the box'),
+    })))
+    expect(await logSettlesOn('v2.dshpack was not installed'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(await readdir(root)).toEqual(['plain-note'])
+  }, WATCHED_MS)
+
+  it('refuses an archive larger than the size this deployment reads one under', async () => {
+    const { deliveries, root } = await loadDeliveryComposition(['      maxArchiveBytes: 64'])
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    expect(await logSettlesOn('over the 64 it is read under'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    await expect(readdir(root)).rejects.toThrow()
+  }, WATCHED_MS)
+
+  it('stops watching the delivery directory when its own fiber is disposed', async () => {
+    world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
+    const root = join(world, 'packs')
+    const deliveries = join(world, 'deliveries')
+    await mkdir(deliveries, { recursive: true })
+    context = new Context()
+    await context.plugin(SkillRegistry)
+    const fiber = await context.plugin(SkillPackRegistry, {
+      root,
+      platformVersion: PLATFORM_VERSION,
+      watch: false,
+      deliveries: { directory: deliveries, maxArchiveBytes: 1_000_000, maxFileBytes: 100_000, maxFiles: 50 },
+    })
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(context, ['plain-note'])).toEqual(['plain-note'])
+
+    await fiber.dispose()
+    await deliver(deliveries, 'v2.dshpack', [deliveredPack('late-note', '  pack:\n    version: 3.0.0')])
+    await new Promise(resolve => setTimeout(resolve, 500))
+    expect(await readdir(root)).toEqual(['plain-note'])
+    expect(await context.skills.list()).toEqual([])
+  }, WATCHED_MS)
+
+  it('refuses a delivery directory that is not an absolute path', () => {
+    context = new Context()
+    expect(() => new SkillPackRegistry(context!, {
+      root: join(tmpdir(), 'packs'),
+      platformVersion: PLATFORM_VERSION,
+      deliveries: { directory: 'deliveries', maxArchiveBytes: 1, maxFileBytes: 1, maxFiles: 1 },
+    })).toThrow('skill-pack: deliveries.directory must be an absolute path, received "deliveries"')
   })
 })
 

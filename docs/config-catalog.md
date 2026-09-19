@@ -1183,7 +1183,7 @@ Source: [`packages/experimental/server-sidebar/src/index.ts:53`](../packages/exp
 Requires: `skills`
 
 ```ts config-catalog
-/** Where the packs are, which platform version they are judged against, and whether the root is watched. */
+/** Where the packs are, which platform version they are judged against, whether the root is watched, and where a delivery arrives. */
 export interface Config {
   /** Absolute path of the pack root: one directory per pack. */
   root: string
@@ -1191,10 +1191,24 @@ export interface Config {
   platformVersion: string
   /** Whether the pack root is watched, so a pack arriving or leaving takes effect without a restart. */
   watch?: boolean
+  /** Where a delivery archive is dropped; absent where a deployment installs its packs some other way. */
+  deliveries?: PackDeliveryDirectory
+}
+
+/** Where a deployment's delivery archives are dropped, and the limits one is read under. */
+export interface PackDeliveryDirectory {
+  /** Absolute path of the directory a delivery archive is copied into. */
+  directory: string
+  /** Largest archive that is read at all, in bytes. Raise it for a deployment whose packs carry large pictures. */
+  maxArchiveBytes: number
+  /** Largest single file an archive may carry, in bytes. */
+  maxFileBytes: number
+  /** Most entries an archive may carry, its manifest among them. */
+  maxFiles: number
 }
 ```
 
-Source: [`packages/experimental/skill-pack/src/index.ts:88`](../packages/experimental/skill-pack/src/index.ts)
+Source: [`packages/experimental/skill-pack/src/index.ts:133`](../packages/experimental/skill-pack/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

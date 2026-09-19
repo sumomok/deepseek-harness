@@ -3,11 +3,22 @@
  * the same delivery twice, and what the delivery is refused for.
  */
 
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PackInstallError, syncPackRoot, type DeliveredPack } from '../src/install.ts'
+import { buildPackArchive, PACK_ARCHIVE_FORMAT, PACK_ARCHIVE_MANIFEST } from '../src/archive.ts'
+import { syncPackRoot } from '../src/install.ts'
+import { PackInstallError } from '../src/refusal.ts'
+import type { DeliveredPack, PackArchiveLimits } from '../src/types.ts'
+
+/** Limits a test archive is read under, far above anything these packs carry. */
+const LIMITS: PackArchiveLimits = { maxArchiveBytes: 1_000_000, maxFileBytes: 100_000, maxFiles: 50 }
+
+/** The set identity every archive here is written under. */
+const SET = { id: 'space-console', version: '2026.9.19' }
 
 let world: string | undefined
 
@@ -41,6 +52,15 @@ async function tree(root: string, prefix = ''): Promise<string[]> {
     else paths.push(relative)
   }
   return paths.sort()
+}
+
+/** Every path under a root with the digest of its bytes, so "unchanged" is a byte-for-byte assertion. */
+async function digests(root: string): Promise<Record<string, string>> {
+  const entries: Record<string, string> = {}
+  for (const path of await tree(root)) {
+    entries[path] = createHash('sha256').update(await readFile(join(root, path))).digest('hex')
+  }
+  return entries
 }
 
 describe('replacing a pack root', () => {
@@ -187,5 +207,118 @@ describe('replacing a pack root', () => {
     })).rejects.toThrow()
     expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
     expect(await readdir(base)).toEqual(['packs'])
+  })
+})
+
+describe('installing a pack root from one archive', () => {
+  it('leaves the root exactly as the same packs delivered directly would have', async () => {
+    const base = await workspace()
+    const packs = [pack('a', 'A.'), pack('b', 'B.')]
+    const direct = join(base, 'direct')
+    await syncPackRoot(direct, { kind: 'packs', packs })
+
+    const packed = join(base, 'packed')
+    const result = await syncPackRoot(packed, {
+      kind: 'archive',
+      name: 'delivery.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs }, SET),
+      limits: LIMITS,
+    })
+    expect(result).toEqual({ changed: true, packs: ['a', 'b'], retired: [], set: SET })
+    expect(await digests(packed)).toEqual(await digests(direct))
+  })
+
+  it('writes nothing the second time the same archive is installed', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    const delivery = {
+      kind: 'archive',
+      name: 'delivery.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: [pack('a', 'A.')] }, SET),
+      limits: LIMITS,
+    } as const
+    await syncPackRoot(root, delivery)
+    const before = (await stat(join(root, 'a', 'SKILL.md'))).mtimeMs
+    expect(await syncPackRoot(root, delivery)).toEqual({ changed: false, packs: ['a'], retired: [], set: SET })
+    expect((await stat(join(root, 'a', 'SKILL.md'))).mtimeMs).toBe(before)
+  })
+
+  it('adds and replaces a pack on an upgrade, and retires one on a downgrade', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, {
+      kind: 'archive',
+      name: 'v1.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: [pack('keep', 'v1.'), pack('retire', 'gone.')] }, SET),
+      limits: LIMITS,
+    })
+
+    const upgrade = await syncPackRoot(root, {
+      kind: 'archive',
+      name: 'v2.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: [pack('keep', 'v2.'), pack('retire', 'gone.'), pack('add', 'new.')] }, { ...SET, version: '2026.9.20' }),
+      limits: LIMITS,
+    })
+    expect(upgrade).toEqual({ changed: true, packs: ['add', 'keep', 'retire'], retired: [], set: { ...SET, version: '2026.9.20' } })
+    expect(await readFile(join(root, 'keep', 'SKILL.md'), 'utf8')).toContain('v2.')
+
+    const downgrade = await syncPackRoot(root, {
+      kind: 'archive',
+      name: 'v1.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: [pack('keep', 'v1.')] }, SET),
+      limits: LIMITS,
+    })
+    expect(downgrade).toEqual({ changed: true, packs: ['keep'], retired: ['add', 'retire'], set: SET })
+    expect(await tree(root)).toEqual(['keep/SKILL.md', 'keep/views/v.yml'])
+    expect(await readFile(join(root, 'keep', 'SKILL.md'), 'utf8')).toContain('v1.')
+  })
+
+  it('leaves the root byte-identical when the archive it was handed does not verify', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, {
+      kind: 'archive',
+      name: 'v1.dshpack',
+      bytes: await buildPackArchive({ kind: 'packs', packs: [pack('a', 'A.')] }, SET),
+      limits: LIMITS,
+    })
+    const before = await digests(root)
+
+    const content = 'edited between the console and the box'
+    const tampered = zipSync({
+      [PACK_ARCHIVE_MANIFEST]: Buffer.from(JSON.stringify({
+        format: PACK_ARCHIVE_FORMAT,
+        set: SET,
+        files: [{ path: 'a/SKILL.md', sha256: createHash('sha256').update('A.').digest('hex') }],
+      })),
+      'packs/a/SKILL.md': Buffer.from(content),
+    })
+    await expect(syncPackRoot(root, { kind: 'archive', name: 'v2.dshpack', bytes: tampered, limits: LIMITS }))
+      .rejects.toMatchObject({ refusal: 'archive-digest', entry: 'a/SKILL.md' })
+    expect(await digests(root)).toEqual(before)
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  it('refuses an archive whose manifest declares a file a pack may not carry, or a path leaving its pack', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    for (const path of ['a/setup.js', 'a/../outside.md']) {
+      const content = 'x'
+      const attempt = syncPackRoot(root, {
+        kind: 'archive',
+        name: 'delivery.dshpack',
+        bytes: zipSync({
+          [PACK_ARCHIVE_MANIFEST]: Buffer.from(JSON.stringify({
+            format: PACK_ARCHIVE_FORMAT,
+            set: SET,
+            files: [{ path, sha256: createHash('sha256').update(content).digest('hex') }],
+          })),
+          [`packs/${path}`]: Buffer.from(content),
+        }),
+        limits: LIMITS,
+      })
+      await expect(attempt).rejects.toBeInstanceOf(PackInstallError)
+    }
+    await expect(stat(root)).rejects.toThrow()
   })
 })

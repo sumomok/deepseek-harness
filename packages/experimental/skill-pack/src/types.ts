@@ -1,11 +1,12 @@
 /**
  * The values this package hands across its own edges: what a pack's manifest
  * says, what a component plugin has registered, what reconciliation answered,
- * and what the status route publishes.
+ * what the status route publishes, and what a delivery is made of.
  *
  * Runtime code lives in the modules that own each value — `manifest.ts` parses
- * a manifest, `views.ts` parses a view file, `reconcile.ts` judges a pack, and
- * `install.ts` replaces a pack root.
+ * a manifest, `views.ts` parses a view file, `reconcile.ts` judges a pack,
+ * `delivery.ts` holds a delivered set to the pack rules, `archive.ts` writes
+ * and reads the packed file, and `install.ts` replaces a pack root.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/types
  */
 
@@ -164,3 +165,59 @@ export interface PackStatusDocument {
   /** Every pack in the pack root, in skill-name order, active and inactive alike. */
   readonly packs: readonly PackStatus[]
 }
+
+/** One file inside a delivered pack. */
+export interface DeliveredFile {
+  /** Pack-relative path, written with `/` separators. */
+  readonly path: string
+  /** The file's bytes; a string is written as UTF-8. */
+  readonly content: string | Uint8Array
+}
+
+/** One pack in a delivered set. */
+export interface DeliveredPack {
+  /** The pack's directory name inside the pack root. */
+  readonly name: string
+  /** Every file the pack carries, in any order. */
+  readonly files: readonly DeliveredFile[]
+}
+
+/** Which set a delivery archive carries, as its manifest states it. */
+export interface PackSetIdentity {
+  /** The set's own name, which the delivery side chooses and a deployment logs. */
+  readonly id: string
+  /** The set's own version. Nothing here compares two of them, so a downgrade is an ordinary delivery. */
+  readonly version: string
+}
+
+/** The sizes and the count one archive is read under; a deployment sets them, and an archive over any of them is refused whole. */
+export interface PackArchiveLimits {
+  /** Largest archive that is read at all, in bytes. */
+  readonly maxArchiveBytes: number
+  /** Largest single file an archive may carry, in bytes. */
+  readonly maxFileBytes: number
+  /** Most entries an archive may carry, its manifest among them. */
+  readonly maxFiles: number
+}
+
+/** A delivered set that is already unpacked, which is also what an archive is written from. */
+export type PackSetSource =
+  /** A directory whose immediate children are pack directories. */
+  | { readonly kind: 'directory'; readonly path: string }
+  /** The packs themselves, already in hand. */
+  | { readonly kind: 'packs'; readonly packs: readonly DeliveredPack[] }
+
+/** One archive file, verified against its own manifest before anything is staged. */
+export interface PackArchiveDelivery {
+  /** Discriminant of the archive delivery. */
+  readonly kind: 'archive'
+  /** The archive's own name, which a refusal about the archive as a whole is reported against. */
+  readonly name: string
+  /** The archive's bytes. */
+  readonly bytes: Uint8Array
+  /** The sizes and count this archive is read under. */
+  readonly limits: PackArchiveLimits
+}
+
+/** Where the delivered set comes from. */
+export type PackDelivery = PackSetSource | PackArchiveDelivery

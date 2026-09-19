@@ -23,6 +23,7 @@ The state flips without a restart. The parts source notifies this package when a
 - [Where the parts come from](#where-the-parts-come-from)
 - [Reading what a deployment holds](#reading-what-a-deployment-holds)
 - [Replacing a pack root](#replacing-a-pack-root)
+- [Installing from a packed file](#installing-from-a-packed-file)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -47,8 +48,12 @@ Mount the row beside `@deepseek-ai/dsh-skill`, and point the generic filesystem 
 | `root` | required | Absolute path of the pack root: one directory per pack. A root that does not exist holds no packs. |
 | `platformVersion` | required | The console platform's own exact version, which a pack's `pack.platform` range is matched against. |
 | `watch` | `true` | Whether the root is watched, so a pack arriving or leaving takes effect without a restart. |
+| `deliveries.directory` | absent | Absolute path of the directory a delivery archive is copied into. Leave it out where a deployment installs its packs some other way. |
+| `deliveries.maxArchiveBytes` | `33554432` | Largest archive that is read at all. |
+| `deliveries.maxFileBytes` | `4194304` | Largest single file an archive may carry. |
+| `deliveries.maxFiles` | `512` | Most entries an archive may carry, its manifest among them. |
 
-A relative `root` and a `platformVersion` that is not an exact semantic version are refused when the row loads, because both would otherwise be discovered one pack at a time: a relative root reads whatever directory the process happens to be in, and an unreadable platform version satisfies no range, so every pack stating one would go quietly inactive.
+A relative `root`, a relative `deliveries.directory`, and a `platformVersion` that is not an exact semantic version are refused when the row loads, because both would otherwise be discovered one pack at a time: a relative root reads whatever directory the process happens to be in, and an unreadable platform version satisfies no range, so every pack stating one would go quietly inactive.
 
 <a id="what-a-pack-says-about-itself"></a>
 ## What a pack says about itself
@@ -158,13 +163,75 @@ Every withheld pack is also stated once in the process log, and again only when 
 <a id="replacing-a-pack-root"></a>
 ## Replacing a pack root
 
-`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
+`syncPackRoot(targetRoot, delivery)` makes a pack root hold exactly the delivered packs. A delivery is a source directory, the packs themselves, or [one archive file](#installing-from-a-packed-file); the three differ only in how the set is read. It is a replacement rather than a merge: a pack retired upstream is gone, and so is one somebody dropped into the root by hand, so the root always says what the delivery says. Running the same delivery twice writes nothing the second time — the call compares the root against the delivered set first and returns unchanged when every pack, path and byte already matches.
 
 Nothing is written into the live root. The delivered set is staged into a sibling directory, verified there, and swapped in by rename, so a failure part-way through leaves the root exactly as it was.
 
 A pack carries `.md`, `.yml`, `.yaml`, and `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` pictures. Every other extension is refused by name with a `PackInstallError`, as are symbolic links and any path leaving its pack directory. A pack root is a directory a delivery writes into; a pack that could carry an executable file would be an install path for one. `.svg` is refused with the rest, because an SVG document can carry script.
 
-There is no command-line entry point. This is a library function the delivery side calls.
+There is no command-line entry point. This is a library function the delivery side calls, and the delivery directory below is the one place this row calls it by itself.
+
+<a id="installing-from-a-packed-file"></a>
+## Installing from a packed file
+
+A delivery console hands a deployment one file, and the deployment installs it with one action. `buildPackArchive(source, set)` writes that file from a source directory or from the packs themselves, and `syncPackRoot(root, { kind: 'archive', name, bytes, limits })` installs it.
+
+An archive is a ZIP named `*.dshpack`. It carries `pack-delivery.json` at its root and every pack file under `packs/<pack>/`, and the manifest is what it is read by.
+
+```json
+{
+  "format": 1,
+  "set": { "id": "space-console", "version": "2026.9.19" },
+  "files": [
+    { "path": "space-data-page/SKILL.md", "sha256": "e3b0c442…" },
+    { "path": "space-data-page/views/space-layer.yml", "sha256": "9f86d081…" }
+  ]
+}
+```
+
+All of it is verified before a single byte is staged, and an archive that fails any part of it installs nothing. Every refusal is a `PackInstallError` naming the entry it is about.
+
+| Refusal | What it refused |
+|---|---|
+| `archive-unreadable` | the bytes are not an archive this deployment can read |
+| `archive-format` | the manifest states a format version this build does not know |
+| `archive-manifest` | the archive carries no manifest, or the manifest field that is not one |
+| `archive-entry` | an entry the manifest does not declare, or a file the manifest declares and the archive does not carry |
+| `archive-digest` | a file whose bytes are not the ones the manifest states |
+| `archive-oversize` | the archive, one file, or the entry count, over the limit it is read under |
+| `duplicate-entry` | a pack, a path inside a pack, or an entry name, delivered twice |
+
+The pack rules apply to an archive exactly as they do to a directory: `code-file`, `path-escape`, `symlink` and `not-a-pack` refuse the same things by the same names.
+
+The manifest decides what is installed, and an entry's own container metadata decides nothing. Every declared file is written as an ordinary file, so an entry another tool marked as a symbolic link, a hard link or a device either is not declared, and is refused as an entry the manifest does not declare, or is written as a file holding those bytes.
+
+Writing is deterministic: entries in path order, one fixed modification time and one fixed compression level, so the same packs under the same identity produce the same bytes. What identifies a set across a change of compressor is the digests in its manifest, not the archive's own bytes.
+
+`set.id` and `set.version` are carried and logged, and nothing here compares two of them: a downgrade is an ordinary delivery, and what a deployment holds afterwards is what the archive carries.
+
+<a id="the-directory-a-delivery-arrives-in"></a>
+### The directory a delivery arrives in
+
+A deployment that configures `deliveries` installs a delivery by having one copied in.
+
+```yaml
+- name: '@deepseek-ai/dsh-experimental-skill-pack'
+  config:
+    root: /var/lib/dsh/packs
+    platformVersion: 0.5.2
+    deliveries:
+      directory: /var/lib/dsh/pack-deliveries
+```
+
+The directory names the delivery. Exactly one `.dshpack` file is the set this deployment holds; none is a deployment nobody has delivered to, and the pack root is left alone; more than one is refused rather than resolved, because which archive a deployment held would otherwise depend on the order a directory happens to list. A name that does not end in `.dshpack`, a name starting with `.`, and a directory are not deliveries, so a copy tool's temporary file and an operator's note can sit beside one.
+
+Nothing here writes into that directory. It belongs to whoever copies into it, so a deployment never consumes, renames or deletes the file it was handed, and it needs no write permission on that volume. Replacing a delivery is removing the old file and copying the new one; installing is idempotent, so the reads either order produces settle on the same root.
+
+The directory is read when the watch is armed and again on every event, and a file is read once it has stopped growing. An archive read half-copied anyway is refused for the digest it was always going to fail, and installed when the copy finishes.
+
+There is no upload route, and this is not an oversight. `dsh` has no authentication of its own and sits behind a reverse proxy that answers its privileged methods with 403; a route that accepted an archive would be an unauthenticated write into the directory this deployment installs its packs from. The delivery directory adds no authority of its own: whoever the host already lets write that directory is who decides what this deployment offers.
+
+Installing or retiring a pack changes what a deployment **offers**, never what a user is **allowed**. Which user is offered which pack would be composition-time filtering per user, which does not exist and waits on the multi-user decision; whether a user may act through a pack's page is the customer's own backend and the approval card in front of it.
 
 ## Model Experience
 
@@ -178,6 +245,10 @@ The skill registry's consumer owns the durable catalog message and its append-on
 
 - **A missing plugin is reported, never installed.** A pack that needs a component plugin the deployment does not have stays inactive until somebody installs it. Nothing here fetches or mounts a plugin: an install path that runs from pack data would be the code-install route the pack rules exist to close. The trigger for revisiting is a delivery side that ships plugin and pack together as one bundle.
 - **One delivered set per deployment.** `root` is a single directory and `syncPackRoot` replaces all of it, so every user of a deployment sees the same packs. Per-user sets would need an identity this package does not have; the trigger is the multi-user decision.
+- **A delivery arrives by being copied in, and by nothing else.** There is no route, no command and no pull: something outside this deployment puts the archive in the directory. The trigger for revisiting is an authenticated identity for the delivery console, at which point a route is authenticated where every other privileged method already is.
+- **One archive is read whole, in memory.** `maxArchiveBytes` is what keeps that bounded, and a set larger than it is a loud refusal rather than a slow one. There is no streaming install and no resume.
+- **An archive's entry metadata is never read.** A link, hard-link or device entry cannot install as one — every declared file is written as an ordinary file — but the refusal that names it is `archive-entry`, for an entry the manifest does not declare, rather than one naming what the entry claimed to be.
+- **The same packs produce the same bytes for one build of this package.** The entry order, modification time and compression level are fixed here; the compressor is `fflate` at the version the lockfile pins. A set's identity across versions is the digests in its manifest.
 - **Two packs may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack.
 - **A pack's views are judged by whoever provides the parts, and unjudged where nobody does.** Without a provider of `ctx.skillPackParts` a view that parsed is carried through, because nothing could draw it either way; the pack is then offered with views no surface has seen. It is the same fail-closed position the part list is in, one step further along.
 - **Every read re-reads the root.** `statuses()`, `activeViews()` and each provider call scan the pack root and re-parse every manifest. That keeps the answer current with no cache to go stale, and it is why the status route is not for polling at interactive rates.

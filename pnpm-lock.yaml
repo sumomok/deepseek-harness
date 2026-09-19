@@ -5756,6 +5756,9 @@ importers:
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       semver:
         specifier: ^7.8.5
         version: 7.8.5
