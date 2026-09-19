@@ -56,7 +56,6 @@ import type { ActivePackView, PackManifest, PackStatus, PartsSource } from './ty
 
 export type * from './types.ts'
 export { buildPackArchive, PACK_ARCHIVE_EXTENSION, PACK_ARCHIVE_FORMAT } from './archive.ts'
-export type { PackArchiveContents } from './archive.ts'
 export { PackInstallError } from './refusal.ts'
 export type { PackInstallRefusal } from './refusal.ts'
 export { syncPackRoot } from './install.ts'

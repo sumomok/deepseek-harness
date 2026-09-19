@@ -230,7 +230,7 @@ function readManifest(name: string, entries: ReadonlyMap<string, Uint8Array>): z
     throw new PackInstallError(
       'archive-format',
       PACK_ARCHIVE_MANIFEST,
-      `states format ${JSON.stringify(stated) ?? 'undefined'}; this deployment reads format ${String(PACK_ARCHIVE_FORMAT)}`,
+      `states format ${JSON.stringify(stated)}; this deployment reads format ${String(PACK_ARCHIVE_FORMAT)}`,
     )
   }
   const read = manifestSchema.safeParse(parsed)

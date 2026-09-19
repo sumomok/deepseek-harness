@@ -107,20 +107,20 @@ describe('writing an archive', () => {
 describe('reading an archive', () => {
   it('refuses bytes that are not an archive at all', () => {
     expect(() => readPackArchive('delivery.dshpack', bytes('not an archive'), LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-unreadable', entry: 'delivery.dshpack' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-unreadable', entry: 'delivery.dshpack' }))
   })
 
   it('refuses an archive carrying no manifest', () => {
     const written = zipSync({ 'packs/a/SKILL.md': bytes('A.') })
     expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-manifest', entry: 'delivery.dshpack' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-manifest', entry: 'delivery.dshpack' }))
   })
 
   it('refuses a manifest that is not JSON, and one that is not a manifest object', () => {
     for (const raw of ['{', '[]', '"a set"']) {
       const written = zipSync({ [PACK_ARCHIVE_MANIFEST]: bytes(raw) })
       expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-        .toThrowError(expect.objectContaining({ refusal: 'archive-manifest' }))
+        .toThrow(expect.objectContaining({ refusal: 'archive-manifest' }))
     }
   })
 
@@ -128,14 +128,14 @@ describe('reading an archive', () => {
     for (const format of [PACK_ARCHIVE_FORMAT + 1, undefined]) {
       const written = archiveOf({ format, set: SET, files: [] }, {})
       expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-        .toThrowError(expect.objectContaining({ refusal: 'archive-format', entry: PACK_ARCHIVE_MANIFEST }))
+        .toThrow(expect.objectContaining({ refusal: 'archive-format', entry: PACK_ARCHIVE_MANIFEST }))
     }
   })
 
   it('refuses a manifest field the format does not allow, naming the field', () => {
     const written = archiveOf({ format: PACK_ARCHIVE_FORMAT, set: { id: 'a' }, files: [] }, {})
     expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-manifest', entry: `${PACK_ARCHIVE_MANIFEST}.set.version` }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-manifest', entry: `${PACK_ARCHIVE_MANIFEST}.set.version` }))
   })
 
   it('refuses a digest that is not a SHA-256 digest, and bytes that are not the ones it states', () => {
@@ -144,21 +144,21 @@ describe('reading an archive', () => {
       { 'packs/a/SKILL.md': 'A.' },
     )
     expect(() => readPackArchive('delivery.dshpack', shaped, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-manifest', entry: `${PACK_ARCHIVE_MANIFEST}.files.0.sha256` }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-manifest', entry: `${PACK_ARCHIVE_MANIFEST}.files.0.sha256` }))
 
     const tampered = archiveOf(manifestFor('a/SKILL.md', 'A.'), { 'packs/a/SKILL.md': 'edited on the box' })
     expect(() => readPackArchive('delivery.dshpack', tampered, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-digest', entry: 'a/SKILL.md' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-digest', entry: 'a/SKILL.md' }))
   })
 
   it('refuses an archive that disagrees with its manifest about which entries exist', () => {
     const missing = archiveOf(manifestFor('a/SKILL.md', 'A.'), {})
     expect(() => readPackArchive('delivery.dshpack', missing, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-entry', entry: 'a/SKILL.md' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-entry', entry: 'a/SKILL.md' }))
 
     const extra = archiveOf(manifestFor('a/SKILL.md', 'A.'), { 'packs/a/SKILL.md': 'A.', 'packs/a/notes.md': 'loose' })
     expect(() => readPackArchive('delivery.dshpack', extra, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-entry', entry: 'packs/a/notes.md' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-entry', entry: 'packs/a/notes.md' }))
 
     const directoryEntry = zipSync({
       [PACK_ARCHIVE_MANIFEST]: bytes(JSON.stringify(manifestFor('a/SKILL.md', 'A.'))),
@@ -166,7 +166,7 @@ describe('reading an archive', () => {
       'packs/a/SKILL.md': bytes('A.'),
     })
     expect(() => readPackArchive('delivery.dshpack', directoryEntry, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-entry', entry: 'packs/a/' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-entry', entry: 'packs/a/' }))
   })
 
   it('refuses a manifest that declares one path twice', () => {
@@ -175,7 +175,7 @@ describe('reading an archive', () => {
       { 'packs/a/SKILL.md': 'A.' },
     )
     expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'duplicate-entry', entry: 'a/SKILL.md' }))
+      .toThrow(expect.objectContaining({ refusal: 'duplicate-entry', entry: 'a/SKILL.md' }))
   })
 
   it('refuses an archive that carries one entry name twice', () => {
@@ -196,24 +196,24 @@ describe('reading an archive', () => {
     }
     zip.end()
     expect(() => readPackArchive('delivery.dshpack', Buffer.concat(chunks), LIMITS))
-      .toThrowError(expect.objectContaining({ refusal: 'duplicate-entry', entry: 'delivery.dshpack' }))
+      .toThrow(expect.objectContaining({ refusal: 'duplicate-entry', entry: 'delivery.dshpack' }))
   })
 
   it('refuses a declared path that names no pack directory', () => {
     for (const path of ['SKILL.md', 'a/']) {
       const written = archiveOf(manifestFor(path, 'A.'), { [`packs/${path}`]: 'A.' })
       expect(() => readPackArchive('delivery.dshpack', written, LIMITS))
-        .toThrowError(expect.objectContaining({ refusal: 'path-escape', entry: path }))
+        .toThrow(expect.objectContaining({ refusal: 'path-escape', entry: path }))
     }
   })
 
   it('refuses an archive, a file or an entry count over the limits it is read under', async () => {
     const written = await buildPackArchive({ kind: 'packs', packs: [pack('a', 'A.'), pack('b', 'B.')] }, SET)
     expect(() => readPackArchive('delivery.dshpack', written, { ...LIMITS, maxArchiveBytes: 10 }))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-oversize', entry: 'delivery.dshpack' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-oversize', entry: 'delivery.dshpack' }))
     expect(() => readPackArchive('delivery.dshpack', written, { ...LIMITS, maxFiles: 2 }))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-oversize', entry: 'delivery.dshpack' }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-oversize', entry: 'delivery.dshpack' }))
     expect(() => readPackArchive('delivery.dshpack', written, { ...LIMITS, maxFileBytes: 8 }))
-      .toThrowError(expect.objectContaining({ refusal: 'archive-oversize', entry: PACK_ARCHIVE_MANIFEST }))
+      .toThrow(expect.objectContaining({ refusal: 'archive-oversize', entry: PACK_ARCHIVE_MANIFEST }))
   })
 })

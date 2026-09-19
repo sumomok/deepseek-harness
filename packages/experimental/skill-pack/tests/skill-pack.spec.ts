@@ -30,6 +30,16 @@ import type {
 } from '../src/types.ts'
 
 const PLATFORM_VERSION = '0.5.2'
+
+/** How long a poll waits for a watcher's event to reach the composition. */
+const SETTLE_MS = 10_000
+
+/**
+ * Timeout for a test that waits on a watcher. Longer than the poll it makes,
+ * so a slow host reports what the poll found rather than which second it
+ * ran out of.
+ */
+const WATCHED_MS = 20_000
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
 const CRUD: ProvidedPart = { id: 'toy.crud', plugin: KIT, version: '0.4.0' }
 
@@ -214,7 +224,7 @@ async function catalogSettlesOn(ctx: Context, expected: string[]): Promise<strin
 
 /** Poll one read until it answers what the caller is waiting for, or give up and let the assertion say what it found. */
 async function settlesOn<T>(read: () => Promise<T>, done: (value: T) => boolean): Promise<T> {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + SETTLE_MS
   let value = await read()
   while (Date.now() < deadline && !done(value)) {
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -422,7 +432,7 @@ describe('the pack root changing under a running composition', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['plain-note'])
     await writePack(root, 'late-note', '  pack:\n    version: 3.0.0')
     expect(await catalogSettlesOn(ctx, ['late-note', 'plain-note'])).toEqual(['late-note', 'plain-note'])
-  })
+  }, WATCHED_MS)
 })
 
 describe('a delivery archive copied into the delivery directory', () => {
@@ -455,7 +465,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await ctx.skillPacks.activeViews()).toEqual([
       { pack: 'space-data-page', id: 'space-layer', title: '图层数据', spec: [], params: { relatedMeta: 'sys_layer' } },
     ])
-  })
+  }, WATCHED_MS)
 
   it('adds and replaces a pack on an upgrade, and takes one away on a downgrade', async () => {
     const { ctx, deliveries, root } = await loadDeliveryComposition()
@@ -474,7 +484,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await readdir(root)).toEqual(['plain-note'])
     expect(await logSettlesOn('retired [late-note, space-data-page]'))
       .toEqual(expect.arrayContaining([expect.stringContaining('info')]))
-  })
+  }, WATCHED_MS)
 
   it('installs nothing while the directory holds two archives, because one of them is not the delivery', async () => {
     const { ctx, deliveries, root } = await loadDeliveryComposition()
@@ -488,7 +498,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('holds 2 archives (v1.dshpack, v2.dshpack)'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
-  })
+  }, WATCHED_MS)
 
   it('leaves the root as it was when the archive does not verify against its own manifest', async () => {
     const { ctx, deliveries, root } = await loadDeliveryComposition()
@@ -507,7 +517,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('v2.dshpack was not installed'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
-  })
+  }, WATCHED_MS)
 
   it('refuses an archive larger than the size this deployment reads one under', async () => {
     const { deliveries, root } = await loadDeliveryComposition(['      maxArchiveBytes: 64'])
@@ -515,7 +525,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('over the 64 it is read under'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     await expect(readdir(root)).rejects.toThrow()
-  })
+  }, WATCHED_MS)
 
   it('stops watching the delivery directory when its own fiber is disposed', async () => {
     world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
@@ -538,7 +548,7 @@ describe('a delivery archive copied into the delivery directory', () => {
     await new Promise(resolve => setTimeout(resolve, 500))
     expect(await readdir(root)).toEqual(['plain-note'])
     expect(await context.skills.list()).toEqual([])
-  })
+  }, WATCHED_MS)
 
   it('refuses a delivery directory that is not an absolute path', () => {
     context = new Context()
