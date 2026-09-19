@@ -12,6 +12,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
 import { parsePackManifest } from './manifest.ts'
+import { compareCodeUnits } from './order.ts'
 import type { PackObservation } from './reconcile.ts'
 import type { PackViewResult } from './types.ts'
 import { parsePackView } from './views.ts'
@@ -98,7 +99,7 @@ export async function readPack(root: string, directoryName: string): Promise<Pac
 /**
  * Read every pack directory in a pack root.
  * @param root - absolute pack root; an absent root holds no packs.
- * @returns one source per readable pack, in directory-name order.
+ * @returns one source per readable pack, in directory-name order by code unit.
  */
 export async function readPackRoot(root: string): Promise<PackSource[]> {
   let entries
@@ -110,7 +111,7 @@ export async function readPackRoot(root: string): Promise<PackSource[]> {
     return []
   }
   const packs: PackSource[] = []
-  for (const entry of entries.filter(candidate => candidate.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of entries.filter(candidate => candidate.isDirectory()).sort((a, b) => compareCodeUnits(a.name, b.name))) {
     const pack = await readPack(root, entry.name)
     if (pack !== undefined) packs.push(pack)
   }

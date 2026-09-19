@@ -11,12 +11,12 @@
  * not the face under test.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Logger } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -31,8 +31,8 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ShowComponent from '@deepseek-ai/dsh-experimental-component-surface'
 import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
-import SkillPackRegistry from '@deepseek-ai/dsh-experimental-skill-pack'
-import type { PackStatus } from '@deepseek-ai/dsh-experimental-skill-pack'
+import SkillPackRegistry, { buildPackArchive } from '@deepseek-ai/dsh-experimental-skill-pack'
+import type { DeliveredPack, PackStatus } from '@deepseek-ai/dsh-experimental-skill-pack'
 import * as SkillPackComponents from '../src/index.ts'
 
 const PLATFORM_VERSION = '0.5.2'
@@ -59,24 +59,27 @@ function componentPlugin(): { name: string; inject: readonly string[]; apply: (c
 let world: string | undefined
 let context: Context | undefined
 
+/** Every line the composition wrote, with the level it was written at. */
+let logLines: string[] = []
+
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
   world = undefined
+  logLines = []
 })
 
-/** One pack, as a delivery writes it: a SKILL.md carrying the manifest, and the view files it declares. */
-async function writePack(root: string, name: string, views: Record<string, string>): Promise<void> {
-  const directory = join(root, name)
-  await mkdir(join(directory, 'views'), { recursive: true })
-  await writeFile(join(directory, 'SKILL.md'), [
+/** One pack's SKILL.md: the frontmatter a pack root reads it by, and the views it declares. */
+function skillText(name: string, views: Record<string, string>): string {
+  return [
     '---',
     `name: ${name}`,
     `description: ${name} description.`,
     'metadata:',
     '  pack:',
     '    version: 1.0.0',
+    '    viewFormat: 1',
     '  requires:',
     '    components:',
     `      "${KIT}": ">=0.4.0"`,
@@ -85,8 +88,26 @@ async function writePack(root: string, name: string, views: Record<string, strin
     '---',
     `Instructions for ${name}.`,
     '',
-  ].join('\n'))
+  ].join('\n')
+}
+
+/** One pack, as a delivery writes it: a SKILL.md carrying the manifest, and the view files it declares. */
+async function writePack(root: string, name: string, views: Record<string, string>): Promise<void> {
+  const directory = join(root, name)
+  await mkdir(join(directory, 'views'), { recursive: true })
+  await writeFile(join(directory, 'SKILL.md'), skillText(name, views))
   for (const [file, body] of Object.entries(views)) await writeFile(join(directory, 'views', file), body)
+}
+
+/** The same pack as an archive carries it. */
+function deliveredPack(name: string, views: Record<string, string>): DeliveredPack {
+  return {
+    name,
+    files: [
+      { path: 'SKILL.md', content: skillText(name, views) },
+      ...Object.entries(views).map(([file, body]) => ({ path: `views/${file}`, content: body })),
+    ],
+  }
 }
 
 /** A view file that draws one record row, with the value taken from a param. */
@@ -114,6 +135,8 @@ interface Deployment {
   readonly packs: Record<string, Record<string, string>>
   /** The `views` block of the deployment's own configuration, as cordis.yml lines. */
   readonly configured?: readonly string[]
+  /** Whether the row also watches a delivery directory beside the root. */
+  readonly deliveries?: boolean
   /** The view ids this deployment ends up offering, which the boot is awaited against. */
   readonly offered: readonly string[]
 }
@@ -123,6 +146,7 @@ async function loadComposition(deployment: Deployment): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-pack-views-'))
   const root = join(world, 'packs')
   await mkdir(root, { recursive: true })
+  if (deployment.deliveries === true) await mkdir(deliveryDirectory(), { recursive: true })
   for (const [name, views] of Object.entries(deployment.packs)) await writePack(root, name, views)
 
   const configPath = join(world, 'cordis.yml')
@@ -148,12 +172,18 @@ async function loadComposition(deployment: Deployment): Promise<Context> {
     `    root: ${JSON.stringify(root)}`,
     `    platformVersion: '${PLATFORM_VERSION}'`,
     '    watch: false',
+    ...deployment.deliveries === true
+      ? ['    deliveries:', `      directory: ${JSON.stringify(deliveryDirectory())}`]
+      : [],
     "- name: '@deepseek-ai/dsh-experimental-skill-pack-components'",
     '',
   ].join('\n'))
 
   const ctx = new Context()
   context = ctx
+  ctx.logger.exporter({
+    export: (message) => { logLines.push(`${message.type} ${Logger.format({ export() {} }, message)}`) },
+  })
   ctx.baseUrl = pathToFileURL(world).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
@@ -217,6 +247,27 @@ async function settle(ctx: Context, offered: readonly string[]): Promise<void> {
     // registry is never asked to drop a subscription while it is dispatching.
     stop?.()
   }
+}
+
+/** Where this deployment's delivery archives are dropped, beside its pack root. */
+function deliveryDirectory(): string {
+  return join(world!, 'deliveries')
+}
+
+/** Replace whatever the delivery directory held with one archive, the way ops hands a deployment its packs. */
+async function deliver(name: string, packs: DeliveredPack[]): Promise<void> {
+  const directory = deliveryDirectory()
+  for (const stale of await readdir(directory)) await rm(join(directory, stale))
+  await writeFile(join(directory, name), await buildPackArchive({ kind: 'packs', packs }, { id: 'space-console', version: '1.0.0' }))
+}
+
+/** Poll the process log until a line carries the fragment; the assertion reads the lines it found. */
+async function logSettlesOn(fragment: string): Promise<string[]> {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline && !logLines.some(line => line.includes(fragment))) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  return [...logLines]
 }
 
 /** The catalog the sidebar reads. */
@@ -335,6 +386,71 @@ describe('a pack\'s views', () => {
     await settle(ctx, [])
     expect((await statusOf(ctx, 'space-data-page'))?.state).toBe('inactive')
     expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
+  it('are judged before a delivery carrying them replaces the pack root', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition({
+      offered: ['layers'],
+      deliveries: true,
+      packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } },
+    })
+
+    await deliver('v2.dshpack', [deliveredPack('other-pack', {
+      'chart.yml': 'id: chart\ntitle: 图表\nspec:\n  nodes:\n    - id: x\n      component: toy.chart\n      props: {}\n',
+    })])
+    expect(await logSettlesOn('other-pack/views/chart.yml'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(logLines.find(line => line.includes('other-pack/views/chart.yml')))
+      .toContain('names no component of this deployment')
+    // The root is exactly what it was, and what the sidebar lists with it.
+    expect(await readdir(join(world!, 'packs'))).toEqual(['space-data-page'])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'layers', title: '图层数据' }] })
+  })
+
+  it('are judged with their params already substituted, so a delivery naming an undeclared one is refused', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition({
+      offered: ['layers'],
+      deliveries: true,
+      packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } },
+    })
+
+    await deliver('v2.dshpack', [deliveredPack('other-pack', {
+      'sites.yml': [
+        'id: sites',
+        'title: 站点',
+        'spec:',
+        '  nodes:',
+        '    - id: facts',
+        '      component: toy.record',
+        '      props:',
+        '        dataList:',
+        '          - label: 表',
+        '            display: { $param: absent }',
+        'params:',
+        '  meta: sys_site',
+        '',
+      ].join('\n'),
+    })])
+    expect(await logSettlesOn('other-pack/views/sites.yml'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+    expect(logLines.find(line => line.includes('other-pack/views/sites.yml')))
+      .toContain('which this view\'s params do not declare')
+    expect(await readdir(join(world!, 'packs'))).toEqual(['space-data-page'])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'layers', title: '图层数据' }] })
+  })
+
+  it('reach the sidebar when the delivery carrying them is one this deployment can draw', { timeout: 60_000 }, async () => {
+    const ctx = await loadComposition({ offered: [], deliveries: true, packs: {} })
+
+    await deliver('v1.dshpack', [deliveredPack('other-pack', { 'sites.yml': recordView('sites', '站点', 'sys_site') })])
+    await settle(ctx, ['sites'])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'sites', title: '站点' }] })
+    expect(await statusOf(ctx, 'other-pack')).toEqual({
+      skill: 'other-pack',
+      version: '1.0.0',
+      state: 'active',
+      missing: [],
+    })
   })
 
   it('leave with this row (HMR safety)', async () => {

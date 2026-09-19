@@ -5,6 +5,7 @@ metadata:
   pack:
     version: 1.0.0
     platform: ">=0.5.0"
+    viewFormat: 1
   requires:
     components:
       "@deepseek-ai/dsh-experimental-component-kit": ">=0.1.0"

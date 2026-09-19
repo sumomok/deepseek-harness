@@ -49,19 +49,20 @@ import type {
 // Type-only: resolves ctx.webServer for the optional status route.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installDelivery, type DeliveryDirectory } from './deliveries.ts'
+import type { StagedPack, StagedPackRefusal } from './install.ts'
 import { describeMissing, reconcilePacks } from './reconcile.ts'
 import { packStatusRoute } from './route.ts'
 import { readPackRoot, type PackSource } from './scan.ts'
-import type { ActivePackView, PackManifest, PackStatus, PartsSource } from './types.ts'
+import type { ActivePackView, PackManifest, PackMissing, PackStatus, PartsSource } from './types.ts'
 
 export type * from './types.ts'
 export { buildPackArchive, PACK_ARCHIVE_EXTENSION, PACK_ARCHIVE_FORMAT } from './archive.ts'
 export { PackInstallError } from './refusal.ts'
 export type { PackInstallRefusal } from './refusal.ts'
 export { syncPackRoot } from './install.ts'
-export type { PackArchiveSyncResult, SyncPackRootResult } from './install.ts'
+export type { PackArchiveSyncResult, StagedPack, StagedPackRefusal, SyncPackRootResult, VerifyStagedPacks } from './install.ts'
 export { describeMissing, reconcilePacks, type PackObservation } from './reconcile.ts'
-export { parsePackManifest } from './manifest.ts'
+export { PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
 export { parsePackView } from './views.ts'
 export { SKILL_PACK_STATUS_ROUTE } from './route.ts'
 
@@ -116,6 +117,24 @@ const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024
  * and a ceiling on what one archive can make a deployment write.
  */
 const DEFAULT_MAX_FILES = 512
+
+/**
+ * The unmet requirements a delivery is allowed to arrive carrying.
+ *
+ * A pack naming a plugin, a part or a platform version this deployment does
+ * not have is a delivery that arrived before the row it was written against:
+ * it installs, stays inactive, says on the status route what it is waiting
+ * for, and activates by itself when that row is composed. A view the composed
+ * surface refuses is the opposite case — nothing that arrives later makes it
+ * drawable — so it is checked only for a pack whose other requirements this
+ * deployment already meets, and it refuses the delivery.
+ */
+const DEFERRED_REQUIREMENTS: ReadonlySet<PackMissing['kind']> = new Set([
+  'platform-version',
+  'plugin-absent',
+  'plugin-version',
+  'part-absent',
+])
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
 export interface PackDeliveryDirectory {
@@ -229,6 +248,11 @@ export class SkillPackRegistry extends Service {
     if (config.watch !== false) {
       ctx.effect(() => {
         const watcher = chokidar.watch(this.root, { ignoreInitial: true, depth: PACK_WATCH_DEPTH })
+        // Invalidated once the watch is armed, and again on every event. A pack
+        // that arrived between the watcher's own first listing and the events
+        // starting to arrive is in neither, so without this reading it would be
+        // offered only after the next unrelated change to the root.
+        watcher.on('ready', () => { this.moved() })
         watcher.on('all', () => { this.moved() })
         /* v8 ignore start -- chokidar reports a watch failure only from the platform watcher, which no in-process test can make fail. */
         watcher.on('error', (error: unknown) => {
@@ -329,9 +353,32 @@ export class SkillPackRegistry extends Service {
       if (this.stopped) return
       const changed = await installDelivery(this.root, delivery, (level, text) => {
         this.ctx.logger[level](text)
-      })
+      }, packs => this.refuseUndrawable(packs))
       if (changed) this.moved()
     })
+  }
+
+  /**
+   * Judge a delivered set against the surface this deployment composes, so a
+   * delivery carrying a view nothing here can draw is refused whole instead of
+   * installed and then withheld.
+   *
+   * Each pack is judged on its own, because what is being asked is about that
+   * pack's own views; a view id two delivered packs both claim withholds both
+   * of them once they are installed, and is not a reason to refuse the file
+   * somebody copied in. With no parts source mounted nothing is refused: the
+   * judgement is the composed surface's, and there is none.
+   * @param packs - the staged packs, each with a manifest and view files that parsed.
+   * @returns the first refusal this deployment can already state, or `undefined`.
+   */
+  private refuseUndrawable(packs: readonly StagedPack[]): StagedPackRefusal | undefined {
+    const parts = this.parts
+    if (parts === undefined) return undefined
+    const refusals = packs.flatMap((pack) => {
+      const judged = reconcilePacks([pack], parts.list(), this.platformVersion, view => parts.judgeView(view))
+      return judged.flatMap(status => refusalsOf(pack, status))
+    })
+    return refusals[0]
   }
 
   /**
@@ -348,7 +395,7 @@ export class SkillPackRegistry extends Service {
       sources,
       parts?.list() ?? [],
       this.platformVersion,
-      parts === undefined ? undefined : ((view, claimed) => parts.judgeView(view, claimed)),
+      parts === undefined ? undefined : (view => parts.judgeView(view)),
     )
     this.announce(statuses)
     const offered = new Set(statuses.filter(status => status.state === 'active').map(status => status.skill))
@@ -418,6 +465,22 @@ export default SkillPackRegistry
 interface ActivePack {
   readonly source: PackSource
   readonly manifest: PackManifest
+}
+
+/**
+ * The views of one staged pack this deployment can already say it will not
+ * draw. A pack still waiting on a plugin, a part or a platform version has
+ * none, because its views were judged against a surface that is not finished
+ * arriving.
+ * @param pack - the staged pack, for the directory name a refusal is reported under.
+ * @param status - what reconciliation made of that pack on its own.
+ * @returns one refusal per refused view, in the order the pack declares them.
+ */
+function refusalsOf(pack: StagedPack, status: PackStatus): StagedPackRefusal[] {
+  if (status.missing.some(missing => DEFERRED_REQUIREMENTS.has(missing.kind))) return []
+  return status.missing
+    .filter(missing => missing.kind === 'view-refused')
+    .map(missing => ({ pack: pack.name, file: missing.view, reason: missing.reason }))
 }
 
 /**

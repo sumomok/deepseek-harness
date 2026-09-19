@@ -2201,9 +2201,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that stops the notifications.',
       },
       {
-        signature: 'judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined',
-        description: 'Judge one view file against the surface that would draw it.\n\nThe judgement is the component surface\'s own, so a view a pack ships and a block the model places are accepted on identical terms. This package reads neither the spec nor the params it hands over.',
-        parameters: [{ name: 'view', description: 'the parsed view file.' }, { name: 'claimed', description: 'view ids already taken by the deployment\'s own configuration or by a pack judged before this one; a view repeating one is refused, because two views under one id is one menu row whose owner is decided by load order.' }],
+        signature: 'judgeView(view: PackView): PackViewRefusal | undefined',
+        description: 'Judge one view file against the surface that would draw it.\n\nThe judgement is the component surface\'s own, so a view a pack ships and a block the model places are accepted on identical terms. This package reads neither the spec nor the params it hands over.\n\nA view id the deployment\'s own configuration already claims is refused here, because the deployment\'s views own their ids. Two packs claiming one id is settled by the pack root instead, which withholds both of them.',
+        parameters: [{ name: 'view', description: 'the parsed view file.' }],
         returns: 'the refusal, or `undefined` when the view can be drawn here.',
       },
     ],
@@ -4847,7 +4847,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PackMissing',
-    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-refused\';\n    readonly view: string;\n    readonly path: string;\n    readonly reason: string;\n};',
+    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-format\';\n    readonly stated?: number;\n    readonly reads: readonly number[];\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-refused\';\n    readonly view: string;\n    readonly path: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-id-conflict\';\n    readonly id: string;\n    readonly pack: string;\n};',
   },
   {
     name: 'PackStatus',

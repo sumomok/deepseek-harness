@@ -32,6 +32,14 @@ export type PackInstallRefusal =
   | 'archive-digest'
   /** The archive, one of its files, or its file count is over the limit it was read under. */
   | 'archive-oversize'
+  /** A delivered pack's `metadata` object is not a manifest. */
+  | 'pack-manifest'
+  /** A delivered pack declares views in a view-file format this build does not read, or states none. */
+  | 'pack-view-format'
+  /** A view file a delivered pack declares is absent, leaves its pack, or is not a view. */
+  | 'pack-view'
+  /** The component surface this deployment composes will not draw a view a delivered pack declares. */
+  | 'pack-view-refused'
 
 /** A delivery this package refused, naming the entry and what was wrong with it. */
 export class PackInstallError extends Error {

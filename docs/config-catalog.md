@@ -1208,7 +1208,7 @@ export interface PackDeliveryDirectory {
 }
 ```
 
-Source: [`packages/experimental/skill-pack/src/index.ts:133`](../packages/experimental/skill-pack/src/index.ts)
+Source: [`packages/experimental/skill-pack/src/index.ts:152`](../packages/experimental/skill-pack/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

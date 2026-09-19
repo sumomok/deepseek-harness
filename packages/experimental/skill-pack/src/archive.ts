@@ -24,6 +24,7 @@ import { createHash } from 'node:crypto'
 import { unzipSync, zipSync } from 'fflate'
 import { z } from 'zod'
 import { readSourceDirectory, validatePacks } from './delivery.ts'
+import { compareCodeUnits } from './order.ts'
 import { PackInstallError } from './refusal.ts'
 import type {
   DeliveredFile,
@@ -87,8 +88,11 @@ export interface PackArchiveContents {
  *
  * The same packs under the same identity produce the same bytes: entries are
  * written in path order under a fixed modification time at a fixed compression
- * level. Every pack rule is applied here as well as at install time, so an
- * archive this function returns is one the installer accepts.
+ * level. Every rule about a pack's files — its name, its paths, its extensions
+ * — is applied here as well as at install time. What each file says is not: a
+ * manifest, a view format and a view file are held to their rules by the
+ * deployment that installs them, which is the side that has the surface those
+ * views are drawn on.
  * @param source - the packs to write, or the directory holding them.
  * @param set - the identity the manifest carries, which the installing deployment logs and nothing compares.
  * @returns the archive's bytes.
@@ -104,7 +108,7 @@ export async function buildPackArchive(source: PackSetSource, set: PackSetIdenti
       files.push({ path: `${pack.name}/${file.path}`, sha256: digestOf(content), content })
     }
   }
-  files.sort((left, right) => left.path.localeCompare(right.path))
+  files.sort((left, right) => compareCodeUnits(left.path, right.path))
   const manifest = {
     format: PACK_ARCHIVE_FORMAT,
     set: { id: set.id, version: set.version },

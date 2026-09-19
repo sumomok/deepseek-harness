@@ -23,6 +23,7 @@ kind: "package-reference"
 - [部件从哪里来](#where-the-parts-come-from)
 - [读一套部署手里有什么](#reading-what-a-deployment-holds)
 - [整体替换技能包根目录](#replacing-a-pack-root)
+  - [一份发放要过哪些检查](#what-a-delivery-is-checked-for)
 - [用一个打好的包来安装](#installing-from-a-packed-file)
 - [模型体验](#model-experience)
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
@@ -53,6 +54,8 @@ kind: "package-reference"
 | `deliveries.maxFileBytes` | `4194304` | 一个发放包里单个文件最大多大。 |
 | `deliveries.maxFiles` | `512` | 一个发放包最多带多少个条目，清单本身也算在内。 |
 
+被监视的根目录会在监视装好时读一遍，此后每收到一个事件再读一遍。一个落在监视器自己第一次列举与它的原生流开始供事件之间的技能包，两边都不在；没有那第一次读，它要等到根目录下一次发生别的变化才会被交出去。
+
 相对路径的 `root`、相对路径的 `deliveries.directory`，以及不是精确语义化版本的 `platformVersion`，都在这一行加载时就被拒绝，否则这两件事都会变成一个技能包一个技能包地被发现：相对路径读的是进程恰好待着的那个目录，而读不出来的平台版本满足不了任何区间，于是每个写了区间的技能包都会悄悄变成未激活。
 
 <a id="what-a-pack-says-about-itself"></a>
@@ -68,6 +71,7 @@ metadata:
   pack:
     version: 1.0.0
     platform: ">=0.5.0"
+    viewFormat: 1
   requires:
     components:
       "@deepseek-ai/dsh-experimental-component-kit": ">=0.3.0"
@@ -77,6 +81,8 @@ metadata:
 ```
 
 `pack.version` 是这个技能包自己的精确版本，`pack.platform` 是对平台版本的可选区间。`requires.components` 把组件插件的包名映射到那个包必须满足的区间，`requires.parts` 写明必须存在于组件目录里的部件 id。`views` 列出这个技能包自己的视图文件，每份声明一个 `id`、一个 `title`、一份 `spec` 和一块 `params`；走出技能包目录的路径会被拒绝，而不是被跟着走。
+
+`pack.viewFormat` 是这些视图文件所用的视图文件格式版本，整个技能包只写一次。声明了视图的技能包要写它，没声明视图的技能包没有东西归它管，可以不写。这套构建读格式 `1`；写了别的数字的技能包，以及声明了视图却什么都没写的技能包，会被扣下并由 `view-format` 点出两边的数字，带着这种技能包的发放会被拒。版本按技能包而不是按文件，因为一个技能包的每份视图文件都是一起发放的，而技能包是整体交出去的。
 
 `metadata` 对象是严格读的：这份清单不认识的键会让这个技能包被拒。写错的 `requires` 等于没人提过这条要求，而这个技能包接下来就会在它当初依赖的那些部件都不在的情况下被交出去。
 
@@ -129,14 +135,14 @@ interface PartsSource {
    * The judgement is the component surface's own, so a view a pack ships and a
    * block the model places are accepted on identical terms. This package reads
    * neither the spec nor the params it hands over.
+   *
+   * A view id the deployment's own configuration already claims is refused
+   * here, because the deployment's views own their ids. Two packs claiming one
+   * id is settled by the pack root instead, which withholds both of them.
    * @param view - the parsed view file.
-   * @param claimed - view ids already taken by the deployment's own
-   *   configuration or by a pack judged before this one; a view repeating one
-   *   is refused, because two views under one id is one menu row whose owner is
-   *   decided by load order.
    * @returns the refusal, or `undefined` when the view can be drawn here.
    */
-  judgeView(view: PackView, claimed: readonly string[]): PackViewRefusal | undefined
+  judgeView(view: PackView): PackViewRefusal | undefined
 }
 ```
 
@@ -152,9 +158,11 @@ interface PartsSource {
 | `statuses()` | 根目录里的每个技能包，激活的和未激活的都在，按技能名排序，各自带着版本和每一条没满足的要求。 |
 | `activeViews()` | 每个激活技能包所声明的视图，带上声明它的那个技能包。未激活的技能包一个也不贡献，包括那些本身读得干干净净的视图。 |
 
-一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`view-unreadable` 带文件，`view-refused` 带文件、文件里的那个值，以及组件表面自己对那个值说的那句话。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
+一条没满足的要求会点名那个被拒的值：`manifest-invalid` 带字段，`platform-version` 和 `plugin-version` 带两个版本，`plugin-absent` 和 `part-absent` 带名字，`view-format` 带这个技能包写的版本和这套构建读的版本，`view-unreadable` 带文件，`view-refused` 带文件、文件里的那个值，以及组件表面自己对那个值说的那句话，`view-id-conflict` 带这个 id 和另一个占着它的技能包。这个联合是封闭的，消费者按 tag 分支并以 `assertNever` 收尾。
 
-技能包按技能名顺序判定，而一个激活的技能包会为排在它之后判定的技能包占下自己的视图 id：两个技能包交出同一个视图 id 就是一条由加载顺序决定归属的菜单项，所以后面那个技能包会被扣下。因为别的原因未激活的技能包不占任何 id。
+这个根目录本来会交出去的两个技能包，如果声明了同一个视图 id，**两个都**被扣下，各自点出这个 id 和对方。一条菜单项不能有两个归属者，而把这个 id 留给排在前面那个，就等于让一套部署交出什么取决于它的技能包碰巧是按什么顺序读进来的。因为别的原因未激活的技能包不占任何 id，所以一个谁也没被交出去的技能包扣不住一个本来会被交出去的；部署自己配置占下的 id 更早就被组件表面拒掉了，因为部署自己的视图拥有自己的 id。
+
+顺序按码元，不按 `localeCompare`：`statuses()` 的技能名顺序、扫描技能包根目录的目录名顺序、写一个归档文件时的路径顺序，在每台主机上都一样，无论它带的是哪套 ICU 数据和默认区域设置。
 
 这条路由存在，是因为被扣下的技能包按设计在别的地方一律不可见，否则一套装了技能包却找不到它的部署将无处可读。它只带名字、版本和被拒原因——不带文件内容、不带技能包内部路径、不带配置——并且不做任何缓存，因为技能包的状态会随它周围的插件翻转。
 
@@ -170,6 +178,24 @@ interface PartsSource {
 技能包带 `.md`、`.yml`、`.yaml`，以及 `.png`、`.jpg`、`.jpeg`、`.gif`、`.webp` 这些图片。其它扩展名一律点名拒绝，抛 `PackInstallError`，符号链接和任何走出自己技能包目录的路径同样。技能包根目录是发放方往里写的一个目录；一个能带可执行文件的技能包就是一条装代码的路。`.svg` 和其它一起被拒，因为 SVG 文档里可以带脚本。
 
 没有命令行入口。这是发放侧自己调用的一个库函数，而下面那个发放目录是这一行唯一会自己调用它的地方。
+
+<a id="what-a-delivery-is-checked-for"></a>
+### 一份发放要过哪些检查
+
+暂存出来的那棵树在成为技能包根目录之前，先按技能包根目录读一遍；任何一项没过，这份发放**整份**被拒——什么都不写，旧的根目录逐字节保持原样。一套装进了坏视图的技能包根目录只会在状态路由上说这件事，而那时候把文件拷进来的运维早就走了。
+
+| 拒绝 | 拒的是什么 |
+|---|---|
+| `pack-manifest` | 发放过来的技能包，它的 `metadata` 对象不是一份清单 |
+| `pack-view-format` | 发放过来的技能包声明的视图用了这套构建不读的视图格式，或者什么都没写 |
+| `pack-view` | 发放过来的技能包声明了却没带的视图文件，或者带了却不是视图的那一份 |
+| `pack-view-refused` | 这套部署所组合的组件表面画不出来的视图 |
+
+**这套部署眼下还满足不了的要求不算拒绝。** 一个点名了这里没有的插件、部件或平台版本的技能包会被装进去、判为未激活、在状态路由上说清楚它在等什么，并在那一行被组合进来的瞬间自己激活——这正是一份比它的插件先到的发放存在的意义。只有写坏了的视图，或者在一个其它要求**已经满足**的技能包上被组合好的表面拒掉的视图，才会让这次安装被拒。
+
+组件目录的判定是一个参数，不是一条 import。`syncPackRoot(root, delivery, verify)` 收下调用方自己的表面；[`SkillPackRegistry`](#the-directory-a-delivery-arrives-in) 传的是它通过 `ctx.skillPackParts` 读到的那个，而一个没有组合任何表面的发放侧调用方什么也不传。没有它的时候，上面那些检查照样跑，组件目录的判定推迟到判定环节——和别人手工写进根目录的技能包走的是同一条路。
+
+`buildPackArchive` 只按技能包**文件**的规矩收一套集合——名字、路径、扩展名。它不读这些文件说了什么：清单、视图格式和视图文件由装它的那套部署判，因为那一侧才有画这些视图的表面。
 
 <a id="installing-from-a-packed-file"></a>
 ## 用一个打好的包来安装
@@ -201,7 +227,7 @@ interface PartsSource {
 | `archive-oversize` | 发放包本身、其中某个文件，或者条目数，超过了它被读时的上限 |
 | `duplicate-entry` | 被发放了两遍的技能包、技能包内路径，或者条目名 |
 
-技能包规则对发放包的要求和对目录一模一样：`code-file`、`path-escape`、`symlink` 和 `not-a-pack` 按同样的名字拒同样的东西。
+技能包规则对发放包的要求和对目录一模一样：`code-file`、`path-escape`、`symlink` 和 `not-a-pack` 按同样的名字拒同样的东西，一份发放自己那些技能包要过的[四项检查](#what-a-delivery-is-checked-for)也一样。
 
 装什么由清单说了算，条目自己在容器里的元数据什么也决定不了。每个被声明的文件都按普通文件写下去，所以别的工具标成符号链接、硬链接或设备的条目，要么没被声明、按「清单没声明的条目」被拒，要么就当作一个装着那堆字节的普通文件写下去。
 
@@ -252,7 +278,10 @@ interface PartsSource {
 - **发放包里条目自己的元数据从来不读。** 链接、硬链接或设备条目装不成它本身——每个被声明的文件都按普通文件写下去——但点名它的那次拒绝是 `archive-entry`，说的是「清单没声明的条目」，而不是一句说清它自称是什么的话。
 - **同一批技能包在这个包的同一个构建下产出同样的字节。** 条目顺序、修改时间和压缩级别都固定在这里；压缩器是 `fflate`，版本由 lockfile 钉住。跨版本认出一套集合靠的是它清单里的那些摘要。
 - **两个技能包可能占同一个技能名。** 两个都会被 `statuses()` 报出来，而技能注册表按它自己的 rank 与顺序规则悄悄解决这个重名。既没有拒绝，也没有哪份报告点名被盖掉的那个技能包。
-- **技能包的视图由提供部件的那一方来判，没人提供时就不判。** 没有 `ctx.skillPackParts` 的提供方时，解析通过的视图会被原样带过去，因为反正谁也画不出来；这时技能包会带着没有任何表面看过的视图被交出去。这与部件表所处的 fail-closed 位置相同，只是再往前一步。
+- **技能包的视图由提供部件的那一方来判，没人提供时就不判。** 没有 `ctx.skillPackParts` 的提供方时，解析通过的视图会被原样带过去，因为反正谁也画不出来；这时技能包会带着没有任何表面看过的视图被交出去，一份发放也只凭那些结构检查就装进去了。这与部件表所处的 fail-closed 位置相同，只是再往前一步。
+- **一个技能包把同一个视图 id 声明两次时，留下的是排在前面那个。** 整根目录那条规则说的是两个技能包。在一个技能包内部，顺序就是这个技能包作者自己写的那张 `views` 表，于是第二个会在任何第二次占用一个 id 的地方被丢掉——由 `ctx.componentViews` 丢掉，并写一行点了这个来源两次的 error。
+- **根目录里已经放着的那份发放靠什么都不做来安装，也就什么都不检查。** `syncPackRoot` 先对一遍，所以一套逐字节对上根目录的集合会答「没变」，既不读清单也不读视图。因此一个放着这套构建会拒的技能包的根目录，会一直留着它，直到另一套集合到来。
+- **发放控制台没法预先检查一套部署会怎么看它的视图。** `buildPackArchive` 只按技能包文件的规矩收一套集合，一份也不读；清单、视图格式和每份视图文件都在画它们的那个表面所在的地方判。要重新考虑这件事的触发条件，是一个自己也组合了一份目录的发放控制台。
 - **每次读都重新读根目录。** `statuses()`、`activeViews()` 以及每次提供方调用都会扫一遍技能包根目录、重新解析每份清单。这让答案始终跟得上现状、没有会过期的缓存，也正因如此这条状态路由不适合按交互频率轮询。
 - **没挂部件提供方的技能包根目录交不出任何带视图的技能包。** 在有人挂上 `ctx.skillPackParts` 的提供方之前，每个点名了部件的技能包都是未激活。这是正确的 fail-closed 状态，也是很容易被当成 bug 的一种状态——状态路由就是为它存在的。部署方组合的那个提供方是 [`skill-pack-components`](../skill-pack-components/README.zh.md)。
 - **没有被组装快照覆盖** —— 这个包由它自己的用例覆盖，其中包括一次跑在真实技能包根目录上的真实 Loader 组合；快照泳道重放的是发行组合，而那里不组合任何 experimental 行。
