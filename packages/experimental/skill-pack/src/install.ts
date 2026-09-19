@@ -7,87 +7,25 @@
  * the root always says what the delivery says and a deployment never has to be
  * told which of the two to believe.
  *
+ * A delivery arrives as a directory, as the packs themselves, or as one
+ * archive file; the three differ only in how the set is read. All of them pass
+ * the same pack rules, and an archive is verified against its own manifest
+ * before any of it is staged.
+ *
  * Nothing is written into the live root. The delivered set is staged into a
  * sibling directory, verified there, and then swapped in by rename, so a
  * failure part-way through leaves the root exactly as it was and a reader
  * never observes a half-written root.
- *
- * A pack carries instructions, view files and pictures. It carries no code:
- * every other extension is refused by name, because a pack root is a directory
- * a delivery writes into, and a pack that could carry an executable file would
- * be an install path for one.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/install
  */
 
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { dirname, join, posix, sep } from 'node:path'
-
-/** File extensions a pack may carry, lowercase and including the dot. */
-const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
-  '.md',
-  '.yml',
-  '.yaml',
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.webp',
-])
-
-/** What a {@link PackInstallError} refused. */
-export type PackInstallRefusal =
-  /** The file's extension is not one a pack may carry. */
-  | 'code-file'
-  /** The path leaves the pack directory, or names no pack directory at all. */
-  | 'path-escape'
-  /** The entry is a symbolic link, which would carry the root's contents outside it. */
-  | 'symlink'
-  /** The delivered set holds an entry that is not a pack directory. */
-  | 'not-a-pack'
-
-/** A delivery this package refused, naming the entry and what was wrong with it. */
-export class PackInstallError extends Error {
-  /** Which rule refused the entry. */
-  readonly refusal: PackInstallRefusal
-  /** The entry, as the delivery named it. */
-  readonly entry: string
-
-  /**
-   * @param refusal - which rule refused the entry.
-   * @param entry - the entry, as the delivery named it.
-   * @param detail - the sentence stating what the rule requires.
-   */
-  constructor(refusal: PackInstallRefusal, entry: string, detail: string) {
-    super(`skill-pack: refused ${entry} — ${detail}`)
-    this.name = 'PackInstallError'
-    this.refusal = refusal
-    this.entry = entry
-  }
-}
-
-/** One file inside a delivered pack. */
-export interface DeliveredFile {
-  /** Pack-relative path, written with `/` separators. */
-  readonly path: string
-  /** The file's bytes; a string is written as UTF-8. */
-  readonly content: string | Uint8Array
-}
-
-/** One pack in a delivered set. */
-export interface DeliveredPack {
-  /** The pack's directory name inside the pack root. */
-  readonly name: string
-  /** Every file the pack carries, in any order. */
-  readonly files: readonly DeliveredFile[]
-}
-
-/** Where the delivered set comes from. */
-export type PackDelivery =
-  /** A directory whose immediate children are pack directories. */
-  | { readonly kind: 'directory'; readonly path: string }
-  /** The packs themselves, already in hand. */
-  | { readonly kind: 'packs'; readonly packs: readonly DeliveredPack[] }
+import { dirname, join } from 'node:path'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { readPackArchive } from './archive.ts'
+import { readSourceDirectory, validatePacks } from './delivery.ts'
+import type { DeliveredPack, PackArchiveDelivery, PackDelivery, PackSetIdentity } from './types.ts'
 
 /** What one {@link syncPackRoot} call did. */
 export interface SyncPackRootResult {
@@ -97,27 +35,48 @@ export interface SyncPackRootResult {
   readonly packs: readonly string[]
   /** Every pack the root held and no longer does, in name order. */
   readonly retired: readonly string[]
+  /** Which set was delivered, for an archive delivery; a directory and packs in hand carry no identity. */
+  readonly set?: PackSetIdentity
+}
+
+/** What one archive install did. An archive states which set it is, so the result carries that identity. */
+export interface PackArchiveSyncResult extends SyncPackRootResult {
+  /** The set the archive's manifest stated. */
+  readonly set: PackSetIdentity
 }
 
 /**
+ * Make a pack root hold exactly the packs one archive delivers.
+ * @param targetRoot - absolute path of the pack root to replace.
+ * @param delivery - the archive, the name a refusal reports it under, and the limits it is read under.
+ * @returns what the root now holds, what was retired, and which set the archive delivered.
+ * @throws {PackInstallError} when the archive is over a limit, is unreadable, disagrees with its own
+ *   manifest, or carries a pack file a pack may not carry.
+ */
+export function syncPackRoot(targetRoot: string, delivery: PackArchiveDelivery): Promise<PackArchiveSyncResult>
+/**
  * Make a pack root hold exactly the delivered packs.
- *
+ * @param targetRoot - absolute path of the pack root to replace.
+ * @param delivery - the packs to install, the directory holding them, or the archive carrying them.
+ * @returns what the root now holds and what was retired.
+ * @throws {PackInstallError} when a delivered entry is a symbolic link, leaves its pack directory,
+ *   is not a pack directory, carries an extension a pack may not carry, or is delivered twice.
+ */
+export function syncPackRoot(targetRoot: string, delivery: PackDelivery): Promise<SyncPackRootResult>
+/**
  * Running the same delivery twice writes nothing the second time: the call
  * compares the root against the delivered set first and returns unchanged when
  * every pack, every path and every byte already matches.
- * @param targetRoot - absolute path of the pack root to replace.
- * @param delivery - the packs to install, or the directory holding them.
- * @returns what the root now holds and what was retired.
- * @throws {PackInstallError} when a delivered entry is a symbolic link, leaves its pack directory,
- *   is not a pack directory, or carries an extension a pack may not carry.
  */
 export async function syncPackRoot(targetRoot: string, delivery: PackDelivery): Promise<SyncPackRootResult> {
-  const delivered = await collectDelivery(delivery)
+  const read = await readDelivery(delivery)
+  const delivered = validatePacks(read.packs)
+  const identity = read.set === undefined ? {} : { set: read.set }
   const present = await readInstalledPacks(targetRoot)
   const packs = delivered.map(pack => pack.name).sort()
   const retired = [...present.packs.keys()].filter(name => !packs.includes(name)).sort()
   if (matchesInstalled(delivered, present)) {
-    return { changed: false, packs, retired: [] }
+    return { changed: false, packs, retired: [], ...identity }
   }
   const staging = `${targetRoot}.staging-${randomUUID()}`
   try {
@@ -128,75 +87,30 @@ export async function syncPackRoot(targetRoot: string, delivery: PackDelivery): 
     await rm(staging, { recursive: true, force: true })
     throw error
   }
-  return { changed: true, packs, retired }
+  return { changed: true, packs, retired, ...identity }
 }
 
-/** Read the delivered set, walking the source directory when the delivery names one. */
-async function collectDelivery(delivery: PackDelivery): Promise<DeliveredPack[]> {
-  const packs = delivery.kind === 'packs' ? delivery.packs : await readSourceDirectory(delivery.path)
-  return packs.map(pack => ({ name: requirePackName(pack.name), files: pack.files.map(file => checkFile(pack.name, file)) }))
+/** The delivered set as the delivery carries it, before the pack rules have seen it. */
+interface ReadDelivery {
+  /** The packs the delivery names. */
+  readonly packs: readonly DeliveredPack[]
+  /** The set an archive says it is; absent for the other two deliveries. */
+  readonly set?: PackSetIdentity
 }
 
-/** Walk a source directory into delivered packs, refusing anything that is not one. */
-async function readSourceDirectory(source: string): Promise<DeliveredPack[]> {
-  const entries = await readdir(source, { withFileTypes: true, encoding: 'utf8' })
-  const packs: DeliveredPack[] = []
-  for (const entry of entries) {
-    if (entry.isSymbolicLink()) throw new PackInstallError('symlink', entry.name, 'a pack root follows no symbolic link')
-    if (!entry.isDirectory()) throw new PackInstallError('not-a-pack', entry.name, 'a pack root holds pack directories only')
-    packs.push({ name: entry.name, files: await readPackFiles(join(source, entry.name), '') })
-  }
-  return packs
-}
-
-/** Read one pack directory's files, pack-relative, refusing symbolic links at any depth. */
-async function readPackFiles(directory: string, prefix: string): Promise<DeliveredFile[]> {
-  const entries = await readdir(directory, { withFileTypes: true, encoding: 'utf8' })
-  const files: DeliveredFile[] = []
-  for (const entry of entries) {
-    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
-    if (entry.isSymbolicLink()) throw new PackInstallError('symlink', relative, 'a pack carries no symbolic link')
-    if (entry.isDirectory()) {
-      files.push(...await readPackFiles(join(directory, entry.name), relative))
-      continue
-    }
-    files.push({ path: relative, content: await readFile(join(directory, entry.name)) })
-  }
-  return files
-}
-
-/** Refuse a pack directory name that is not one path segment. */
-function requirePackName(name: string): string {
-  if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes(sep) || name.includes('\0')) {
-    throw new PackInstallError('path-escape', name, 'a pack name is one directory name')
-  }
-  return name
-}
-
-/** Refuse a pack-relative path that escapes its pack, and any extension a pack may not carry. */
-function checkFile(pack: string, file: DeliveredFile): DeliveredFile {
-  const entry = `${pack}/${file.path}`
-  const segments = file.path.split('/')
-  if (file.path === '' || file.path.startsWith('/') || file.path.includes('\0')
-    || segments.some(segment => segment === '' || segment === '.' || segment === '..')
-    || posix.normalize(file.path) !== file.path) {
-    throw new PackInstallError('path-escape', entry, 'a pack file path stays inside its pack')
-  }
-  requirePackExtension(entry)
-  return file
-}
-
-/** Refuse an extension a pack may not carry, naming the set it may. */
-function requirePackExtension(entry: string): void {
-  const name = entry.slice(entry.lastIndexOf('/') + 1)
-  const dot = name.lastIndexOf('.')
-  const extension = dot <= 0 ? '' : name.slice(dot).toLowerCase()
-  if (!PACK_FILE_EXTENSIONS.has(extension)) {
-    throw new PackInstallError(
-      'code-file',
-      entry,
-      `a pack carries only ${[...PACK_FILE_EXTENSIONS].join(', ')}`,
-    )
+/** Read the delivered set, walking a source directory or verifying an archive when the delivery is one. */
+async function readDelivery(delivery: PackDelivery): Promise<ReadDelivery> {
+  switch (delivery.kind) {
+    case 'packs':
+      return { packs: delivery.packs }
+    case 'directory':
+      return { packs: await readSourceDirectory(delivery.path) }
+    case 'archive':
+      return readPackArchive(delivery.name, delivery.bytes, delivery.limits)
+    /* v8 ignore start -- PackDelivery is a closed union; a future member must fail compilation here. */
+    default:
+      return assertNever(delivery, 'PackDelivery.kind')
+    /* v8 ignore stop */
   }
 }
 
@@ -280,10 +194,7 @@ async function stage(staging: string, delivered: readonly DeliveredPack[]): Prom
 
 /** Re-read the staged tree and refuse anything a pack may not carry, before it becomes the live root. */
 async function verifyStaged(staging: string): Promise<void> {
-  for (const pack of await readSourceDirectory(staging)) {
-    requirePackName(pack.name)
-    for (const file of pack.files) checkFile(pack.name, file)
-  }
+  validatePacks(await readSourceDirectory(staging))
 }
 
 /** Replace the root with the staged tree: the old root moves aside, the new one takes its name, the old one is removed. */
