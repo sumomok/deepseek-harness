@@ -175,6 +175,19 @@
         mcpUpstreams: {}
         bizUpstream: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM
 
+    # The console's MCP capability, carrying no server — which is what this row
+    # is here to pin. A console composition always mounts it, so the question a
+    # transcript answers is whether an empty list is really idle: a row that
+    # registered a tool would change this lane's pinned header, and a row that
+    # opened a connection would change how long a scenario takes to settle.
+    # Neither happens, so every fixture below is byte-identical with and without
+    # this row. The credential seam it reads is the base bundle's; with no
+    # server naming a credential, nothing is resolved.
+    - id: console-mcp
+      name: '@deepseek-ai/dsh-experimental-console-mcp'
+      config:
+        servers: []
+
     # The chart tool. No browser is attached under ACP, so every call answers
     # `unverified` after the deadline — one second here, because the deadline is
     # quoted verbatim in the model-facing result line and the lane pays it in

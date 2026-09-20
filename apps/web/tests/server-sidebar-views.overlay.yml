@@ -82,6 +82,18 @@
 - id: session-log-download
   name: '@deepseek-ai/dsh-session-log-export'
   disabled: true
+# Settings → Plugins, both halves, copied from the shipped console overlay: the
+# Plugins navigation entry with its configurable cards, and the read-only
+# Loader inventory tab inside the same section. Neither registers anything
+# outside that section.
+- id: ui-settings-plugins
+  name: '@deepseek-ai/dsh-client-ui-settings-plugins'
+  disabled: true
+
+- id: ui-settings-plugin-inventory
+  name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+  disabled: true
+
 - id: ui-settings-models
   name: '@deepseek-ai/dsh-client-ui-settings-models'
   disabled: true
@@ -168,6 +180,16 @@
         name: 完全放开
         description: 可以修改任何文件，且不再逐次征求同意。
         glyph: danger-full-access
+
+# The MCP capability with no server, copied from the shipped console overlay:
+# the console always carries it, and a deployment names servers by writing this
+# row's `servers` list. Empty here, so these lanes compose the capability
+# without opening a connection or offering the model a tool.
+- insert:
+    - id: console-mcp
+      name: '@deepseek-ai/dsh-experimental-console-mcp'
+      config:
+        servers: []
 
 # The bundled library-knowledge layer: one isolated `skill-filesystem` provider
 # over `@deepseek-ai/dsh-experimental-library-skills`'s own `skills/` directory.
