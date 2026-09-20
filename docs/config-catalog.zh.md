@@ -835,6 +835,50 @@ export interface ContentView {
 
 来源：[`packages/experimental/component-surface/src/index.ts:111`](../packages/experimental/component-surface/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-console-mcp"></a>
+
+## `@deepseek-ai/dsh-experimental-console-mcp`
+
+需要：`credentials`
+
+```ts config-catalog
+/** Plugin config: which external MCP servers this deployment reaches. */
+export interface Config {
+  /**
+   * The servers, in the order they are written. An empty list — the default —
+   * is a console that carries the capability and reaches nothing, which is
+   * what a deployment gets before anyone has chosen a server.
+   */
+  servers: ServerRequest[]
+}
+
+/** One server as a deployment writes it. */
+export interface ServerRequest {
+  /** Tool namespace: this server's tools register as `mcp__<id>__<rawName>`. */
+  id: string
+  /** Streamable HTTP endpoint. */
+  url: string
+  /** Credential attached to every request; omitted for an endpoint that needs none. */
+  auth?: ServerAuthRequest
+  /** Per-tool-call timeout in milliseconds; omitted leaves the bridge's own default. */
+  toolCallTimeoutMs?: number
+  /** Whether a failed first connection fails the boot; omitted leaves the bridge's own default. */
+  failOnStartupError?: boolean
+}
+
+/** One server's credential, named rather than carried. */
+export interface ServerAuthRequest {
+  /** Request header the credential is spent on, such as `Authorization`. */
+  header: string
+  /** Credential reference — an environment-variable name, never a value. */
+  credential: string
+  /** Text placed before the resolved value, such as `Bearer `. */
+  scheme: string
+}
+```
+
+来源：[`packages/experimental/console-mcp/src/index.ts:51`](../packages/experimental/console-mcp/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
 ## `@deepseek-ai/dsh-experimental-content-frame`
