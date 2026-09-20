@@ -26,17 +26,31 @@
  * this block is whether the page opens at all.
  *
  * Before any of that the page judges one thing on its own: it reads this
- * user's own profile and, where the permissions that profile carries name
- * tables at all and none of them is this one, it fetches nothing, draws the
- * deployment's own refusal inside the box, and raises `access-denied` once. No
- * property of the block reaches that judgement, and nothing here softens it;
- * what this renderer does with it is report it once, so the agent can say why
- * the page is empty.
+ * user's own profile and refuses to fetch anything — no scheme, no dictionary,
+ * no query — where the permissions that profile carries name tables at all and
+ * none of them is this one, and where those permissions could not be obtained
+ * at all. Either way it draws the deployment's own refusal inside the box and
+ * raises `access-denied` once, naming which of the two it was. No property of
+ * the block reaches that judgement, and nothing here softens it; what this
+ * renderer does with it is report it once, so the agent can say why the page is
+ * empty. The third answer — this deployment said nothing at all — draws a line
+ * inside the box and raises nothing, so nothing is reported for it.
  *
- * Eleven things come back, each a `context` gesture of the placement package's
+ * A refused sign-in is separate from all of that and arrives from the request
+ * layer rather than from the judgement: where this deployment answers any of
+ * the page's requests by refusing the visitor's credential, the page sends the
+ * person nowhere, draws a line in its own box, and raises `auth-failed` once
+ * per mount until a request of its own succeeds. That layer is not told which
+ * block asked, so every data page on screen is raised the same one and each
+ * reports its own — one note per block rather than one per page load, because
+ * the placement package supersedes a block's unclaimed note with that same
+ * block's next one.
+ *
+ * Twelve things come back, each a `context` gesture of the placement package's
  * catalog and each bounded the way that catalog bounds it — `data-page-read.ts`
- * holds the readings and the ceilings: on `access-denied`, that this user's
- * account is not granted this table, and nothing else; on `load`, the table, the first drawn
+ * holds the readings and the ceilings: on `access-denied`, which of the two
+ * judgements refused this table, and nothing else; on `auth-failed`, the answer
+ * this deployment refused the visitor's credential with; on `load`, the table, the first drawn
  * columns and the rights this deployment answered with for this user; on
  * `query-success`, three counts and never a row; on `table-selection-change`,
  * how many rows are ticked and what the first few are called; on
@@ -90,6 +104,7 @@ import {
   type CrudQuerySuccessPayload,
   type CrudTableCellClickPayload,
   type DataPageAccessDeniedPayload,
+  type DataPageAuthFailedPayload,
   type DataPageExportTaskPayload,
   type DataPageInfoCardOpenPayload,
   type DataPageLoadPayload,
@@ -98,6 +113,7 @@ import {
 import {
   loadReport,
   readAccessDenied,
+  readAuthFailed,
   readGrantedRights,
   readCardOpen,
   readCellClick,
@@ -125,6 +141,9 @@ const LOAD_ACTION_ID = 'load'
 
 /** Action id a table this user's account is not granted is reported under. */
 const DENIED_ACTION_ID = 'denied'
+
+/** Action id a sign-in this deployment refused is reported under. */
+const AUTH_FAILED_ACTION_ID = 'auth-failed'
 
 /** Action id one answered query's counts are reported under. */
 const QUERY_ACTION_ID = 'query'
@@ -171,6 +190,8 @@ interface ReportMemory {
   query?: string
   /** The last refusal report, serialized. */
   denied?: string
+  /** The last refused-sign-in report, serialized. */
+  authFailed?: string
 }
 
 /** Every placing call's memory, released with its property record. */
@@ -208,7 +229,7 @@ interface DataPageEventContext {
  */
 function reportOnce(
   context: DataPageEventContext,
-  field: 'load' | 'query' | 'denied',
+  field: 'load' | 'query' | 'denied' | 'authFailed',
   actionId: string,
   payload: Readonly<Record<string, unknown>>,
 ): void {
@@ -241,6 +262,11 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
       const current = context.current
       const report = readAccessDenied(payload, current.meta)
       if (report !== undefined) reportOnce(current, 'denied', DENIED_ACTION_ID, report)
+    },
+    'auth-failed': (payload: DataPageAuthFailedPayload) => {
+      const current = context.current
+      const report = readAuthFailed(payload)
+      if (report !== undefined) reportOnce(current, 'authFailed', AUTH_FAILED_ACTION_ID, report)
     },
     load: (payload: DataPageLoadPayload) => {
       const current = context.current

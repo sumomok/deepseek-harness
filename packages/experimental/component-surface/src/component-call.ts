@@ -1879,6 +1879,9 @@ export const DATA_PAGE_LOAD_ID = 'load'
 /** Action id the data page reports a table this user's account is not granted under. */
 export const DATA_PAGE_DENIED_ID = 'denied'
 
+/** Action id the data page reports a sign-in this deployment refused under. */
+export const DATA_PAGE_AUTH_FAILED_ID = 'auth-failed'
+
 /** Action id the data page reports one answered query under. */
 export const DATA_PAGE_QUERY_ID = 'query'
 
@@ -1908,6 +1911,43 @@ export const DATA_PAGE_EXPORTED_ID = 'exported'
 
 /** The two exports the page's toolbar submits, as the page's own event names them. */
 const DATA_PAGE_EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
+
+/**
+ * The two judgements that refuse a page, as the page's own event names them.
+ *
+ * Both of them keep the page from opening, and they are two different things to
+ * tell the person: one is about this table, the other is about their account
+ * and holds for every table.
+ */
+const DATA_PAGE_DENIED_REASONS: readonly string[] = ['no-row', 'no-rights-table']
+
+/** What each refusal reason is called where a gesture is accounted for. */
+const DATA_PAGE_DENIED_REASON_NAMES: Readonly<Record<string, NoticePhrase>> = {
+  'no-row': {
+    agent: 'that table is not among the permissions this deployment holds for this user',
+    user: '这张表不在当前账号的权限里',
+  },
+  'no-rights-table': {
+    agent: 'the permissions this deployment holds for this user could not be obtained, so no table opens for them',
+    user: '取不到当前账号的权限，这一页没打开',
+  },
+}
+
+/** What a refusal says where the page named a judgement this catalog does not declare. */
+const DATA_PAGE_DENIED_UNNAMED: NoticePhrase = {
+  agent: 'this deployment did not grant this user that table',
+  user: '当前账号没有权限查看这张表',
+}
+
+/**
+ * Widest answer code a refused sign-in reports: zero where the page had no
+ * sign-in to present and sent nothing, and the refusing answer's own code
+ * otherwise.
+ */
+export const MAX_DATA_PAGE_AUTH_STATUS = 599
+
+/** Largest reported business code, in characters; the seat leaves a longer one out rather than cutting it. */
+export const MAX_DATA_PAGE_AUTH_CODE_LENGTH = 24
 
 /** What each export mode is called where a gesture is accounted for, in the toolbar key the arrangement keeps it by. */
 const DATA_PAGE_EXPORT_NAMES: Readonly<Record<string, NoticePhrase>> = {
@@ -2013,12 +2053,13 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
 }
 
 /**
- * The eleven things a data page reports, all of them `context`.
+ * The twelve things a data page reports, all of them `context`.
  *
  * None is the answer the block was placed for: the page was placed to be used,
  * and what comes back is what the agent needs to talk about it — what the page
- * loaded and what this deployment grants this user on it, or that this user's
- * account is not granted the table at all, how many rows each
+ * loaded and what this deployment grants this user on it, or which of the two
+ * judgements refused the table to this user's account, or that this deployment
+ * refused the sign-in the page presented, how many rows each
  * query matched,
  * which rows the user ticked, which cell they clicked, which side card they
  * opened, what they saved, which row operation they pressed, and which export
@@ -2088,19 +2129,49 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
   {
     id: DATA_PAGE_DENIED_ID,
     report: 'context',
-    // Empty, because the one thing a denial has to name is the table, and the
-    // table is `relatedMeta` on the node the call itself wrote. A payload
-    // carrying it would be the host reading its own value back off a page
-    // whose whole report is that it fetched nothing, and a payload carrying
-    // anything else — the user, the permission table it was judged against —
-    // is what this gesture exists to keep out of the conversation.
-    payloadSchema: {},
-    describe: context => ({
-      text: `The data page of "${dataPageMeta(context.node)}" did not open in ${place(context)}: on this deployment's `
-        + "backend, this user's account is not granted that table. The page drew nothing and sent no query, so no "
-        + 'columns, no counts and no rows are coming from it.',
-      summary: `「${entryName(context)}」这张表，当前账号没有权限查看`,
-    }),
+    // The reason and nothing else. The table a denial is about is `relatedMeta`
+    // on the node the call itself wrote, so a payload carrying it would be the
+    // host reading its own value back off a page whose whole report is that it
+    // fetched nothing; and a payload carrying the user or the permission table
+    // it was judged against is what this gesture exists to keep out of the
+    // conversation. The reason is neither: it is which judgement the page made,
+    // and the two say different things to the person.
+    payloadSchema: {
+      reason: { required: false, schema: { kind: 'enum', values: DATA_PAGE_DENIED_REASONS } },
+    },
+    describe: (context) => {
+      const why = DATA_PAGE_DENIED_REASON_NAMES[context.payload['reason'] as string] ?? DATA_PAGE_DENIED_UNNAMED
+      return {
+        text: `The data page of "${dataPageMeta(context.node)}" did not open in ${place(context)}: ${why.agent}. `
+          + 'The page drew nothing and sent no query, so no columns, no counts and no rows are coming from it.',
+        summary: `「${entryName(context)}」${why.user}`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_AUTH_FAILED_ID,
+    report: 'context',
+    payloadSchema: {
+      status: { required: true, schema: { kind: 'number', min: 0, max: MAX_DATA_PAGE_AUTH_STATUS, integer: true } },
+      code: { required: false, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_AUTH_CODE_LENGTH } },
+    },
+    describe: (context) => {
+      const status = context.payload['status'] as number
+      const code = context.payload['code'] as string | undefined
+      // The code is this deployment's own text, so it is read back as data
+      // rather than spliced into the sentence as words.
+      const named = code === undefined ? '' : `, code ${quote(code).agent}`
+      const refused = status === 0
+        ? 'this user has no sign-in on this deployment for the page to present'
+        : `this deployment refused this user's sign-in with ${status}${named}`
+      return {
+        text: `The data page of "${dataPageMeta(context.node)}" in ${place(context)} is empty because ${refused}. `
+          + 'It drew no columns and sent no query, and nothing comes from it until this person is signed in to this '
+          + 'deployment again. Any other data page on screen reports the same thing, because this is about this '
+          + "person's sign-in rather than about one table.",
+        summary: `「${entryName(context)}」的数据页${status === 0 ? '没有登录' : `登录没通过（${status}）`}，页面是空的`,
+      }
+    },
   },
   {
     id: DATA_PAGE_QUERY_ID,

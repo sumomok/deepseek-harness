@@ -23,6 +23,7 @@ import type {
   CrudQuerySuccessPayload,
   CrudTableCellClickPayload,
   DataPageAccessDeniedPayload,
+  DataPageAuthFailedPayload,
   DataPageExportTaskPayload,
   DataPageInfoCardOpenPayload,
   DataPageLoadPayload,
@@ -30,7 +31,10 @@ import type {
 } from '@sumomok/toy-crud-kit'
 import {
   ATTRIBUTE_NAME,
+  DENIED_REASONS,
   EXPORT_MODES,
+  MAX_AUTH_CODE_LENGTH,
+  MAX_AUTH_STATUS,
   MAX_ATTRIBUTE_LENGTH,
   MAX_RIGHT_LENGTH,
   MAX_CELL_LENGTH,
@@ -184,17 +188,44 @@ export type ExportReport = {
   readonly fileType?: string
 }
 
+/** Why one page-level refusal was decided, as the page's own event spells it. */
+export type DeniedReason = DataPageAccessDeniedPayload['reason']
+
 /**
- * What one page-level refusal reports: nothing at all.
+ * What one page-level refusal reports: why the page did not open, and nothing
+ * else.
  *
  * The gesture is about one table, and the host is the side that named it: it
  * is the `relatedMeta` the placing call wrote, which the catalog's account
  * reads back off that same node. The page hands that name straight back, so it
  * is read here to tell this block's own refusal from an event about another
- * table, and none of it is carried — a refusal is judged against this user's
- * permissions, and neither the user nor those permissions belong in a report.
+ * table, and the name is not carried. What is carried is the reason alone —
+ * which of the two judgements the page made — because the two are different
+ * things to tell the person: one is about this table, the other is about their
+ * account. The profile the page judged against and the permissions in it stay
+ * where they were read.
  */
-export type DeniedReport = Readonly<Record<string, never>>
+export type DeniedReport = {
+  /** Which judgement refused the page, absent where the page named one neither this row nor the catalog knows. */
+  readonly reason?: DeniedReason
+}
+
+/**
+ * What one refused sign-in reports: the answer that refused it, and the
+ * deployment's own code for it.
+ *
+ * Nothing of the sign-in itself: the page presents the credential this visitor
+ * already had, and what comes back here is this deployment's verdict on it.
+ */
+export type AuthFailedReport = {
+  /** The refusing answer's own code, and zero where the page had no sign-in to present and sent nothing. */
+  readonly status: number
+  /**
+   * The deployment's own business code, spelled as digits where it answered
+   * with a number; absent where it answered with none this report may state.
+   */
+  readonly code?: string
+}
 
 /** What one pressed row operation reports: which operation, and the row it was pressed on. */
 export type OperationReport = {
@@ -606,20 +637,63 @@ export function readExportTask(payload: DataPageExportTaskPayload): ExportReport
 }
 
 /**
- * Judge one page-level refusal, and reduce it to nothing.
+ * Judge one page-level refusal, and reduce it to why it was refused.
  *
- * The page raises this instead of loading: it read this user's own profile,
- * found no row for the table in the permissions that profile carries, and
+ * The page raises this instead of loading: it read this user's own profile and
  * fetched nothing — no scheme, no dictionary, no query. What it hands over is
- * the table's own name, which is the name the block was opened on, and the
- * only thing read out of it is whether those two are the same table: a payload
- * naming another one, or naming none, is not this block's refusal and is not
- * reported. What is reported is empty, so the profile that decided it and the
- * permissions it was decided against stay where they were read.
+ * the table's own name and one of two reasons. The name is read only to tell
+ * this block's own refusal from an event about another table: a payload naming
+ * another one, or naming none, is not this block's refusal and is not reported.
+ * The reason is reported when it is one of the two this row and the catalog
+ * both know, and left out otherwise, so a page that starts naming a third
+ * refuses to open here exactly as it does on screen rather than making the
+ * whole report one the agent never receives.
  * @param payload - the `access-denied` event's payload.
  * @param meta - the table the block was opened on.
- * @returns the empty report, or `undefined` when the payload does not name that table.
+ * @returns the report, or `undefined` when the payload does not name that table.
  */
 export function readAccessDenied(payload: DataPageAccessDeniedPayload, meta: string): DeniedReport | undefined {
-  return readText(readRecord(payload)?.['meta']) === meta ? {} : undefined
+  const record = readRecord(payload)
+  if (record === undefined || readText(record['meta']) !== meta) return undefined
+  const reason: DeniedReason | undefined = DENIED_REASONS.find(known => known === record['reason'])
+  return reason === undefined ? {} : { reason }
+}
+
+/**
+ * Read one business code a refused sign-in may carry.
+ *
+ * The deployment answers it as a number as readily as it answers it as text,
+ * and it is an identifier its own messages print rather than a quantity: it is
+ * reported as one text value, a whole number spelled as its digits. A code
+ * past {@link MAX_AUTH_CODE_LENGTH} is left out rather than cut.
+ * @param value - the code, as the page's event carries it.
+ * @returns the code, or `undefined` where the answer carried none a report may state.
+ */
+function readAuthCode(value: unknown): string | undefined {
+  const spelled = typeof value === 'number' && Number.isInteger(value) ? String(value) : readText(value)
+  return spelled !== undefined && spelled.length <= MAX_AUTH_CODE_LENGTH ? spelled : undefined
+}
+
+/**
+ * Reduce one refused sign-in to the answer that refused it.
+ *
+ * The page raises this where this deployment answered a request by refusing
+ * the visitor's credential rather than by answering the request: it sends the
+ * person nowhere, draws a line inside its own box, and raises this once per
+ * mount until a request of its own succeeds. Every data page on screen is
+ * raised the same one, because the layer that judged it is not told which page
+ * asked.
+ *
+ * The answer code is the whole gesture, so a payload carrying none, or one
+ * that is not a whole answer code, is not reported at all.
+ * @param payload - the `auth-failed` event's payload.
+ * @returns the report, or `undefined` when the payload names no answer a report may state.
+ */
+export function readAuthFailed(payload: DataPageAuthFailedPayload): AuthFailedReport | undefined {
+  const record = readRecord(payload)
+  if (record === undefined) return undefined
+  const status = record['status']
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 0 || status > MAX_AUTH_STATUS) return undefined
+  const code = readAuthCode(record['code'])
+  return code === undefined ? { status } : { status, code }
 }

@@ -23,6 +23,7 @@ import {
   catalogEntry,
   COMPONENT_ACTION_COMMAND,
   DATA_PAGE_ADDED_ID,
+  DATA_PAGE_AUTH_FAILED_ID,
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
   DATA_PAGE_CELL_CLICK_ID,
@@ -40,6 +41,8 @@ import {
   FILTER_SUBMIT_ID,
   formatComponentActionLine,
   MAX_ACTION_PAYLOAD_BYTES,
+  MAX_DATA_PAGE_AUTH_CODE_LENGTH,
+  MAX_DATA_PAGE_AUTH_STATUS,
   MAX_DATA_PAGE_RIGHT_LENGTH,
   MAX_DATA_PAGE_RIGHTS,
   MAX_DATA_PAGE_CELL_LENGTH,
@@ -572,9 +575,20 @@ describe('a data page reporting back', () => {
     ['an export naming no mode at all', DATA_PAGE_EXPORTED_ID, { fileType: 'csv' }, 'refused'],
     ['an export whose file type is longer than a field name', DATA_PAGE_EXPORTED_ID, { mode: 'excel', fileType: 'c'.repeat(MAX_FIELD_NAME_LENGTH + 1) }, 'too-large'],
     ['an export carrying the task number the backend answered with', DATA_PAGE_EXPORTED_ID, { mode: 'excel', uuid: 'f47ac10b' }, 'refused'],
-    ['a refusal, which carries nothing', DATA_PAGE_DENIED_ID, {}, 'accepted'],
+    ['a refusal naming which judgement made it', DATA_PAGE_DENIED_ID, { reason: 'no-row' }, 'accepted'],
+    ['a refusal naming the other one', DATA_PAGE_DENIED_ID, { reason: 'no-rights-table' }, 'accepted'],
+    ['a refusal naming no judgement', DATA_PAGE_DENIED_ID, {}, 'accepted'],
+    ['a refusal naming a judgement this catalog does not declare', DATA_PAGE_DENIED_ID, { reason: 'no-tenant' }, 'refused'],
     ['a refusal naming the table the node already names', DATA_PAGE_DENIED_ID, { meta: 'device' }, 'refused'],
     ['a refusal carrying the permissions it was judged against', DATA_PAGE_DENIED_ID, { resclass: ['other'] }, 'refused'],
+    ['a refused sign-in with the answer that refused it', DATA_PAGE_AUTH_FAILED_ID, { status: 401 }, 'accepted'],
+    ['a refused sign-in carrying the business code too', DATA_PAGE_AUTH_FAILED_ID, { status: 401, code: '1' }, 'accepted'],
+    ['no sign-in presented at all', DATA_PAGE_AUTH_FAILED_ID, { status: 0 }, 'accepted'],
+    ['a refused sign-in naming no answer', DATA_PAGE_AUTH_FAILED_ID, { code: '1' }, 'refused'],
+    ['a refused sign-in whose answer is no answer code', DATA_PAGE_AUTH_FAILED_ID, { status: MAX_DATA_PAGE_AUTH_STATUS + 1 }, 'refused'],
+    ['a refused sign-in whose answer is not a whole number', DATA_PAGE_AUTH_FAILED_ID, { status: 401.5 }, 'refused'],
+    ['a refused sign-in whose code is longer than a report carries', DATA_PAGE_AUTH_FAILED_ID, { status: 401, code: 'c'.repeat(MAX_DATA_PAGE_AUTH_CODE_LENGTH + 1) }, 'too-large'],
+    ['a refused sign-in carrying the credential it presented', DATA_PAGE_AUTH_FAILED_ID, { status: 401, token: 'Bearer x' }, 'refused'],
   ])('judges %s: %s', (_case, actionId, payload, verdict) => {
     expect(accepts(DATA_PAGE_ID, actionId, payload)).toBe(verdict)
   })
@@ -609,17 +623,64 @@ describe('the data page\'s own accounts', () => {
         + '"block"; it shows no columns.')
   })
 
-  it('says the page did not open, why, and that nothing was fetched', () => {
+  it('says the page did not open, which judgement refused it, and that nothing was fetched', () => {
     // The table is the node's `relatedMeta`, read back off the block this call
-    // wrote, because the payload carries nothing: neither the account the
-    // deployment refused nor the permissions it was refused against belongs in
-    // the conversation. Nothing here names anything to try instead — what a
-    // refused account can be given is the deployment's own business.
+    // wrote, because the payload carries only the reason: neither the account
+    // the deployment refused nor the permissions it was refused against belongs
+    // in the conversation. The two reasons are two different sentences, because
+    // one is about this table and the other is about the account and holds for
+    // every table. Nothing here names anything to try instead — what a refused
+    // account can be given is the deployment's own business.
+    expect(page(DATA_PAGE_DENIED_ID, { reason: 'no-row' })).toEqual({
+      text: 'The data page of "device" did not open in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": that table is not among the permissions this deployment holds for this user. The page drew '
+        + 'nothing and sent no query, so no columns, no counts and no rows are coming from it.',
+      summary: '「设备列表」这张表不在当前账号的权限里',
+    })
+    expect(page(DATA_PAGE_DENIED_ID, { reason: 'no-rights-table' })).toEqual({
+      text: 'The data page of "device" did not open in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": the permissions this deployment holds for this user could not be obtained, so no table opens '
+        + 'for them. The page drew nothing and sent no query, so no columns, no counts and no rows are coming from it.',
+      summary: '「设备列表」取不到当前账号的权限，这一页没打开',
+    })
+  })
+
+  it('says only that the page was refused where the seat named no judgement', () => {
+    // A page naming a third judgement has that part left out on the way here,
+    // so what is left is the refusal itself: the account that would say which
+    // of the two it was is the one sentence that would then be a guess.
     expect(page(DATA_PAGE_DENIED_ID, {})).toEqual({
       text: 'The data page of "device" did not open in content panel entry "devices" ("设备列表"), on the 完整数据页 '
-        + 'block "block": on this deployment\'s backend, this user\'s account is not granted that table. The page drew '
-        + 'nothing and sent no query, so no columns, no counts and no rows are coming from it.',
-      summary: '「设备列表」这张表，当前账号没有权限查看',
+        + 'block "block": this deployment did not grant this user that table. The page drew nothing and sent no query, '
+        + 'so no columns, no counts and no rows are coming from it.',
+      summary: '「设备列表」当前账号没有权限查看这张表',
+    })
+  })
+
+  it('says a refused sign-in leaves the page empty, and names the answer that refused it', () => {
+    expect(page(DATA_PAGE_AUTH_FAILED_ID, { status: 401, code: '1' })).toEqual({
+      text: 'The data page of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block "block" is '
+        + 'empty because this deployment refused this user\'s sign-in with 401, code "1". It drew no columns and sent '
+        + 'no query, and nothing comes from it until this person is signed in to this deployment again. Any other data '
+        + 'page on screen reports the same thing, because this is about this person\'s sign-in rather than about one '
+        + 'table.',
+      summary: '「设备列表」的数据页登录没通过（401），页面是空的',
+    })
+    expect(page(DATA_PAGE_AUTH_FAILED_ID, { status: 401 })?.text)
+      .toContain('empty because this deployment refused this user\'s sign-in with 401. It drew no columns')
+  })
+
+  it('says there was no sign-in to present where the page sent none', () => {
+    // Zero is not an answer: the page had nothing to present and no request
+    // left, so an account reading it as a refusal would name something this
+    // deployment never did.
+    expect(page(DATA_PAGE_AUTH_FAILED_ID, { status: 0 })).toEqual({
+      text: 'The data page of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block "block" is '
+        + 'empty because this user has no sign-in on this deployment for the page to present. It drew no columns and '
+        + 'sent no query, and nothing comes from it until this person is signed in to this deployment again. Any other '
+        + 'data page on screen reports the same thing, because this is about this person\'s sign-in rather than about '
+        + 'one table.',
+      summary: '「设备列表」的数据页没有登录，页面是空的',
     })
   })
 
@@ -794,6 +855,9 @@ describe('the declarations the drawing row holds itself to', () => {
       number: row.maxValue,
       uniqueColumnBy: columns.uniqueBy,
       exportModes: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_EXPORTED_ID)['mode']?.schema, 'enum').values,
+      deniedReasons: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_DENIED_ID)['reason']?.schema, 'enum').values,
+      authStatus: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_AUTH_FAILED_ID)['status']?.schema, 'number').max,
+      authCodeLength: declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_AUTH_FAILED_ID)['code']?.schema, 'string').maxLength,
     })
     // The record's keys are attribute names too, and the counts a query reports
     // and the numbers a row carries are bounded by the same one number either
@@ -830,5 +894,7 @@ describe('the declarations the drawing row holds itself to', () => {
       ])
     expect([MAX_FIELD_NAME_LENGTH, FIELD_CHARSET])
       .toEqual([DATA_PAGE_REPORT_LIMITS.attributeLength, DATA_PAGE_REPORT_LIMITS.attributeCharset])
+    expect([MAX_DATA_PAGE_AUTH_STATUS, MAX_DATA_PAGE_AUTH_CODE_LENGTH])
+      .toEqual([DATA_PAGE_REPORT_LIMITS.authStatus, DATA_PAGE_REPORT_LIMITS.authCodeLength])
   })
 })

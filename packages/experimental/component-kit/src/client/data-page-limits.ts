@@ -66,6 +66,35 @@ const UNIQUE_COLUMN_BY = 'attr'
 export const EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
 
 /**
+ * Why a page-level refusal was decided, as the page's own event spells it: the
+ * rights this deployment holds for this user were answered and hold no row for
+ * the table, or they could not be obtained at all.
+ *
+ * A closed set here as well as in the catalog, and declared as its own literals
+ * so a reason the page starts sending that neither knows is reported as absent
+ * rather than passed through and refused.
+ */
+export const DENIED_REASONS = ['no-row', 'no-rights-table'] as const
+
+/**
+ * Widest answer code one refused sign-in reports.
+ *
+ * The page reports the code of the answer that refused it, or zero where it had
+ * no sign-in to present and no request left at all; a value outside that range
+ * is not an answer this row can state.
+ */
+export const MAX_AUTH_STATUS = 599
+
+/**
+ * Longest reported business code, in characters.
+ *
+ * A longer one is left out rather than cut, for the same reason a right key is:
+ * a cut code names nothing, and the answer code beside it is the part of the
+ * refusal that is always there.
+ */
+export const MAX_AUTH_CODE_LENGTH = 24
+
+/**
  * Every declaration as one record, for the placement package to pin against
  * the catalog that declares them: each pair must be one value, or a gesture
  * this block reports is one the catalog refuses.
@@ -85,4 +114,7 @@ export const DATA_PAGE_REPORT_LIMITS = Object.freeze({
   number: MAX_REPORTED_NUMBER,
   uniqueColumnBy: UNIQUE_COLUMN_BY,
   exportModes: EXPORT_MODES,
+  deniedReasons: DENIED_REASONS,
+  authStatus: MAX_AUTH_STATUS,
+  authCodeLength: MAX_AUTH_CODE_LENGTH,
 })
