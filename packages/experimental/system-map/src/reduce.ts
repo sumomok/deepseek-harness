@@ -244,9 +244,13 @@ function itemsByAttribute(scheme: BizScheme): ReadonlyMap<string, BizSchemeFormI
  * The schemes are read in the order the schema service numbers them, so the
  * fixed values and the picked model come from the first form that states them
  * and a second form restating them differently never changes an answer between
- * two calls. A form that states nothing about the attribute contributes only
- * its own name to `forms`.
- * @param schemes - the model's default schemes, already narrowed to the four named kinds.
+ * two calls. A scheme stored under a kind {@link SCHEME_FORMS} does not name is
+ * skipped whole: it is not one of the four a person is ever shown. A scheme
+ * contributes {@link GRID_FORM} where its table lists the attribute without
+ * hiding it, and its own name where its form draws it without hiding it.
+ * Whether a value is required, and whether this person may change it, are read
+ * from the two forms a person fills in and from no other.
+ * @param schemes - the model's default schemes, as the backend listed them.
  * @param attribute - the attribute's English name.
  * @returns what the schemes state.
  */
