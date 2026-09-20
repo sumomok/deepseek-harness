@@ -21,6 +21,7 @@ import {
 import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import {
   loadReport,
+  readAccessDenied,
   readGrantedRights,
   readCardOpen,
   readCellClick,
@@ -423,5 +424,34 @@ describe('a submitted export', () => {
   it('is not reported at all for an export neither this row nor the catalog knows', () => {
     expect(readExportTask({ mode: 'pdf' as unknown as 'excel', fileType: null, uuid: '41' })).toBeUndefined()
     expect(readExportTask({ mode: '' as unknown as 'excel', fileType: 'csv', uuid: '41' })).toBeUndefined()
+  })
+})
+
+describe('a page this account is not granted', () => {
+  it('reports the refusal, and nothing of the profile it was judged against', () => {
+    expect(readAccessDenied({ meta: 'device' }, 'device')).toEqual({})
+  })
+
+  it('carries nothing the page added beside the table', () => {
+    // The payload is the page's, and this row reports what the catalog admits
+    // of it rather than what arrives: a build that started naming the user or
+    // the permissions it read would have them dropped here rather than
+    // delivered.
+    expect(readAccessDenied(
+      { meta: 'device', user: 'probe', resclass: [{ resclassenname: 'other' }] } as unknown as { meta: string },
+      'device',
+    )).toEqual({})
+  })
+
+  it('is not this block\'s refusal where the payload names another table', () => {
+    expect(readAccessDenied({ meta: 'other' }, 'device')).toBeUndefined()
+  })
+
+  it('is not reported where the payload names no table at all', () => {
+    expect(readAccessDenied({ meta: '' }, 'device')).toBeUndefined()
+    expect(readAccessDenied({} as { meta: string }, 'device')).toBeUndefined()
+    expect(readAccessDenied({ meta: 7 as unknown as string }, 'device')).toBeUndefined()
+    expect(readAccessDenied(undefined as unknown as { meta: string }, 'device')).toBeUndefined()
+    expect(readAccessDenied(['device'] as unknown as { meta: string }, 'device')).toBeUndefined()
   })
 })

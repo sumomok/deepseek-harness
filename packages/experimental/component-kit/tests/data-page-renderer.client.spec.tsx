@@ -483,6 +483,43 @@ describe('toy.data-page', () => {
     expect(buttons(view.container).map(button => button.text)).toEqual(['新增', '查询', '清空', '', ''])
   })
 
+  it('draws the deployment\'s own refusal and fetches nothing for a table this account is not granted', async () => {
+    // The stub's profile grants one table, and this block is opened on
+    // another: the page reads that profile, finds no row for this table, and
+    // stops there. What it draws is the deployment's own 无权限, inside the
+    // box, at the height the box carries.
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: 'probe_other', metaLabel: '别的表' }))
+    await vi.waitFor(() => { expect(onAction).toHaveBeenCalledWith('denied', {}) }, { timeout: 5000, interval: 20 })
+    await drain()
+    const denial = view.container.querySelector('.toy-data-page.no-auth') as HTMLElement
+    expect(denial.textContent?.trim()).toBe('无权限')
+    expect(denial.closest('[data-toy-crud-box]')).not.toBeNull()
+    // Nothing was fetched for the table: no scheme, no dictionary, no query.
+    // Read by the table's own name rather than by counting requests, because
+    // the page the previous case tore down can still have one in flight, and
+    // this claim is about this page and not about how quiet the stub was.
+    expect(seen.map(request => request.url).filter(url => url.includes('probe_other'))).toEqual([])
+    // And the agent is told the one thing that happened, once.
+    expect(onAction.mock.calls).toEqual([['denied', {}]])
+  })
+
+  it('reports a refusal once per placing call, and reports one naming another table to nobody', async () => {
+    const props = Object.freeze({ relatedMeta: 'probe_other', metaLabel: '别的表' })
+    const first = draw(props)
+    await vi.waitFor(() => { expect(first.onAction).toHaveBeenCalledWith('denied', {}) }, { timeout: 5000, interval: 20 })
+    first.view.unmount()
+    // The same property record: the column dropped the block and drew it
+    // again, and the page judged the table again — the agent is told once.
+    const again = draw(props, first.onAction)
+    await drain()
+    expect(again.onAction).toHaveBeenCalledTimes(1)
+    // A refusal about a table this block was not opened on is not this block's.
+    const page = pageOf(again.view.container)
+    page.$emit('access-denied', { meta: 'probe_device' })
+    page.$emit('access-denied', {})
+    expect(again.onAction).toHaveBeenCalledTimes(1)
+  })
+
   it('reports the drawn columns once loaded, and the counts of the first query', async () => {
     const { onAction } = draw()
     await loaded(onAction)

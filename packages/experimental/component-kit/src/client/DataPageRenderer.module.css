@@ -21,6 +21,15 @@
   min-block-size: 32rem;
   inline-size: 100%;
   overflow: hidden;
+  /* The page inside this box is the deployment's own light surface: its
+     panels draw on white and its own rules set no color on the text that
+     stands directly on them — the refusal the page draws when this account is
+     not granted the table is one such text, on white at 36px. Inherited, the
+     console's own text color would arrive light in the dark theme and leave
+     that refusal white on white. The box therefore states element-ui's own
+     text color, which is what the rest of the page is written against, rather
+     than passing the console's theme into a surface that has none. */
+  color: #303133;
 }
 
 .host {

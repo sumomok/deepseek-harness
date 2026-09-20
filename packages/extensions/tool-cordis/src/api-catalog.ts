@@ -4275,7 +4275,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnumFieldSchema',
-    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n}',
+    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n    readonly hint?: string;\n}',
   },
   {
     name: 'EpochHeader',

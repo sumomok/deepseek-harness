@@ -26,6 +26,7 @@ import {
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
   DATA_PAGE_CELL_CLICK_ID,
+  DATA_PAGE_DENIED_ID,
   DATA_PAGE_EXPORTED_ID,
   DATA_PAGE_ID,
   DATA_PAGE_LOAD_ID,
@@ -571,6 +572,9 @@ describe('a data page reporting back', () => {
     ['an export naming no mode at all', DATA_PAGE_EXPORTED_ID, { fileType: 'csv' }, 'refused'],
     ['an export whose file type is longer than a field name', DATA_PAGE_EXPORTED_ID, { mode: 'excel', fileType: 'c'.repeat(MAX_FIELD_NAME_LENGTH + 1) }, 'too-large'],
     ['an export carrying the task number the backend answered with', DATA_PAGE_EXPORTED_ID, { mode: 'excel', uuid: 'f47ac10b' }, 'refused'],
+    ['a refusal, which carries nothing', DATA_PAGE_DENIED_ID, {}, 'accepted'],
+    ['a refusal naming the table the node already names', DATA_PAGE_DENIED_ID, { meta: 'device' }, 'refused'],
+    ['a refusal carrying the permissions it was judged against', DATA_PAGE_DENIED_ID, { resclass: ['other'] }, 'refused'],
   ])('judges %s: %s', (_case, actionId, payload, verdict) => {
     expect(accepts(DATA_PAGE_ID, actionId, payload)).toBe(verdict)
   })
@@ -603,6 +607,20 @@ describe('the data page\'s own accounts', () => {
     expect(page(DATA_PAGE_LOAD_ID, { meta: 'device', columns: [], total: 0, rights: [] })?.text)
       .toBe('The data page of "device" has loaded in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
         + '"block"; it shows no columns.')
+  })
+
+  it('says the page did not open, why, and that nothing was fetched', () => {
+    // The table is the node's `relatedMeta`, read back off the block this call
+    // wrote, because the payload carries nothing: neither the account the
+    // deployment refused nor the permissions it was refused against belongs in
+    // the conversation. Nothing here names anything to try instead — what a
+    // refused account can be given is the deployment's own business.
+    expect(page(DATA_PAGE_DENIED_ID, {})).toEqual({
+      text: 'The data page of "device" did not open in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": on this deployment\'s backend, this user\'s account is not granted that table. The page drew '
+        + 'nothing and sent no query, so no columns, no counts and no rows are coming from it.',
+      summary: '「设备列表」这张表，当前账号没有权限查看',
+    })
   })
 
   it('counts the ticked rows and names the first of them', () => {

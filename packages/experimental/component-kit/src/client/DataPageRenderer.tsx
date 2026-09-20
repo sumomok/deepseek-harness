@@ -19,11 +19,24 @@
  * and `readOnly` on. Nothing here decides whether a button may be pressed:
  * whether the page is arranged to draw one is the block's, and whether pressing
  * it succeeds is the deployment's own answer to the request the page makes with
- * the user's credential.
+ * the user's credential. The per-button rights this deployment answers with
+ * hide no button either — the page fixes the customer's own
+ * `useCloudPermission: false`, so a button the backend would refuse is drawn
+ * and refused when it is pressed. The one thing those permissions do decide in
+ * this block is whether the page opens at all.
  *
- * Ten things come back, each a `context` gesture of the placement package's
+ * Before any of that the page judges one thing on its own: it reads this
+ * user's own profile and, where the permissions that profile carries name
+ * tables at all and none of them is this one, it fetches nothing, draws the
+ * deployment's own refusal inside the box, and raises `access-denied` once. No
+ * property of the block reaches that judgement, and nothing here softens it;
+ * what this renderer does with it is report it once, so the agent can say why
+ * the page is empty.
+ *
+ * Eleven things come back, each a `context` gesture of the placement package's
  * catalog and each bounded the way that catalog bounds it — `data-page-read.ts`
- * holds the readings and the ceilings: on `load`, the table, the first drawn
+ * holds the readings and the ceilings: on `access-denied`, that this user's
+ * account is not granted this table, and nothing else; on `load`, the table, the first drawn
  * columns and the rights this deployment answered with for this user; on
  * `query-success`, three counts and never a row; on `table-selection-change`,
  * how many rows are ticked and what the first few are called; on
@@ -76,6 +89,7 @@ import {
   DataPage,
   type CrudQuerySuccessPayload,
   type CrudTableCellClickPayload,
+  type DataPageAccessDeniedPayload,
   type DataPageExportTaskPayload,
   type DataPageInfoCardOpenPayload,
   type DataPageLoadPayload,
@@ -83,6 +97,7 @@ import {
 } from '@sumomok/toy-crud-kit'
 import {
   loadReport,
+  readAccessDenied,
   readGrantedRights,
   readCardOpen,
   readCellClick,
@@ -107,6 +122,9 @@ const COMPONENT_ID = 'toy.data-page'
 
 /** Action id the loaded columns are reported under. */
 const LOAD_ACTION_ID = 'load'
+
+/** Action id a table this user's account is not granted is reported under. */
+const DENIED_ACTION_ID = 'denied'
 
 /** Action id one answered query's counts are reported under. */
 const QUERY_ACTION_ID = 'query'
@@ -151,6 +169,8 @@ interface ReportMemory {
   load?: string
   /** The last query report, serialized. */
   query?: string
+  /** The last refusal report, serialized. */
+  denied?: string
 }
 
 /** Every placing call's memory, released with its property record. */
@@ -188,7 +208,7 @@ interface DataPageEventContext {
  */
 function reportOnce(
   context: DataPageEventContext,
-  field: 'load' | 'query',
+  field: 'load' | 'query' | 'denied',
   actionId: string,
   payload: Readonly<Record<string, unknown>>,
 ): void {
@@ -217,6 +237,11 @@ function DataPageBlock({ props, vueProps, onAction }: DataPageProps) {
   // the page is mounted and makes its first request.
   useEffect(() => { release.current = containCrud(box.current as HTMLDivElement) }, [])
   const on = useMemo<VueEventHandlers>(() => ({
+    'access-denied': (payload: DataPageAccessDeniedPayload) => {
+      const current = context.current
+      const report = readAccessDenied(payload, current.meta)
+      if (report !== undefined) reportOnce(current, 'denied', DENIED_ACTION_ID, report)
+    },
     load: (payload: DataPageLoadPayload) => {
       const current = context.current
       const columns = readLoadedColumns(payload)

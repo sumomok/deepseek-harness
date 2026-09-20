@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-data-page-replaces-toy-crud.md
-2026-09-19-data-page-replaces-toy-crud.md: 66ec0e42c5467f00826de87f0e26783542d8034f
-2026-09-19-data-page-replaces-toy-crud.zh.md: 95934e1988341f198cb644a43fc35d2e10793a74
+2026-09-19-data-page-replaces-toy-crud.md: 0d762e775a8b272a92b7c24c701828424aa7bdcc
+2026-09-19-data-page-replaces-toy-crud.zh.md: cfeb4ac087bbdd67c63dde197e82b152ac9bc0eb

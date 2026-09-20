@@ -1876,6 +1876,9 @@ const DATA_PAGE_PROPS: PropsSchema = {
 /** Action id the data page reports its loaded columns under. */
 export const DATA_PAGE_LOAD_ID = 'load'
 
+/** Action id the data page reports a table this user's account is not granted under. */
+export const DATA_PAGE_DENIED_ID = 'denied'
+
 /** Action id the data page reports one answered query under. */
 export const DATA_PAGE_QUERY_ID = 'query'
 
@@ -2010,11 +2013,12 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
 }
 
 /**
- * The ten things a data page reports, all of them `context`.
+ * The eleven things a data page reports, all of them `context`.
  *
  * None is the answer the block was placed for: the page was placed to be used,
  * and what comes back is what the agent needs to talk about it — what the page
- * loaded and what this deployment grants this user on it, how many rows each
+ * loaded and what this deployment grants this user on it, or that this user's
+ * account is not granted the table at all, how many rows each
  * query matched,
  * which rows the user ticked, which cell they clicked, which side card they
  * opened, what they saved, which row operation they pressed, and which export
@@ -2080,6 +2084,23 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
         summary: `「${entryName(context)}」的数据页已打开`,
       }
     },
+  },
+  {
+    id: DATA_PAGE_DENIED_ID,
+    report: 'context',
+    // Empty, because the one thing a denial has to name is the table, and the
+    // table is `relatedMeta` on the node the call itself wrote. A payload
+    // carrying it would be the host reading its own value back off a page
+    // whose whole report is that it fetched nothing, and a payload carrying
+    // anything else — the user, the permission table it was judged against —
+    // is what this gesture exists to keep out of the conversation.
+    payloadSchema: {},
+    describe: context => ({
+      text: `The data page of "${dataPageMeta(context.node)}" did not open in ${place(context)}: on this deployment's `
+        + "backend, this user's account is not granted that table. The page drew nothing and sent no query, so no "
+        + 'columns, no counts and no rows are coming from it.',
+      summary: `「${entryName(context)}」这张表，当前账号没有权限查看`,
+    }),
   },
   {
     id: DATA_PAGE_QUERY_ID,
