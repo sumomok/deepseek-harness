@@ -38,6 +38,36 @@ describe('installTerminologyGuard', () => {
     expect(css).toContain('[data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }')
   })
 
+  it('hides the settings header\'s action row, where the open-configuration-file button sits', () => {
+    installTerminologyGuard()
+    const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
+    expect(css).toContain(
+      '[role=\'dialog\'][aria-modal=\'true\'] [class$="_header"] > [class$="_actions"] { display: none !important; }',
+    )
+  })
+
+  it('matches the settings panel as SettingsRoot builds it, and nothing shallower', () => {
+    // The rule's own selector, applied to the element tree `SettingsRoot.tsx`
+    // renders: the dialog, its content div, the header row, and the action row
+    // as that header's direct child, each class named the way tsdown's
+    // `[hash]_[local]` naming emits it.
+    const selector = '[role=\'dialog\'][aria-modal=\'true\'] [class$="_header"] > [class$="_actions"]'
+    document.body.innerHTML = `
+      <div role="dialog" aria-modal="true">
+        <div class="h1_content">
+          <div class="h2_header"><div class="h3_actions"><button>打开配置文件</button></div></div>
+          <div class="h4_options"><div class="h5_actions">a section's own actions</div></div>
+        </div>
+      </div>`
+    const matched = [...document.querySelectorAll(selector)]
+    expect(matched).toHaveLength(1)
+    expect(matched[0]?.className).toBe('h3_actions')
+    // A section that happens to name a class `actions` is not this row: it is
+    // not the header's direct child, and hiding it would take a real control
+    // off a page this rule has no business reaching.
+    expect(document.querySelector('.h5_actions')?.matches(selector)).toBe(false)
+  })
+
   it('replaces rather than duplicates an existing stylesheet', () => {
     installTerminologyGuard()
     installTerminologyGuard()

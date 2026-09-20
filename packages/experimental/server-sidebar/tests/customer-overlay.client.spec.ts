@@ -134,6 +134,84 @@ describe('the console overlay\'s permission row', () => {
   })
 })
 
+/** The shipped `web` bundle patch, the surface the console overlay is applied over. */
+const WEB_BUNDLE = 'packages/bundle/web-app/cordis.patch.yml'
+
+/**
+ * Every row a file states, with one level of `insert:` block flattened — a
+ * composition mounts new rows inside those blocks and patches shipped rows at
+ * the top level, and both are rows for the purpose of these assertions.
+ * @param file - repository-relative or absolute path to the overlay.
+ * @returns each stated row.
+ */
+function flatRowsOf(file: string): PermissionRow[] {
+  return entriesOf(file).flatMap((entry) => {
+    const inserted = (entry as { insert?: PermissionRow[] }).insert
+    return inserted ?? [entry]
+  })
+}
+
+/**
+ * One row by id, reached inside an `insert:` block as well as at the top level.
+ * @param file - repository-relative or absolute path to the overlay.
+ * @param id - the entry id to find.
+ * @returns the row, or undefined when the file states none.
+ */
+function flatRowOf(file: string, id: string): PermissionRow | undefined {
+  return flatRowsOf(file).find(entry => entry.id === id)
+}
+
+/**
+ * The two rows that draw Settings → Plugins: the section with its configurable
+ * cards, and the read-only Loader inventory tab inside it. A console end user
+ * administers no plugins, and every card in that section names a host-plane
+ * subsystem in vendor vocabulary.
+ */
+const PLUGIN_SETTINGS_ROWS = [
+  ['ui-settings-plugins', '@deepseek-ai/dsh-client-ui-settings-plugins'],
+  ['ui-settings-plugin-inventory', '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'],
+] as const
+
+describe('the console overlay\'s settings trim', () => {
+  it.each(PLUGIN_SETTINGS_ROWS)('disables %s by id and by package name', (id, name) => {
+    expect(rowOf(CUSTOMER_OVERLAY, id)).toEqual({ id, name, disabled: true })
+  })
+
+  it.each(PLUGIN_SETTINGS_ROWS)('leaves the shipped web bundle composing %s', (id, name) => {
+    // The disable belongs to the console, not to the product: the plain `web`
+    // profile still draws the Plugins section. A row retired upstream would
+    // leave the console disabling something that no longer exists.
+    expect(flatRowOf(WEB_BUNDLE, id)).toMatchObject({ name })
+    expect(flatRowOf(WEB_BUNDLE, id)).not.toHaveProperty('disabled')
+  })
+
+  it('leaves the settings shell composed, since it draws everything else on the page', () => {
+    // `ui-settings-general` owns the panel, the navigation, and the General
+    // section. The open-configuration-file action it also registers is hidden
+    // by `terminology-guard.ts` instead, because a list slot admits no
+    // withdrawal by another plugin.
+    expect(rowOf(CUSTOMER_OVERLAY, 'ui-settings-general')).toBeUndefined()
+  })
+})
+
+describe('the console overlay\'s MCP row', () => {
+  const mcp = flatRowOf(CUSTOMER_OVERLAY, 'console-mcp')
+
+  it('mounts the capability by package name', () => {
+    expect(mcp).toMatchObject({ id: 'console-mcp', name: '@deepseek-ai/dsh-experimental-console-mcp' })
+  })
+
+  it('states an empty server list rather than leaving it to a schema default', () => {
+    // The empty list is the console's delivered state, and stating it is what
+    // makes a deployment's own list an edit to a value it can already see.
+    expect(mcp?.config).toEqual({ servers: [] })
+  })
+
+  it('is mounted, not disabled', () => {
+    expect(mcp).not.toHaveProperty('disabled')
+  })
+})
+
 describe.each(TEST_OVERLAYS)('%s', (file) => {
   it('carries the shipped permission row verbatim', () => {
     expect(rowOf(file, 'permission')).toEqual(shipped)
@@ -141,5 +219,13 @@ describe.each(TEST_OVERLAYS)('%s', (file) => {
 
   it('carries the shipped ui-permission disable row', () => {
     expect(rowOf(file, 'ui-permission')).toEqual(rowOf(CUSTOMER_OVERLAY, 'ui-permission'))
+  })
+
+  it.each(PLUGIN_SETTINGS_ROWS)('carries the shipped %s disable row', (id) => {
+    expect(rowOf(file, id)).toEqual(rowOf(CUSTOMER_OVERLAY, id))
+  })
+
+  it('carries the shipped MCP row verbatim', () => {
+    expect(flatRowOf(file, 'console-mcp')).toEqual(flatRowOf(CUSTOMER_OVERLAY, 'console-mcp'))
   })
 })
