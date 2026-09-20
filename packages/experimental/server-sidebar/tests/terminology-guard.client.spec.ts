@@ -38,11 +38,11 @@ describe('installTerminologyGuard', () => {
     expect(css).toContain('[data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }')
   })
 
-  it('hides the settings header\'s action row, where the open-configuration-file button sits', () => {
+  it('hides what the settings header\'s action row holds and leaves the row seating the close button', () => {
     installTerminologyGuard()
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
     expect(css).toContain(
-      '[role=\'dialog\'][aria-modal=\'true\'] [class$="_header"] > [class$="_actions"] { display: none !important; }',
+      '[role=\'dialog\'][aria-modal=\'true\'] [class$="_header"] > [class$="_actions"] > * { display: none !important; }',
     )
   })
 

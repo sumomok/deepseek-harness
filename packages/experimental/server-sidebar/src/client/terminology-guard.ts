@@ -116,7 +116,11 @@
  * class naming: `[role='dialog'][aria-modal='true']` is `SettingsRoot.tsx`'s
  * own dialog element, and `[class$="_header"] > [class$="_actions"]` is the
  * header's action row as its direct child. The direct-child pair is what keeps
- * the rule off a section that happens to name a class `actions`. Reseating the
+ * the rule off a section that happens to name a class `actions`. The rule hides
+ * what the row holds and leaves the row itself in the layout: the row's
+ * `margin-left: auto` is what seats the close button at the header's right
+ * edge, and a row taken out of the layout lets that button fall to the left.
+ * Reseating the
  * action outside that row, or giving either element a second class, silently
  * un-hides it — so an e2e scenario asserts the row is present AND renders
  * nothing, the same pairing every rule above is pinned with.
@@ -143,7 +147,7 @@ const STYLE = `
 }
 [class*="heroWorkspaceRow"] { display: none !important; }
 [data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }
-[role='dialog'][aria-modal='true'] [class$="_header"] > [class$="_actions"] { display: none !important; }
+[role='dialog'][aria-modal='true'] [class$="_header"] > [class$="_actions"] > * { display: none !important; }
 `
 
 /**
