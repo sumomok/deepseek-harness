@@ -70,6 +70,14 @@ function schemeRow(schemaType: number, schemaEnName: string): Record<string, unk
   }
 }
 
+/**
+ * What the stub answers the profile request with, where a case needs something
+ * other than the profile that grants {@link META}: the page reads this before
+ * anything else, and the two answers that keep it from opening are both
+ * answers to it.
+ */
+let userInfo: [number, unknown] | undefined
+
 /** The three rows the stub answers every query with. */
 const ROWS = [
   { int_id: '1', zh_label: '北京-核心-01', city: '北京', state: '在用', secret: 's1' },
@@ -96,6 +104,7 @@ const seen: Seen[] = []
 function route(method: string, url: string): [number, unknown] {
   const path = url.split('?')[0] ?? ''
   if (path.endsWith('/nrms-auth/api/auth/userinfo')) {
+    if (userInfo !== undefined) return userInfo
     return [200, { code: 0, data: { useraccount: 'probe', username: '探针用户', auth: { resclass: [
       {
         resclassenname: META, search: 1, add: 1, update: 1, delete: 1, imp: 1, exp: 1,
@@ -205,6 +214,11 @@ beforeAll(() => {
 
 beforeEach(() => {
   basePath = Promise.resolve('/probe-base/')
+  userInfo = undefined
+  // The request layer keeps the profile it fetched under this key and reuses
+  // it while the stored token still matches, so a case that answers the
+  // profile request differently has to start from nothing fetched.
+  localStorage.removeItem('userInfo')
   seen.length = 0
   escaped.length = 0
   contained.length = 0
@@ -489,7 +503,10 @@ describe('toy.data-page', () => {
     // stops there. What it draws is the deployment's own 无权限, inside the
     // box, at the height the box carries.
     const { view, onAction } = draw(Object.freeze({ relatedMeta: 'probe_other', metaLabel: '别的表' }))
-    await vi.waitFor(() => { expect(onAction).toHaveBeenCalledWith('denied', {}) }, { timeout: 5000, interval: 20 })
+    await vi.waitFor(
+      () => { expect(onAction).toHaveBeenCalledWith('denied', { reason: 'no-row' }) },
+      { timeout: 5000, interval: 20 },
+    )
     await drain()
     const denial = view.container.querySelector('.toy-data-page.no-auth') as HTMLElement
     expect(denial.textContent?.trim()).toBe('无权限')
@@ -500,13 +517,36 @@ describe('toy.data-page', () => {
     // this claim is about this page and not about how quiet the stub was.
     expect(seen.map(request => request.url).filter(url => url.includes('probe_other'))).toEqual([])
     // And the agent is told the one thing that happened, once.
-    expect(onAction.mock.calls).toEqual([['denied', {}]])
+    expect(onAction.mock.calls).toEqual([['denied', { reason: 'no-row' }]])
+  })
+
+  it('draws the same refusal, and names the other judgement, where the permissions cannot be obtained', async () => {
+    // The deployment answered the profile request with a refusal of its own
+    // rather than with a permission table, so the page can tell nothing about
+    // this table — and the two are different things to say to the person, which
+    // is the whole of what the reason carries.
+    userInfo = [200, { code: 1, msg: '用户没有资源权限!' }]
+    // A table of its own, so what was fetched for it is read by its name the
+    // way the case above reads its own: the page a previous case tore down can
+    // still have a request in flight, and this claim is about this page.
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: 'probe_rights', metaLabel: '权限表' }))
+    await vi.waitFor(
+      () => { expect(onAction).toHaveBeenCalledWith('denied', { reason: 'no-rights-table' }) },
+      { timeout: 5000, interval: 20 },
+    )
+    await drain()
+    expect((view.container.querySelector('.toy-data-page.no-auth') as HTMLElement).textContent?.trim()).toBe('无权限')
+    expect(seen.map(request => request.url).filter(url => url.includes('probe_rights'))).toEqual([])
+    expect(onAction.mock.calls).toEqual([['denied', { reason: 'no-rights-table' }]])
   })
 
   it('reports a refusal once per placing call, and reports one naming another table to nobody', async () => {
     const props = Object.freeze({ relatedMeta: 'probe_other', metaLabel: '别的表' })
     const first = draw(props)
-    await vi.waitFor(() => { expect(first.onAction).toHaveBeenCalledWith('denied', {}) }, { timeout: 5000, interval: 20 })
+    await vi.waitFor(
+      () => { expect(first.onAction).toHaveBeenCalledWith('denied', { reason: 'no-row' }) },
+      { timeout: 5000, interval: 20 },
+    )
     first.view.unmount()
     // The same property record: the column dropped the block and drew it
     // again, and the page judged the table again — the agent is told once.
@@ -515,9 +555,44 @@ describe('toy.data-page', () => {
     expect(again.onAction).toHaveBeenCalledTimes(1)
     // A refusal about a table this block was not opened on is not this block's.
     const page = pageOf(again.view.container)
-    page.$emit('access-denied', { meta: 'probe_device' })
+    page.$emit('access-denied', { meta: 'probe_device', reason: 'no-row' })
     page.$emit('access-denied', {})
     expect(again.onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a sign-in this deployment refused, with the answer it refused it with', async () => {
+    // The deployment answered the page's first request by refusing the
+    // credential the visitor had stored. The page stays where it is — nothing
+    // navigates — and both signals arrive: the request layer's refusal of the
+    // sign-in, and the page's own judgement, which cannot read a permission
+    // table out of that answer either.
+    userInfo = [401, { code: 1, msg: '登录已失效' }]
+    const here = window.location.href
+    const { onAction } = draw()
+    await vi.waitFor(
+      () => { expect(onAction).toHaveBeenCalledWith('auth-failed', { status: 401, code: '1' }) },
+      { timeout: 5000, interval: 20 },
+    )
+    await drain()
+    expect(window.location.href).toBe(here)
+    // Once per placing call, however many requests the page made and however
+    // often the block is redrawn over the same call.
+    expect(onAction.mock.calls.filter(([id]) => id === 'auth-failed')).toEqual([['auth-failed', { status: 401, code: '1' }]])
+    expect(onAction).toHaveBeenCalledWith('denied', { reason: 'no-rights-table' })
+  })
+
+  it('reports no sign-in at all as the zero the page sends, and an answer it cannot state to nobody', async () => {
+    const { view, onAction } = draw()
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    onAction.mockClear()
+    page.$emit('auth-failed', { status: 0 })
+    // The same one again: the request layer raises one per mount, and a block
+    // redrawn over the same call judges the same answer again.
+    page.$emit('auth-failed', { status: 0 })
+    page.$emit('auth-failed', { status: 601 })
+    page.$emit('auth-failed', {})
+    expect(onAction.mock.calls).toEqual([['auth-failed', { status: 0 }]])
   })
 
   it('reports the drawn columns once loaded, and the counts of the first query', async () => {

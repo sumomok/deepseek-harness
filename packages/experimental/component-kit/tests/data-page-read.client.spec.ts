@@ -22,6 +22,7 @@ import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import {
   loadReport,
   readAccessDenied,
+  readAuthFailed,
   readGrantedRights,
   readCardOpen,
   readCellClick,
@@ -428,30 +429,83 @@ describe('a submitted export', () => {
 })
 
 describe('a page this account is not granted', () => {
-  it('reports the refusal, and nothing of the profile it was judged against', () => {
-    expect(readAccessDenied({ meta: 'device' }, 'device')).toEqual({})
+  it('reports which judgement refused it, and nothing of the profile it was judged against', () => {
+    expect(readAccessDenied({ meta: 'device', reason: 'no-row' }, 'device')).toEqual({ reason: 'no-row' })
+    expect(readAccessDenied({ meta: 'device', reason: 'no-rights-table' }, 'device'))
+      .toEqual({ reason: 'no-rights-table' })
   })
 
-  it('carries nothing the page added beside the table', () => {
+  it('leaves out a judgement the catalog does not declare, rather than passing it on', () => {
+    // A reason this row does not know would be a gesture the catalog refuses,
+    // and a refused gesture reaches nobody: the refusal is still reported, with
+    // the part neither side can account for left out.
+    expect(readAccessDenied({ meta: 'device', reason: 'no-tenant' as 'no-row' }, 'device')).toEqual({})
+    expect(readAccessDenied({ meta: 'device', reason: 7 as unknown as 'no-row' }, 'device')).toEqual({})
+    expect(readAccessDenied({ meta: 'device' } as { meta: string; reason: 'no-row' }, 'device')).toEqual({})
+  })
+
+  it('carries nothing the page added beside the table and the reason', () => {
     // The payload is the page's, and this row reports what the catalog admits
     // of it rather than what arrives: a build that started naming the user or
     // the permissions it read would have them dropped here rather than
     // delivered.
     expect(readAccessDenied(
-      { meta: 'device', user: 'probe', resclass: [{ resclassenname: 'other' }] } as unknown as { meta: string },
+      { meta: 'device', reason: 'no-row', user: 'probe', resclass: [{ resclassenname: 'other' }] } as unknown as
+        { meta: string; reason: 'no-row' },
       'device',
-    )).toEqual({})
+    )).toEqual({ reason: 'no-row' })
   })
 
   it('is not this block\'s refusal where the payload names another table', () => {
-    expect(readAccessDenied({ meta: 'other' }, 'device')).toBeUndefined()
+    expect(readAccessDenied({ meta: 'other', reason: 'no-row' }, 'device')).toBeUndefined()
   })
 
   it('is not reported where the payload names no table at all', () => {
-    expect(readAccessDenied({ meta: '' }, 'device')).toBeUndefined()
-    expect(readAccessDenied({} as { meta: string }, 'device')).toBeUndefined()
-    expect(readAccessDenied({ meta: 7 as unknown as string }, 'device')).toBeUndefined()
-    expect(readAccessDenied(undefined as unknown as { meta: string }, 'device')).toBeUndefined()
-    expect(readAccessDenied(['device'] as unknown as { meta: string }, 'device')).toBeUndefined()
+    const reason = 'no-row'
+    expect(readAccessDenied({ meta: '', reason }, 'device')).toBeUndefined()
+    expect(readAccessDenied({ reason } as { meta: string; reason: 'no-row' }, 'device')).toBeUndefined()
+    expect(readAccessDenied({ meta: 7 as unknown as string, reason }, 'device')).toBeUndefined()
+    expect(readAccessDenied(undefined as unknown as { meta: string; reason: 'no-row' }, 'device')).toBeUndefined()
+    expect(readAccessDenied(['device'] as unknown as { meta: string; reason: 'no-row' }, 'device')).toBeUndefined()
+  })
+})
+
+describe('a sign-in this deployment refused', () => {
+  it('reports the answer that refused it, and the deployment\'s own code for it', () => {
+    expect(readAuthFailed({ status: 401, code: 1 })).toEqual({ status: 401, code: '1' })
+    expect(readAuthFailed({ status: 200, code: '3' })).toEqual({ status: 200, code: '3' })
+  })
+
+  it('reports the answer alone where the deployment answered with no code', () => {
+    expect(readAuthFailed({ status: 401 })).toEqual({ status: 401 })
+    expect(readAuthFailed({ status: 401, code: '' })).toEqual({ status: 401 })
+    expect(readAuthFailed({ status: 401, code: 1.5 })).toEqual({ status: 401 })
+    expect(readAuthFailed({ status: 401, code: { of: 'it' } as unknown as string })).toEqual({ status: 401 })
+  })
+
+  it('reports no sign-in presented as the zero the page sends', () => {
+    // The page had no credential to present, so no request left and no answer
+    // came back; the account the notice reads off this is a different sentence
+    // from a refusal, and this is the value it turns on.
+    expect(readAuthFailed({ status: 0 })).toEqual({ status: 0 })
+  })
+
+  it('leaves out a code longer than a report carries, rather than cutting it', () => {
+    const wide = 'c'.repeat(DATA_PAGE_REPORT_LIMITS.authCodeLength)
+    expect(readAuthFailed({ status: 401, code: wide })).toEqual({ status: 401, code: wide })
+    expect(readAuthFailed({ status: 401, code: `${wide}c` })).toEqual({ status: 401 })
+  })
+
+  it('is not reported where the payload names no answer a report may state', () => {
+    expect(readAuthFailed({ status: DATA_PAGE_REPORT_LIMITS.authStatus })).toEqual(
+      { status: DATA_PAGE_REPORT_LIMITS.authStatus },
+    )
+    expect(readAuthFailed({ status: DATA_PAGE_REPORT_LIMITS.authStatus + 1 })).toBeUndefined()
+    expect(readAuthFailed({ status: -1 })).toBeUndefined()
+    expect(readAuthFailed({ status: 401.5 })).toBeUndefined()
+    expect(readAuthFailed({ status: '401' as unknown as number })).toBeUndefined()
+    expect(readAuthFailed({} as { status: number })).toBeUndefined()
+    expect(readAuthFailed(undefined as unknown as { status: number })).toBeUndefined()
+    expect(readAuthFailed([401] as unknown as { status: number })).toBeUndefined()
   })
 })
