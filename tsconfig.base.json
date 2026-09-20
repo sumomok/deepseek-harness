@@ -228,6 +228,7 @@
       "@deepseek-ai/dsh-experimental-auth-gate": ["./packages/experimental/auth-gate/src"],
       "@deepseek-ai/dsh-experimental-auth-gate/client": ["./packages/experimental/auth-gate/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-biz-backend": ["./packages/experimental/biz-backend/src"],
+      "@deepseek-ai/dsh-experimental-system-map": ["./packages/experimental/system-map/src"],
       "@deepseek-ai/dsh-experimental-component-kit": ["./packages/experimental/component-kit/src"],
       "@deepseek-ai/dsh-experimental-component-kit/client": ["./packages/experimental/component-kit/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-component-surface": ["./packages/experimental/component-surface/src"],

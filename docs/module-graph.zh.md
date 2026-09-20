@@ -227,6 +227,7 @@ flowchart TD
     pkg_experimental_server_sidebar["experimental-server-sidebar"]
     pkg_experimental_skill_pack["experimental-skill-pack"]
     pkg_experimental_skill_pack_components["experimental-skill-pack-components"]
+    pkg_experimental_system_map["experimental-system-map"]
     pkg_experimental_tool_agent_team["experimental-tool-agent-team"]
     pkg_experimental_vue_ui_poc["experimental-vue-ui-poc"]
     pkg_experimental_vue2_echarts_poc["experimental-vue2-echarts-poc"]
@@ -841,6 +842,9 @@ flowchart TD
   pkg_experimental_server_sidebar --> pkg_session_projection
   pkg_experimental_server_sidebar --> pkg_settings
   pkg_experimental_server_sidebar --> pkg_util_crypto
+  pkg_experimental_system_map --> pkg_experimental_biz_backend
+  pkg_experimental_system_map --> pkg_tools
+  pkg_experimental_system_map --> pkg_util_values
   pkg_cordis_host_runner --> pkg_agent
   pkg_cordis_host_runner --> pkg_brand
   pkg_cordis_host_runner --> pkg_llm
@@ -1476,6 +1480,7 @@ flowchart TD
 | [`file-reference-local`](../packages/context/file-reference-local) | `context` | [`agent`](../packages/core/agent), [`file-reference`](../packages/context/file-reference), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-content-column`](../packages/experimental/content-column) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`experimental-content-surface`](../packages/experimental/content-surface), [`experimental-server-layout`](../packages/experimental/server-layout), [`session`](../packages/core/session) |
 | [`experimental-server-sidebar`](../packages/experimental/server-sidebar) | `experimental` | [`api-workspace-controller`](../packages/api/workspace-controller), [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-store`](../packages/client/store), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-layout`](../packages/client/ui-layout), [`client-ui-sidebar`](../packages/client/ui-sidebar), [`client-ui-workspace`](../packages/client/ui-workspace), [`experimental-content-surface`](../packages/experimental/content-surface), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`util-crypto`](../packages/util/crypto) |
+| [`experimental-system-map`](../packages/experimental/system-map) | `experimental` | [`experimental-biz-backend`](../packages/experimental/biz-backend), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | `extensions` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`repeat-tool-reminder`](../packages/guard/repeat-tool-reminder) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |

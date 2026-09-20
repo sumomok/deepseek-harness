@@ -630,6 +630,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the scheme\'s columns in its own order, or why they could not be read.',
       },
+      {
+        signature: 'async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
+        description: 'Read this deployment\'s own catalog of resource models.\n\nOne request and one answer: this endpoint lists the whole catalog rather than a page of it, so a caller is never left holding part of it and believing it has all of it. Every model\'s description arrives attached and none of it is kept — BizModelSummary is the whole of what a caller receives.',
+        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the catalog, or why it could not be read.',
+      },
+      {
+        signature: 'async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
+        description: 'Read one resource model\'s stored default schemes — the forms and the table this deployment\'s own pages open that model with.\n\nThe request always names the model. The same endpoint answers with every scheme this deployment stores when it is asked without one, which is tens of megabytes and no caller\'s question.',
+        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the model\'s default schemes, or why they could not be read.',
+      },
+      {
+        signature: 'async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
+        description: 'Read what the signed-in person may do in this deployment.\n\nThe endpoint also answers with that person\'s profile. This read never copies it: BizUserRights is built out of the rights subtree alone, so no account name, employee number, telephone or mail address leaves this seam for a caller to put in front of a model or into a session log.',
+        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the rights, or why they could not be read.',
+      },
     ],
   },
   {
@@ -3790,16 +3808,48 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BizCondition {\n    readonly key: string;\n    readonly op: string;\n    readonly value: string | number | boolean | readonly (string | number)[];\n}',
   },
   {
+    name: 'BizDictionaryValue',
+    declaration: 'export interface BizDictionaryValue {\n    readonly key: string;\n    readonly value: string;\n}',
+  },
+  {
     name: 'BizMetaAttribute',
-    declaration: 'export interface BizMetaAttribute {\n    readonly attributeEnName: string;\n    readonly attributeCnName: string;\n}',
+    declaration: 'export interface BizMetaAttribute {\n    readonly attributeEnName: string;\n    readonly attributeCnName: string;\n    readonly dataType?: string;\n    readonly dataLength?: number;\n    readonly isNull?: boolean;\n    readonly isPrimaryKey?: boolean;\n    readonly defaultValue?: string;\n    readonly attrGrpName?: string;\n    readonly remark?: string;\n}',
   },
   {
     name: 'BizMetaResult',
     declaration: 'export interface BizMetaResult {\n    readonly attributes: readonly BizMetaAttribute[];\n}',
   },
   {
+    name: 'BizModelListResult',
+    declaration: 'export interface BizModelListResult {\n    readonly models: readonly BizModelSummary[];\n}',
+  },
+  {
+    name: 'BizModelRights',
+    declaration: 'export interface BizModelRights {\n    readonly resclassenname: string;\n    readonly operations: readonly string[];\n    readonly columns?: string;\n}',
+  },
+  {
+    name: 'BizModelSchemes',
+    declaration: 'export interface BizModelSchemes {\n    readonly schemes: readonly BizScheme[];\n}',
+  },
+  {
+    name: 'BizModelSummary',
+    declaration: 'export interface BizModelSummary {\n    readonly resClassEnName: string;\n    readonly resClassCnName: string;\n    readonly classDiagramType?: string;\n    readonly classDiagramTypeCnName?: string;\n    readonly dsTableName?: string;\n    readonly parentClassEnName?: string;\n    readonly remark?: string;\n    readonly resClassDescription?: string;\n}',
+  },
+  {
+    name: 'BizRowRight',
+    declaration: 'export interface BizRowRight {\n    readonly resourceName: string;\n    readonly resourceValue: string;\n}',
+  },
+  {
+    name: 'BizScheme',
+    declaration: 'export interface BizScheme {\n    readonly schemaType: number;\n    readonly formItems: readonly BizSchemeFormItem[];\n    readonly columns: readonly BizSchemeColumn[];\n}',
+  },
+  {
     name: 'BizSchemeColumn',
     declaration: 'export interface BizSchemeColumn {\n    readonly relatedMetaAttr: string;\n    readonly alias?: string;\n    readonly isShow?: boolean;\n    readonly isSortable?: boolean;\n}',
+  },
+  {
+    name: 'BizSchemeFormItem',
+    declaration: 'export interface BizSchemeFormItem {\n    readonly relatedMetaAttr: string;\n    readonly alias?: string;\n    readonly isRequired?: boolean;\n    readonly isEditable?: boolean;\n    readonly isShow?: boolean;\n    readonly relatedDict?: readonly BizDictionaryValue[];\n    readonly relatedMeta?: string;\n}',
   },
   {
     name: 'BizSchemeResult',
@@ -3812,6 +3862,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BizSearchResult',
     declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
+  },
+  {
+    name: 'BizUserRights',
+    declaration: 'export interface BizUserRights {\n    readonly resclass: readonly BizModelRights[];\n    readonly rows: readonly BizRowRight[];\n}',
   },
   {
     name: 'BooleanFieldSchema',
@@ -4275,7 +4329,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EnumFieldSchema',
-    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n}',
+    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n    readonly hint?: string;\n}',
   },
   {
     name: 'EpochHeader',

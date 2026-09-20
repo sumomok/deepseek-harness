@@ -328,6 +328,7 @@
     { "path": "./packages/experimental/tool-agent-team" },
     { "path": "./packages/experimental/agent-team-web-profile" },
     { "path": "./packages/experimental/biz-backend" },
+    { "path": "./packages/experimental/system-map" },
     { "path": "./packages/experimental/content-surface" },
     { "path": "./packages/experimental/server-base" },
     { "path": "./packages/experimental/library-skills" },

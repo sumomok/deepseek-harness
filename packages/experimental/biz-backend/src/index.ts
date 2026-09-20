@@ -45,8 +45,23 @@ const SEARCH_SERVICE_PATH = 'nrms-datamanagement/api/resources'
 /** Path of the schema service one model's attribute names are read from; fixed for the same reason. */
 const META_SERVICE_PATH = 'nrms-schema-manage/api/meta/resclass'
 
+/** Path of the schema service the deployment's own list of resource models is read from; fixed for the same reason. */
+const MODEL_LIST_SERVICE_PATH = 'nrms-schema-manage/api/meta/resclassname'
+
 /** Path of the schema service one model's stored schemes are read from; fixed for the same reason. */
 const SCHEME_SERVICE_PATH = 'nrms-schema-manage/api/schema/schema'
+
+/** Path of the sign-on service the signed-in person's own rights are read from; fixed for the same reason. */
+const RIGHTS_SERVICE_PATH = 'nrms-auth/api/auth/userinfo'
+
+/**
+ * The resource-class kind that means a model the deployment stores rows of, in
+ * the schema service's own numbering. Its two siblings — the kinds a
+ * deployment composes out of stored models rather than storing — answer this
+ * endpoint with nothing, so the stored kind is the whole catalog and is written
+ * here as the external specification it is rather than as a deployment choice.
+ */
+const STORED_RESOURCE_CLASS_TYPE = 1
 
 /**
  * The scheme kind that describes a resource list, in the schema service's own
@@ -178,12 +193,33 @@ export interface BizSearchResult {
   readonly total?: number
 }
 
-/** One attribute of a resource model, under both of its names. */
+/**
+ * One attribute of a resource model, under both of its names and with whatever
+ * the model states about the value it stores.
+ *
+ * Every field after the two names is absent wherever the description carries
+ * neither reading of it, so a caller distinguishes "the model says this
+ * attribute takes no value" from "the model says nothing about it".
+ */
 export interface BizMetaAttribute {
   /** The name rows are keyed by. */
   readonly attributeEnName: string
   /** The name the deployment shows a person. */
   readonly attributeCnName: string
+  /** The stored value's type, in the deployment's own type vocabulary. */
+  readonly dataType?: string
+  /** Longest stored value the model accepts, where it states a length. */
+  readonly dataLength?: number
+  /** Whether a row may leave the attribute empty, where the model states it. */
+  readonly isNull?: boolean
+  /** Whether the attribute is part of what identifies a row, where the model states it. */
+  readonly isPrimaryKey?: boolean
+  /** The value stored when a person enters none, where the model states one. */
+  readonly defaultValue?: string
+  /** The group the deployment files the attribute under on its own forms. */
+  readonly attrGrpName?: string
+  /** What the deployment records about the attribute for a person to read. */
+  readonly remark?: string
 }
 
 /** What one model description returned. */
@@ -215,6 +251,115 @@ export interface BizSchemeColumn {
 export interface BizSchemeResult {
   /** The scheme's columns, in the order it lists them. */
   readonly columns: readonly BizSchemeColumn[]
+}
+
+/** One value a dictionary attribute may hold, as the deployment stores it and as it shows it. */
+export interface BizDictionaryValue {
+  /** The value as a row stores it. */
+  readonly key: string
+  /** The text the deployment shows for that stored value. */
+  readonly value: string
+}
+
+/**
+ * One form item of a stored scheme: an attribute as one of the deployment's own
+ * forms offers it.
+ *
+ * A dictionary and a related model are carried here and nowhere else, because
+ * this is where the deployment's own frontend reads them: the values a person
+ * may pick belong to the form drawing the attribute, not to the model
+ * describing it.
+ */
+export interface BizSchemeFormItem {
+  /** The attribute the item edits, by its English name. */
+  readonly relatedMetaAttr: string
+  /** The label the scheme gives the item, where it gives one. */
+  readonly alias?: string
+  /** Whether the form refuses to save without a value, where the scheme states it. */
+  readonly isRequired?: boolean
+  /** Whether the form lets a person change the value, where the scheme states it. */
+  readonly isEditable?: boolean
+  /** Whether the form draws the item at all, where the scheme states it. */
+  readonly isShow?: boolean
+  /** The values the item offers, where it offers a fixed set. */
+  readonly relatedDict?: readonly BizDictionaryValue[]
+  /** The model the item picks a row of, by its English name, where it picks one. */
+  readonly relatedMeta?: string
+}
+
+/** One of a model's stored schemes, reduced to the attributes it draws and the columns it lists. */
+export interface BizScheme {
+  /** Which kind of scheme it is, in the schema service's own numbering. */
+  readonly schemaType: number
+  /** Every attribute the scheme's forms draw, across all of its form groups. */
+  readonly formItems: readonly BizSchemeFormItem[]
+  /** The columns the scheme's table lists, in the order it lists them. */
+  readonly columns: readonly BizSchemeColumn[]
+}
+
+/** What one all-schemes read returned. */
+export interface BizModelSchemes {
+  /** The model's default schemes, in the order the backend lists them. */
+  readonly schemes: readonly BizScheme[]
+}
+
+/** One resource model as the deployment's own catalog lists it. */
+export interface BizModelSummary {
+  /** The name rows, schemes and rights all key the model by. */
+  readonly resClassEnName: string
+  /** The name the deployment shows a person; empty where the catalog carries none. */
+  readonly resClassCnName: string
+  /** The subject area the deployment files the model under, by its code. */
+  readonly classDiagramType?: string
+  /** The name the deployment shows for that subject area. */
+  readonly classDiagramTypeCnName?: string
+  /** The stored table the model's rows live in. */
+  readonly dsTableName?: string
+  /** The model this one extends, by its English name. */
+  readonly parentClassEnName?: string
+  /** What the deployment records about the model for a person to read. */
+  readonly remark?: string
+  /** The deployment's longer description of the model, where it keeps one. */
+  readonly resClassDescription?: string
+}
+
+/** What one catalog read returned. */
+export interface BizModelListResult {
+  /** Every model the catalog lists, in the order the backend lists them. */
+  readonly models: readonly BizModelSummary[]
+}
+
+/** What the signed-in person may do with one resource model. */
+export interface BizModelRights {
+  /** The model the row is about, by its English name. */
+  readonly resclassenname: string
+  /** The operations the row grants, by the deployment's own operation names, in code-unit order. */
+  readonly operations: readonly string[]
+  /** The attributes the row narrows editing to, as the row writes them; absent where it narrows none. */
+  readonly columns?: string
+}
+
+/** One narrowing of the values the signed-in person may pick for one attribute. */
+export interface BizRowRight {
+  /** The attribute the narrowing applies to, as the rights table names it. */
+  readonly resourceName: string
+  /** The values it leaves available, as the rights table writes them. */
+  readonly resourceValue: string
+}
+
+/**
+ * What one rights read returned.
+ *
+ * The person's own rights and nothing else about them. The endpoint answers
+ * with a profile as well — account name, employee number, telephone, mail — and
+ * none of it is read here, so no later caller has it to hand to a model, write
+ * into a session log, or repeat in a failure.
+ */
+export interface BizUserRights {
+  /** One row per model the rights table names, in the order it lists them. */
+  readonly resclass: readonly BizModelRights[]
+  /** Every value narrowing the rights table states. */
+  readonly rows: readonly BizRowRight[]
 }
 
 /**
@@ -449,22 +594,91 @@ function readSearchData(data: unknown): BizSearchResult | undefined {
 }
 
 /**
- * Read one of a scheme column's yes-or-no fields.
+ * Read one of this backend's yes-or-no fields.
  *
- * A stored scheme writes them either way round: the schema service answers with
- * the characters `'0'` and `'1'` on some schemes and with JSON booleans on
- * others, and the deployment's own frontend reads both. So both readings are
- * accepted here, and a value that is neither is treated as unstated rather than
- * guessed at.
+ * It writes them either way round: the characters `'0'` and `'1'` on some
+ * answers and JSON booleans on others, and the deployment's own frontend reads
+ * both. So both readings are accepted here, and a value that is neither is
+ * treated as unstated rather than guessed at.
  * @param value - the field as the answer carries it.
  * @returns the flag, or `undefined` when the field carries neither reading.
  */
-function readSchemeFlag(value: unknown): boolean | undefined {
+function readBackendFlag(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value
   if (value === '1') return true
   if (value === '0') return false
   return undefined
 }
+
+/**
+ * Read one of this backend's text fields.
+ * @param value - the field as the answer carries it.
+ * @returns the text, or `undefined` when the field carries none or carries it empty.
+ */
+function readText(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/**
+ * Read one list of answered elements, leaving out every element the reader
+ * could not make a published value out of.
+ *
+ * Every list this seam publishes drops rather than fails, for the reason each
+ * reader states: an answer carries fields this seam never reads, and an element
+ * with nothing to read is not one a caller could use.
+ * @param value - the field as the answer carries it.
+ * @param read - the reader for one element.
+ * @returns the elements read, empty where the field is not a list.
+ */
+function readList<T>(value: unknown, read: (entry: unknown) => T | undefined): readonly T[] {
+  if (!Array.isArray(value)) return []
+  const items: T[] = []
+  for (const entry of value as readonly unknown[]) {
+    const item = read(entry)
+    if (item !== undefined) items.push(item)
+  }
+  return items
+}
+
+/**
+ * Read the named text fields of one answered element.
+ * @param item - the element as the answer carries it.
+ * @param keys - the fields to read, named as the backend names them.
+ * @returns the fields that carry text, each under its own name.
+ */
+function readTextFields<K extends string>(
+  item: Record<string, unknown>,
+  keys: readonly K[],
+): Partial<Record<K, string>> {
+  const fields: Partial<Record<K, string>> = {}
+  for (const key of keys) {
+    const text = readText(item[key])
+    if (text !== undefined) fields[key] = text
+  }
+  return fields
+}
+
+/** The text fields one catalog entry carries beyond the two names. */
+const SUMMARY_TEXT_KEYS = [
+  'classDiagramType',
+  'classDiagramTypeCnName',
+  'dsTableName',
+  'parentClassEnName',
+  'remark',
+  'resClassDescription',
+] as const
+
+/** The text fields one described attribute carries beyond its two names. */
+const ATTRIBUTE_TEXT_KEYS = ['dataType', 'defaultValue', 'attrGrpName', 'remark'] as const
+
+/**
+ * The two fields of a rights row that are not operations.
+ *
+ * Every other field of that row is one, because the row is an open table: the
+ * deployment adds an operation by adding a key, and reading the keys is what
+ * keeps a later one from being silently dropped.
+ */
+const RIGHTS_NON_OPERATION_KEYS: ReadonlySet<string> = new Set(['resclassenname', 'columns'])
 
 /**
  * Reduce one scheme column to the four fields this seam publishes.
@@ -479,15 +693,227 @@ function readSchemeFlag(value: unknown): boolean | undefined {
 function readSchemeColumn(entry: unknown): BizSchemeColumn | undefined {
   if (typeof entry !== 'object' || entry === null) return undefined
   const item = entry as { relatedMetaAttr?: unknown; alias?: unknown; isShow?: unknown; isSortable?: unknown }
-  if (typeof item.relatedMetaAttr !== 'string' || item.relatedMetaAttr === '') return undefined
-  const alias = typeof item.alias === 'string' && item.alias !== '' ? item.alias : undefined
-  const isShow = readSchemeFlag(item.isShow)
-  const isSortable = readSchemeFlag(item.isSortable)
+  const relatedMetaAttr = readText(item.relatedMetaAttr)
+  if (relatedMetaAttr === undefined) return undefined
+  const alias = readText(item.alias)
+  const isShow = readBackendFlag(item.isShow)
+  const isSortable = readBackendFlag(item.isSortable)
   return {
-    relatedMetaAttr: item.relatedMetaAttr,
+    relatedMetaAttr,
     ...alias === undefined ? {} : { alias },
     ...isShow === undefined ? {} : { isShow },
     ...isSortable === undefined ? {} : { isSortable },
+  }
+}
+
+/**
+ * Read the column list out of one stored scheme's table.
+ * @param grid - the scheme's table, as the answer carries it.
+ * @returns the columns, empty where the scheme lists none this seam can read.
+ */
+function readGridColumns(grid: unknown): readonly BizSchemeColumn[] {
+  if (typeof grid !== 'object' || grid === null) return []
+  return readList((grid as { gridItems?: unknown }).gridItems, readSchemeColumn)
+}
+
+/**
+ * Reduce one dictionary entry to the stored value and the text shown for it.
+ *
+ * A stored value of `'0'` is a value like any other, so the key is read as text
+ * of any length while the shown text is required to be non-empty: an entry with
+ * nothing to show is not one a person could be offered.
+ * @param entry - one element of a form item's value list.
+ * @returns the entry, or `undefined` when it carries no stored value or no text.
+ */
+function readDictionaryValue(entry: unknown): BizDictionaryValue | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as { key?: unknown; value?: unknown }
+  const value = readText(item.value)
+  if (value === undefined) return undefined
+  if (typeof item.key === 'string') return { key: item.key, value }
+  return typeof item.key === 'number' ? { key: String(item.key), value } : undefined
+}
+
+/**
+ * The model one form item picks a row of.
+ * @param relatedTrans - the item's translation record, as the answer carries it.
+ * @returns the model's English name, or `undefined` when the item picks no row.
+ */
+function readRelatedMeta(relatedTrans: unknown): string | undefined {
+  if (typeof relatedTrans !== 'object' || relatedTrans === null) return undefined
+  return readText((relatedTrans as { relatedMeta?: unknown }).relatedMeta)
+}
+
+/**
+ * Reduce one form item to the fields this seam publishes.
+ * @param entry - one element of a form group's item list.
+ * @returns the item, or `undefined` when the element names no attribute.
+ */
+function readSchemeFormItem(entry: unknown): BizSchemeFormItem | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as Record<string, unknown>
+  const relatedMetaAttr = readText(item.relatedMetaAttr)
+  if (relatedMetaAttr === undefined) return undefined
+  const alias = readText(item.alias)
+  const isRequired = readBackendFlag(item.isRequired)
+  const isEditable = readBackendFlag(item.isEditable)
+  const isShow = readBackendFlag(item.isShow)
+  const relatedDict = readList(item.relatedDict, readDictionaryValue)
+  const relatedMeta = readRelatedMeta(item.relatedTrans)
+  return {
+    relatedMetaAttr,
+    ...alias === undefined ? {} : { alias },
+    ...isRequired === undefined ? {} : { isRequired },
+    ...isEditable === undefined ? {} : { isEditable },
+    ...isShow === undefined ? {} : { isShow },
+    ...relatedDict.length === 0 ? {} : { relatedDict },
+    ...relatedMeta === undefined ? {} : { relatedMeta },
+  }
+}
+
+/**
+ * Read every attribute one scheme's forms draw.
+ *
+ * A stored scheme keeps its items in groups, each a section of the form a
+ * person fills in. The groups are a layout this seam does not publish, so their
+ * items are read into one list in the order the scheme lists them.
+ * @param form - the scheme's form groups, as the answer carries them.
+ * @returns the items, empty where the scheme draws none.
+ */
+function readSchemeFormItems(form: unknown): readonly BizSchemeFormItem[] {
+  if (!Array.isArray(form)) return []
+  const items: BizSchemeFormItem[] = []
+  for (const group of form as readonly unknown[]) {
+    if (typeof group !== 'object' || group === null) continue
+    items.push(...readList((group as { formItems?: unknown }).formItems, readSchemeFormItem))
+  }
+  return items
+}
+
+/**
+ * Reduce one stored scheme to its kind, the attributes it draws, and the
+ * columns it lists.
+ * @param entry - one element of the schemes answer.
+ * @returns the scheme, or `undefined` when the element states no kind.
+ */
+function readScheme(entry: unknown): BizScheme | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as { schemaType?: unknown; form?: unknown; grid?: unknown }
+  if (typeof item.schemaType !== 'number') return undefined
+  return {
+    schemaType: item.schemaType,
+    formItems: readSchemeFormItems(item.form),
+    columns: readGridColumns(item.grid),
+  }
+}
+
+/**
+ * Read the scheme list out of one all-schemes answer.
+ *
+ * A model with no stored scheme of a kind is an ordinary state of this
+ * deployment — the frontend turns its own buttons off over it — so an empty
+ * list is an answer rather than a failure. An answer that is not a list at all
+ * is not this endpoint's, and stays unreadable.
+ * @param data - the envelope's payload.
+ * @returns the schemes, or `undefined` when the payload is not a scheme list.
+ */
+function readSchemes(data: unknown): readonly BizScheme[] | undefined {
+  return Array.isArray(data) ? readList(data, readScheme) : undefined
+}
+
+/**
+ * Reduce one catalog entry to the names and the filing this seam publishes.
+ *
+ * The catalog answers with every model's whole description attached, most of it
+ * empty in a listing, and none of it is read: reducing here is what keeps a
+ * catalog of over a thousand models from being carried around as the megabytes
+ * it arrives as.
+ * @param entry - one element of the catalog answer.
+ * @returns the model, or `undefined` when the element carries no English name.
+ */
+function readModelSummary(entry: unknown): BizModelSummary | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as Record<string, unknown>
+  const resClassEnName = readText(item.resClassEnName)
+  if (resClassEnName === undefined) return undefined
+  return {
+    resClassEnName,
+    resClassCnName: readText(item.resClassCnName) ?? '',
+    ...readTextFields(item, SUMMARY_TEXT_KEYS),
+  }
+}
+
+/**
+ * Read the model list out of one catalog answer.
+ *
+ * An empty list is an answer: this endpoint answers that way for the resource
+ * kinds a deployment stores no rows of.
+ * @param data - the envelope's payload.
+ * @returns the models, or `undefined` when the payload is not a model list.
+ */
+function readModelList(data: unknown): readonly BizModelSummary[] | undefined {
+  return Array.isArray(data) ? readList(data, readModelSummary) : undefined
+}
+
+/**
+ * Reduce one rights row to the model it is about and the operations it grants.
+ *
+ * The row is read key by key rather than against a fixed list of operations,
+ * because the deployment grows the table by adding a key: a fixed list would
+ * drop a later operation without saying so.
+ * @param entry - one element of the rights table.
+ * @returns the row, or `undefined` when the element names no model.
+ */
+function readModelRights(entry: unknown): BizModelRights | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as Record<string, unknown>
+  const resclassenname = readText(item.resclassenname)
+  if (resclassenname === undefined) return undefined
+  const operations: string[] = []
+  for (const key of Object.keys(item)) {
+    if (RIGHTS_NON_OPERATION_KEYS.has(key)) continue
+    if (readBackendFlag(item[key]) === true) operations.push(key)
+  }
+  // By code unit rather than by locale, so one rights row reduces to the same
+  // order on every host. The keys of one object are distinct, so no comparison
+  // here is ever between two equal names.
+  operations.sort((left, right) => left < right ? -1 : 1)
+  const columns = readText(item.columns)
+  return { resclassenname, operations, ...columns === undefined ? {} : { columns } }
+}
+
+/**
+ * Reduce one value narrowing to the attribute it applies to and what it leaves.
+ * @param entry - one element of the narrowing table.
+ * @returns the narrowing, or `undefined` when the element carries neither field.
+ */
+function readRowRight(entry: unknown): BizRowRight | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as { resourceName?: unknown; resourceValue?: unknown }
+  const resourceName = readText(item.resourceName)
+  const resourceValue = readText(item.resourceValue)
+  if (resourceName === undefined || resourceValue === undefined) return undefined
+  return { resourceName, resourceValue }
+}
+
+/**
+ * Read the signed-in person's rights out of one sign-on answer.
+ *
+ * Only the rights subtree is reached, and only its two tables are read out of
+ * it. The profile beside it — account name, employee number, telephone, mail —
+ * is never copied into a published value, so nothing downstream has it to put
+ * in front of a model or into a session log.
+ * @param data - the envelope's payload.
+ * @returns the rights, or `undefined` when the payload carries no rights subtree.
+ */
+function readUserRights(data: unknown): BizUserRights | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  const auth = (data as { auth?: unknown }).auth
+  if (typeof auth !== 'object' || auth === null) return undefined
+  const table = auth as { resclass?: unknown; rows?: unknown }
+  return {
+    resclass: readList(table.resclass, readModelRights),
+    rows: readList(table.rows, readRowRight),
   }
 }
 
@@ -508,15 +934,7 @@ function readSchemeColumns(data: unknown): readonly BizSchemeColumn[] | undefine
   if (!Array.isArray(data)) return undefined
   const [scheme] = data as readonly unknown[]
   if (typeof scheme !== 'object' || scheme === null) return undefined
-  const grid = (scheme as { grid?: unknown }).grid
-  if (typeof grid !== 'object' || grid === null) return undefined
-  const listed = (grid as { gridItems?: unknown }).gridItems
-  if (!Array.isArray(listed)) return undefined
-  const columns: BizSchemeColumn[] = []
-  for (const entry of listed as readonly unknown[]) {
-    const column = readSchemeColumn(entry)
-    if (column !== undefined) columns.push(column)
-  }
+  const columns = readGridColumns((scheme as { grid?: unknown }).grid)
   return columns.length === 0 ? undefined : columns
 }
 
@@ -527,9 +945,20 @@ function readSchemeColumns(data: unknown): readonly BizSchemeColumn[] | undefine
  */
 function readAttribute(entry: unknown): BizMetaAttribute | undefined {
   if (typeof entry !== 'object' || entry === null) return undefined
-  const { attributeEnName, attributeCnName } = entry as { attributeEnName?: unknown; attributeCnName?: unknown }
+  const item = entry as Record<string, unknown>
+  const { attributeEnName, attributeCnName } = item
   if (typeof attributeEnName !== 'string' || typeof attributeCnName !== 'string') return undefined
-  return { attributeEnName, attributeCnName }
+  const dataLength = typeof item.dataLength === 'number' ? item.dataLength : undefined
+  const isNull = readBackendFlag(item.isNull)
+  const isPrimaryKey = readBackendFlag(item.isPrimaryKey)
+  return {
+    attributeEnName,
+    attributeCnName,
+    ...readTextFields(item, ATTRIBUTE_TEXT_KEYS),
+    ...dataLength === undefined ? {} : { dataLength },
+    ...isNull === undefined ? {} : { isNull },
+    ...isPrimaryKey === undefined ? {} : { isPrimaryKey },
+  }
 }
 
 /**
@@ -545,13 +974,7 @@ function readAttribute(entry: unknown): BizMetaAttribute | undefined {
 function readAttributes(data: unknown): readonly BizMetaAttribute[] | undefined {
   if (typeof data !== 'object' || data === null) return undefined
   const listed = (data as { attributes?: unknown }).attributes
-  if (!Array.isArray(listed)) return undefined
-  const named: BizMetaAttribute[] = []
-  for (const entry of listed as readonly unknown[]) {
-    const attribute = readAttribute(entry)
-    if (attribute !== undefined) named.push(attribute)
-  }
-  return named
+  return Array.isArray(listed) ? readList(listed, readAttribute) : undefined
 }
 
 /**
@@ -678,13 +1101,97 @@ export class BizBackendService extends Service {
   }
 
   /**
+   * Read this deployment's own catalog of resource models.
+   *
+   * One request and one answer: this endpoint lists the whole catalog rather
+   * than a page of it, so a caller is never left holding part of it and
+   * believing it has all of it. Every model's description arrives attached and
+   * none of it is kept — {@link BizModelSummary} is the whole of what a caller
+   * receives.
+   * @param signal - aborts the request in flight; an abort answers `unreachable`.
+   * @returns the catalog, or why it could not be read.
+   */
+  async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure> {
+    const held = this.credentialFor()
+    if (typeof held !== 'string') return held
+    const query = `?resClassCnName=&resClassType=${String(STORED_RESOURCE_CLASS_TYPE)}`
+    const answered = await this.exchange(
+      `${combineUrls(this.upstream, MODEL_LIST_SERVICE_PATH)}${query}`,
+      { method: 'GET', headers: credentialHeaders(held), signal },
+      held,
+    )
+    if (answered.kind !== 'answered') return answered
+    const models = readModelList(answered.data)
+    if (models === undefined) return { kind: 'unreachable', detail: 'the answer listed no resource models' }
+    return { models }
+  }
+
+  /**
+   * Read one resource model's stored default schemes — the forms and the table
+   * this deployment's own pages open that model with.
+   *
+   * The request always names the model. The same endpoint answers with every
+   * scheme this deployment stores when it is asked without one, which is tens
+   * of megabytes and no caller's question.
+   * @param meta - the resource model, by its English name.
+   * @param signal - aborts the request in flight; an abort answers `unreachable`.
+   * @returns the model's default schemes, or why they could not be read.
+   */
+  async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure> {
+    const subject = this.subjectFor(meta)
+    if ('kind' in subject) return subject
+    const query = `?schemaType=&metaEnName=${subject.meta}&schemaName=&isDefault=${String(DEFAULT_SCHEME_FLAG)}`
+    const answered = await this.exchange(
+      `${combineUrls(this.upstream, SCHEME_SERVICE_PATH)}${query}`,
+      { method: 'GET', headers: credentialHeaders(subject.token), signal },
+      subject.token,
+    )
+    if (answered.kind !== 'answered') return answered
+    const schemes = readSchemes(answered.data)
+    if (schemes === undefined) return { kind: 'unreachable', detail: 'the answer listed no schemes' }
+    return { schemes }
+  }
+
+  /**
+   * Read what the signed-in person may do in this deployment.
+   *
+   * The endpoint also answers with that person's profile. This read never
+   * copies it: {@link BizUserRights} is built out of the rights subtree alone,
+   * so no account name, employee number, telephone or mail address leaves this
+   * seam for a caller to put in front of a model or into a session log.
+   * @param signal - aborts the request in flight; an abort answers `unreachable`.
+   * @returns the rights, or why they could not be read.
+   */
+  async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure> {
+    const held = this.credentialFor()
+    if (typeof held !== 'string') return held
+    const answered = await this.exchange(
+      combineUrls(this.upstream, RIGHTS_SERVICE_PATH),
+      { method: 'GET', headers: credentialHeaders(held), signal },
+      held,
+    )
+    if (answered.kind !== 'answered') return answered
+    const rights = readUserRights(answered.data)
+    if (rights === undefined) return { kind: 'unreachable', detail: 'the answer carried no rights table' }
+    return rights
+  }
+
+  /**
+   * The credential a call spends, or why it spends none.
+   * @returns the token, or the failure a call with no token answers.
+   */
+  private credentialFor(): string | BizBackendFailure {
+    return this.credential.read() ?? { kind: 'unauthenticated' }
+  }
+
+  /**
    * Everything a call needs before it may spend the credential.
    * @param meta - the model name the call names.
    * @returns the token and the checked name, or why the call stops here.
    */
   private subjectFor(meta: string): BizCallSubject | BizBackendFailure {
-    const token = this.credential.read()
-    if (token === undefined) return { kind: 'unauthenticated' }
+    const token = this.credentialFor()
+    if (typeof token !== 'string') return token
     if (!MODEL_NAME.test(meta)) {
       return {
         kind: 'unreachable',
