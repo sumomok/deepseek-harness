@@ -82,6 +82,44 @@ async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBa
  * @returns the scheme's columns in its own order, or why they could not be read.
  */
 async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>
+
+/**
+ * Read this deployment's own catalog of resource models.
+ *
+ * One request and one answer: this endpoint lists the whole catalog rather
+ * than a page of it, so a caller is never left holding part of it and
+ * believing it has all of it. Every model's description arrives attached and
+ * none of it is kept — {@link BizModelSummary} is the whole of what a caller
+ * receives.
+ * @param signal - aborts the request in flight; an abort answers `unreachable`.
+ * @returns the catalog, or why it could not be read.
+ */
+async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>
+
+/**
+ * Read one resource model's stored default schemes — the forms and the table
+ * this deployment's own pages open that model with.
+ *
+ * The request always names the model. The same endpoint answers with every
+ * scheme this deployment stores when it is asked without one, which is tens
+ * of megabytes and no caller's question.
+ * @param meta - the resource model, by its English name.
+ * @param signal - aborts the request in flight; an abort answers `unreachable`.
+ * @returns the model's default schemes, or why they could not be read.
+ */
+async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>
+
+/**
+ * Read what the signed-in person may do in this deployment.
+ *
+ * The endpoint also answers with that person's profile. This read never
+ * copies it: {@link BizUserRights} is built out of the rights subtree alone,
+ * so no account name, employee number, telephone or mail address leaves this
+ * seam for a caller to put in front of a model or into a session log.
+ * @param signal - aborts the request in flight; an abort answers `unreachable`.
+ * @returns the rights, or why they could not be read.
+ */
+async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>
 ```
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)

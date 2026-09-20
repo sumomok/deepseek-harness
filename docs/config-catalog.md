@@ -831,7 +831,7 @@ export interface ContentView {
 }
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:113`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:115`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
@@ -1209,6 +1209,32 @@ export interface PackDeliveryDirectory {
 ```
 
 Source: [`packages/experimental/skill-pack/src/index.ts:152`](../packages/experimental/skill-pack/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-system-map"></a>
+
+## `@deepseek-ai/dsh-experimental-system-map`
+
+Requires: `tools` · `bizBackend`
+
+```ts config-catalog
+/** Plugin config: the ceilings one deployment's answers are built under. */
+export interface Config {
+  /**
+   * Most characters one listing's lines may spend between them.
+   *
+   * The whole answer is this plus its heading, which is a sentence of fixed
+   * shape plus the names this deployment gives the subject area or model and at
+   * most one note of {@link Config.noteChars} characters.
+   */
+  listingChars: number
+  /** Most fixed values one attribute contributes before the rest are only counted. */
+  valuesPerAttribute: number
+  /** Most characters one of this deployment's recorded notes contributes. */
+  noteChars: number
+}
+```
+
+Source: [`packages/experimental/system-map/src/index.ts:55`](../packages/experimental/system-map/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

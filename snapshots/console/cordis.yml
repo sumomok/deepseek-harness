@@ -187,6 +187,14 @@
       name: '@deepseek-ai/dsh-experimental-console-mcp'
       config:
         servers: []
+    # The three reads that let the agent find its way around the deployment's
+    # own business system. They need the gate above and nothing else: each is a
+    # read of stored configuration and of the signed-in visitor's own rights, so
+    # none of them asks anybody anything and none of them is composed with an
+    # approval row. The ceilings stay at their defaults, which is what the
+    # recorded listing is written under.
+    - id: system-map
+      name: '@deepseek-ai/dsh-experimental-system-map'
 
     # The chart tool. No browser is attached under ACP, so every call answers
     # `unverified` after the deadline — one second here, because the deadline is

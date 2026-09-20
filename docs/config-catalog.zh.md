@@ -1212,6 +1212,32 @@ export interface PackDeliveryDirectory {
 
 来源：[`packages/experimental/skill-pack/src/index.ts:152`](../packages/experimental/skill-pack/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-system-map"></a>
+
+## `@deepseek-ai/dsh-experimental-system-map`
+
+需要：`tools` · `bizBackend`
+
+```ts config-catalog
+/** Plugin config: the ceilings one deployment's answers are built under. */
+export interface Config {
+  /**
+   * Most characters one listing's lines may spend between them.
+   *
+   * The whole answer is this plus its heading, which is a sentence of fixed
+   * shape plus the names this deployment gives the subject area or model and at
+   * most one note of {@link Config.noteChars} characters.
+   */
+  listingChars: number
+  /** Most fixed values one attribute contributes before the rest are only counted. */
+  valuesPerAttribute: number
+  /** Most characters one of this deployment's recorded notes contributes. */
+  noteChars: number
+}
+```
+
+来源：[`packages/experimental/system-map/src/index.ts:55`](../packages/experimental/system-map/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
