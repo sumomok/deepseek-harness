@@ -24,6 +24,7 @@ import { DATA_PAGE_REPORT_LIMITS } from '../src/client/data-page-limits.ts'
 import { en } from '../src/client/locales.ts'
 import type { ComponentActionHandler, ComponentRendererProps } from '../src/client/renderer.ts'
 import type { VueInstance } from '../src/client/vue-shim.ts'
+import { NO_ABILITIES, type DataPageAbilityTable } from '../src/route.ts'
 
 /** What the base-path read answers with, per case: a path, or a refusal. */
 let basePath: Promise<string> = Promise.resolve('/probe-base/')
@@ -31,6 +32,22 @@ let basePath: Promise<string> = Promise.resolve('/probe-base/')
 vi.mock('../src/client/data-page-settings.ts', () => ({
   dataPageBasePathReady: (): Promise<string> => basePath,
   settleDataPageBasePath: (): Promise<string> => basePath,
+}))
+
+/** Every ability on: the verdict a case gets unless it is about the verdict. */
+const ALL_ABILITIES: DataPageAbilityTable = { create: true, update: true, delete: true, import: true, export: true }
+
+/** What the node half's verdict answers with, per case. */
+let abilities: Promise<DataPageAbilityTable> = Promise.resolve(ALL_ABILITIES)
+
+/** Every table the renderer asked the node half about. */
+const abilityReads: string[] = []
+
+vi.mock('../src/client/data-page-abilities.ts', () => ({
+  readAbilitiesFor: (meta: string): Promise<DataPageAbilityTable> => {
+    abilityReads.push(meta)
+    return abilities
+  },
 }))
 
 const t: ComponentRendererProps['t'] = makeTranslate(en)
@@ -214,6 +231,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   basePath = Promise.resolve('/probe-base/')
+  abilities = Promise.resolve(ALL_ABILITIES)
+  abilityReads.length = 0
   userInfo = undefined
   // The request layer keeps the profile it fetched under this key and reuses
   // it while the stored token still matches, so a case that answers the
@@ -746,5 +765,50 @@ describe('toy.data-page', () => {
     await flush()
     expect(seen.map(request => request.url).filter(url => url.includes('_search'))).toEqual([])
     expect(onAction).not.toHaveBeenCalledWith('query', expect.anything())
+  })
+
+  it('draws every entrance it could remove removed until the verdict arrives, then changes them in place', async () => {
+    let answer: (table: DataPageAbilityTable) => void = () => {}
+    abilities = new Promise((resolve) => { answer = resolve })
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: META, metaLabel: '演示设备', readOnly: false }))
+    await loaded(onAction)
+    const page = pageOf(view.container)
+    expect(abilityReads).toEqual([META])
+    expect(page.$props['abilities']).toEqual(NO_ABILITIES)
+    expect(buttons(view.container).map(button => button.text)).toEqual(['查询', '清空', '', ''])
+    const searched = seen.filter(request => request.url.includes('_search')).length
+    answer({ create: true, update: false, delete: false, import: false, export: true })
+    await vi.waitFor(() => { expect(buttons(view.container).map(button => button.text)).toContain('新增') })
+    // The same page, told once more: no remount and no second query.
+    expect(pageOf(view.container)).toBe(page)
+    expect(page.$props['abilities']).toEqual({ create: true, update: false, delete: false, import: false, export: true })
+    await flush()
+    expect(seen.filter(request => request.url.includes('_search')).length).toBe(searched)
+  })
+
+  it('removes the entrances the verdict turns off', async () => {
+    abilities = Promise.resolve({ create: false, update: true, delete: true, import: true, export: true })
+    const { view, onAction } = draw(Object.freeze({ relatedMeta: META, metaLabel: '演示设备', readOnly: false }))
+    await loaded(onAction)
+    expect(pageOf(view.container).$props['abilities']).toEqual({ create: false, update: true, delete: true, import: true, export: true })
+    expect(buttons(view.container).map(button => button.text)).not.toContain('新增')
+  })
+
+  it('passes the host verdict whatever the block record carries under the same name', async () => {
+    abilities = new Promise(() => {})
+    const { view } = draw(Object.freeze({ ...pageProps(), readOnly: false, abilities: ALL_ABILITIES }))
+    await vi.waitFor(() => { expect(view.container.querySelector('[data-toy-crud-box]')).not.toBeNull() })
+    await flush()
+    expect(pageOf(view.container).$props['abilities']).toEqual(NO_ABILITIES)
+  })
+
+  it('drops a verdict that arrives after the block is gone', async () => {
+    let answer: (table: DataPageAbilityTable) => void = () => {}
+    abilities = new Promise((resolve) => { answer = resolve })
+    const { view } = draw()
+    await vi.waitFor(() => { expect(abilityReads).toEqual([META]) })
+    view.unmount()
+    answer(ALL_ABILITIES)
+    await flush()
   })
 })

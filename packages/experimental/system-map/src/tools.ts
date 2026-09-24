@@ -16,7 +16,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type GenericCallView, type GenericResultView, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import type { BizBackendFailure } from '@deepseek-ai/dsh-experimental-biz-backend'
+import type {
+  BizBackendFailure,
+  BizModelSummary,
+  BizPermissions,
+  BizUserRights,
+} from '@deepseek-ai/dsh-experimental-biz-backend'
 import {
   attributeEntries,
   compareNames,
@@ -26,9 +31,11 @@ import {
   modelEntries,
   noteOf,
   pageWithin,
+  permittedOperations,
   resolveDomain,
   resolveModel,
   rightsByModel,
+  visibleModels,
 } from './reduce.ts'
 import {
   AFTER_ATTRIBUTES_PARAMETER_DESCRIPTION,
@@ -40,6 +47,7 @@ import {
   DOMAINS_DESCRIPTION,
   DOMAINS_TOOL_NAME,
   domainLine,
+  MAY_DESCRIPTION,
   emptyRefusal,
   MODEL_DESCRIPTION,
   MODEL_PARAMETER_DESCRIPTION,
@@ -121,6 +129,37 @@ function namedOf(named: string, parameter: string): string {
   return named
 }
 
+/** What one call knows once the catalog and the rights are both read. */
+interface VisibleCatalog {
+  /** The models the signed-in person may look at, in catalog order. */
+  readonly models: readonly BizModelSummary[]
+  /** What the rights read permits. */
+  readonly permissions: BizPermissions
+  /** The rights read itself, for what the permissions do not carry. */
+  readonly rights: BizUserRights
+}
+
+/**
+ * The part of this deployment's catalog the signed-in person may look at.
+ *
+ * Both reads run together and either failing ends the call with its refusal, so
+ * a person whose rights cannot be read is shown nothing rather than everything.
+ * @param ctx - the injected context carrying the backend seam.
+ * @param signal - aborts both reads.
+ * @returns the visible models, what the rights read permits, and the rights read itself.
+ * @throws {Error} the sentence the model reads, when either read failed.
+ */
+async function visibleCatalog(ctx: Context, signal: AbortSignal): Promise<VisibleCatalog> {
+  const [catalog, rights] = await Promise.all([
+    ctx.bizBackend.listModels(signal),
+    ctx.bizBackend.userRights(signal),
+  ])
+  const models = read(catalog).models
+  const granted = read(rights)
+  const permissions = ctx.bizBackend.judge(granted)
+  return { models: visibleModels(models, permissions), permissions, rights: granted }
+}
+
 /** The two counts and the cursor every listing ends with. */
 const PAGE_PROPERTIES = {
   from: { type: 'integer', required: true, description: 'How many entries of the whole listing come before the first one here.' },
@@ -158,7 +197,7 @@ export function domainsTool(ctx: Context, bounds: MapBounds): ToolDefinition {
               properties: {
                 domain: { type: 'string', required: true, description: 'The code this deployment files models under.' },
                 name: { type: 'string', required: true, description: 'The name this deployment shows for that code.' },
-                models: { type: 'integer', required: true, description: 'How many data models it holds.' },
+                models: { type: 'integer', required: true, description: 'How many data models it holds that the signed-in person may look at.' },
               },
             },
           },
@@ -172,8 +211,8 @@ export function domainsTool(ctx: Context, bounds: MapBounds): ToolDefinition {
     isConcurrencySafe: () => true,
     async execute(args, exec): Promise<DomainsValue> {
       const after = cursorOf(args.after, 'after')
-      const catalog = read(await ctx.bizBackend.listModels(exec.signal))
-      const domains = groupDomains(catalog.models)
+      const { models } = await visibleCatalog(ctx, exec.signal)
+      const domains = groupDomains(models)
       const page = pageWithin(domains, after, entry => entry.domain, domainLine, bounds.listingChars)
       return {
         domains: [...page.items],
@@ -232,8 +271,9 @@ export function domainModelsTool(ctx: Context, bounds: MapBounds): ToolDefinitio
                 table: { type: 'string', description: 'Where the model\'s rows are stored.' },
                 may: {
                   type: 'array',
+                  required: true,
                   items: { type: 'string' },
-                  description: 'The operations the signed-in person may perform, under this deployment\'s own operation names.',
+                  description: MAY_DESCRIPTION,
                 },
                 note: { type: 'string', description: 'What this deployment records about the model.' },
               },
@@ -248,18 +288,13 @@ export function domainModelsTool(ctx: Context, bounds: MapBounds): ToolDefinitio
     async execute(args, exec): Promise<DomainModelsValue> {
       const wanted = namedOf(args.domain, 'domain')
       const after = cursorOf(args.after, 'after')
-      const [catalog, rights] = await Promise.all([
-        ctx.bizBackend.listModels(exec.signal),
-        ctx.bizBackend.userRights(exec.signal),
-      ])
-      const models = read(catalog).models
-      const allowed = rightsByModel(read(rights))
+      const { models, permissions } = await visibleCatalog(ctx, exec.signal)
       const domains = groupDomains(models)
       const area = resolveDomain(domains, wanted)
       if (area === undefined) throw new Error(unknownDomainRefusal(wanted, domains))
       const held = modelEntries(
         models.filter(summary => domainOf(summary).domain === area.domain),
-        allowed,
+        permissions,
         bounds.noteChars,
       )
       const page = pageWithin(held, after, entry => entry.model, modelLine, bounds.listingChars)
@@ -358,7 +393,7 @@ export function modelTool(ctx: Context, bounds: MapBounds): ToolDefinition {
             type: 'array',
             required: true,
             items: { type: 'string' },
-            description: 'The operations the signed-in person may perform, under this deployment\'s own operation names.',
+            description: MAY_DESCRIPTION,
           },
           editableColumns: {
             type: 'array',
@@ -374,18 +409,15 @@ export function modelTool(ctx: Context, bounds: MapBounds): ToolDefinition {
     async execute(args, exec): Promise<ModelValue> {
       const wanted = namedOf(args.model, 'model')
       const after = cursorOf(args.after, 'after')
-      const [catalog, rights] = await Promise.all([
-        ctx.bizBackend.listModels(exec.signal),
-        ctx.bizBackend.userRights(exec.signal),
-      ])
-      const summary = resolveModel(read(catalog).models, wanted)
+      const { models, permissions, rights } = await visibleCatalog(ctx, exec.signal)
+      const summary = resolveModel(models, wanted)
       if (summary === undefined) throw new Error(unknownModelRefusal(wanted))
       const [described, schemes] = await Promise.all([
         ctx.bizBackend.describe(summary.resClassEnName, exec.signal),
         ctx.bizBackend.describeSchemes(summary.resClassEnName, exec.signal),
       ])
       const entries = attributeEntries(read(described).attributes, read(schemes).schemes, bounds)
-      const row = rightsByModel(read(rights)).get(summary.resClassEnName)
+      const row = rightsByModel(rights).get(summary.resClassEnName)
       const narrowed = editableColumns(row)
       const note = noteOf(summary, bounds.noteChars)
       const { domain, name } = domainOf(summary)
@@ -399,7 +431,7 @@ export function modelTool(ctx: Context, bounds: MapBounds): ToolDefinition {
         ...summary.parentClassEnName === undefined ? {} : { parent: summary.parentClassEnName },
         ...note === undefined ? {} : { note },
         attributes: [...page.items],
-        may: [...row?.operations ?? []],
+        may: permittedOperations(permissions, summary.resClassEnName),
         ...narrowed === undefined ? {} : { editableColumns: [...narrowed].sort(compareNames) },
         from: page.to - page.items.length,
         shown: page.items.length,

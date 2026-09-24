@@ -18,13 +18,13 @@ The catalog is also too large to hand over whole. Measured on the real backend o
 
 **Perception asks nobody.** None of the three writes, asks or looks at a screen, so no approval is declared and no `tools/pre-execute` escalator is registered — the same shape as `content-frame`'s five reads.
 
-**The reads are named, and they reduce at the read.** `biz-backend` gains `listModels()`, `describeSchemes()` and `userRights()`, and `describe()` widens to publish what the model description already states about an attribute. No `Config` for paths: they are the deployment frontend's own external specification. `userRights()` builds its answer out of the rights subtree alone and copies no part of the profile beside it, so no account name, employee number, telephone or mail can reach a model request, a session log or a failure message. A rights row is read key by key rather than against a fixed operation list, because the deployment grows that table by adding a key.
+**The reads are named, and they reduce at the read.** `biz-backend` gains `listModels()`, `describeSchemes()` and `userRights()`, and `describe()` widens to publish what the model description already states about an attribute. No `Config` for paths: they are the deployment frontend's own external specification. `userRights()` builds its answer out of the rights subtree alone and copies no part of the profile beside it, so no account name, employee number, telephone or mail can reach a model request, a session log or a failure message. A rights row is read key by key rather than against a fixed operation list, because the deployment grows that table by adding a key. What the three reads do with it — list and describe only the models the person may look at, and state `may` under seven operation codes judged by one rule table — is [the rights note](2026-09-24-console-rights-judged-once.md)'s.
 
 **Nothing is cached.** Every call re-reads the catalog. A per-process cache needs a staleness rule this side cannot check, and the deployment's own frontend serves a cached copy and refreshes behind it, so the configuration is not strongly consistent to begin with.
 
 **One character budget per answer, not one item count.** `listingChars` bounds the lines of a listing; `valuesPerAttribute` and `noteChars` bound the two values that can each grow without limit inside one line. Item counts fall out of the budget with a cursor, so there is one ceiling per thing that can grow rather than two for the same thing.
 
-**Order is by code unit.** Subject areas by code, models and attributes by English name, operations by name. A locale comparison would order the same answer differently on two hosts and a cursor built out of that order would skip or repeat rows between two calls.
+**Order is by code unit.** Subject areas by code, models and attributes by English name; operations in the order the backend lists its operation codes. A locale comparison would order the same answer differently on two hosts and a cursor built out of that order would skip or repeat rows between two calls.
 
 ## Decision gate
 

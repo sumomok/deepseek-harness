@@ -82,7 +82,7 @@
     },
     {
       "name": "system_map_domain_models",
-      "description": "List the data models one subject area of this deployment holds: each model's English name, the name a person is shown for it, the table its rows are stored in, what this deployment records about it, and which operations the signed-in person may perform on it. Reach for it once a subject area is settled and the task is to find which model a request is really about, and reach for it before proposing any step that needs the signed-in person to be allowed to read or change a model — the answer says what they may do, so a step nobody may take is one to drop before suggesting it. What comes back is this deployment's own configuration, never the values in any row and never what is on screen.",
+      "description": "List the data models one subject area of this deployment holds that the signed-in person may look at: each model's English name, the name a person is shown for it, the table its rows are stored in, what this deployment records about it, and which operations the signed-in person may perform on it. Reach for it once a subject area is settled and the task is to find which model a request is really about, and reach for it before proposing any step that needs the signed-in person to be allowed to read or change a model — the answer says what they may do, so a step nobody may take is one to drop before suggesting it. What comes back is this deployment's own configuration, never the values in any row and never what is on screen.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -102,7 +102,7 @@
     },
     {
       "name": "system_map_domains",
-      "description": "List the subject areas this deployment divides its business data into, and how many data models each one holds. Start here whenever somebody names something in their own words — a kind of record, a form they fill in, a screen they work in — and which of this deployment's data models they mean is not settled yet: the subject areas are the deployment's own top-level division of its business, so the area a request belongs to is usually plain from its name. What comes back is this deployment's own configuration, never the values in any row and never what is on screen.",
+      "description": "List the subject areas this deployment divides its business data into, and how many data models each one holds, counting only the data models the signed-in person may look at: a subject area holding none of those is not listed. Start here whenever somebody names something in their own words — a kind of record, a form they fill in, a screen they work in — and which of this deployment's data models they mean is not settled yet: the subject areas are the deployment's own top-level division of its business, so the area a request belongs to is usually plain from its name. What comes back is this deployment's own configuration, never the values in any row and never what is on screen.",
       "parameters": {
         "type": "object",
         "properties": {

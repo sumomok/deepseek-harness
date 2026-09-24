@@ -12,13 +12,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
+  BIZ_OPERATIONS,
   BizBackendService,
+  BizOperationRules,
+  requireBizOperationRules,
+  type BizBackendFailure,
   type BizMetaResult,
+  type BizOperation,
+  type BizUserRights,
   type BizSearchRequest,
   type BizSearchResult,
   type CredentialDropReason,
   type HeldCredential,
 } from '../src/index.ts'
+
+/** The rule table a deployment that writes none gets. */
+const DEFAULT_RULES = BizOperationRules({})
 
 /** A JWT-shaped stand-in; nothing in this seam reads its claims. */
 const TOKEN = 'aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
@@ -119,7 +128,7 @@ function testCredential(initial: string | undefined): TestCredential {
  * @returns the service.
  */
 function backendWith(credential: HeldCredential): BizBackendService {
-  return new BizBackendService(new Context(), BIZ_UPSTREAM, credential)
+  return new BizBackendService(new Context(), BIZ_UPSTREAM, credential, DEFAULT_RULES)
 }
 
 /**
@@ -144,7 +153,7 @@ describe('data-backend read', () => {
     const ctx = new Context()
     await ctx.plugin({
       name: 'biz-backend-fixture',
-      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, testCredential(TOKEN)) },
+      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, testCredential(TOKEN), DEFAULT_RULES) },
     })
     expect(ctx.get('bizBackend')).toBeInstanceOf(BizBackendService)
     // The row that constructed it is the row that owns it: disposing that
@@ -915,5 +924,130 @@ describe('what a model description states about one attribute', () => {
     }))
     expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal()))
       .toEqual({ attributes: [{ attributeEnName: 'zh_label', attributeCnName: '名称' }] })
+  })
+})
+
+/**
+ * Every operation the judgement permits on one model, in {@link BIZ_OPERATIONS} order.
+ * @param rights - the rights read.
+ * @param model - the model asked about.
+ * @param rules - the rule table; the defaults where left out.
+ * @returns the permitted operations.
+ */
+function permitted(
+  rights: BizUserRights | BizBackendFailure,
+  model: string,
+  rules: BizOperationRules = DEFAULT_RULES,
+): readonly BizOperation[] {
+  const backend = new BizBackendService(new Context(), BIZ_UPSTREAM, testCredential(TOKEN), rules)
+  const permissions = backend.judge(rights)
+  return BIZ_OPERATIONS.filter(operation => permissions.may(model, operation))
+}
+
+/**
+ * A rights read holding one row per entry, each granting the named flags.
+ * @param rows - model name to granted flags.
+ * @returns the rights read.
+ */
+function rightsOf(rows: Readonly<Record<string, readonly string[]>>): BizUserRights {
+  return {
+    resclass: Object.entries(rows).map(([resclassenname, operations]) => ({ resclassenname, operations })),
+    rows: [],
+  }
+}
+
+describe('what the signed-in person may do, under the default rules', () => {
+  it('lists the seven operations in the order the backend plans them', () => {
+    expect(BIZ_OPERATIONS).toEqual(['read', 'metadata_read', 'create', 'update', 'delete', 'import', 'export'])
+  })
+
+  it('writes the default rule table out as the backend enforces it today', () => {
+    expect(DEFAULT_RULES).toEqual({
+      read: 'row',
+      metadata_read: 'row',
+      create: ['add'],
+      update: ['update'],
+      delete: ['delete'],
+      import: ['add', 'update'],
+      export: 'row',
+    })
+  })
+
+  it('lets a row granting nothing read, read the description and export, and nothing else', () => {
+    // What every account's row looks like on the real backend for a model it
+    // may only look at: every flag null, so no operation is listed.
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer')).toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('gives create for add, update for update, and delete for delete, each on its own', () => {
+    expect(permitted(rightsOf({ SpaceLayer: ['add'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'create', 'import', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['update'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'update', 'import', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['delete'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'delete', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['add', 'delete', 'update'] }), 'SpaceLayer')).toEqual([...BIZ_OPERATIONS])
+  })
+
+  it('ignores the flags the backend does not enforce', () => {
+    // `search`, `imp`, `exp` and `gridexp` are null for every account on the
+    // real backend; where one does arrive true it widens nothing.
+    expect(permitted(rightsOf({ SpaceLayer: ['exp', 'gridexp', 'imp', 'search'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('permits nothing on a model the rights table holds no row for', () => {
+    expect(permitted(rightsOf({ SpaceLayer: ['add', 'delete', 'update'] }), 'SITE')).toEqual([])
+  })
+
+  it('permits nothing at all when the rights table names no model', () => {
+    expect(permitted(rightsOf({}), 'SpaceLayer')).toEqual([])
+  })
+
+  it('permits nothing at all when the rights could not be read', () => {
+    const failures: readonly BizBackendFailure[] = [
+      { kind: 'unauthenticated' },
+      { kind: 'refused', status: 401 },
+      // What an account with no grant at all is answered with.
+      { kind: 'rejected', status: 400, code: 1, message: '用户未授权' },
+      { kind: 'unreachable', detail: 'the answer carried no rights table' },
+    ]
+    for (const failure of failures) expect(permitted(failure, 'SpaceLayer')).toEqual([])
+  })
+
+  it('reaches no network to judge', () => {
+    serve(answer({ code: 0 }))
+    permitted(rightsOf({ SpaceLayer: ['add'] }), 'SpaceLayer')
+    expect(seen).toEqual([])
+  })
+})
+
+describe('the rule table a deployment writes', () => {
+  it('switches one operation to a flag without touching the others', () => {
+    const rules = BizOperationRules({ export: ['exp'] })
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read'])
+    expect(permitted(rightsOf({ SpaceLayer: ['exp'] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('lets a flag-requiring operation fall back to the row alone', () => {
+    const rules = BizOperationRules({ create: 'row' })
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read', 'create', 'export'])
+  })
+
+  it('refuses a rule that names no flag, names one that is not a flag name, or is neither form', () => {
+    // Cast: each case is a value `cordis.yml` could hold and the type rules out.
+    expect(() => BizOperationRules({ create: [] })).toThrow()
+    expect(() => BizOperationRules({ create: ['a-b'] })).toThrow()
+    expect(() => BizOperationRules({ create: 'everyone' } as never)).toThrow()
+    expect(() => BizOperationRules({ create: true } as never)).toThrow()
+  })
+
+  it('refuses a table naming an operation there is no rule for', () => {
+    const misspelled = BizOperationRules({ exprot: ['exp'], imports: 'row' } as never)
+    expect(() => requireBizOperationRules(misspelled)).toThrow(
+      'biz-backend: no operation is called "exprot", "imports"; '
+        + 'the rule table names read, metadata_read, create, update, delete, import, export',
+    )
+    expect(requireBizOperationRules(DEFAULT_RULES)).toBe(DEFAULT_RULES)
   })
 })

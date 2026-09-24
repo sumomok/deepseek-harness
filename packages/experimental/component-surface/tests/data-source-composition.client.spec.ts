@@ -3,8 +3,9 @@
  * booted through the vendored Loader mounts the tool runtime, the session
  * store, the real approval service, and a stub data backend, and every
  * assertion observes the composed application — whether the tool is offered at
- * all, what the description promises, and what the session log holds after one
- * question was put to the user and answered.
+ * all, what the description promises, what the session log holds after one
+ * question was put to the user and answered, and that a table the signed-in
+ * person may not read is refused before anybody is asked.
  *
  * The approval service is the shipped one rather than a stub, because the
  * sentence the user is asked reaches the log through it: pinning that sentence
@@ -17,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -29,7 +30,14 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import UserApproval from '@deepseek-ai/dsh-user-approval'
-import type { BizMetaResult, BizSearchRequest, BizSearchResult } from '@deepseek-ai/dsh-experimental-biz-backend'
+import {
+  BizBackendService,
+  BizOperationRules,
+  type BizMetaResult,
+  type BizSearchRequest,
+  type BizSearchResult,
+  type BizUserRights,
+} from '@deepseek-ai/dsh-experimental-biz-backend'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ShowComponent from '../src/index.ts'
 import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
@@ -48,32 +56,41 @@ afterEach(async () => {
 const reads: BizSearchRequest[] = []
 
 /**
- * A stub `ctx.bizBackend`, mounted through the same module table the real one
- * would be: what this file exercises is the row's own injection, not the
- * backend's wire.
+ * The real `ctx.bizBackend` with its reads stubbed, mounted through the same
+ * module table the real one would be: what this file exercises is the row's
+ * own injection and the deployment's own rights judgement, not the backend's
+ * wire.
  */
-class StubBizBackend extends Service {
+class StubBizBackend extends BizBackendService {
   /**
-   * Install the stub as `ctx.bizBackend`.
+   * Install the stub as `ctx.bizBackend`, judging by the default rules.
    * @param ctx - Cordis context that owns the service.
    */
   constructor(ctx: Context) {
-    super(ctx, 'bizBackend')
+    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
   }
 
   /**
    * Answer that a visitor's token is held, which every composed read here has.
    * @returns true.
    */
-  holdsCredential(): boolean {
+  override holdsCredential(): boolean {
     return true
+  }
+
+  /**
+   * Answer with a row for the one table this person may read.
+   * @returns the rights.
+   */
+  override userRights(): Promise<BizUserRights> {
+    return Promise.resolve({ resclass: [{ resclassenname: 'SpaceLayer', operations: [] }], rows: [] })
   }
 
   /**
    * Answer with a two-attribute dictionary.
    * @returns the attributes.
    */
-  describe(): Promise<BizMetaResult> {
+  override describe(): Promise<BizMetaResult> {
     return Promise.resolve({
       attributes: [
         { attributeEnName: 'zh_label', attributeCnName: '名称' },
@@ -87,7 +104,7 @@ class StubBizBackend extends Service {
    * @param request - the read that went out.
    * @returns the row, twice over.
    */
-  search(request: BizSearchRequest): Promise<BizSearchResult> {
+  override search(request: BizSearchRequest): Promise<BizSearchResult> {
     reads.push(request)
     const row = { zh_label: '东风站', layer_id: 'element:site' }
     return Promise.resolve({ rawValue: [row], displayValue: [row], total: 1 })
@@ -279,5 +296,27 @@ describe('the composed data-source row', () => {
         },
       },
     }])
+  })
+
+  it('refuses a table the signed-in person may not read before anybody is asked', async () => {
+    const ctx = await loadComposition({ dataSource: true, policy: 'ask' })
+    ctx.on('approval/request', () => Promise.resolve('allowed-once'))
+    const { session, agent } = openTurn(ctx)
+    const before = reads.length
+    const result = await run(ctx, agent, {
+      id: 'layers',
+      title: '图层',
+      spec: SPEC,
+      dataSource: [{ nodeId: 'rows', meta: 'SITE', metaLabel: '站点' }],
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'Error: show_component: no data model whose rows the signed-in person may read is called "SITE", '
+        + 'so nothing was read from the data source. Nothing on the panel changed.',
+    }])
+    expect(reads).toHaveLength(before)
+    expect(session.snapshotEvents().filter(event => event.type === 'approval/asked')).toEqual([])
+    expect(session.snapshotEvents().filter(event => event.type === 'content-component/resolved')).toEqual([])
   })
 })

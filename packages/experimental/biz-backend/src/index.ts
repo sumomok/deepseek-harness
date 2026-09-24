@@ -19,6 +19,11 @@
  * and those endpoints along with it, so the three reads below name what they do
  * and can reach nothing else.
  *
+ * Whether the signed-in person may do something with a model is judged here
+ * too, once, out of one rights read and one deployment-written rule table, so
+ * every consumer that hides or refuses on that person's behalf applies the same
+ * rules and none of them keeps a copy.
+ *
  * Failures are values, never exceptions: every call answers with its result or
  * with one member of {@link BizBackendFailure}, so a consumer switches on the
  * tag and the compiler names the case it forgot.
@@ -26,6 +31,7 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -360,6 +366,128 @@ export interface BizUserRights {
   readonly resclass: readonly BizModelRights[]
   /** Every value narrowing the rights table states. */
   readonly rows: readonly BizRowRight[]
+}
+
+/**
+ * One thing a person can do with a resource model, under the operation code the
+ * backend plans to enforce it by.
+ *
+ * Fixed by that plan rather than by a deployment: which of these a person may
+ * perform is deployment-varying and lives in {@link BizOperationRules}, and the
+ * set itself is what every rule table and every consumer names.
+ */
+export type BizOperation = 'read' | 'metadata_read' | 'create' | 'update' | 'delete' | 'import' | 'export'
+
+/** Every {@link BizOperation}, in the order the backend's plan lists them. */
+export const BIZ_OPERATIONS: readonly BizOperation[] = [
+  'read',
+  'metadata_read',
+  'create',
+  'update',
+  'delete',
+  'import',
+  'export',
+]
+
+/**
+ * What one operation requires of the signed-in person's rights row for a model.
+ *
+ * `'row'`: the rights table holds a row for the model at all. A list: it holds
+ * one, and that row grants at least one of the named flags, by the rights
+ * table's own flag names (`add`, `update`, `delete`, `exp`, …).
+ */
+export type BizOperationRule = 'row' | readonly string[]
+
+/** One {@link BizOperationRule} per {@link BizOperation}: the whole of how rights become permissions. */
+export type BizOperationRules = { readonly [K in BizOperation]: BizOperationRule }
+
+/** One rights-table flag name, as a rule may name it. */
+const RIGHTS_FLAG_NAME = /^[A-Za-z_]\w*$/
+
+/**
+ * One operation's rule, with the default a deployment starts from.
+ * @param fallback - the rule a deployment that writes none gets.
+ * @returns the schema for one rule.
+ */
+function operationRule(fallback: BizOperationRule): z<BizOperationRule> {
+  return z.union([z.const('row' as const), z.array(z.string().pattern(RIGHTS_FLAG_NAME)).min(1)])
+    // Schemastery types a default as the mutable form; the rule is never mutated.
+    .default(fallback as 'row' | string[]) as z<BizOperationRule>
+}
+
+/**
+ * How rights become permissions, as a deployment writes it into the row that
+ * constructs {@link BizBackendService}.
+ *
+ * The defaults are the rules this deployment's backend enforces today. It
+ * writes `null` for `search`, `imp`, `exp` and `gridexp` on every account,
+ * administrators included, and checks only `add`, `update` and `delete`; so
+ * reading, reading a model's description and exporting require only that the
+ * model has a row, and importing requires either write flag. A deployment whose
+ * backend starts enforcing a flag — `export: [exp]` once exports are checked —
+ * changes that one entry here and nothing else.
+ */
+export const BizOperationRules: z<Partial<BizOperationRules>, BizOperationRules> = z.object({
+  read: operationRule('row').description('What reading a model\'s rows requires.'),
+  metadata_read: operationRule('row').description('What reading a model\'s description requires.'),
+  create: operationRule(['add']).description('What creating a row requires.'),
+  update: operationRule(['update']).description('What changing a row requires.'),
+  delete: operationRule(['delete']).description('What deleting a row requires.'),
+  import: operationRule(['add', 'update']).description('What importing rows requires.'),
+  export: operationRule('row').description('What exporting rows requires.'),
+})
+
+/**
+ * Refuse a rule table naming an operation there is no rule for.
+ *
+ * The schema keeps a key it does not declare rather than dropping it, so a
+ * misspelled operation would otherwise leave the rule it meant to change at its
+ * default with nothing said. Whoever configures the table calls this at load.
+ * @param rules - the table as the schema resolved it.
+ * @returns the same table.
+ * @throws {Error} naming every key that is not a {@link BizOperation}.
+ */
+export function requireBizOperationRules(rules: BizOperationRules): BizOperationRules {
+  const unknown = Object.keys(rules).filter(key => !(BIZ_OPERATIONS as readonly string[]).includes(key))
+  if (unknown.length > 0) {
+    throw new Error(`biz-backend: no operation is called ${unknown.map(key => `"${key}"`).join(', ')}; `
+      + `the rule table names ${BIZ_OPERATIONS.join(', ')}`)
+  }
+  return rules
+}
+
+/**
+ * What one rights read permits, judged by one deployment's rules.
+ *
+ * Fail closed: a judgement made from a failed read, or from a rights table that
+ * names no model at all, permits nothing.
+ */
+export interface BizPermissions {
+  /**
+   * Whether the signed-in person may perform one operation on one model.
+   * @param model - the resource model, by its English name.
+   * @param operation - the operation.
+   * @returns true only when the rights read succeeded, holds a row for the model, and that row meets the operation's rule.
+   */
+  may(model: string, operation: BizOperation): boolean
+}
+
+/**
+ * Judge one rights read by one rule table.
+ * @param rights - the rights read, or why it failed.
+ * @param rules - the deployment's rule table.
+ * @returns the permissions that read grants.
+ */
+function judgeRights(rights: BizUserRights | BizBackendFailure, rules: BizOperationRules): BizPermissions {
+  const rows = new Map<string, BizModelRights>('kind' in rights ? [] : rights.resclass.map(row => [row.resclassenname, row]))
+  return {
+    may: (model, operation) => {
+      const row = rows.get(model)
+      if (row === undefined) return false
+      const rule = rules[operation]
+      return rule === 'row' || rule.some(flag => row.operations.includes(flag))
+    },
+  }
 }
 
 /**
@@ -994,6 +1122,9 @@ export class BizBackendService extends Service {
   /** The credential these reads spend, and give up when the backend refuses it. */
   private readonly credential: HeldCredential
 
+  /** How rights become permissions in this deployment. */
+  private readonly rules: BizOperationRules
+
   /**
    * Create and install the service as `ctx.bizBackend`.
    * @param ctx - Cordis context that owns the service.
@@ -1003,11 +1134,27 @@ export class BizBackendService extends Service {
    * an address rejected here would be rejected once per read instead of once
    * per composition.
    * @param credential - the access token these reads spend.
+   * @param rules - how {@link BizBackendService.judge} turns rights into
+   * permissions, as the {@link BizOperationRules} schema validated them.
    */
-  constructor(ctx: Context, upstream: string, credential: HeldCredential) {
+  constructor(ctx: Context, upstream: string, credential: HeldCredential, rules: BizOperationRules) {
     super(ctx, 'bizBackend')
     this.upstream = upstream
     this.credential = credential
+    this.rules = rules
+  }
+
+  /**
+   * Judge one rights read by this deployment's rules.
+   *
+   * Reaches no network: a caller reads {@link BizBackendService.userRights}
+   * once and asks about as many models as it holds. A failed read, and a rights
+   * table naming no model, permit nothing.
+   * @param rights - what one {@link BizBackendService.userRights} call answered.
+   * @returns the permissions that read grants.
+   */
+  judge(rights: BizUserRights | BizBackendFailure): BizPermissions {
+    return judgeRights(rights, this.rules)
   }
 
   /**

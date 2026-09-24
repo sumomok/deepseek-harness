@@ -5139,6 +5139,10 @@ importers:
         version: link:../../runtime-diagnostics/invariants
 
   packages/experimental/biz-backend:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -5224,8 +5228,8 @@ importers:
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
       '@sumomok/toy-crud-kit':
-        specifier: file:./vendor/sumomok-toy-crud-kit-0.4.4.tgz
-        version: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.4.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
+        specifier: file:./vendor/sumomok-toy-crud-kit-0.4.5.tgz
+        version: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.5.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
       '@sumomok/toy-surface-kit':
         specifier: file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz
         version: file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
@@ -5239,6 +5243,12 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../../client/connection
@@ -5254,6 +5264,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-experimental-auth-gate':
+        specifier: workspace:^
+        version: link:../auth-gate
+      '@deepseek-ai/dsh-experimental-biz-backend':
+        specifier: workspace:^
+        version: link:../biz-backend
       '@deepseek-ai/dsh-experimental-component-surface':
         specifier: workspace:^
         version: link:../component-surface
@@ -14381,9 +14397,9 @@ packages:
       react-dom:
         optional: true
 
-  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.4.tgz':
-    resolution: {integrity: sha512-/Vj86TR23Nfh/DZYsnRfYi8wfQrU+z1umN+tSQaqK52slFFzdK/EsfJPAlHxIbUP6lmj3wDUVlQGNFLrxjDj6g==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.4.tgz}
-    version: 0.4.4
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.5.tgz':
+    resolution: {integrity: sha512-Xhk9sdWS78S6C7GQF1yozrG8WQZ4J4cTt1bogP3NO6nu6B9sAyCBYQPig1LR5tbejz8jyZUV5EGy9HshB1lTqA==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.5.tgz}
+    version: 0.4.5
     peerDependencies:
       element-ui: ^2.15.14
       vue: ^2.7.0
@@ -21291,7 +21307,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.4.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.4.5.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
     dependencies:
       dayjs: 1.11.21
       element-ui: 2.15.14(vue@2.7.16)

@@ -8,7 +8,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { BizMetaAttribute, BizModelSummary, BizScheme } from '@deepseek-ai/dsh-experimental-biz-backend'
+import type {
+  BizMetaAttribute,
+  BizModelSummary,
+  BizOperation,
+  BizPermissions,
+  BizScheme,
+} from '@deepseek-ai/dsh-experimental-biz-backend'
 import {
   attributeEntries,
   compareNames,
@@ -18,15 +24,26 @@ import {
   modelEntries,
   noteOf,
   pageWithin,
+  permittedOperations,
   resolveDomain,
   resolveModel,
   rightsByModel,
   UNFILED,
+  visibleModels,
 } from '../src/reduce.ts'
 import type { MapBounds } from '../src/types.ts'
 
 /** The ceilings most cases here read under; a case bounding something states its own. */
 const BOUNDS: MapBounds = { listingChars: 12000, valuesPerAttribute: 12, noteChars: 80 }
+
+/**
+ * Permissions granting exactly the stated operations.
+ * @param granted - model name to the operations it is granted.
+ * @returns the permissions.
+ */
+function permissionsOf(granted: Readonly<Record<string, readonly BizOperation[]>>): BizPermissions {
+  return { may: (model, operation) => granted[model]?.includes(operation) ?? false }
+}
 
 /**
  * One catalog entry.
@@ -133,22 +150,36 @@ describe('the rights table', () => {
   })
 })
 
+describe('what the signed-in person may look at', () => {
+  it('keeps only the models whose description this person may read, in catalog order', () => {
+    const permissions = permissionsOf({ SITE: ['metadata_read'], SpaceLayer: ['read'] })
+    expect(visibleModels([summary('SpaceLayer'), summary('SITE'), summary('CITY')], permissions))
+      .toEqual([summary('SITE')])
+  })
+
+  it('lists the permitted operations in the order the backend lists its operation codes', () => {
+    const permissions = permissionsOf({ SITE: ['export', 'read', 'create'] })
+    expect(permittedOperations(permissions, 'SITE')).toEqual(['read', 'create', 'export'])
+    expect(permittedOperations(permissions, 'CITY')).toEqual([])
+  })
+})
+
 describe('one subject area\'s models', () => {
   it('lists them in English-name order with the fields this deployment states', () => {
-    const rights = rightsByModel({ resclass: [{ resclassenname: 'SITE', operations: ['search'] }], rows: [] })
+    const permissions = permissionsOf({ SITE: ['read', 'metadata_read'], SpaceLayer: ['metadata_read'] })
     expect(modelEntries(
       [CATALOG[0] as BizModelSummary, CATALOG[2] as BizModelSummary],
-      rights,
+      permissions,
       80,
     )).toEqual([
-      { model: 'SITE', name: '站点', may: ['search'] },
-      { model: 'SpaceLayer', name: '空间图层', table: 'SPACE_LAYER' },
+      { model: 'SITE', name: '站点', may: ['read', 'metadata_read'] },
+      { model: 'SpaceLayer', name: '空间图层', table: 'SPACE_LAYER', may: ['metadata_read'] },
     ])
   })
 
   it('leaves the shown name out of a model the catalog names in one language only', () => {
-    expect(modelEntries([summary('SITE', { remark: '说明' })], new Map(), 80))
-      .toEqual([{ model: 'SITE', note: '说明' }])
+    expect(modelEntries([summary('SITE', { remark: '说明' })], permissionsOf({ SITE: ['metadata_read'] }), 80))
+      .toEqual([{ model: 'SITE', may: ['metadata_read'], note: '说明' }])
   })
 })
 

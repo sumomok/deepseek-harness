@@ -9,17 +9,19 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import type {
-  BizBackendFailure,
-  BizMetaResult,
-  BizModelListResult,
-  BizModelSchemes,
-  BizUserRights,
+import {
+  BizBackendService,
+  BizOperationRules,
+  type BizBackendFailure,
+  type BizMetaResult,
+  type BizModelListResult,
+  type BizModelSchemes,
+  type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as SystemMap from '../src/index.ts'
 import { DOMAIN_MODELS_TOOL_NAME, DOMAINS_TOOL_NAME, MODEL_TOOL_NAME } from '../src/text.ts'
@@ -30,6 +32,8 @@ interface StubAnswers {
   rights?: BizUserRights | BizBackendFailure
   described?: BizMetaResult | BizBackendFailure
   schemes?: BizModelSchemes | BizBackendFailure
+  /** The deployment's rule table; the defaults where left out. */
+  rules?: BizOperationRules
 }
 
 /** Three models across two subject areas, as the catalog lists them. */
@@ -41,10 +45,26 @@ const CATALOG: BizModelListResult = {
   ],
 }
 
-/** A rights table granting three operations on one model and narrowing its editing. */
+/**
+ * A rights table granting two writes on one model and narrowing its editing,
+ * holding a row that grants no flag for a second, and no row at all for the
+ * third — the model this person may not look at.
+ */
 const RIGHTS: BizUserRights = {
-  resclass: [{ resclassenname: 'SpaceLayer', operations: ['add', 'search', 'update'], columns: 'zh_label' }],
+  resclass: [
+    { resclassenname: 'SpaceLayer', operations: ['add', 'search', 'update'], columns: 'zh_label' },
+    { resclassenname: 'CITY', operations: [] },
+  ],
   rows: [],
+}
+
+/**
+ * A rights table holding a row granting no flag for every model of one catalog.
+ * @param catalog - the catalog.
+ * @returns the rights read.
+ */
+function rightsOver(catalog: BizModelListResult): BizUserRights {
+  return { resclass: catalog.models.map(model => ({ resclassenname: model.resClassEnName, operations: [] })), rows: [] }
 }
 
 /** One model's attributes, as the description states them. */
@@ -115,20 +135,22 @@ function stubBackend(answers: StubAnswers) {
   return {
     name: 'stub-biz-backend',
     apply: (ctx: Context) => {
-      class StubBizBackend extends Service {
+      // The real service with its four reads stubbed, so the judgement the
+      // reads are filtered by is the one a deployment runs.
+      class StubBizBackend extends BizBackendService {
         /**
          * Install the stub as `ctx.bizBackend`.
          * @param inner - the context that owns it.
          */
         constructor(inner: Context) {
-          super(inner, 'bizBackend')
+          super(inner, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, answers.rules ?? BizOperationRules({}))
         }
 
         /**
          * Answer the catalog read.
          * @returns what the case stated.
          */
-        listModels(): Promise<BizModelListResult | BizBackendFailure> {
+        override listModels(): Promise<BizModelListResult | BizBackendFailure> {
           return Promise.resolve(answers.catalog ?? CATALOG)
         }
 
@@ -136,7 +158,7 @@ function stubBackend(answers: StubAnswers) {
          * Answer the rights read.
          * @returns what the case stated.
          */
-        userRights(): Promise<BizUserRights | BizBackendFailure> {
+        override userRights(): Promise<BizUserRights | BizBackendFailure> {
           return Promise.resolve(answers.rights ?? RIGHTS)
         }
 
@@ -144,7 +166,7 @@ function stubBackend(answers: StubAnswers) {
          * Answer the model description.
          * @returns what the case stated.
          */
-        describe(): Promise<BizMetaResult | BizBackendFailure> {
+        override describe(): Promise<BizMetaResult | BizBackendFailure> {
           return Promise.resolve(answers.described ?? DESCRIBED)
         }
 
@@ -152,7 +174,7 @@ function stubBackend(answers: StubAnswers) {
          * Answer the scheme read.
          * @returns what the case stated.
          */
-        describeSchemes(): Promise<BizModelSchemes | BizBackendFailure> {
+        override describeSchemes(): Promise<BizModelSchemes | BizBackendFailure> {
           return Promise.resolve(answers.schemes ?? SCHEMES)
         }
       }
@@ -219,14 +241,15 @@ function textOf(result: ToolExecutionResult): string {
 }
 
 describe('the subject-area listing', () => {
-  it('counts the models of every subject area, in code order', async () => {
+  it('counts the models of every subject area this person may look at, in code order', async () => {
     const ctx = await mount()
     const result = await run(ctx, DOMAINS_TOOL_NAME)
     expect(result.isError).toBe(false)
+    // SITE has no row in the rights table, so TRANSO counts one model, not two.
     expect(result.value).toEqual({
       domains: [
         { domain: 'COMMON', name: '公共专业', models: 1 },
-        { domain: 'TRANSO', name: '传输专业', models: 2 },
+        { domain: 'TRANSO', name: '传输专业', models: 1 },
       ],
       from: 0,
       shown: 2,
@@ -236,8 +259,41 @@ describe('the subject-area listing', () => {
     expect(textOf(result)).toContain('COMMON name=公共专业 models=1')
   })
 
+  it('leaves out a subject area holding no model this person may look at', async () => {
+    const ctx = await mount({ rights: { resclass: [{ resclassenname: 'CITY', operations: [] }], rows: [] } })
+    expect((await run(ctx, DOMAINS_TOOL_NAME)).value).toMatchObject({
+      domains: [{ domain: 'COMMON', name: '公共专业', models: 1 }],
+      total: 1,
+    })
+  })
+
+  it('lists no subject area at all when the rights table names no model', async () => {
+    const ctx = await mount({ rights: { resclass: [], rows: [] } })
+    const result = await run(ctx, DOMAINS_TOOL_NAME)
+    expect(result.isError).toBe(false)
+    expect(result.value).toEqual({ domains: [], from: 0, shown: 0, total: 0, truncated: false })
+    expect(textOf(result)).toContain('The data models the signed-in person may look at are sorted into 0 subject areas.')
+  })
+
+  it('lists nothing and says why when the rights cannot be read', async () => {
+    const ctx = await mount({ rights: { kind: 'rejected', status: 400, code: 1, message: '用户未授权' } })
+    const result = await run(ctx, DOMAINS_TOOL_NAME)
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('This deployment refused the request (HTTP 400, code 1): 用户未授权.')
+  })
+
+  it('judges by the rule table this deployment wrote', async () => {
+    // A deployment that makes reading a description require `search` hides
+    // CITY, whose row grants no flag.
+    const ctx = await mount({ rules: BizOperationRules({ metadata_read: ['search'] }) })
+    expect((await run(ctx, DOMAINS_TOOL_NAME)).value).toMatchObject({
+      domains: [{ domain: 'TRANSO', models: 1 }],
+      total: 1,
+    })
+  })
+
   it('cuts at the deployment\'s budget and hands back a cursor its next call continues from', async () => {
-    const ctx = await mount({ catalog: wideCatalog() }, { listingChars: 200 })
+    const ctx = await mount({ catalog: wideCatalog(), rights: rightsOver(wideCatalog()) }, { listingChars: 200 })
     const first = await run(ctx, DOMAINS_TOOL_NAME)
     const cut = first.value as { shown: number; total: number; truncated: boolean; cursor: string }
     expect(cut.total).toBe(12)
@@ -258,31 +314,37 @@ describe('the subject-area listing', () => {
 })
 
 describe('the model listing', () => {
-  it('lists one subject area\'s models with what the signed-in person may do with each', async () => {
+  it('lists one subject area\'s models this person may look at, with what they may do with each', async () => {
     const ctx = await mount()
     const result = await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' })
     expect(result.value).toEqual({
       domain: 'TRANSO',
       name: '传输专业',
       models: [
-        { model: 'SITE', name: '站点' },
-        { model: 'SpaceLayer', name: '空间图层', table: 'SPACE_LAYER', may: ['add', 'search', 'update'], note: '图层配置' },
+        {
+          model: 'SpaceLayer',
+          name: '空间图层',
+          table: 'SPACE_LAYER',
+          may: ['read', 'metadata_read', 'create', 'update', 'import', 'export'],
+          note: '图层配置',
+        },
       ],
       from: 0,
-      shown: 2,
-      total: 2,
+      shown: 1,
+      total: 1,
       truncated: false,
     })
+    expect(textOf(result)).not.toContain('SITE')
   })
 
   it('takes the subject area by the name a person is shown as well as by its code', async () => {
     const ctx = await mount()
     expect((await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: '公共专业' })).value)
-      .toMatchObject({ domain: 'COMMON', models: [{ model: 'CITY' }] })
+      .toMatchObject({ domain: 'COMMON', models: [{ model: 'CITY', may: ['read', 'metadata_read', 'export'] }] })
   })
 
   it('cuts one subject area\'s models at the budget', async () => {
-    const ctx = await mount({ catalog: oneAreaCatalog() }, { listingChars: 200 })
+    const ctx = await mount({ catalog: oneAreaCatalog(), rights: rightsOver(oneAreaCatalog()) }, { listingChars: 200 })
     const result = await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'AREA' })
     const cut = result.value as { shown: number; total: number; truncated: boolean; cursor: string }
     expect(cut).toMatchObject({ total: 12, truncated: true, cursor: `Model${String(cut.shown - 1).padStart(2, '0')}` })
@@ -293,8 +355,16 @@ describe('the model listing', () => {
     const ctx = await mount()
     const result = await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSMISSION' })
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toContain('This deployment files nothing under "TRANSMISSION"')
+    expect(textOf(result)).toContain('No subject area the signed-in person may look at is called "TRANSMISSION".')
     expect(textOf(result)).toContain('TRANSO (传输专业)')
+  })
+
+  it('refuses a subject area holding no model this person may look at as if it did not exist', async () => {
+    const ctx = await mount({ rights: { resclass: [{ resclassenname: 'CITY', operations: [] }], rows: [] } })
+    const hidden = textOf(await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' }))
+    expect(hidden).toBe(
+      'Error: No subject area the signed-in person may look at is called "TRANSO". Pass `domain` as one of those: COMMON (公共专业).',
+    )
   })
 
   it('refuses an empty subject area by naming the parameter that carried it', async () => {
@@ -305,7 +375,7 @@ describe('the model listing', () => {
   it('cuts the note it repeats to the deployment\'s ceiling', async () => {
     const ctx = await mount({}, { noteChars: 2 })
     expect((await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' })).value)
-      .toMatchObject({ models: [{ model: 'SITE' }, { model: 'SpaceLayer', note: '图层' }] })
+      .toMatchObject({ models: [{ model: 'SpaceLayer', note: '图层' }] })
   })
 })
 
@@ -325,14 +395,16 @@ describe('the one-model read', () => {
         { attribute: 'state', name: '状态', type: 'VARCHAR', length: 8, forms: ['add'], values: [{ stored: '1', shown: '在用' }] },
         { attribute: 'zh_label', name: '名称', type: 'VARCHAR', length: 128, required: true, forms: ['query', 'grid', 'add'] },
       ],
-      may: ['add', 'search', 'update'],
+      may: ['read', 'metadata_read', 'create', 'update', 'import', 'export'],
       editableColumns: ['zh_label'],
       from: 0,
       shown: 2,
       total: 2,
       truncated: false,
     })
-    expect(textOf(result)).toContain('The signed-in person may perform these operations on this model: add, search, update.')
+    expect(textOf(result)).toContain(
+      'The signed-in person may perform these operations on this model: read, metadata_read, create, update, import, export.',
+    )
   })
 
   it('takes the model by the name a person is shown as well as by its English name', async () => {
@@ -340,12 +412,24 @@ describe('the one-model read', () => {
     expect((await run(ctx, MODEL_TOOL_NAME, { model: '空间图层' })).value).toMatchObject({ model: 'SpaceLayer' })
   })
 
-  it('answers a model the rights table never names with no operation at all', async () => {
+  it('answers a model whose row grants no flag with what the row alone permits', async () => {
     const ctx = await mount()
-    const result = await run(ctx, MODEL_TOOL_NAME, { model: 'SITE' })
-    expect(result.value).toMatchObject({ model: 'SITE', may: [] })
+    const result = await run(ctx, MODEL_TOOL_NAME, { model: 'CITY' })
+    expect(result.value).toMatchObject({ model: 'CITY', may: ['read', 'metadata_read', 'export'] })
     expect(result.value).not.toHaveProperty('editableColumns')
-    expect(textOf(result)).toContain('may perform no operation on this model')
+  })
+
+  it('refuses a model the rights table never names in the words it refuses one that does not exist', async () => {
+    const ctx = await mount()
+    const hidden = await run(ctx, MODEL_TOOL_NAME, { model: 'SITE' })
+    expect(hidden.isError).toBe(true)
+    expect(textOf(hidden)).toBe('Error: No data model the signed-in person may look at is called "SITE". '
+      + 'Pass `model` as either the English name this deployment keys a model by or the name it shows a person for one.')
+    // By the name a person is shown as well: that is the other way in.
+    expect(textOf(await run(ctx, MODEL_TOOL_NAME, { model: '站点' })))
+      .toBe(textOf(hidden).replace('"SITE"', '"站点"'))
+    expect(textOf(await run(ctx, MODEL_TOOL_NAME, { model: 'NoSuchModel' })))
+      .toBe(textOf(hidden).replace('"SITE"', '"NoSuchModel"'))
   })
 
   it('cuts the attribute listing at the budget and continues past the cursor', async () => {
@@ -361,19 +445,20 @@ describe('the one-model read', () => {
   it('refuses a model this deployment does not have, and an empty one, by naming the parameter', async () => {
     const ctx = await mount()
     expect(textOf(await run(ctx, MODEL_TOOL_NAME, { model: 'SpaceLayers' })))
-      .toContain('This deployment has no data model called "SpaceLayers"')
+      .toContain('No data model the signed-in person may look at is called "SpaceLayers"')
     expect(textOf(await run(ctx, MODEL_TOOL_NAME, { model: '' }))).toContain('`model` was empty')
   })
 
   it('leaves out the shown name and the parent of a model the catalog states neither for', async () => {
-    const ctx = await mount({ catalog: { models: [{ resClassEnName: 'Bare', resClassCnName: '' }] }, described: { attributes: [] }, schemes: { schemes: [] } })
+    const catalog: BizModelListResult = { models: [{ resClassEnName: 'Bare', resClassCnName: '' }] }
+    const ctx = await mount({ catalog, rights: rightsOver(catalog), described: { attributes: [] }, schemes: { schemes: [] } })
     const result = await run(ctx, MODEL_TOOL_NAME, { model: 'Bare' })
     expect(result.value).toEqual({
       model: 'Bare',
       domain: 'UNFILED',
       domainName: 'UNFILED',
       attributes: [],
-      may: [],
+      may: ['read', 'metadata_read', 'export'],
       from: 0,
       shown: 0,
       total: 0,
@@ -395,6 +480,12 @@ describe('a read this deployment would not answer', () => {
     for (const [failure, said] of CASES) {
       const ctx = await mount({ catalog: failure })
       expect(textOf(await run(ctx, DOMAINS_TOOL_NAME))).toContain(said)
+      await ctx.fiber.dispose()
+      context = undefined
+    }
+    for (const tool of [DOMAINS_TOOL_NAME, DOMAIN_MODELS_TOOL_NAME]) {
+      const ctx = await mount({ rights: { kind: 'unauthenticated' } })
+      expect(textOf(await run(ctx, tool, { domain: 'TRANSO' }))).toContain('Nobody is signed in to this deployment')
       await ctx.fiber.dispose()
       context = undefined
     }

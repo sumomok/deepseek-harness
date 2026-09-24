@@ -32,16 +32,16 @@ The service is constructed rather than composed: there is no plugin row, because
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import { BizBackendService, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
+import { BizBackendService, BizOperationRules, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
 
 declare const ctx: Context
 declare const upstream: string
 declare const credential: HeldCredential
 
-new BizBackendService(ctx, upstream, credential)
+new BizBackendService(ctx, upstream, credential, BizOperationRules({}))
 ```
 
-In this fork that caller is [`dsh-experimental-auth-gate`](../auth-gate/README.md): its `bizUpstream` configuration is the base, its held token is the credential, and a deployment that configures no base constructs nothing at all — so a consumer's `ctx.inject(['bizBackend'])` stays pending with the missing service named, rather than reading through one whose every call fails.
+In this fork that caller is [`dsh-experimental-auth-gate`](../auth-gate/README.md): its `bizUpstream` configuration is the base, its held token is the credential, its `bizOperationRules` configuration is the rule table, and a deployment that configures no base constructs nothing at all — so a consumer's `ctx.inject(['bizBackend'])` stays pending with the missing service named, rather than reading through one whose every call fails.
 
 `upstream` must be an absolute `http(s)` address with no query string, fragment, or credentials of its own, and a path ending in `/`. That path is the deployment's API prefix, which is the frontend's own `VUE_APP_BASE_URL`: a standard install builds `/ini-server/`, and an install built without one publishes at the origin root. Every read is joined onto the base by keeping all of it and appending the service path, never by resolving one address against another — a resolve would drop the API prefix the moment the appended half began with `/`, and the request would land at the server root instead. The caller checks the base at load, because an address refused here would be refused once per read instead of once per composition.
 
@@ -67,6 +67,8 @@ In this fork that caller is [`dsh-experimental-auth-gate`](../auth-gate/README.m
 
 A seventh method reads nothing: `holdsCredential()` answers whether a token is held at all. It exists for the caller that puts a question to a person before reading, so that a read this process could not perform is not one somebody is asked to allow. It promises nothing about the next call — the backend can refuse the token in between, and every call answers `unauthenticated` on its own regardless.
 
+An eighth reads nothing either: `judge(rights)` turns what one `userRights` call answered into `may(model, operation)`, for the seven operations `read`, `metadata_read`, `create`, `update`, `delete`, `import` and `export` — the operation codes this deployment's backend plans to enforce. It judges by the rule table the service was constructed with, one rule per operation: `row`, meaning the rights table holds a row for the model at all, or a list of the rights table's own flags, at least one of which that row must grant. The default table, exported as the `BizOperationRules` schema, is what this backend enforces today: it writes `null` for `search`, `imp`, `exp` and `gridexp` on every account, administrators included, and checks only `add`, `update` and `delete`, so `read`, `metadata_read` and `export` are `row`, the three writes are `[add]`, `[update]` and `[delete]`, and `import` is `[add, update]`. A deployment whose backend starts checking a flag changes that one rule — `export: [exp]` — and nothing else. It fails closed: a failed read, including the HTTP 400 code 1 an account with no grant at all is answered with, and a rights table naming no model permit nothing, and neither does a model the table holds no row for. Every consumer that hides or refuses something on the signed-in person's behalf judges with this one method, so none of them keeps its own copy of the rules.
+
 Named methods rather than a `fetch(path, init)` pipe, because the same prefix also carries `PUT /api/resources/{model}/{id}`, `DELETE /api/resources/{model}/{id}`, and `POST /api/batchresources/delete/{model}`. A general pipe would hand every plugin sharing this process the visitor's credential and those endpoints with it. Nothing here writes, and no caller picks a path: a model name that is not a single bare name is refused before any request goes out, so a name holding `/` or `..` cannot steer a credentialed request at a neighbouring endpoint.
 
 Defaulting happens in one explicit step between the request a caller states and the document that goes on the wire — `matchMode` becomes `AND`, an unstated page becomes the first page of 200 rows, `asc` and `desc` become null, `conditions` becomes empty — so what an unstated field turns into is readable in one place. A caller that names `source` gets those attributes and the backend's own row identifier: the deployment's client puts `int_id` in front of every `source` it sends, and the backend answers with it whether or not the caller asked. A consumer that must not show a column it did not name has to drop the extra key itself.
@@ -91,7 +93,7 @@ No failure carries the credential, the full request URL, or the backend's trace 
 
 ## Model Experience
 
-None, as this package registers no tool, prompt section, or result: it performs six HTTP reads for whichever row consumes the service, and every model-visible effect of those rows belongs to them.
+None, as this package registers no tool, prompt section, or result: it performs six HTTP reads and one judgement for whichever row consumes the service, and every model-visible effect of those rows belongs to them.
 
 #### KV Cache effect
 

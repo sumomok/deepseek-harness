@@ -32,16 +32,16 @@ kind: "package-reference"
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
-import { BizBackendService, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
+import { BizBackendService, BizOperationRules, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
 
 declare const ctx: Context
 declare const upstream: string
 declare const credential: HeldCredential
 
-new BizBackendService(ctx, upstream, credential)
+new BizBackendService(ctx, upstream, credential, BizOperationRules({}))
 ```
 
-在本 fork 里，那个调用方是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md)：它的 `bizUpstream` 配置就是这个基址，它持有的令牌就是这枚凭据；没有配置基址的部署什么都不构造——于是消费方的 `ctx.inject(['bizBackend'])` 会明确挂起并点出缺失的服务名，而不是通过一个次次调用都失败的服务去读。
+在本 fork 里，那个调用方是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md)：它的 `bizUpstream` 配置就是这个基址，它持有的令牌就是这枚凭据，它的 `bizOperationRules` 配置就是规则表；没有配置基址的部署什么都不构造——于是消费方的 `ctx.inject(['bizBackend'])` 会明确挂起并点出缺失的服务名，而不是通过一个次次调用都失败的服务去读。
 
 `upstream` 必须是绝对的 `http(s)` 地址，不带查询串、片段或它自己的凭据，且路径以 `/` 结尾。那段路径就是本部署的 API 前缀，也就是前端自己的 `VUE_APP_BASE_URL`：标准安装编译出 `/ini-server/`，而编译时没有前缀的安装把 API 发布在源站根上。每次读取都是把基址整段保留、再把服务路径接在后面拼出来的，绝不是拿一个地址去解析另一个——一旦被接的那半以 `/` 开头，解析就会把 API 前缀整段丢掉，请求于是落到服务器根上。基址由调用方在加载期检查，因为在这里被拒的地址会变成每读一次被拒一次，而不是每组合一次被拒一次。
 
@@ -67,6 +67,8 @@ new BizBackendService(ctx, upstream, credential)
 
 还有第七个方法什么都不读：`holdsCredential()` 回答手上到底有没有令牌。它是为「读之前先问人」的调用方准备的，好让一次本进程做不到的读取不必先去问谁答不答应。它对下一次调用不作任何承诺——后端可能在这中间就把令牌拒了，而每次调用本来就会自己答 `unauthenticated`。
 
+第八个方法同样什么都不读：`judge(rights)` 把一次 `userRights` 调用的答复变成 `may(model, operation)`，操作共七个——`read`、`metadata_read`、`create`、`update`、`delete`、`import`、`export`，即本部署后端计划据以校验的操作码。它按构造服务时给的规则表来判，每个操作一条规则：要么是 `row`，意思是权限表里有这个模型的一行即可；要么是权限表自己的标志名列表，那一行必须至少授予其中一个。缺省表以 `BizOperationRules` 这个 schema 导出，就是这个后端今天实际校验的规则：它对每个账号——管理员也一样——把 `search`、`imp`、`exp`、`gridexp` 都写成 `null`，只校验 `add`、`update`、`delete`，所以 `read`、`metadata_read`、`export` 是 `row`，三种写分别是 `[add]`、`[update]`、`[delete]`，`import` 是 `[add, update]`。哪天后端开始校验某个标志，部署只改那一条规则——`export: [exp]`——别的都不动。它失败即关闭：读取失败（包括一个任何授权都没有的账号收到的 HTTP 400 code 1）和一张一个模型都没点名的权限表什么也不允许，权限表里没有那一行的模型同样什么也不允许。凡是代登录者隐藏或拒绝什么的消费方都只用这一个方法来判，于是谁都不另存一份规则。
+
 是具名方法而不是一条 `fetch(path, init)` 管道，因为同一个前缀下还挂着 `PUT /api/resources/{model}/{id}`、`DELETE /api/resources/{model}/{id}` 和 `POST /api/batchresources/delete/{model}`。一条通用管道等于把访客的凭据连同这些端点一起交给同进程的每一个插件。这里什么都不写，也没有调用方能自己挑路径：不是单个裸名字的模型名在任何请求发出之前就被拒，所以一个含 `/` 或 `..` 的名字没法把带凭据的请求引到邻近的端点上。
 
 补默认值只发生在一处显式步骤里，位于调用方陈述的请求和真正上线的文档之间——`matchMode` 变成 `AND`，未陈述的分页变成第一页 200 行，`asc` 与 `desc` 变成 null，`conditions` 变成空——于是一个未陈述的字段会变成什么，只在一个地方读得到。陈述了 `source` 的调用方拿到的是那些属性外加后端自己的行标识：本部署的客户端会往每一份发出的 `source` 前面插一个 `int_id`，后端也就不管调用方问没问都把它答回来。不能展示自己没点名的列的消费方，得自己把这个多出来的键去掉。
@@ -91,7 +93,7 @@ new BizBackendService(ctx, upstream, credential)
 
 ## Model Experience
 
-None, as this package registers no tool, prompt section, or result: it performs six HTTP reads for whichever row consumes the service, and every model-visible effect of those rows belongs to them.
+None, as this package registers no tool, prompt section, or result: it performs six HTTP reads and one judgement for whichever row consumes the service, and every model-visible effect of those rows belongs to them.
 
 #### KV Cache effect
 

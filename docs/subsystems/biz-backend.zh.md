@@ -40,6 +40,17 @@ Nothing here registers the service: it is constructed by the row that holds the 
 
 ```ts cordis-catalog
 /**
+ * Judge one rights read by this deployment's rules.
+ *
+ * Reaches no network: a caller reads {@link BizBackendService.userRights}
+ * once and asks about as many models as it holds. A failed read, and a rights
+ * table naming no model, permit nothing.
+ * @param rights - what one {@link BizBackendService.userRights} call answered.
+ * @returns the permissions that read grants.
+ */
+judge(rights: BizUserRights | BizBackendFailure): BizPermissions
+
+/**
  * Whether a token is held for the signed-in visitor at all.
  *
  * Reading the slot spends nothing and reaches no network, so a consumer that
