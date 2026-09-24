@@ -104,6 +104,14 @@ describe('the refusals', () => {
       .toBe('This deployment\'s business system did not answer: the answer listed no resource models.')
   })
 
+  it('refuse a name in words that do not say whether this deployment has one', () => {
+    expect(unknownModelRefusal('SITE')).toBe('No data model the signed-in person may look at is called "SITE". '
+      + 'Pass `model` as either the English name this deployment keys a model by or the name it shows a person for one.')
+    expect(unknownDomainRefusal('TRANSO', [{ domain: 'COMMON', name: '公共专业', models: 1 }])).toBe(
+      'No subject area the signed-in person may look at is called "TRANSO". Pass `domain` as one of those: COMMON (公共专业).',
+    )
+  })
+
   it('name the parameter that would fix the call', () => {
     expect(emptyRefusal('domain')).toContain('`domain` was empty')
     expect(unknownDomainRefusal('X', [])).toContain('Pass `domain`')
@@ -157,24 +165,34 @@ describe('the rendered listings', () => {
     expect(cutLine(5, 9, 'TRANSO')).toBe('Cut after 5 of 9; pass "TRANSO" as `after` to continue.')
   })
 
-  it('leaves out every field of a model line this deployment states nothing for', () => {
-    expect(modelLine({ model: 'SITE' })).toBe('SITE')
-    expect(modelLine({ model: 'SpaceLayer', name: '空间图层', table: 'SPACE_LAYER', may: ['add', 'search'], note: '图层配置' }))
-      .toBe('SpaceLayer name=空间图层 table=SPACE_LAYER may=add,search note=图层配置')
+  it('leaves out every field of a model line this deployment states nothing for, and always says what may be done', () => {
+    expect(modelLine({ model: 'SITE', may: ['read', 'metadata_read', 'export'] })).toBe('SITE may=read,metadata_read,export')
+    expect(modelLine({ model: 'SpaceLayer', name: '空间图层', table: 'SPACE_LAYER', may: ['read', 'create'], note: '图层配置' }))
+      .toBe('SpaceLayer name=空间图层 table=SPACE_LAYER may=read,create note=图层配置')
   })
 
-  it('renders a model listing under a heading saying what a line with no rights means', () => {
+  it('renders a model listing under a heading saying the listing is what this person may look at', () => {
     const value: DomainModelsValue = {
       domain: 'TRANSO',
       name: '传输专业',
-      models: [{ model: 'SITE' }],
+      models: [{ model: 'SITE', may: ['read'] }],
       from: 0,
       shown: 1,
       total: 1,
       truncated: false,
     }
-    expect(modelsHeading('TRANSO', '传输专业', 1)).toContain('may do nothing with')
-    expect(renderDomainModels(value)).toBe(`${modelsHeading('TRANSO', '传输专业', 1)}\nSITE`)
+    expect(modelsHeading('TRANSO', '传输专业', 1)).toBe(
+      'Subject area TRANSO (传输专业) holds 1 data models the signed-in person may look at. '
+      + 'Each line is a model\'s English name, then, where this deployment states them, `name=` the name shown '
+      + 'and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it '
+      + '(from read, metadata_read, create, update, delete, import and export), and, where this deployment records '
+      + 'one, `note=` what it records about it.',
+    )
+    expect(renderDomainModels(value)).toBe(`${modelsHeading('TRANSO', '传输专业', 1)}\nSITE may=read`)
+  })
+
+  it('heads a subject-area listing with how many areas this person may look at', () => {
+    expect(domainsHeading(3)).toContain('The data models the signed-in person may look at are sorted into 3 subject areas.')
   })
 
   it('leaves out every field of an attribute line this deployment states nothing for', () => {
@@ -216,7 +234,7 @@ describe('the rendered listings', () => {
       parent: 'ResBase',
       note: '图层配置',
       attributes: [{ attribute: 'zh_label' }],
-      may: ['add', 'search'],
+      may: ['read', 'metadata_read', 'create'],
       editableColumns: ['zh_label'],
       from: 0,
       shown: 1,
@@ -226,25 +244,25 @@ describe('the rendered listings', () => {
     const heading = modelHeading(value)
     expect(heading.split('\n')[0])
       .toBe('Data model SpaceLayer (空间图层), filed under TRANSO (传输专业), rows stored in SPACE_LAYER, extending ResBase. 图层配置')
-    expect(heading).toContain('The signed-in person may perform these operations on this model: add, search.')
+    expect(heading).toContain('The signed-in person may perform these operations on this model: read, metadata_read, create.')
     expect(heading).toContain('Editing is narrowed to these attributes: zh_label.')
     expect(renderModel(value)).toBe(`${heading}\nzh_label`)
   })
 
-  it('says outright that a person may do nothing, and leaves out what this deployment does not state', () => {
+  it('leaves out what this deployment does not state', () => {
     const heading = modelHeading({
       model: 'SITE',
       domain: 'TRANSO',
       domainName: '传输专业',
       attributes: [],
-      may: [],
+      may: ['read', 'metadata_read', 'export'],
       from: 0,
       shown: 0,
       total: 0,
       truncated: false,
     })
     expect(heading.split('\n')[0]).toBe('Data model SITE, filed under TRANSO (传输专业).')
-    expect(heading).toContain('The signed-in person may perform no operation on this model.')
+    expect(heading).toContain('The signed-in person may perform these operations on this model: read, metadata_read, export.')
     expect(heading).not.toContain('Editing is narrowed')
   })
 })

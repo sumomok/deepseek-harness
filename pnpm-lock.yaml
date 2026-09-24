@@ -5139,6 +5139,10 @@ importers:
         version: link:../../runtime-diagnostics/invariants
 
   packages/experimental/biz-backend:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

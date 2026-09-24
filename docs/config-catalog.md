@@ -624,6 +624,20 @@ export interface Config {
    */
   bizUpstream?: string
   /**
+   * How the signed-in person's rights become what they may do with each data
+   * model: one rule per operation (`read`, `metadata_read`, `create`, `update`,
+   * `delete`, `import`, `export`), each either `row` — the rights table holds a
+   * row for the model — or a list of the rights table's own flags, at least one
+   * of which that row must grant. Every consumer of `ctx.bizBackend` that hides
+   * or refuses something on this person's behalf judges by this one table.
+   *
+   * The defaults are what this deployment's backend enforces today: `row` for
+   * `read`, `metadata_read` and `export`; `[add]`, `[update]` and `[delete]`
+   * for the three writes; `[add, update]` for `import`. Validated at load
+   * whether or not `bizUpstream` is set, and used only where it is.
+   */
+  bizOperationRules: BizOperationRules
+  /**
    * The deployment's own renewal endpoint, as a path on the page's own origin —
    * `/<the API prefix>/nrms-auth/api/renewal` for a standard install, where the
    * prefix is the frontend's `VUE_APP_BASE_URL`. A browser-side address, like
@@ -652,7 +666,9 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/auth-gate/src/index.ts:63`](../packages/experimental/auth-gate/src/index.ts)
+Depends on: [`BizOperationRules`](../packages/experimental/biz-backend/src/index.ts)
+
+Source: [`packages/experimental/auth-gate/src/index.ts:68`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 

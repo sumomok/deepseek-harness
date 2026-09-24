@@ -58,8 +58,8 @@ export interface ModelEntry {
   readonly name?: string
   /** Where the model's rows are stored. */
   readonly table?: string
-  /** The operations the signed-in person may perform, by this deployment's own operation names. */
-  readonly may?: string[]
+  /** The operations the signed-in person may perform on the model, each one of the backend seam's seven operation codes. */
+  readonly may: string[]
   /** What this deployment records about the model, cut to the deployment's note ceiling. */
   readonly note?: string
 }
@@ -142,7 +142,7 @@ export interface ModelValue {
   readonly note?: string
   /** The attributes, in English-name order. */
   readonly attributes: AttributeEntry[]
-  /** The operations the signed-in person may perform, by this deployment's own operation names. */
+  /** The operations the signed-in person may perform on the model, each one of the backend seam's seven operation codes. */
   readonly may: string[]
   /** The attributes editing is narrowed to, where the rights table narrows it. */
   readonly editableColumns?: string[]

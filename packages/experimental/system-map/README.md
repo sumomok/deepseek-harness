@@ -31,13 +31,15 @@ Perception, and nothing else. None of the three writes anything, asks anybody an
 
 | Tool | Parameters | Answers with |
 |---|---|---|
-| `system_map_domains` | `after` | Every subject area this deployment files its data models under, each with the name it shows and how many models it holds. |
-| `system_map_domain_models` | `domain` (required), `after` | The data models one subject area holds: the English name, the name shown, the stored table, what the deployment records about the model, and which operations the signed-in person may perform on it. |
+| `system_map_domains` | `after` | Every subject area holding a data model the signed-in person may look at, each with the name it shows and how many of those models it holds. |
+| `system_map_domain_models` | `domain` (required), `after` | The data models one subject area holds that the signed-in person may look at: the English name, the name shown, the stored table, what the deployment records about the model, and which operations the signed-in person may perform on it. |
 | `system_map_model` | `model` (required), `after` | One model in full: every attribute with its stored type and length, whether a row may leave it empty, whether it identifies the row, its default, its group, the fixed values it offers and the model it takes a row of, plus which of the deployment's own forms draw it, which require it and whether they let this person change it — then that person's rights over the model. |
 
 `domain` takes either the code the deployment files models under or the name it shows for that code; `model` takes either the English name or the name shown. A model the deployment files under no subject area is listed under the code `UNFILED`, which `domain` accepts like any other.
 
 Every read goes through [`dsh-experimental-biz-backend`](../biz-backend/README.md) and nothing else. This package holds no credential, opens no socket and knows no address: the whole of what it can reach is that seam's four named reads — the catalog, the signed-in person's rights, one model's attributes and one model's stored schemes.
+
+A model is visible to the signed-in person when the seam's rights judgement allows `metadata_read` on it, which under the default rule table means the rights table holds a row for it. Every read narrows the catalog to the visible models before it groups, resolves or lists anything: `system_map_domains` counts only them and leaves out a subject area holding none, `system_map_domain_models` lists only them, and `system_map_model` reads only them. A model the person may not look at is refused in the words a model this deployment does not have is refused in, so the refusal does not say that it exists. A rights read that fails ends the call with the sentence its failure becomes, and a rights table naming no model lists no subject area at all; neither falls back to the whole catalog. The rules themselves are the seam's, configured once on [`dsh-experimental-auth-gate`](../auth-gate/README.md) as `bizOperationRules`, so this row keeps no copy of them.
 
 <a id="how-a-listing-is-written"></a>
 ## How a listing is written
@@ -45,12 +47,11 @@ Every read goes through [`dsh-experimental-biz-backend`](../biz-backend/README.m
 Each answer is a heading, then one line per entry. The heading says once what every key on those lines means, and a field the deployment states nothing for is left out rather than carried as a placeholder — which is what makes a catalog of a thousand models affordable to read.
 
 ```markdown
-Subject area TRANSO (传输专业) holds 2 data models. Each line is a model's English name, then, where this deployment states them, `name=` the name shown, `table=` where its rows are stored, `may=` the operations the signed-in person may perform on it under this deployment's own operation names, and `note=` what this deployment records about it. A line with no `may=` is a model the signed-in person may do nothing with.
-SITE name=站点 table=SITE
-SpaceLayer name=图层配置 table=SPACE_LAYER may=add,gridexp,search,update note=每个图层的配置与归属专题
+Subject area TRANSO (传输专业) holds 1 data models the signed-in person may look at. Each line is a model's English name, then, where this deployment states them, `name=` the name shown and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it (from read, metadata_read, create, update, delete, import and export), and, where this deployment records one, `note=` what it records about it.
+SpaceLayer name=图层配置 table=SPACE_LAYER may=read,metadata_read,create,update,import,export note=每个图层的配置与归属专题
 ```
 
-`may=` carries the deployment's own operation names as its rights table spells them — `search`, `add`, `update`, `delete`, `imp`, `exp`, `gridexp`, and whatever else that table has grown — rather than a vocabulary invented here. A rights row is read key by key, so an operation the deployment adds later appears without a change on this side.
+`may=` carries the operations the seam's rights judgement allows on the model, from the seven `read`, `metadata_read`, `create`, `update`, `delete`, `import` and `export`, in that order — the operation codes the deployment's backend plans to enforce, rather than the flag names its rights table spells. Every listed model carries at least `metadata_read`, since that is what lists it, so every line has a `may=`. Which flags each operation needs is the rule table's, so a deployment that changes a rule changes `may=` without a change on this side.
 
 Order is by code unit, never by locale: the same answer reduces to the same listing on every host, which is what makes a cursor safe to follow between two calls. Subject areas sort by code, models by English name, attributes by English name.
 
@@ -99,7 +100,7 @@ The backend seam answers with a value rather than throwing, and each of its four
 | `rejected` | `This deployment refused the request (HTTP 200, code 4): 没有权限.` |
 | `unreachable` | `This deployment's business system did not answer: the answer listed no resource models.` |
 
-A subject area this deployment does not have is refused with the ones it does have — up to twenty-four of them, then a count — so a mistyped code is corrected from the answer already in hand rather than from a second call. A model it does not have is refused without a listing, because a deployment keeps more data models than a sentence could carry; the refusal names the two spellings `model` accepts instead.
+A subject area holding no model the signed-in person may look at — whether or not this deployment has one of that name — is refused with the ones that do hold one, up to twenty-four of them, then a count, so a mistyped code is corrected from the answer already in hand rather than from a second call: ``No subject area the signed-in person may look at is called "TRANSMISSION". Pass `domain` as one of those: …``. A model the person may not look at, or one this deployment does not have, is refused without a listing, because a deployment keeps more data models than a sentence could carry, and in one sentence for both: ``No data model the signed-in person may look at is called "SITE". Pass `model` as either the English name this deployment keys a model by or the name it shows a person for one.``
 
 ## Model Experience
 
@@ -111,7 +112,7 @@ Three tools and five parameters between them, whenever the row is composed. Each
 
 #### Token effect
 
-Fixed: 2115 characters of description — 570, 693 and 852 — plus five parameter descriptions, on every request where the three are visible. Counted as DeepSeek counts, at 0.6 tokens for a CJK character and 0.3 for anything else, that is about 635 tokens for the descriptions.
+Fixed: 2269 characters of description — 686, 731 and 852 — plus five parameter descriptions, on every request where the three are visible. Counted as DeepSeek counts, at 0.6 tokens for a CJK character and 0.3 for anything else, that is about 681 tokens for the descriptions.
 
 #### KV Cache effect
 
@@ -126,7 +127,7 @@ One text block: the heading, one line per entry, and the cut line where a listin
 ##### The heading of a model listing
 
 ```markdown
-Subject area TRANSO (传输专业) holds 2 data models. Each line is a model's English name, then, where this deployment states them, `name=` the name shown, `table=` where its rows are stored, `may=` the operations the signed-in person may perform on it under this deployment's own operation names, and `note=` what this deployment records about it. A line with no `may=` is a model the signed-in person may do nothing with.
+Subject area TRANSO (传输专业) holds 1 data models the signed-in person may look at. Each line is a model's English name, then, where this deployment states them, `name=` the name shown and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it (from read, metadata_read, create, update, delete, import and export), and, where this deployment records one, `note=` what it records about it.
 ```
 
 ##### The line a cut listing ends with
@@ -147,7 +148,7 @@ Append-only: a result follows the reusable request prefix and invalidates nothin
 
 - **Nothing is cached, so every call re-reads the catalog.** `system_map_domains` and `system_map_domain_models` each read the whole catalog — one answer of over a thousand models on the deployment measured — and `system_map_model` reads it again to resolve the name before reading the model. A per-process cache would need a staleness rule this package has no way to check, and the deployment's own frontend serves its cached copy and refreshes behind it, so the configuration is not strongly consistent to begin with. The trigger is a measured call cost over budget.
 - **The index is not resident, by decision.** Nothing is contributed to the system prompt or appended to a turn, so a model that never calls the first read knows none of this. Making the subject areas resident was left until a session's first call has been measured, and the figures above are that measurement.
-- **A listing is a snapshot of configuration, not of a screen.** It says what the deployment's forms are configured to do, which is not the same as what is in front of somebody now, and not the same as what the backend will accept: the deployment's own rights layer opens up rather than closing down where it finds no profile, so `may=` is what the interface would offer, not a guarantee the server enforces it.
+- **A listing is a snapshot of configuration, not of a screen.** It says what the deployment's forms are configured to do, which is not the same as what is in front of somebody now, and not the same as what the backend will accept: the deployment's own rights layer opens up rather than closing down where it finds no profile, so `may=` is what the interface would offer, not a guarantee the server enforces it. The listing figures above were measured before `may=` carried the seven operation names and before the catalog was narrowed to what the person may look at; a listed model's line now carries up to 57 characters of `may=`, and a listing leaves out every model the person may not look at.
 - **The rights this reports are the process's, not a request's.** The credential is one token held for the whole process, so a listing describes whoever signed in last. That is the deployment shape this fork runs — one process per signed-in person behind a proxy that checks the token — and it stops holding the moment one process serves several people, at which point these answers have to be recomputed per session rather than per process.
 - **One shown name may belong to two models.** `model` accepts the name a person is shown, and two models may carry the same one; the read resolves to whichever sorts first by English name. The answer names the model it read, so the mistake is visible, but it is not refused.
 - **The cards are English on a Chinese console.** The host presenters title each call in English, as every other host presenter in this repository does. There is no Client plugin, so the browser falls back to the generic row and shows the tool name and the result text.

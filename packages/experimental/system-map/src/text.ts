@@ -56,14 +56,16 @@ const MAX_SUGGESTED_DOMAINS = 24
 
 /** What `system_map_domains` tells a model it is for. */
 export const DOMAINS_DESCRIPTION = 'List the subject areas this deployment divides its business data into, '
-  + 'and how many data models each one holds. Start here whenever somebody names something in their own words '
+  + 'and how many data models each one holds, counting only the data models the signed-in person may look at: '
+  + 'a subject area holding none of those is not listed. Start here whenever somebody names something in their own words '
   + '— a kind of record, a form they fill in, a screen they work in — and which of this deployment\'s data models '
   + 'they mean is not settled yet: the subject areas are the deployment\'s own top-level division of its business, '
   + 'so the area a request belongs to is usually plain from its name. '
   + 'What comes back is this deployment\'s own configuration, never the values in any row and never what is on screen.'
 
 /** What `system_map_domain_models` tells a model it is for. */
-export const DOMAIN_MODELS_DESCRIPTION = 'List the data models one subject area of this deployment holds: '
+export const DOMAIN_MODELS_DESCRIPTION = 'List the data models one subject area of this deployment holds that the '
+  + 'signed-in person may look at: '
   + 'each model\'s English name, the name a person is shown for it, the table its rows are stored in, '
   + 'what this deployment records about it, and which operations the signed-in person may perform on it. '
   + 'Reach for it once a subject area is settled and the task is to find which model a request is really about, '
@@ -81,6 +83,10 @@ export const MODEL_DESCRIPTION = 'Read one data model of this deployment in full
   + 'a form of it will ask them for, and before proposing anything that depends on what one of its values may be. '
   + 'What comes back is this deployment\'s own configuration and this person\'s rights, never the values in any '
   + 'row and never what is on screen.'
+
+/** What the `may` field of a listed or read model holds. */
+export const MAY_DESCRIPTION = 'The operations the signed-in person may perform on the model, '
+  + 'from read, metadata_read, create, update, delete, import and export.'
 
 /** What the `domain` parameter takes. */
 export const DOMAIN_PARAMETER_DESCRIPTION = 'The subject area to list, by either the code this deployment files '
@@ -166,21 +172,23 @@ export function unknownDomainRefusal(wanted: string, domains: readonly DomainEnt
   const rest = domains.length - named.length
   const more = rest === 0 ? '' : `, and ${String(rest)} more`
   const listed = named.map(entry => `${entry.domain} (${entry.name})`).join(', ')
-  return `This deployment files nothing under "${echo(wanted)}". `
-    + `Pass \`domain\` as one of the subject areas it names: ${listed}${more}.`
+  return `No subject area the signed-in person may look at is called "${echo(wanted)}". `
+    + `Pass \`domain\` as one of those: ${listed}${more}.`
 }
 
 /**
- * Refuse a model this deployment does not have.
+ * Refuse a model the signed-in person may not look at, whether or not this
+ * deployment has one of that name.
  *
- * No listing here: a deployment keeps more data models than a refusal could
- * carry, and the two names the parameter accepts are what a model needs to try
- * again.
+ * One sentence for both, so a refusal says nothing about a model this person
+ * may not look at — not even that it exists. No listing here: a deployment
+ * keeps more data models than a refusal could carry, and the two names the
+ * parameter accepts are what a model needs to try again.
  * @param wanted - what the request named.
  * @returns the sentence the model reads.
  */
 export function unknownModelRefusal(wanted: string): string {
-  return `This deployment has no data model called "${echo(wanted)}". `
+  return `No data model the signed-in person may look at is called "${echo(wanted)}". `
     + 'Pass `model` as either the English name this deployment keys a model by '
     + 'or the name it shows a person for one.'
 }
@@ -202,7 +210,7 @@ export function cutLine(to: number, total: number, cursor: string): string {
  * @returns the heading.
  */
 export function domainsHeading(total: number): string {
-  return `This deployment sorts its data models into ${String(total)} subject areas. `
+  return `The data models the signed-in person may look at are sorted into ${String(total)} subject areas. `
     + 'Each line is a subject area\'s code, then `name=` the name shown for it '
     + 'and `models=` how many data models it holds.'
 }
@@ -224,11 +232,11 @@ export function domainLine(entry: DomainEntry): string {
  * @returns the heading.
  */
 export function modelsHeading(domain: string, name: string, total: number): string {
-  return `Subject area ${domain} (${name}) holds ${String(total)} data models. `
-    + 'Each line is a model\'s English name, then, where this deployment states them, `name=` the name shown, '
-    + '`table=` where its rows are stored, `may=` the operations the signed-in person may perform on it under '
-    + 'this deployment\'s own operation names, and `note=` what this deployment records about it. '
-    + 'A line with no `may=` is a model the signed-in person may do nothing with.'
+  return `Subject area ${domain} (${name}) holds ${String(total)} data models the signed-in person may look at. `
+    + 'Each line is a model\'s English name, then, where this deployment states them, `name=` the name shown '
+    + 'and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it '
+    + '(from read, metadata_read, create, update, delete, import and export), and, where this deployment records '
+    + 'one, `note=` what it records about it.'
 }
 
 /**
@@ -241,7 +249,7 @@ export function modelLine(entry: ModelEntry): string {
     entry.model,
     ...entry.name === undefined ? [] : [`name=${entry.name}`],
     ...entry.table === undefined ? [] : [`table=${entry.table}`],
-    ...entry.may === undefined ? [] : [`may=${entry.may.join(',')}`],
+    `may=${entry.may.join(',')}`,
     ...entry.note === undefined ? [] : [`note=${entry.note}`],
   ].join(' ')
 }
@@ -285,9 +293,7 @@ export function modelHeading(value: ModelValue): string {
   const stored = value.table === undefined ? '' : `, rows stored in ${value.table}`
   const extends_ = value.parent === undefined ? '' : `, extending ${value.parent}`
   const note = value.note === undefined ? '' : ` ${value.note}`
-  const may = value.may.length === 0
-    ? 'The signed-in person may perform no operation on this model.'
-    : `The signed-in person may perform these operations on this model: ${value.may.join(', ')}.`
+  const may = `The signed-in person may perform these operations on this model: ${value.may.join(', ')}.`
   const narrowed = value.editableColumns === undefined
     ? ''
     : `\nEditing is narrowed to these attributes: ${value.editableColumns.join(', ')}.`

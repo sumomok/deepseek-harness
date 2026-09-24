@@ -31,13 +31,15 @@ kind: "package-reference"
 
 | 工具 | 参数 | 答什么 |
 |---|---|---|
-| `system_map_domains` | `after` | 本部署把数据模型归在哪些专业下，每个专业显示什么名字、下辖多少个模型。 |
-| `system_map_domain_models` | `domain`（必填）、`after` | 一个专业下的数据模型：英文名、给人看的名字、行存在哪张表、本部署对这个模型记了什么，以及当前登录者可以对它做哪些操作。 |
+| `system_map_domains` | `after` | 装着当前登录者可以查看的数据模型的每个专业，每个专业显示什么名字、下辖多少个这样的模型。 |
+| `system_map_domain_models` | `domain`（必填）、`after` | 一个专业下当前登录者可以查看的数据模型：英文名、给人看的名字、行存在哪张表、本部署对这个模型记了什么，以及当前登录者可以对它做哪些操作。 |
 | `system_map_model` | `model`（必填）、`after` | 一个模型的全部：每个属性的存储类型与长度、一行能不能留空、是不是行的标识、缺省值、表单把它归在哪一组、它提供哪些固定取值、它取哪个模型的行，再加上本部署自己的哪些表单会画它、哪些表单不填不让存、以及会不会让这个人改它 —— 然后是这个人对这个模型的权限。 |
 
 `domain` 既收本部署归档用的专业编码，也收它为这个编码显示的名字；`model` 既收英文名，也收给人看的名字。不归在任何专业下的模型列在编码 `UNFILED` 下，`domain` 收它和收别的一样。
 
 每个读都经 [`dsh-experimental-biz-backend`](../biz-backend/README.zh.md)，除此之外什么都不经。本包不持凭据、不开连接、不知道地址：它够得着的全部，就是那道缝的四个具名读 —— 目录、当前登录者的权限、一个模型的属性、一个模型存下的方案。
+
+那道缝的权限判定允许对某个模型做 `metadata_read` 时，这个模型就对当前登录者可见；在缺省规则表下，这意味着权限表里有这个模型的一行。每个读在分组、解析或列出任何东西之前，都先把目录收窄到可见的模型：`system_map_domains` 只数它们，一个都不装的专业不列；`system_map_domain_models` 只列它们；`system_map_model` 只读它们。登录者不能查看的模型，用的是与「本部署没有这个模型」相同的那句话拒回，于是拒绝不透露它是否存在。权限读取失败时，这次调用以那种失败对应的那句话结束；权限表一个模型都没点名时，一个专业都不列；两者都不退回整份目录。规则本身属于那道缝，只在 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 上以 `bizOperationRules` 配置一次，所以这一行不另存一份。
 
 <a id="how-a-listing-is-written"></a>
 ## 一份清单是怎么写的
@@ -45,12 +47,11 @@ kind: "package-reference"
 每个答案是一段抬头，再每条一行。抬头一次说清这些行上每个键是什么意思，本部署没写的字段就整个不出现，而不是留一个占位 —— 这就是一份上千个模型的目录读得起的原因。
 
 ```markdown
-Subject area TRANSO (传输专业) holds 2 data models. Each line is a model's English name, then, where this deployment states them, `name=` the name shown, `table=` where its rows are stored, `may=` the operations the signed-in person may perform on it under this deployment's own operation names, and `note=` what this deployment records about it. A line with no `may=` is a model the signed-in person may do nothing with.
-SITE name=站点 table=SITE
-SpaceLayer name=图层配置 table=SPACE_LAYER may=add,gridexp,search,update note=每个图层的配置与归属专题
+Subject area TRANSO (传输专业) holds 1 data models the signed-in person may look at. Each line is a model's English name, then, where this deployment states them, `name=` the name shown and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it (from read, metadata_read, create, update, delete, import and export), and, where this deployment records one, `note=` what it records about it.
+SpaceLayer name=图层配置 table=SPACE_LAYER may=read,metadata_read,create,update,import,export note=每个图层的配置与归属专题
 ```
 
-`may=` 带的是本部署权限表自己拼写的操作名 —— `search`、`add`、`update`、`delete`、`imp`、`exp`、`gridexp`，以及那张表后来长出来的任何一个 —— 而不是这里另造的一套词。权限行是逐键读的，所以本部署以后新增的操作，这边不改一行代码也会出现。
+`may=` 带的是那道缝的权限判定对这个模型允许的操作，取自 `read`、`metadata_read`、`create`、`update`、`delete`、`import`、`export` 这七个并按这个顺序 —— 即本部署后端计划据以校验的操作码，而不是它权限表拼写的标志名。每个列出的模型至少带 `metadata_read`，因为正是它让模型被列出，所以每一行都有 `may=`。每个操作要哪些标志由规则表决定，所以部署改了规则，`may=` 随之改变，这边不用改。
 
 排序按码位，从不按区域设置：同一个答案在每台机器上都化成同一份清单，这正是游标能在两次调用之间安全接续的原因。专业按编码排，模型按英文名排，属性按英文名排。
 
@@ -99,7 +100,7 @@ Cut after 77 of 400; pass "Model076" as `after` to continue.
 | `rejected` | `This deployment refused the request (HTTP 200, code 4): 没有权限.` |
 | `unreachable` | `This deployment's business system did not answer: the answer listed no resource models.` |
 
-本部署没有的专业，会连同它有的那些一起拒回 —— 最多二十四个，然后是一个计数 —— 于是打错的编码靠手上已有的答案就能改对，不必再调一次。它没有的模型则不带清单拒回，因为一个部署的数据模型比一句话装得下的多；拒绝改为点名 `model` 收的那两种写法。
+一个不装任何登录者可查看模型的专业 —— 不管本部署有没有这个名字 —— 会连同装着这类模型的那些专业一起拒回，最多二十四个，然后是一个计数，于是打错的编码靠手上已有的答案就能改对，不必再调一次：``No subject area the signed-in person may look at is called "TRANSMISSION". Pass `domain` as one of those: …``。登录者不能查看的模型，以及本部署没有的模型，都不带清单拒回，因为一个部署的数据模型比一句话装得下的多，而且两者用同一句话：``No data model the signed-in person may look at is called "SITE". Pass `model` as either the English name this deployment keys a model by or the name it shows a person for one.``
 
 ## Model Experience
 
@@ -111,7 +112,7 @@ Cut after 77 of 400; pass "Model076" as `after` to continue.
 
 #### Token effect
 
-固定：2115 个字符的描述 —— 570、693、852 —— 加五段参数描述，在这三个可见的每一次请求上。按 DeepSeek 的算法，CJK 字符 0.6 token、其余 0.3 token，描述约合 635 token。
+固定：2269 个字符的描述 —— 686、731、852 —— 加五段参数描述，在这三个可见的每一次请求上。按 DeepSeek 的算法，CJK 字符 0.6 token、其余 0.3 token，描述约合 681 token。
 
 #### KV Cache effect
 
@@ -126,7 +127,7 @@ Cut after 77 of 400; pass "Model076" as `after` to continue.
 ##### The heading of a model listing
 
 ```markdown
-Subject area TRANSO (传输专业) holds 2 data models. Each line is a model's English name, then, where this deployment states them, `name=` the name shown, `table=` where its rows are stored, `may=` the operations the signed-in person may perform on it under this deployment's own operation names, and `note=` what this deployment records about it. A line with no `may=` is a model the signed-in person may do nothing with.
+Subject area TRANSO (传输专业) holds 1 data models the signed-in person may look at. Each line is a model's English name, then, where this deployment states them, `name=` the name shown and `table=` where its rows are stored, then `may=` the operations the signed-in person may perform on it (from read, metadata_read, create, update, delete, import and export), and, where this deployment records one, `note=` what it records about it.
 ```
 
 ##### The line a cut listing ends with
@@ -147,7 +148,7 @@ Cut after 77 of 400; pass "Model076" as `after` to continue.
 
 - **什么都不缓存，所以每次调用都重读整份目录。** `system_map_domains` 与 `system_map_domain_models` 各读一次整份目录 —— 在实测的那个部署上是一个上千模型的答案 —— 而 `system_map_model` 为了先把名字解出来还要再读一次。做进程级缓存需要一条本包无从校验的过期规则，而且本部署自己的前端本来就是先给缓存再后台回源，配置从一开始就不是强一致的。触发条件是实测单次调用成本超预算。
 - **索引不常驻，这是决定。** 不往系统提示里放任何东西，也不往回合里追加，所以从不调第一个读的模型对这些一无所知。让专业常驻这件事被压到「先量出一次会话首次调用值多少钱」之后，上面那些数字就是这次测量。
-- **一份清单是配置的快照，不是屏幕的快照。** 它说的是本部署的表单被配成什么样，这既不等于此刻摆在谁面前的东西，也不等于后端会接受什么：本部署自己的权限层在找不到档案时是放开而不是收紧的，所以 `may=` 是界面会给出的东西，而不是服务端会照此执行的保证。
+- **一份清单是配置的快照，不是屏幕的快照。** 它说的是本部署的表单被配成什么样，这既不等于此刻摆在谁面前的东西，也不等于后端会接受什么：本部署自己的权限层在找不到档案时是放开而不是收紧的，所以 `may=` 是界面会给出的东西，而不是服务端会照此执行的保证。上面的清单数字是在 `may=` 改带七个操作名、目录改为收窄到登录者可查看的模型之前量的；现在一个列出模型的行里 `may=` 最多占 57 个字符，而清单会略去登录者不能查看的每一个模型。
 - **这里报的权限属于进程，不属于某一次请求。** 凭据是整个进程持有的一个 token，所以一份清单描述的是最后登录的那个人。这正是本 fork 跑的部署形状 —— 一个登录者一个进程，前面挡一个验 token 的反代 —— 而一旦一个进程服务多个人，这个前提就不成立，那时这些答案必须改为按会话而不是按进程重算。
 - **一个给人看的名字可能属于两个模型。** `model` 收给人看的名字，而两个模型可能叫同一个名字；读会解到按英文名排在前面的那一个。答案里点名了它读的是哪个模型，所以这个误会看得见，但不会被拒绝。
 - **中文控制台上，卡片是英文的。** 宿主侧的展示件把每次调用的标题写成英文，本仓其余每一个宿主展示件都是这么做的。没有 Client 插件，所以浏览器退回通用行，显示工具名与结果正文。

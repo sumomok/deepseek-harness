@@ -11,12 +11,15 @@
  * @module @deepseek-ai/dsh-experimental-system-map/reduce
  */
 
-import type {
-  BizModelRights,
-  BizModelSummary,
-  BizScheme,
-  BizSchemeFormItem,
-  BizUserRights,
+import {
+  BIZ_OPERATIONS,
+  type BizModelRights,
+  type BizModelSummary,
+  type BizOperation,
+  type BizPermissions,
+  type BizScheme,
+  type BizSchemeFormItem,
+  type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import type {
   AttributeEntry,
@@ -173,6 +176,33 @@ export function rightsByModel(rights: BizUserRights): ReadonlyMap<string, BizMod
 }
 
 /**
+ * The part of one catalog the signed-in person may look at.
+ *
+ * Every read narrows the catalog through this before it groups, resolves or
+ * lists anything, so a model this person may not read the description of is
+ * absent from every answer and every refusal alike.
+ * @param models - the deployment's whole catalog.
+ * @param permissions - what this person's rights read permits.
+ * @returns the models whose description this person may read, in catalog order.
+ */
+export function visibleModels(
+  models: readonly BizModelSummary[],
+  permissions: BizPermissions,
+): readonly BizModelSummary[] {
+  return models.filter(summary => permissions.may(summary.resClassEnName, 'metadata_read'))
+}
+
+/**
+ * The operations the signed-in person may perform on one model.
+ * @param permissions - what this person's rights read permits.
+ * @param model - the model, by its English name.
+ * @returns the permitted operations, in the order the backend lists its operation codes.
+ */
+export function permittedOperations(permissions: BizPermissions, model: string): BizOperation[] {
+  return BIZ_OPERATIONS.filter(operation => permissions.may(model, operation))
+}
+
+/**
  * The attributes one rights row narrows editing to.
  * @param row - the rights row, where the table has one for the model.
  * @returns the attribute names, or `undefined` where the row narrows nothing.
@@ -186,26 +216,25 @@ export function editableColumns(row: BizModelRights | undefined): readonly strin
 
 /**
  * Reduce one subject area's models to the lines a listing carries.
- * @param models - the models filed under the subject area, already narrowed to it.
- * @param rights - the rights table as a lookup by model.
+ * @param models - the models filed under the subject area, already narrowed to it and to what this person may look at.
+ * @param permissions - what this person's rights read permits.
  * @param noteChars - most characters a note may contribute.
  * @returns one entry per model, in English-name order.
  */
 export function modelEntries(
   models: readonly BizModelSummary[],
-  rights: ReadonlyMap<string, BizModelRights>,
+  permissions: BizPermissions,
   noteChars: number,
 ): readonly ModelEntry[] {
   return [...models]
     .sort((left, right) => compareNames(left.resClassEnName, right.resClassEnName))
     .map((summary) => {
-      const may = rights.get(summary.resClassEnName)?.operations ?? []
       const note = noteOf(summary, noteChars)
       return {
         model: summary.resClassEnName,
         ...summary.resClassCnName === '' ? {} : { name: summary.resClassCnName },
         ...summary.dsTableName === undefined ? {} : { table: summary.dsTableName },
-        ...may.length === 0 ? {} : { may: [...may] },
+        may: permittedOperations(permissions, summary.resClassEnName),
         ...note === undefined ? {} : { note },
       }
     })

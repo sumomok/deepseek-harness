@@ -607,6 +607,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
+        signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
+        description: 'Judge one rights read by this deployment\'s rules.\n\nReaches no network: a caller reads BizBackendService.userRights once and asks about as many models as it holds. A failed read, and a rights table naming no model, permit nothing.',
+        parameters: [{ name: 'rights', description: 'what one {@link BizBackendService.userRights} call answered.' }],
+        returns: 'the permissions that read grants.',
+      },
+      {
         signature: 'holdsCredential(): boolean',
         description: 'Whether a token is held for the signed-in visitor at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
         parameters: [],
@@ -3834,6 +3840,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BizModelSummary',
     declaration: 'export interface BizModelSummary {\n    readonly resClassEnName: string;\n    readonly resClassCnName: string;\n    readonly classDiagramType?: string;\n    readonly classDiagramTypeCnName?: string;\n    readonly dsTableName?: string;\n    readonly parentClassEnName?: string;\n    readonly remark?: string;\n    readonly resClassDescription?: string;\n}',
+  },
+  {
+    name: 'BizOperation',
+    declaration: 'export type BizOperation = \'read\' | \'metadata_read\' | \'create\' | \'update\' | \'delete\' | \'import\' | \'export\';',
+  },
+  {
+    name: 'BizPermissions',
+    declaration: 'export interface BizPermissions {\n    may(model: string, operation: BizOperation): boolean;\n}',
   },
   {
     name: 'BizRowRight',

@@ -757,6 +757,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BizModelListResult: 'catalog result fields are owned by packages/experimental/biz-backend/README.md',
   BizModelSchemes: 'stored-scheme result fields are owned by packages/experimental/biz-backend/README.md',
   BizUserRights: 'rights result fields are owned by packages/experimental/biz-backend/README.md',
+  BizPermissions: 'the rights judgement is owned by packages/experimental/biz-backend/README.md',
   ProvidedPart: 'registered component part fields are owned by packages/experimental/skill-pack/README.md',
   PackView: 'pack view files are owned by packages/experimental/skill-pack/README.md',
   PackViewRefusal: 'the refusal one view file earns is owned by packages/experimental/skill-pack/README.md',

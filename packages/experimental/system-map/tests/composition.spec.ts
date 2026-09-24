@@ -2,8 +2,9 @@
  * REAL-composition coverage: a test-only cordis.yml booted through the vendored
  * Loader mounts the tool runtime, the prompt registry and a stub data backend,
  * and every case here observes the composed application — whether the three
- * reads are offered at all, what their descriptions promise the model, and what
- * a ceiling this deployment could not read under does at load. Disposal is
+ * reads are offered at all, what their descriptions promise the model, what a
+ * composed read leaves out for a person who may not look at a model, and what a
+ * ceiling this deployment could not read under does at load. Disposal is
  * `tools.spec.ts`, over the same registry.
  */
 
@@ -12,12 +13,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import type { BizModelListResult, BizUserRights } from '@deepseek-ai/dsh-experimental-biz-backend'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import {
+  BizBackendService,
+  BizOperationRules,
+  type BizModelListResult,
+  type BizUserRights,
+} from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as SystemMap from '../src/index.ts'
 import { DOMAIN_MODELS_TOOL_NAME, DOMAINS_TOOL_NAME, MODEL_TOOL_NAME } from '../src/text.ts'
 
@@ -37,32 +44,38 @@ afterEach(async () => {
   world = undefined
 })
 
-/** A stub `ctx.bizBackend`, mounted through the same module table the real one would be. */
-class StubBizBackend extends Service {
+/**
+ * The real `ctx.bizBackend` with its two reads stubbed, mounted through the same
+ * module table the real one would be, so the judgement is the deployment's own.
+ */
+class StubBizBackend extends BizBackendService {
   /**
-   * Install the stub as `ctx.bizBackend`.
+   * Install the stub as `ctx.bizBackend`, judging by the default rules.
    * @param ctx - Cordis context that owns the service.
    */
   constructor(ctx: Context) {
-    super(ctx, 'bizBackend')
+    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
   }
 
   /**
-   * Answer with one model under one subject area.
+   * Answer with two models under one subject area.
    * @returns the catalog.
    */
-  listModels(): Promise<BizModelListResult> {
+  override listModels(): Promise<BizModelListResult> {
     return Promise.resolve({
-      models: [{ resClassEnName: 'SpaceLayer', resClassCnName: '空间图层', classDiagramType: 'TRANSO', classDiagramTypeCnName: '传输专业' }],
+      models: [
+        { resClassEnName: 'SpaceLayer', resClassCnName: '空间图层', classDiagramType: 'TRANSO', classDiagramTypeCnName: '传输专业' },
+        { resClassEnName: 'SITE', resClassCnName: '站点', classDiagramType: 'TRANSO', classDiagramTypeCnName: '传输专业' },
+      ],
     })
   }
 
   /**
-   * Answer with an empty rights table.
+   * Answer with a row for one of the two models.
    * @returns the rights.
    */
-  userRights(): Promise<BizUserRights> {
-    return Promise.resolve({ resclass: [], rows: [] })
+  override userRights(): Promise<BizUserRights> {
+    return Promise.resolve({ resclass: [{ resclassenname: 'SpaceLayer', operations: ['add'] }], rows: [] })
   }
 }
 
@@ -154,6 +167,26 @@ describe('the composed row', () => {
     expect(models?.parameters.required).toEqual(['domain'])
     expect(Object.keys(model?.parameters.properties ?? {})).toEqual(['model', 'after'])
     expect(model?.parameters.required).toEqual(['model'])
+  })
+
+  it('lists and reads only the models the signed-in person may look at', async () => {
+    const ctx = await loadComposition()
+    const runtime = ctx.get('tools') as unknown as ToolRuntime
+    const call = (name: string, args: Record<string, unknown>) => runtime.execute({
+      callId: ToolCallId('call-1'),
+      name,
+      arguments: args,
+      signal: new AbortController().signal,
+    })
+    expect((await call(DOMAINS_TOOL_NAME, {})).value).toMatchObject({ domains: [{ domain: 'TRANSO', models: 1 }] })
+    const listed = await call(DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' })
+    expect(listed.value).toMatchObject({
+      models: [{ model: 'SpaceLayer', may: ['read', 'metadata_read', 'create', 'import', 'export'] }],
+      total: 1,
+    })
+    const hidden = await call(MODEL_TOOL_NAME, { model: 'SITE' })
+    expect(hidden.isError).toBe(true)
+    expect(JSON.stringify(hidden.content)).toContain('No data model the signed-in person may look at is called \\"SITE\\"')
   })
 
   it('refuses to load under a budget no listing could be written in', async () => {
