@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-console-rights-judged-once.md
+2026-09-24-console-rights-judged-once.md: 1b9626d9fe105aa5a10300a1d7b407106e8884e7
+2026-09-24-console-rights-judged-once.zh.md: 3e2794c7af04e8b16f29093426fabced1ba1c21d

@@ -1,9 +1,9 @@
 /**
- * The HTTP path both halves of this package are defined against, and the one
- * document that crosses it. The node half claims the path as a webserver route;
- * the browser half reads its settings from it before it draws the block that
- * needs them. Not configurable — the two halves must agree on it and nothing
- * outside this package addresses it.
+ * The HTTP paths both halves of this package are defined against, and the two
+ * documents that cross them. The node half claims both as webserver routes; the
+ * browser half reads its settings from the first before it draws the block that
+ * needs them. Not configurable — the two halves must agree on them and nothing
+ * outside this package addresses them.
  *
  * The settings document exists because a browser half receives no cordis
  * config: the boot manifest carries plugin names, not their `config` blocks, so
@@ -11,8 +11,15 @@
  * served is the base path the vendored data page requests its table under,
  * which is deployment-varying and which the page's own request layer reads
  * once, at module evaluation, from `window.$toy_env.VUE_APP_BASE_URL`.
+ *
+ * The second route answers what the signed-in visitor may do on one table's
+ * data page. The rights read and the rule table that judges it live on the
+ * node half, in `ctx.bizBackend`; the browser half receives only the verdict,
+ * so no copy of the rules exists in the page.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/route
  */
+
+import type { DataPageAbilityKey } from '@sumomok/toy-crud-kit'
 
 /** Exact route serving {@link ComponentKitSettings} to this package's browser half. */
 export const COMPONENT_KIT_SETTINGS_ROUTE = '/component-kit/settings'
@@ -93,4 +100,53 @@ export function readComponentKitSettings(value: unknown): ComponentKitSettings |
     // run on rather than a diagnostic to raise.
     return undefined
   }
+}
+
+/**
+ * Exact route answering what the signed-in visitor may do on one table's data
+ * page, as a {@link DataPageAbilityTable}. The table is named by the `meta`
+ * query parameter, by its name in the backend.
+ */
+export const COMPONENT_KIT_ABILITIES_ROUTE = '/component-kit/abilities'
+
+/**
+ * The five abilities the data page takes, in the vendored page's own order.
+ * Each is also the name of the operation it is judged as, so the node half asks
+ * the rights judgement about exactly these five and the browser half passes
+ * exactly these five on.
+ */
+export const DATA_PAGE_ABILITIES: readonly DataPageAbilityKey[] = ['create', 'update', 'delete', 'import', 'export']
+
+/** What the visitor may do on one table's data page: one boolean per ability, every one of them stated. */
+export type DataPageAbilityTable = Readonly<Record<DataPageAbilityKey, boolean>>
+
+/**
+ * The table a page is drawn under until the visitor's own arrives, and whenever
+ * it cannot: every entrance the page could remove is removed.
+ */
+export const NO_ABILITIES: DataPageAbilityTable = {
+  create: false,
+  update: false,
+  delete: false,
+  import: false,
+  export: false,
+}
+
+/**
+ * Read one ability table off the wire. A wire boundary, like the settings
+ * document: a table missing a key, or carrying a non-boolean under one, is not
+ * a table this half draws under.
+ * @param value - the decoded document, however malformed.
+ * @returns the table, or `undefined` when the document is not a complete one.
+ */
+export function readDataPageAbilities(value: unknown): DataPageAbilityTable | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const table: Partial<Record<DataPageAbilityKey, boolean>> = {}
+  for (const key of DATA_PAGE_ABILITIES) {
+    const granted = record[key]
+    if (typeof granted !== 'boolean') return undefined
+    table[key] = granted
+  }
+  return table as DataPageAbilityTable
 }

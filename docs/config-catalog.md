@@ -757,7 +757,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/component-kit/src/index.ts:44`](../packages/experimental/component-kit/src/index.ts)
+Source: [`packages/experimental/component-kit/src/index.ts:66`](../packages/experimental/component-kit/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-component-surface"></a>
 

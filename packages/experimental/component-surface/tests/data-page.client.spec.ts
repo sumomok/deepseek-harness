@@ -33,6 +33,7 @@ import {
   DATA_PAGE_CELL_CLICK_ID,
   DATA_PAGE_ID,
   DATA_PAGE_LOAD_ID,
+  DATA_PAGE_MODEL_PROP_NAMES,
   DATA_PAGE_MODIFIED_ID,
   DATA_PAGE_OPERATION_ID,
   DATA_PAGE_QUERY_ID,
@@ -459,6 +460,23 @@ describe('the tool opening the page', () => {
       + 'Offered components: el.confirm-bar, toy.record, toy.table, el.filter-bar, el.metric.')
   })
 
+  it('refuses a page carrying the host\'s verdict on this visitor, before asking and before drawing', async () => {
+    // What the visitor may do on a table is the host's to judge from their
+    // rights; a call that could send it could hand itself entrances the
+    // visitor was never granted. No property of that name is declared, so the
+    // call is refused whatever the value says.
+    const { asked, session, run } = await bench()
+    const result = await run({
+      id: 'page',
+      title: '设备',
+      spec: { nodes: [{ ...PAGE, props: { ...PAGE.props, abilities: { create: true, update: true, export: true } } }] },
+    })
+    expect(asked).toEqual([])
+    expect(resolvedEvents(session)).toEqual([])
+    expect(refusal(result)).toBe('show_component: spec.nodes[0].props.abilities — is not accepted here. Accepted properties: '
+      + `${[...DATA_PAGE_MODEL_PROP_NAMES, ...DATA_PAGE_VIEW_PROP_NAMES].join(', ')}.`)
+  })
+
   it('leaves a call placing no page exactly as it was', async () => {
     const { asked, session, run } = await bench()
     const result = await run({ id: 'facts', title: '事实', spec: { nodes: [{ id: 'f', component: 'toy.record', props: { dataList: [{ label: '编号', display: 'A-1' }] } }] } })
@@ -484,6 +502,12 @@ describe('a configured view', () => {
   it('may place the page where the deployment offers it, and a click opens it', () => {
     const index = indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined, true)
     expect(index.get('devices')?.spec.nodes[0]?.component).toBe(DATA_PAGE_ID)
+  })
+
+  it('may not carry the host\'s verdict on this visitor either', () => {
+    const verdict = { nodes: [{ ...PAGE, props: { ...PAGE.props, readOnly: false, abilities: { create: true } } }] }
+    expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: verdict }], undefined, true))
+      .toThrow('component-surface: views[0] "devices" — spec.nodes[0].props.abilities — is not accepted here.')
   })
 
   it('may not place a page the deployment does not offer, and is refused by name', () => {

@@ -1,5 +1,5 @@
 /**
- * The two response forms this package's settings route answers with.
+ * The two response forms this package's routes answer with.
  *
  * A deliberate small copy of `@deepseek-ai/dsh-experimental-component-surface`'s
  * own `src/http.ts` rather than an import, on the reasoning that file already
@@ -17,13 +17,14 @@ import type { ServerResponse } from 'node:http'
 
 /**
  * Answer one JSON document with no caching. The settings are read once per boot
- * and carry the values the row booted with, so a cached copy would outlive its
- * own truth.
+ * and carry the values the row booted with, and an ability table is one read of
+ * the visitor's rights, so a cached copy of either would outlive its own truth.
  * @param res - the response to write.
+ * @param status - the HTTP status.
  * @param body - the document to serialize.
  */
-export function answerJson(res: ServerResponse, body: unknown): void {
-  res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+export function answerJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
 }
 

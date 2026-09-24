@@ -19,6 +19,12 @@
  * visitor's own credential. The page's request layer reads it once, at module
  * evaluation, so the browser half applies it before the page is first drawn;
  * what this half does is judge it at load and answer it on a route.
+ *
+ * Where a data backend is composed as well, the row answers one more route:
+ * what the signed-in visitor may do on one table's data page, judged by
+ * `ctx.bizBackend` from one read of that visitor's rights. Without a backend
+ * the route is not claimed, and the browser half draws every data page with
+ * the entrances it could remove removed.
  * @module @deepseek-ai/dsh-experimental-component-kit
  */
 
@@ -28,14 +34,30 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: resolves ctx.componentCatalog, which this row's components are registered into.
 import type {} from '@deepseek-ai/dsh-experimental-component-surface'
+// Type-only: resolves ctx.bizBackend, which the ability route reads and judges the visitor's rights through.
+import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
 import { answerJson, rejectMethod } from './http.ts'
 import { componentKitSource } from './manifest.ts'
-import { COMPONENT_KIT_SETTINGS_ROUTE, requireBizBasePath, type ComponentKitSettings } from './route.ts'
+import {
+  COMPONENT_KIT_ABILITIES_ROUTE,
+  COMPONENT_KIT_SETTINGS_ROUTE,
+  DATA_PAGE_ABILITIES,
+  requireBizBasePath,
+  type ComponentKitSettings,
+} from './route.ts'
 
 export { componentKitSource, readComponentKitSource } from './manifest.ts'
-export { COMPONENT_KIT_SETTINGS_ROUTE, readComponentKitSettings, requireBizBasePath } from './route.ts'
-export type { ComponentKitSettings } from './route.ts'
+export {
+  COMPONENT_KIT_ABILITIES_ROUTE,
+  COMPONENT_KIT_SETTINGS_ROUTE,
+  DATA_PAGE_ABILITIES,
+  NO_ABILITIES,
+  readComponentKitSettings,
+  readDataPageAbilities,
+  requireBizBasePath,
+} from './route.ts'
+export type { ComponentKitSettings, DataPageAbilityTable } from './route.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'component-kit'
@@ -89,8 +111,33 @@ export function apply(ctx: Context, config: Config): void {
         }
         // The browser half reads this once per boot and the value comes from
         // the row it booted with, so a cached copy would outlive its own truth.
-        answerJson(res, settings)
+        answerJson(res, 200, settings)
       },
     }), 'component-kit: browser settings route')
+  })
+  ctx.inject(['webServer', 'bizBackend'], (backendCtx) => {
+    backendCtx.effect(() => backendCtx.webServer.register({
+      kind: 'exact',
+      path: COMPONENT_KIT_ABILITIES_ROUTE,
+      handler: async (req, res) => {
+        if (req.method !== 'GET') {
+          rejectMethod(res, 'GET')
+          return
+        }
+        // A server-side request always carries its URL; the type is shared with client requests.
+        const meta = new URL(String(req.url), 'http://component-kit.invalid').searchParams.get('meta')
+        if (meta === null || meta === '') {
+          answerJson(res, 400, { error: 'component-kit: expected the table as a non-empty `meta` query parameter' })
+          return
+        }
+        // The read spends the visitor's credential, so a visitor who leaves
+        // before it answers cancels it.
+        const abort = new AbortController()
+        res.on('close', () => { abort.abort() })
+        const permissions = backendCtx.bizBackend.judge(await backendCtx.bizBackend.userRights(abort.signal))
+        const table = Object.fromEntries(DATA_PAGE_ABILITIES.map(key => [key, permissions.may(meta, key)]))
+        answerJson(res, 200, table)
+      },
+    }), 'component-kit: data page ability route')
   })
 }

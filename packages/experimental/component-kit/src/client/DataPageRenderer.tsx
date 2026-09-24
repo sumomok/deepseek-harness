@@ -16,14 +16,20 @@
  * a call. Both arrive here already accepted, and this renderer passes on only
  * the properties the block actually carries, so a page nobody arranged opens
  * with the page's own defaults: every region drawn, every toolbar button kept,
- * and `readOnly` on. Nothing here decides whether a button may be pressed:
- * whether the page is arranged to draw one is the block's, and whether pressing
- * it succeeds is the deployment's own answer to the request the page makes with
- * the user's credential. The per-button rights this deployment answers with
- * hide no button either — the page fixes the customer's own
- * `useCloudPermission: false`, so a button the backend would refuse is drawn
- * and refused when it is pressed. The one thing those permissions do decide in
- * this block is whether the page opens at all.
+ * and `readOnly` on. Whether the page is arranged to draw a button is the
+ * block's, and whether pressing it succeeds is the deployment's own answer to
+ * the request the page makes with the user's credential. Between the two sits
+ * one host decision no block carries: `abilities`, what this visitor may do on
+ * this table, which this renderer fetches from the row's node half — where
+ * `ctx.bizBackend` judges the visitor's rights by the deployment's rule table —
+ * and passes on last, so no property of the block can stand in for it. It can
+ * only remove an entrance the arrangement drew. Until the verdict arrives, and
+ * whenever none can be obtained, every one of the five is off; when it arrives
+ * the page's entrances change in place, with no remount and no new query. The
+ * page still fixes the customer's own `useCloudPermission: false`, because the
+ * per-button rights the deployment answers with are null for every account on
+ * the flags it does not enforce, and reading them would hide the query button
+ * too.
  *
  * Before any of that the page judges one thing on its own: it reads this
  * user's own profile and refuses to fetch anything — no scheme, no dictionary,
@@ -128,6 +134,8 @@ import {
   type ReportedColumn,
 } from './data-page-read.ts'
 import { dataPageBasePathReady } from './data-page-settings.ts'
+import { readAbilitiesFor } from './data-page-abilities.ts'
+import { NO_ABILITIES, type DataPageAbilityTable } from '../route.ts'
 import { useVueComponent, type VueEventHandlers } from './vue2-bridge.tsx'
 import css from './DataPageRenderer.module.css'
 import type { ComponentKitKey } from './locales.ts'
@@ -239,10 +247,16 @@ function reportOnce(
   context.onAction(actionId, payload)
 }
 
+/** What `DataPage` is mounted with: the block's properties, then the host's verdict on this visitor. */
+type DataPageMountProps = DataPageVueProps & {
+  /** What this visitor may do on this table; only ever removes an entrance. */
+  readonly abilities: DataPageAbilityTable
+}
+
 /** What one drawn page needs beyond the block's own identity. */
 interface DataPageProps extends Pick<ComponentRendererProps, 'props' | 'onAction'> {
-  /** The block's properties, as `DataPage` takes them. */
-  readonly vueProps: DataPageVueProps
+  /** The block's properties and the host's verdict, as `DataPage` takes them. */
+  readonly vueProps: DataPageMountProps
 }
 
 /** The page itself, drawn once the base path its requests go under is in force. */
@@ -343,6 +357,25 @@ const STALL_LINE: Readonly<Record<DataPageStall, ComponentKitKey>> = {
 }
 
 /**
+ * What the visitor may do on one table, as the node half judged it.
+ * @param meta - the table, or `undefined` for a block naming none.
+ * @returns the verdict for that table, or {@link NO_ABILITIES} until it arrives.
+ */
+function useAbilities(meta: string | undefined): DataPageAbilityTable {
+  const [held, setHeld] = useState<{ readonly meta?: string; readonly table: DataPageAbilityTable }>({ table: NO_ABILITIES })
+  useEffect(() => {
+    if (meta === undefined) return undefined
+    const abort = new AbortController()
+    void readAbilitiesFor(meta, abort.signal).then((table) => {
+      if (!abort.signal.aborted) setHeld({ meta, table })
+    })
+    return () => { abort.abort() }
+  }, [meta])
+  // A verdict about another table is no verdict about this one.
+  return held.meta === meta ? held.table : NO_ABILITIES
+}
+
+/**
  * Render one data page block.
  * @param rendererProps - the block's identity, its properties, the action sink, and this row's translate. The page
  * publishes nothing and answers no question, so the output sink and the action state go unread.
@@ -362,7 +395,14 @@ export function DataPageRenderer({ nodeId, props, onAction, t }: ComponentRender
     )
     return () => { mounted = false }
   }, [])
-  const drawable = vueProps !== undefined && basePath === 'ready' ? vueProps : undefined
+  const abilities = useAbilities(vueProps?.relatedMeta)
+  // Spread last, so the host's verdict is what the page receives whatever the
+  // block's record carried.
+  const pageProps = useMemo(
+    () => (vueProps === undefined ? undefined : { ...vueProps, abilities }),
+    [vueProps, abilities],
+  )
+  const drawable = pageProps !== undefined && basePath === 'ready' ? pageProps : undefined
   // Each cause draws its own line: a block naming no table cannot open whatever
   // the base path says, and telling that person their address is misconfigured
   // would name a cause that is not theirs.

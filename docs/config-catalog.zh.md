@@ -759,7 +759,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/experimental/component-kit/src/index.ts:44`](../packages/experimental/component-kit/src/index.ts)
+来源：[`packages/experimental/component-kit/src/index.ts:66`](../packages/experimental/component-kit/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-component-surface"></a>
 

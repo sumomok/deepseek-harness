@@ -172,6 +172,18 @@ describe('the prop record', () => {
     expect(reached).not.toContain('metaLabel')
   })
 
+  it('never reads the host\'s ability table out of a block', () => {
+    // `abilities` is the host's verdict on this visitor, fetched by the
+    // renderer; the vendored page keeps it off its model-settable list, and
+    // neither group the catalog declares carries it, so no call and no written
+    // view can set it — and a record carrying it anyway reaches the page as
+    // nothing.
+    expect(DATA_PAGE_MODEL_SETTABLE_PROPS).not.toContain('abilities')
+    expect(DATA_PAGE_MODEL_PROP_NAMES).not.toContain('abilities')
+    expect(DATA_PAGE_VIEW_PROP_NAMES).not.toContain('abilities')
+    expect(page({ relatedMeta: 'device', abilities: { create: true, update: true } })).not.toHaveProperty('abilities')
+  })
+
   it('offers the buttons and the row operations the vendored page itself accepts, value for value', () => {
     // The catalog admits these two lists and the page's own prop validator
     // admits those two; a view accepted here and refused there would be a
