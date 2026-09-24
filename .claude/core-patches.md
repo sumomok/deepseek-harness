@@ -4,6 +4,8 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 
 **当前补丁线**：`core-patches-v6`，基座 `upstream/master` = `76fda72979`（0.1.2-rc.1）。上一条线 `core-patches-v5` = `001c0d7ded`，基座 `49a606bc5b`（0.1.2-alpha.5）。
 
+**本文件所在的 `product/server-console` 线**：上游基座 `76fda72979`（`dsh-v0.1.2-rc.1-99`），从 `develop`@rc.29（`7c64d32f85`）继承上面登记的 `core-patches-v6` 各族；在此之上，本线自己的提交另外手改了一批上游拥有的文件，这些只属于本线的补丁登记在「product/server-console 线自己携带的上游改动」一节，不在 `core-patches` 分支上，也不随 `develop` 发版。
+
 ## fix(scripts): let the workspace gate see apps that never publish — 08f12ee732
 - **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
 - **为什么**：`apps/desktop`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
@@ -150,9 +152,19 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **门禁实跑（基座 `origin/core-patches-v6` = `72d966ed10`，0.1.2-rc.1）**：包内 `pnpm exec vitest run --coverage --coverage.include='packages/session-query/session-log-export/src/**' packages/session-query/session-log-export` **9 文件 / 86 用例全绿**，逐文件覆盖率 100%（statements 423/423、branches 223/223、functions 87/87、lines 370/370）。不带 `--coverage.include` 直接跑该包会退出码 1：插桩范围是全工作区，本包测试够不到的文件（`ui-primitives`、`core/tools`、`agent-presets` 等）一并计入——与本文件「每日滚动同步：alpha.4 → alpha.5」一节记过的同一个陷阱；`pnpm run typecheck` / `lint` / `build` / `verify-export-jsdoc` / `verify-agent-note-format` / `verify-translation-pairing` / `verify-md-links` / `verify-doc-budgets` 退出码均为 0；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` **7 通过 / 1 跳过**，单独跑导出用例 `-t 'downloads through the Session Header'` 亦通过。
 - **真机取证**（本工作树 `pnpm run dsh web --no-open --port 0` + scratch `DSH_HOME`，Playwright 驱动 Chromium，CDP 20 KB/s 限速）：6 个种子会话的 `entries`/`bytes` 与 `unzip -l` 实际条目数、未压缩大小逐一相等，`unzip -t` 全部无错；单条目会话进度条 1%→90% 平滑推进后完成；自造两个子会话的三条目归档 1%→94%→100%；路由改 500 拍到失败面板；日志读到一半炸的子会话拍到 `200` 后撕裂、面板显示失败且 `dl3/` 零文件落盘。自造会话已在取证后删除，六个原有会话未被改动。
 
-## product/server-console 线上的两处上游改动（不在 core-patches 分支上）
+## product/server-console 线自己携带的上游改动（不在 core-patches 分支上）
 
-这两条不属于 `core-patches` 分支，随 `product/server-console` 迁到 0.1.2-alpha.4 的合并一起产生，登记在此以免下次同步时无人认领。两条都是「本线组合把上游文件拖进了上游自己没走过的程序」的产物，不是对上游行为的改造。
+本节登记 `product/server-console` 自己的提交（`7c64d32f85..product/server-console`）对上游拥有文件的全部手改。上游拥有文件指在基座 `76fda72979` 就存在的路径，外加本线新增在上游包目录里的三个文件（`packages/client/connection/src/client/base.ts`、`packages/client/connection/tests/base.client.spec.ts`、`packages/client/hmr/tests/browser-half.client.spec.ts`）。清点口径：`git diff --name-status 76fda72979 product/server-console` 里基座已有的路径中，本线末端内容与 `develop`@rc.29 不同的共 90 个；其中只由 `develop`@rc.29 带来的改动归上面的 `core-patches-v6` 各族，不在此重复。
+
+前两条（`3bdd0135a5`、`e72dec971a` 的一行）随本线迁到 0.1.2-alpha.4 的合并产生，是「本线组合把上游文件拖进了上游自己没走过的程序」的产物，不是对上游行为的改造。其后 A–I 九族是 2026-09-24 补登的：此前本节只登记了前两条，其余手改一直没有认领。
+
+**身份约定不一致**：本线台账沿用 `core-patches-v6` 的约定，标题写「提交主题 — 提交哈希」；`core-patches-v11` 已改为 slug + 每个提交一条 `Patch: <slug>` trailer，并由 `verify-core-patches` 门禁核对。本节每族另给一个拟用 slug，本线台账迁到 v11 约定时直接采用；届时 `3bdd0135a5` 与 `e72dec971a` 两条也要补 slug。
+
+**生成物与配对记录（由门禁重生成，不登记为补丁）**：下列文件的差异全部由本线在其他文件里的改动推导出来，换基或合并时取任一侧解冲突，随后跑对应生成器定案，不手改。
+- `packages/core/session/src/known-event-types.ts`（`gen-persistence-catalog`）。本线的六条新增 `content-component/resolved`、`content-component/shown`、`content-surface/dismissed`、`content-surface/selected`、`content/navigated`、`content/shown` 来自本线实验包自己声明的 `SessionEventMap` 成员；生成器把仓内每个包的声明都列为已知类型，所以这六类事件走的是第一方必读路径而不是 `ignorable` 通道：不含这些包的构建（包括上游原版）读到带这六类事件的会话日志会拒读。移除或移出这些包之前要先处理这一点。
+- `docs/capability-seams.md`、`docs/event-producer-consumer.md`（`gen-doc-graphs`）；`docs/config-catalog.md`（`gen-config-catalog`）；`docs/module-graph.md`（`gen-module-graph`）；`docs/persistence-catalog.md`（`gen-persistence-catalog`）；`THIRD_PARTY_NOTICES.md`（`gen-third-party-notices`）；`packages/extensions/cordis-client-runner/src/client/api-catalog.ts`（`gen-cordis-inspect-catalog`）；`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`（`gen-client-catalog`）；`packages/extensions/tool-cordis/src/api-catalog.ts`（`gen-cordis-api`）；`pnpm-lock.yaml`（`pnpm install`）。
+- 中文侧：`docs/module-graph.zh.md` 同样由 `gen-module-graph` 生成；`docs/{capability-seams,config-catalog,event-producer-consumer,persistence-catalog}.zh.md` **不是生成物**，是英文生成页的双语对侧，文件头要求先跑生成器、再按英文手工更新中文、再重录配对。它们只随英文生成页逐行跟进，不单独构成补丁，但解冲突时不能当生成物直接取一侧了事。本线手改文档的 `.zh.md` 归入下面各族。
+- 双语配对记录 `docs/{capability-seams,config-catalog,event-producer-consumer,module-graph,persistence-catalog,testing}.i18n.yaml`、`docs/subsystems/{client-modules,README}.i18n.yaml`、`packages/client/ui-approval/README.i18n.yaml`、`packages/experimental/README.i18n.yaml`（`verify-translation-pairing --write`）。
 
 ### fix(client): build the trajectory-cell test wrapper with createElement — 3bdd0135a5
 
@@ -168,6 +180,105 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **为什么**：这是**上游自己的缺口**，不是本线的适配需要。rc.27 的 `806642b064` 新增了 `client-ui-agent-team` 及其 `css-modules.d.ts`，但只在 `tsconfig.client.json` 里加了 `{"path": …}` 引用、没有把该声明文件写进聚合的 `include`，于是聚合从不加载它。上游的 `scripts/client-tsconfig.spec.ts` 只检查 `client` 与 `extensions` 两组，看不到 `experimental` 组，因此这个缺口在上游是静默的；本线把该 spec 的 `clientGroups` 扩到 `experimental`（为覆盖本线自己的实验包），扩完就照出了它。
 - **要达到的效果**：聚合加载该 CSS 模块声明，`experimental` 组的 client 包在同一条规则下受检，而不是为了让门禁过关把 `client-ui-agent-team` 从检查里豁免掉——那样会把上游的真缺口藏起来。
 - **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条与另外两处上游缺口一起记在 [Agent Note 的 Upstream gaps 一节](../.agents/notes/implemented/architecture/2026-09-03-server-console-on-the-alpha-5-base.md#upstream-gaps-this-migration-found)；复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
+- **状态**：在役。
+
+### A. feat(experimental): serve the console under a URL prefix — deployment base for every browser-built URL — 051242599c（+ `8b67e9350a`、`d1752f738e`、`0598318a6e`、`ec4950cad9`、`64adb52113`；另有合并 `c4ea4c4ba0` 的手工解析）
+
+- **拟用 slug**：`console-deployment-base-path`
+- **改了什么**：浏览器侧每一处用 Host 路由常量拼 URL 的地方改为按部署前缀解析。
+  - `packages/client/connection`：新增 `src/client/base.ts`（`resolveClientBase`/`clientUrl`/`INTERNAL_BASE`，优先读 `__DSH_BASE__`，其次读同源的 `document.baseURI`，只取路径、权威部分永远取页面 origin）与 `tests/base.client.spec.ts`；`src/client/index.ts` 导出这三个名字（同文件的 `ClientTransportHooks` 注释改动属 B 族）；`src/client/rpc.ts` 删掉私有 `resolveBase()`，改走 `clientUrl`；`src/api-path.ts` 注释写明常量保持根绝对；`tsconfig.client.json` 纳入 `base.ts`；`tests/client-apply.client.spec.ts` 加前缀用例。
+  - `packages/client/hmr`：`src/client/index.ts` 的 `EventSource` 改用去掉前导斜杠的相对路径；`tsconfig.json` 改继承 `tsconfig.base.client.json`；新增 `tests/browser-half.client.spec.ts`（`8b67e9350a` 撤掉了 `051242599c` 对该包 `package.json` 的改动，净差为零）。
+  - `packages/client/modules`：`src/index.ts` 新增 `pageUrl()`（图里的 bundle 行与批次 URL 改为相对）与 `scriptRelativeMapUrl()`（`sourceMappingURL` 只写查询串，按脚本自身地址解析，`d1752f738e`），响应表与路由键仍是根绝对；`src/invariant.ts`、`src/client/{manifest,system}.ts` 注释跟进；`tests/node-half.client.spec.ts` 跟进（`0598318a6e`）；`docs/subsystems/client-modules.{md,zh.md}` 同步 `WebBootEntry`/`WebBootBatch` 的 JSDoc（type-equiv 逐字核对）与 combo 路由一段。
+  - `packages/host/frontend-static/src/index.ts`：渲染后的 index 已有 `<base>` 时不再追加 `<base href="/">`（`ec4950cad9`），让本线 `dsh-experimental-server-base` 注入的前缀行生效。
+  - `packages/api/gateway`：`src/client/stream-client.ts` 的 mux 下行 socket 地址改走 `clientUrl`；`tests/gateway.client.spec.ts` 加用例；`package.json` 的 `dsh.client.external` 声明 `@deepseek-ai/dsh-client-connection/client`（`64adb52113`）。这个包的改动最初写在 `host/apiproxy/src/fetch/client.ts` 上（`051242599c`），rc.1 上游把该载体删掉、浏览器 URL 搬进 `stream-client.ts`，由合并 `c4ea4c4ba0` 手工移植过来，所以在 `git log --no-merges` 里查不到。
+  - `packages/session-query/session-log-export`：`src/client/controller.ts` 删掉私有 `hostBase()`，导出请求改走 `clientUrl`；`tests/controller.client.spec.ts` 加前缀用例；`package.json` 同样声明 external；`tsconfig.client.json` 引用 connection 的 client 面（后两处经 `c4ea4c4ba0` 落地）。
+  - `apps/web`：`index.html` 的 manifest、favicon、入口脚本改相对路径；`vite.config.ts` 只改 `base: './'` 的注释；`tests/assembled-boot.ts` 支持挂在前缀上起壳，`tests/pwa-manifest.e2e.ts` 跟进。
+- **为什么**：Host 把路由注册在服务器根（`/api`、`/plugins`、HMR 事件端点），反向代理在前缀下提供页面时会先剥掉前缀。上游浏览器侧拼 URL 的地方都是包内私有函数：`rpc.ts` 的 `resolveBase()`、导出控制器的 `hostBase()`、`stream-client.ts` 的 `remoteStreamUrl()` 都是 `new URL(根绝对路径, location.origin)`，HMR 直接 `new EventSource('/…')`，模块图下发根绝对的 combo URL，`frontend-static` 无条件写死 `<base href="/">`。插件层能做的只有往 index 里注入行（`server-base` 注入 `<base href>` 与 `__DSH_BASE__`），但根绝对路径不受 `<base>` 管辖，这些私有函数也没有任何可替换的座位，所以只能改源码。
+- **要达到的效果**：同一份构建产物可以挂在任意路径前缀下（线上 `https://lhr.ink/console/`），RPC、mux socket、HMR、插件 bundle 与 source map、会话导出都落回同一前缀；Host 侧路由常量与响应键不动，前缀只在浏览器侧补回；前缀只贡献路径，`<base>` 或注入的全局指向别的 origin 也改不了 Host 流量去向。
+- **退役条件**：随基座 0.1.7 并入时改用上游 `eeb9b03465` 的相对基路径（`feat(web): serve the shell, API and plugin resources from the document directory`，已在 `dsh-v0.1.7-rc.1` 内）。上游这一提交把 `frontend-static` 改为写 `<base href="./">`，`stream-client.ts` 改按 `document.baseURI` 解析，模块图、HMR、`rpc.ts` 改为文档相对；会话导出的相对路由来自同在该 tag 内的上游 `29182514ed`（`SESSION_LOG_EXPORT_ROUTE` 去掉前导斜杠）。**机械判定**：上面每个文件取上游侧；删除 `base.ts` 与 `base.client.spec.ts`；`git grep -n clientUrl -- packages apps` 零命中；本线 `dsh-experimental-server-base` 同时停止注入 `<base href>` 与 `__DSH_BASE__`（上游已无条件写 `<base href="./">`，再注入一条会留下第二个 `<base>`），其 `apps/web/tests/base-path*.e2e.ts` 在上游机制下仍然通过。
+- **状态**：在役，计划退役：随基座 0.1.7 并入时改用上游 `eeb9b03465` 的相对基路径。
+
+### B. fix(experimental): correct the carrier's own account of who may declare ownsHost — 5830f82ab1（+ `73f8c25273`）
+
+- **拟用 slug**：`served-page-owns-host-contract`
+- **改了什么**：三处只改 JSDoc/注释，不改任何代码：`packages/client/connection/src/client/index.ts` 的 `ClientTransportHooks` 与 `ownsHost` 注释（与 A 族共用这个文件）；`packages/client/ui-settings-general/src/client/settings-document-store.ts` 构造函数的 `@param ctx`；`packages/client/web/src/boot.ts` 读 `loadBundle` 处的注释。
+- **为什么**：上游契约写的是「只有自己组装传输的外壳能设 `ownsHost`，served 页面根本不带这个全局」。本线 `dsh-experimental-server-base` 在登录门之后的 served index 里注入 `__DSH_TRANSPORT__ = { fetch, ownsHost: true }`，上游代码本来就照读这个全局，行为无需改动，但三处注释把本线的真实用法写成了不可能的情况。注释写在上游的声明处，插件层没有地方能改它们。
+- **要达到的效果**：契约文字说清楚两类声明方（自带 worker 的外壳、以及由门控决定谁能访问的部署）以及代价：它不移动任何服务端检查，served 页面的声明只值其门控那么多，门控放进来的每个访客拿到同样的特权面。
+- **退役条件**：上游自己的契约文字承认 served 页面也可以声明 `ownsHost`，或本线不再注入该载体。`dsh-v0.1.7-rc.1` 仍是原句（`served pages never carry the global at all`），并在同一接口新增了 `streamBaseUrl` 字段，换基时这三处是纯文字冲突，按本条重写即可。
+- **状态**：在役。
+
+### C. fix(client): keep the approval reason's own line breaks — a974804471
+
+- **拟用 slug**：`approval-reason-line-breaks`
+- **改了什么**：`packages/client/ui-approval/src/client/ApprovalPanel.module.css` 的审批标题规则加 `white-space: pre-line`；`packages/client/ui-approval/README.{md,zh.md}` 的维护者说明写明这一点。
+- **为什么**：本线 `dsh-experimental-component-surface` 的审批理由自带换行：`show_component` 的 `dataSource` 卡把每张表在后端的名字写成单独一行 `\n数据表：<name>`，一张卡描述两张表时中间空一行；`toy.crud` 卡在自己那句话下面写同样的标识行。上游标题规则把这些换行都折叠成空格，标识符接进上一句，两条请求读成一段。样式在 CSS Modules 里，类名构建时散列，外部样式表没有稳定选择器可挂；`ui-approval` 也没有渲染理由文本的插件座位。
+- **要达到的效果**：审批面板照理由原样分行显示，连续空格仍折叠；只想写一段的理由写成一行即可。
+- **退役条件**：上游的审批标题保留换行（`dsh-v0.1.7-rc.1` 的该文件无 `pre-line`），或本线的审批理由不再依赖换行排版。
+- **状态**：在役。
+
+### D. feat(experimental): group the sidebar's workflows, pin a group, and gather unsaved conversations under 临时工作流 — a9f14c57ed（该提交的一处）
+
+- **拟用 slug**：`client-library-config-export`
+- **改了什么**：`packages/client/tsdown.client.ts` 的 `clientLibraryConfig` 从模块私有改为 `export`，并补 JSDoc。
+- **为什么**：`packages/experimental/server-sidebar/tsdown.config.ts` 需要把 `lib/types/invariant.js` 作为独立的单入口 bundle 产出：两入口一起构建时 tsdown 会把共享模块提成带哈希名的 chunk，而精确的 `files` 列表发布不了它。依赖规则写在这个上游构建辅助模块里，不导出就只能在本线整段复制一份，复制后既会漂移又会被 `duplication` 门禁报克隆。
+- **要达到的效果**：本线包复用上游同一套 client 库依赖规则来产出单入口伴随 bundle，行为与上游包一致。
+- **退役条件**：上游自己导出该函数（`dsh-v0.1.7-rc.1` 仍未导出），或 `server-sidebar` 不再需要分开构建的伴随入口。
+- **状态**：在役。
+
+### E. 本线自有包在上游根配置、门禁与索引表里的登记 — 多提交（`6fbc815208` 起，含 `93fdd58fba`、`c3af011f1e`、`ec1f88620d`、`1ebcc29985`、`fc6a589bd2`、`37b58e6903`、`468be44991` 等）
+
+- **拟用 slug**：`experimental-package-gate-registration`
+- **改了什么**：只增行，不改上游已有行。
+  - TypeScript 聚合：`tsconfig.base.json`（本线实验包的 `paths` 别名）、`tsconfig.client.json`（除上面 `e72dec971a` 已登记的一行外，其余是本线 client 包的引用与 CSS Modules 声明）、`tsconfig.host.json`（本线 host 包的引用）；`apps/web/tsconfig.json` 的 `exclude` 列出本线的 e2e 与辅助文件。
+  - 根 `package.json`：`devDependencies` 声明 console 线的四个插件（`93fdd58fba`，从 `apps/cli` 搬到根，保持发布 CLI 的依赖不变）。
+  - 门禁里的手写表：`scripts/check-workspace-constraints.ts` 的 `packageFileExtras`（`component-surface` 的哈希 chunk、`library-skills` 的 `skills` 目录）；`scripts/gen-cordis-catalog.ts` 的 `SERVICE_PAGE`/`LINK_MAP`/`TYPE_LINK_EXEMPTIONS`（`contentSurface`、`bizBackend` 及其类型）；`scripts/gen-doc-graphs.ts` 的 `SERVICE_ROLES`；`scripts/verify-package-readme-model-experience.ts` 的九个本线包；`scripts/type-equiv.manifest.json` 的 `content-surface` 三个类型；`scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加 `experimental`（`e72dec971a` 一条记的就是这次扩组照出来的上游缺口）。
+  - 索引页：`docs/subsystems/README.{md,zh.md}` 加 `content-surface.md`、`biz-backend.md` 两行；`packages/experimental/README.{md,zh.md}` 加本线实验包的行。
+- **为什么**：这些都是上游门禁与生成器里手写的全量表，要求仓内每个工作区包、每个 Context 服务都被点名，否则 `typecheck`、`constraints`、`doc-sync` 直接失败；仓库没有让一个包自己登记进这些表的扩展点。本线的实验包住在上游工作区里，就必须出现在这些表上。
+- **要达到的效果**：本线的实验包与上游包受同一套构建、类型、目录与文档门禁约束，不靠豁免过关。
+- **退役条件**：只要这些包还在本仓工作区内，本族就一直存在，属于结构性常驻；真正的退役路径是把这些包移出仓库（作为仓外插件以 tarball 形式引入），或上游门禁改为从包元数据推导这些表。`feat/skill-pack-v0` 还会给同一批表再加行（`console-mcp`、`skill-pack`、`skill-pack-components`、`system-map`），合并进本线时一并记在本族下。
+- **状态**：在役。
+
+### F. feat(experimental): run the original toy components through a compatibility seam — vendored tarball, one shared Vue — 0de1bdb52a（+ `ae987eac77`、`a55d52b30a`）
+
+- **拟用 slug**：`vendored-component-kit-gates`
+- **改了什么**：
+  - `scripts/gen-third-party-notices.{ts,spec.ts}`：`FIRST_PARTY` 从集合改为带披露方式的映射，加入 `@sumomok/toy-surface-kit`、`@sumomok/toy-crud-kit`；`bundled-manifest` 类载荷必须自带 `BUNDLED.json` 声明其编进 bundle 的第三方库，缺失或为空即报错；新增 `payloadRuntimeDeps`/`readBundledManifest`；`OVERRIDES` 补 `randomcolor`（`CC0` 不是 SPDX 标识）与 `element-ui`（scp 风格仓库地址）；`normalizeRepo` 处理 `git@host:` 与 URL 里的账户名。
+  - `scripts/publint-all.{ts,spec.ts}`：只对 `packages/experimental/` 下的包豁免 publint 的 `LOCAL_DEPENDENCY` 一条消息。
+  - `pnpm-workspace.yaml`：`packageExtensions` 给 `vitepress-plugin-mermaid` 补 `vue ^3.5.13` peer；`allowBuilds` 拒绝 `core-js` 的安装脚本。
+  - `packages/client/ui-theme/tests/stylesheet-scan.ts`：`VENDORED_STYLESHEETS` 把原样拷入的 element-ui 主题表排除在样式契约扫描之外，并断言该文件仍存在（`a55d52b30a`）。
+- **为什么**：本线的组件行用 `file:` 引入仓外构建的 tarball，并把 Vue 2 与 element-ui 拉进工作区。上游这几道门禁是按「仓内包都从 registry 发布、第三方代码都出现在 lockfile」写的：publint 把 `file:` 依赖报成错误；许可证生成器不认识 tarball 里编进去的第三方库，不改就漏披露；pnpm 的 hoist 让文档站按 Vue 2 解析 mermaid 插件的 `vue`，VitePress SSR 构建失败；样式契约扫描会把 element-ui 的原样主题表当成本产品自己写的样式来判。四处都是脚本里写死的判定或根配置，插件层碰不到。
+- **要达到的效果**：vendored tarball 的第三方代码照样被披露（缺声明就报错而不是静默算零）；豁免只覆盖不发布的 `packages/experimental/` 与 publint 的那一条消息；文档站构建与 install 不受本线依赖影响；样式契约只管本产品自己写的样式表。
+- **退役条件**：`@sumomok/toy-*-kit` 改为从 registry 发布的包或移出本仓，且 Vue 2/element-ui 不再进入工作区；或上游门禁自己学会处理 `packages/experimental/` 下的本地依赖与 vendored 样式。`dsh-v0.1.7-rc.1` 里这几处都还没有对应能力。
+- **状态**：在役。
+
+### G. test(snapshots): re-home the console lane as snapshots/console over the acp profile — 605849b7b9（+ `1ebcc29985` 的 `afterSpawn`，经合并 `c4ea4c4ba0` 落地）
+
+- **拟用 slug**：`console-snapshot-lane`
+- **改了什么**：
+  - `packages/test-support/session-snapshot/src/{harness.ts,suite.ts}` 与 `tests/{harness,suite}.spec.ts`：`RunOptions`/`Scenario` 新增可选 `afterSpawn`，在 agent 进程起来之后、第一步输入之前执行，处于场景的失败即拆除范围内。`1ebcc29985` 原本写在当时的 `acp-snapshot` 包上，rc.1 上游把它并进 `session-snapshot` 后由合并 `c4ea4c4ba0` 移植过来。
+  - `scripts/session-snapshot-corpus.corpus.ts`：`profiles` 常量改为 `profileByLane` 映射，加入 `console` 通道（跑 `acp` profile），并登记 `snapshots/console/console.snapshot.ts` 适配器；ACP 专属文件的判定改看场景声明的 profile。
+  - `docs/testing.{md,zh.md}`：一句话写明「组合补丁挂在已发布 profile 上的通道单独占一个语料目录」，以 `snapshots/console/` 为例。
+- **为什么**：console 的录制会话场景需要先向组合里的路由提交凭据，才能走到需要凭据的数据行；这类状态只有进程起来后才存在，上游 harness 只有进程起来之前的 `prepareWorkspace`。语料门禁把目录名与 profile 写死成一一对应，一个跑 `acp` profile 但带自己组合补丁的通道放不进去。两处都是上游测试基建的源码，没有扩展点。
+- **要达到的效果**：console 通道的录制会话场景和上游四个通道一样受语料门禁约束（所有权、钉版本、脱敏、表头清洗），`afterSpawn` 抛错时照常拆掉子进程。
+- **退役条件**：上游 harness 提供进程起来后的准备钩子，且语料门禁支持通道目录与 profile 解耦（`dsh-v0.1.7-rc.1` 两者都没有）；或 console 通道移出本仓。
+- **状态**：在役。
+
+### H. web 测试脚手架的三处增补 — `a904096852`、`47431f46f5`（+ `65718089d6`、`fd56b928f6`、`3a2f0ec49d`）、`a557edef47`
+
+- **拟用 slug**：`web-test-scaffold-console`
+- **改了什么**：`apps/web/tests/scaffold.ts`：桩模型目录加 `deepseek-v4-flash-vision-exp`（声明图像输入，`a904096852`）；`recordFixture` 新增 `afterSeed` 选项与 `withoutSeededHistory`/`afterSeededHistory`，录制时剪掉场景预置的历史（`47431f46f5` 及其文档跟进）。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口与语言设置（`a557edef47`）。
+- **为什么**：本线的内容栏 e2e 要把读图工具路由到声明图像输入的模型；要在同时预置历史又驱动一轮的场景里录制可回放的 fixture（回放引擎按首次调用顺序绑定脚本，预置轮会被错配给第一次调用）；登录门场景要在同一 context 里开第二个同源标签页共享 `localStorage`。这些辅助函数都在上游 `apps/web/tests` 里，本线的 e2e 直接复用上游 web 测试脚手架，没有另起一套。
+- **要达到的效果**：本线的浏览器场景复用上游的起壳、录制与回放机制，而不是分叉一份脚手架。
+- **退役条件**：视觉模型那一处在 `dsh-v0.1.7-rc.1` 的 `scaffold.ts` 里上游已自带同名条目，换基时取上游侧即退役；`afterSeed` 与 `newEnglishContext` 要等上游提供等价能力或本线场景移出本仓。上游 `eeb9b03465` 也改了 `scaffold.ts`（85 行改动），换基时这里会冲突。
+- **状态**：在役（视觉模型条目随基座 0.1.7 并入时退役）。
+
+### I. docs: point every examples/content-console reference at snapshots/console — c8fbc669f0（该提交的一处）
+
+- **拟用 slug**：`doc-budget-dead-examples-target`
+- **改了什么**：`docs/AGENTS.md` 的字数预算目标列表删掉 `examples/AGENTS.md 310` 一项。
+- **为什么**：这是**上游自己的死引用**：基座 `76fda72979` 与 `dsh-v0.1.7-rc.1` 都没有 `examples/AGENTS.md`，也没有 `examples/` 目录。本线的提交在清理 `examples/` 残留时顺手删了它。
+- **要达到的效果**：预算目标只列真实存在的文件。
+- **退役条件**：上游自己删掉这一项（`dsh-v0.1.7-rc.1` 仍在），或换基时直接取上游侧放弃这一行改动（它不影响任何门禁结果）。
 - **状态**：在役。
 
 ## rc.26 合并事故复核：`e6991dfba2` 手工解析删掉了两个父都有的内容（已修）
