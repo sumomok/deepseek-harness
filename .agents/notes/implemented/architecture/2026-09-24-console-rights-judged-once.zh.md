@@ -6,19 +6,21 @@ Status: implemented
 
 ## 问题
 
-控制台读了登录者的权限表，却一样都没照着做。`system_map_domains` 与 `system_map_domain_models` 列出目录里的每一个模型，连这个人没有权限行的模型也列，`system_map_model` 也照样描述它们；数据页只要视图把它打开成可写，就给每位访客画出「新增」、修改图标和两个导出，后端要拒的按下去之后才被拒。
+控制台读了登录者的权限表，却一样都没照着做。`system_map_domains` 与 `system_map_domain_models` 列出目录里的每一个模型，连这个人没有权限行的模型也列，`system_map_model` 也照样描述它们；数据页只要视图把它打开成可写，就给每位访客画出「新增」、修改图标和两个导出，后端要拒的按下去之后才被拒。`show_component` 的 `dataSource` 会去读调用点名的任何一张表的行，于是一个被 `system_map_model` 告知某张表不存在的模型，只要猜中名字照样读得到它。
 
 权限表不能照字面读。对客户后端源码的审计确认了：`GET /nrms-auth/api/auth/userinfo` 答回以 `resclassenname` 为键的 `auth.resclass[]` 行，生成器只会把其中的布尔写成 `true`，`null` 表示未授予；`search`、`imp`、`exp`、`gridexp` 在每个账号上都是 `null`，管理员也一样；后端自己只校验 `add`、`update`、`delete`；受限账号的表里只有它被授予的模型；一个任何授权都没有的账号收到的是 HTTP 400 code 1。客户页面自己的 `useCloudPermission` 直接读这些布尔，这正是它在这个后端上连查询按钮都藏掉的原因。
 
 ## 决定
 
-**一次判定，放在读权限的那道缝上。** `ctx.bizBackend.judge(rights)` 把一次 `userRights()` 调用的答复变成 `may(model, operation)`。它不碰网络，所以调用方读一次权限，想问多少个模型就问多少个。凡是代登录者隐藏或拒绝什么的消费方——三个 `system_map_*` 读，以及数据页的能力路由——都调它，所以谁都不另存一份规则。
+**一次判定，放在读权限的那道缝上。** `ctx.bizBackend.judge(rights)` 把一次 `userRights()` 调用的答复变成 `may(model, operation)`。它不碰网络，所以调用方读一次权限，想问多少个模型就问多少个。凡是代登录者隐藏或拒绝什么的消费方——三个 `system_map_*` 读、`show_component` 的 `dataSource` 取数，以及数据页的能力路由——都调它，所以谁都不另存一份规则。
 
 **七个操作，用后端计划中的操作码命名。** `read`、`metadata_read`、`create`、`update`、`delete`、`import`、`export` 即 `BIZ_OPERATIONS`，作为外部规范写死。每个操作需要哪些权限标志是部署数据：`BizOperationRules`，每个操作一条规则，要么是 `row`（表里有这个模型的一行），要么是一个非空的权限标志列表，那一行必须至少授予其中一个。缺省就是后端今天实际校验的规则——`read`、`metadata_read`、`export` 是 `row`；`[add]`、`[update]`、`[delete]`；`import` 是 `[add, update]`——哪天后端开始校验某个标志，部署就只写那一条，例如 `export: [exp]`。这张表在构造服务的那一行 `auth-gate` 上以 `bizOperationRules` 配置；它的 schema 在 `biz-backend` 里，`requireBizOperationRules` 在加载时对不对应任何操作的键让这一行失败，因为 schema 会保留未声明的键，拼错一个字就会让本想改的那条规则悄悄停在缺省值上。
 
 **失败即关闭。** 权限读取失败——包括没有任何授权的账号收到的 HTTP 400 code 1——以及一张一个模型都没点名的权限表，什么都不允许；没有那一行的模型什么都不允许。
 
 **system-map 只给看登录者可以查看的东西。** 每个读在分组、解析或列出之前，先把目录收窄到 `may(model, 'metadata_read')` 允许的模型。`system_map_domains` 现在也读权限，只数可见模型，一个都不装的专业不列；权限读取失败时，每个读都以那次拒绝结束，而不是退回整份目录。被藏起的模型与本部署没有的模型用同一句话拒回，即 `No data model the signed-in person may look at is called "…"`，专业也用同样的形式，于是拒绝不透露被藏起的模型存在。`may=` 与 `may` 字段带的是按七个中性名字写出的允许操作，而不再是权限表的标志名。
+
+**`dataSource` 只读登录者可读的表。** 调用判完、确认手上有凭据之后，在问用户之前，`show_component` 读一次权限；它点名的任何一张表只要没有同时允许 `metadata_read`（字典与默认列就是它的描述）和 `read`，整次调用就被拒。拒绝不点名别的工具，也不说这张表存不存在：`show_component: no data model whose rows the signed-in person may read is called "<meta>", so nothing was read from the data source. Nothing on the panel changed.` 权限读取失败时，每一张表都被拒，并说明它答了什么：`show_component: the signed-in person's permissions could not be read (<detail>), so no data model may be read from the data source and nothing was read. Nothing on the panel changed.`；`unauthenticated` 仍用原来那句没有凭据的话。放在问之前，是为了不让人去批准一次规则会拒的取数；这次权限读取读的是他自己的权限，不向任何一张表请求任何东西。这是最后一处拿模型选的表名去读的宿主读取：`component-surface/src/tool.ts` 里的 `describe`、`describeScheme`、`search` 都在这道检查之后才跑，能力路由只拿名字在判定里查一下，`toy.data-page` 不经宿主请求任何东西。
 
 **数据页收到的是判定，从来不是规则。** kit 0.4.5 新增只归宿主的 `abilities` prop，即 `{ create, update, delete, import, export }`，它只能拿掉入口。只要同时组合了 webserver 与 `ctx.bizBackend`，`component-kit` 的节点半边就占用 `GET /component-kit/abilities?meta=<表>`；处理函数读一次权限，答回 `judge` 给出的五个布尔值。`DataPageRenderer` 按表去取，在答复到达之前以及取不到答复的任何时候传五项全 `false`，并把判定铺在块自己的 props 之后；桥接更新的是同一个 Vue 实例，所以页面既不重挂也不重查。落位目录不声明 `abilities` 属性，所以带着它的调用或写下来的视图会作为未声明属性被拒，`readDataPage` 也从不读它。
 
@@ -40,6 +42,8 @@ Status: implemented
 
 - `ctx.bizBackend` 新增 `judge()`；`BizBackendService` 的构造函数把规则表作为第四个参数，`auth-gate` 的 `Config` 新增逐字段带缺省的 `bizOperationRules`。
 - 三个 `system_map_*` 的描述、模型清单的标题、两句未知名字的拒绝以及 `may` 的用词都变了，所以 `snapshots/console/show-chart-turn/tool-schemas.expected.json` 与 `snapshots/console/system-map-turn` 做了无密钥刷新：夹具里的 `SITE` 没有权限行，从「传输专业」里掉了出去，`SpaceLayer` 列出 `may=read,metadata_read,create,update,import,export`。
+- 一次 `dataSource` 调用在提问之前多花一次请求，即权限读取；控制台快照里的取数回合读的是夹具授予了的 `SpaceLayer`，所以它们的录制不变。
+- `toy.data-page` 仍按页面自己的判定打开——这张表有一行权限——这与缺省的 `read`、`metadata_read` 规则一致，却不跟随改了其中任何一条的部署；`component-surface` 的 README 记着这一点。
 - `component-kit` 依赖 `biz-backend`，并多占用一条路由；没组合数据后端的组合里，每张数据页画出来时可拿掉的入口都已拿掉。
 - `system-map` README 里实测的清单大小早于中性的 `may=` 字段；现在每个列出的行里它最多占 57 个字符。
 - 换来的：一张只配一次的规则表，同时决定助手被告知有什么、页面给出什么；后端开始校验某个操作码的那天，只是一行配置的改动。
@@ -50,4 +54,4 @@ Status: implemented
 
 ## 测试
 
-`biz-backend` 以逐文件 100% 覆盖每一行规则、每个写标志单独生效、未被校验的标志、缺失的行、空表、全部四种失败、改过的规则与格式错误的规则。`system-map` 通过真实工具注册表覆盖收窄、不透露被藏模型的拒绝、空的与失败的权限读取以及配置过的规则，并有一个经 Loader 启动、跑在真实 `judge` 之上的 REAL 组合。`component-kit` 通过一个经 Loader 启动的组合覆盖路由——webserver、配了数据后端并写了 `bizOperationRules` 的真实 `auth-gate`、以及本行，后端是一个答复权限读取的替身；并单用真实 webserver 覆盖——判定后的答复、失败即关闭的答复、400 与 405、没有后端时路由不存在、随后端或本行任一方的 fiber 释放——以及浏览器读取器的失败即关闭路径、五个键对 kit 的 `DATA_PAGE_ABILITY_KEYS` 的对照，还有渲染器在判定之前不画任何可拿掉的入口、判定到达后在同一个实例上就地增减且不重查。`component-surface` 拒绝带 `abilities` 的调用与视图。
+`biz-backend` 以逐文件 100% 覆盖每一行规则、每个写标志单独生效、未被校验的标志、缺失的行、空表、全部四种失败、改过的规则与格式错误的规则。`system-map` 通过真实工具注册表覆盖收窄、不透露被藏模型的拒绝、空的与失败的权限读取以及配置过的规则，并有一个经 Loader 启动、跑在真实 `judge` 之上的 REAL 组合。`component-kit` 通过一个经 Loader 启动的组合覆盖路由——webserver、配了数据后端并写了 `bizOperationRules` 的真实 `auth-gate`、以及本行，后端是一个答复权限读取的替身；并单用真实 webserver 覆盖——判定后的答复、失败即关闭的答复、400 与 405、没有后端时路由不存在、随后端或本行任一方的 fiber 释放——以及浏览器读取器的失败即关闭路径、五个键对 kit 的 `DATA_PAGE_ABILITY_KEYS` 的对照，还有渲染器在判定之前不画任何可拿掉的入口、判定到达后在同一个实例上就地增减且不重查。`component-surface` 拒绝带 `abilities` 的调用与视图，并通过真实工具注册表、跑在真实 `judge` 之上覆盖 `dataSource` 检查——缺失的行、空表、两张表里有一张不可读、包括 HTTP 400 code 1 在内的每一种权限失败，每种都断言没问任何人、没读字典、方案或 `_search`；以及一行不授予任何标志的表被读到——外加一个经 Loader 启动的组合，在真实审批服务问任何东西之前就拒掉一张不可读的表。

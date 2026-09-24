@@ -13,8 +13,10 @@
  * column exactly as it was.
  *
  * A call that names a `dataSource` is the other half, and it exists only where
- * the deployment composed both a data backend and an approval answerer. It asks
- * the user once, reads the rows with that user's own credential, puts them in,
+ * the deployment composed both a data backend and an approval answerer. It
+ * reads nothing of a table the signed-in person may not read rows of, by the
+ * data backend's own rights judgement; otherwise it asks the user once, reads
+ * the rows with that user's own credential, puts them in,
  * and appends the filled result as `content-component/resolved` — because the
  * rows are not in the `tool/call` and there is nothing else for the column to
  * replay from. Anything that goes wrong after the question is asked leaves the
@@ -75,8 +77,10 @@ import {
   dataSourceApprovalReason,
   dataSourceEmpty,
   dataSourceNoDefaultColumns,
+  dataSourceNotReadable,
   dataSourceOversize,
   dataSourceRejected,
+  dataSourceRightsUnread,
   dataSourceSchemeAttribute,
   dataSourceUndrawable,
   dataSourceUnknownAttribute,
@@ -393,6 +397,56 @@ function failureText(meta: string, failure: BizBackendFailure): string {
 }
 
 /**
+ * Say why the signed-in person's permissions could not be read.
+ * @param failure - the classified failure of the permissions read.
+ * @returns the model-facing sentence.
+ */
+function rightsFailureText(failure: BizBackendFailure): string {
+  switch (failure.kind) {
+    case 'unauthenticated': return DATA_SOURCE_UNAUTHENTICATED
+    case 'refused': return dataSourceRightsUnread(`HTTP ${String(failure.status)}`)
+    case 'rejected': {
+      const coded = failure.code === undefined ? '' : `, code ${String(failure.code)}`
+      const said = failure.message === undefined ? '' : `: ${failure.message}`
+      return dataSourceRightsUnread(`HTTP ${String(failure.status)}${coded}${said}`)
+    }
+    case 'unreachable': return dataSourceRightsUnread(failure.detail)
+    /* v8 ignore start -- BizBackendFailure is closed and every member returns above. */
+    default: {
+      const unhandled: never = failure
+      throw new Error(`component-surface: unhandled permissions failure ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
+}
+
+/**
+ * Refuse every table of one call the signed-in person may not read rows of.
+ *
+ * One read of that person's permissions, judged by the data backend's own rule
+ * table, so this row keeps no copy of the rules. Reading a table's dictionary
+ * and its default columns is reading its description, and reading its rows is
+ * reading it, so a table needs both. A permissions read that fails refuses the
+ * whole call: nothing is read on a guess.
+ * @param ctx - the injected context carrying the data backend.
+ * @param targets - the resolved reads, in the order they were written.
+ * @param signal - the execution's own cancellation.
+ * @returns the sentence to refuse with, or `undefined` when every table may be read.
+ */
+async function refuseUnreadable(
+  ctx: Context,
+  targets: readonly DataSourceTarget[],
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const rights = await ctx.bizBackend.userRights(signal)
+  if ('kind' in rights) return rightsFailureText(rights)
+  const permissions = ctx.bizBackend.judge(rights)
+  const barred = targets.find(({ block }) =>
+    !permissions.may(block.meta, 'metadata_read') || !permissions.may(block.meta, 'read'))
+  return barred === undefined ? undefined : dataSourceNotReadable(barred.block.meta)
+}
+
+/**
  * Whether one answer is a failure rather than what was asked for.
  * @param answer - what the seam returned.
  * @returns true when it is a classified failure.
@@ -463,9 +517,9 @@ function checkColumns(
 /**
  * Settle what one block reads, where the call left its columns to the table.
  *
- * After the question, like every other request this row makes: the scheme is
- * read with the visitor's credential, and the credential is not spent before
- * the user has answered. The card such a block is asked about therefore names
+ * After the question, like every read of a table this row makes: the scheme is
+ * read with the visitor's credential, and nothing of a table is requested
+ * before the user has answered. The card such a block is asked about therefore names
  * no column — nothing has been requested when it is drawn.
  * @param ctx - the injected context carrying the data backend.
  * @param target - the resolved read.
@@ -605,10 +659,12 @@ async function readAll(
  * Run one call that names a data source.
  *
  * The order is the whole design: everything judgeable without spending anything
- * is judged first, then the user is asked, then the credential is spent — on
- * the dictionary, on the default columns of a block that named none, and on the
- * rows — then the filled result is judged again by the pass a hand-written call
- * gets. Nothing is appended and nothing is drawn unless that last pass accepts.
+ * is judged first, then the signed-in person's own permissions are read and
+ * every table they may not read is refused, then the user is asked, then the
+ * credential is spent on the tables — on the dictionary, on the default columns
+ * of a block that named none, and on the rows — then the filled result is
+ * judged again by the pass a hand-written call gets. Nothing is appended and
+ * nothing is drawn unless that last pass accepts.
  * @param ctx - the injected context carrying the data backend and the approval service.
  * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
@@ -655,6 +711,11 @@ async function runDataSource(
   // slot spends nothing, and a person who allows a read this process cannot
   // perform has answered for nothing.
   if (!ctx.bizBackend.holdsCredential()) throw new Error(DATA_SOURCE_UNAUTHENTICATED)
+  // Before the question for the same reason: a person is never asked to allow a
+  // read of a table the deployment's rules would not let them read. The
+  // permissions read is of their own rights, and requests nothing of a table.
+  const barred = await refuseUnreadable(ctx, resolved.targets, exec.signal)
+  if (barred !== undefined) throw new Error(barred)
   const outcome = await ctx.approval.request({
     agent,
     toolName: SHOW_COMPONENT_TOOL_NAME,

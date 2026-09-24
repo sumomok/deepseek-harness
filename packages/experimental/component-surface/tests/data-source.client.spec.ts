@@ -20,12 +20,15 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
-import type {
-  BizBackendFailure,
-  BizMetaResult,
-  BizSchemeResult,
-  BizSearchRequest,
-  BizSearchResult,
+import {
+  BizBackendService,
+  BizOperationRules,
+  type BizBackendFailure,
+  type BizMetaResult,
+  type BizSchemeResult,
+  type BizSearchRequest,
+  type BizSearchResult,
+  type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { MAX_SPEC_BYTES, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import {
@@ -104,6 +107,28 @@ const RAW = [
   { int_id: '1134933624650219531', zh_label: '东风站', layer_id: 'element:site', belong_map_topic: '947543009150173184' },
 ]
 
+/**
+ * The signed-in person's rights: a row granting no flag for every table a case
+ * in this suite reads, which is what reading requires under the default rules.
+ */
+const RIGHTS: BizUserRights = {
+  resclass: ['SpaceLayer', 'ThemeMap', 'S'.repeat(64), ...Array.from({ length: 12 }, (_unused, index) => `LongTableName${index}`)]
+    .map(resclassenname => ({ resclassenname, operations: [] })),
+  rows: [],
+}
+
+/**
+ * The real rights judgement, under the default rule table, which the stub
+ * backend hands its answers to: the rules a call is judged by are the ones a
+ * deployment runs, not a copy written here.
+ */
+const JUDGE = new BizBackendService(
+  new Context(),
+  'https://biz.invalid/',
+  { read: () => undefined, set: () => {}, drop: () => {} },
+  BizOperationRules({}),
+)
+
 /** A token-shaped string nothing this row writes may ever repeat. */
 const FAKE_TOKEN = 'not-a-real-token.PAYLOAD-eyJzdWIiOiJ0ZXN0In0.SIGNATURE'
 
@@ -117,6 +142,8 @@ interface BackendScript {
   search?: (request: BizSearchRequest) => BizSearchResult | BizBackendFailure
   /** Whether a visitor's token is held at all; held when unstated. */
   credential?: boolean
+  /** What `userRights` answers; {@link RIGHTS} when unstated. */
+  rights?: BizUserRights | BizBackendFailure
 }
 
 /** One booted deployment: the tool over a real registry, and what the stubs saw. */
@@ -135,6 +162,8 @@ interface Bench {
   schemed: string[]
   /** Every read that went out, in order. */
   searched: BizSearchRequest[]
+  /** How many times the signed-in person's rights were read. */
+  rightsReads: () => number
   /** The question and every request, in the order they happened. */
   steps: ('ask' | 'describe' | 'scheme' | 'search')[]
 }
@@ -165,6 +194,7 @@ async function bench(
   const schemed: string[] = []
   const searched: BizSearchRequest[] = []
   const steps: Bench['steps'] = []
+  let rightsReads = 0
   ctx.provide('approval', {
     request: (request: ApprovalRequest): Promise<ApprovalOutcome> => {
       asked.push(request)
@@ -174,6 +204,11 @@ async function bench(
   } as never)
   ctx.provide('bizBackend', {
     holdsCredential: (): boolean => script.credential ?? true,
+    userRights: (): Promise<BizUserRights | BizBackendFailure> => {
+      rightsReads += 1
+      return Promise.resolve(script.rights ?? RIGHTS)
+    },
+    judge: (rights: BizUserRights | BizBackendFailure) => JUDGE.judge(rights),
     describe: (meta: string): Promise<BizMetaResult | BizBackendFailure> => {
       described.push(meta)
       steps.push('describe')
@@ -200,6 +235,7 @@ async function bench(
     schemed,
     searched,
     steps,
+    rightsReads: () => rightsReads,
     run: args => ctx.tools.execute({
       callId: ToolCallId(`call-${++calls}`),
       name: SHOW_COMPONENT_TOOL_NAME,
@@ -786,6 +822,84 @@ describe('a question the user did not grant', () => {
     expect(refusal(result))
       .toBe('show_component: this call is not running in a session, so nothing could be read from the data source. Nothing on the panel changed.')
     expect(request).not.toHaveBeenCalled()
+  })
+})
+
+describe('a table the signed-in person may not read', () => {
+  /** The refusal every unreadable table gets, whether or not the deployment has it. */
+  const NOT_READABLE = 'show_component: no data model whose rows the signed-in person may read is called "SpaceLayer", '
+    + 'so nothing was read from the data source. Nothing on the panel changed.'
+
+  it('is refused before anybody is asked, and nothing of it is read', async () => {
+    const { run, session, asked, described, schemed, searched, rightsReads } = await bench('allowed-once', {
+      rights: { resclass: [{ resclassenname: 'ThemeMap', operations: ['add', 'update', 'delete'] }], rows: [] },
+    })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE }))).toBe(NOT_READABLE)
+    expect(rightsReads()).toBe(1)
+    expect([asked, described, schemed, searched, resolvedEvents(session)]).toEqual([[], [], [], [], []])
+  })
+
+  it('refuses the whole call when any one of its tables may not be read', async () => {
+    const two = { nodes: [TABLE_NODE, { ...TABLE_NODE, id: 'more' }] }
+    const { run, asked, searched } = await bench('allowed-once', {
+      rights: { resclass: [{ resclassenname: 'ThemeMap', operations: [] }], rows: [] },
+    })
+    expect(refusal(await run({
+      id: 'layers',
+      title: '图层',
+      spec: two,
+      dataSource: [{ nodeId: 'more', meta: 'ThemeMap', metaLabel: '地图主题' }, SOURCE[0]],
+    }))).toBe(NOT_READABLE)
+    expect([asked, searched]).toEqual([[], []])
+  })
+
+  it('is refused when the rights table names no model at all', async () => {
+    const { run, asked, searched } = await bench('allowed-once', { rights: { resclass: [], rows: [] } })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE }))).toBe(NOT_READABLE)
+    expect([asked, searched]).toEqual([[], []])
+  })
+
+  it.for([
+    [
+      { kind: 'rejected', status: 400, code: 1, message: '用户未授权' },
+      'show_component: the signed-in person\'s permissions could not be read (HTTP 400, code 1: 用户未授权), so no data '
+        + 'model may be read from the data source and nothing was read. Nothing on the panel changed.',
+    ],
+    [
+      { kind: 'rejected', status: 500 },
+      'show_component: the signed-in person\'s permissions could not be read (HTTP 500), so no data '
+        + 'model may be read from the data source and nothing was read. Nothing on the panel changed.',
+    ],
+    [
+      { kind: 'refused', status: 401 },
+      'show_component: the signed-in person\'s permissions could not be read (HTTP 401), so no data '
+        + 'model may be read from the data source and nothing was read. Nothing on the panel changed.',
+    ],
+    [
+      { kind: 'unreachable', detail: 'the answer carried no rights table' },
+      'show_component: the signed-in person\'s permissions could not be read (the answer carried no rights table), so no '
+        + 'data model may be read from the data source and nothing was read. Nothing on the panel changed.',
+    ],
+    [
+      { kind: 'unauthenticated' },
+      'show_component: no signed-in credential is held for this session, so nothing could be read from the '
+        + 'data source. Nothing on the panel changed.',
+    ],
+  ] as const)('refuses every table when the rights read answers %o', async ([rights, said]) => {
+    const { run, asked, described, searched } = await bench('allowed-once', { rights })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE }))).toBe(said)
+    expect([asked, described, searched]).toEqual([[], [], []])
+  })
+
+  it('reads a table whose row grants no flag, which reading needs nothing more than', async () => {
+    const { run, asked, searched, rightsReads } = await bench('allowed-once', {
+      rights: { resclass: [{ resclassenname: 'SpaceLayer', operations: [] }], rows: [] },
+    })
+    const result = await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })
+    expect(result.isError).toBeFalsy()
+    expect(rightsReads()).toBe(1)
+    expect(asked).toHaveLength(1)
+    expect(searched).toHaveLength(1)
   })
 })
 
