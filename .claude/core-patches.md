@@ -283,6 +283,17 @@
 - **Agent Note**：[`settings-trigger-action-slot`](../.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md)
 - **路径**：`.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.*` `docs/subsystems/slots.*` `packages/client/ui-settings-general/src/client/SettingsRoot.module.css` `packages/client/ui-settings-general/src/client/SettingsRoot.tsx` `packages/client/ui-settings-general/src/client/index.ts` `packages/client/ui-settings-general/src/client/shell-contract.ts` `packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` `packages/client/ui-settings-general/tests/shell.client.spec.ts` `packages/client/ui-settings/src/client/contract/slots.ts` `packages/client/ui-settings/src/client/index.ts`
 
+## stats-usage-pill-seats — 会话 Token 用量药丸上的文案位与明细行位
+
+- **改了什么**：`ui-chat` 的 `contract/slots.ts` 新增会话作用域的 single 槽 `conversation.chat.stats.usageLabel` 与 list 槽 `conversation.chat.stats.usageRows`，以及两者共用的 owner props `StatsUsageOwnerProps`（`totalTokens`、`cacheHitPercent`），`index.ts` 再导出该类型；`apply.ts` 的 `conversation.composer.dock` / `stats` 注册项用 `children` 声明这两个子位；`StatsPills.tsx` 把药丸文案开头那一段交给 `usageLabel`（空位时 fallback 为 token 总量），在弹层 `dl[data-session-stats-usage]` 的 output 行之后渲染 `usageRows`，删掉用量按钮的 `aria-label`，两颗药丸的分隔符去掉 `aria-hidden` 并自带前后空格。`docs/subsystems/slots.{md,zh.md}` 的声明树各加两行，`slot-catalog.ts` 由 `gen-client-catalog` 重生成。
+- **为什么**：fork 的余额插件要把金额显示在输入框下的 token 读数里。`conversation.composer.dock` 是纵向排列的会话作用域 list，占位者只能在统计药丸下方自成一行；画出两枚药丸的 `stats` 条目不声明 children，想进药丸或弹层只能整体遮蔽 `stats`，接管随产品发布的时间药丸、用量药丸与两个弹层。槽名是上游 `SlotMap` 的声明合并键，渲染点在上游组件里，插件层做不到。
+- **要达到的效果**：插件注册两个条目即可把金额放进药丸文案开头、把花费行追加进弹层明细，不替换任何随产品发布的 chrome；无人占位时药丸与弹层与改动前逐字相同（可访问名由可见文案给出，读作 `105 tok · Cache hit 90%`，与上游原 `aria-label` 字符串相同）。两个位拿到的是药丸自己算出的精确总量与裸百分数。
+- **退役条件**：上游以任何形式在统计药丸或其弹层上开出等价贡献位。
+- **状态**：在役（`feature/core-patches`，rc.34 回补）。核实依据：`conversation.chat.stats` 在 `dsh-v0.1.6-alpha.2` 零命中。分隔符变成可读文本后，`snapshots/web/**` 与 `apps/web/tests/expected/**` 里两颗药丸的 ARIA 金样要重录；回补阶段不拣 develop 上的两条金样重录提交，金样在并入下一个上游 tag 之后统一重录，在此之前 `test:web` 与 `test:snapshot` 在这几份金样上预期为红。
+- **滚动同步注意**：client-UI 补丁，落点 `ui-chat` 的 `contract/slots.ts`、`apply.ts`、`chat/StatsPills.tsx`，上游改药丸标记、弹层明细或 chat 槽契约都会撞行。`slot-catalog.ts` 冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
+- **Agent Note**：[`stats-usage-pill-seats`](../.agents/notes/implemented/feature/2026-09-14-stats-usage-pill-seats.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-14-stats-usage-pill-seats.*` `docs/subsystems/slots.*` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/StatsPills.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/index.ts` `packages/client/ui-chat/tests/chat-branch-tails.client.spec.tsx` `packages/client/ui-chat/tests/chat-stats.client.spec.tsx` `packages/client/ui-chat/tests/gate-branch-tails.client.spec.tsx`
+
 ## user-message-action-seat — 用户消息上的贡献位
 
 - **改了什么**：`ui-conversation` 在用户消息上开一个贡献位（`conversation.chat.user-actions`）与对应的 `renderUserActions` 传参。
