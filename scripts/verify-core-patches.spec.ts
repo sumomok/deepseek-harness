@@ -484,6 +484,23 @@ describe('runCheck', () => {
     expect(runCheck(fixture.root).status).toBe('ok')
   })
 
+  it('agrees when the Chinese config and event catalogs differ only by their generated regions', (test) => {
+    const fixture = repository(test)
+    fixture.write('docs/config-catalog.zh.md', '<!-- BEGIN GENERATED config-catalog -->\nregenerated\n<!-- END GENERATED config-catalog -->\n')
+    fixture.write('docs/event-producer-consumer.zh.md', '<!-- BEGIN GENERATED event-producer-consumer -->\nregenerated\n<!-- END GENERATED event-producer-consumer -->\n')
+    fixture.record('registry\n\nPatch: alpha-seam')
+    expect(runCheck(fixture.root).status).toBe('ok')
+  })
+
+  it('still rejects the hand-maintained Chinese capability-seams page when no record claims it', (test) => {
+    const fixture = repository(test)
+    fixture.write('docs/capability-seams.zh.md', 'edited\n')
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('unclaimed-path: docs/capability-seams.zh.md differs')
+  })
+
   it('rejects a changed path no record claims', (test) => {
     const fixture = repository(test)
     fixture.write('core/x.ts', 'export {}\n')
