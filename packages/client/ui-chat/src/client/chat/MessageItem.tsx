@@ -394,7 +394,7 @@ export const CompactionNodeView = memo(function CompactionNodeView({ node, t }: 
 
 /** Open automatic-compaction bracket keyed Chat renderer. */
 export const CompactionRunningNodeView = memo(function CompactionRunningNodeView(
-  { t }: ChatNodeViewProps<'compaction-running'>,
+  { t }: Pick<ChatNodeViewProps<'compaction-running'>, 't'>,
 ) {
   return <CompactionItem node={null} t={t} />
 })
