@@ -137,8 +137,8 @@ export const RELEASED_V0_EVENT_TYPES: readonly string[] = Object.freeze(
  * build that carried an event type absent from them cannot migrate: coordinate
  * validation refuses it, and `ignorable: true` does not exempt a historical
  * event. The Sessions already on disk cannot be rewritten, so every such type
- * ever written by a shipped build is named here and carried through each
- * migration edge verbatim, keeping its envelope checks and skipping only the
+ * ever written by a shipped build is named here and carried verbatim through
+ * the V0–V3 migration edges, keeping its envelope checks and skipping only the
  * payload disposition it has none of.
  *
  * - `attachment/materialized` — `@deepseek-ai/dsh-attachment-spill`, shipped in
