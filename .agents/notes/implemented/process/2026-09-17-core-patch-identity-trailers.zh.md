@@ -14,6 +14,8 @@ Status: implemented
 
 ## 决定
 
+本线已不再变基：当前的基座声明、合并规则与路径认领由[合并式补丁线](2026-09-24-merge-based-core-patch-line.zh.md)负责。下面的 slug 加 trailer 身份仍然成立。
+
 **补丁族的身份是一个 kebab-case slug**，全线唯一，由补丁标题派生。线上每个提交带且只带一条 `Patch: <slug>` trailer。登记按 slug 组织：每族一个 `## <slug> — <标题>` 小节，承载它一贯承载的五要素——改了什么、为什么、要达到的效果、退役条件，以及状态与所在线。
 
 trailer 能活过变基，因为它是提交信息文本，`git rebase` 原样带过。因此 `git log --format=%(trailers:key=Patch,valueonly)` 跑在登记声明的范围上，任何一次变基之后都能列出这条线的补丁族——前提是那条声明指向本线当前坐落的那个合并提交。

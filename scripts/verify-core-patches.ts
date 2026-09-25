@@ -1,41 +1,51 @@
 /**
- * Check that this fork's patch line and its registry name the same patches.
+ * Check that this fork's patch line and its registry account for the same
+ * change against the upstream release the line has merged.
  *
- * Every commit above the line's base carries exactly one `Patch: <slug>`
- * trailer, and every slug a commit names is registered in
- * `.claude/core-patches.md`; every registered slug whose status still stands on
- * this line — `在役` or `局部退役` — has at least one commit on the line, and
- * every slug the registry retires has none. The directions are checked
- * together, so a renamed slug fails on both sides rather than silently
- * splitting one patch into two records, and a record that declares a patch
- * retired while its commits remain fails rather than passing.
+ * The registry, `.claude/core-patches.md`, declares the patch line with
+ * `**当前补丁线**：\`<branch>\`` and its upstream base with
+ * `**基座 tag**：\`<tag>\``. The tag resolves through
+ * `refs/tags/<tag>^{commit}`, and `git merge-base HEAD <tag>` must be the tag
+ * itself: the declared release has been merged into the line. Upstream releases
+ * enter the line through `git merge`, so the line is never rebased and commit
+ * hashes on it are stable; `verify-repository-references` still rejects them in
+ * maintained prose, which is why patch identity is a slug.
  *
- * Commit hashes cannot carry patch identity here: every rolling sync rebases the
- * whole line onto a new upstream base, so each hash is replaced, and upstream's
- * `verify-repository-references` rejects hashes in maintained prose. The trailer
- * and the registry slug survive a rebase because they are commit message text.
- * Trailers are read through git's own `%(trailers:key=Patch)`, so what this
- * check accepts is exactly what `git interpret-trailers` and every other
- * trailer consumer sees. git matches the key case-insensitively and takes any
- * value, so the value is checked against the slug format here.
+ * Paths. The change set is `git diff --no-renames --name-only <base> HEAD`
+ * minus {@link GENERATED_PATHSPECS}. Every record whose status is `在役` or
+ * `局部退役` carries a `- **路径**：` line of backquoted git pathspecs, each
+ * matched with `:(glob)` magic. Every changed path must be claimed by at least
+ * one such record (`unclaimed-path`); every such record must claim at least one
+ * changed path (`unused-active-slug`), and every pathspec must match at least one
+ * (`unused-pathspec`), so a retired family and an outdated claim both surface. A
+ * standing record without a 路径 line is `missing-paths`; a `退役` record with one
+ * is `retired-record-claims-paths`, because a retired family owns no change and
+ * any change it left behind must surface as unclaimed. Retiring a family is its
+ * change disappearing from the diff; its old commits may stay on the line.
  *
- * The line's base is the upstream merge the registry declares as
- * `**基座合并**：#<number>`, resolved in HEAD's own history: the one merge
- * commit whose subject opens `Merge pull request #<number> `. No remote-tracking
- * ref is read. `upstream/master` is a local ref whose freshness nothing here can
- * observe — it runs ahead of this line after every fetch and can sit behind the
- * real base once a remote is re-pointed — so deriving the base from it reports
- * the routine state as an error and passes the dangerous one.
+ * Commits. Every non-merge commit on the first-parent chain from the base to
+ * HEAD carries exactly one `Patch:` trailer (`trailer-count`) whose value is a
+ * slug (`malformed-trailer`) that the registry registers under any status
+ * (`unregistered-slug`). Trailers are read through git's own
+ * `%(trailers:key=Patch)`. The first-parent walk keeps commits that arrived
+ * under a merge's second parent — upstream's, and the history the line was
+ * joined to — out of the enumeration.
  *
- * The check only applies to the patch line itself. The registry names which
- * line that is, and a checkout on any other branch — `develop`, an integration
- * branch, a detached HEAD — reports `skipped` and exits 0, because commits
- * there carry no patch identity and are not meant to. A shallow clone reports
- * `skipped` as well: its truncated history cannot reach the declared merge. A
- * registry that cannot be read, that leaves a code fence open, or that does not
- * declare exactly one patch line and exactly one base merge, fails on every
- * branch, because a check that cannot read its own declarations cannot tell
- * which case it is in.
+ * Merges. A merge on the first-parent chain is accepted when its second parent
+ * is exactly the commit some `refs/tags/dsh-v*` tag points at (an upstream
+ * release merge, annotated tags dereferenced), or when its tree equals its first
+ * parent's tree (an `-s ours` join). Any other merge is `merge-commit`, since a
+ * topic merge hides untrailed commits under its second parent. The release rule
+ * deliberately asks nothing about the declared tag: earlier rounds' release
+ * merges stay on the first-parent chain after the declaration moves to a newer
+ * tag they cannot reach.
+ *
+ * Scope. A checkout on any branch other than the declared line — `develop`, an
+ * integration branch, a detached HEAD — and a shallow clone report `skipped` and
+ * exit 0. A registry that cannot be read, that leaves a code fence open, or that
+ * does not declare exactly one patch line and exactly one base tag fails on
+ * every branch, because a check that cannot read its own declarations cannot
+ * tell which case it is in.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -60,6 +70,32 @@ export type PatchStatus = (typeof PATCH_STATUSES)[number]
  */
 export const NON_RECORD_HEADINGS = ['身份规则', '历史轮次'] as const
 
+/**
+ * Generator outputs no family claims, as `:(glob)` pathspecs. Each generator
+ * rewrites its whole output from sources that the families do claim, so a
+ * family's change reaches these files through the regeneration, not through a
+ * patch of its own.
+ */
+export const GENERATED_PATHSPECS = [
+  '**/*.i18n.yaml',
+  'pnpm-lock.yaml',
+  'THIRD_PARTY_NOTICES.md',
+  'docs/config-catalog.md',
+  'docs/capability-seams.md',
+  'docs/event-producer-consumer.md',
+  'docs/persistence-catalog.md',
+  'docs/persistence-catalog.zh.md',
+  'docs/persistence-schema.json',
+  'packages/extensions/cordis-client-runner/src/client/slot-catalog.ts',
+  'packages/extensions/cordis-client-runner/src/client/api-catalog.ts',
+  'packages/extensions/tool-cordis/src/api-catalog.ts',
+  'snapshots/**/*.expected.md',
+  'apps/web/tests/expected/**',
+] as const
+
+/** Tag refs whose commits count as upstream releases a merge may bring in. */
+export const RELEASE_TAG_PATTERN = 'refs/tags/dsh-v*'
+
 /** One registered patch family. */
 export interface PatchRecord {
   /** Registry slug, unique across the file. */
@@ -68,6 +104,8 @@ export interface PatchRecord {
   title: string
   /** Declared status, or null when the record states none. */
   status: PatchStatus | null
+  /** Pathspecs from the record's 路径 lines in file order, or null when it has none. */
+  pathspecs: string[] | null
 }
 
 /** The registry file as this check reads it. */
@@ -78,38 +116,73 @@ export interface Registry {
   malformedHeadings: string[]
   /** Every declared patch-line branch name, in file order; exactly one is required. */
   declaredLines: string[]
-  /** Every declared base-merge pull-request number, in file order; exactly one is required. */
-  declaredBases: string[]
+  /** Every declared base tag name, in file order; exactly one is required. */
+  declaredBaseTags: string[]
   /** 1-based line of a code fence the file never closes, or null when every fence closes. */
   unclosedFence: number | null
 }
 
-/** One commit on the line above its declared base merge. */
+/** One non-merge commit on the first-parent chain above the base. */
 export interface LineCommit {
   /** Commit identifier, for diagnostics only. */
   id: string
   /** Subject line, for diagnostics only. */
   subject: string
-  /** Parent count; anything above one is a merge. */
-  parents: number
   /** Every `Patch:` trailer value git reads from the message, in order. */
   slugs: string[]
+}
+
+/** One merge commit on the first-parent chain above the base. */
+export interface LineMerge {
+  /** Commit identifier, for diagnostics only. */
+  id: string
+  /** Subject line, for diagnostics only. */
+  subject: string
+  /** True when the second parent is exactly a commit a release tag points at. */
+  mergesRelease: boolean
+  /** True when the merge's tree equals its first parent's tree. */
+  treeUnchanged: boolean
+}
+
+/** One pathspec a standing record declares, with the changed paths it matches. */
+export interface PathspecClaim {
+  /** Slug of the record that declares the pathspec. */
+  slug: string
+  /** The pathspec as written, without the `:(glob)` magic this check adds. */
+  pathspec: string
+  /** Changed paths outside the generated set that the pathspec matches. */
+  paths: string[]
+}
+
+/** What this check reads from git for one patch line. */
+export interface PatchLine {
+  /** Non-merge commits on the first-parent chain above the base, oldest first. */
+  commits: LineCommit[]
+  /** Merge commits on the first-parent chain above the base, oldest first. */
+  merges: LineMerge[]
+  /** Paths that differ between the base and HEAD, minus the generated set. */
+  changedPaths: string[]
+  /** Every pathspec of every `在役` or `局部退役` record, with its matches. */
+  claims: PathspecClaim[]
 }
 
 /** One disagreement between the line and the registry. */
 export interface RegistryViolation {
   /** What disagrees. */
   kind:
+    | 'unclaimed-path'
+    | 'unused-active-slug'
+    | 'unused-pathspec'
+    | 'missing-paths'
+    | 'retired-record-claims-paths'
     | 'trailer-count'
     | 'malformed-trailer'
-    | 'merge-commit'
     | 'unregistered-slug'
-    | 'unused-active-slug'
-    | 'retired-slug-in-use'
+    | 'merge-commit'
     | 'duplicate-slug'
     | 'missing-status'
     | 'malformed-heading'
-  /** Commit id for commit-side findings, slug or heading text for registry-side findings. */
+  /** Commit id, path, slug or heading text, whichever the finding is about. */
   subject: string
   /** Complete, self-contained description. */
   detail: string
@@ -126,8 +199,10 @@ export interface CheckResult {
 const HEADING = /^## (.+)$/u
 const RECORD_HEADING = /^([a-z0-9]+(?:-[a-z0-9]+)*) — (.+)$/u
 const STATUS = /^- \*\*状态\*\*：(在役|局部退役|退役)/u
+const PATHS = /^- \*\*路径\*\*：(.*)$/u
+const PATHSPEC = /`([^`]+)`/gu
 const DECLARED_LINE = /^\*\*当前补丁线\*\*：`([^`]+)`/u
-const DECLARED_BASE = /^\*\*基座合并\*\*：#(\d+)/u
+const DECLARED_BASE_TAG = /^\*\*基座 tag\*\*：`([^`]+)`/u
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/u
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
@@ -145,7 +220,7 @@ export function parseRegistry(source: string): Registry {
   const records: PatchRecord[] = []
   const malformedHeadings: string[] = []
   const declaredLines: string[] = []
-  const declaredBases: string[] = []
+  const declaredBaseTags: string[] = []
   let current: PatchRecord | undefined
   let fence: { marker: string; line: number } | undefined
   let lineNumber = 0
@@ -165,15 +240,15 @@ export function parseRegistry(source: string): Registry {
     }
     const [, declaredLine] = DECLARED_LINE.exec(line) ?? []
     if (declaredLine !== undefined) declaredLines.push(declaredLine)
-    const [, declaredBase] = DECLARED_BASE.exec(line) ?? []
-    if (declaredBase !== undefined) declaredBases.push(declaredBase)
+    const [, declaredBaseTag] = DECLARED_BASE_TAG.exec(line) ?? []
+    if (declaredBaseTag !== undefined) declaredBaseTags.push(declaredBaseTag)
     const heading = HEADING.exec(line)
     if (heading !== null) {
       const [, text = ''] = heading
       const record = RECORD_HEADING.exec(text)
       if (record !== null) {
         const [, slug = '', title = ''] = record
-        current = { slug, title, status: null }
+        current = { slug, title, status: null, pathspecs: null }
         records.push(current)
         continue
       }
@@ -185,22 +260,34 @@ export function parseRegistry(source: string): Registry {
       if (!(NON_RECORD_HEADINGS as readonly string[]).includes(text)) malformedHeadings.push(text)
       continue
     }
-    const status = current !== undefined && current.status === null ? STATUS.exec(line) : null
-    if (status !== null && current !== undefined) current.status = status[1] as PatchStatus
+    if (current === undefined) continue
+    const status = current.status === null ? STATUS.exec(line) : null
+    if (status !== null) current.status = status[1] as PatchStatus
+    const [, paths] = PATHS.exec(line) ?? []
+    // Every 路径 line of a record contributes, so a second line extends the
+    // claim instead of being dropped without a finding.
+    if (paths !== undefined) current.pathspecs = [...current.pathspecs ?? [], ...Array.from(paths.matchAll(PATHSPEC), match => match[1] ?? '')]
   }
-  return { records, malformedHeadings, declaredLines, declaredBases, unclosedFence: fence?.line ?? null }
+  return { records, malformedHeadings, declaredLines, declaredBaseTags, unclosedFence: fence?.line ?? null }
 }
 
 /**
- * Compare the line against the registry in both directions.
- * @param commits - every commit above the declared base merge, in any order.
+ * Read whether a record's status keeps it on the line.
+ * @param record - the record to classify.
+ * @returns true for `在役` and `局部退役`.
+ */
+export function isStanding(record: PatchRecord): boolean {
+  return record.status === '在役' || record.status === '局部退役'
+}
+
+/**
+ * Compare the line against the registry: its records, its commits and merges,
+ * and the paths it changes against the base.
+ * @param line - what git says about the line above its base.
  * @param registry - the parsed registry.
  * @returns one violation per disagreement; empty when the two agree.
  */
-export function findRegistryViolations(
-  commits: readonly LineCommit[],
-  registry: Registry,
-): RegistryViolation[] {
+export function findRegistryViolations(line: PatchLine, registry: Registry): RegistryViolation[] {
   const violations: RegistryViolation[] = []
   for (const heading of registry.malformedHeadings) {
     violations.push({
@@ -209,16 +296,16 @@ export function findRegistryViolations(
       detail: `${REGISTRY_PATH} heading "## ${heading}" is neither a record (\`## <slug> — <标题>\`, em dash) nor one of ${NON_RECORD_HEADINGS.join(' / ')}; a heading this check cannot parse would take its record's checks with it.`,
     })
   }
-  const status = new Map<string, PatchStatus | null>()
+  const registered = new Set<string>()
   for (const record of registry.records) {
-    if (status.has(record.slug)) {
+    if (registered.has(record.slug)) {
       violations.push({
         kind: 'duplicate-slug',
         subject: record.slug,
         detail: `${REGISTRY_PATH} registers ${record.slug} more than once; one slug names one patch family.`,
       })
     }
-    status.set(record.slug, record.status)
+    registered.add(record.slug)
     if (record.status === null) {
       violations.push({
         kind: 'missing-status',
@@ -226,22 +313,58 @@ export function findRegistryViolations(
         detail: `${REGISTRY_PATH} record ${record.slug} declares no 状态 line (expected one of ${PATCH_STATUSES.join(' / ')}).`,
       })
     }
-  }
-  const used = new Map<string, string>()
-  for (const commit of commits) {
-    if (commit.parents > 1) {
+    if (isStanding(record) && (record.pathspecs === null || record.pathspecs.length === 0)) {
       violations.push({
-        kind: 'merge-commit',
-        subject: commit.id,
-        detail: `${commit.id} (${commit.subject}) is a merge commit; this patch line stays linear, so every commit above the declared base merge has one parent and carries its own Patch trailer.`,
+        kind: 'missing-paths',
+        subject: record.slug,
+        detail: `${REGISTRY_PATH} records ${record.slug} as ${String(record.status)} without a 路径 line naming at least one backquoted pathspec; a standing family claims the paths it changes against the base tag.`,
       })
+    }
+    if (record.status === '退役' && record.pathspecs !== null) {
+      violations.push({
+        kind: 'retired-record-claims-paths',
+        subject: record.slug,
+        detail: `${REGISTRY_PATH} records ${record.slug} as 退役 and still carries a 路径 line; a retired family claims no change, so any change it left behind must surface as unclaimed.`,
+      })
+    }
+  }
+  const claimed = new Set<string>()
+  const claimingSlugs = new Set<string>()
+  for (const claim of line.claims) {
+    for (const path of claim.paths) claimed.add(path)
+    if (claim.paths.length > 0) {
+      claimingSlugs.add(claim.slug)
       continue
     }
+    violations.push({
+      kind: 'unused-pathspec',
+      subject: claim.slug,
+      detail: `${REGISTRY_PATH} record ${claim.slug} claims \`${claim.pathspec}\`, which matches no path that differs from the base tag outside the generated set.`,
+    })
+  }
+  for (const record of registry.records) {
+    if (!isStanding(record) || record.pathspecs === null || record.pathspecs.length === 0) continue
+    if (claimingSlugs.has(record.slug)) continue
+    violations.push({
+      kind: 'unused-active-slug',
+      subject: record.slug,
+      detail: `${REGISTRY_PATH} records ${record.slug} as ${String(record.status)}, but none of its pathspecs matches a path that differs from the base tag; its change is gone, so its status is 退役.`,
+    })
+  }
+  for (const path of line.changedPaths) {
+    if (claimed.has(path)) continue
+    violations.push({
+      kind: 'unclaimed-path',
+      subject: path,
+      detail: `${path} differs from the base tag, and no 在役 or 局部退役 record in ${REGISTRY_PATH} claims it in its 路径 line.`,
+    })
+  }
+  for (const commit of line.commits) {
     if (commit.slugs.length !== 1) {
       violations.push({
         kind: 'trailer-count',
         subject: commit.id,
-        detail: `${commit.id} (${commit.subject}) carries ${String(commit.slugs.length)} Patch trailers as git reads them; every commit on this line carries exactly one, in the message's last paragraph.`,
+        detail: `${commit.id} (${commit.subject}) carries ${String(commit.slugs.length)} Patch trailers as git reads them; every commit on this line's first-parent chain carries exactly one, in the message's last paragraph.`,
       })
       continue
     }
@@ -254,8 +377,7 @@ export function findRegistryViolations(
       })
       continue
     }
-    if (!used.has(slug)) used.set(slug, commit.id)
-    if (!status.has(slug)) {
+    if (!registered.has(slug)) {
       violations.push({
         kind: 'unregistered-slug',
         subject: commit.id,
@@ -263,22 +385,13 @@ export function findRegistryViolations(
       })
     }
   }
-  for (const record of registry.records) {
-    if ((record.status === '在役' || record.status === '局部退役') && !used.has(record.slug)) {
-      violations.push({
-        kind: 'unused-active-slug',
-        subject: record.slug,
-        detail: `${REGISTRY_PATH} records ${record.slug} as ${record.status}, but no commit on this line names it.`,
-      })
-    }
-    const commitId = used.get(record.slug)
-    if (record.status === '退役' && commitId !== undefined) {
-      violations.push({
-        kind: 'retired-slug-in-use',
-        subject: record.slug,
-        detail: `${REGISTRY_PATH} records ${record.slug} as 退役, but ${commitId} still names it; a retired patch is off the line, not only off the registry.`,
-      })
-    }
+  for (const merge of line.merges) {
+    if (merge.mergesRelease || merge.treeUnchanged) continue
+    violations.push({
+      kind: 'merge-commit',
+      subject: merge.id,
+      detail: `${merge.id} (${merge.subject}) is a merge whose second parent is no commit a ${RELEASE_TAG_PATTERN} tag points at and whose tree differs from its first parent's; commits under such a merge carry no trailer this check can read, so the change lands as direct commits instead.`,
+    })
   }
   return violations
 }
@@ -344,59 +457,139 @@ export function currentBranch(repoRoot: string): string | null {
 /**
  * Read whether the repository's history is truncated.
  * @param repoRoot - repository root directory.
- * @returns true for a shallow clone, which cannot reach the declared base merge.
+ * @returns true for a shallow clone, which cannot reach the declared base tag.
  */
 export function isShallowClone(repoRoot: string): boolean {
   return git(repoRoot, ['rev-parse', '--is-shallow-repository']).trim() === 'true'
 }
 
 /**
- * Find the declared base merge in HEAD's own history.
+ * Resolve a tag name to the commit it points at.
  * @param repoRoot - repository root directory.
- * @param pullRequest - the pull-request number the registry declares, digits only.
- * @returns every merge commit whose subject opens with that pull request, newest first.
+ * @param tag - the tag name, without `refs/tags/`.
+ * @returns the full commit id, or null when no such tag exists.
  */
-export function declaredBaseCommits(repoRoot: string, pullRequest: string): string[] {
-  const opening = `Merge pull request #${pullRequest} `
-  // `--grep` matches any line of the message, so it only narrows the walk; the
-  // subject decides, and a commit that quotes the merge in its body or mentions
-  // it mid-subject is not the base.
-  const found = git(repoRoot, [
-    'log',
-    '--merges',
-    `--grep=^${opening}`,
-    '--format=%H%x00%s',
-    'HEAD',
-  ])
-  return found.split('\n').filter(entry => entry !== '').flatMap((entry) => {
-    const [id = '', subject = ''] = entry.split('\0')
-    return subject.startsWith(opening) ? [id] : []
-  })
+export function tagCommit(repoRoot: string, tag: string): string | null {
+  const ref = `refs/tags/${tag}`
+  // `--verify --quiet` exits non-zero without output for a missing ref, so the
+  // existence test goes through `for-each-ref`, which lists nothing instead.
+  if (git(repoRoot, ['for-each-ref', '--format=%(refname)', ref]) !== ref) return null
+  return git(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
 }
 
 /**
- * Read the commits above the base with the `Patch:` trailers git reads.
+ * Read the commits every release tag points at.
  * @param repoRoot - repository root directory.
- * @param base - the base commit the line sits above, excluded from the result.
+ * @returns full commit ids, annotated tags dereferenced to their commit.
+ */
+export function releaseCommits(repoRoot: string): Set<string> {
+  const listed = git(repoRoot, [
+    'for-each-ref',
+    '--format=%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)',
+    RELEASE_TAG_PATTERN,
+  ])
+  return new Set(listed.split('\n').filter(id => id !== ''))
+}
+
+/**
+ * Read the non-merge commits on the first-parent chain above the base, with the
+ * `Patch:` trailers git reads.
+ * @param repoRoot - repository root directory.
+ * @param base - the base commit, excluded from the result.
  * @returns one entry per commit, oldest first.
  */
 export function lineCommits(repoRoot: string, base: string): LineCommit[] {
   const raw = git(repoRoot, [
     'log',
+    '--first-parent',
+    '--no-merges',
     '--reverse',
-    '--format=%H%x1f%s%x1f%P%x1f%(trailers:key=Patch,valueonly,unfold,separator=%x0c)%x1e',
+    '--format=%H%x1f%s%x1f%(trailers:key=Patch,valueonly,unfold,separator=%x0c)%x1e',
     `${base}..HEAD`,
   ])
   return raw.split('\x1e').map(entry => entry.replace(/^\n/u, '')).filter(entry => entry !== '')
     .map((entry) => {
-      const [id = '', subject = '', parents = '', trailers = ''] = entry.split('\x1f')
+      const [id = '', subject = '', trailers = ''] = entry.split('\x1f')
       return {
         id: id.slice(0, 10),
         subject,
-        parents: parents.split(' ').filter(parent => parent !== '').length,
         slugs: trailers.split('\x0c').map(slug => slug.trim()).filter(slug => slug !== ''),
       }
     })
+}
+
+/**
+ * Read the merge commits on the first-parent chain above the base.
+ * @param repoRoot - repository root directory.
+ * @param base - the base commit, excluded from the result.
+ * @param releases - the commits release tags point at.
+ * @returns one entry per merge, oldest first.
+ */
+export function lineMerges(repoRoot: string, base: string, releases: ReadonlySet<string>): LineMerge[] {
+  const raw = git(repoRoot, [
+    'log',
+    '--first-parent',
+    '--merges',
+    '--reverse',
+    '--format=%H%x1f%s%x1f%P%x1f%T',
+    `${base}..HEAD`,
+  ])
+  return raw.split('\n').filter(entry => entry !== '').map((entry) => {
+    const [id = '', subject = '', parents = '', tree = ''] = entry.split('\x1f')
+    const [first = '', second = ''] = parents.split(' ')
+    return {
+      id: id.slice(0, 10),
+      subject,
+      mergesRelease: releases.has(second),
+      treeUnchanged: git(repoRoot, ['rev-parse', `${first}^{tree}`]) === tree,
+    }
+  })
+}
+
+/**
+ * List the paths that differ between the base and HEAD and match one pathspec,
+ * the generated set excluded.
+ * @param repoRoot - repository root directory.
+ * @param base - the base commit.
+ * @param pathspec - a `:(glob)` pathspec, or null for every path.
+ * @returns repository-relative paths, in git's order.
+ */
+export function changedPaths(repoRoot: string, base: string, pathspec: string | null): string[] {
+  const raw = git(repoRoot, [
+    'diff',
+    '--no-renames',
+    '--name-only',
+    '-z',
+    base,
+    'HEAD',
+    '--',
+    ...pathspec === null ? [] : [`:(glob)${pathspec}`],
+    ...GENERATED_PATHSPECS.map(generated => `:(exclude,glob)${generated}`),
+  ])
+  return raw.split('\0').filter(path => path !== '')
+}
+
+/**
+ * Read everything this check compares against the registry.
+ * @param repoRoot - repository root directory.
+ * @param base - the base commit, the declared tag's.
+ * @param registry - the parsed registry, whose standing records' pathspecs are matched.
+ * @returns the line's commits, merges, changed paths and claims.
+ */
+export function readPatchLine(repoRoot: string, base: string, registry: Registry): PatchLine {
+  const claims: PathspecClaim[] = []
+  for (const record of registry.records) {
+    if (!isStanding(record)) continue
+    for (const pathspec of record.pathspecs ?? []) {
+      claims.push({ slug: record.slug, pathspec, paths: changedPaths(repoRoot, base, pathspec) })
+    }
+  }
+  return {
+    commits: lineCommits(repoRoot, base),
+    merges: lineMerges(repoRoot, base, releaseCommits(repoRoot)),
+    changedPaths: changedPaths(repoRoot, base, null),
+    claims,
+  }
 }
 
 /**
@@ -421,9 +614,9 @@ export function runCheck(repoRoot: string): CheckResult {
   if (registry.declaredLines.length !== 1 || declaredLine === undefined) {
     return { status: 'failed', report: `${REGISTRY_PATH} declares 当前补丁线 ${String(registry.declaredLines.length)} time(s) outside its code blocks; exactly one declaration names the branch this check compares against.` }
   }
-  const [declaredBase] = registry.declaredBases
-  if (registry.declaredBases.length !== 1 || declaredBase === undefined) {
-    return { status: 'failed', report: `${REGISTRY_PATH} declares 基座合并 ${String(registry.declaredBases.length)} time(s) outside its code blocks; exactly one declaration names the upstream merge this line sits above.` }
+  const [declaredTag] = registry.declaredBaseTags
+  if (registry.declaredBaseTags.length !== 1 || declaredTag === undefined) {
+    return { status: 'failed', report: `${REGISTRY_PATH} declares 基座 tag ${String(registry.declaredBaseTags.length)} time(s) outside its code blocks; exactly one declaration names the upstream release this line has merged.` }
   }
   try {
     const branch = currentBranch(repoRoot)
@@ -434,18 +627,18 @@ export function runCheck(repoRoot: string): CheckResult {
       }
     }
     if (isShallowClone(repoRoot)) {
-      return { status: 'skipped', report: `skipped: shallow clone, whose truncated history cannot reach the declared base merge #${declaredBase}` }
+      return { status: 'skipped', report: `skipped: shallow clone, whose truncated history cannot reach the declared base tag ${declaredTag}` }
     }
-    const bases = declaredBaseCommits(repoRoot, declaredBase)
-    const [base] = bases
-    if (bases.length === 0 || base === undefined) {
-      return { status: 'failed', report: `${REGISTRY_PATH} declares base merge #${declaredBase}, which is not in this line's history; the declaration names the upstream merge commit this line was rebased onto.` }
+    const base = tagCommit(repoRoot, declaredTag)
+    if (base === null) {
+      return { status: 'failed', report: `base-tag-missing: ${REGISTRY_PATH} declares base tag ${declaredTag}, which is not a tag in this repository; run \`git fetch upstream --tags\`.` }
     }
-    if (bases.length > 1) {
-      return { status: 'failed', report: `${REGISTRY_PATH} declares base merge #${declaredBase}, which ${String(bases.length)} merge commits in this line's history claim (${bases.map(id => id.slice(0, 10)).join(', ')}); the declaration must resolve to one.` }
+    const mergeBase = git(repoRoot, ['merge-base', 'HEAD', base])
+    if (mergeBase !== base) {
+      return { status: 'failed', report: `base-tag-not-merged: ${REGISTRY_PATH} declares base tag ${declaredTag}, which HEAD has not merged; the declaration names the upstream release this line already contains.` }
     }
-    const commits = lineCommits(repoRoot, base)
-    const violations = findRegistryViolations(commits, registry)
+    const line = readPatchLine(repoRoot, base, registry)
+    const violations = findRegistryViolations(line, registry)
     if (violations.length > 0) {
       return {
         status: 'failed',
@@ -454,7 +647,7 @@ export function runCheck(repoRoot: string): CheckResult {
     }
     return {
       status: 'ok',
-      report: `${String(commits.length)} commit(s) and ${String(registry.records.length)} registry record(s) agree.`,
+      report: `${String(line.commits.length)} commit(s), ${String(line.merges.length)} merge(s), ${String(line.changedPaths.length)} changed path(s) and ${String(registry.records.length)} registry record(s) agree against ${declaredTag}.`,
     }
   } catch (failure) {
     // Every git command this check runs is wrapped, and a failed one leaves the

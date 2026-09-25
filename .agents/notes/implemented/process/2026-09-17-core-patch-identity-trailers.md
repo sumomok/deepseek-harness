@@ -14,6 +14,8 @@ Upstream then closed the remaining door. `scripts/verify-repository-references.t
 
 ## Decision
 
+The line no longer rebases: [the merge-based patch line](2026-09-24-merge-based-core-patch-line.md) owns the current base declaration, merge rules and path claims. The slug-and-trailer identity below stands.
+
 **A patch family is identified by a kebab-case slug, unique across the line and derived from the patch title.** Every commit on the line carries exactly one `Patch: <slug>` trailer. The registry is organized by slug: one `## <slug> — <title>` section per family, holding the five elements it always held — what changed, why, the intended effect, the retirement condition, and the status with the line it stands on.
 
 A trailer survives a rebase because it is commit message text, and `git rebase` carries messages through unchanged. `git log --format=%(trailers:key=Patch,valueonly)` over the range the registry declares therefore lists the line's families after any rebase, once that declaration names the merge the line now sits on.
