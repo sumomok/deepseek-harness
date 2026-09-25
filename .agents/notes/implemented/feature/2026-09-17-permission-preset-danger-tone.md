@@ -14,7 +14,7 @@ Which row that is cannot be decided in the client. The preset table is host conf
 
 `PresetSpec` gains `tone`, a closed set whose one member is `danger`, alongside the existing `glyph`. The host names the meaning, the client owns the color: `danger` marks an entry the deployment treats as destructive, and a preset naming none renders in the plain label color. Both fields are validated in the schemastery table schema, so an unnamed tone fails at plugin load.
 
-The two surfaces read two different host faces, so the tone travels two ways. The composer chip reads the `permissions` session projection, where `tone` joins `glyph` on `PresetOption` and its zod wire schema. The settings row reads the `permission` settings section, whose `defaultPreset` value is a bare preset name — per-choice presentation there rides each union member's own schemastery metadata, where `description` already carries the label, so `tone` rides the free-form `extra` slot beside it.
+The two surfaces read two different host faces, so the tone travels two ways. The composer chip reads the process-level permission catalog, where `tone` joins `glyph` on the typed `PresetOption`. The settings row reads the `permission` settings section, whose `defaultPreset` value is a bare preset name — per-choice presentation there rides each union member's own schemastery metadata, where `description` already carries the label, so `tone` rides the free-form `extra` slot beside it.
 
 Painting is the `ui-primitives` `Menu` primitive's existing `danger` row: error-colored text and icon over `--dsw-alias-state-error-primary`, with the danger hover fill. A toned preset sets `danger` on its `MenuItem` and nothing else changes — no new CSS, no new token, and the selected and hovered states are the ones every other destructive menu row in the app already has.
 
@@ -42,4 +42,4 @@ The settings row and the composer chip now agree about a presentation fact that 
 
 **Retirement.** This is a fork overlay on upstream host and client packages. If upstream gives preset rows a semantic color or danger marker in any form, the overlay retires and the fork adapts to upstream's form. Until then it is re-ported and re-verified on every rolling sync, because it lands in files upstream edits.
 
-Coverage lives in five specs of this change: `permission-presets.spec.ts`, `projection.spec.ts`, `settings-store.client.spec.ts`, `permission-presets-row.client.spec.tsx`, and `input-bar.client.spec.tsx`.
+Coverage lives in four specs: `permission-presets.spec.ts`, `settings-store.client.spec.ts`, `permission-presets-row.client.spec.tsx`, and `permission-select.client.spec.tsx`.

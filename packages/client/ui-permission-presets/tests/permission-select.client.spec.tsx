@@ -132,6 +132,23 @@ describe('PermissionSelect', () => {
     expect(trigger().querySelector('svg')?.innerHTML).toBe(icons[2])
   })
 
+  it('paints the row whose tone the host named, and only that row', () => {
+    const catalog: PermissionCatalog = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        { value: 'danger-full-access', name: 'danger-full-access', tone: 'danger' },
+      ],
+    }
+    setup({ catalog })
+    fireEvent.click(trigger())
+    const items = screen.getAllByRole('menuitem')
+    expect(items[2]?.className).toMatch(/danger/)
+    // Sharing the full-access glyph is not the same claim as the danger tone.
+    expect(items[1]?.className).not.toMatch(/danger/)
+    expect(items[0]?.className).not.toMatch(/danger/)
+  })
+
   it('closes an open menu on an outside pointer', () => {
     setup()
     fireEvent.click(trigger())
