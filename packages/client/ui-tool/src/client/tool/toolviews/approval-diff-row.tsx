@@ -43,13 +43,13 @@ type ApprovalDiffProps =
  */
 export function ApprovalDiffPreview({
   callId, useChat, useSessions, useHostInfo, sessionId, t,
-}: ApprovalDiffProps) {
+}: Pick<ApprovalDiffProps, 'callId' | 'useChat' | 'useSessions' | 'useHostInfo' | 'sessionId' | 't'>) {
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const home = useHostInfo(info => info.home)
   const pending = useChat((snapshot) => {
     for (const node of snapshot.nodes.values()) {
       const root = node.kind === 'tool-call' ? (node as ChatNode<'tool-call'>).data.root : undefined
-      if (root !== undefined && root.callId === callId && !('kind' in root)) return root
+      if (root !== undefined && root.callId === callId && !('kind' in root) && root.phase === 'start') return root
     }
     return undefined
   })

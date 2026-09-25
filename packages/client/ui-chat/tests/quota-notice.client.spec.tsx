@@ -68,7 +68,7 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.declare({
     'shell.overlay': { kind: 'list', scope: 'root' },
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
   })
   const conversation = await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
   let descriptor: Parameters<typeof runtime.ctx.uiSession.provide>[0] | undefined
