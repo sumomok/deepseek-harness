@@ -7,7 +7,7 @@ import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts
 import { en, zh } from '../src/client/locale.ts'
 import { CompactionFailureNodeView } from '../src/client/chat/MessageItem.tsx'
 import type { ChatNodeViewProps } from '../src/client/contract/slots.ts'
-import type { CompactionFailureChatData } from '../src/client/contract/chat-nodes.ts'
+import type { ChatNode, CompactionFailureChatData } from '../src/client/contract/chat-nodes.ts'
 
 afterEach(() => {
   cleanup()
@@ -16,11 +16,12 @@ afterEach(() => {
 function props(
   data: CompactionFailureChatData,
   t: ChatNodeViewProps<'compaction-failure'>['t'],
-): ChatNodeViewProps<'compaction-failure'> {
-  return {
-    node: { kind: 'compaction-failure', data },
-    t,
-  } as unknown as ChatNodeViewProps<'compaction-failure'>
+): Pick<ChatNodeViewProps<'compaction-failure'>, 'node' | 't'> {
+  const node: ChatNode<'compaction-failure'> = {
+    key: 'compaction-failure', id: 'compaction-failure', target: 'chat', anchorSeq: 0,
+    location: { kind: 'session' }, visibility: 'visible', kind: 'compaction-failure', data,
+  }
+  return { node, t }
 }
 
 describe('CompactionFailureNodeView', () => {

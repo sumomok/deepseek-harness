@@ -408,27 +408,37 @@ export class BasicCompactionEngine extends CompactionEngine {
    * Scale the routed policy into token budgets, letting a mounted
    * `compactionPolicy` replace the configured `thresholdRatio` — including a
    * `modelPolicies` override of it, which one live user setting outranks. The
-   * rest of that per-model override, retention included, still applies. A
-   * ratio outside `(0, 1]`, or one whose threshold would not clear the
-   * retained tail, warns once per routed target and keeps the configured value.
+   * rest of that per-model override, retention and headroom included, still
+   * applies, so the replaced ratio sets only the window-fraction term of the
+   * trigger `floor(min(W × ratio, W − O − headroomTokens))`. A ratio outside
+   * `(0, 1]`, or one whose trigger would not clear the retained tail, warns
+   * once per routed target and keeps the configured value.
    * @param policy - merged policy for the exact routed target.
    * @param contextWindow - adapter-owned capacity for that target.
+   * @param reservedCompletionTokens - output tokens one routed request reserves.
    * @param targetKey - `provider/model` route used as the warning key.
    * @returns this step's concrete pressure and retention budget.
    */
   private pressureSpec(
     policy: ResolvedTargetPolicy,
     contextWindow: number,
+    reservedCompletionTokens: number,
     targetKey: string,
   ): ResolvedCompactSpec {
-    const spec = resolveCompactSpec(policy, contextWindow)
+    const spec = resolveCompactSpec(policy, contextWindow, reservedCompletionTokens)
     const live = this.ctx.get('compactionPolicy')
     if (live === undefined) return spec
     const ratio = live.thresholdRatio()
-    // Retention is untouched by the override, so the configured spec's tail is
-    // exactly the tail the overridden threshold would have to clear.
-    if (ratio > 0 && ratio <= 1 && spec.retainTokens < Math.floor(contextWindow * ratio)) {
-      return resolveCompactSpec({ ...policy, thresholdRatio: ratio }, contextWindow)
+    // Retention and the headroom term are untouched by the override, so the
+    // configured spec's tail is exactly the tail the overridden trigger would
+    // have to clear, and the configured spec already proved the headroom term
+    // positive.
+    const trigger = Math.floor(Math.min(
+      contextWindow * ratio,
+      contextWindow - reservedCompletionTokens - policy.headroomTokens,
+    ))
+    if (ratio > 0 && ratio <= 1 && spec.retainTokens < trigger) {
+      return resolveCompactSpec({ ...policy, thresholdRatio: ratio }, contextWindow, reservedCompletionTokens)
     }
     if (!this.warnedPolicyThresholdTargets.has(targetKey)) {
       this.warnedPolicyThresholdTargets.add(targetKey)

@@ -417,7 +417,7 @@ export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: 
 
 /** Failed automatic-compaction keyed Chat renderer. */
 export const CompactionFailureNodeView = memo(function CompactionFailureNodeView(
-  { node, t }: ChatNodeViewProps<'compaction-failure'>,
+  { node, t }: Pick<ChatNodeViewProps<'compaction-failure'>, 'node' | 't'>,
 ) {
   return <CompactionFailureItem node={node.data} t={t} />
 })

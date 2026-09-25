@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
-import type { CompactionPolicy } from '@deepseek-ai/dsh-compaction-basic'
+import type { BasicCompactionConfig, CompactionPolicy } from '@deepseek-ai/dsh-compaction-basic'
 import type { SummarizationInput } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import LlmRuntime, {
   createMessage,
@@ -61,6 +61,14 @@ class TestPolicy extends Service implements CompactionPolicy {
 class TestEngine extends BasicCompactionEngine {
   error: Error | undefined
   calls = 0
+
+  // The fixture window is far below the default pressure headroom, which would
+  // leave no pressure budget; every engine here opts out of it so the trigger
+  // is the window fraction alone. The summary cap defaults to the headroom, so
+  // it is named explicitly.
+  constructor(ctx: Context, config: BasicCompactionConfig) {
+    super(ctx, { headroomTokens: 0, maxTokens: 8192, ...config })
+  }
 
   override async summarize(input: SummarizationInput): Promise<{
     summary: ContentBlock[]
