@@ -14,9 +14,9 @@
 
 **first-parent 链上的每个非合并提交带一条 `Patch: <slug>` trailer。** 链从基座 tag 数到 HEAD（`git log --first-parent <base>..HEAD`）。`core-patches-z` 带进来的旧线提交、上游发布里的提交都挂在合并提交的第二父之下，不在链上，不要求 trailer。
 
-**合并规则**：first-parent 链上的合并提交只接受两种。(a) 第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交），即并入上游发布；不对声明的 tag 附加任何祖先条件，因为声明改成更新的 tag 之后，前几轮的发布合并仍留在链上。(b) 合并后的树等于第一父的树，即 `-s ours` 接续。其余合并一律违规：话题分支的合并会把不带 trailer 的提交藏在第二父之下。本线上的改动直接提交或 squash，不走 PR 的合并提交。
+**合并规则**：first-parent 链上的合并提交只接受两种。(a) 恰有两个父提交，且第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交），即并入上游发布；点名了发布的 octopus 合并仍会带进其余父提交，不算这一种；不对声明的 tag 附加任何祖先条件，因为声明改成更新的 tag 之后，前几轮的发布合并仍留在链上。(b) 合并后的树等于第一父的树，即 `-s ours` 接续。其余合并一律违规：话题分支的合并会把不带 trailer 的提交藏在第二父之下。本线上的改动直接提交或 squash，不走 PR 的合并提交。
 
-**路径认领**：每条 `在役` 或 `局部退役` 记录带一行 `- **路径**：`，后面是若干反引号包住的 git pathspec，门禁给每条加 `:(glob)` 后匹配，可以写 `**`。差异集是 `git diff --no-renames --name-only <base> HEAD` 扣掉生成物豁免集：`**/*.i18n.yaml`、`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`、`docs/{config-catalog,capability-seams,event-producer-consumer}.md`、`docs/persistence-catalog.{md,zh.md}`、`docs/persistence-schema.json`、`packages/extensions/cordis-client-runner/src/client/{slot-catalog,api-catalog}.ts`、`packages/extensions/tool-cordis/src/api-catalog.ts`、`snapshots/**/*.expected.md`、`apps/web/tests/expected/**`（脚本里逐条写死）。`snapshots/**` 下的会话日志、`snapshot.yml`、`workspace.expected/**` 是输入夹具，由对应的族认领；`docs/{config-catalog,capability-seams,event-producer-consumer}.zh.md` 是人工维护的对侧，由 `rolling-sync-settle` 认领。同一路径可以由多个族认领。`退役` 记录不带 `路径` 行。
+**路径认领**：每条 `在役` 或 `局部退役` 记录带一行 `- **路径**：`，后面是若干反引号包住的 git pathspec，门禁给每条加 `:(glob)` 后匹配，可以写 `**`。差异集是 `git diff --no-renames --name-only <base> HEAD` 扣掉生成物豁免集：`**/*.i18n.yaml`、`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`、`docs/{config-catalog,capability-seams,event-producer-consumer}.md`、`docs/persistence-catalog.{md,zh.md}`、`docs/persistence-schema.json`、`packages/extensions/cordis-client-runner/src/client/{slot-catalog,api-catalog}.ts`、`packages/extensions/tool-cordis/src/api-catalog.ts`、`snapshots/**/*.expected.md`、`apps/web/tests/expected/**`（脚本里逐条写死）。`snapshots/**` 下的会话日志、`snapshot.yml`、`workspace.expected/**` 是输入夹具，由对应的族认领；`docs/{config-catalog,capability-seams,event-producer-consumer}.zh.md` 是人工维护的对侧，不在豁免集里；与基座不同的那几份由 `rolling-sync-settle` 认领（目前是 `config-catalog.zh.md` 与 `event-producer-consumer.zh.md`，`capability-seams.zh.md` 与基座相同，等它进入差异集再补进认领）。同一路径可以由多个族认领。`退役` 记录不带 `路径` 行。
 
 **退役就是差异消失。** 一族的改动全部回到与基座相同时，它的 pathspec 不再命中任何路径，门禁报 `unused-active-slug`，状态改为 `退役`、删掉 `路径` 行。它的旧提交可以留在线上，不要求从线上拿掉。
 
@@ -101,13 +101,13 @@
 
 ## core-patches-registry-gate — 按 slug 登记补丁身份与其门禁
 
-- **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。
+- **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。门禁按本文件开头的 `**基座 tag**` 取基座，核对三件事：first-parent 链上每个非合并提交恰有一条登记过的 `Patch:` trailer；链上的合并只能是恰有两个父提交、第二父为 `dsh-v*` 发布提交的合并，或树等于第一父的 `-s ours` 接续；与基座的每一处差异（生成物除外）都由某条在役记录的 `路径` 行认领，每条在役记录和它的每条 pathspec 都至少命中一处差异。
 - **为什么**：登记曾用提交哈希做身份。哈希每轮变基全部作废——上一轮登记的 284 个哈希里只有 72 个还能在当时的线上解析——而上游新增的 `verify-repository-references`（上游 PR #4060）拒绝维护中的散文里出现能解析成本仓提交的十六进制串，两条一起使哈希不可用。
-- **要达到的效果**：补丁身份随变基存活且可机械核对；登记与线互为约束，任一侧漏改即门禁失败。
+- **要达到的效果**：补丁身份不依赖提交哈希且可机械核对；登记写明每族相对上游占着哪些路径，线上多出一处无主改动、或某族改动已消失而记录仍在役，门禁都会失败。
 - **退役条件**：上游为引用门禁提供排除或配置口且本 fork 改回哈希登记，或上游自己提供等价的补丁登记机制。
 - **状态**：在役（`core-patches-v11`，本轮新增）。
-- **提交信息订正**：提交 `fix(scripts): close the four ways the patch-registry gate let real errors by` 的信息写「`upstream/master` was checked for existence, not for being this line's base. A stale ref silently widened the range, and the extra upstream commits surfaced as trailer violations pointing at upstream's own work. It is now compared against `git merge-base upstream/master HEAD`」。这条修法没有解决它声称解决的问题：`upstream/master` 落后真实基座时它仍是 HEAD 的合并基座，基座判据照样接受它，范围照样撑到上游的提交上，门禁随即把上游自己的提交报成 `trailer-count`／`merge-commit` 违规而失败——就是该信息描述的那个症状，只是落点从基座判据挪到了违规清单。反方向（`upstream/master` 前进，每次 `git fetch upstream` 之后的常态）则直接失败在基座判据上，而提示里的「fetch」只会让它更红。基座已改由本文件的 `**基座合并**` 声明给出、在 HEAD 自己的历史里解析，门禁不再读 `upstream/master`。本线只追加提交、不改写历史，以本条为准。
-- **Agent Note**：[`core-patch-identity-trailers`](../.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md)
+- **提交信息订正**：提交 `fix(scripts): close the four ways the patch-registry gate let real errors by` 的信息写「`upstream/master` was checked for existence, not for being this line's base. A stale ref silently widened the range, and the extra upstream commits surfaced as trailer violations pointing at upstream's own work. It is now compared against `git merge-base upstream/master HEAD`」。这条修法没有解决它声称解决的问题：`upstream/master` 落后真实基座时它仍是 HEAD 的合并基座，基座判据照样接受它，范围照样撑到上游的提交上，门禁随即把上游自己的提交报成 `trailer-count`／`merge-commit` 违规而失败——就是该信息描述的那个症状，只是落点从基座判据挪到了违规清单。反方向（`upstream/master` 前进，每次 `git fetch upstream` 之后的常态）则直接失败在基座判据上，而提示里的「fetch」只会让它更红。基座现由本文件的 `**基座 tag**` 声明给出，按 `refs/tags/<tag>` 解析并要求已并进 HEAD，门禁不读 `upstream/master`。本线只追加提交、不改写历史，以本条为准。
+- **Agent Note**：[`core-patch-identity-trailers`](../.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md)、[`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)
 - **路径**：`.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.*` `.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.*` `package.json` `scripts/run-gates.ts` `scripts/verify-core-patches.spec.ts` `scripts/verify-core-patches.ts`
 
 ## disallowed-link-destination-notice — 被阻止的链接目标不再静默丢弃
@@ -196,7 +196,7 @@
 - **改了什么**：每轮同步里**没有所属补丁族**的跨仓适配与生成物收敛：重跑 `gen-*` 生成物、重录双语配对记录、把跨多族的合并文档收敛到字数上限、把横跨多族的测试夹具搬到本基座的 harness 上。
 - **为什么**：补丁本身不变，但它依赖的上游 API、测试夹具与生成器输出每轮都在动；不收敛这些，补丁在新基座上编译不过或门禁不绿。而这类收敛里有一部分跨了多个补丁族，挂不到任何一族的 slug 上。
 - **要达到的效果**：生成物与源树一致，`gen-*`／`verify-*` 的 `--check` 全部退出 0；跨族的文档与夹具在当前基座上成立。
-- **归属规则**：**只服务单一补丁族的适配提交挂那一族自己的 slug**，不挂本族——`core-patches-v10` 上的三条 `adapt(referent-open-seam)`／`adapt(permission-preset-glyph)`／`adapt(command-engages-session)` 即如此。否则按 slug 退役某一族时会找不到它这一轮的适配提交。变基到新基座时的冲突解决是另一回事：它改的是补丁提交自己的内容，直接落在那条提交里，不另起适配提交——本轮八处冲突都是这样解决的，逐处记在各族的状态行上。
+- **归属规则**：**只服务单一补丁族的适配提交挂那一族自己的 slug**，不挂本族——`core-patches-v10` 上的三条 `adapt(referent-open-seam)`／`adapt(permission-preset-glyph)`／`adapt(command-engages-session)` 即如此。否则按 slug 退役某一族时会找不到它这一轮的适配提交。并入上游 tag 时的冲突解决是另一回事：它落在并入 tag 的那个合并提交里，合并提交不带 trailer；合并之后的适配提交再按上面的规则，只服务单一族的挂那一族的 slug，跨族的挂本族。`core-patches-v11` 及以前各轮是变基，冲突解决直接落在被重放的补丁提交里，逐处记在各族的状态行上。
 - **退役条件**：不适用——本族随每轮同步重生成，不是可退役的 overlay；它服务的补丁族退役时，对应的适配随之消失。
 - **状态**：在役（`core-patches-v11`）。本轮新增 1 条（重跑 `gen-*` 收敛生成物），线上另有 4 条继承自 `core-patches-v9`。
 - **路径**：`docs/config-catalog.zh.md` `docs/event-producer-consumer.zh.md` `packages/api/session-controller/tests/session.client.spec.ts` `packages/session-query/session-log-export/README.*` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts`
