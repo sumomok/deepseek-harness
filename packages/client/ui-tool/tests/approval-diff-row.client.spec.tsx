@@ -55,7 +55,7 @@ function props(nodes: readonly ChatConversationViewNode[], cwd: string | null = 
 
 /** One Chat Node of `kind` carrying `data`, placed at the session level. */
 function node<Kind extends ChatNodeKind>(kind: Kind, data: ChatNode<Kind>['data'], key: string = kind): ChatNode<Kind> {
-  return { key, id: key, target: 'chat', anchorSeq: 0, location: { kind: 'session' }, visibility: 'visible', kind, data } as ChatNode<Kind>
+  return { key, id: key, target: 'chat', anchorSeq: 0, location: { kind: 'session' }, visibility: 'visible', kind, data }
 }
 
 /** One dispatched root Tool call awaiting its result, as the Chat snapshot carries it. */
