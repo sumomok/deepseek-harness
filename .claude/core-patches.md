@@ -1,26 +1,32 @@
 # core-patches 补丁登记
 
-本文件登记 `core-patches` 线上的每一个补丁族。新增、修改、退役补丁时必须同步更新本文件。
+本文件登记 `feature/core-patches` 线上的每一个补丁族。新增、修改、退役补丁时必须同步更新本文件。
 
-**当前补丁线**：`core-patches-v11`。
+**当前补丁线**：`feature/core-patches`。
 
-**基座合并**：#4469
+**基座 tag**：`dsh-v0.1.6-alpha.2`
 
-上面这行是门禁读的基座声明：本线坐落在上游合并 `#4469` 的那个提交之上，门禁在 HEAD 自己的历史里解析它（以 `Merge pull request #4469 ` 开头的 merge 提交必须恰有一条），不读任何远端跟踪引用。该基座就是上游 `0.1.6-alpha.2` 的发布合并，release tag `dsh-v0.1.6-alpha.2` 这一轮恰好指着同一个提交；这是巧合，不是规则——上一轮的基座在 `dsh-v0.1.6-alpha.1` 之后 5 个提交，按 tag 取基座会得到另一棵树，所以门禁仍只读本文件的声明。本线由 `core-patches-v10` 变基而来：v10 的 118 个提交全部落地，零退役。
+上面两行是门禁读的声明。基座是 `refs/tags/dsh-v0.1.6-alpha.2^{commit}`，且 `git merge-base HEAD <tag>` 必须等于它，即声明的上游发布已经并进本线。本线由 `core-patches-v11` 用 `-s ours` 合并 tag `core-patches-z` 接续，不再变基；`core-patches-v9` 与旧的 `core-patches` 线经 `core-patches-z` 并入了历史。上游发布用 `git merge` 并入本线；`core-patches` 只从本线快进，`develop` 只通过合并 `core-patches` 取得核心改动。
 
 ## 身份规则
 
-**补丁身份是 slug，不是提交哈希。** 每个补丁族有一个 kebab-case slug，全线唯一、稳定，由补丁标题派生。同一族的多个提交共用一个 slug。
+**补丁身份是 slug，不是提交哈希。** 每个补丁族有一个 kebab-case slug，全线唯一、稳定，由补丁标题派生。同一族的多个提交共用一个 slug。上游的 `verify-repository-references` 拒绝在维护中的散文里出现能解析成本仓提交的十六进制串，所以提交哈希不进本文件。
 
-**每个提交带一条 `Patch: <slug>` trailer。** 提交哈希不能承载身份：每轮滚动同步都把整条线变基到新的上游基座，全部哈希随之作废；上游的 `verify-repository-references` 也拒绝在维护中的散文里出现能解析成本仓提交的十六进制串。trailer 与 slug 是提交信息文本，变基后原样存活。
+**first-parent 链上的每个非合并提交带一条 `Patch: <slug>` trailer。** 链从基座 tag 数到 HEAD（`git log --first-parent <base>..HEAD`）。`core-patches-z` 带进来的旧线提交、上游发布里的提交都挂在合并提交的第二父之下，不在链上，不要求 trailer。
 
-**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）双向核对本文件与「声明的基座合并`..HEAD`」，九类违规：`trailer-count`（提交的 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`malformed-trailer`（trailer 的值不是 slug：git 的 trailer key 匹配大小写不敏感、值也来者不拒，`Patch: alpha seam` 与折行续写出来的值 git 都收，slug 格式只能由本门禁把关）、`merge-commit`（补丁线必须线性）、`unregistered-slug`（提交点名的 slug 本文件未登记）、`unused-active-slug`（在役或局部退役的 slug 线上无提交）、`retired-slug-in-use`（退役的 slug 线上仍有提交）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
+**合并规则**：first-parent 链上的合并提交只接受两种。(a) 第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交），即并入上游发布；不对声明的 tag 附加任何祖先条件，因为声明改成更新的 tag 之后，前几轮的发布合并仍留在链上。(b) 合并后的树等于第一父的树，即 `-s ours` 接续。其余合并一律违规：话题分支的合并会把不带 trailer 的提交藏在第二父之下。本线上的改动直接提交或 squash，不走 PR 的合并提交。
 
-**门禁的执行面与后果**：**skip（退出 0）只有两种**——checkout 不在本文件声明的补丁线上（`develop`、集成线、detached HEAD），或本检出是浅克隆（截断的历史够不到声明的基座合并）；分支这条判在前。**failed（退出 1）** 是其余一切，且不分分支：本文件读不到、`**当前补丁线**` 或 `**基座合并**` 声明不是恰好一条（围栏代码块里的示例既不算记录也不算声明）、声明的基座合并在 HEAD 的历史里零条或多条、任何一条 git 命令失败（一行诊断，不抛栈），以及九类违规本身。**后果**：本门禁不读任何远端跟踪引用，因此不再要求维护者本机配过 upstream remote；但 `ci.yml` 只在 `pull_request` 上跑，`actions/checkout` 在该事件下检出的是这次 PR 的合并提交（detached HEAD），`ci-master.yml` 只在 `master` 上跑，两条都落在第一条 skip 上——漏 trailer、漏登记、slug 改名，仍然只有在补丁线分支上跑 `doc-sync` 的人能抓到（那条静态 lane 用的是 `fetch-depth: 0`，所以浅克隆那条 skip 不是 CI 落点）。一个例外是手动触发：`ci-master.yml` 另有 `workflow_dispatch`，在补丁线分支上手动 dispatch 时 `actions/checkout` 按分支名检出，其 linux lane（同样 `fetch-depth: 0`，跑 `check:ci:linux-primary`）会真跑本门禁而不是 skip。不拿发布 tag 兜底：tag 不等于基座（见本文件开头），用它当基座会把上游的若干提交算进本线，产出一批指着上游提交的假违规。
+**路径认领**：每条 `在役` 或 `局部退役` 记录带一行 `- **路径**：`，后面是若干反引号包住的 git pathspec，门禁给每条加 `:(glob)` 后匹配，可以写 `**`。差异集是 `git diff --no-renames --name-only <base> HEAD` 扣掉生成物豁免集：`**/*.i18n.yaml`、`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`、`docs/{config-catalog,capability-seams,event-producer-consumer}.md`、`docs/persistence-catalog.{md,zh.md}`、`docs/persistence-schema.json`、`packages/extensions/cordis-client-runner/src/client/{slot-catalog,api-catalog}.ts`、`packages/extensions/tool-cordis/src/api-catalog.ts`、`snapshots/**/*.expected.md`、`apps/web/tests/expected/**`（脚本里逐条写死）。`snapshots/**` 下的会话日志、`snapshot.yml`、`workspace.expected/**` 是输入夹具，由对应的族认领；`docs/{config-catalog,capability-seams,event-producer-consumer}.zh.md` 是人工维护的对侧，由 `rolling-sync-settle` 认领。同一路径可以由多个族认领。`退役` 记录不带 `路径` 行。
+
+**退役就是差异消失。** 一族的改动全部回到与基座相同时，它的 pathspec 不再命中任何路径，门禁报 `unused-active-slug`，状态改为 `退役`、删掉 `路径` 行。它的旧提交可以留在线上，不要求从线上拿掉。
+
+**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）。违规类型：`unclaimed-path`（差异路径没有在役记录认领）、`unused-active-slug`（在役记录一个差异路径都没认领到）、`unused-pathspec`（某条 pathspec 一个差异路径都没命中）、`missing-paths`（在役记录缺 `路径` 行）、`retired-record-claims-paths`（`退役` 记录带了 `路径` 行）、`trailer-count`（链上提交的 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`malformed-trailer`（trailer 的值不是 slug：git 的 trailer key 匹配大小写不敏感、值也来者不拒，slug 格式只能由本门禁把关）、`unregistered-slug`（trailer 点名的 slug 本文件未登记；任何状态都算登记）、`merge-commit`（不属于合并规则 (a)(b) 的合并）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
+
+**门禁的执行面与后果**：**skip（退出 0）只有两种**——checkout 不在本文件声明的补丁线上（`develop`、`core-patches`、集成线、detached HEAD），或本检出是浅克隆（截断的历史够不到基座 tag）；分支这条判在前。**failed（退出 1）** 是其余一切，且不分分支：本文件读不到、代码围栏未闭合、`**当前补丁线**` 或 `**基座 tag**` 声明不是恰好一条（围栏代码块里的示例既不算记录也不算声明）、声明的 tag 不存在（`base-tag-missing`，先 `git fetch upstream --tags`）或未并入 HEAD（`base-tag-not-merged`）、任何一条 git 命令失败（一行诊断，不抛栈），以及上面的违规本身。并入更新的上游 tag 之后、把声明改成它之前，整段上游跨度都会报 `unclaimed-path`；声明与认领在合并之后的登记提交里一起改。**后果**：`ci.yml` 只在 `pull_request` 上跑，`actions/checkout` 在该事件下检出的是这次 PR 的合并提交（detached HEAD），`ci-master.yml` 只在 `master` 上跑，两条都落在第一条 skip 上——漏 trailer、漏登记、漏认领，仍然只有在补丁线分支上跑 `doc-sync` 的人能抓到（那条静态 lane 用的是 `fetch-depth: 0`，所以浅克隆那条 skip 不是 CI 落点）。一个例外是手动触发：`ci-master.yml` 另有 `workflow_dispatch`，在补丁线分支上手动 dispatch 时 `actions/checkout` 按分支名检出，其 linux lane（同样 `fetch-depth: 0`，跑 `check:ci:linux-primary`）会真跑本门禁而不是 skip。决定与实测见 Agent Note [`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)。
 
 **指向历史的写法**：指向本 fork 的改动写 slug 或相对链接指向该补丁的 Agent Note；指向上游的改动写上游 PR 号（`Merge pull request #NNNN`，即合并提交标题里的那个号，不是分支名里的 issue 号）或发布 tag。
 
-**每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态。状态取 `在役`、`局部退役`、`退役` 之一：在役与局部退役写明所在线，退役写明在哪一条线上退的役。**局部退役**指同一族里的部分子件已被上游覆盖或在新基座上失去落点、而族整体仍在役；子件逐条列出，族自己的退役条件不变。
+**每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态；`在役` 与 `局部退役` 的记录另带 `路径` 行。状态取 `在役`、`局部退役`、`退役` 之一：在役与局部退役写明所在线，退役写明在哪一条线上退的役。**局部退役**指同一族里的部分子件已被上游覆盖或在新基座上失去落点、而族整体仍在役；子件逐条列出，族自己的退役条件不变。
 
 ## ansi-line-parser-export — ui-primitives 导出 ANSI 行解析器
 
@@ -30,6 +36,7 @@
 - **退役条件**：上游自己把 `parseAnsiLines` 加进 `packages/client/ui-primitives/src/index.ts` 的导出面。
 - **状态**：在役（`core-patches-v11`）。核实依据：上游 `parseAnsiLines` 三处命中全在包内（`TerminalBlock.tsx`、`ansi.ts`、`ansi.client.spec.ts`），包入口仍不导出。
 - **Agent Note**：[`export-ansi-parser`](../.agents/notes/implemented/feature/2026-08-27-export-ansi-parser.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-27-export-ansi-parser.*` `packages/client/ui-primitives/README.*` `packages/client/ui-primitives/src/index.ts`
 
 ## approval-detail-by-tool — 审批详情按工具名键控
 
@@ -39,6 +46,7 @@
 - **退役条件**：上游把 `conversation.approval.detail` 改成按工具名键控的槽，或自己为文件改动的审批卡渲染 diff。
 - **状态**：在役（`core-patches-v11`）。核实依据：上游 `packages/client/ui-approval/src/client/index.ts` 仍声明 `kind: 'single'`。本轮适配两处上游改动：`SessionSummary` 新增必填的 `retainedBy`、`SessionListState` 去掉 `current` 与 `currentAddress`（上游 PR #4368），本族 diff 行的列表桩照上游自有卡片 spec 的写法重建；`SlotTestRuntime` 自己提供 `remote`（上游 PR #4231），本族注册用例不再另建一个 `TestRemote`。
 - **Agent Note**：[`approval-detail-keyed-by-tool`](../.agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.*` `apps/web/tests/approval-preview-diff.e2e.ts` `apps/web/tsconfig.json` `packages/client/ui-approval/src/client/ApprovalPanel.module.css` `packages/client/ui-approval/src/client/ApprovalPanel.tsx` `packages/client/ui-approval/src/client/contract/slots.ts` `packages/client/ui-approval/src/client/index.ts` `packages/client/ui-approval/tests/ui-approval.client.spec.tsx` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/ApprovalCommand.module.css` `packages/client/ui-chat/src/client/chat/ApprovalCommand.tsx` `packages/client/ui-chat/tests/chat-apply.client.spec.tsx` `packages/client/ui-tool/README.*` `packages/client/ui-tool/package.json` `packages/client/ui-tool/src/client/apply.ts` `packages/client/ui-tool/src/client/host-info.ts` `packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.module.css` `packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.tsx` `packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx` `snapshots/web/approval-preview-diff/session.v2.jsonl` `snapshots/web/approval-preview-diff/session.v3.jsonl` `snapshots/web/approval-preview-diff/snapshot.yml` `snapshots/web/approval-preview-diff/workspace.expected/notes.txt` `tsconfig.host.json`
 
 ## chat-prose-referents — Assistant 正文的 proseReferents 缝
 
@@ -49,6 +57,7 @@
 - **退役条件**：上游自己的会话 UI 原生扫描并派发 Assistant 正文里的可点引用。
 - **状态**：在役（`core-patches-v11`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `upstream/master` 零命中；子件的判据 `git grep path-not-found upstream/master -- packages/client` 同样为空。本轮适配三处上游改动：`ui-chat` 的 `inject` 列表新增 `uiWorkspace`（上游 PR #4368），本族的 `connection` 与它并列；`ChatView` 的 props 新增 `openExternalLink`（上游 PR #4379），`referents` 与它并列；`MarkdownText` 新增 `variant` prop（上游 PR #4390），`referents` 与 `referentsRevision` 与它同在参数表与依赖数组里；`renderAnchor` 的调用点新增 `context.streaming` 实参（上游 PR #4379），本族的本地路径分支仍在该调用之前返回；`apply-inject` 测试台的 `chatViewApi` 改收 `SessionReference` 而不是裸 `SessionId`（上游 PR #4368），本族 13 条用例改传 `b.rootReference`。
 - **Agent Note**：[`chat-prose-referents-seam-port`](../.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md)、[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.*` `packages/client/ui-chat/package.json` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx` `packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx` `packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx` `packages/client/ui-chat/src/client/chat/ChatView.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/locale.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/client/ui-chat/tests/chat-apply.client.spec.tsx` `packages/client/ui-chat/tests/chat-view.client.spec.tsx` `packages/client/ui-primitives/src/index.ts` `packages/client/ui-primitives/src/markdown/MarkdownText.tsx` `packages/client/ui-primitives/src/markdown/render.tsx` `packages/client/ui-primitives/tests/markdown-render-units.client.spec.tsx` `packages/client/ui-primitives/tests/markdown.client.spec.tsx` `packages/client/ui-tool/tests/assembly-surfaces.client.spec.tsx` `packages/client/ui-tool/tests/chat-ptc-subcalls.client.spec.tsx` `packages/client/ui-tool/tests/toolview-slot.client.spec.tsx` `packages/client/ui-workflow-run/tests/workflow-run.client.spec.tsx` `scripts/gen-cordis-catalog.ts`
 
 ## claude-skills-roots — 扫描项目与用户的 `.claude/skills` 根
 
@@ -58,6 +67,7 @@
 - **退役条件**：上游自己扫描项目与用户的 `.claude/skills` 根（出现等价的根与 `SkillSource` 取值）。另一条独立条款：上游自己按根降级——单根扫描失败只丢该根、不清零整个提供方，无论落在 `skill-filesystem`、`packages/skill/skill` 聚合层，还是 `tool-skill` 改为从部分观测发布目录——本族的按根降级扩展与模型面补齐一并退役（线上 5 个提交属于这一半）。
 - **状态**：在役（`core-patches-v11`）。核实依据：`PROJECT_CLAUDE_RANK` 与 `isolatedSkillRootEnv` 在 `upstream/master` 零命中；上游 `skill-filesystem` 的 `list()` 仍只为 `watchManager.observeRoots` 失败降级（`complete: false`），`discoverRoot` 抛出仍会整个 `list()` 拒绝，第二条退役条款（按根降级）未满足。本轮适配一处上游改动：`apps/web/tests/scaffold.ts` 把 `dsh-app-boot` 的函数导出改为在函数体内动态 import、顶部只留类型导入（上游 PR #4471），本族新增的 `isolatedSkillRootEnv` 导入改挂在那条类型导入之后。
 - **Agent Note**：[`claude-skills-root`](../.agents/notes/implemented/feature/2026-09-06-claude-skills-root.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-06-claude-skills-root.*` `apps/cli/tests/agent-team-headless.e2e.ts` `apps/cli/tests/github-webhook-real.e2e.ts` `apps/cli/tests/headless-shutdown.e2e.ts` `apps/cli/tests/web-auth.e2e.ts` `apps/cli/tests/web-browser-open.expected.e2e.ts` `apps/web/tests/scaffold-hermetic.e2e.ts` `apps/web/tests/scaffold.ts` `apps/web/tests/smoke-real.e2e.ts` `docs/subsystems/skills.*` `packages/skill/skill-filesystem/README.*` `packages/skill/skill-filesystem/src/index.ts` `packages/skill/skill-filesystem/tests/skill-filesystem-watcher.spec.ts` `packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts` `packages/skill/skill/src/index.ts` `packages/skill/tool-skill/README.*` `packages/skill/tool-skill/src/index.ts` `packages/skill/tool-skill/tests/tool-skill.spec.ts` `packages/test-support/loader-smoke/README.*` `packages/test-support/loader-smoke/src/index.ts` `packages/test-support/loader-smoke/tests/loader-smoke.spec.ts` `packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/launcher.ts` `scripts/publish-npm-baseline.ts` `scripts/release/verify-packed-install.ts` `scripts/smoke-python-runtime.py` `snapshots/sdk/sdk.snapshot.ts`
 
 ## command-engages-session — 命令自己声明是否让所在会话转正
 
@@ -69,6 +79,7 @@
 - **待拍板：要不要继续背这条语义分歧**。`upstream/master` 该 spec 的模块头注释明写「standalone plugin events — command lifecycle records … never flip it」，与本族的契约相反；该注释在 v9 基座上就已经是这样，v9 已经覆盖它，不是本轮新出现的冲突。上游的意图是明示的，不是疏忽，fork 的「退化条款」（上游一改同处即退役去适配）在字面上未触发（上游没改 `list.ts`），但这正是该条款想覆盖的情形，需要显式确认「继续背」。
 - **已知后果（未立案迁移）**：`applySessionListMetadata` 的 `stateVersion` 有意停在 1（`packages/api/session-controller/src/list.ts` 的注释写明理由：升版会让每个未重开的会话丢掉 `lastPromptAt`，整条侧栏改按创建时间排序与标注，代价大于纠正 `blank`）。因此**本次构建之前跑过命令的会话保留旧的 blank 判决，不会自愈**；要不要做一次性迁移未定。
 - **Agent Note**：[`command-engages-blank-session`](../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)
+- **路径**：`.agents/notes/implemented/architecture/2026-07-25-web-client-session-scope-and-provide-channel.*` `.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.*` `apps/web/tests/feedback-command.e2e.ts` `docs/persistence-changes/2026-09-17-command-run-engages.md` `docs/persistence-changes/2026-09-17-command-run-engages.schema.json` `docs/persistence-changes/2026-09-17-command-run-engages.zh.md` `docs/subsystems/commands.*` `packages/api/session-controller/src/client/sessions/session.ts` `packages/api/session-controller/src/list.ts` `packages/api/session-controller/tests/event-script.client.ts` `packages/api/session-controller/tests/session-list-blank.host.spec.ts` `packages/api/session-controller/tests/session.client.spec.ts` `packages/client/ui-commands/README.*` `packages/client/ui-commands/tests/service.client.spec.ts` `packages/client/ui-conversation/tests/skeleton.client.spec.tsx` `packages/client/ui-workspace/README.*` `packages/feedback/command-feedback/README.*` `packages/interaction/commands/README.*` `packages/interaction/commands/src/index.ts` `packages/interaction/commands/src/types.ts` `packages/interaction/commands/tests/commands.spec.ts` `packages/interaction/permission-presets/src/index.ts` `packages/interaction/permission-presets/tests/projection.spec.ts` `packages/plan/plan-mode/src/index.ts` `packages/plan/plan-mode/tests/plan-mode.spec.ts` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/payload-validation.ts` `packages/session/session-format-v0-to-v1/tests/validation.spec.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `snapshots/web/approval-composer/session.v2.jsonl` `snapshots/web/approval-composer/session.v3.jsonl` `snapshots/web/permission-policy-context/session.v2.jsonl` `snapshots/web/permission-policy-context/session.v3.jsonl` `snapshots/web/plan-review/session.v2.jsonl` `snapshots/web/plan-review/session.v3.jsonl` `snapshots/web/ptc-escalation-approved/session.v3.jsonl`
 
 ## connection-state-event — 连接粗粒度状态作为类型化客户端事件
 
@@ -77,6 +88,7 @@
 - **要达到的效果**：插件订阅一个类型化事件即可跟随连接状态，不碰运行时内部。
 - **退役条件**：上游自己广播等价的连接状态事件。
 - **状态**：在役（`core-patches-v11`）。核实依据：`connection/state` 在 `upstream/master` 零命中。
+- **路径**：`packages/api/gateway/src/client/index.ts` `packages/api/gateway/tests/gateway.client.spec.ts` `packages/client/connection/src/client/index.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-cordis-inspect-catalog.ts`
 
 ## core-patches-ledger — 补丁登记文档自身
 
@@ -85,6 +97,7 @@
 - **要达到的效果**：任何一轮同步都能只读本文件决定每条补丁的去留。
 - **退役条件**：不适用——fork 不再维护补丁线时本文件随之消失。
 - **状态**：在役（`core-patches-v11`）。
+- **路径**：`.claude/core-patches.md`
 
 ## core-patches-registry-gate — 按 slug 登记补丁身份与其门禁
 
@@ -95,6 +108,7 @@
 - **状态**：在役（`core-patches-v11`，本轮新增）。
 - **提交信息订正**：提交 `fix(scripts): close the four ways the patch-registry gate let real errors by` 的信息写「`upstream/master` was checked for existence, not for being this line's base. A stale ref silently widened the range, and the extra upstream commits surfaced as trailer violations pointing at upstream's own work. It is now compared against `git merge-base upstream/master HEAD`」。这条修法没有解决它声称解决的问题：`upstream/master` 落后真实基座时它仍是 HEAD 的合并基座，基座判据照样接受它，范围照样撑到上游的提交上，门禁随即把上游自己的提交报成 `trailer-count`／`merge-commit` 违规而失败——就是该信息描述的那个症状，只是落点从基座判据挪到了违规清单。反方向（`upstream/master` 前进，每次 `git fetch upstream` 之后的常态）则直接失败在基座判据上，而提示里的「fetch」只会让它更红。基座已改由本文件的 `**基座合并**` 声明给出、在 HEAD 自己的历史里解析，门禁不再读 `upstream/master`。本线只追加提交、不改写历史，以本条为准。
 - **Agent Note**：[`core-patch-identity-trailers`](../.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md)
+- **路径**：`.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.*` `.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.*` `package.json` `scripts/run-gates.ts` `scripts/verify-core-patches.spec.ts` `scripts/verify-core-patches.ts`
 
 ## disallowed-link-destination-notice — 被阻止的链接目标不再静默丢弃
 
@@ -107,6 +121,7 @@
 - **判错订正（本轮）**：本族一度被记成「局部退役」，理由是「没有委托时目标丢失不是产品里的配置」。该前提不成立：全仓产品代码里 `MarkdownDelegateProvider` 只有 `packages/client/ui-chat/src/client/chat/ChatView.tsx` 一处，且只包住 `ChatNodeList`；`ui-sidebar-documentpreview` 的 `MarkdownBody`、`ui-plan` 的 `PlanPreview`、`ui-trajectory` 的 `TrajectoryTable`、`ui-user-questions` 的 `QuestionComposer` 四处分别挂在 `sidebar.right.pane.tab`／`conversation.view`／`conversation.composer` 上，都是 `conversation.chat` 的兄弟槽，不可能落进那棵子树。实测真实的 `MarkdownBody` 渲染 `[relative](/settings) and [js](javascript:alert(1))`：跟进前是 `relative and js (javascript:alert(1))`（本地路径目标被丢），跟进后是 `relative (/settings) and js (javascript:alert(1))`。因此这是本轮新引入的用户可见回归（`file-link.ts` 在上一轮基座上不存在），不是上游接管。族整体维持在役。
 - **提交信息订正**：提交 `test(ui-primitives): follow the destination the file-link path now claims` 与 `docs(notes): name the half of the link-destination fallback upstream now owns` 的信息写「no product surface renders markdown without the delegate」及等价中文表述，该前提按上一条订正；两条提交已推 origin、不改写历史，以本条为准。
 - **Agent Note**：[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.*` `packages/client/ui-primitives/README.*` `packages/client/ui-primitives/src/markdown/render.tsx` `packages/client/ui-primitives/tests/fixtures/markdown-dom/links-and-autolinks.settled.txt` `packages/client/ui-primitives/tests/fixtures/markdown-dom/links-and-autolinks.streaming.txt` `packages/client/ui-primitives/tests/markdown-file-links.client.spec.tsx` `packages/client/ui-primitives/tests/markdown.client.spec.tsx` `packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx`
 
 ## factory-zero-deepseek-egress — 出厂零 DeepSeek 出站
 
@@ -121,6 +136,7 @@
 - **滚动同步注意**：patch 是整段替换目标行的 `config` 而非合并，因此后续任何一层只要给 `session-log-deepseek` 行任何 `config` 却没重述 `enabled: false`，就会恢复上游的默认开启。
 - **不回补的一半**：壳侧的 `DSH_TELEMETRY_DISABLED` 与桌面组装层用例——补丁线上没有 fork 外壳，上游同名的 `apps/desktop` 是另一个应用。
 - **Agent Note**：[`fork-kills-session-telemetry-and-plugin-inventory`](../.agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md)
+- **路径**：`.agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.*` `apps/web/tests/scaffold.ts` `packages/bundle/base/README.*` `packages/bundle/base/cordis.patch.yml` `packages/bundle/base/tests/base.spec.ts` `packages/bundle/sdk-minimal/README.*` `packages/bundle/sdk-minimal/cordis.patch.yml` `packages/bundle/sdk-minimal/tests/sdk-minimal.spec.ts` `snapshots/sdk/text-turn/cordis.yml`
 
 ## legacy-preset-alias — 遗留 `code` 预设 id 解析为 `ptc`
 
@@ -129,6 +145,7 @@
 - **要达到的效果**：旧设置与旧会话继续解析到同一个预设；有根提供 `code` 时别名让位给该根。
 - **退役条件**：上游自己为改名前的预设 id 提供别名解析，或语料里不再存在 `code`。
 - **状态**：在役（`core-patches-v11`）。核实依据：`LEGACY_PRESET_IDS` 与 `rosterIdFor` 在 `upstream/master` 零命中。
+- **路径**：`packages/preset/agent-presets/src/index.ts` `packages/preset/agent-presets/tests/settings.spec.ts`
 
 ## open-path-not-found-error — 路径打开器返回可区分的 not-found
 
@@ -137,6 +154,7 @@
 - **要达到的效果**：调用方按码分支；文案变化不影响判别。
 - **退役条件**：上游为该端点提供等价的可判别失败码。
 - **状态**：在役（`core-patches-v11`）。核实依据：`session/path-not-found` 在 `upstream/master` 零命中。
+- **路径**：`packages/api/session-controller/src/index.ts` `packages/api/session-controller/src/types.ts` `packages/api/session-controller/tests/session-open-workspace-path.host.spec.ts`
 
 ## permission-preset-glyph — 宿主配置的预设可点名选择器图标
 
@@ -152,6 +170,7 @@
   trigger 上那条注释的丢失**不是** `ModelSelect` 迁包造成的——`ModelSelect.tsx` 在 v9 基座上就已在 `ui-model-selection`，与 `PermissionSelect` 本就不同包。真实原因是上游把 `PermissionSelect` 迁进新包 `ui-permission-presets`（上游 PR #3304）并自己拥有了那几行 chevron JSX，本补丁不再新增它们，注释因此失去落点。
 - **提交信息订正**：本族有一条 `adapt(permission-preset-glyph)` 提交的信息首段描述的是前一提交已完成的组件搬迁（glyph 用例随组件进入 `ui-permission-presets`），与它自己的 diff 不符——该提交的实际改动只有既有用例的 svg 计数 1→2 加一条注释。提交已推 origin、不改写历史，以本条为准。
 - **Agent Note**：[`permission-preset-glyph`](../.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.*` `docs/subsystems/permission-presets.*` `packages/client/ui-permission-presets/src/client/PermissionSelect.tsx` `packages/client/ui-permission-presets/tests/permission-select.client.spec.tsx` `packages/interaction/permission-presets/README.*` `packages/interaction/permission-presets/src/index.ts` `packages/interaction/permission-presets/src/types.ts` `packages/interaction/permission-presets/tests/permission-presets.spec.ts` `scripts/type-equiv.manifest.json`
 
 ## referent-open-seam — `referent/open` 引用点击拦截缝
 
@@ -161,6 +180,7 @@
 - **退役条件**：上游自己提供等价的引用点击拦截点。
 - **状态**：在役（`core-patches-v11`）。核实依据：`referent/open` 在 `upstream/master` 零命中。上游 PR #3151 新增的 `scripts/verify-concrete-terms.ts` 拒绝本缝原字段名里那个含糊的来源标签，字段因此改名为 `enteredAs`，取值与语义不变。本轮适配一处上游改动：`packages/api/session-controller/src/client/index.ts` 新增 `typertOwnedValue` 导入（上游 PR #4368），`ClientReferent` 的导入与它并列。
 - **Agent Note**：[`referent-open-seam-port`](../.agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.*` `apps/web/tests/navigation-panes.e2e.ts` `docs/subsystems/session.*` `packages/api/session-controller/README.*` `packages/api/session-controller/src/client/index.ts` `packages/api/session-controller/src/client/referent.ts` `packages/api/session-controller/tests/referent.client.spec.ts` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/test-support/client-runtime/src/index.ts` `scripts/gen-cordis-catalog.ts`
 
 ## referent-target-probe — 批量路径存在性探测 `probeTargets`
 
@@ -169,6 +189,7 @@
 - **要达到的效果**：一次调用得到整批结论，校验层不按引用数发请求。
 - **退役条件**：上游自己提供等价的批量存在性探测端点。
 - **状态**：局部退役（`core-patches-v11`）。族整体在役，核实依据：`probeTargets` 在 `upstream/master` 零命中。一处局部退役：原先给穷举式客户端假实现 `packages/api/session-controller/tests/fake-api.client.ts` 绑定 `probeTargets` 的那条提交本轮退役——上游 PR #3960 把该假实现整体换成 `tests/remote/{session,bench,history}.client.ts` 的部分规则表，不再要求绑定每个端点，该补丁存在的理由消失。宿主侧覆盖未损失：`session-probe-targets.host.spec.ts` 与 `test-remote.ts` 仍钉着该端点。
+- **路径**：`docs/subsystems/session.*` `packages/api/session-controller/src/index.ts` `packages/api/session-controller/src/types.ts` `packages/api/session-controller/tests/session-probe-targets.host.spec.ts` `packages/api/session-controller/tests/test-remote.ts` `scripts/gen-cordis-catalog.ts`
 
 ## rolling-sync-settle — 每轮滚动同步的适配与生成物收敛
 
@@ -178,6 +199,7 @@
 - **归属规则**：**只服务单一补丁族的适配提交挂那一族自己的 slug**，不挂本族——`core-patches-v10` 上的三条 `adapt(referent-open-seam)`／`adapt(permission-preset-glyph)`／`adapt(command-engages-session)` 即如此。否则按 slug 退役某一族时会找不到它这一轮的适配提交。变基到新基座时的冲突解决是另一回事：它改的是补丁提交自己的内容，直接落在那条提交里，不另起适配提交——本轮八处冲突都是这样解决的，逐处记在各族的状态行上。
 - **退役条件**：不适用——本族随每轮同步重生成，不是可退役的 overlay；它服务的补丁族退役时，对应的适配随之消失。
 - **状态**：在役（`core-patches-v11`）。本轮新增 1 条（重跑 `gen-*` 收敛生成物），线上另有 4 条继承自 `core-patches-v9`。
+- **路径**：`docs/config-catalog.zh.md` `docs/event-producer-consumer.zh.md` `packages/api/session-controller/tests/session.client.spec.ts` `packages/session-query/session-log-export/README.*` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts`
 
 ## session-export-progress — 导出面板显示进度与失败
 
@@ -187,6 +209,7 @@
 - **退役条件**：上游自己让导出回送进度信息并在页面显示。
 - **状态**：在役（`core-patches-v11`）。核实依据：`SESSION_EXPORT_ENTRIES_HEADER` 在 `upstream/master` 零命中。
 - **Agent Note**：[`session-export-progress`](../.agents/notes/implemented/feature/2026-09-03-session-export-progress.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-03-session-export-progress.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/session-query/session-log-export/README.*` `packages/session-query/session-log-export/src/archive.ts` `packages/session-query/session-log-export/src/client/Dialog.module.css` `packages/session-query/session-log-export/src/client/Dialog.tsx` `packages/session-query/session-log-export/src/client/controller.ts` `packages/session-query/session-log-export/src/client/index.ts` `packages/session-query/session-log-export/src/client/locales.ts` `packages/session-query/session-log-export/src/client/progress.ts` `packages/session-query/session-log-export/src/export-extent.ts` `packages/session-query/session-log-export/src/index.ts` `packages/session-query/session-log-export/tests/archive.host.spec.ts` `packages/session-query/session-log-export/tests/client-apply.client.spec.tsx` `packages/session-query/session-log-export/tests/controller.client.spec.ts` `packages/session-query/session-log-export/tests/dialog.client.spec.tsx` `packages/session-query/session-log-export/tests/header-action.client.spec.tsx` `packages/session-query/session-log-export/tests/progress.client.spec.ts` `packages/session-query/session-log-export/tests/route.host.spec.ts` `packages/session-query/session-log-export/tsconfig.client.json` `packages/session-query/session-log-export/tsconfig.host.json`
 
 ## session-export-size-text — 导出面板尺寸文案取自 ui-primitives
 
@@ -195,6 +218,7 @@
 - **要达到的效果**：面板读数走仓内唯一一份实现；文案随之变化（不加空格、所选单位十以下保留一位小数）。
 - **退役条件**：不适用——本条是删除自有代码改用上游实现，不构成对上游的补丁负担。
 - **状态**：在役（`core-patches-v11`）。
+- **路径**：`packages/session-query/session-log-export/src/client/Dialog.tsx` `packages/session-query/session-log-export/tests/dialog.client.spec.tsx` `packages/session-query/session-log-export/tsconfig.client.json`
 
 ## session-export-unreadable-entries — 不可读附件写成归档条目而不撕裂流
 
@@ -206,6 +230,7 @@
 - **退役条件**：上游自己在导出遇到不可读附件时记录并继续（图片与通用文件同一判据）。
 - **状态**：在役（`core-patches-v11`）。核实依据：`unreadableMediaEntry` 在 `upstream/master` 零命中。
 - **Agent Note**：[`export-records-unreadable-media`](../.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/session-query/session-log-export/README.*` `packages/session-query/session-log-export/src/archive.ts` `packages/session-query/session-log-export/src/index.ts` `packages/session-query/session-log-export/tests/archive.host.spec.ts`
 
 ## session-format-legacy-message-source — 一种历史消息来源种类过 V3 迁移边
 
@@ -215,6 +240,7 @@
 - **退役条件**：上游把该来源种类纳入已发布来源词表，或为来源分类提供自定义扩展点，或语料里不再存在它。
 - **状态**：在役（`core-patches-v11`）。核实依据：`git grep -c 'LEGACY_UNINTERPRETED_SOURCE_KINDS\|at-file-mention' upstream/master -- packages/session` 零命中，上游既没纳入该来源种类也没开扩展点；备份 home 语料（`~/.dsh.backup-2026-09-02-before-rc27` 的 121 份日志）里 `at-file-mention` 仍命中 8 份。
 - **Agent Note**：[`v2-to-v3-legacy-source-kind`](../.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/session/session-format-v2-to-v3/README.*` `packages/session/session-format-v2-to-v3/src/index.ts` `packages/session/session-format-v2-to-v3/src/payload.ts` `packages/session/session-format-v2-to-v3/tests/legacy-uninterpreted.spec.ts`
 
 ## session-format-out-of-repo-events — 已落盘的仓外历史事件过迁移边
 
@@ -225,6 +251,7 @@
 - **状态**：在役（`core-patches-v11`）。核实依据：`LEGACY_UNINTERPRETED_EVENT_TYPES` 在 `upstream/master` 零命中。
 - **实证（按盘上语料，不是推断）**：本机 `~/.dsh` 全部 128 份日志逐份解压扫描——`permissionRules/decision` 命中 3 份，`attachment/materialized` **命中 0 份**。那 3 份的只读副本补丁前 `OPEN FAILED`、补丁后全部读回，原始文件 sha256 前后一致。语料回放另证第三条边（V2→V3）必要：`permissionRules/decision` 在纯 `upstream/master` 上被拒，只加本补丁即全部读出。
 - **提交信息订正**：本族提交信息写的「Two such types exist on this fork's disks」对 `attachment/materialized` 不成立——它在本机零命中，只会出现在触发过溢出附件的 rc.29／rc.30 用户机上。提交已推 origin、不改写历史，以本条为准。
+- **路径**：`packages/session/session-format-v0-to-v1/README.*` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/migration.ts` `packages/session/session-format-v0-to-v1/src/validation.ts` `packages/session/session-format-v0-to-v1/tests/migration.spec.ts` `packages/session/session-format-v1-to-v2/src/migration.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `packages/session/session-format-v2-to-v3/README.*` `packages/session/session-format-v2-to-v3/src/payload.ts` `packages/session/session-format-v2-to-v3/tests/legacy-uninterpreted.spec.ts`
 
 ## session-format-v0-legacy-shapes — 接住语料里仍在的三种遗留 v0 形状
 
@@ -234,6 +261,7 @@
 - **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移、把这些内容事件类型纳入清单，或为迁移边提供自定义词汇扩展点，或语料里不再存在写下它们的构建的产物。
 - **状态**：在役（`core-patches-v11`）。核实依据：`git show upstream/master:packages/session/session-format-v0-to-v1/src/dispositions.ts` 里 `'permission/preset'` 仍是 `disposition(['preset'])`、不含 `origin`；`LEGACY_SUBAGENT_DESCRIPTOR_VERSION` 在上游零命中（descriptor 版本 2→3 的迁移仍是 fork 独有）；备份 home 语料（121 份日志）里本族三种形状各自的命中：`permission/preset` 带 `origin` 11 份、`subagent/descriptor` 的 `version: 2` 4 份、六种内容事件类型里 `content/shown` 6 份（共 46 处）与 `content-surface/*` 2 份（共 40 处）。`attachment/materialized` 与 `permissionRules/decision` 虽与本族共用 `LEGACY_UNINTERPRETED_EVENT_TYPES` 这一张表，归属的是 `session-format-out-of-repo-events`，语料数字记在那一族。
 - **Agent Note**：[`v0-migration-legacy-shapes`](../.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.*` `packages/session/session-format-v0-to-v1/README.*` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/migration.ts` `packages/session/session-format-v0-to-v1/tests/legacy.spec.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts`
 
 ## session-index-generation-identity — 派生索引身份带上 Session 世代
 
@@ -242,6 +270,7 @@
 - **要达到的效果**：会话世代变化即重建索引，搜索结果与当前世代一致。
 - **退役条件**：上游把世代纳入自己的索引重置判据。
 - **状态**：在役（`core-patches-v11`）。核实依据：上游 `session-query-sqlite/src/schema.ts` 的 `PRAGMA user_version` 仍只比对 schema 版本。
+- **路径**：`packages/session-query/session-query-sqlite/README.*` `packages/session-query/session-query-sqlite/src/index.ts` `packages/session-query/session-query-sqlite/src/schema.ts` `packages/session-query/session-query-sqlite/tests/sqlite.spec.ts`
 
 ## settings-trigger-action-seat — 设置触发行右端的同行贡献位
 
@@ -252,6 +281,7 @@
 - **状态**：在役（`core-patches-v11`）。核实依据：`settings.trigger.action` 在 `upstream/master` 零命中。本轮适配一处上游改动：上游在同一行的 `ConnectionIndicator` 之后放了自己的 `DesktopUpdateIndicator`（上游 PR #4033），本族的贡献位改排在它之后，两者同行共存。
 - **滚动同步注意**：这是 client-UI 补丁，每轮都要重新移植并重新核实。两处会撞行：`SettingsRoot.tsx` 传给本位的 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改那段时两处一起看；宽行的悬停面落在 `SettingsRoot.module.css` 的触发行选择器上，上游改触发行悬停样式会与它撞。`slot-catalog.ts` 是生成物，冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
 - **Agent Note**：[`settings-trigger-action-slot`](../.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.*` `docs/subsystems/slots.*` `packages/client/ui-settings-general/src/client/SettingsRoot.module.css` `packages/client/ui-settings-general/src/client/SettingsRoot.tsx` `packages/client/ui-settings-general/src/client/index.ts` `packages/client/ui-settings-general/src/client/shell-contract.ts` `packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` `packages/client/ui-settings-general/tests/shell.client.spec.ts` `packages/client/ui-settings/src/client/contract/slots.ts` `packages/client/ui-settings/src/client/index.ts`
 
 ## user-message-action-seat — 用户消息上的贡献位
 
@@ -261,6 +291,7 @@
 - **退役条件**：上游在用户消息上提供等价贡献位。
 - **状态**：在役（`core-patches-v11`）。核实依据：`conversation.chat.user-actions` 与 `renderUserActions` 在 `upstream/master` 零命中。本轮适配两处上游改动：`ChatView` 把节点列表包进 `MarkdownDelegateProvider`（上游 PR #4379），`renderUserActions` 随 `ChatNodeList` 一起进了那层包裹；`TurnTailNodeView` 的 `renderSlotChain` prop 被上游删除（上游 PR #4414），本族测试台里那条随之删除的桩不再重建。
 - **Agent Note**：[`user-message-action-slot`](../.agents/notes/implemented/feature/2026-08-24-user-message-action-slot.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-24-user-message-action-slot.*` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx` `packages/client/ui-chat/src/client/chat/ChatView.tsx` `packages/client/ui-chat/src/client/chat/MessageItem.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/index.ts` `packages/client/ui-chat/tests/chat-branch-tails.client.spec.tsx` `packages/client/ui-chat/tests/chat-view.client.spec.tsx` `packages/client/ui-workflow-run/tests/workflow-run.client.spec.tsx`
 
 ## workspace-gate-private-apps — 工作区门禁看见不发布的 app
 
@@ -270,6 +301,7 @@
 - **退役条件**：上游的 `check-workspace-constraints.ts` 自己区分 `apps/*` 下未发布的私有产品装配与发布成员，或 fork 不再拥有此类目录。
 - **状态**：在役（`core-patches-v11`）。核实依据：`isPrivateApp` 在 `upstream/master` 零命中。本轮适配一处上游改动：上游自己的 `check-workspace-constraints.spec.ts` 也导入了 `checkWorkspaceManifest`，变基把两份导入表并了起来，本族只保留自己新增的 `checkPrivateAppManifest`。
 - **Agent Note**：[`private-apps-are-not-release-members`](../.agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md)
+- **路径**：`.agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.*` `scripts/check-workspace-constraints.spec.ts` `scripts/check-workspace-constraints.ts`
 
 ## attachment-text-file-kind — 持久附件缝的文本文件种类
 
@@ -366,7 +398,17 @@
 
 ## 历史轮次
 
-本线由 `core-patches-v1` 起逐轮变基而来。每轮的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
+本线由 `core-patches-v1` 起逐轮变基而来，到 `core-patches-v11` 为止；此后改为合并上游发布。变基那些轮次的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
+
+### 只活在 develop 的核心路径改动
+
+下面三处改动碰的是核心路径，却不登记成 slug 记录：它们要么只服务 fork 的产品外壳，要么应当离开核心路径，不随本线同步。
+
+- **fork 产品门禁一族**：桌面外壳需要的门禁并集段、几个新增脚本文件和 electron-updater 补丁。它们只在 develop 上，按 develop 合并时的 allowlist A 处理：并集文件取本线的版本，再加上且只加上为该文件列出的 fork 段。其中新增的文件宜迁到 `apps/desktop-shell/` 下，迁走后就不再碰核心路径。
+- **`docs/cookbook/adding-a-tool` 里的「How your tool reaches the model」一节**：迁到 fork 自有文档 `.claude/tool-copy-rules.md`，`.claude/CLAUDE.md` 的链接改指过去，核心文件回到本线的版本。
+- **上游 Note `2026-08-18-session-history-and-event-transport` 里删掉的那一句**：develop 回到本线的版本。订正本身成立（上游的 `packages/` 里已经没有 `HostFrame`），应当作为 PR 提给上游，而不是作为补丁留在 fork。
+
+develop 台账里 rc.26–rc.33 的集成审计、gateway 和 vendoring 历史不搬进本文件：那份台账含大量本仓提交哈希，`verify-repository-references` 不允许它们出现在维护中的文件里。需要时用 `git show desktop-v0.1.0-rc.33:.claude/core-patches.md` 取回。
 
 ### 基座环境敏感的稳定红（不修，仅记录）
 
