@@ -47,7 +47,7 @@ DeepSeek 映射在每个推理档位都生效，包括 `session-title` 请求强
 
 ## Consequences
 
-`toolChoice` 作用于运行时投影之后路由收到的工具表。直接调用不带 `toolHistory`，因此在 `addition-only` 与 `in-history` 两种路由上，投影都不改变它的工具表。延迟加载的工具只有在 `tool_addition` 激活之后才算可调用；`INVALID_REQUEST` 检查仍只看 `tools` 是否为空或缺省，所以只提供延迟加载工具的请求会到达端点。
+`toolChoice` 作用于运行时投影之后路由收到的工具表。直接调用不带 `toolHistory`，因此在声明了工具更新模式（`addition-only` 或 `in-history`）的路由上，投影不改变它的工具表，延迟加载的工具只有在 `tool_addition` 激活之后才算可调用。在没有工具更新模式的路由上，投影会去掉 `deferLoading`，每个已提供的工具都可调用。`INVALID_REQUEST` 检查仍只看 `tools` 是否为空或缺省，所以只提供延迟加载工具的请求会到达端点。
 
 产生方从 tool-call 块读取结果，忽略 text 块，并接受 `finish.kind === 'tool-calls'`。收到点名 `toolChoice` 的 `UNSUPPORTED_OPTION` 失败时，它去掉该字段重发一次，并按路由与推理档位记住这个结果。
 

@@ -47,7 +47,7 @@ The DeepSeek mapping applies at every reasoning effort, including the `off` effo
 
 ## Consequences
 
-`toolChoice` applies to the tool list the route receives after runtime projection. A direct call carries no `toolHistory`, so projection leaves its list unchanged on both the `addition-only` and `in-history` routes. A deferred tool counts as callable only once a `tool_addition` activates it; the `INVALID_REQUEST` check still looks only at an empty or absent `tools`, so a request offering only deferred tools reaches the endpoint.
+`toolChoice` applies to the tool list the route receives after runtime projection. A direct call carries no `toolHistory`, so on a route that declares a tool-update mode (`addition-only` or `in-history`) projection leaves its list unchanged, and a deferred tool counts as callable only once a `tool_addition` activates it. On a route without a tool-update mode, projection drops `deferLoading`, so every offered tool is callable. The `INVALID_REQUEST` check still looks only at an empty or absent `tools`, so a request offering only deferred tools reaches the endpoint.
 
 A producer reads its result from the tool-call blocks and ignores text blocks. It accepts `finish.kind === 'tool-calls'`. When it receives an `UNSUPPORTED_OPTION` failure naming `toolChoice`, it resends once without the field and remembers the outcome per route and reasoning effort.
 

@@ -202,7 +202,7 @@ Loop-retained response blocks append to the next request and preserve its earlie
 These limits define where the adapter stops and future work begins. They are current package constraints, not a general DeepSeek comparison or a task backlog.
 
 - **Replacing `models` replaces the complete catalog list** — use path edits when changing one model entry.
-- **`toolChoice` needs offered tools** — it is sent as `tool_choice: { type: 'any' }` at every reasoning effort, and a request whose `tools` is empty or absent fails with `INVALID_REQUEST` before HTTP.
+- **`toolChoice` needs offered tools** — it is sent as `tool_choice: { type: 'any' }` at every reasoning effort, and a request whose `tools` is empty or absent fails with `INVALID_REQUEST` before the Messages request; image uploads to the Files API run earlier and may already have happened.
 - **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy or interception configuration.
 - **Messages in-history system updates require a retained user or tool-result turn** — if all user input after an update is omitted and the preceding wire turn is assistant, serialization fails with `UNSUPPORTED_CONTENT` before the next assistant or at the end of the request. Text or an empty tool result can retain that turn. Moving the update to an earlier turn is not supported; the [input-history decision](../../../.agents/notes/implemented/bug-fix/2026-09-18-messages-input-history-compatibility.md) records the ordering constraint.
 - **Images are input-only durable attachments** — direct external URLs and assistant image output are not supported; DeepSeek input normally uses the Files API and uses inline base64 only for per-request recovery.

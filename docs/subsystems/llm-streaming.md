@@ -627,8 +627,9 @@ interface GenerateOptions {
    * provider cannot honor it fails with `UNSUPPORTED_OPTION` naming
    * `GenerateOptions.toolChoice`. Loop-built requests leave it undefined;
    * omission keeps the provider default. `tools` is the list the route
-   * receives after runtime projection; a deferred tool counts only once
-   * activated.
+   * receives after runtime projection: on a route that declares a
+   * tool-update mode a deferred tool counts only once activated, and on a
+   * route without one the projection drops `deferLoading`.
    */
   toolChoice?: { type: 'any' }
   temperature?: number
