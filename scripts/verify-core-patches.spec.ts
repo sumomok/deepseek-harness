@@ -484,7 +484,7 @@ describe('runCheck', () => {
     expect(runCheck(fixture.root).status).toBe('ok')
   })
 
-  it('agrees when the Chinese config and event catalogs differ only by their generated regions', (test) => {
+  it('agrees when the Chinese config and event catalogs differ from the base', (test) => {
     const fixture = repository(test)
     fixture.write('docs/config-catalog.zh.md', '<!-- BEGIN GENERATED config-catalog -->\nregenerated\n<!-- END GENERATED config-catalog -->\n')
     fixture.write('docs/event-producer-consumer.zh.md', '<!-- BEGIN GENERATED event-producer-consumer -->\nregenerated\n<!-- END GENERATED event-producer-consumer -->\n')
