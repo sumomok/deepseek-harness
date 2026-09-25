@@ -151,7 +151,7 @@ describe('ui-settings-general apply', () => {
       expect(c.ctx.slots.getVersion(name)).toBe(zhVersions[i]!)
       expect(ownEntries(c, name)).toHaveLength(1)
     })
-    expect(generalLabel(c)).toBe('General')
+    expect(generalLabel(c)).toBe('General settings')
     await vi.waitFor(() => {
       expect(c.ctx.settingsScope.describe().getSnapshot().view?.namespaces).toEqual([english])
     })
@@ -211,7 +211,7 @@ describe('ui-settings-general apply', () => {
     const chinese = localeView('zh', 2)
     settings.mutate.mockResolvedValueOnce(ok(english)).mockResolvedValueOnce(ok(chinese))
     c.ctx.locale.setLocale('en')
-    expect(generalLabel(c)).toBe('General')
+    expect(generalLabel(c)).toBe('General settings')
     c.ctx.locale.setLocale('zh')
     expect(generalLabel(c)).toBe('通用设置')
     await vi.waitFor(() => {
