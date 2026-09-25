@@ -1,10 +1,18 @@
 - dialog "设置":
   - navigation:
     - text: 设置
-    - button "通用设置"
-    - button "模型"
-    - button "内置插件"
-    - button "Agent 预设"
+    - group "通用":
+      - text: 通用
+      - button "通用设置"
+    - group "模型":
+      - text: 模型
+      - button "提供方与模型"
+    - group "智能体":
+      - text: 智能体
+      - button "Agent 预设"
+    - group "扩展":
+      - text: 扩展
+      - button "内置插件"
   - button "打开配置文件"
   - button "关闭"
   - text: 权限 选择新会话的默认权限模式

@@ -1,10 +1,18 @@
 - dialog "Settings":
   - navigation:
     - text: Settings
-    - button "General"
-    - button "Models"
-    - button "Built-in plugins"
-    - button "Agent presets"
+    - group "General":
+      - text: General
+      - button "General settings"
+    - group "Models":
+      - text: Models
+      - button "Providers & models"
+    - group "Agent":
+      - text: Agent
+      - button "Agent presets"
+    - group "Extensions":
+      - text: Extensions
+      - button "Built-in plugins"
   - button "Open configuration file"
   - button "Close"
   - text: Permission Choose the default permission mode for new sessions
