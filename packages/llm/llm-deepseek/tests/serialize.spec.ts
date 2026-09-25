@@ -46,6 +46,46 @@ describe('Messages request conversion', () => {
     ])
   })
 
+  describe('tool choice', () => {
+    const verdict = { name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }
+
+    it('sends tool_choice any beside the offered tools', () => {
+      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' } })
+      expect(request.tool_choice).toEqual({ type: 'any' })
+      expect(request.tools).toEqual([{ name: 'submit_verdict', description: 'Submit the verdict', input_schema: { type: 'object' } }])
+    })
+
+    it('sends tool_choice beside a tool declared with defer_loading', () => {
+      const tools = [verdict, { name: 'search', description: 'Search', parameters: {}, deferLoading: true as const }]
+      const request = body([user()], { tools, toolChoice: { type: 'any' } })
+      expect(request.tool_choice).toEqual({ type: 'any' })
+      expect(request.tools?.[1]).toEqual({ name: 'search', description: 'Search', input_schema: {}, defer_loading: true })
+    })
+
+    it('leaves tool_choice out when the request does not set it', () => {
+      expect(body([user()], { tools: [verdict] })).not.toHaveProperty('tool_choice')
+    })
+
+    it.each([
+      ['absent', undefined],
+      ['empty', []],
+    ] as const)('refuses a tool choice whose tools are %s', (_label, tools) => {
+      expect(() => body([user()], { ...tools === undefined ? {} : { tools: [...tools] }, toolChoice: { type: 'any' } }))
+        .toThrow(expect.objectContaining({ code: 'INVALID_REQUEST', message: 'DeepSeek Messages tool choice requires offered tools' }))
+    })
+
+    it.each(['off', 'low', 'high', 'max'])('maps the same tool_choice at reasoning effort %s', (effort) => {
+      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: ReasoningEffortId(effort) })
+      expect(request.tool_choice).toEqual({ type: 'any' })
+      expect(request.thinking).toEqual({ type: effort === 'off' ? 'disabled' : 'enabled' })
+    })
+
+    it('maps the same tool_choice for a session-title request', () => {
+      const request = body([user()], { tools: [verdict], toolChoice: { type: 'any' }, purpose: 'session-title' })
+      expect(request).toMatchObject({ thinking: { type: 'disabled' }, tool_choice: { type: 'any' } })
+    })
+  })
+
   it('preserves the exact request with request-only text after durable tool results', () => {
     const prefix = [user(), assistant([call()]), result()]
     const input: RequestUserInput = { role: 'user', content: [{ type: 'text', text: 'review or summarize this input' }] }

@@ -147,6 +147,9 @@ export function serialize(
   if (!['off', 'low', 'high', 'max'].includes(effort) || (connection.defaults.thinking === 'disabled' && effort !== 'off')) {
     throw new LlmError(`DeepSeek Messages does not support reasoning effort ${effort}`, 'UNSUPPORTED_REASONING_EFFORT')
   }
+  if (options.toolChoice !== undefined && (options.tools === undefined || options.tools.length === 0)) {
+    throw new LlmError('DeepSeek Messages tool choice requires offered tools', 'INVALID_REQUEST')
+  }
   const system = [options.system, historySystem].filter(Boolean).join('\n\n')
   return {
     model: options.model, stream: true, messages,
@@ -164,5 +167,6 @@ export function serialize(
         ...tool.deferLoading === true ? { defer_loading: true as const } : {},
       })),
     },
+    ...options.toolChoice === undefined ? {} : { tool_choice: { type: 'any' as const } },
   }
 }

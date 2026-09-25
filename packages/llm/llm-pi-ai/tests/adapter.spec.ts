@@ -220,6 +220,17 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
+  it('refuses a tool choice before provider I/O', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url)
+    const tools = [{ name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }]
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], tools, toolChoice: { type: 'any' } })
+    expect(result.finish).toMatchObject({
+      kind: 'error', failure: { code: 'UNSUPPORTED_OPTION', message: expect.stringContaining('GenerateOptions.toolChoice') as string },
+    })
+    expect(server.requests).toEqual([])
+  })
+
   it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)

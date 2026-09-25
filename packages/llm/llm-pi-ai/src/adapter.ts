@@ -334,6 +334,12 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
+    // pi-ai owns the provider request body, and its common stream options
+    // choose only `auto` or `none`; writing each API's own forced-tool field
+    // into the body would take that ownership away from pi-ai.
+    if (options.toolChoice !== undefined) {
+      throw new LlmError('llm-pi-ai does not support GenerateOptions.toolChoice', 'UNSUPPORTED_OPTION')
+    }
     // One capture per stream call, taken before any await: the profile, the
     // model descriptor, and the collection all come from the same immutable
     // snapshot, and the credential freezes with them. A configuration change

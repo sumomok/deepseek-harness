@@ -624,6 +624,19 @@ interface GenerateOptions {
   tools?: ToolSchema[]
   /** Session-folded tool history used for route projection; omission sends complete declarations without tool updates. */
   toolHistory?: ToolHistory
+  /**
+   * Requires the answer to call one of the offered `tools`; with a single
+   * offered tool, that tool. The answer may still carry text beside the call,
+   * or more than one call, and the arguments remain model-generated JSON that
+   * callers validate. An adapter that maps it fails with `LlmError` code
+   * `INVALID_REQUEST` when `tools` is empty or absent; an adapter whose
+   * provider cannot honor it fails with `UNSUPPORTED_OPTION` naming
+   * `GenerateOptions.toolChoice`. Loop-built requests leave it undefined;
+   * omission keeps the provider default. `tools` is the list the route
+   * receives after runtime projection; a deferred tool counts only once
+   * activated.
+   */
+  toolChoice?: { type: 'any' }
   temperature?: number
   maxTokens?: number
   /**

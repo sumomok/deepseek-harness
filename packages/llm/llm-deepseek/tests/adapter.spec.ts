@@ -28,7 +28,7 @@ import { object } from '../src/replay.ts'
 import { DeepSeekFileStore } from '../src/file-store.ts'
 import * as Messages from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import * as AccountProvider from '@deepseek-ai/dsh-llm-deepseek-account'
-import { adapter, assemble, chunks, MODEL, options, prepareExtensions, server, sse, textEvents, user, sourceModuleLoader } from './helpers.ts'
+import { adapter, assemble, chunks, end, MODEL, options, prepareExtensions, server, sse, start, textEvents, user, sourceModuleLoader } from './helpers.ts'
 
 const cleanup: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -123,6 +123,35 @@ describe('direct Messages HTTP', () => {
     })
     await assemble(llm.stream(options({ tools })))
     expect(http.requests[1]?.headers).not.toHaveProperty('anthropic-beta')
+  })
+
+  it('sends tool_choice only on a request that sets toolChoice', async () => {
+    const http = await endpoint()
+    const llm = adapter({ baseURL: http.url })
+    const tools = [{ name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }]
+    await assemble(llm.stream(options({ tools, toolChoice: { type: 'any' } })))
+    await assemble(llm.stream(options({ tools })))
+    expect(http.requests[0]?.body).toMatchObject({ tool_choice: { type: 'any' }, tools: [{ name: 'submit_verdict' }] })
+    expect(http.requests[1]?.body).not.toHaveProperty('tool_choice')
+  })
+
+  it('reads text before a forced tool call as a text block and a tool-call block', async () => {
+    const http = await endpoint(response => response.end(sse([start,
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Reviewing the call.' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'submit_verdict', input: {} } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"allow":' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: ' true}' } },
+      { type: 'content_block_stop', index: 1 },
+      ...end('tool_use')])))
+    const tools = [{ name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }]
+    const response = await assemble(adapter({ baseURL: http.url }).stream(options({ tools, toolChoice: { type: 'any' } })))
+    expect(response.message.content).toEqual([
+      { type: 'text', text: 'Reviewing the call.' },
+      { type: 'tool-call', id: 'toolu_1', name: 'submit_verdict', arguments: '{"allow": true}' },
+    ])
+    expect(response.assembler.finish).toEqual({ kind: 'tool-calls' })
   })
 
   it('uses the Messages endpoint, authentication, attribution and final usage', async () => {
@@ -492,6 +521,30 @@ describe('Cordis provider composition', () => {
     expect(http.requests[0]?.body.system).toBe('current')
     expect((http.requests[0]?.body.messages as { role: string }[]).map(message => message.role)).toEqual(['user', 'assistant', 'user'])
     expect(JSON.stringify(history)).toBe(saved)
+  })
+
+  it('fails a tool choice without offered tools before contacting the provider', async () => {
+    const { ctx, http } = await boot()
+    expect((await chunks(ctx.llm.stream(options({ toolChoice: { type: 'any' } })))).at(-1)).toMatchObject({
+      type: 'finish', reason: { kind: 'error', failure: { code: 'INVALID_REQUEST' } },
+    })
+    expect(http.requests).toEqual([])
+  })
+
+  it('sends a direct call\'s tools unchanged with tool_choice on the addition-only route', async () => {
+    const { ctx, http } = await boot()
+    const tools = [
+      { name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } },
+      { name: 'search', description: 'Search', parameters: {}, deferLoading: true as const },
+    ]
+    await assemble(ctx.llm.stream(options({ model: 'deepseek-flash', tools, toolChoice: { type: 'any' } })), 'deepseek-flash')
+    expect(http.requests[0]?.body).toMatchObject({
+      tool_choice: { type: 'any' },
+      tools: [
+        { name: 'submit_verdict', description: 'Submit the verdict', input_schema: { type: 'object' } },
+        { name: 'search', description: 'Search', input_schema: {}, defer_loading: true },
+      ],
+    })
   })
 
   it('continues a recorded tool turn with a warning when its native replay version is unknown', async () => {
