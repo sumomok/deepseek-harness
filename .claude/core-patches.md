@@ -306,7 +306,7 @@
 - **要达到的效果**：携带该来源种类的会话能迁移、能索引；接受面仍是一份按盘上实测列出的名单，不是通用放行。
 - **退役条件**：上游把该来源种类纳入已发布来源词表，或为来源分类提供自定义扩展点，或语料里不再存在它。
 - **状态**：在役（`feature/core-patches`）。核实依据：`git grep -c 'LEGACY_UNINTERPRETED_SOURCE_KINDS\|at-file-mention' dsh-v0.1.7-rc.2 -- packages/session` 零命中，上游既没纳入该来源种类也没开扩展点；备份 home 语料（`~/.dsh.backup-2026-09-02-before-rc27` 的 121 份日志）里 `at-file-mention` 仍命中 8 份。
-- **本轮适配（`dsh-v0.1.7-rc.2`）**：`legacy-uninterpreted.spec.ts` 的历史 `at-file-mention` 事件直接标注为 `SessionFormatEvent`，不再经 `as unknown`（上游 PR #4610）。经完整目录 V0→V4 的回归测试 `session-format-catalog/tests/fork-historical-events.spec.ts` 同时断言 `at-file-mention` 来源原样保留，该文件登记在 `session-format-out-of-repo-events`。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`legacy-uninterpreted.spec.ts` 的历史 `at-file-mention` 事件直接标注为 `SessionFormatEvent`，不再经 `as unknown`（上游 PR #4610）。`payload.ts` 的 `assertSource` 改为先在字符串判定之后放行点名的来源种类、再走上游原样的单一拒收条件：基座的载荷校验已先拒收非字符串 `kind`，本族原先单独的非字符串分支没有可达输入，过不了逐文件覆盖率门禁；行为不变。经完整目录 V0→V4 的回归测试 `session-format-catalog/tests/fork-historical-events.spec.ts` 同时断言 `at-file-mention` 来源原样保留，该文件登记在 `session-format-out-of-repo-events`。
 - **Agent Note**：[`v2-to-v3-legacy-source-kind`](../.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md)
 - **路径**：`.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/session/session-format-v2-to-v3/README.*` `packages/session/session-format-v2-to-v3/src/index.ts` `packages/session/session-format-v2-to-v3/src/payload.ts` `packages/session/session-format-v2-to-v3/tests/legacy-uninterpreted.spec.ts`
 
