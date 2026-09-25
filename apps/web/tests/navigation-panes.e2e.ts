@@ -165,7 +165,7 @@ async function openMediaSeed(page: Page): Promise<void> {
   }
   const searchButton = page.getByRole('button', { name: 'Search sessions' })
   if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByPlaceholder('Search sessions', { exact: false })
+  const search = page.getByPlaceholder('Search session names', { exact: false })
   await search.fill(MEDIA_MARKER)
   const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
   await expect.poll(() => result.count(), { timeout: 30_000 }).toBe(1)
