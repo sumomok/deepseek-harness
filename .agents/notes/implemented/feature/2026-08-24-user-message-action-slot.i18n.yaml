@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-user-message-action-slot.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-user-message-action-slot.md
-2026-08-24-user-message-action-slot.md: 95f5d12b9efea58588f11390445f01b6b2a4b05e
-2026-08-24-user-message-action-slot.zh.md: cf5febc08b7612b26650a9652152f57de4a85869
+/agent-note-a-contribution-seat-on-user-messages:
+  en: 584c0f283e99fde3
+  zh: dc110934a3871893
+/agent-note-a-contribution-seat-on-user-messages/problem:
+  en: 40c7e5b873c230aa
+  zh: 61b0a315ad0139a6
+/agent-note-a-contribution-seat-on-user-messages/decision:
+  en: ff7583e34a4e68bc
+  zh: 508eafed11085afb
+/agent-note-a-contribution-seat-on-user-messages/alternatives-considered:
+  en: af83a0384cbf6a42
+  zh: 3f275e0b70d31d3b
+/agent-note-a-contribution-seat-on-user-messages/consequences:
+  en: e50dc0cb29cd33ec
+  zh: 289e6b3a17be7a15

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-20-private-apps-are-not-release-members.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md
-2026-08-20-private-apps-are-not-release-members.md: 7fcc61d0981206458e03fa194b03169a470fb47f
-2026-08-20-private-apps-are-not-release-members.zh.md: f4e11c8033c1f77f0c0dacd6f9cc22ca41505bbd
+/agent-note-private-apps-are-not-release-members:
+  en: ca99fc4e7ff3f512
+  zh: c8cecad2bec539f9
+/agent-note-private-apps-are-not-release-members/problem:
+  en: 1335fdc90026b52f
+  zh: db3717f08c97b977
+/agent-note-private-apps-are-not-release-members/decision:
+  en: 738584709fb16545
+  zh: 91365ca8ff4d09d5
+/agent-note-private-apps-are-not-release-members/testing:
+  en: 4474789dbce5c459
+  zh: 61b032db8d230df7
+/agent-note-private-apps-are-not-release-members/alternatives-considered:
+  en: 569c8c161fd6b996
+  zh: 0ef54a19788cfc5e
+/agent-note-private-apps-are-not-release-members/consequences:
+  en: cfe4d3a6d2234c84
+  zh: 8ab1da9aa9c8f056

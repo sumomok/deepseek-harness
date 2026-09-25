@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-markdown-link-destination-fallback.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md
-2026-08-27-markdown-link-destination-fallback.md: c7ab677f3ee9ac4e1c23cf5fb52ddd6eb3bf44aa
-2026-08-27-markdown-link-destination-fallback.zh.md: 0fcdc87ed63f6af6a25eac569a2272233c763c3d
+/agent-note-stop-silently-discarding-a-disallowed-link-destination:
+  en: ef679a8a1e1a3f96
+  zh: 07bfd54f74755e4a
+/agent-note-stop-silently-discarding-a-disallowed-link-destination/problem:
+  en: 6baa01494f7026c3
+  zh: 0bf2d73c070c5187
+/agent-note-stop-silently-discarding-a-disallowed-link-destination/decision:
+  en: de52561fd56b9abf
+  zh: 8c7eddd06975bb25
+/agent-note-stop-silently-discarding-a-disallowed-link-destination/alternatives-considered:
+  en: 634834895c48c379
+  zh: 9502edf965eaf0f7
+/agent-note-stop-silently-discarding-a-disallowed-link-destination/consequences:
+  en: e8c3c74b34e2c226
+  zh: 0037f04b3ed6a422

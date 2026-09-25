@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-command-run-engages.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-09-17-command-run-engages.md
-2026-09-17-command-run-engages.md: 889a1a4d9fb9dcd2b20e7a84dc1afdf8f7bfa6c0
-2026-09-17-command-run-engages.zh.md: f7e92a8d82848cb8ee4bd8efbf2d9d6211ef5523
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-09-17-command-run-engages:
+  en: 591f509417f1db8d
+  zh: da2787c655e43dea
+/2026-09-17-command-run-engages/summary:
+  en: 63c2aa4c007465ae
+  zh: cb986204da62601b
+/2026-09-17-command-run-engages/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-09-17-command-run-engages/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-09-17-command-run-engages/compatibility:
+  en: a08ad4aa996f3bfd
+  zh: 534a18cc21a40492
+/2026-09-17-command-run-engages/verification:
+  en: b56c7a547ba8f574
+  zh: 2980f5ea5b2b2120
+/2026-09-17-command-run-engages/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

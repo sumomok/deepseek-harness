@@ -1938,10 +1938,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'openWorkspacePath\') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>',
-        description: 'Verify one path through the composed filesystem and open it on the Host desktop.',
+        description: 'Verify one path through the composed filesystem and open or reveal it on the Host desktop. A does-not-exist path is checked explicitly before the opener runs: the opener is a shelled-out platform command (`open`, `xdg-open`, PowerShell\'s `Invoke-Item`), never a Node fs call, so it never raises a `NodeJS.ErrnoException` this process could read a reliable code from — its "no such file" text is platform-specific and unparsed. The pre-check leaves every other failure (permission, no registered application, the platform command itself missing) exactly as it was: folded into `gateway/internal` below.',
         parameters: [{ name: 'request', description: 'path after best-effort Session workspace resolution.' }, { name: 'signal', description: 'caller lifetime; abort terminates the native command.' }],
         returns: 'confirmation after the native opener accepts the path.',
-        throws: ['RemoteError when the request is invalid, has no verified Host mapping, is cancelled, or the opener fails.'],
+        throws: ['RemoteError when the request is invalid, has no verified Host mapping, the path does not exist, is cancelled, or the opener fails.'],
       },
       {
         signature: '@Remote(\'workspacePathApplications\') async workspacePathApplications( request: { readonly path: string }, signal: AbortSignal, ): Promise<readonly SessionWorkspacePathApplication[]>',
@@ -1949,6 +1949,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'request', description: 'file path in Host filesystem syntax.' }, { name: 'signal', description: 'caller lifetime, propagated to filesystem and desktop queries.' }],
         returns: 'OS application names, icons, and default selection; empty when desktop opening is unavailable.',
         throws: ['RemoteError when the path is invalid, the query is cancelled, or native discovery fails.'],
+      },
+      {
+        signature: '@Remote(\'probeTargets\') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>',
+        description: 'Batch existence/kind probe for the three-layer clickable-reference verification stage: a read-only `stat` per path, never a directory listing or a content read. Always available — unlike a directory picker\'s browse capability, this makes no filesystem choice a deployment might want to withhold beyond what `openWorkspacePath`\'s own pre-check already performs per path. Capped at PROBE_TARGETS_MAX_PATHS paths per call (a larger or empty batch fails `gateway/bad-request` before probing starts) and run with bounded internal concurrency, so a caller with more candidates issues several calls rather than one unbounded one.',
+        parameters: [{ name: 'request', description: 'paths to probe, in the order results are returned.' }],
+        returns: 'one result per requested path, in the same order.',
+        throws: ['RemoteError when the batch is empty or exceeds the size cap.'],
       },
       {
         signature: '@Remote(\'rename\') rename(request: SessionRenameRequest): Promise<SessionRenameValue>',
@@ -5198,7 +5205,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: RequestMessage[];\n    system?: string;\n    tools?: ToolSchema[];\n    toolHistory?: ToolHistory;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: RequestMessage[];\n    system?: string;\n    tools?: ToolSchema[];\n    toolHistory?: ToolHistory;\n    toolChoice?: {\n        type: \'any\';\n    };\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -5933,6 +5940,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PresetDefinition {\n    readonly id: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly plugins: readonly (Omit<EntryOptions, \'id\' | \'disabled\'> & {\n        id?: string;\n        disabled?: EntryOptions[\'disabled\'] | JsExpr;\n    })[];\n}',
   },
   {
+    name: 'PresetGlyph',
+    declaration: 'export type PresetGlyph = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
+  },
+  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n    glyph?: PresetGlyph;\n    tone?: PresetTone;\n}',
   },
@@ -5953,16 +5964,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n    info?: ToolErrorInfo;\n} | {\n    kind: \'cancel\';\n} | {\n    kind: \'ask\';\n    reason?: string;\n    displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n};',
   },
   {
+    name: 'ProbeResult',
+    declaration: 'export interface ProbeResult {\n    readonly path: string;\n    readonly exists: boolean;\n    readonly kind?: \'file\' | \'dir\';\n}',
+  },
+  {
     name: 'ProductTelemetryRecord',
     declaration: 'export interface ProductTelemetryRecord {\n    eventName: string;\n    body: string;\n    timestamp: number;\n    severityNumber?: SeverityNumber;\n    attributes?: Record<string, ProductTelemetryScalar | Record<string, ProductTelemetryScalar>>;\n}',
   },
   {
     name: 'ProductTelemetryScalar',
     declaration: 'export type ProductTelemetryScalar = string | number | boolean;',
-  },
-  {
-    name: 'ProbeResult',
-    declaration: 'export interface ProbeResult {\n    readonly path: string;\n    readonly exists: boolean;\n    readonly kind?: \'file\' | \'dir\';\n}',
   },
   {
     name: 'ProfilePnpmInvocation',

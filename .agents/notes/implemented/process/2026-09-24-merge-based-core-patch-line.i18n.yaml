@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-24-merge-based-core-patch-line.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md
-2026-09-24-merge-based-core-patch-line.md: 3c32940e7a12db82588ee3de683b5f7edc479a23
-2026-09-24-merge-based-core-patch-line.zh.md: c0fc7ac820c29a823ca68da74ea72c28863cad43
+/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag:
+  en: e49f8633c5ab850a
+  zh: b441555a474dab2c
+/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/problem:
+  en: 3eaccbfdf5662e6b
+  zh: 52bdf1b9149a3d22
+/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/decision:
+  en: a6db352ea8b47bdd
+  zh: af64f525940b198a
+/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/alternatives-considered:
+  en: 408584ca77350e5b
+  zh: 0dec4531d992b550
+/agent-note-the-core-patch-line-merges-upstream-releases-and-claims-its-diff-against-the-base-tag/consequences:
+  en: 00a8951c4990547d
+  zh: f39679f4322a70da

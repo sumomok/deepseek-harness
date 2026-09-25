@@ -851,11 +851,20 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 'explorer' | 'directory' | null }
 
 /**
- * Verify one path through the composed filesystem and open it on the Host desktop.
+ * Verify one path through the composed filesystem and open or reveal it on
+ * the Host desktop. A does-not-exist path is checked explicitly before the
+ * opener runs: the opener is a shelled-out platform command (`open`,
+ * `xdg-open`, PowerShell's `Invoke-Item`), never a Node fs call, so it
+ * never raises a `NodeJS.ErrnoException` this process could read a reliable
+ * code from — its "no such file" text is platform-specific and unparsed.
+ * The pre-check leaves every other failure (permission, no registered
+ * application, the platform command itself missing) exactly as it was:
+ * folded into `gateway/internal` below.
  * @param request - path after best-effort Session workspace resolution.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns confirmation after the native opener accepts the path.
- * @throws RemoteError when the request is invalid, has no verified Host mapping, is cancelled, or the opener fails.
+ * @throws RemoteError when the request is invalid, has no verified Host mapping, the path does
+ * not exist, is cancelled, or the opener fails.
  */
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 
@@ -867,6 +876,23 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
  * @throws RemoteError when the path is invalid, the query is cancelled, or native discovery fails.
  */
 @Remote('workspacePathApplications') async workspacePathApplications( request: { readonly path: string }, signal: AbortSignal, ): Promise<readonly SessionWorkspacePathApplication[]>
+
+/**
+ * Batch existence/kind probe for the three-layer clickable-reference
+ * verification stage: a read-only `stat` per path, never a directory
+ * listing or a content read. Always available — unlike a directory
+ * picker's browse capability, this makes no filesystem choice a
+ * deployment might want to withhold beyond what `openWorkspacePath`'s own
+ * pre-check already performs per path. Capped at
+ * {@link PROBE_TARGETS_MAX_PATHS} paths per call (a larger or empty batch
+ * fails `gateway/bad-request` before probing starts) and run with bounded
+ * internal concurrency, so a caller with more candidates issues several
+ * calls rather than one unbounded one.
+ * @param request - paths to probe, in the order results are returned.
+ * @returns one result per requested path, in the same order.
+ * @throws RemoteError when the batch is empty or exceeds the size cap.
+ */
+@Remote('probeTargets') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>
 
 /**
  * Rename one Session after explicitly resuming it.

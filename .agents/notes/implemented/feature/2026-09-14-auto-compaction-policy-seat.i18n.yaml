@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-auto-compaction-policy-seat.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-auto-compaction-policy-seat.md
-2026-09-14-auto-compaction-policy-seat.md: d2852ab08d132255118b147604bd0a9c1b3bcbc0
-2026-09-14-auto-compaction-policy-seat.zh.md: bb69f19319d1f134d7d0e7c865861ba5cb2c56fe
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number:
+  en: 5dfd0c7f3ccdaad7
+  zh: b1829cb37b4c9e36
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number/problem:
+  en: 138f4969443f0682
+  zh: 1d6f4e5a67214bf1
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number/decision:
+  en: 2236b4ca15621c6c
+  zh: 9de4da7f88a03f34
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number/the-failure-card:
+  en: 2e91e1fa184857f3
+  zh: 7ba3c8415437f5b1
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number/alternatives-considered:
+  en: a0145d2e0230d06c
+  zh: 07ba0a21161037d0
+/agent-note-a-live-policy-seat-for-automatic-compaction-on-the-meter-s-own-number/consequences:
+  en: fe5612f9e9d6ded0
+  zh: 209b14e0e086c373
