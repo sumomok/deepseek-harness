@@ -280,4 +280,23 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('DeepSeek Messages real API', () 
     expect(warnings).toEqual([[expect.stringContaining('unsupported kind or version')]])
     expect(JSON.stringify(restored)).toBe(saved)
   })
+
+  it.each(['off', 'high'])('forces a call to the one offered tool with %s effort', async (effort) => {
+    const ctx = await boot()
+    const verdict = {
+      name: 'submit_verdict',
+      description: 'Submit the review verdict for the proposed command.',
+      parameters: { type: 'object', properties: { allow: { type: 'boolean' }, reason: { type: 'string' } }, required: ['allow', 'reason'] },
+    }
+    const response = await assemble(ctx.llm.stream(options({
+      messages: [user('Review this command and give your verdict: ls -la')],
+      tools: [verdict], toolChoice: { type: 'any' }, reasoningEffort: ReasoningEffortId(effort),
+    })))
+    expect(response.assembler.finish.kind).toBe('tool-calls')
+    const calls = response.message.content.filter(block => block.type === 'tool-call')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.name).toBe('submit_verdict')
+    const parsed: unknown = JSON.parse(calls[0]?.arguments ?? '')
+    expect(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)).toBe(true)
+  })
 })
