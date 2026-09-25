@@ -24,6 +24,7 @@ async function paint(target: Locator) {
       modality: document.documentElement.getAttribute('data-input-modality'),
       focusColor: resolveColor(style.getPropertyValue('--dsw-alias-state-business-primary').trim()),
       hover: resolveColor(style.getPropertyValue('--dsw-alias-interactive-bg-hover').trim()),
+      dangerHover: resolveColor(style.getPropertyValue('--dsw-alias-interactive-bg-hover-danger').trim()),
       outline: style.outlineColor,
       outlineStyle: style.outlineStyle,
       outlineWidth: style.outlineWidth,
@@ -142,7 +143,9 @@ it.each(['light', 'dark'] as const)('assembled app (%s): pointer keys stay silen
       expect(state.focusVisible).toBe(true)
       expect(state.modality).toBe('keyboard')
       // Menu rows intentionally use the hover fill instead of a second outline.
-      expect(state.background).toBe(state.hover)
+      // The base bundle marks danger-full-access, the last row, with the
+      // danger tone, so that row holds the destructive hover fill.
+      expect(state.background).toBe(index === -1 ? state.dangerHover : state.hover)
       expect(state.background).not.toBe('rgba(0, 0, 0, 0)')
     }
     await page.keyboard.press('Escape')
