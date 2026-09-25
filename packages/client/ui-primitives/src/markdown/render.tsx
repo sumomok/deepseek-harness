@@ -555,8 +555,10 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       // own, so this branch's `displayText` would be empty and its button or
       // code element would render nothing while swallowing the images. Such an
       // anchor belongs to the renderer below, which already has a case for it.
+      // An image destination belongs there too: the file link it renders
+      // carries the hover preview this branch would not draw.
       if (isLocalPathDestination(destination) && !isAllowedScheme(destination)
-        && !anchorWrapsOnlyImages(node.children)) {
+        && !anchorWrapsOnlyImages(node.children) && classifyLinkPath(destination) !== 'image') {
         const rendered = renderLocalLinkDestination(destination, node, key, context)
         if (rendered !== undefined) return rendered
       }

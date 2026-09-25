@@ -119,9 +119,10 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     ) => ChatViewInjected)(id, instance.actions)
     return { instance, injected }
   }
-  const composerApi = (id: SessionId | undefined) => {
-    const entry = runtime.slots.entries('conversation.composer.bar')[0]!
-    return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
+  const composerApi = (id: SessionId | undefined): ComposerBarInjected => {
+    const factory: unknown = runtime.slots.entries('conversation.composer.bar')[0]!.inject
+    if (!isComposerBarInject(factory)) throw new Error('the composer bar registered no inject factory')
+    return factory(id)
   }
   return {
     get linkPreference() {
@@ -133,6 +134,16 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, rootReference, openSession,
     composerApi,
   }
+}
+
+/**
+ * Narrow the composer bar entry's inject factory, which the slot ledger types
+ * for every entry alike, to the Session-scoped form the Conversation bar registers.
+ * @param value - the entry's `inject` member.
+ * @returns whether it is a callable factory.
+ */
+function isComposerBarInject(value: unknown): value is (sessionId: SessionId | undefined) => ComposerBarInjected {
+  return typeof value === 'function'
 }
 
 describe('Chat inject API', () => {
@@ -510,18 +521,27 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('referents.open falls through to window.open for an unclaimed url span', async () => {
+  it('referents.open sends an unclaimed url span through the link-opening preference', async () => {
     const b = await bench()
     const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    const { injected } = b.chatViewApi(b.rootReference)
-    injected.referents!.open(span)
-    await vi.waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
-    })
-    openSpy.mockRestore()
-    await b.runtime.dispose()
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(b.sidebarRight.openTab).toHaveBeenCalledWith('browser', { params: { url: 'https://example.com/' } })
+      })
+      expect(openSpy).not.toHaveBeenCalled()
+      b.linkPreference.setLinkOpening('new-tab')
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
+      })
+    } finally {
+      openSpy.mockRestore()
+      await b.runtime.dispose()
+    }
   })
 
   it('referents.open degrades a not-found race to the session\'s own composer notice, same as the terminal card\'s inline notice — a span verified earlier can still name a path deleted before this click', async () => {

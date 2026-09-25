@@ -83,11 +83,14 @@ export const inject = [
  * @param notFoundText - localized notice text for that case, resolved once
  * by the caller (the same lazy-bind-then-call-per-render pattern the rest of
  * this module's `t(...)` call sites use).
+ * @param openExternalLink - default action for an unclaimed URL span, the
+ * same preference-following opener message links use.
  * @returns the scanner/opener MarkdownText consumes, or undefined.
  */
 function buildProseReferents(
   ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
   notifyNotFound: (sessionId: SessionId, text: string) => void, notFoundText: string,
+  openExternalLink: (url: string) => void,
 ): MarkdownProseReferents | undefined {
   const provider = ctx.get('proseReferents')
   if (provider === undefined) return undefined
@@ -134,7 +137,7 @@ function buildProseReferents(
       }
       const onDefault = async (): Promise<void> => {
         if (referentSpan.kind === 'url') {
-          window.open(referentSpan.target, '_blank', 'noopener,noreferrer')
+          openExternalLink(referentSpan.target)
           return
         }
         // The openFile chokepoint below hands its path to the right Sidebar;
@@ -230,6 +233,15 @@ export function apply(ctx: Context): void {
     const accepted = chatSettings.getSnapshot().value?.linkOpening
     if (accepted !== undefined) linkOpening.set(accepted)
   }))
+  // Message links and URL referents in prose both follow the link-opening
+  // preference: the Sidebar Browser when chosen and registered, else a new tab.
+  const openExternalLink = (url: string): void => {
+    if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
+      ctx.sidebarRight.openTab('browser', { params: { url } })
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
   ctx.inject(['sidebarRightTabs'], (scope) => {
     const tabs = scope.sidebarRightTabs
     const browserAvailable: ObservableSnapshot<boolean> = {
@@ -319,6 +331,7 @@ export function apply(ctx: Context): void {
               if (actx !== undefined && conversation !== undefined) conversation.input.for(actx).notify('error', text)
             },
             t('referent.notFound'),
+            openExternalLink,
           ),
           // referent/open first: wraps the pre-existing open action as the
           // waterfall's terminus, so every consumer this one closure already
@@ -365,13 +378,7 @@ export function apply(ctx: Context): void {
             if (scope === undefined) return
             ctx.get('inputTriggers')?.sessionOf(scope).openReference('skill', { ref: `/${name}` })
           },
-          openExternalLink: (url) => {
-            if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
-              ctx.sidebarRight.openTab('browser', { params: { url } })
-            } else {
-              window.open(url, '_blank', 'noopener,noreferrer')
-            }
-          },
+          openExternalLink,
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),
           loadImage: Object.assign(

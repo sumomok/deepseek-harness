@@ -747,6 +747,21 @@ describe('MarkdownText', () => {
     expect(container.querySelector('code')).toBeNull()
   })
 
+  it('leaves an absolute image link to the file-link renderer, not to resolveLink', () => {
+    const referents = makeLinkReferents(new Map([['/abs/shot.png', { start: 0, end: 1 }]]))
+    const openFile = vi.fn()
+    render(
+      <MarkdownDelegateProvider openExternalLink={vi.fn()} openFile={openFile}>
+        <MarkdownText text="[shot](/abs/shot.png)" referents={referents} />
+      </MarkdownDelegateProvider>,
+    )
+    const link = screen.getByRole('button', { name: 'shot' })
+    expect(link.className).toContain('fileLink')
+    fireEvent.click(link)
+    expect(openFile).toHaveBeenCalledWith('/abs/shot.png', undefined)
+    expect(referents.opened).toEqual([])
+  })
+
   it('a local-path-shaped link destination resolveLink declines renders plain inline-code style with the destination on title, never trailing text', () => {
     const referents = makeLinkReferents(new Map())
     const { container } = render(
