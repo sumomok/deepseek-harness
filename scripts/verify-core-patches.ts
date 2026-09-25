@@ -31,11 +31,12 @@
  * under a merge's second parent — upstream's, and the history the line was
  * joined to — out of the enumeration.
  *
- * Merges. A merge on the first-parent chain is accepted when its second parent
- * is exactly the commit some `refs/tags/dsh-v*` tag points at (an upstream
- * release merge, annotated tags dereferenced), or when its tree equals its first
- * parent's tree (an `-s ours` join). Any other merge is `merge-commit`, since a
- * topic merge hides untrailed commits under its second parent. The release rule
+ * Merges. A merge on the first-parent chain is accepted when it has exactly two
+ * parents and the second is exactly the commit some `refs/tags/dsh-v*` tag
+ * points at (an upstream release merge, annotated tags dereferenced), or when
+ * its tree equals its first parent's tree (an `-s ours` join). Any other merge,
+ * an octopus that names a release included, is `merge-commit`, since a topic
+ * merge hides untrailed commits under its further parents. The release rule
  * deliberately asks nothing about the declared tag: earlier rounds' release
  * merges stay on the first-parent chain after the declaration moves to a newer
  * tag they cannot reach.
@@ -138,7 +139,7 @@ export interface LineMerge {
   id: string
   /** Subject line, for diagnostics only. */
   subject: string
-  /** True when the second parent is exactly a commit a release tag points at. */
+  /** True when the merge has exactly two parents and the second is exactly a commit a release tag points at. */
   mergesRelease: boolean
   /** True when the merge's tree equals its first parent's tree. */
   treeUnchanged: boolean
@@ -390,7 +391,7 @@ export function findRegistryViolations(line: PatchLine, registry: Registry): Reg
     violations.push({
       kind: 'merge-commit',
       subject: merge.id,
-      detail: `${merge.id} (${merge.subject}) is a merge whose second parent is no commit a ${RELEASE_TAG_PATTERN} tag points at and whose tree differs from its first parent's; commits under such a merge carry no trailer this check can read, so the change lands as direct commits instead.`,
+      detail: `${merge.id} (${merge.subject}) is a merge that neither brings in exactly one commit a ${RELEASE_TAG_PATTERN} tag points at as its only second parent nor keeps its first parent's tree; commits under such a merge carry no trailer this check can read, so the change lands as direct commits instead.`,
     })
   }
   return violations
@@ -536,11 +537,14 @@ export function lineMerges(repoRoot: string, base: string, releases: ReadonlySet
   ])
   return raw.split('\n').filter(entry => entry !== '').map((entry) => {
     const [id = '', subject = '', parents = '', tree = ''] = entry.split('\x1f')
-    const [first = '', second = ''] = parents.split(' ')
+    const [first = '', second = '', ...rest] = parents.split(' ')
     return {
       id: id.slice(0, 10),
       subject,
-      mergesRelease: releases.has(second),
+      // An octopus merge that names a release as its second parent still
+      // brings every further parent's commits in untrailed, so only a
+      // two-parent merge counts as a release merge.
+      mergesRelease: rest.length === 0 && releases.has(second),
       treeUnchanged: git(repoRoot, ['rev-parse', `${first}^{tree}`]) === tree,
     }
   })

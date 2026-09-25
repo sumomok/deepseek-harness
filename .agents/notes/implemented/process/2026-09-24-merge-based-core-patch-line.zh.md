@@ -26,7 +26,7 @@ fork 现在把这条线保留为长期分支 `feature/core-patches`，用 `git m
 
 **提交沿 first-parent 链读取。** `git log --first-parent <base>..HEAD` 上的每个非合并提交恰有一条 `Patch:` trailer，值是登记过的 slug，任何状态都算（`trailer-count`、`malformed-trailer`、`unregistered-slug`）。被接入的历史和上游的提交挂在合并提交的第二父之下，不被枚举。
 
-**这条链上只接受两种合并。** (a) 第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交）：并入上游发布。(b) 合并后的树等于第一父的树：`-s ours` 接续。其余合并一律报 `merge-commit`，因为话题分支的合并会把不带 trailer 的提交藏在第二父之下；本线上的改动以直接提交或 squash 提交落地。规则 (a) 不对声明的 tag 提任何要求：声明改成更新的 tag 之后，此前每一轮的发布合并仍留在 first-parent 链上，而新 tag 到达不了它们。
+**这条链上只接受两种合并。** (a) 合并恰有两个父提交，且第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交）：并入上游发布。点名了发布的 octopus 合并仍会带进其余父提交，不算这一种。(b) 合并后的树等于第一父的树：`-s ours` 接续。其余合并一律报 `merge-commit`，因为话题分支的合并会把不带 trailer 的提交藏在第二父之下；本线上的改动以直接提交或 squash 提交落地。规则 (a) 不对声明的 tag 提任何要求：声明改成更新的 tag 之后，此前每一轮的发布合并仍留在 first-parent 链上，而新 tag 到达不了它们。
 
 门禁的适用范围不变：其他分支、detached HEAD、浅克隆都报 `skipped` 并以 0 退出。所以 `develop`、`core-patches` 和 CI 的 pull-request 检出都会跳过，尽管它们带着 fork 自有路径和不带 trailer 的提交。
 

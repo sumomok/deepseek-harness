@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md
-2026-09-17-core-patch-identity-trailers.md: 99b94a9f7df6532f7c2cea2d831c1330b4e4bf98
-2026-09-17-core-patch-identity-trailers.zh.md: 33e092a44059298f2f741fa3f92eb4e5e1d93766
+2026-09-17-core-patch-identity-trailers.md: 69fea486ff060913f846de4add5b922fcd1de0d0
+2026-09-17-core-patch-identity-trailers.zh.md: cb6cec29bbe91786d6106eed3c68e864ecd0f739

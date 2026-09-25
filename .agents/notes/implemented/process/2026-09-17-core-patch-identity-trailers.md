@@ -14,7 +14,7 @@ Upstream then closed the remaining door. `scripts/verify-repository-references.t
 
 ## Decision
 
-The line no longer rebases: [the merge-based patch line](2026-09-24-merge-based-core-patch-line.md) owns the current base declaration, merge rules and path claims. The slug-and-trailer identity below stands.
+The line no longer rebases: [the merge-based patch line](2026-09-24-merge-based-core-patch-line.md) owns the current base declaration, merge rules and path claims. It replaces three parts of the gate described below: the base merge declaration, the enumeration of every commit above it, and the rule that every standing record has at least one commit on the line, which path claims against the base tag now take over. The slug-and-trailer identity below stands.
 
 **A patch family is identified by a kebab-case slug, unique across the line and derived from the patch title.** Every commit on the line carries exactly one `Patch: <slug>` trailer. The registry is organized by slug: one `## <slug> — <title>` section per family, holding the five elements it always held — what changed, why, the intended effect, the retirement condition, and the status with the line it stands on.
 

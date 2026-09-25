@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md
-2026-09-24-merge-based-core-patch-line.md: 1d67cfd8c05d664c50f1a59d8fa080e02e607eb1
-2026-09-24-merge-based-core-patch-line.zh.md: fd85e96e8bf252a4aade04b64f4f05fc7bf06531
+2026-09-24-merge-based-core-patch-line.md: 3c32940e7a12db82588ee3de683b5f7edc479a23
+2026-09-24-merge-based-core-patch-line.zh.md: c0fc7ac820c29a823ca68da74ea72c28863cad43

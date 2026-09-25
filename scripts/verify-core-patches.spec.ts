@@ -618,16 +618,39 @@ describe('runCheck', () => {
     expect(result.report).toContain('merge-commit:')
   })
 
-  it('agrees with an -s ours join whose second parent carries no trailer', (test) => {
+  it('agrees with an -s ours join whose second parent carries untrailed commits and a topic merge', (test) => {
     const fixture = repository(test)
     fixture.record('registry\n\nPatch: alpha-seam')
     fixture.git(['checkout', '--quiet', '-b', 'joined', fixture.base])
     fixture.write('joined.md', 'joined\n')
     fixture.record('joined history, with no trailer')
+    fixture.git(['checkout', '--quiet', '-b', 'joined-topic'])
+    fixture.write('joined-topic.md', 'joined topic\n')
+    fixture.record('joined topic, with no trailer')
+    fixture.git(['checkout', '--quiet', 'joined'])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'joined history merges its own topic', 'joined-topic'])
     fixture.git(['checkout', '--quiet', LINE])
     fixture.git(['merge', '--quiet', '--no-ff', '-s', 'ours', '-m', 'join', 'joined'])
 
+    // The joined history's own topic merge sits under the join's second
+    // parent, off the first-parent chain, so it is neither counted nor judged.
     expect(runCheck(fixture.root)).toMatchObject({ status: 'ok', report: expect.stringContaining('1 merge(s)') as string })
+  })
+
+  it('rejects an octopus merge whose second parent is a release', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.release(fixture.base, 'dsh-v1.1.0', false)
+    fixture.git(['checkout', '--quiet', '-b', 'topic'])
+    fixture.write('alpha/topic.md', 'topic\n')
+    fixture.record('topic change, with no trailer')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', 'merge a release and a topic', 'dsh-v1.1.0', 'topic'])
+    expect(fixture.git(['rev-list', '--parents', '-n', '1', 'HEAD']).split(' ')).toHaveLength(4)
+
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('merge-commit:')
   })
 
   for (const annotated of [false, true]) {
