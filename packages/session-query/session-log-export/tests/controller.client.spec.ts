@@ -96,10 +96,8 @@ describe('SessionLogDownloadController', () => {
     archive.close()
     await run
 
-    const [url, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(url.pathname).toBe('/api/session.export')
-    expect(url.searchParams.get('sessionId')).toBe(SID)
-    expect(url.searchParams.get('includeDescendants')).toBe('true')
+    const [route, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
+    expect(route).toBe(`api/session.export?sessionId=${SID}&includeDescendants=true`)
     expect(init.method).toBe('GET')
     expect(init.signal).toBeInstanceOf(AbortSignal)
 
@@ -288,8 +286,7 @@ describe('SessionLogDownloadController', () => {
     await controller.dispose()
   })
 
-  it('uses the null-origin fallback and the default browser save', async () => {
-    vi.stubGlobal('location', { origin: 'null' })
+  it('requests the document-relative route through the default carrier', async () => {
     const fetcher = vi.fn(
       async (_input: string | URL, _init?: RequestInit) => archiveResponse([entryChunk()], { headers: EXTENT_HEADERS }),
     )
@@ -301,7 +298,7 @@ describe('SessionLogDownloadController', () => {
 
     await controller.download(SID)
 
-    expect((fetcher.mock.calls[0]?.[0] as URL).origin).toBe('http://dsh.internal')
+    expect(fetcher.mock.calls[0]?.[0]).toBe(`api/session.export?sessionId=${SID}&includeDescendants=true`)
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'GET' })
     expect(click).toHaveBeenCalledOnce()
     expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('dsh-session-fixture.zip')

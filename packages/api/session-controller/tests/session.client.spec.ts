@@ -13,7 +13,7 @@ import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
-import { JUMP_PAGE_MESSAGES, Session } from '../src/client/sessions/session.ts'
+import { Session } from '../src/client/sessions/session.ts'
 import { SessionEventStream } from '../src/client/transport.ts'
 import type { SessionFollowRequest, SessionPage, SessionPageRequest } from '../src/types.ts'
 import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
@@ -57,6 +57,15 @@ describe('Session open', () => {
     session.handleRunning(true)
     expect(session.getSnapshot()).toMatchObject({ blank: false, running: true })
   }, COLD_BOOT_TIMEOUT_MS)
+
+  it('rejects a blank list hint when current metadata records a started conversation', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.projections.apply('sessionListMetadata', { blank: false, lastPromptAt: 1200 }, SessionSeq(8))
+
+    session.handleBlank(true)
+
+    expect(session.getSnapshot()).toMatchObject({ blank: false, promptAttempted: false, running: false })
+  })
 
   it('installs the tail page: cold → loading → open with window and nodes in place', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
@@ -145,12 +154,10 @@ describe('live event path', () => {
     expect(session.eventSource.getSnapshot()).toBe(before)
   })
 
-  it('keeps the authoritative host blank bit across a session-configuration command', async ({ mock, start }) => {
+  it('keeps the authoritative host blank bit across unrelated log events', async ({ mock, start }) => {
     const session = await opened(mock, start, [])
     session.handleBlank(true)
-    // /permission declares `engages: false`, so its run configures the
-    // session without giving it something to show.
-    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access'))
+    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access'))
     await pushEvent(mock, ev.commandDone(SessionSeq(1), 'cmd-perm', 'success', 'preset danger-full-access'))
     const snapshot = session.getSnapshot()
     expect(eventSeqs(session)).toEqual([0, 1])
@@ -184,9 +191,9 @@ describe('paging', () => {
     await session.open()
     await session.loadOlder()
     const snapshot = session.getSnapshot()
-    expect(mock.log.requests(FOLLOW)).toHaveLength(1)
-    expect(mock.log.requests(PAGE)).toMatchObject([
-      { address: ADDRESS, throughSeq: 11, beforeSeq: 6 },
+    expect(mock.log.requests(FOLLOW)).toMatchObject([{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }])
+    expect(mock.log.requests(PAGE)).toEqual([
+      { address: ADDRESS, throughSeq: 11, beforeSeq: 6, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
     ])
     expect(snapshot.hasMore).toBe(false)
     expect(eventSeqs(session)).toEqual([...older, ...newer].map(event => event.seq))
@@ -247,8 +254,8 @@ describe('paging', () => {
     expect(snapshot.loadingOlder).toBe(false)
     expect(eventSeqs(session)).toEqual([...oldest, ...middle, ...newest].map(event => event.seq))
     expect(mock.log.requests(PAGE)).toMatchObject([
-      { beforeSeq: 12, maxMessages: JUMP_PAGE_MESSAGES },
-      { beforeSeq: 6, maxMessages: JUMP_PAGE_MESSAGES },
+      { beforeSeq: 12, maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } },
+      { beforeSeq: 6, maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } },
     ])
   })
 
@@ -262,6 +269,88 @@ describe('paging', () => {
     await session.loadThrough(SessionSeq(6)) // baseSeq is already 6
     await session.loadThrough(SessionSeq(9)) // inside the window
     expect(mock.log.requests()).toHaveLength(sent)
+  })
+
+  it('publishes jump pages together while live events remain visible', async ({ mock, start }) => {
+    const oldest = plainTurn(SessionSeq(0), 0, 'old', 'answer')
+    const middle = plainTurn(SessionSeq(6), 1, 'middle', 'answer')
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    const secondRequested = Promise.withResolvers<undefined>()
+    const lastPage = Promise.withResolvers<RemoteResult<SessionPage>>()
+    mock.remote.session.page.mockImplementation(pageRule((request) => {
+      if (request.beforeSeq === 12) return history(middle, true)
+      secondRequested.resolve(undefined)
+      return lastPage.promise
+    }))
+    const changes: string[] = []
+    onTestFinished(session.eventSource.subscribe(() => { changes.push(session.eventSource.getSnapshot().change.kind) }))
+    const jump = session.loadThrough(SessionSeq(0))
+    await secondRequested.promise
+    expect(changes).toEqual([])
+    expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+    expect(session.getSnapshot().loadingOlder).toBe(true)
+
+    await pushEvent(mock, ev.turnStart(SessionSeq(18), 3))
+    expect(changes).toEqual(['append'])
+    expect(eventSeqs(session)).toEqual([...newest.map(event => event.seq), 18])
+    const nearerJump = session.loadThrough(SessionSeq(6))
+    expect(nearerJump).toBe(jump)
+
+    lastPage.resolve(history(oldest))
+    await jump
+    expect(changes).toEqual(['append', 'prepend'])
+    expect(eventSeqs(session)).toEqual(Array.from({ length: 19 }, (_, index) => index))
+    expect(session.eventSource.getSnapshot().change).toMatchObject({
+      kind: 'prepend', entries: entries([...oldest, ...middle]),
+    })
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: false })
+  })
+
+  it('publishes the successful jump prefix once when a later page fails', async ({ mock, start }) => {
+    const middle = plainTurn(SessionSeq(6), 1, 'middle', 'answer')
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    const changed = vi.fn()
+    onTestFinished(session.eventSource.subscribe(changed))
+    mock.remote.session.page.mockImplementation(pageRule(request => request.beforeSeq === 12
+      ? history(middle, true)
+      : err(new RemoteError('gateway/internal', 'page unavailable', {}))))
+
+    await session.loadThrough(SessionSeq(0))
+
+    expect(changed).toHaveBeenCalledOnce()
+    expect(eventSeqs(session)).toEqual([...middle, ...newest].map(event => event.seq))
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: true })
+  })
+
+  it('discards buffered jump pages when the Session replaces its stream', async ({ mock, start }) => {
+    const newest = plainTurn(SessionSeq(12), 2, 'new', 'answer')
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(newest, true)))
+    await session.open()
+    const secondRequested = Promise.withResolvers<undefined>()
+    const lastPage = Promise.withResolvers<RemoteResult<SessionPage>>()
+    mock.remote.session.page.mockImplementation(pageRule((request) => {
+      if (request.beforeSeq === 12) return history(plainTurn(SessionSeq(6), 1, 'middle', 'answer'), true)
+      secondRequested.resolve(undefined)
+      return lastPage.promise
+    }))
+    const changes: string[] = []
+    onTestFinished(session.eventSource.subscribe(() => { changes.push(session.eventSource.getSnapshot().change.kind) }))
+    const jump = session.loadThrough(SessionSeq(0))
+    await secondRequested.promise
+    const replacement = session.resync()
+    lastPage.resolve(history(plainTurn(SessionSeq(0), 0, 'old', 'answer')))
+    await Promise.all([jump, replacement])
+
+    expect(changes).toEqual(['replace'])
+    expect(eventSeqs(session)).toEqual(newest.map(event => event.seq))
+    expect(session.getSnapshot().loadingOlder).toBe(false)
   })
 
   it('loadThrough retargets a running jump to the lowest requested seq and shares its completion', async ({ mock, start }) => {
@@ -395,7 +484,7 @@ describe('prompt and cancel errors', () => {
     expect(steered).toEqual({ ok: true, value: { accepted: true } })
     expect(cancelled).toEqual({ ok: true, value: { accepted: true } })
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD }, assistantStream: true, maxMessages: 50 },
+      { address: { kind: 'subagent', ...CHILD }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     // The prompt mode crosses the wire as the request's delivery.
@@ -491,7 +580,7 @@ describe('prompt and cancel errors', () => {
     expect(mock.log.requests('subagents/prompt')).toMatchObject([CHILD])
     expect(mock.log.calls('subagents/interruptByParent').map(call => call.args)).toEqual([[SID, PARENT, 'continuable']])
     expect(mock.log.requests(FOLLOW)).toEqual([
-      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, assistantStream: true, maxMessages: 50 },
+      { address: { kind: 'subagent', ...CHILD, mode: 'one-shot' }, assistantStream: true, maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } },
     ])
     expect(mock.log.requests(PAGE)).toEqual([])
     expect(mock.log.requests('session/cancel')).toEqual([])
@@ -536,119 +625,28 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot()).toMatchObject({ running: true, awaitingFirstTurn: false })
   })
 
-  /** A blank Session with its window open on an empty log. */
-  const blankOpened = async (
-    mock: RemoteMock,
-    start: () => Promise<TestClient>,
-    onEngaged?: (session: Session) => void,
-  ): Promise<Session> => {
-    const session = await sessionBench(mock, start, SID, onEngaged === undefined ? {} : { onEngaged })
-    session.handleBlank(true)
-    mock.stream(FOLLOW, followScript(history([])))
-    await session.open()
-    return session
-  }
-
-  it('engages on an observed engaging command, without claiming a prompt or a turn', async ({ mock, start }) => {
-    const onEngaged = vi.fn()
-    const session = await blankOpened(mock, start, onEngaged)
-
-    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
-    expect(session.getSnapshot()).toMatchObject({
-      // No send was attempted and no first turn is owed: the command's own
-      // durable lifecycle is the content this session now shows.
-      blank: false, promptAttempted: false, awaitingFirstTurn: false,
-    })
-    expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
-
-    // A second command is not a second engagement: the manager's list mirror
-    // is told once.
-    await pushEvent(mock, ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 再问'))
-    expect(onEngaged).toHaveBeenCalledOnce()
+  it('does not await a first turn when the history already contains one', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.handleBlank(false)
+    const inFlight = session.prompt([{ type: 'text', text: '继续' }], 'queue')
+    expect(session.getSnapshot()).toMatchObject({ blank: false, promptAttempted: true, awaitingFirstTurn: false })
+    expect((await inFlight).ok).toBe(true)
+    expect(session.getSnapshot()).toMatchObject({ blank: false, awaitingFirstTurn: false })
   })
 
-  it('stays blank on a command that declared it configures the session', async ({ mock, start }) => {
-    // The run's own `engages` declaration decides, read off the durable event
-    // this session observed; nothing about how the line was sent is consulted.
-    const onEngaged = vi.fn()
-    const session = await blankOpened(mock, start, onEngaged)
-
-    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' workspace-write'))
-    expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false })
-    expect(onEngaged).not.toHaveBeenCalled()
-  })
-
-  it('admits a command line and leaves the blank bit to the run the host logs', async ({ mock, start }) => {
-    // `Session.command` is pure admission: it reports whether a command
-    // matched the line and moves nothing else, so the Intent hero's
-    // access-mode chip, a typed composer line and a plugin calling this verb
-    // directly all reach the mirror through the one durable `command/run`.
-    // The rule is registered before the client starts because the endpoints
-    // the mock knows then decide which `remote.<ns>` proxies the tier provides.
-    mock.unary('commands/execute', (_agentId: SessionId, line: string) => (
-      line === '/btw 天气' ? ok({ commandId: 'cmd-1', result: { kind: 'success' } }) : ok(undefined)
-    ))
-    const onEngaged = vi.fn()
-    const session = await blankOpened(mock, start, onEngaged)
-
-    await expect(session.command('/btw 天气')).resolves.toEqual({ ok: true, value: { matched: true } })
-    expect(mock.log.calls('commands/execute').map(call => call.args)).toEqual([[SID, '/btw 天气', []]])
-    expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false, awaitingFirstTurn: false })
-    expect(onEngaged).not.toHaveBeenCalled()
-
-    // No command claimed the line: an answer of its own, not a failure.
-    await expect(session.command('/nothing-claims-this')).resolves.toEqual({ ok: true, value: { matched: false } })
-    expect(session.getSnapshot().blank).toBe(true)
-
-    // The host's own run is what lowers the bit.
-    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
-    expect(session.getSnapshot().blank).toBe(false)
-    expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
-  })
-
-  it('returns the Commands failure unchanged and keeps the session blank', async ({ mock, start }) => {
-    mock.unary('commands/execute', () => Promise.reject(new Error('commands row is down')))
-    const onEngaged = vi.fn()
-    const session = await blankOpened(mock, start, onEngaged)
-
-    await expect(session.command('/btw 天气')).resolves.toMatchObject({
-      ok: false,
-      error: { code: 'gateway/internal', message: 'client api: commands/execute failed: commands row is down' },
-    })
-    expect(session.getSnapshot().blank).toBe(true)
-    expect(onEngaged).not.toHaveBeenCalled()
-  })
-
-  it('engages from a history page carrying the command, not only from the live tail', async ({ mock, start }) => {
+  it('keeps an accepted first prompt converted when a later prompt is rejected', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     session.handleBlank(true)
-    mock.stream(FOLLOW, followScript(history([
-      ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'),
-      ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 天气'),
-    ])))
-    await session.open()
-    expect(session.getSnapshot().blank).toBe(false)
-  })
-
-  it('refuses to re-blank an engaged Session on a summary that still says blank', async ({ mock, start }) => {
-    const session = await blankOpened(mock, start)
-    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
-    expect(session.getSnapshot().blank).toBe(false)
-
-    // An `api-session/added` frame or a list pull minted before the command
-    // landed carries the stale verdict; the latch refuses it.
-    session.handleBlank(true)
-    expect(session.getSnapshot().blank).toBe(false)
-  })
-
-  it('refuses to re-blank a session whose first turn already ended', async ({ mock, start }) => {
-    const session = await blankOpened(mock, start)
+    expect((await session.prompt([{ type: 'text', text: '第一次' }], 'queue')).ok).toBe(true)
     session.handleRunning(true)
     session.handleRunning(false)
-    expect(session.getSnapshot()).toMatchObject({ blank: false, running: false })
+    mock.remote.session.prompt.mockResolvedValue(err(new RemoteError('session/agent-busy', 'busy', { reason: 'x' })))
 
-    session.handleBlank(true)
-    expect(session.getSnapshot().blank).toBe(false)
+    expect((await session.prompt([{ type: 'text', text: '第二次' }], 'queue')).ok).toBe(false)
+    expect(session.getSnapshot()).toMatchObject({
+      blank: false, running: false, awaitingFirstTurn: false,
+      promptError: { op: 'send', error: { code: 'session/agent-busy' } },
+    })
   })
 
   it('keeps the attempted-first-prompt state when the Host rejects the prompt', async ({ mock, start }) => {

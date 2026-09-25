@@ -27,6 +27,8 @@ kind: "package-reference"
 
 当 Web bundle 需要让用户导出会话日志时使用本包。它需要 Connection、命令注册表、Session 查询与持久化以及附件服务。挂载插件，然后在 Session Header 的更多操作菜单中选择 `下载 Session 日志` 或输入 `/export`；浏览器会下载 `dsh-session-<id>.zip`。
 
+挂载 `ui-message-feedback` 时，同一菜单还提供“反馈”，打开已有的 Session 反馈弹窗。打开或关闭该弹窗不会导出 Session 或提交反馈。反馈入口随反馈插件的可用状态显示；导出功能保持独立可用。
+
 ### 何时选择
 
 为需要带可见下载弹窗的面向用户的会话导出的 Web 部署选择它。需要程序化或 Host 侧导出时避免使用：本包产生的是浏览器下载，而非 Host 路径写入。日志从持久化读句柄序列化而来，因此任何已挂载后端都受支持。
@@ -50,7 +52,7 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands` �
 
 | 输入 | 结果 |
 |---|---|
-| `/export` | 记录用户命令的生命周期；提交命令的浏览器下载 `GET /api/session.export?sessionId=<id>&includeDescendants=true` |
+| `/export` | 记录用户命令的生命周期；提交命令的浏览器下载文档相对的 `api/session.export?sessionId=<id>&includeDescendants=true`（Host 路由 `/api/session.export`） |
 | `/export <path>` | 错误；浏览器下载通过浏览器的普通下载行为选择目标位置 |
 
 ### 路由响应字段
@@ -69,6 +71,8 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands` �
 ### 预期行为
 
 面板报告三个阶段：导出中、完成或失败。导出期间它展示一条进度条，下方是已接收的字节数。只要路由给出了归档规模，进度条就是确定的——包括没有子会话也没有附件的会话所导出的单条目归档；只有路由未给出规模时才是不确定进度。`取消` 放弃传输且不保存任何内容；关闭面板不会中断传输，归档仍会被保存，该操作随后完成时面板也不会重新打开。每个会话同时只允许一项下载，重复操作共用该任务。导出包含实时会话的最新事件：Host 端点在读取前会 flush 活动的根会话，因此斜杠命令触发的 ZIP 会包含启动下载的 `command/run` 与 `command/done` 事件对；冷持久化会话不需要 flush。每份逻辑日志在归档中使用当前 generation 的规范文件名（v0 为 `session.jsonl`，其他版本为 `session.vN.jsonl`），每个子会话目录下也遵循同一规则。图片使用 `media/<attachmentId>.<ext>`，通用文件使用 `files/<digest-prefix>/<digest>/<name>`。通用文件以有界分块读取并压缩，因此导出大文件时不会把它完整缓冲进内存。
+
+附件收集读取内置 Session 事件声明的内容字段与已完成的 assistant 流块，包括扁平的 V4 tool 角色消息。未知事件载荷与无关字段在导出日志中保持不变，但不会触发附件读取。
 
 ### 失败
 
@@ -90,9 +94,11 @@ Web bundle 将本包与 Connection、`dsh-commands`、`dsh-client-ui-commands` �
 
 本包分为两部分。Host 半包（[`src/index.ts`](src/index.ts)）注册 `/export` 命令，并向 Connection 贡献精确的 `GET`/`HEAD /api/session.export` Fetch 路由；[`src/archive.ts`](src/archive.ts) 构建有界 ZIP 流。浏览器半包（[`src/client/index.ts`](src/client/index.ts)）提供共享下载控制器和 UI，并观察 `command/executed`，因此只有提交命令的浏览器会启动下载。
 
+Header 的更多操作入口使用公共紧凑 Button，点击区域为 28px 正方形，与右侧栏展开控件共用圆角和 hover 底色。
+
 ### 下载流程
 
-两条入口都通过 `fetch` 请求 `GET /api/session.export?...`，并逐块读取响应体。[`src/client/progress.ts`](src/client/progress.ts) 把已接收字节数与其中的 ZIP 局部文件头签名换算成一个比例——取两个下界中较大者，并在流结束前始终保持小于 1。已接收字节按声明的线上估算值缩放，单条目归档正是由它带动；条目计数则在归档压得比标定更狠时把比例抬离下界，而一个条目只有在下一个条目的头到达之后才算完成，因为头总是先于它自己的数据。进度按动画帧而非按数据块送达面板。流结束后控制器把各块拼成一个 `Blob`，并点击指向其 object URL 的游离下载锚点。一个控制器按会话持有一项进行中的下载，把并发操作折叠进该任务，并在取消与插件释放时中止传输。面板状态存放在按会话键控的快照存储中，因此按钮与命令按会话共享一个面板。
+两条入口都通过 `fetch` 以 `GET` 请求文档相对的 `api/session.export?...`，并逐块读取响应体。[`src/client/progress.ts`](src/client/progress.ts) 把已接收字节数与其中的 ZIP 局部文件头签名换算成一个比例——取两个下界中较大者，并在流结束前始终保持小于 1。已接收字节按声明的线上估算值缩放，单条目归档正是由它带动；条目计数则在归档压得比标定更狠时把比例抬离下界，而一个条目只有在下一个条目的头到达之后才算完成，因为头总是先于它自己的数据。进度按动画帧而非按数据块送达面板。流结束后控制器把各块拼成一个 `Blob`，并点击指向其 object URL 的游离下载锚点。一个控制器按会话持有一项进行中的下载，把并发操作折叠进该任务，并在取消与插件释放时中止传输。面板状态存放在按会话键控的快照存储中，因此按钮与命令按会话共享一个面板。
 
 在产出第一个归档字节之前，Host 会把这次导出遍历一遍，统计条目数并累加它们未压缩的大小——日志大小取自流将要推送的文本，媒体大小取自每条引用记录的字节长度，流最终读不出来的图片同样按这个长度计——并把总数作为响应字段发出。测量与流式传输跑的是同一个遍历，但发生在两个不同时刻：因此测量会重新读取每个子会话日志（但绝不重新读取已存储的图片），而在两遍之间追加了事件的活动子会话会让声明的总数偏低。测量失败只会让三个规模字段缺席，因为流式传输会遇到同一个失败并对结果负责。
 

@@ -8,6 +8,7 @@ import {
   SessionExportProgressTracker,
   type SessionExportProgress,
 } from './progress.ts'
+import { SESSION_LOG_EXPORT_ROUTE } from '../routes.ts'
 
 /** Download phases presented by the shared panel. */
 export type SessionLogDownloadStatus = 'downloading' | 'success' | 'error'
@@ -25,6 +26,7 @@ export interface SessionLogDownloadState {
   bySession: Record<string, SessionLogDownloadEntry | undefined>
 }
 
+/** HTTP carrier for the export route. */
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 type Save = (archive: Blob, filename: string) => void
 
@@ -105,12 +107,6 @@ export function downloadBlob(archive: Blob, filename: string): void {
   // Revoking in the same task can race the browser's read of the anchor's
   // href; one task later the save has been handed off.
   setTimeout(() => { URL.revokeObjectURL(url) }, 0)
-}
-
-/** Resolve the browser's Host base with the connection carrier's null-origin fallback. */
-function hostBase(): string {
-  const origin = (globalThis as { location?: { origin?: string } }).location?.origin
-  return origin !== undefined && origin !== 'null' ? origin : 'http://dsh.internal'
 }
 
 function messageOf(error: unknown): string {
@@ -194,10 +190,9 @@ export class SessionLogDownloadController {
       open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START,
     })
     try {
-      const url = new URL('/api/session.export', hostBase())
-      url.searchParams.set('sessionId', sessionId)
-      url.searchParams.set('includeDescendants', 'true')
-      const response = await this.fetcher(url, { method: 'GET', signal })
+      const query = new URLSearchParams({ sessionId, includeDescendants: 'true' })
+      const route = `${SESSION_LOG_EXPORT_ROUTE}?${query.toString()}`
+      const response = await this.fetcher(route, { method: 'GET', signal })
       if (!response.ok) {
         const detail = await response.text().catch(() => '')
         throw new Error(`HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)
