@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import Schema from '@deepseek-ai/schemastery'
 import SessionStore, {
   Session,
   SessionId,
@@ -11,7 +10,7 @@ import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
   AUTO_PRESET, CUSTOM_PRESET,
 } from '@deepseek-ai/dsh-permission-presets'
-import type { PresetGlyph } from '@deepseek-ai/dsh-permission-presets'
+import type { PresetGlyph, PresetTone } from '@deepseek-ai/dsh-permission-presets'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
 const configurations = new WeakMap<Context, Awaited<ReturnType<typeof liveConfig>>>()
@@ -46,17 +45,7 @@ async function mountAuto(ctx: Context, admit: () => void = () => {}) {
   }, { inject: ['permissionPresets'] }))
 }
 
-/** Rehydrate a described `permission` section the way a client does and read its preset union members. */
-function defaultPresetChoices(serialized: unknown): Schema[] {
-  const root = new Schema(serialized as Schema)
-  const union = (root.dict as Record<string, Schema>).defaultPreset as Schema
-  return union.list as Schema[]
-}
-
-async function mountedStore(options: {
-  approvalDefault?: ApprovalPolicy | undefined
-  config?: Config
-} = {}): Promise<Context> {
+async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefined } = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -69,7 +58,7 @@ async function mountedStore(options: {
   ctx.provide('approval', {
     config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' },
   })
-  configurations.set(ctx, await liveConfig(ctx, PermissionPresetService, options.config ?? {}))
+  configurations.set(ctx, await liveConfig(ctx, PermissionPresetService))
   return ctx
 }
 
@@ -306,8 +295,8 @@ describe('PermissionPresetService', () => {
     await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
   })
 
-  it('carries a configured tone into the option and its settings choice, and rejects any other tone at load', async () => {
-    const ctx = await mountedStore({
+  it('carries a configured tone into the option and rejects any other tone at load', async () => {
+    const ctx = await mounted({
       config: {
         presets: {
           'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
@@ -322,18 +311,10 @@ describe('PermissionPresetService', () => {
     })
     // A preset naming no tone keeps the option it always had.
     expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
-    // The settings row reads the same fact off its own `defaultPreset` union member.
-    const described = ctx.settings.describe().find(entry => entry.ns === PERMISSION_SETTINGS_NAMESPACE)
-    const choices = defaultPresetChoices(described?.schema)
-    expect(choices.map(choice => ({
-      value: choice.value as unknown,
-      extra: choice.meta.extra as unknown,
-    }))).toEqual([
-      { value: 'workspace-write', extra: undefined },
-      { value: 'danger-full-access', extra: { tone: 'danger' } },
-    ])
     // The tone set is closed: the client owns the palette, not the host.
-    const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', tone: 'caution' } } } as unknown as Config
+    const outside: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]> = {
+      presets: { plain: { sandbox: 'workspace-write', approval: 'ask', tone: 'caution' as string as PresetTone } },
+    }
     await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.tone expected .* but got "caution"/)
   })
 

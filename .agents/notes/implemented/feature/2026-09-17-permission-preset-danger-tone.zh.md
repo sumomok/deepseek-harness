@@ -14,7 +14,7 @@ Status: implemented
 
 `PresetSpec` 在既有的 `glyph` 旁新增 `tone`：一个封闭取值集，当前唯一成员是 `danger`。宿主命名含义，客户端拥有颜色——`danger` 标记的是部署视为破坏性的表项，未声明的预设按普通标签色渲染。两个字段都由预设表的 schemastery schema 校验，写了集合外的色调会在插件加载时失败。
 
-两个界面读的是宿主的两张不同面，因此色调走两条通路。输入框旁的芯片读进程级的权限目录，`tone` 在类型化的 `PresetOption` 上与 `glyph` 并列。设置行读 `permission` 设置分节，其 `defaultPreset` 的值是一个裸预设名——那里的逐项呈现信息本来就挂在每个 union 成员自己的 schemastery 元数据上，`description` 已经承载 label，`tone` 就挂在它旁边的自由形式 `extra` 槽里。
+两个界面都读进程级的权限目录，因此色调只走一条通路：`tone` 在 `optionOf` 构造的类型化 `PresetOption` 上与 `glyph` 并列。输入框旁的芯片读目录的选项，设置行读目录的默认选项，并把每个选项的色调带到自己那一行。
 
 上色用的是 `ui-primitives` 的 `Menu` 原件已有的 `danger` 行：文字与图标走 `--dsw-alias-state-error-primary` 的错误色，悬停用危险底色。带色调的预设只是给自己的 `MenuItem` 置上 `danger`，其余一概不动——没有新增 CSS，没有新增 token，选中态与悬停态就是这个应用里其他破坏性菜单行一直在用的那套。
 
@@ -31,8 +31,6 @@ fork 侧的落点是两处，不是一处。`packages/bundle/base/cordis.patch.y
 **从旋钮组合（`danger-full-access` + `never`）推出色调。** 否决：那是拿强制执行取值去重新裁决一个呈现问题，将来任何捆绑恰好相同的新预设都会被悄悄染色。
 
 **给 `permission` 设置分节加第二个字段。** 否决：设置字段是用户可写的、会落进 `settings.yaml`；色调是宿主对自己那张表的陈述，不是偏好。
-
-**用 schemastery 的 `role` 承载色调。** 否决：`role` 指明某个节点由哪个控件渲染。色调是某个 union 成员的元数据，那正是 `extra` 的用途。
 
 ## 影响
 

@@ -137,6 +137,7 @@ describe('PermissionSelect', () => {
 
   it('paints the row whose tone the host named, and only that row', () => {
     const catalog: PermissionCatalog = {
+      defaultPreset: 'workspace-write', defaultOptions: [{ value: 'workspace-write', name: 'workspace-write' }],
       options: [
         { value: 'workspace-write', name: 'workspace-write' },
         { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' },

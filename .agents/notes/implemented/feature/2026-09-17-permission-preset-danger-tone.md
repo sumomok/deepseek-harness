@@ -14,7 +14,7 @@ Which row that is cannot be decided in the client. The preset table is host conf
 
 `PresetSpec` gains `tone`, a closed set whose one member is `danger`, alongside the existing `glyph`. The host names the meaning, the client owns the color: `danger` marks an entry the deployment treats as destructive, and a preset naming none renders in the plain label color. Both fields are validated in the schemastery table schema, so an unnamed tone fails at plugin load.
 
-The two surfaces read two different host faces, so the tone travels two ways. The composer chip reads the process-level permission catalog, where `tone` joins `glyph` on the typed `PresetOption`. The settings row reads the `permission` settings section, whose `defaultPreset` value is a bare preset name — per-choice presentation there rides each union member's own schemastery metadata, where `description` already carries the label, so `tone` rides the free-form `extra` slot beside it.
+Both surfaces read the process-level permission catalog, so the tone travels one way: `tone` joins `glyph` on the typed `PresetOption` that `optionOf` builds. The composer chip reads the catalog's options, and the settings row reads its default options and carries each option's tone onto its row.
 
 Painting is the `ui-primitives` `Menu` primitive's existing `danger` row: error-colored text and icon over `--dsw-alias-state-error-primary`, with the danger hover fill. A toned preset sets `danger` on its `MenuItem` and nothing else changes — no new CSS, no new token, and the selected and hovered states are the ones every other destructive menu row in the app already has.
 
@@ -31,8 +31,6 @@ The fork lands the tone in two places, not one. `packages/bundle/base/cordis.pat
 **Derive the tone from the knob pair (`danger-full-access` + `never`).** Rejected: it re-decides a presentation question from enforcement values, and would silently re-color any future preset whose bundle happens to match.
 
 **Give the `permission` settings section a second field.** Rejected: a settings field is user-writable and lands in `settings.yaml`; the tone is the host's statement about its own table, not a preference.
-
-**Carry the tone through schemastery's `role`.** Rejected: `role` names which widget renders a node. The tone is metadata about one union member, which is what `extra` is for.
 
 ## Consequences
 

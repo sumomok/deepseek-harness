@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { PermissionCatalog } from '@deepseek-ai/dsh-permission-presets/client'
 import { PermissionRow, type PermissionRowProps } from '../src/client/PermissionRow.tsx'
 import { zh } from '../src/client/locales.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
@@ -14,7 +15,12 @@ import { PermissionPresetSettingsController } from '../src/client/settings-store
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
 const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
 
-const catalog = { options: [], defaultPreset: 'read-only', defaultOptions: ['read-only', 'workspace-write', 'danger-full-access'].map(value => ({ value, name: value })) }
+// The host names the full-access preset's tone on its catalog option.
+const catalog: PermissionCatalog = { options: [], defaultPreset: 'read-only', defaultOptions: [
+  { value: 'read-only', name: 'read-only' },
+  { value: 'workspace-write', name: 'workspace-write' },
+  { value: 'danger-full-access', name: 'danger-full-access', tone: 'danger' },
+] }
 const directory = { store: createSnapshotStore({ value: catalog }), load: () => Promise.resolve(catalog) }
 
 /** Controller over a real mirror derived from the same scripted context. */
@@ -30,7 +36,7 @@ const SCHEMA = {
   refs: {
     1: { type: 'const', value: 'read-only' },
     2: { type: 'const', value: 'workspace-write' },
-    3: { type: 'const', meta: { extra: { tone: 'danger' } }, value: 'danger-full-access' },
+    3: { type: 'const', value: 'danger-full-access' },
     4: { type: 'union', list: [1, 2, 3] },
     5: { type: 'object', dict: { defaultPreset: 4 } },
   },
