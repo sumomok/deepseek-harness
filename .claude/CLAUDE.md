@@ -4,9 +4,11 @@ Root `CLAUDE.md` is upstream's `AGENTS.md` (budgeted, never edited here); this f
 
 ## Branches and worktrees
 
-- `master` mirrors `upstream/master`; never push to `upstream`. `develop` is the fork line (desktop, PWA, server apps, built-in plugins): every change branches from `develop` and merges back there. `core-patches` holds the upstream patches re-applied on every sync. `product/server-console` is a separate long-lived line that never merges into `develop`.
+- `master` mirrors `upstream/master`; never push to `upstream`. `develop` is the fork line (desktop, PWA, server apps, built-in plugins): every change branches from `develop` and merges back there. `feature/core-patches` is the long-lived patch line: upstream release tags merge into it with `git merge`, never a rebase. `product/server-console` is a separate long-lived line that never merges into `develop`.
 - One `git worktree` per task, created from `origin/develop` after `git fetch`; build, pack, and commit only in a worktree that has `node_modules` (lefthook runs from it). Never `--no-verify`.
-- Every `core-patches` addition, modification, or retirement is registered in the same change in [`.claude/core-patches.md`](core-patches.md) (what changed / why / intended effect / retirement condition); unregistered, it does not merge.
+- Every core-path change lands first on `feature/core-patches` with a `Patch: <slug>` trailer and is claimed by that family's `路径` line in [`.claude/core-patches.md`](core-patches.md) (what changed / why / intended effect / retirement condition); unregistered, it does not merge. `develop` receives these changes only by merging `core-patches`.
+- `core-patches` only fast-forwards to `feature/core-patches`; nothing is committed on it directly. The registry gate runs only on the declared patch line, so this rule is held by process.
+- `develop` does not change core paths directly. The one exception is the fork product-gate family, handled through the develop-merge allowlist.
 
 ## Desktop release (`apps/desktop-shell`)
 
