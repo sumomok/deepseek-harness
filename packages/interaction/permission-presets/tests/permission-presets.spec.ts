@@ -11,6 +11,7 @@ import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService, {
   AUTO_PRESET, CUSTOM_PRESET,
 } from '@deepseek-ai/dsh-permission-presets'
+import type { PresetGlyph } from '@deepseek-ai/dsh-permission-presets'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
 const configurations = new WeakMap<Context, Awaited<ReturnType<typeof liveConfig>>>()
@@ -299,7 +300,9 @@ describe('PermissionPresetService', () => {
     // A preset naming no glyph keeps the option it always had.
     expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
     // The glyph set is closed: the client draws artwork, not a host-named file.
-    const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' } } } as unknown as Config
+    const outside: NonNullable<Parameters<typeof PermissionPresetService.Config>[0]> = {
+      presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' as string as PresetGlyph } },
+    }
     await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
   })
 

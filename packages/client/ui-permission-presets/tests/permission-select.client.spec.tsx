@@ -113,6 +113,7 @@ describe('PermissionSelect', () => {
 
   it('draws the glyph an option names, falls back to its value, then to the bare shield', () => {
     const catalog: PermissionCatalog = {
+      defaultPreset: 'read-only', defaultOptions: [{ value: 'read-only', name: 'read-only' }],
       options: [
         { value: 'read-only', name: 'read-only' },
         { value: 'workspace-write', name: 'workspace-write' },
