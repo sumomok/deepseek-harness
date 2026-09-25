@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { clearedProxyEnv } from '@deepseek-ai/dsh-http-proxy'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
 import type { SourceToolEvidence } from '../../../fixtures/source-tool-driver.ts'
@@ -54,8 +55,7 @@ describe.skipIf(!existsSync(join(repoRoot, 'apps/cli/lib/bin.js')))('dsh SOURCE 
         cwd: repoRoot,
         env: {
           ...clearedProxyEnv(),
-          DSH_HOME: join(root, 'home'),
-          DSH_AGENTS_HOME: join(root, 'agents'),
+          ...isolatedSkillRootEnv(root, { dshHome: join(root, 'home'), agentsHome: join(root, 'agents') }),
           DSH_TELEMETRY_DISABLED: '1',
           DSH_TOOLS_MODE: 'native',
           DSH_CLI_MOCK_FAILURE: '0',

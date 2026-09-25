@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, unlink, write
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { resolveExampleLaunch, type ExampleMode } from '@deepseek-ai/dsh-loader-smoke'
+import { isolatedSkillRootEnv, resolveExampleLaunch, type ExampleMode } from '@deepseek-ai/dsh-loader-smoke'
 import { execa } from 'execa'
 import { expect, it } from 'vitest'
 
@@ -247,7 +247,8 @@ export function testProfileResolution(mode: ExampleMode): void {
         mode, sourceImport: 'tsx/esm', tsconfigPath: join(repoRoot, 'tsconfig.json'),
         configArgs: ['--profile', 'headless'],
         env: {
-          DSH_HOME: home, DSH_AGENTS_HOME: join(root, 'agents'), DSH_TELEMETRY_DISABLED: '1',
+          ...isolatedSkillRootEnv(root, { dshHome: home, agentsHome: join(root, 'agents') }),
+          DSH_TELEMETRY_DISABLED: '1',
           NODE_OPTIONS: undefined, TSX_TSCONFIG_PATH: undefined,
         },
       })
