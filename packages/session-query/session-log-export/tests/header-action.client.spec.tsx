@@ -8,6 +8,7 @@ import { SessionLogDownloadController } from '../src/client/controller.ts'
 import { SessionLogDownloadHeaderAction } from '../src/client/HeaderAction.tsx'
 import type { SessionLogDownloadHeaderProps } from '../src/client/HeaderAction.tsx'
 import { en } from '../src/client/locales.ts'
+import { SESSION_EXPORT_PROGRESS_START } from '../src/client/progress.ts'
 
 const SID = 'session-export-header' as SessionId
 
@@ -24,10 +25,11 @@ function bench(feedbackAvailable = false) {
   const controller = new SessionLogDownloadController(async () => new Response('zip'), vi.fn())
   const request = vi.fn((sessionId: SessionId) => controller.download(sessionId))
   const dismiss = vi.fn((sessionId: SessionId) => { controller.dismiss(sessionId) })
+  const cancel = vi.fn((sessionId: SessionId) => { controller.cancel(sessionId) })
   const openFeedback = vi.fn()
   const feedback = createSnapshotStore(feedbackAvailable)
   const useSessionLogDownload = bindSnapshot(controller.store)
-  const props = {
+  const props = { ...({
     sessionId: SID,
     useSessionLogDownload,
     useFeedbackAvailable: bindSnapshot(feedback),
@@ -35,9 +37,9 @@ function bench(feedbackAvailable = false) {
     request,
     dismiss,
     t: (key: keyof typeof en): string => en[key],
-  } as unknown as SessionLogDownloadHeaderProps
+  } as unknown as SessionLogDownloadHeaderProps), cancel }
   const view = render(<SessionLogDownloadHeaderAction {...props} />)
-  return { controller, request, openFeedback, feedback, view }
+  return { controller, request, cancel, openFeedback, feedback, view }
 }
 
 afterEach(cleanup)
@@ -99,13 +101,22 @@ describe('Session export Header action', () => {
     expect(b.request).not.toHaveBeenCalled()
   })
 
+  it('cancels a running transfer from the panel the header opened', async () => {
+    const b = bench()
+    act(() => {
+      b.controller.store.set({ bySession: { [SID]: { open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START } } })
+    })
+    fireEvent.click(await b.view.findByRole('button', { name: 'Cancel' }))
+    await waitFor(() => { expect(b.cancel).toHaveBeenCalledWith(SID) })
+  })
+
   it('disables the download row while either entry path downloads this Session', async () => {
     const b = bench(true)
     let release!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => { release = resolve })
     const controller = new SessionLogDownloadController(() => pending, vi.fn())
     const useSessionLogDownload = bindSnapshot(controller.store)
-    b.view.rerender(<SessionLogDownloadHeaderAction {...({
+    b.view.rerender(<SessionLogDownloadHeaderAction {...({ ...({
       sessionId: SID,
       useSessionLogDownload,
       useFeedbackAvailable: bindSnapshot(b.feedback),
@@ -113,7 +124,7 @@ describe('Session export Header action', () => {
       request: (sessionId: SessionId) => controller.download(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
       t: (key: keyof typeof en): string => en[key],
-    } as unknown as SessionLogDownloadHeaderProps)} />)
+    } as unknown as SessionLogDownloadHeaderProps), cancel: (sessionId: SessionId) => { controller.cancel(sessionId) } })} />)
 
     const download = controller.download(SID)
     const button = b.view.getByRole('button', { name: 'More actions' })
