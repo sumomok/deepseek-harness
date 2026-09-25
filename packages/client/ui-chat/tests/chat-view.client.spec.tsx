@@ -39,7 +39,7 @@ import { en, zh } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
+  CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
@@ -56,8 +56,9 @@ import { ConversationGroupStore } from '../../ui-conversation/src/client/convers
 
 function installGroupedSnapshot(
   builder: ChatSnapshotBuilder, state: ProcessState, groups: ConversationGroupStore<ProcessGroupData>, source: ChatSnapshot,
+  extra: readonly ChatNode[] = [],
 ): ChatSnapshot {
-  const snapshot = builder.replace({ nodes: source.nodes.values(), timeline: source.timeline })
+  const snapshot = builder.replace({ nodes: [...source.nodes.values(), ...extra], timeline: source.timeline })
   const input = builder.groupInput()
   state.accept(input)
   const update = state.output()
@@ -361,6 +362,8 @@ function makeHarness(
         return <ManualCompactionNodeView {...nodeProps} node={nodeOwner.node} />
       case 'compaction':
         return <CompactionNodeView {...nodeProps} node={nodeOwner.node} />
+      case 'compaction-running':
+        return <CompactionRunningNodeView t={nodeProps.t} />
       case 'model-retry':
         return <RetryNodeView {...nodeProps} node={nodeOwner.node} />
       case 'turn-error':
@@ -784,6 +787,40 @@ describe('ChatView', () => {
     fireEvent.click(control)
     expect(bodies.every(body => !body.hasAttribute('hidden'))).toBe(true)
     expect([...view.container.querySelectorAll<HTMLElement>('[data-chat-group-key]')]).toEqual(roots)
+  })
+
+  it('keeps a running automatic compaction row outside the collapsed process group until the marker lands', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const running = (visibility: 'visible' | 'hidden'): ChatNode<'compaction-running'> => ({
+      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction-running',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility, data: null,
+    })
+    const landed: ChatNode<'compaction'> = {
+      key: 'fixture:compaction:6', id: '6', target: 'chat', kind: 'compaction',
+      anchorSeq: 6, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: compaction({ seq: 6, summaryEventSeq: 5 }),
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const project = (nodes: readonly ChatNode[]) => installGroupedSnapshot(builder, state, groups, fixture, nodes)
+    const h = makeHarness({ chat: project([running('visible')]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const row = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-running"]')!
+    expect(row.closest('[data-chat-group-key]')).toBeNull()
+    expect(row.closest('[hidden]')).toBeNull()
+    expect(within(row).getByRole('button').textContent).toBe('正在压缩…')
+
+    act(() => { h.set({ chat: project([running('hidden'), landed]) }) })
+    expect(view.container.querySelector('[data-chat-flow-kind="compaction-running"]')).toBeNull()
+    const marker = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
+    expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
   })
 
   it.each([

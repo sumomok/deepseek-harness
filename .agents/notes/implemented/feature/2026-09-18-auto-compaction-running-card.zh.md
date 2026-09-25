@@ -24,6 +24,8 @@ Status: implemented
 
 **窗口与未闭合的标记对。** 从未加载 `compaction/start` 的窗口没有 State，`fallbackState` 只从 Match 推导证据；没有 start Match 就没有任何证据表明标记对是打开的，而处于这种状态的 Context 也从未发布过节点，所以返回 null 撤不掉任何东西，这种窗口一如既往只显示已落地标记或失败。日志停在打开的标记对里——宿主被杀、机器断电——这一行在所在轮次关闭的那一刻消失，用的正是未完成工具调用读的同一个闭合信号：agent-loop 续跑会为「最后一轮从未结束」的存档日志补写带 `interrupted` 原因的 `turn/end`，session-query 冷读时也会合成一条。这只适用于有所属轮次的标记对，即 `compactIfNeeded` 以 `owner: 'current-turn'` 在两个触发点（步间压力、上下文溢出恢复）打开的那种。在任何轮次之外打开的标记对没有这个信号，代价见下一段。
 
+**过程分组。** 在轮次内打开的标记对（步间压力或上下文溢出恢复）把运行行落在该轮的过程内容中间，而 `compact` 与 `standard` 转录模式的 `collapsed` 步骤分组在轮次进行中也会折叠过程组。因此 `process-groups.ts` 把 `compaction-running` 与 `model-retry` 并列，列入「结束前面的组、作为独立根引用保留」的类别：组折叠时这一行照样可见，组标题继续描述工作本身而不是压缩。运行行之前的组随之闭合、换成已完成的标题；运行行之后的过程内容另起一组；运行行隐藏后，两组重新合并为一组。已落地的 `compaction` 标记不在此列，照旧进组。失败提示属于策略位的那一行，仍然进组。
+
 **已知限制。** 记录在任何轮次之外的标记对——`compaction/start` 的 `turn: null`——落到 `session` 位置，而横跨整个会话的位置永不关闭，因此这一行能挺过之后任意多个轮次，也挺过冷读重开。这是本 fork 到达本 Definition 的主路径，不是边角：随包 `auto-compact` 插件的轮末压缩调用 `compactNow(agent, signal)`、不传 `sourceCommandId`（`idle-compaction.ts:191`），`compaction-basic` 以 `owner: null` 执行并记成 `turn: null`。宿主在这种标记对运行的那几秒里被杀，该会话重开后就永久保留一行「正在压缩…」：它没有轮次归属，既不是过程成员也不可折叠，按钮又是禁用的，用户没有任何手段消除它。压缩锁本身会被释放——未配对 start 之上出现 `session/end-seed` 后 `assertCompactionInactive` 即放行——所以后续压缩照常运行。同一条 `session/end-seed` 边界就是 Definition 可以读的闭合信号，只是它不在本 Context 的 Matches 里。
 
 `compaction-running` 不向 `chat-snapshot-builder.ts` 里的旧版对话节点流贡献任何东西。它在那里与 `turn-tail`、`system-prompt` 并列登记为「已知但不贡献」的行，于是那个 switch 的默认分支保住了它自己的含义：本次构建不认识的类别。
@@ -50,4 +52,4 @@ Status: implemented
 
 ## Testing
 
-`packages/client/ui-chat/tests/conversation-node-definitions.client.spec.ts` 钉住 Definition：标记对打开时出一行、摘要写出后到检查点落地前这一行仍在、已落地标记带计数取代它、取消后这一行转为隐藏、出错后无行、轮次还开着时这一行可见、该轮次不带闭合标记对就关闭后这一行转为隐藏、没有 start 的窗口不出行、手动标记对交给命令卡。`live` helper 逐条走 `append` 再 `flush`——整窗重放从不走的那条路径——把取消、落地、失败三条都钉在实时尾部上；取消那一条还断言其后的用户消息仍能渲染。`packages/client/ui-chat/tests/compaction-running-row.client.spec.tsx` 钉住这一行本身：中英两种文案、不可展开的禁用按钮、隐藏的运行态播报，以及已落地标记未变的计数与展开。
+`packages/client/ui-chat/tests/conversation-node-definitions.client.spec.ts` 钉住 Definition：标记对打开时出一行、摘要写出后到检查点落地前这一行仍在、已落地标记带计数取代它、取消后这一行转为隐藏、出错后无行、轮次还开着时这一行可见、该轮次不带闭合标记对就关闭后这一行转为隐藏、没有 start 的窗口不出行、手动标记对交给命令卡。`live` helper 逐条走 `append` 再 `flush`——整窗重放从不走的那条路径——把取消、落地、失败三条都钉在实时尾部上；取消那一条还断言其后的用户消息仍能渲染。`packages/client/ui-chat/tests/compaction-running-row.client.spec.tsx` 钉住这一行本身：中英两种文案、不可展开的禁用按钮、隐藏的运行态播报，以及已落地标记未变的计数与展开。`packages/client/ui-chat/tests/chat-view.client.spec.tsx` 以 `compact` 模式渲染一个打开中的轮次，钉住运行行位于折叠的过程组之外且未被隐藏，以及运行行隐藏后已落地标记位于组内。
