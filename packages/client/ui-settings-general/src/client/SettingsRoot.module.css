@@ -135,6 +135,7 @@
   flex-direction: column;
   gap: 18px;
   width: 188px;
+  min-height: 0;
   padding: 22px 12px 0;
   box-sizing: border-box;
 }
@@ -148,11 +149,46 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Cell stack (figma 501:29961): gap 4. */
+/* Group stack: gap 12 between groups, the figma cell stack's gap 4 inside
+   one. The rail scrolls rather than clips — the panel takes its height from
+   the viewport while the section ledger is open-ended, so the list shrinks to
+   the leftover column height and scrolls whatever does not fit (without
+   min-height:0 a flex item refuses to shrink below its content and the
+   overflow disappears under the panel's own `overflow: hidden`). */
 .navList {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* One top-level group: its title row above its member cells. */
+.navGroup {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Group title: not a control — it names the group for a reader and for the
+   `role="group"` it labels. Smaller and dimmer than a cell label so the two
+   levels read apart at a glance. */
+.navGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.navGroupLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
@@ -174,6 +210,13 @@
   font-weight: 400;
   color: var(--dsw-alias-label-primary);
   text-align: left;
+}
+
+/* Member cells carry no glyph of their own; the 36px inset puts their labels
+   in the same column as the group label above them (12 padding + 16 glyph +
+   8 gap). */
+.navGroup .navCell {
+  padding-left: 36px;
 }
 
 .navCell:hover {
