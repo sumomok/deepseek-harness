@@ -1087,15 +1087,16 @@ describe('session.export download endpoint', () => {
     const corrupt = new AttachmentError(
       'Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT',
     )
-    const both = {
-      type: 'user/message', seq: SessionSeq(1), time: 1000,
+    const both: SessionEvent<'user/message'> = {
+      type: 'user/message', seq: SessionSeq(1), time: 1000, surfaceOp: 'append',
       data: {
+        id: 'both-images' as UserMessage['id'], role: 'user', source: { kind: 'user' },
         content: [
-          { type: 'image', attachment: { attachmentId: 'bad-img', mediaType: 'image/png', bytes: 425977, width: 1920, height: 1080 } },
-          { type: 'image', attachment: { attachmentId: 'ok-img', mediaType: 'image/png', bytes: 4, width: 2, height: 2 } },
+          { type: 'image', attachment: { ...storedImage('bad-img').ref, bytes: 425977, width: 1920, height: 1080 } },
+          { type: 'image', attachment: storedImage('ok-img').ref },
         ],
       },
-    } as unknown as SessionEvent
+    }
     const stored = log('session-root', undefined, [both])
     const api = await buildApi({ 'session-root': stored }, [], {
       attachments: async (ref) => {
@@ -1139,15 +1140,13 @@ describe('session.export download endpoint', () => {
       'no-code': Object.assign(new Error('nameless'), { name: 'AttachmentError' }),
       'code-not-string': Object.assign(new Error('numeric'), { name: 'AttachmentError', code: 7 }),
     }
-    const event = {
-      type: 'user/message', seq: SessionSeq(1), time: 1000,
+    const event: SessionEvent<'user/message'> = {
+      type: 'user/message', seq: SessionSeq(1), time: 1000, surfaceOp: 'append',
       data: {
-        content: Object.keys(failures).map(id => ({
-          type: 'image',
-          attachment: { attachmentId: id, mediaType: 'image/png', bytes: 4, width: 2, height: 2 },
-        })),
+        id: 'failing-images' as UserMessage['id'], role: 'user', source: { kind: 'user' },
+        content: Object.keys(failures).map(id => ({ type: 'image' as const, attachment: storedImage(id).ref })),
       },
-    } as unknown as SessionEvent
+    }
     const api = await buildApi({ 'session-root': log('session-root', undefined, [event]) }, [], {
       attachments: async (ref) => { throw failures[String(ref.attachmentId)] },
     })
