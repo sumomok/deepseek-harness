@@ -22,6 +22,6 @@
 - button "访问模式，当前：工作区内修改": 工作区内修改
 - button "选择模型，当前 DeepSeek-V4-Flash，推理等级 high": DeepSeek-V4-Flash high
 - button "发送消息" [disabled]
-- button "1 轮 1 步 · {{throughput}} tok/s": 1 轮 1 步{{throughput}} tok/s
-- button "8.2K tok · 缓存命中 16%": 8.2K tok缓存命中 16%
+- button "1 轮 1 步 · {{throughput}} tok/s"
+- button "8.2K tok · 缓存命中 16%"
 - button "上下文已用 1%": 1%

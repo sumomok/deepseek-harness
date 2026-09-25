@@ -28,6 +28,6 @@
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
 - button "Send message" [disabled]
-- button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
-- button "40 tok · Cache hit 0%": 40 tokCache hit 0%
+- button "1 turns 2 steps · {{throughput}} tok/s"
+- button "40 tok · Cache hit 0%"
 - button "0% of context used": 0%
