@@ -80,7 +80,7 @@ describe('SessionLogDownloadController', () => {
   it('streams the host ZIP, reports rising progress, and saves the assembled archive', async () => {
     const archive = heldArchive({ headers: EXTENT_HEADERS })
     const fetcher = vi.fn(async () => archive.response)
-    const save = vi.fn()
+    const save = vi.fn<(archive: Blob, filename: string) => void>()
     const controller = new SessionLogDownloadController(fetcher, save)
 
     const run = controller.download(SID)
@@ -108,7 +108,7 @@ describe('SessionLogDownloadController', () => {
     expect(reported[3]).toBe(0.99)
 
     expect(save).toHaveBeenCalledOnce()
-    const [saved, filename] = save.mock.calls[0] as unknown as [Blob, string]
+    const [saved, filename] = save.mock.calls[0]!
     expect(saved.size).toBe(60)
     expect(saved.type).toBe('application/zip')
     expect(filename).toBe('dsh-session-fixture.zip')
@@ -196,7 +196,7 @@ describe('SessionLogDownloadController', () => {
     expect(emptyDetail.store.getSnapshot().bySession[SID]?.error).toBe('HTTP 503')
 
     const bodyless = new SessionLogDownloadController(
-      async () => ({ ok: true, status: 200, body: null, headers: new Headers() }) as unknown as Response,
+      async () => new Response(null, { status: 200 }),
       vi.fn(),
     )
     await bodyless.download(SID)

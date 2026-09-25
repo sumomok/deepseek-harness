@@ -34,9 +34,11 @@ function bench(
       () => selector(controller.store.getSnapshot()),
     )
   }
+  const t = translate
   const props = {
-    sessionId: SID, useSessionLogDownload, dismiss, cancel, t: translate,
-  } as unknown as SessionLogDownloadDialogProps
+    ...({ sessionId: SID, useSessionLogDownload, dismiss, t } as unknown as SessionLogDownloadDialogProps),
+    cancel,
+  }
   const view = render(<SessionLogDownloadDialog {...props} />)
   return { controller, dismiss, cancel, view }
 }
