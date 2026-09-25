@@ -6,7 +6,7 @@
   gap: 8px;
   width: calc(100% + 4px);
   margin: 4px -2px;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
 }
 
 /* Wide row: the whole row is the hover surface, so the trigger and whatever
