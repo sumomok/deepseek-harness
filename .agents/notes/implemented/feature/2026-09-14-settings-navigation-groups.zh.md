@@ -18,7 +18,7 @@ Status: implemented
 
 导航栏画成两级：一张固定的分组表，每组一个图标和一个不可交互的标题，其下是账本行本身。分区 id、`order`、label 与 `openSection(id)` 入口全部未动——变的只是一行画在哪里。
 
-七个分组，按导航栏顺序及各自认领的分区：通用（`general`、`at-file`）、模型（`models`、`vision-switch`）、智能体（`agent-presets`、`llm-permission-gateway`）、扩展（`plugins`、`mcp-servers`、`screenshot-logins`）、账户与用量（`balance`）、关于（`desktop-update`），以及收尾的「其他」承接表中未点名的一切 id。被点名的分组按表内顺序而非账本顺序排列成员，因此无论注册方选了什么 `order`，导航栏读起来都一样。成员全部缺席的分组一行都不画，卸载的插件不会留下空标题；未被识别的 id 则按账本顺序留在「其他」组内——没有哪个分区会因为不被认识而消失。
+七个分组，按导航栏顺序及各自认领的分区：通用（`general`、`at-file`、`archived-sessions`）、模型（`models`、`vision-switch`）、智能体（`agent-presets`、`llm-permission-gateway`）、扩展（`plugins`、`mcp-servers`、`screenshot-logins`）、账户与用量（`balance`）、关于（`desktop-update`），以及收尾的「其他」承接表中未点名的一切 id。被点名的分组按表内顺序而非账本顺序排列成员，因此无论注册方选了什么 `order`，导航栏读起来都一样。成员全部缺席的分组一行都不画，卸载的插件不会留下空标题；未被识别的 id 则按账本顺序留在「其他」组内——没有哪个分区会因为不被认识而消失。
 
 **这张表放在外壳里**，硬写在 `nav-groups.ts` 中，因为把它移出去的两条路都不存在。注册方无从声明自己的分组（见上面的 register 选项），浏览器端插件也收不到任何配置：客户端引导线每行只带 `id`、`inject`、`immediately`（`@deepseek-ai/dsh-client-modules` 的 `BootPluginRow`），`bootClient` 以 `loader.create({ name })` 创建每个条目——引导线上根本没有 config 字段。客户端一面的 `apply` 仍可以声明 `Config` 参数（`ui-conversation` 就声明了），但线上没有任何东西能填它，这样的参数只会取到 schema 默认值。双面行在 cordis.yml 里的 `config:` 只到该包的 node 半边。要让这张表可配置，就得为一个纯展示事实新开一条 Host 到 Client 的通道，那比分组本身的改动还大。
 

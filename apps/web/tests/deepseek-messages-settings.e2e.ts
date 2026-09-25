@@ -45,7 +45,7 @@ describe.skipIf(webSnapshotMode() === 'record')('web e2e: DeepSeek Messages opt-
     await onboarding.waitFor({ state: 'detached' })
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置', exact: true })
-    await dialog.getByRole('button', { name: '模型', exact: true }).click()
+    await dialog.getByRole('button', { name: '提供方与模型', exact: true }).click()
     await dialog.getByText('DeepSeek', { exact: true }).waitFor()
     expect(await dialog.getByText('DeepSeek', { exact: true }).count()).toBe(1)
     await dialog.getByText('DeepSeek', { exact: true }).locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()

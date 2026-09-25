@@ -39,6 +39,7 @@ const EVERY_SECTION: Row[] = [
   { id: 'llm-permission-gateway', order: 15, label: 'Review settings' },
   { id: 'agent-presets', order: 20, label: 'Agent presets' },
   { id: 'mcp-servers', order: 25, label: 'MCP servers' },
+  { id: 'archived-sessions', order: 25, label: 'Archived sessions' },
   { id: 'contributed', order: 28, label: 'Contributed' },
   { id: 'plugins', order: 30, label: 'Plugins' },
   { id: 'balance', order: 35, label: 'Balance' },
@@ -506,7 +507,7 @@ describe('SettingsPanel navigation', () => {
     // MCP servers (25) below Plugins (30), because each group's table lists
     // them that way. The trailing group keeps ledger order instead.
     expect(groupMembers()).toEqual([
-      ['General', 'At file'],
+      ['General', 'At file', 'Archived sessions'],
       ['Models', 'Vision'],
       ['Agent presets', 'Review settings'],
       ['Plugins', 'MCP servers', 'Screenshot logins'],
