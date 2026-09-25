@@ -83,6 +83,9 @@ describe('request-reconstruction invariant', () => {
     // The system prompt is surface node 0 inside `messages`; a `system` field is an unlogged prefix.
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', system: 'unlogged', messages: Object.freeze(boundary), sessionId: session.id })) })
       .toThrow(/diverges from the folded request header/)
+    // The header has no tool-choice member, so a forced tool choice is an unlogged request field.
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', toolChoice: { type: 'any' }, messages: Object.freeze(boundary), sessionId: session.id })) })
+      .toThrow(/diverges from the folded request header/)
   })
 
   it('rejects loop requests with no boundary or header', async () => {
