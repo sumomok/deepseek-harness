@@ -415,6 +415,9 @@ describe('SettingsRoot.module.css', () => {
     expect(declarations('.nav')?.get('min-height')).toBe('0')
     expect(declarations('.navList')?.get('min-height')).toBe('0')
     expect(declarations('.navList')?.get('overflow-y')).toBe('auto')
+    // A group that scrolled on its own would shrink instead, and the rail
+    // itself would never overflow.
+    expect(declarations('.navGroup')?.has('overflow-y')).toBe(false)
   })
 
   it('sets the two nav levels apart and aligns a member label under its group label', () => {
