@@ -97,7 +97,7 @@ it('shares settings card materials and control sizes in both palettes', async ()
     await preset.waitFor()
     expect((await appearance(preset)).radius).toBe('20px')
 
-    await dialog.getByRole('button', { name: '模型', exact: true }).click()
+    await dialog.getByRole('button', { name: '提供方与模型', exact: true }).click()
     await dialog.getByRole('button', { name: '添加模型提供商', exact: true }).click()
     const field = dialog.getByLabel('提供商', { exact: true })
     await field.waitFor()

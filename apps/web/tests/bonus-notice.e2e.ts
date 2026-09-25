@@ -394,8 +394,8 @@ describe.skipIf(MODE === 'record')('web e2e: bonus notice', () => {
     const sectionSummariesBefore = platform.summaries.length
     platform.holdNextGet()
     const nav = reopened.locator('nav')
-    await nav.getByRole('button', { name: '模型', exact: true }).click()
-    await expect.poll(async () => nav.getByRole('button', { name: '模型', exact: true }).getAttribute('aria-current'), { timeout: 30_000 }).toBe('true')
+    await nav.getByRole('button', { name: '提供方与模型', exact: true }).click()
+    await expect.poll(async () => nav.getByRole('button', { name: '提供方与模型', exact: true }).getAttribute('aria-current'), { timeout: 30_000 }).toBe('true')
     await nav.getByRole('button', { name: '账号与余额', exact: true }).click()
     await expect.poll(async () => nav.getByRole('button', { name: '账号与余额', exact: true }).getAttribute('aria-current'), { timeout: 30_000 }).toBe('true')
     platform.releaseGet()
