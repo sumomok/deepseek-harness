@@ -2600,7 +2600,7 @@ describe('built-in conversation node Definitions', () => {
       }),
       at(12, 'user/message', {
         ...textMessage('checkpoint-landing', 'checkpoint'),
-        source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-landing' },
+        source: { kind: 'compact-checkpoint', compactionId: 'compact-landing' },
       }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }),
       at(13, 'compaction/end', { compactionId: 'compact-landing', turn: 2 }),
     ], true)
@@ -2659,7 +2659,7 @@ describe('built-in conversation node Definitions', () => {
 
     live(value, at(12, 'user/message', {
       ...textMessage('checkpoint-live', 'checkpoint'),
-      source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-live-land' },
+      source: { kind: 'compact-checkpoint', compactionId: 'compact-live-land' },
     }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }))
     live(value, at(13, 'compaction/end', { compactionId: 'compact-live-land', turn: 2 }))
 
@@ -2783,7 +2783,7 @@ describe('built-in conversation node Definitions', () => {
       }),
       at(12, 'user/message', {
         ...textMessage('checkpoint-clean', 'checkpoint'),
-        source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-clean' },
+        source: { kind: 'compact-checkpoint', compactionId: 'compact-clean' },
       }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }),
       at(13, 'compaction/end', { compactionId: 'compact-clean', turn: 2 }),
     ], true)
