@@ -63,10 +63,10 @@ Session 实例与 scope 同生命周期；catalog 只报告可发现性，不持
 
 「实体化但无首条提示词」的会话经 summary 派生位 `blank` 治理（派生列而非 header 字段，SessionHeader 保持不可变）：
 
-- Host 判据是没有 `turn/start`：`sessionListMetadata.blank` 投影初始为 true，且只有该事件会清除它，因此 slash 命令、配置事件与创建检查点即使已落盘也不会清除——blank 不代表未持久化。metadata 缺失时，live Session 回退到 `session.seq === 0`，cold Session 回退到 false；cold summary 其余情况读缓存元数据，缓存缺失时以未知状态保留在列表中。复用按[空白 Session 获取](2026-09-17-process-local-blank-sessions.zh.md)规则取得写锁。
+- Host 判据是没有 `turn/start`，也没有未记录 `engages: false` 的 `command/run`（[命令转正 note](../bug-fix/2026-09-10-command-engages-blank-session.zh.md)）：`sessionListMetadata.blank` 投影初始为 true，这两类事件会清除它，因此配置命令、其他 slash 命令记录与创建检查点即使已落盘也不会清除——blank 不代表未持久化。metadata 缺失时，live Session 回退到 `session.seq === 0`，cold Session 回退到 false；cold summary 其余情况读缓存元数据，缓存缺失时以未知状态保留在列表中。复用按[空白 Session 获取](2026-09-17-process-local-blank-sessions.zh.md)规则取得写锁。
 - wire 承载两处：`SessionSummary.blank` 必填列；`host/session-added` 帧必填 `blank` 字段（创建时恒 true，供别的 tab 按同一空会话状态入镜像）。
 - 客户端展示还受已观察到的受理/运行影响，其保留期限由 [blank 回退修复决策](../bug-fix/2026-09-15-client-session-blank-reconciliation.zh.md) 拥有：
-  - 发送方本地：首次 `prompt()` 的**成功响应**——或一条观察到的、未被命令声明为会话配置的 `command/run`（[命令转正 note](../bug-fix/2026-09-10-command-engages-blank-session.zh.md)）——把当前 `New Session` 行原地转正，不新增列表行——受理是展示记忆，不证明轮次或用户消息已写入持久历史。首条提示词被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
+  - 发送方本地：首次 `prompt()` 的**成功响应**把当前 `New Session` 行原地转正，不新增列表行——受理是展示记忆，不证明轮次或用户消息已写入持久历史。首条提示词被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
   - 其他端：`host/session-status (running:true)` 帧转正——blank 会话从不 running，首次 running 必然已非 blank；
   - 重连对齐：列表拉取更新 Host 摘要，Manager 则保留这些观察；在此基础上，`sessionListMetadata` 提示已有历史也会阻止回退 blank，因此空历史响应不能把已转正的会话标回 blank。
 - 列表纪律：store 保留全部行；Workspace browser 的分组、平铺、搜索和计数共用同一可见投影——所有非 blank 会话都显示，blank 会话只显示由 `mainView` 来源持有的一行，并强制标题为 `New Session`。切换 Workspace 后，旧 blank 实体仍在镜像中但从列表隐藏，目标 Workspace 的主 blank 显示；因此用户可见面全局至多一条 blank 行。
