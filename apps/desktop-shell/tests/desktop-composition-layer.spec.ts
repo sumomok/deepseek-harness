@@ -11,7 +11,8 @@
  * `vision-switch` names where an image sent on a text-only model moves the
  * session, which the plugin otherwise takes from a constant compiled into it,
  * and `llm-permission-gateway` names the review model's own route, which the
- * gate otherwise takes from the pair its own layer ships. `plugin-manager`
+ * gate otherwise takes from the pair its own layer ships, and sends every
+ * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
  * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
  * `ui-chat` starts work details compact.
@@ -27,11 +28,11 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { describe, expect, it } from 'vitest'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
-import { inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
+import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
@@ -203,12 +204,32 @@ describe('the composed llm-permission-gateway row', () => {
   })
 
   // `provider` and `model` are the gate's only required fields and the only
-  // two its own layer sets, so replacing the whole config drops nothing.
-  it('replaces a config that held exactly the two keys it restates', () => {
+  // two its own layer sets, so replacing the whole config drops nothing but
+  // the default `alwaysAsk` map the desktop row restates.
+  it('replaces a config that held exactly the two keys it restates, adding alwaysAsk', () => {
     expect(Object.keys(entry(below, 'llm-permission-gateway').config ?? {}).sort())
       .toEqual(['model', 'provider'])
     expect(Object.keys(entry(desktop, 'llm-permission-gateway').config ?? {}).sort())
-      .toEqual(['model', 'provider'])
+      .toEqual(['alwaysAsk', 'model', 'provider'])
+  })
+
+  // The desktop map replaces the gate's default one, so every default entry
+  // has to come back with the gate's own sentence, and the one entry it adds
+  // is keyed by the name upstream's tool registers.
+  it('asks a person before every plugin_manager call, and keeps each of the gate\'s own entries', async () => {
+    const gatewayDir = resolveBundleDir('test', '@haoran/dsh-llm-permission-gateway', installAnchor, serverDir)
+    const gateway = await import(pathToFileURL(join(gatewayDir, 'lib', 'index.js')).href) as {
+      Config: (config: Record<string, unknown>) => { alwaysAsk: Record<string, string> }
+    }
+    const defaults = gateway.Config({ provider: 'p', model: 'm' }).alwaysAsk
+    const registered: string[] = []
+    applyPluginManagerTool({ tools: { register: (tool: { name: string }) => { registered.push(tool.name) } } } as never)
+    expect(registered).toEqual(['plugin_manager'])
+
+    const alwaysAsk = entry(desktop, 'llm-permission-gateway').config?.['alwaysAsk'] as Record<string, string>
+    expect(Object.keys(alwaysAsk).sort()).toEqual([...Object.keys(defaults), ...registered].sort())
+    for (const [tool, sentence] of Object.entries(defaults)) expect(alwaysAsk[tool]).toBe(sentence)
+    expect(alwaysAsk['plugin_manager']?.trim().length).toBeGreaterThan(0)
   })
 })
 
@@ -267,7 +288,8 @@ describe('the composed plugin-manager rows', () => {
 
   // The cordis preset enables the agent tool under a profile, and its row sits
   // in the preset's `config.plugins`, where no id-targeted patch reaches. It
-  // injects the service the Host row provides, so with that row on it mounts.
+  // injects the service the Host row provides, so with that row on it mounts;
+  // the gateway row's `alwaysAsk` is what sends each of its calls to a person.
   it('leaves the cordis preset\'s tool row gated on the profile alone, over a service that now registers', () => {
     expect(presetToolRow(below, 'preset-cordis').disabled).toEqual(profileGate)
     expect(presetToolRow(desktop, 'preset-cordis').disabled).toEqual(profileGate)
@@ -315,17 +337,17 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly six rows and nothing else', () => {
+  it('changes exactly seven rows and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
     })
     // Sorted, because the order these come back in is the order dsh-base
-    // happens to list them and carries nothing about this layer. The layer's
-    // `llm-permission-gateway` row restates the route the gate's own layer
-    // ships, so it composes unchanged and is absent here.
-    expect(changed.map(row => row.id).sort())
-      .toEqual(['llm-deepseek', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite', 'ui-chat', 'vision-switch'])
+    // happens to list them and carries nothing about this layer.
+    expect(changed.map(row => row.id).sort()).toEqual([
+      'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite', 'ui-chat',
+      'vision-switch',
+    ])
   })
 
   // The invariant the catalog restatement broke once: this layer replaces

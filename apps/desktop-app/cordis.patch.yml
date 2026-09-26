@@ -114,35 +114,51 @@
       provider: deepseek-official
       model: deepseek-flash
 
-# The review model's own route, which is not the agent's. The gate's own layer
-# ships `deepseek-official` / `deepseek-flash`, the pair restated here, so this
-# row composes unchanged today; it is here so the deployment names the model
-# its judge runs on rather than inheriting whatever a later gate release ships.
-# A judge choice stored from the gate's settings page still wins over this
-# pair.
+# The review model's own route, which is not the agent's, and the tools that
+# always go to a person under 自动审查. The gate's own layer ships
+# `deepseek-official` / `deepseek-flash`, the pair restated here; it is here so
+# the deployment names the model its judge runs on rather than inheriting
+# whatever a later gate release ships. A judge choice stored from the gate's
+# settings page still wins over this pair.
+#
+# `alwaysAsk` adds upstream's `plugin_manager` agent tool, which the web app's
+# cordis preset mounts once the `plugin-manager` row below is on. One call of
+# it can install Host code that runs outside the workspace sandbox, or disable
+# a composition row — this gate's own included — so no review model decides
+# it: under 自动审查, and under the walled modes, the gate raises it to the
+# person with the sentence below. Under 完全权限 the gate steps aside, and the
+# tool's own rule lets a `danger-full-access` session call it unasked. The
+# field replaces the gate's default map rather than merging with it, so
+# `browser_auth` and its sentence are restated verbatim from the gate's
+# DEFAULT_ALWAYS_ASK.
 #
 # `provider` and `model` are the gate's only required fields, and its own patch
 # layer sets exactly those two; every other field carries a schema default, so
-# this whole-config replacement drops nothing.
-# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds both
-# layers to exactly these two keys. `walledReview` and the three judge fields
-# stay out of this row on purpose: they are volatile fields the settings page
-# writes, and a value written here would become the form's base, so "use the
-# installed setting" would clear a field back to this row's value instead of to
-# the schema default.
+# this whole-config replacement drops only the default `alwaysAsk` it
+# restates. `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds
+# the layer below to exactly those two keys and this row to those two plus
+# `alwaysAsk`. `walledReview` and the three judge fields stay out of this row
+# on purpose: they are volatile fields the settings page writes, and a value
+# written here would become the form's base, so "use the installed setting"
+# would clear a field back to this row's value instead of to the schema
+# default.
 #
 # This row stops reaching a machine once that machine writes the gate's row
 # itself. The first save from the gate's settings page or `/review`, and the
 # one-time import of an older `settings.yaml` section, write the row's whole
-# composed config, `provider` and `model` included, into
-# `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`, which applies after
-# every bundle layer. From then on a change to the two values below reaches
-# only fresh installs and machines that never saved or imported a gate
-# setting.
+# composed config into `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`,
+# which applies after every bundle layer. A write made while this row composes
+# carries `alwaysAsk` with it; a gate row the profile layer already held keeps
+# the gate's default map, without `plugin_manager`. From then on a change to
+# the values below reaches only fresh installs and machines that never saved
+# or imported a gate setting.
 - id: llm-permission-gateway
   config:
     provider: deepseek-official
     model: deepseek-flash
+    alwaysAsk:
+      browser_auth: "这一步会把你浏览器里这个网站的登录状态交给助手——那个网址下的所有登录信息都在内。之后它做的每一件事，都是以你本人的身份登录着做的。"
+      plugin_manager: "这一步会改动这台电脑上装的插件：安装、移除、启用或停用插件，或者放行一个与当前版本不兼容的插件，停用的也可能是负责审查的这个插件本身。装上的插件代码在应用里运行，不受工作区沙箱限制，改动对之后的所有对话都生效。"
 
 # Plugin management is upstream's. dsh-base's `plugin-manager` Host row serves
 # the `pluginManager` service that installs, enables, and removes bundles, and
