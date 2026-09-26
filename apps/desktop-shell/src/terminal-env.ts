@@ -29,10 +29,9 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import {
-  closeSync, copyFileSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync,
-} from 'node:fs'
+import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { copyDurably, writeDurably } from './durable-file.ts'
 
 /**
  * Environment variable carrying the home the shell exported from the pointer.
@@ -362,57 +361,6 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
   }
   writeDurably(path, Buffer.from(content, 'latin1'), mode)
   return backup === undefined ? { kind: 'written', file: path } : { kind: 'written', file: path, backup }
-}
-
-/**
- * Replace `file` with `content` through a flushed temporary sibling, with the
- * given permission bits.
- * @param file - the destination.
- * @param content - the full content.
- * @param mode - permission bits of the result.
- */
-function writeDurably(file: string, content: Buffer, mode: number): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`
-  const fd = openSync(temporary, 'w', mode)
-  try {
-    writeSync(fd, content)
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  renameOver(temporary, file)
-}
-
-/**
- * Copy `source` to `file` byte for byte, permission bits included, through a
- * flushed temporary sibling.
- * @param source - the file to copy.
- * @param file - the destination.
- */
-function copyDurably(source: string, file: string): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`
-  copyFileSync(source, temporary)
-  const fd = openSync(temporary, 'r+')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  renameOver(temporary, file)
-}
-
-/**
- * Rename a temporary file over its destination, removing it when the rename fails.
- * @param temporary - the temporary file.
- * @param file - the destination.
- */
-function renameOver(temporary: string, file: string): void {
-  try {
-    renameSync(temporary, file)
-  } catch (error) {
-    rmSync(temporary, { force: true })
-    throw error
-  }
 }
 
 /** Everything {@link readPersistentDshHome} and {@link writeTerminalDshHome} need from the host. */

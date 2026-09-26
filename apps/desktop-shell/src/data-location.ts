@@ -27,9 +27,10 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync,
+  closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, writeSync,
 } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { writeDurably } from './durable-file.ts'
 
 /** File name of the pointer under Electron's user-data directory. */
 export const POINTER_FILENAME = 'data-location.json'
@@ -174,30 +175,6 @@ export function readPointer(userData: string): PointerRead {
 }
 
 /**
- * Write `content` to `file` durably: a temporary sibling, flushed to disk, then
- * renamed over the target.
- * @param file - the destination.
- * @param content - the full new content.
- * @param mode - permission bits for a newly created file.
- */
-function writeDurably(file: string, content: string, mode?: number): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`
-  const fd = openSync(temporary, 'w', mode)
-  try {
-    writeSync(fd, content)
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  try {
-    renameSync(temporary, file)
-  } catch (error) {
-    rmSync(temporary, { force: true })
-    throw error
-  }
-}
-
-/**
  * Replace the pointer. The pointer being replaced, when it is readable, is
  * first written to the backup, so one bad write never loses the last good one.
  * @param userData - Electron's user-data directory.
@@ -208,9 +185,9 @@ export function writePointer(userData: string, pointer: DataLocationPointer): vo
   const main = join(userData, POINTER_FILENAME)
   const current = readPointerFile(main)
   if (typeof current === 'object' && !('detail' in current)) {
-    writeDurably(join(userData, POINTER_BACKUP_FILENAME), `${JSON.stringify(current, null, 2)}\n`)
+    writeDurably(join(userData, POINTER_BACKUP_FILENAME), Buffer.from(`${JSON.stringify(current, null, 2)}\n`))
   }
-  writeDurably(main, `${JSON.stringify(pointer, null, 2)}\n`)
+  writeDurably(main, Buffer.from(`${JSON.stringify(pointer, null, 2)}\n`))
 }
 
 /**
