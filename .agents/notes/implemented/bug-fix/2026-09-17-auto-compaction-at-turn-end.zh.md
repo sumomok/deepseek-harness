@@ -26,12 +26,12 @@ Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction
 
 触发装不到 inject 上，而装错比什么都不做更糟。
 
-`packages/bundle/web-app/cordis.patch.yml` 把 `compaction-basic`、`command-compact`、`tool-result-pruner` 在 host 平面上 `disabled: true`；每个 preset 在自己带 `isolate: { compaction: true, toolResultPruner: true }` 的 group 里各装一份。realm 对声明它的 group 之外一律不可见——包括 bundle patch 的裸 `- insert:` 行所落的那个 host 平面——而 `agent-presets` 自己的散文把后果写了两遍：「a host row that `inject`s a service cannot use this, because injection resolves before any session exists and has no agent to key by; such a service belongs on the host plane instead.」
+`packages/bundle/web-app/cordis.patch.yml` 把 `compaction-basic`、`command-compact`、`tool-result-pruner` 在 host 平面上 `disabled: true`；每个 preset 在自己带 `isolate: { compaction: true, toolResultPruner: true }` 的 group 里各装一份。realm 对声明它的 group 之外一律不可见——包括 bundle patch 的裸 `- insert:` 行所落的那个 host 平面——而 `agent-preset-registry` 在 `serviceForAgent` 上写明了后果：「a host row that `inject`s a service cannot use it, because injection resolves before any session exists and has no agent to key by — such a service belongs on the host plane.」
 
 所以引擎是按 agent 解析的：
 
 ```ts
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-compaction'
 declare const ctx: import('@deepseek-ai/cordis').Context
 declare const agent: import('@deepseek-ai/dsh-agent').Agent

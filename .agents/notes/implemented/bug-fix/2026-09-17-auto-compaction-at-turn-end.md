@@ -26,12 +26,12 @@ One attempt per driver exit, one at a time per agent, and the next reading is no
 
 The trigger cannot be installed by injection, and getting that wrong is worse than doing nothing.
 
-`packages/bundle/web-app/cordis.patch.yml` disables `compaction-basic`, `command-compact`, and `tool-result-pruner` on the host plane; each preset mounts them inside a group carrying `isolate: { compaction: true, toolResultPruner: true }`. A realm is invisible outside the group that declares it — including to the host plane a bundle patch's bare `- insert:` row lands on — and `agent-presets` states the consequence in its own prose twice: "a host row that `inject`s a service cannot use this, because injection resolves before any session exists and has no agent to key by; such a service belongs on the host plane instead."
+`packages/bundle/web-app/cordis.patch.yml` disables `compaction-basic`, `command-compact`, and `tool-result-pruner` on the host plane; each preset mounts them inside a group carrying `isolate: { compaction: true, toolResultPruner: true }`. A realm is invisible outside the group that declares it — including to the host plane a bundle patch's bare `- insert:` row lands on — and `agent-preset-registry` states the consequence on `serviceForAgent`: "a host row that `inject`s a service cannot use it, because injection resolves before any session exists and has no agent to key by — such a service belongs on the host plane."
 
 So the engine is resolved per agent:
 
 ```ts
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-compaction'
 declare const ctx: import('@deepseek-ai/cordis').Context
 declare const agent: import('@deepseek-ai/dsh-agent').Agent
