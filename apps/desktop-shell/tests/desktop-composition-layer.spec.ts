@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries four. `session-query-sqlite` opts into full-text search:
+ * The layer carries seven. `session-query-sqlite` opts into full-text search:
  * dsh-base and dsh-web-app both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
@@ -11,7 +11,10 @@
  * `vision-switch` names where an image sent on a text-only model moves the
  * session, which the plugin otherwise takes from a constant compiled into it,
  * and `llm-permission-gateway` names the review model's own route, which the
- * gate otherwise takes from the pair its own layer ships.
+ * gate otherwise takes from the pair its own layer ships. `plugin-manager` and
+ * `ui-plugin-manager` turn upstream's plugin installer off, leaving plugin
+ * updates to `@haoran/dsh-plugin-updates`, and `ui-chat` starts work details
+ * compact.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -28,6 +31,7 @@ import { fileURLToPath } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { describe, expect, it } from 'vitest'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
+import { inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
@@ -74,12 +78,28 @@ function entry(entries: Entry[], id: string): Entry {
   return found
 }
 
+/**
+ * One shipped bundle's patch layer, every file its manifest's
+ * `dsh.bundle.patch` names in order, read from workspace source.
+ * @param dir - the bundle's package directory.
+ * @returns the layer's patch list.
+ */
+function shippedPatches(dir: string): ReturnType<typeof loadOverlayPatches> {
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+    dsh?: { bundle?: { patch?: string | string[] } }
+  }
+  const declared = manifest.dsh?.bundle?.patch
+  if (declared === undefined) throw new Error(`shipped bundle ${dir} declares no dsh.bundle.patch`)
+  return (typeof declared === 'string' ? [declared] : declared).flatMap(file => loadOverlayPatches('test', join(dir, file)))
+}
+
 // The two shipped bundles are workspace source here rather than payload
 // packages: a launch resolves them from the installation, not from the deploy
-// root the built-ins come from.
+// root the built-ins come from. dsh-web-app's layer includes its agent-preset
+// files, which declare the presets whose child rows the cases below read.
 const shippedLayers = [
-  loadOverlayPatches('test', join(repoRoot, 'packages', 'bundle', 'base', 'cordis.patch.yml')),
-  loadOverlayPatches('test', join(repoRoot, 'packages', 'bundle', 'web-app', 'cordis.patch.yml')),
+  shippedPatches(join(repoRoot, 'packages', 'bundle', 'base')),
+  shippedPatches(join(repoRoot, 'packages', 'bundle', 'web-app')),
 ]
 const builtinLayers = BUILTIN_WEB_BUNDLES.map(name => ({ name, patches: bundlePatches(name) }))
 
@@ -191,6 +211,56 @@ describe('the composed llm-permission-gateway row', () => {
   })
 })
 
+/**
+ * The `tool-plugin-manager` row inside one preset's plugin list.
+ * @param entries - a composed entry list.
+ * @param presetId - the preset declaration row's id.
+ * @returns the preset's child row.
+ */
+function presetToolRow(entries: Entry[], presetId: string): Entry {
+  const plugins = entry(entries, presetId).config?.['plugins'] as Entry[] | undefined
+  const found = plugins?.find(candidate => candidate.id === 'tool-plugin-manager')
+  if (found === undefined) throw new Error(`${presetId} lists no tool-plugin-manager row`)
+  return found
+}
+
+describe('the composed plugin-manager rows', () => {
+  it('mounts upstream\'s installer under a profile through the layers below', () => {
+    expect(entry(below, 'plugin-manager').disabled).toEqual({ __jsExpr: "!ctx.get('profileContext')" })
+    expect(entry(below, 'ui-plugin-manager').disabled).toBeUndefined()
+  })
+
+  it('turns the Host service and the sidebar page off once the desktop layer applies', () => {
+    expect(entry(desktop, 'plugin-manager').disabled).toBe(true)
+    expect(entry(desktop, 'ui-plugin-manager').disabled).toBe(true)
+  })
+
+  // The cordis preset enables the agent tool under a profile, and its row sits
+  // in the preset's `config.plugins`, where no id-targeted patch reaches. What
+  // keeps it inert is its injection of the service the disabled Host row
+  // provides.
+  it('leaves the cordis preset\'s tool row to wait on the service it injects', () => {
+    const profileGate = { __jsExpr: "!ctx.get('profileContext')" }
+    expect(presetToolRow(below, 'preset-cordis').disabled).toEqual(profileGate)
+    expect(presetToolRow(desktop, 'preset-cordis').disabled).toEqual(profileGate)
+    expect(pluginManagerToolInject).toContain('pluginManager')
+  })
+
+  it('keeps the Settings Plugins section, which declares the plugin-updates tab slot', () => {
+    expect(entry(desktop, 'ui-settings-plugins').disabled).toBeUndefined()
+  })
+})
+
+describe('the composed ui-chat row', () => {
+  it('takes the form\'s default through the layers below', () => {
+    expect(entry(below, 'ui-chat').config).toBeUndefined()
+  })
+
+  it('starts work details compact once the desktop layer applies', () => {
+    expect(entry(desktop, 'ui-chat').config).toEqual({ transcriptView: 'compact' })
+  })
+})
+
 describe('the composed telemetry rows', () => {
   // The composed row is what a launch applies, so a later bundle layer
   // re-enabling one of these shows up here and nowhere else. The shipped rows
@@ -209,7 +279,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly three rows and nothing else', () => {
+  it('changes exactly six rows and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -219,7 +289,7 @@ describe('the desktop composition layer as a whole', () => {
     // `llm-permission-gateway` row restates the route the gate's own layer
     // ships, so it composes unchanged and is absent here.
     expect(changed.map(row => row.id).sort())
-      .toEqual(['llm-deepseek', 'session-query-sqlite', 'vision-switch'])
+      .toEqual(['llm-deepseek', 'plugin-manager', 'session-query-sqlite', 'ui-chat', 'ui-plugin-manager', 'vision-switch'])
   })
 
   // The invariant the catalog restatement broke once: this layer replaces
