@@ -67,7 +67,7 @@ import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
 import { showInstalling } from './progress-window.ts'
 import {
-  CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError,
+  CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, checkFailureDetail, classifyDownloadError,
   describeDownloadError, httpErrorCode, transferWithFallback, withRetry,
 } from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
@@ -872,7 +872,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
   // What the in-place check failed with when the tier survived that failure,
   // which is what makes the answer below a fallback rather than this build's
   // own tier.
-  let fallbackReason: string | undefined
+  let fallback: { error: unknown } | undefined
   try {
     if (canInstallInPlace()) {
       try {
@@ -884,10 +884,10 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         // costs this check, which [[checkGeneric]] answers below, not the tier
         // for the rest of the run.
         if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
-        else fallbackReason = describeDownloadError(error)
+        else fallback = { error }
       }
     }
-    await checkGeneric(host, reason, fallbackReason)
+    await checkGeneric(host, reason, fallback)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
@@ -896,7 +896,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: `${message}\n\n稍后再试,或到发布页手动下载新版本。`,
+        detail: checkFailureDetail(error, '稍后再试,或到发布页手动下载新版本。'),
         buttons: ['好'],
       })
     }
@@ -1153,11 +1153,11 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
  * and a silent check says nothing, the red line included.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
- * @param fallbackReason - what the in-place check failed with when this call is
+ * @param fallback - what the in-place check failed with when this call is
  * answering for a tier that survived that failure; undefined when the download
  * page is this build's own tier.
  */
-async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReason?: string): Promise<void> {
+async function checkGeneric(host: UpdateHost, reason: CheckReason, fallback?: { error: unknown }): Promise<void> {
   updateState().checkStarted()
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   const version = feed.version
@@ -1171,7 +1171,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
   if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
   const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
   updateState().checkSucceeded(new Date().toISOString(), version, notes)
-  if (fallbackReason === undefined) {
+  if (fallback === undefined) {
     // This build's own tier: replacing the app by hand is the only way this
     // version gets installed, for the rest of the run.
     updateState().markUnavailable('this build installs an update by replacing it by hand')
@@ -1180,6 +1180,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
     // build can still replace itself, so what is reported is the check that
     // did not get through — which the next check starts over from — rather
     // than a verdict about this build.
+    const fallbackReason = describeDownloadError(fallback.error)
     host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
     updateState().checkFailed(new Date().toISOString(), fallbackReason)
     // The answer stops here rather than continuing into the download page: a
@@ -1192,7 +1193,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: `${fallbackReason}\n\n稍后会自动重试,新版本已记录在设置里。`,
+        detail: checkFailureDetail(fallback.error, '稍后会自动重试,新版本已记录在设置里。'),
         buttons: ['好'],
       })
     } else if (isMandatory(feed.minimumVersion)) {

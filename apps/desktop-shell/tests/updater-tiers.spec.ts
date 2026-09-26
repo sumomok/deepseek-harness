@@ -430,7 +430,7 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(shell.dialogs).toHaveLength(1)
     expect(shell.dialogs.at(-1)).toMatchObject({
       message: '无法检查更新',
-      detail: 'ECONNRESET\n\n稍后会自动重试,新版本已记录在设置里。',
+      detail: 'socket hang up\n错误码:ECONNRESET\n\n稍后会自动重试,新版本已记录在设置里。',
     })
     // This build can still replace itself, so nothing offers the download page
     // or the by-hand instructions that go with it.
@@ -503,6 +503,43 @@ describe('a build that cannot install where it stands', () => {
     // electron-updater is never built on this tier, so nothing can report a
     // download; the verdict stands for the rest of the run either way.
     expect(shell.instances).toHaveLength(0)
+  })
+
+  it('answers a click on a feed it could not reach with the message line and the code chain', async () => {
+    bundle(false)
+    // What Node's fetch raises for a host that does not resolve: a bare
+    // TypeError whose cause alone carries the code.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      throw new TypeError('fetch failed', {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND lhr.ink'), { code: 'ENOTFOUND' }),
+      })
+    })
+    const { host } = sink()
+    const { setupUpdates } = await import('../src/updater.ts')
+
+    const shown = nextDialog()
+    setupUpdates(host)()
+    await shown
+
+    expect(shell.dialogs).toEqual([expect.objectContaining({
+      message: '无法检查更新',
+      detail: 'fetch failed\n错误码:ENOTFOUND\n\n稍后再试,或到发布页手动下载新版本。',
+    })])
+  })
+
+  it('shows no code line for a failure that carries no code', async () => {
+    bundle(false)
+    serveFeed('releaseNotes: no version here\n')
+    const { host } = sink()
+    const { setupUpdates } = await import('../src/updater.ts')
+
+    const shown = nextDialog()
+    setupUpdates(host)()
+    await shown
+
+    expect(shell.dialogs.at(-1)?.detail).toBe(
+      '更新源缺少 version 字段(http://127.0.0.1:1/dsh-updates/mac/latest-mac.yml)\n\n稍后再试,或到发布页手动下载新版本。',
+    )
   })
 })
 
