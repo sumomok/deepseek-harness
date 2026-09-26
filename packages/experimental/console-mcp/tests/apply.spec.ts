@@ -15,20 +15,19 @@ import type {
   CredentialRecordInfo, CredentialRef, ResolvedCredential,
 } from '@deepseek-ai/dsh-credentials'
 
-const { mockConnect, mockClose, mockRequest, MockClient, MockHttpTransport, transportCalls } = vi.hoisted(() => {
+const { mockConnect, mockClose, mockListTools, MockClient, MockHttpTransport, transportCalls } = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
-  const mockRequest = vi.fn(async (request: { method: string }): Promise<unknown> => {
-    if (request.method === 'tools/list') {
-      return await Promise.resolve({ tools: [{ name: 'ping', description: 'ping', inputSchema: { type: 'object' } }] })
-    }
-    throw new Error(`unexpected MCP request: ${request.method}`)
-  })
+  const mockListTools = vi.fn(async (): Promise<unknown> =>
+    await Promise.resolve({ tools: [{ name: 'ping', description: 'ping', inputSchema: { type: 'object' } }] }))
   class MockClient {
+    transport = {}
     connect = mockConnect
     close = mockClose
-    request = mockRequest
-    setNotificationHandler = vi.fn()
+    listTools = mockListTools
+    callTool = vi.fn()
+    getServerCapabilities = (): { tools: object } => ({ tools: {} })
+    getInstructions(): string | undefined { return undefined }
   }
   const transportCalls: { url: URL; options: { requestInit?: { headers?: Record<string, string> } } }[] = []
   // A constructor function rather than a class: the only thing under test is
@@ -38,14 +37,14 @@ const { mockConnect, mockClose, mockRequest, MockClient, MockHttpTransport, tran
   ): void {
     transportCalls.push({ url, options })
   }
-  return { mockConnect, mockClose, mockRequest, MockClient, MockHttpTransport, transportCalls }
+  return { mockConnect, mockClose, mockListTools, MockClient, MockHttpTransport, transportCalls }
 })
 
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({ Client: MockClient }))
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({ StdioClientTransport: vi.fn() }))
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+vi.mock('@modelcontextprotocol/client', () => ({
+  Client: MockClient,
   StreamableHTTPClientTransport: MockHttpTransport,
 }))
+vi.mock('@modelcontextprotocol/client/stdio', () => ({ StdioClientTransport: vi.fn() }))
 
 import { apply, inject, name, Config as ConfigSchema } from '@deepseek-ai/dsh-experimental-console-mcp/src/index.ts'
 
@@ -125,7 +124,7 @@ beforeEach(() => {
   mockConnect.mockResolvedValue(undefined)
   mockClose.mockReset()
   mockClose.mockResolvedValue(undefined)
-  mockRequest.mockClear()
+  mockListTools.mockClear()
 })
 
 describe('console-mcp module exports', () => {

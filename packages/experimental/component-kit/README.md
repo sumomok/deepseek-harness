@@ -11,10 +11,6 @@ English | [中文](README.zh.md)
 
 The component row behind the content panel's `component` kind: six components, each a host definition saying what a call may send it and what comes back, and the React renderer that draws it. It declares no slot and knows no layout. A placement package decides where a block is drawn; this row decides which blocks exist and what they look like.
 
-Both halves register into [`component-surface`](../component-surface/README.md)'s catalog — the node half into `ctx.componentCatalog`, the browser half into `ctx.componentRenderers` — so a deployment that composes the placement row without this one offers no component at all and is offered no `show_component` tool. Neither registration requires the other row: each waits for the registry through `ctx.inject`, so composition order is free.
-
-The node half also serves one route. It carries the single value the browser half cannot compute for itself — `bizBasePath`, the path prefix under which the `toy.data-page` component requests its table — and the row's `cordis.yml` entry is also what makes the browser bundle discoverable through `dsh.client`.
-
 ## Table of Contents
 
 - [What this row registers](#what-this-row-registers)
@@ -32,6 +28,10 @@ The node half also serves one route. It carries the single value the browser hal
 
 <a id="what-this-row-registers"></a>
 ## What this row registers
+
+Both halves register into [`component-surface`](../component-surface/README.md)'s catalog — the node half into `ctx.componentCatalog`, the browser half into `ctx.componentRenderers` — so a deployment that composes the placement row without this one offers no component at all and is offered no `show_component` tool. Neither registration requires the other row: each waits for the registry through `ctx.inject`, so composition order is free.
+
+The node half also serves one route. It carries the single value the browser half cannot compute for itself — `bizBasePath`, the path prefix under which the `toy.data-page` component requests its table — and the row's `cordis.yml` entry is also what makes the browser bundle discoverable through `dsh.client`.
 
 Two kinds of component live here. One is written in this repository as ordinary React and depends on nothing else. The other is a Vue 2 component compiled outside it, drawn through a bridge onto a Vue runtime another row owns. **How the originals get here**, below, records the whole of what that costs. One of those originals also requests its own data, and **The data page** records the whole of what *that* costs.
 

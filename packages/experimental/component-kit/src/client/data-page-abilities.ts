@@ -13,7 +13,6 @@
  * table with every ability off, and so is the time before the verdict arrives.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/data-page-abilities
  */
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { COMPONENT_KIT_ABILITIES_ROUTE, NO_ABILITIES, readDataPageAbilities, type DataPageAbilityTable } from '../route.ts'
 
 /**
@@ -26,7 +25,8 @@ import { COMPONENT_KIT_ABILITIES_ROUTE, NO_ABILITIES, readDataPageAbilities, typ
  * @returns the verdict, or {@link NO_ABILITIES} when none could be obtained.
  */
 export async function readAbilitiesFor(meta: string, signal: AbortSignal): Promise<DataPageAbilityTable> {
-  const url = clientUrl(COMPONENT_KIT_ABILITIES_ROUTE)
+  // Document-relative, so a console served under a path prefix reaches its own route.
+  const url = new URL(COMPONENT_KIT_ABILITIES_ROUTE.slice(1), document.baseURI)
   url.searchParams.set('meta', meta)
   let response: Response
   try {
@@ -37,12 +37,12 @@ export async function readAbilitiesFor(meta: string, signal: AbortSignal): Promi
     return NO_ABILITIES
   }
   if (!response.ok) return NO_ABILITIES
-  let document: unknown
+  let body: unknown
   try {
-    document = await response.json()
+    body = await response.json()
   } catch (_answerIsNotJson) {
     // The body was not JSON, which is no verdict.
     return NO_ABILITIES
   }
-  return readDataPageAbilities(document) ?? NO_ABILITIES
+  return readDataPageAbilities(body) ?? NO_ABILITIES
 }

@@ -60,7 +60,10 @@
     "packages/experimental/component-kit/tests/**",
     "packages/experimental/vue2-echarts-poc/tests/**",
     "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts",
-    "packages/experimental/component-surface/tests/renderer-coverage.client.spec.ts"
+    "packages/experimental/component-surface/tests/component-surface.client.spec.tsx",
+    "packages/experimental/component-surface/tests/component-surface-composition.client.spec.tsx",
+    "packages/experimental/component-surface/tests/component-surface-mismatch.client.spec.tsx",
+    "packages/experimental/component-surface/tests/renderer-table.client.ts"
   ],
   "references": [
     { "path": "./tsconfig.desktop-keyboard-tests.json" },

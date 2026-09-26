@@ -11,10 +11,6 @@ English | [中文](README.zh.md)
 
 Two packages that must not depend on each other meet here. [`component-surface`](../component-surface/README.md) owns `ctx.componentCatalog` — which components a deployment registered and which of them it offers — and knows nothing about skill packs. [`skill-pack`](../skill-pack/README.md) withholds a pack until the component parts its views place exist, declares the service key that answers what exists, and reaches into no component package to answer it. This row is what a deployment composes to connect the two, and it is the only place the edge runs in both directions.
 
-It publishes the components this deployment **offers** rather than the ones it registered. A component the deployment did not turn on cannot be drawn, so a pack requiring it must stay inactive — the deployment's own data page on a console that left `dataPage` off is that case, and it is why the catalog answers an offer at all.
-
-Views travel the other way. Every active pack's views are offered to `ctx.componentViews` as one source and re-offered whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart.
-
 ## Table of Contents
 
 - [Mount it](#mount-it)
@@ -30,6 +26,10 @@ Views travel the other way. Every active pack's views are offered to `ctx.compon
 
 <a id="mount-it"></a>
 ## Mount it
+
+It publishes the components this deployment **offers** rather than the ones it registered. A component the deployment did not turn on cannot be drawn, so a pack requiring it must stay inactive — the deployment's own data page on a console that left `dataPage` off is that case, and it is why the catalog answers an offer at all.
+
+Views travel the other way. Every active pack's views are offered to `ctx.componentViews` as one source and re-offered whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart.
 
 Anywhere after the component surface and the pack root's provider. The row has no configuration: what it publishes is read off the two services beside it.
 

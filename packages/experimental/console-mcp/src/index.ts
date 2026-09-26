@@ -84,7 +84,7 @@ const Server = z.object({
 
 export const Config = z.object({
   servers: z.array(Server).default([]),
-}) as unknown as z<ConfigInput, Config>
+}) as z<ConfigInput, Config>
 
 /**
  * Build the header table one server's requests carry. The credential is read

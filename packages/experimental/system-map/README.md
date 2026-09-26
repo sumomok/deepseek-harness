@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 A console assistant that cannot name this deployment's data models cannot answer a question about them. Asked in a person's own words about 图层配置 it has to guess an English table name, or propose a button that person is not allowed to press. This row closes that with three reads of the deployment's own stored configuration, layered because the catalog is too large to carry around: the subject areas, the data models one subject area holds, and one model in full.
 
-Perception, and nothing else. None of the three writes anything, asks anybody anything, or looks at a screen, so none of them is put to a person first. What they answer with is the deployment's own configuration and the signed-in person's own rights — never the values in a row, and never what is currently in front of somebody.
-
 ## Table of Contents
 
 - [The three reads](#the-three-reads)
@@ -28,6 +26,8 @@ Perception, and nothing else. None of the three writes anything, asks anybody an
 
 <a id="the-three-reads"></a>
 ## The three reads
+
+Perception, and nothing else. None of the three writes anything, asks anybody anything, or looks at a screen, so none of them is put to a person first. What they answer with is the deployment's own configuration and the signed-in person's own rights — never the values in a row, and never what is currently in front of somebody.
 
 | Tool | Parameters | Answers with |
 |---|---|---|

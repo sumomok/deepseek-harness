@@ -44,6 +44,7 @@ kind: "package-group"
 | [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的三次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
 | [`component-kit`](component-kit/README.zh.md) | 组件行：它注册进落位包目录的六个组件，每个都由一份主机侧定义和画它的 React 渲染器组成 | — |
 | [`component-surface`](component-surface/README.zh.md) | `show_component` 工具与 content 栏的 `component` 类型：来自固定目录的内容块，在画出来之前先判定 | — |
+| [`console-mcp`](console-mcp/README.zh.md) | 控制台的 MCP 能力，作为一行组合：由部署持有的 Streamable HTTP 服务器清单，按具名凭据接入，清单为空时不做任何事 | — |
 | [`console-profile`](console-profile/README.zh.md) | 客户控制台：叠在 Web profile 上的一个 bundle 层，外加一份叠在 profile 补丁之上的权限锁 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |
@@ -55,6 +56,7 @@ kind: "package-group"
 | [`server-sidebar`](server-sidebar/README.zh.md) | 产品控制台侧边栏：用固定的工作台/导航/工作流控制台替换出厂侧边栏，并承载客户表单页所需的去术语层 | — |
 | [`skill-pack`](skill-pack/README.zh.md) | 技能包根目录的技能提供方：只有某个技能包的视图所摆放的每个组件插件部件都已注册，它才会被交出去 | `ctx.skillPacks` |
 | [`skill-pack-components`](skill-pack-components/README.zh.md) | 一套部署组合在两者之间的适配器：它把这套部署交出去的组件发布成技能包所要求的部件 | — |
+| [`system-map`](system-map/README.zh.md) | 对本部署自有数据模型配置的三个读，按登录者的权限过滤 | 注册工具到 `ctx.tools` |
 | [`tool-agent-team`](tool-agent-team/README.zh.md) | 让模型创建、发消息与协调 teammate 的九个工具 | 按作用域注册工具到 `ctx.tools` |
 | [`vue-ui-poc`](vue-ui-poc/README.zh.md) | 可行性验证：通过一座薄桥把 Vue 3 组件挂进 React slot | — |
 | [`vue2-echarts-poc`](vue2-echarts-poc/README.zh.md) | 组件库：以 Vue 2.7 组件写成、经桥接入 React 的 ECharts 柱状图 | — |

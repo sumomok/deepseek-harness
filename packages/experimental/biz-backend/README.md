@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`ctx.bizBackend`: six reads of a deployment's own data backend, performed with the access token of the person using that deployment. A deployment that issues tokens usually also serves its own data — a person opening a resource list in its web console sends one request for the model's attributes, one for the columns that list opens with, and one for a page of its rows, all three carrying that person's token — and this package makes those same requests from inside the harness process, plus three more its pages make: the whole catalog of models, one model's stored forms, and what that person is allowed to do.
+`ctx.bizBackend`: six reads of a deployment's own data backend, performed with the access token of the person using that deployment. A person opening a resource list in the deployment's web console sends one request for the model's attributes, one for the columns that list opens with, and one for a page of its rows, all carrying that person's token. This package makes those same requests from inside the harness process, plus three more its pages make: the whole catalog of models, one model's stored forms, and what that person is allowed to do.
 
 ## Table of Contents
 

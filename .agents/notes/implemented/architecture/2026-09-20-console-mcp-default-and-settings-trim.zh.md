@@ -63,7 +63,7 @@ Status: implemented
 
 `packages/experimental/console-mcp` 带 23 个测试，其两个 `src` 文件逐文件覆盖率 100%。`tests/servers.spec.ts` 钉住每一条自足拒绝——id 文法、两项声明同一个 id、url 不是绝对 `http(s)`、url 携带用户信息、url 携带 fragment、header 名不合法、凭据引用不符合引用文法——外加一条对拒绝措辞最要紧的用例：解析器读不懂的 url **不会**被引用回来，以否定断言的形式钉住。`tests/apply.spec.ts` 在真实 `ToolRuntime` 之上挂载该行，MCP SDK 打桩、凭据用替身，钉住四条生命周期主张：空清单不打开任何传输、不注册任何工具；两个服务器各自在自己的命名空间下注册；被点名的凭据落在所配置的请求头上、位于其 scheme 之后；缺失的凭据按引用名拒绝且什么也没注册。清单级的拒绝以其后果钉住——第二项重复了 id 的清单挂载的传输数为**零**，而不是一个。
 
-`packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts` 增加了组合断言：两条停用行的 id 与包名；同样这两行在 `packages/bundle/web-app/cordis.patch.yml` 里仍被组合且未被停用（因此控制台的停用是控制台自己的，且上游退役某一行会在这里失败，而不是悄悄变成死配置）；设置外壳刻意**不**停用；以及 `config` 等于 `{ servers: [] }` 的 MCP 行。三份控制台 e2e overlay 副本被断言逐字携带全部这些内容，方式与该文件既有地对待 permission 行一致。
+`packages/experimental/console-profile/tests/profile.spec.ts` 承载组合断言：两条停用行的 id；同样这两行在 `packages/bundle/web-app/cordis.patch.yml` 里仍被组合且未被停用（因此控制台的停用是控制台自己的，且上游退役某一行会在这里失败，而不是悄悄变成死配置）；设置外壳刻意**不**停用；以及 `config` 等于 `{ servers: [] }` 的 MCP 行。控制台 e2e 的部署层被断言不重述其中任何一行，因为这些通道装的就是控制台 bundle 本身。
 
 `terminology-guard.client.spec.ts` 把新规则钉两遍：一遍作为字面选择器，一遍作为结构——把该选择器跑在 `SettingsRoot.tsx` 渲染出的元素树上，必须恰好匹配到表头的动作行，而一个同样把某个类命名为 `actions` 的分区元素必须不匹配。后一半正是防止该规则扩大到它无权隐藏的控件上的东西。
 

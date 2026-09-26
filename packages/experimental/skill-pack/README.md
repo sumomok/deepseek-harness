@@ -11,10 +11,6 @@ English | [中文](README.zh.md)
 
 A skill pack is an ordinary skill directory — a `SKILL.md` with YAML frontmatter, and view files beside it — whose frontmatter `metadata` also states which component plugin parts its views place. This package is the skill provider for one directory of them. It reads the root, judges every pack against the parts a component plugin has actually registered, and contributes to `ctx.skills` only the packs whose every requirement is met.
 
-Activation is whole-pack. A pack with one unmet requirement is offered to nobody: the model is never told the skill exists, no user-facing command lists it, and none of its views is offered. A pack whose page would be half-drawn is worse than a pack that is not there.
-
-The state flips without a restart. The parts source notifies this package when a component plugin is mounted or withdrawn, and a watched pack root notifies it when a pack arrives or leaves; either one invalidates the skill catalog, and the next read sees the new answer.
-
 ## Table of Contents
 
 - [Mount and configure](#mount-and-configure)
@@ -33,6 +29,10 @@ The state flips without a restart. The parts source notifies this package when a
 
 <a id="mount-and-configure"></a>
 ## Mount and configure
+
+Activation is whole-pack. A pack with one unmet requirement is offered to nobody: the model is never told the skill exists, no user-facing command lists it, and none of its views is offered. A pack whose page would be half-drawn is worse than a pack that is not there.
+
+The state flips without a restart. The parts source notifies this package when a component plugin is mounted or withdrawn, and a watched pack root notifies it when a pack arrives or leaves; either one invalidates the skill catalog, and the next read sees the new answer.
 
 Mount the row beside `@deepseek-ai/dsh-skill`, and point the generic filesystem provider at the deployment's other skill roots rather than at this one.
 

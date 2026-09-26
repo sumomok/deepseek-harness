@@ -20,12 +20,17 @@
     "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.ts",
     "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.tsx",
     "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts",
-    "packages/experimental/component-surface/tests/renderer-coverage.client.spec.ts"
+    "packages/experimental/component-surface/tests/component-surface.client.spec.tsx",
+    "packages/experimental/component-surface/tests/component-surface-composition.client.spec.tsx",
+    "packages/experimental/component-surface/tests/component-surface-mismatch.client.spec.tsx",
+    "packages/experimental/component-surface/tests/renderer-table.client.ts",
+    "packages/experimental/component-surface/tests/kit-catalog.client.ts"
   ],
   "references": [
     { "path": "./packages/client/locale/tsconfig.client.json" },
     { "path": "./packages/client/store" },
     { "path": "./packages/client/ui-renderer" },
+    { "path": "./packages/experimental/auth-gate" },
     { "path": "./packages/experimental/component-kit" },
     { "path": "./packages/experimental/component-surface" },
     { "path": "./packages/experimental/content-column" },

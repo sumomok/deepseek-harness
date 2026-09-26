@@ -11,10 +11,6 @@ kind: "package-reference"
 
 内容面板 `component` 类目背后的组件行：六个组件，每个都由一份主机侧定义（说明一次调用可以发什么、会回来什么）和画它的 React 渲染器组成。它不声明插槽，也不认识任何布局。一块内容画在哪里由落位包决定；有哪些块、画成什么样，由这一行决定。
 
-两个半边都注册进 [`component-surface`](../component-surface/README.zh.md) 的目录——node 半边注册进 `ctx.componentCatalog`，浏览器半边注册进 `ctx.componentRenderers`——所以只组合落位行、不组合这一行的部署一个组件都没有，也拿不到 `show_component` 这个工具。两次注册都不要求对方先在：各自用 `ctx.inject` 等自己那个注册表，所以组合顺序随意。
-
-node 半边还提供一条路由。它送的是浏览器半边自己算不出来的那一个值——`bizBasePath`，即 `toy.data-page` 组件请求自己那张表所走的路径前缀；这一行的 `cordis.yml` 条目同时也是浏览器产物靠 `dsh.client` 被发现的原因。
-
 ## 目录
 
 - [这一行注册了什么](#what-this-row-registers)
@@ -32,6 +28,10 @@ node 半边还提供一条路由。它送的是浏览器半边自己算不出来
 
 <a id="what-this-row-registers"></a>
 ## 这一行注册了什么
+
+两个半边都注册进 [`component-surface`](../component-surface/README.zh.md) 的目录——node 半边注册进 `ctx.componentCatalog`，浏览器半边注册进 `ctx.componentRenderers`——所以只组合落位行、不组合这一行的部署一个组件都没有，也拿不到 `show_component` 这个工具。两次注册都不要求对方先在：各自用 `ctx.inject` 等自己那个注册表，所以组合顺序随意。
+
+node 半边还提供一条路由。它送的是浏览器半边自己算不出来的那一个值——`bizBasePath`，即 `toy.data-page` 组件请求自己那张表所走的路径前缀；这一行的 `cordis.yml` 条目同时也是浏览器产物靠 `dsh.client` 被发现的原因。
 
 这里住着两类组件。一类是仓内用普通 React 写的，不依赖别的任何东西；另一类是仓外编译好的 Vue 2 组件，经一层桥挂到另一行拥有的那份 Vue 运行时上。下面的**原件怎么进来**记着为此付出的全部代价。其中一件原件还会自己发请求取数据，**数据页**一节记着*那件事*的全部代价。
 
