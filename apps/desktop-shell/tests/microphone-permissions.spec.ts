@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { Session, WebContents } from 'electron'
+import type { MediaAccessPermissionRequest, Session, WebContents } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { installMicrophonePermissions, servedByServer, type MicrophoneHost } from '../src/microphone-permissions.ts'
 
@@ -46,7 +46,7 @@ type CheckDetails = Parameters<NonNullable<CheckHandler>>[3]
 type RequestDetails = Parameters<NonNullable<RequestHandler>>[3]
 
 const audioCheck = { isMainFrame: true, mediaType: 'audio', requestingUrl: `${SERVER}/` } as CheckDetails
-const audioRequest = { isMainFrame: true, mediaTypes: ['audio'], requestingUrl: `${SERVER}/chat` } as unknown as RequestDetails
+const audioRequest: MediaAccessPermissionRequest = { isMainFrame: true, mediaTypes: ['audio'], requestingUrl: `${SERVER}/chat` }
 
 /**
  * Answer one request through the installed handler.
@@ -96,7 +96,7 @@ describe('installMicrophonePermissions', () => {
     expect(await answer(request, primary, 'media', { ...audioRequest, isMainFrame: false })).toBe(false)
     expect(await answer(request, other, 'media', audioRequest)).toBe(false)
     expect(await answer(request, primary, 'media', { ...audioRequest, requestingUrl: 'https://example.com/' })).toBe(false)
-    expect(await answer(request, primary, 'media', { ...audioRequest, mediaTypes: ['audio', 'video'] } as unknown as RequestDetails)).toBe(false)
+    expect(await answer(request, primary, 'media', { ...audioRequest, mediaTypes: ['audio', 'video'] })).toBe(false)
     const serverless = install({ serverOrigin: () => undefined })
     expect(await answer(serverless.request, primary, 'media', audioRequest)).toBe(false)
   })
