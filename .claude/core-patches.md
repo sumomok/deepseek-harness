@@ -1,611 +1,669 @@
 # core-patches 补丁登记
 
-core-patches 分支上的每一个补丁在此登记；新增、修改、退役补丁时必须同步更新本文档。
+本文件登记 `feature/core-patches` 线上的每一个补丁族。新增、修改、退役补丁时必须同步更新本文件。
 
-**当前补丁线**：`core-patches-v6`，基座 `upstream/master` = `76fda72979`（0.1.2-rc.1）。上一条线 `core-patches-v5` = `001c0d7ded`，基座 `49a606bc5b`（0.1.2-alpha.5）。
+**当前补丁线**：`feature/core-patches`。
 
-**本文件所在的 `product/server-console` 线**：上游基座 `76fda72979`（`dsh-v0.1.2-rc.1-99`），从 `develop`@rc.29（`7c64d32f85`）继承上面登记的 `core-patches-v6` 各族；在此之上，本线自己的提交另外手改了一批上游拥有的文件，这些只属于本线的补丁登记在「product/server-console 线自己携带的上游改动」一节，不在 `core-patches` 分支上，也不随 `develop` 发版。
+**基座 tag**：`dsh-v0.1.7-rc.2`
 
-## fix(scripts): let the workspace gate see apps that never publish — 08f12ee732
-- **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
-- **为什么**：`apps/desktop`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
-- **要达到的效果**：`apps/*` 下未发布的产品装配（Electron 壳、部署根、补丁层 bundle）能通过 gate，同时仍受工作区卫生规则约束；判别只靠 `private: true` 一个布尔字段，不需要再维护第二份名单。
-- **退役条件**：上游自己的 `check-workspace-constraints.ts` 学会区分 `apps/*` 下未发布的私有产品装配与发布成员（或 fork 不再拥有此类未发布目录）。
-- **状态**：在役
+上面两行是门禁读的声明。基座是 `refs/tags/dsh-v0.1.7-rc.2^{commit}`，且 `git merge-base HEAD <tag>` 必须等于它，即声明的上游发布已经并进本线。本线由 `core-patches-v11` 用 `-s ours` 合并 tag `core-patches-z` 接续，不再变基；`core-patches-v9` 与旧的 `core-patches` 线经 `core-patches-z` 并入了历史。上游发布用 `git merge` 并入本线；`core-patches` 只从本线快进，`develop` 只通过合并 `core-patches` 取得核心改动。
 
-## fix(scripts): re-anchor two rescope exact edits to the 0.1.1-rc.1 tree — 9b498d4a3e
-- **改了什么**：`scripts/rescope-vendor.ts`；重新锚定两条 exact-edit 记录（`packages/util/home` 删除、中文 vendoring cookbook 链接改指向 `../rescope.zh.md`）。
-- **为什么**：上游 0.1.1-rc.1 已经把这两处改成了记录表期望的样子，但记录表里保存的 `replace` 原文对不上新树，导致 `rescope-vendor:check` 把已生效的改动误报成既非待办也非已应用。
-- **要达到的效果**：`rescope-vendor:check` 在 `upstream/master` 上正确判定这两条记录为已应用，不再误报。
-- **退役条件**：上游自己重新锚定这两条记录（即上游的树形状定型，记录表天然对得上）。
-- **状态**：退役（rc.26 同步，基座 0.1.2-alpha.2）。依据：在新基座上未重落本补丁、直接跑 `pnpm run rescope-vendor:check` 结果为 `post-state verified — no residue, every exact edit landed, idempotent`，全绿；上游 `scripts/rescope-vendor.ts` 的 `EXACT_EDITS` 表里旧的 `packages/util/home` 锚点已随上游自身改动整体消失，中文 vendoring cookbook 链接锚点也已在上游侧修正为 `../rescope.zh.md`。core-patches-v2 未重落此补丁。
+**本线（`product/server-console`）的副本**：`product/server-console` 通过合并 `core-patches` 取得核心改动，本文件随之进入本线。上面两行声明仍指 `feature/core-patches`：本线的 first-parent 链不带 `Patch:` trailer，也有话题分支合并，所以 `verify-core-patches` 在本线按「不在声明的补丁线上」skip（退出 0），不对本线做机器核对。本线自己对上游拥有文件的改动登记在 `## 历史轮次` 之前、状态行写明 `product/server-console` 的记录里，格式与下面「身份规则」相同，路径口径是 `git diff --no-renames --name-only core-patches HEAD` 中基座 tag 已有的路径扣掉那里列出的生成物豁免集；`core-patches` 自己的记录原样保留，下一次合并 `core-patches` 时本文件取 `core-patches` 侧再接回这些记录。桌面外壳（`apps/desktop-server`、`apps/pwa`、electron-updater 补丁、`scripts/filtered-deploy*`、`scripts/verify-vendored-plugin-versions*`）在并入 `dsh-v0.1.7-rc.2` 的同一轮从本线删除：它们只服务 develop 的桌面发行，本线不发桌面，不再携带。
 
-## feat(permission-presets): let a host-configured preset name its selector glyph — 00770bab13
-- **改了什么**：`PresetSpec`/`PresetOption` 新增可选 `glyph` 字段（三选一闭合枚举，贯穿 schemastery Config schema 与权限投影的 zod wire schema）；`PermissionSelect.tsx` 按 `permissionGlyph(option.glyph ?? option.value)` 解析每行与 trigger 图标。
-- **为什么**：Web composer 的权限选择器按选项 `value` 从写死的图形集里选一枚盾牌图标，只有三个内置 preset id 能解析出图标；一个部署自定义的 preset（例如保留审批提示的 full-access 变体）会渲染成夹在带图标行之间的纯文字行，且被选中时 trigger 也丢图标——玻璃 map 硬编码在客户端里，没有任何插件层能触达这个选择。
-- **要达到的效果**：宿主配置的 preset 可以显式声明使用哪一枚设计集图标；未声明的键退回到内置图标已经在用的裸盾牌轮廓，选择器里不再出现无图标的行。
-- **退役条件**：上游以任何形式获得等价能力（让 preset 自己命名视觉呈现），即退役该 overlay，依赖插件适配上游形式。
-- **状态**：在役（rc.26 同步已核实未退役）。核实依据：上游 0.1.2-alpha.2 已有的标签本地化机制（commit `8769d57c98`，`fix(web): localize permission preset labels`）只解决了预设文案的本地化，未新增任何图标/glyph 命名能力——`permissionGlyph` 仍只按 `option.value` 从写死集合取图标；已随重落适配到上游把 `permissionGlyphs` 由对象字面量改成 `Map`、把 `optionLabel(option, t)` 拆成 `permissionLabel(value, name, t)` 后的新结构，补丁本身逻辑不变。
+## 身份规则
 
-## feat(ui-conversation): open a contribution seat on user messages — 88be8656ab
-- **改了什么**：新增会话作用域 list slot `conversation.chat.user-actions`；`ChatView` 声明该位并经 `ChatNodeOwnerProps` 向每个 chat node 传下 `renderUserActions`；`slot-catalog.ts`/`ChatNodeSeat.tsx`/`MessageItem.tsx` 相应改动。
-- **为什么**：已定稿 assistant 消息有 `conversation.chat.assistant-actions` 贡献位，用户消息没有对应物——`UserMessageNodeView` 不声明 children 表，插件只能整体遮蔽 keyed `user` 条目才能加一个按钮，逼得想要该能力的插件把操作放到不是该消息的地方（composer dock 或 assistant 行）。
-- **要达到的效果**：插件只需注册一个条目即可在用户自己的消息（含已接纳的 steering 气泡）上添加逐消息操作，无需 fork conversation 包；owner currency 携带该消息的日志位置 `seq` 与已渲染文本。
-- **退役条件**：上游以任何形式获得等价的用户消息逐消息贡献位，即退役该 overlay，依赖插件适配上游形式。
-- **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2）**：上游把 chat 相关实现与其 slot 契约整体从 `packages/client/ui-conversation` 搬到新包 `packages/client/ui-chat`——不仅 `ChatView.tsx`/`MessageItem.tsx`/`ChatNodeSeat.tsx` 等组件文件搬了家，`contract/slots.ts` 里的 `ChatNodeOwnerProps`/`AssistantActionOwnerProps`/`ChatViewSlotProps`/`ChatFileMentions`/`TurnTailOwnerProps` 等 chat 专属类型，以及 `conversation.view` 的 slot 注册点（原在 `ui-conversation/src/client/apply.ts`）也一并搬到 `ui-chat`。本补丁新增的 `RenderUserActions`/`UserActionOwnerProps` 类型与 `conversation.chat.user-actions` 的 SlotMap 声明因此改落 `packages/client/ui-chat/src/client/contract/slots.ts`（挨着同款的 `AssistantActionOwnerProps`），`children` 里的 `'conversation.chat.user-actions': { kind: 'list', scope: 'session' }` 改落 `packages/client/ui-chat/src/client/apply.ts`；`ui-conversation` 自身不再持有任何 chat 专属类型或注册点。
+**补丁身份是 slug，不是提交哈希。** 每个补丁族有一个 kebab-case slug，全线唯一、稳定，由补丁标题派生。同一族的多个提交共用一个 slug。上游的 `verify-repository-references` 拒绝在维护中的散文里出现能解析成本仓提交的十六进制串，所以提交哈希不进本文件。
 
-## feat(ui-primitives): export the ANSI line parser — 9097705ed1
-- **改了什么**：`packages/client/ui-primitives/src/index.ts` 新增导出 `parseAnsiLines` + `AnsiLine`（原为 `ansi.ts` 内部私有）；README 双语补充说明。
-- **为什么**：fork 内部一个插件要给终端输出加可点击指代，需要与 `TerminalBlock` 完全一致的方式对 ANSI 分词；解析器此前对包外不可见，另写一份实现会在任一份改动时与之走偏。
-- **要达到的效果**：消费方可以 `import { parseAnsiLines, type AnsiLine } from '@deepseek-ai/dsh-client-ui-primitives'`，得到与 `TerminalBlock` 一致的分词结果，无需 fork `ansi.ts`；`TerminalBlock` 自身渲染零改动。
-- **退役条件**：上游自行导出该解析器，或提供终端输出渲染 hook，使得包外重新解析 ANSI 不再必要。
-- **状态**：在役
+**first-parent 链上的每个非合并提交带一条 `Patch: <slug>` trailer。** 链从基座 tag 数到 HEAD（`git log --first-parent <base>..HEAD`）。`core-patches-z` 带进来的旧线提交、上游发布里的提交都挂在合并提交的第二父之下，不在链上，不要求 trailer。
 
-## fix(host-apiproxy): a distinguishable not-found error from the path opener — a5c4d3a29d
-- **改了什么**：`openTarget`（`host.openPath` 与设置文档编辑器移交共用的实现）在调用原生 opener 前先 `stat` 已解析路径；`RpcErrorDetailsMap`/`rpcErrorSchema` 新增 `not-found` 错误码；`WorkspaceRuntime.openPath` 改为抛出携带 `rpcError` 字段的 `PathOpenError`（消息文本保持不变，纯增量扩展）。
-- **为什么**：`openTarget` 此前把路径不存在、无注册应用、权限被拒等一切失败都折叠成一个 `internal` 错误加自由文本消息，调用方无法在不解析消息文本的前提下区分出"路径不存在"。
-- **要达到的效果**：调用方可以据 `rpcError.code === 'not-found'` 分支处理（例如提示重新选择文件，而不是展示一条原生平台错误）；对已知不存在的路径不再起一次必败的原生子进程；既有的 Host 拒绝弹窗文案字节不变。
-- **退役条件**：上游自行区分出"路径不存在"这一 opener 失败。
-- **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `bb369aa8b0`）**：上游把整个 `packages/host/apiproxy` 包连根拔起（不是文件内搬家），`host.openPath`/`openTarget` 的职责整体移进了 `packages/api/session-controller`（新模式：`session.openWorkspacePath`，实现在 `src/index.ts` 的 `openWorkspacePath()`），且原来的扁平 `RpcErrorDetailsMap`/`rpcErrorSchema` 已被上游替换成按域命名空间分类的 `RemoteError<'domain/code'>` 闭合联合（`RemoteErrorDetailsMap`，`packages/api/session-controller/src/types.ts`）。本补丁的 ENOENT 预检移植为：`openWorkspacePath` 在调用原生 opener 前先对已解析路径 `stat`，命中 `ENOENT` 抛出携带 `'session/path-not-found': { path }` 的 `RemoteError`（新增到 `RemoteErrorDetailsMap`）；`stat` 的其他失败（权限拒绝等）落空后仍走原生 opener 由其自行报错，不吞掉非 ENOENT 场景。`session-open-workspace-path.host.spec.ts` 新增未命中/非 ENOENT 落空/`stat` 期间 abort 竞态三组测试，并把既有 4 组测试从假路径改为真实 `mkdtemp`+`writeFile` 暂存文件。设置侧的独立 `openWorkspacePath` 拷贝（`settings-controller`）不在本次移植范围——原补丁的共享 `openTarget` 在新架构上本就拆成了两份互不相干的实现。
+**合并规则**：first-parent 链上的合并提交只接受两种。(a) 恰有两个父提交，且第二父恰好是某个 `refs/tags/dsh-v*` tag 指向的提交（附注 tag 取解引用后的提交），即并入上游发布；点名了发布的 octopus 合并仍会带进其余父提交，不算这一种；不对声明的 tag 附加任何祖先条件，因为声明改成更新的 tag 之后，前几轮的发布合并仍留在链上。(b) 合并后的树等于第一父的树，即 `-s ours` 接续。其余合并一律违规：话题分支的合并会把不带 trailer 的提交藏在第二父之下。本线上的改动直接提交或 squash，不走 PR 的合并提交。
 
-## fix(ui-primitives): stop silently discarding a disallowed link destination — 5ea5351dae
-- **改了什么**：`markdown/render.tsx` 的 `renderSafeLink`：不被允许的目的地不再渲染成裸 `Fragment`（吞掉目的地），改为渲染成 `链接文字 (目的地)` 这样可见、不可交互的文本；两个 `links-and-autolinks` DOM fixture 与 `markdown.client.spec.tsx` 的相关断言随之更新。
-- **为什么**：一个未通过协议白名单的链接目的地（相对路径、绝对本地路径、`file:` URL 等）此前被静默丢弃，读者完全看不出这里曾经存在过一处链接，更看不到它指向哪里。
-- **要达到的效果**：读者始终能看到一处链接曾被作者写下、以及它指向哪里，即便该目的地无法成为可点击链接；协议白名单本身不变，只是不允许分支的呈现方式变了。
-- **退役条件**：上游自己的 markdown renderer 不再悄悄丢弃不被允许的链接目的地。
-- **状态**：在役
+**路径认领**：每条 `在役` 或 `局部退役` 记录带一行 `- **路径**：`，后面是若干反引号包住的 git pathspec，门禁给每条加 `:(glob)` 后匹配，可以写 `**`。差异集是 `git diff --no-renames --name-only <base> HEAD` 扣掉生成物豁免集：`**/*.i18n.yaml`、`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`、`docs/{config-catalog,capability-seams,event-producer-consumer}.md`、`docs/{config-catalog,event-producer-consumer}.zh.md`、`docs/persistence-catalog.{md,zh.md}`、`docs/persistence-schema.json`、`packages/extensions/cordis-client-runner/src/client/{slot-catalog,api-catalog}.ts`、`packages/extensions/tool-cordis/src/api-catalog.ts`、`snapshots/**/*.expected.md`、`apps/web/tests/expected/**`（脚本里逐条写死）。`snapshots/**` 下的会话日志、`snapshot.yml`、`workspace.expected/**` 是输入夹具，由对应的族认领；`docs/{config-catalog,event-producer-consumer}.zh.md` 自 `dsh-v0.1.7-rc.2` 起由生成器写入生成区块，与英文对侧一样在豁免集里；`docs/capability-seams.zh.md` 仍是人工维护的对侧，不在豁免集里，与基座不同时由 `rolling-sync-settle` 认领（它因 `auto-compaction-policy-seat` 新增的服务行进入差异集）。同一路径可以由多个族认领。`退役` 记录不带 `路径` 行。
 
-## feat(attachment): a text-file kind for the durable attachment seam — c443235721
-- **改了什么**：`packages/attachment` 新增与图片平行的 `FileAttachmentLimits`/`FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment`/`EncodedFileAttachment` 类型族，以及 `AttachmentStore.validateFile`/`saveFile`/`saveFiles`/`readFile`、`admitEncodedFiles`；`attachment-local` 新增 `sniff.ts`（移植自退役插件 `dsh-text-drop` 的 `core/sniff.ts`）、`text.ts`（`detectText`），并抽出 `commitDurableObject`/`readVerifiedObject` 供图片与文件共用。
-- **为什么**：标准 harness 没有非图片附件通路，第三方 `dsh-text-drop` 插件把文件当原始文本拼接进草稿，绕过图片已有的持久、内容寻址服务边界，会话日志里的拼接文本没有引用可供重新获取、校验或去重。
-- **要达到的效果**：文本文件像图片一样经服务边界准入、按 SHA-256 内容寻址持久化、可按引用重新读取校验；`maxFileBytes`/`maxFilesPerMessage`/`maxMessageFileBytes` 三项限额可按部署配置。本提交尚无调用方接入该服务边界，属于系列提交的第一步，本身不改变任何可观察行为。
-- **退役条件**：上游为 `@deepseek-ai/dsh-attachment` 添加了镜像图片的文本文件准入与存储服务边界。
-- **状态**：在役
-- **落点补记（rc.26 同步，基座 0.1.2-alpha.2）**：`AttachmentStore` 新增的 4 个抽象成员（`fileLimits`/`validateFile`/`saveFile`/`readFile`）在原始提交里只触达 `packages/attachment/*`，仓库另外 9 个文件、13 处直接 `extends AttachmentStore` 的测试替身（`packages/acp/acp/tests/harness.ts`、`packages/api/session-controller/tests/session-projections.host.spec.ts`、`packages/fs/tool-fs/tests/read-image.spec.ts` 内 4 个类、`packages/llm/llm-deepseek/tests/{adapter.e2e.ts,dynamic-config.spec.ts}`、`packages/llm/llm-pi-ai/tests/{adapter.spec.ts,provider-apis.e2e.ts}`、`packages/mcp/mcp-client/tests/mcp-client.spec.ts`、`scripts/gen-tool-catalog.ts`、`scripts/test-invariants.ts`）从未补上新抽象成员的实现——这一缺口在原始 fork 的 `core-patches`（v1）分支上同样存在（已用 `git show origin/core-patches:packages/acp/acp/tests/harness.ts` 核实，同样只有 `saveImage` 没有 `saveFile` 等），并非本次 rc.26 同步引入或由任何被 SKIPPED 的补丁造成。rc.26 同步的 `pnpm exec tsc -b tsconfig.host.json` 冷启动检查把它拦下（13 处 `TS2654`/`TS2656`），已按每个文件已有的图片方法惯用法（`throw new Error('unreachable...')`/`Promise.reject(new Error('not used'))` 等）逐一补上 4 个方法的最小 stub 实现，`fileLimits` 统一给零值限额；这些测试替身都不曾以任何路径调用文件方法，stub 不改变任何测试的可观察行为。`pnpm exec tsc -b tsconfig.host.json --force` 复核后主机面 0 错误；`npx vitest run packages/acp/acp packages/api/session-controller packages/fs/tool-fs packages/llm/llm-deepseek packages/llm/llm-pi-ai packages/mcp/mcp-client`（82 个测试文件、1634 条用例）全绿，无回归。
-- **部分退役（每日滚动同步，基座 0.1.2-alpha.4）**：上述 13 处 stub 中落在 `scripts/test-invariants.ts` 的一处退役——上游 `01a8882601`（`fix: complete invariant omission cleanup`）删掉了该文件里的 `TestAttachmentStore` 替身与 `ATTACHMENT_COMPANION` 常量，并删掉了 `packages/attachment/attachment-local/src/invariant.ts` 本身；被 stub 的类已不存在，`scripts/test-invariants.ts` 现与上游逐字节一致。其余 12 处 stub 仍在役（上游未触碰那些文件里的替身）。
+**退役就是差异消失。** 一族的改动全部回到与基座相同时，它的 pathspec 不再命中任何路径，门禁报 `unused-active-slug`，状态改为 `退役`、删掉 `路径` 行。它的旧提交可以留在线上，不要求从线上拿掉。
 
-## feat(llm,host-apiproxy): file attachments on the wire, in the log, and at request time — d56a5f7348
-- **改了什么**：prompt RPC 新增 `{type:'file', name, text}` 内容分片；`api-proxy.ts` 经既有附件服务边界准入并记入日志为 `{type:'file', attachment: FileAttachmentRef}`；新增 `session.file` RPC 镜像 `session.attachment`。`dsh-llm` 新增 `file-lowering.ts`（`contentHasFile`/`lowerFileBlockText`/`lowerFileBlocks`/`lowerFileBlocksFromStore`）；`llm-deepseek`/`llm-pi-ai` 两个适配器各自在自己请求构建的最顶端、针对本地派生的消息副本调用一次降级，从不触碰 `agent-loop` 请求重建不变式校验的那个冻结 `GenerateOptions.messages`。`token-meter`/`session-query`/`compaction-tool-result-pruner` 的内容分片 switch 各自做出决定；一并补上 `scripts/gen-cordis-catalog.ts` 的 `LINK_MAP` 分类缺口（上一提交遗留），令 `docs/subsystems/attachment.md` 与 `docs/subsystems/llm-streaming.md` 通过完整的 `pnpm run doc-sync`。
-- **为什么**：上一提交只搭好了服务边界，还没有任何调用方；文件依然无法进入会话，也没有任何模型请求路径知道如何表示它。最初尝试的“在 `agent-loop` 里、`buildRequest` 之前集中降级”被一次真实的测试失败推翻——它会让 `options.messages` 与 `session.deriveMessages()` 的重建结果产生分歧，击穿 `agent-loop` 自己的请求重建不变式，这与 `ImageBlock` 字节从不物化进该冻结数组是同一个原因。
-- **要达到的效果**：文本文件贯通 wire、会话日志与请求物化；`SESSION_FORMAT_VERSION` 保持 `0`（`ContentBlockMap` 内的词汇增长，非结构性改动）；两个适配器都能把文件分片降级为语言标签围栏文本，不原生支持文件的现实对模型透明；`pnpm run doc-sync` 全部 28 门与仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd` 均干净，每个被改动文件逐文件 100% 覆盖率。
-- **退役条件**：上游为自己的 prompt wire、会话日志与请求物化添加了文件分片支持，包括解决“请求重建不变式与文件降级”这一张力。
-- **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `3f56c83e0c`+`121338b26f`+`c82af756b1`）**：本补丁原本一次性完成的三件事，在新架构上落到三个独立提交。(1) `3f56c83e0c`：`ContentBlockMap` 新增 `'file': FileBlock`（`packages/llm/llm/src/types.ts`），`session-query` 的 `blockText()` 索引文件名（`extraction.ts`），`gen-cordis-catalog.ts` 的 `LINK_MAP` 补齐文件附件类型的分类缺口——`token-meter` 的定价 case 与两个 LLM 适配器的降级调用点因依赖尚不存在的 `file-lowering.ts`（见 5cd83e5a14 的落点记录）而推迟到该提交，属蓄意的依赖排序，非语义墙。(2) `121338b26f`：prompt RPC 的 `{type:'file', name, text}` 内容分片准入落到 `packages/api/session-controller/src/commands.ts::durablePromptContent()`（`session.attachment` 准入函数旁新增 `file()` 方法与 `fileBlockIn`/`fileInEvent`/`referencedFile` 辅助函数，结构镜像既有的 `imageBlockIn`/`imageInEvent`/`referencedImage`、刻意不做泛化）；`subagent` 续接对文件分片新增拒收（`SUBAGENT_FILE_UNSUPPORTED`，对偶于既有的 `SUBAGENT_IMAGE_UNSUPPORTED`）。浏览器 composer 侧把草稿文件对称编码进 prompt content 这一半（原补丁描述里"client-side symmetric encoding"）经追踪 `service.ts::sendSession`/`beginSubmission` 确认，与已 SKIPPED 的 98020a23cd 命中同一堵墙（乐观提交回显系统假定 `attachments` 清一色是图片），正确判定不在本次移植范围，留给 98020a23cd 一并设计端口。(3) `c82af756b1`：`session.file` RPC 镜像 `session.attachment` 的新落点（`SessionController.file()`，`@Remote('file')`），错误命名空间用 `RemoteErrorDetailsMap`。`dsh-llm` 侧的 `file-lowering.ts` 随 5cd83e5a14 一并创建（见其落点记录）。**落点订正（每日滚动同步，基座 0.1.2-alpha.3，`121338b26f` 重落于新哈希 `ee27f8f50e`）**：(2) 记的 `subagent` 侧 `SUBAGENT_FILE_UNSUPPORTED` 拒收已不适用——上游在 alpha.2→alpha.3 之间的 `7c38fd8102`（`fix: deliver images reliably with steer and follow-up messages`）与 `21d2d9395d`（`refactor: align prompt admission and echo ownership`）把 `packages/subagent/subagent` 的图片准入策略从"续接一律拒收图片/文件"整体改造成"续接经共享的 `admitPromptContent()`（`dsh-attachment`）准入图片，按模型能力门控（`MODEL_DOES_NOT_SUPPORT_IMAGES`）"，`control.ts` 不再存在任何 `admitPromptContent(childSessionId, content)` 本地拒收函数，`packages/subagent/subagent/src/index.ts:468` 直接调用共享库函数。本次重落因此把 `control-types.ts`/`control.ts`/`control.spec.ts` 三个文件的冲突判定为"上游已改同处、旧设计整体作废"，全部还原为与上游逐字节一致（`diff <(git show dd6322d604:<path>) <path>` 核实为空），`EncodedFilePromptBlock`/`SubagentPromptContentPart`/文件拒收测试未落地；`(1)`/`(3)` 记的 session-controller 侧 `durablePromptContent()`（图片+文件双准入）不受影响，正常重落（新哈希 `ee27f8f50e`）。连带后果见 `98020a23cd`/`fabc93555c` 两条目本次各自的订正。
+**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）。违规类型：`unclaimed-path`（差异路径没有在役记录认领）、`unused-active-slug`（在役记录一个差异路径都没认领到）、`unused-pathspec`（某条 pathspec 一个差异路径都没命中）、`missing-paths`（在役记录缺 `路径` 行）、`retired-record-claims-paths`（`退役` 记录带了 `路径` 行）、`trailer-count`（链上提交的 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`malformed-trailer`（trailer 的值不是 slug：git 的 trailer key 匹配大小写不敏感、值也来者不拒，slug 格式只能由本门禁把关）、`unregistered-slug`（trailer 点名的 slug 本文件未登记；任何状态都算登记）、`merge-commit`（不属于合并规则 (a)(b) 的合并）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
 
-## feat(ui-conversation,ui-attachment): text files as composer draft attachments — 98020a23cd
-- **改了什么**：`ComposerAttachment` 改为判别式联合 `ComposerImageAttachment | ComposerFileAttachment`（文件变体没有 `previewUrl`）；`InputState.imageIds`/`addImages`/`removeImage` 三个既有动词原样复用给文件草稿。新增 `file-sniff.ts`（`sniffIsText`/`partitionDroppedFiles`，从 `attachment-local/src/sniff.ts` 的判定逻辑独立重写，非导入——该包依赖 `sharp` 等仅限 Node 的依赖）；`ComposerAttachments.tsx` 的拖放处理器与 `InputBar.tsx` 的粘贴处理器各自拆分自己拿到的原始批次，分别路由到 `onAddImages`/`onAddFiles`。新增 `ui-attachment` 的 `FileChip.tsx`（`FileChipRow`，name+size 条形卡片，与固定 64px 的 `AttachmentRail` 并列）；`image-labels.ts` 改名 `attachment-labels.ts`（`imageSizeText` 改名 `attachmentSizeText`），`attachmentErrorText` 新增 `fileLimits` 参数覆盖 `TOO_MANY_FILES`/`FILE_TOO_LARGE`/`FILES_TOO_LARGE`/`NOT_TEXT_FILE`/`INVALID_FILE_NAME`。`locales.ts` 更新拖放遮罩文案（标题提及文件、描述追加密码/密钥隐私提醒）并新增全套 `file.*` 键；`ConversationController.serializeDraftImages`（斜杠命令图片提交路径）按 kind 过滤，静默排除文件草稿。
-- **为什么**：上一提交打通了 wire/日志/请求物化缝隙，但浏览器 composer 侧完全接不上——拖入或粘贴一个文本文件此前要么被图片专属的格式检查拒收，要么经独立退役中的 `dsh-text-drop` 插件绕过服务边界直接拼进草稿；一批混合图片与文本文件的拖放此前会因图片路径的格式检查而整批拒收。
-- **要达到的效果**：文本文件在 composer 侧与图片享有同等的草稿态、拖放/粘贴准入与呈现；混合批次按内容正确拆分路由，不再整批拒收；斜杠命令提交显式不接文件（静默排除，非本系列范围）。
-- **退役条件**：上游自己的 composer 以任何形式泛化为接受非图片附件（草稿附件形态、拖放/粘贴准入、附件栏/文件条呈现），即退役该覆盖层，依赖插件适配上游形式。
-- **状态**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.2，提交 `a21f837b51`）**。此前的排查判定本补丁命中乐观提交回显系统（`beginSubmission`/`settleSubmittedImages`/`retirement.attachments`，均只认图片）而 SKIPPED；重新排查发现这些原始判定所引用的补丁本身作为真实 git 提交仍可 `git show <sha>` 精确取到，据此按设计端口重新实现而非逐字重落：`BeginSubmissionInput.files: readonly PendingSubmissionFile[]`（name+bytes，同步可知）作为 `images` 的兄弟字段新增；`PendingSubmissionRetirement` 的 `observed` 变体把 `attachments` 改名为 `images` 并新增兄弟字段 `files: readonly FileAttachmentRef[]`（对称命名，而非保留 `attachments` 另加并列的 `fileAttachments`）；`ConversationController.sendSession` 拆分 `imageAttachments`/`fileAttachments`，经并列的 `settleSubmittedImages`/`settleSubmittedFiles` 分别结算。`attachmentSizeText`/`file-sniff.ts` 落到 `packages/client/ui-primitives`（不带 `dsh.client` 字段，豁免动态包 `external` 限制）而非原补丁的 `ui-conversation` 出口重导出，使下游修复补丁 `59657e0132` 要修的 bug 从一开始就不会被引入。`AssistantBlock` 的 `{kind:'file'}` 变体、`SUBAGENT_FILE_UNSUPPORTED`、`ISession.readFile` 等与下一条补丁 `fabc93555c` 重叠的内容留给那一条提交，未包含在本提交。设计细节见 Agent Note `.agents/notes/implemented/feature/2026-08-31-file-attachment-composer-intake-port.md`。`pnpm run typecheck`/受影响包 `vitest run` 全绿；`git cherry-pick --skip` 记录本身未被推翻，本次是按新设计重新实现，非重放该被跳过的 cherry-pick。 **fixture 支持随本提交补齐（2026-09-01，经密钥容器族的 web e2e 收口跑动发现）**：本次移植只带了 composer 自己那一半，没带组装式 web 场景赖以运行的 fixture 传输层——`packages/client/connection/src/client/fixture.ts` 的 `createFixtureConnection` 只认识 `text`／`image` 两种 prompt 分片，其 prompt 映射器把任何非 text 分片当图片处理去读 `block.data.length`，而文件分片携带的是 `name`／`text`，于是任何经 fixture 发送文件的操作都以 `session/prompt failed: Cannot read properties of undefined (reading 'length')` 告终（`[role="alert"]` 实测原文），`apps/web/tests/file-display.expected.e2e.ts` 两条用例长期红。已确认与 composer、输入机器、持久化缝隙三者均无关：同一探针下键盘 Enter、带正文的 Enter、直接点「发送消息」按钮三条路径全部同样失败，且按钮是 enabled 的；另用一次性单测反证本树「空正文+附件」经键盘 Enter 能正常提交。补法与图片侧一一对称，参照 develop 的同名文件：prompt 分片联合新增 `file` 成员（形态即 composer `service.ts::encodeFile` 的 `EncodedFileAttachment` 线上形式 `{type:'file', name, text}`）、新增按 prompt 铸出的 id 建索引的 `fileAttachments` 存储（`bytes` 按 UTF-8 字节长度算）、prompt 映射器新增 `file` 分支写入该存储并返回 `{type:'file', attachment}`、`FixtureSessionApi` 新增 `file` 方法与 dispatcher 的 `case 'session/file'`，鉴权沿用 `attachment` 路由既有的 `logReferencesAttachment`（该端点即宿主 `packages/api/session-controller/src/index.ts` 的 `@Remote('file')`，返回值形态即 `SessionFileValue`）。`@deepseek-ai/dsh-attachment` 本就是该包 devDependency 且 `AttachmentIdType`／`ImageAttachmentRef` 已是纯类型导入，只需并入 `FileAttachmentRef`，无依赖改动。补齐后 `file-display.expected.e2e.ts` 2/2 转绿，`packages/client/connection` 自身 13 文件／133 测试零改动通过。**落点订正（每日滚动同步，基座 0.1.2-alpha.3，重落于新哈希 `602ba62181`）**：`121338b26f` 记录的 `subagent` 服务器端 `SUBAGENT_FILE_UNSUPPORTED` 对称拒收在本次重落中已确认不再存在（见该条目本次订正）。`packages/api/session-controller/src/client/sessions/session.ts::Session.prompt()` 把 `content`（session-controller 本地 `PromptContentPart`，含 `'file'` 变体）原样转发给 `this.remote.subagents.prompt({...content})`，而 `SubagentPromptRequest.content` 现在是 `dsh-attachment` 的窄类型（仅 `'text'|'image'`）——继续放行会既是类型错误、又会在服务器 `admitPromptContent()`（`dsh-attachment/admission.ts`）里把 `'file'` 分片误判成 `'image'` 分片（其 `content.every(text) ? ... : content.map(part.type==='text'?...: {type:'image',...})` 落到 else 分支）。本次在 `prompt()` 内新增显式前置检查：`content` 含 `'file'` 分片且目标是子智能体时，直接 `throw new Error('Session.prompt: subagent continuations do not accept file attachments')`，不发起 RPC——"失败要响亮"而非静默丢弃或错误编码，是对已退役的服务器端拒收的客户端等价替代，不是新的产品设计决策。`packages/client/ui-conversation/src/client/service.ts::sendSession` 的 `subagent !== null` 分支相应改为直接调用泛化后的 `serializeAttachments`（不影响此项检查，检查在更底层的 `Session.prompt()` 兜底）。**文案终态同步自 develop（每日滚动同步，基座 0.1.2-alpha.5，提交 `e1f47b2e34`）**：本补丁引入的 `image.dropDesc` 两语言在补丁线上一直停在第一版草稿（zh「文本内容会随消息发送…」/ en「text content is sent as-is — …」），而该文案在 `develop` 线（rc.26 二棒自修）早已定稿为「文本文件会作为附件加入，模型按需读取」/「text files are attached, and the model reads them on demand」——后者才是本系列真实交付的行为（拖入的文本文件走附件服务边界持久化、由模型按需读取，而不是把正文拼进消息）。补丁线缺这条终态的后果是**每次向 develop 集成都要手工并集同两行**。本次把 `locales.ts` 两行与 `apps/web/tests/image-display.expected.e2e.ts` 的对应断言**逐字节取自 `origin/develop`**（`diff` 核实同款行完全一致）。注：该断言跑在**构建产物**上，改完 `locales.ts` 必须先 `pnpm run build` 才会通过——未重建时该场景会以旧文案失败一次。 **遗留已清理（每日滚动同步，基座 0.1.2-alpha.5）**：`attachment-labels.ts` 的 `case 'SUBAGENT_FILE_UNSUPPORTED'`、`locales.ts` 两语言的 `file.subagentUnsupported`、`tests/attachment-labels.client.spec.tsx` 的两条断言三处已删除。该原因码没有任何生产路径会产生：上游把子智能体续接的「一律拒收文件」换成按模型能力门控的准入，本条目自己在 `Session.prompt()` 里新增的客户端检查又在发起 RPC 之前就抛错、不返回原因字符串，这三处是仅剩的读者。
+**门禁的执行面与后果**：**skip（退出 0）只有两种**——checkout 不在本文件声明的补丁线上（`develop`、`core-patches`、集成线、detached HEAD），或本检出是浅克隆（截断的历史够不到基座 tag）；分支这条判在前。**failed（退出 1）** 是其余一切，且不分分支：本文件读不到、代码围栏未闭合、`**当前补丁线**` 或 `**基座 tag**` 声明不是恰好一条（围栏代码块里的示例既不算记录也不算声明）、声明的 tag 不存在（`base-tag-missing`，先 `git fetch upstream --tags`）或未并入 HEAD（`base-tag-not-merged`）、任何一条 git 命令失败（一行诊断，不抛栈），以及上面的违规本身。并入更新的上游 tag 之后、把声明改成它之前，整段上游跨度都会报 `unclaimed-path`；声明与认领在合并之后的登记提交里一起改。**后果**：`ci.yml` 只在 `pull_request` 上跑，`actions/checkout` 在该事件下检出的是这次 PR 的合并提交（detached HEAD），`ci-master.yml` 只在 `master` 上跑，两条都落在第一条 skip 上——漏 trailer、漏登记、漏认领，仍然只有在补丁线分支上跑 `doc-sync` 的人能抓到（那条静态 lane 用的是 `fetch-depth: 0`，所以浅克隆那条 skip 不是 CI 落点）。一个例外是手动触发：`ci-master.yml` 另有 `workflow_dispatch`，在补丁线分支上手动 dispatch 时 `actions/checkout` 按分支名检出，其 linux lane（同样 `fetch-depth: 0`，跑 `check:ci:linux-primary`）会真跑本门禁而不是 skip。决定与实测见 Agent Note [`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)。
 
-## feat(ui-conversation,client-runtime): file-part bubble card and the referent/open seam — fabc93555c
-- **改了什么**：新增 `packages/client/runtime/src/client/referent.ts`——一个 ROOT 作用域 cordis waterfall 事件 `referent/open`（经声明合并接入 `Events`），`dispatchReferentOpen(ctx, ref, onDefault)` 负责派发，`ReferentRef.kind` 经 `ReferentKindMap` 可合并扩展。`apply.ts` 的 `openFile` 闭包改为先派发该缝隙再回落到既有的 `workspaces.openPath`。新增 `FileCard.tsx`，被 `MessageItem.tsx`（用户气泡）与 `AssistantMarkdown.tsx`（Assistant block）直接内联渲染 `{kind:'file'}` 分片；点击同样先派发 `referent/open`，落空后切换内联展开/收起，经新增的 `loadFile`／`ISession.readFile`（对偶于既有 `loadImage`／`readAttachment`）惰性抓取文本。`Session.prompt()` 对送到可续接子智能体的文件分片新增 `SUBAGENT_FILE_UNSUPPORTED` 拒收，对偶于既有的 `SUBAGENT_IMAGE_UNSUPPORTED`。
-- **为什么**：此前几个提交把文件送上了 wire、日志与请求物化，也接进了 composer 草稿，但已发送的文件分片在消息气泡里完全不渲染，也没有任何缝隙能让插件拦截对一个文件/目录引用的点击——`openFile` 此前直接请 Host 打开路径，没有中间层。
-- **要达到的效果**：`referent/open` 让产物文件条、Tool 行、消息内提及与新的文件卡片点击在一处缝隙上统一变得可拦截，零监听者时行为字节不变；文件分片现在与图片分片一样，在消息流里可见、可展开读取原文；子智能体续接对图片与文件两类附件的拒收方式完全对称。
-- **退役条件**：上游自己的会话 UI 原生渲染文件内容分片、并暴露出等价的打开/引用拦截缝隙，即退役该覆盖层，依赖插件适配上游形式。
-- **状态**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.2，提交 `0b32bd30ad`）**。此前判定的三条障碍均已随上游两条补丁自身的设计端口一并解除：`{kind:'file'}` 消息分片渲染随 98020a23cd 的重新设计落地；`attachment-labels.ts`／`ComposerFileAttachment` 同样随 98020a23cd（`a21f837b51`）落地；chat 包搬迁（`ui-conversation`→`ui-chat`）不再是障碍，而是本次移植的落点依据——`referent.ts` 落到 `packages/api/session-controller/src/client/`（`client/runtime` 并入后的新位置），`FileCard.tsx`/`MessageItem.tsx`/`AssistantMarkdown.tsx`/`ChatNodeSeat.tsx`/`ChatView.tsx` 的改动落到 `ui-chat`（跟随其既有搬迁），`referent/open` 事件契约记述于 `packages/api/session-controller/README.md`。**偏差（非机械搬家，故意不移植）**：原补丁在 `Session.prompt()` 内的客户端侧 `SUBAGENT_FILE_UNSUPPORTED` 拒收检查未移植——本次同步 A 族自身的 `121338b26f` 已在 `packages/subagent/subagent/src/control.ts::admitPromptContent()` 新增服务器端对称拒收（`SUBAGENT_IMAGE_UNSUPPORTED`/`SUBAGENT_FILE_UNSUPPORTED` 均已覆盖，见 `control.spec.ts`），原补丁基线树自身的 `session.client.spec.ts` 测试注释亦确认"未过滤直达 wire、由 Host 拒收"是刻意设计。设计细节见 Agent Note `.agents/notes/implemented/feature/2026-08-31-file-attachment-bubble-and-referent-seam-port.md`。`pnpm run typecheck`/受影响包 `vitest run`（1279 通过、3 跳过）/`verify-client-packages`/`verify-export-jsdoc`/`verify-translation-pairing`/oxlint 全绿。**服务化修正（B.5 收尾阶段，`pnpm run build` 首次全量冷构建才暴露）**：`apply.ts` 对 `dispatchReferentOpen` 的值导入自本提交起就是 `dsh-client-bundle-purity`（`packages/client/tsdown.client.ts` 的 tsdown 插件）的真实违规——`verify-client-packages.ts` 的静态 AST 检查从未建模同一约束（其 `CLIENT_MANIFEST_GLOB` 只扫 `packages/client/*/package.json`，从未覆盖这条 specifier 实际触发的跨插件值导入规则），本提交后每次 `verify-client-packages` 都误报清洁，直到 wrap-up 阶段第一次真正全量冷构建才现形。两道门禁的设计意图其实一致：`packages/client/*` 特性包跨插件协作只许 import type 或调用注入服务，`dispatchReferentOpen` 当年落在旧 `client/runtime` 默认豁免之下才得以自由函数形态存在，搬进新类目（`ui-chat`）后必须按新约定适配——与本条目自己记录的 `ctx.workspaces.openPath`→`ctx.remote.session.openWorkspacePath` 属同一类"旧默认豁免→新基座正式约定"适配，不是新引入的设计债务。修法：`packages/api/session-controller/src/client/referent.ts` 新增 `ClientReferent extends Service`（`ctx.referent`），把 `dispatchReferentOpen` 包成薄封装——cordis 把方法调用的 `this.ctx` 重绑定到调用方实际持有的 context，因此行为与直接调用自由函数逐字节一致；`dispatchReferentOpen` 自身与 `referent.ts` 的其余导出原样保留（仓外插件 clickable-refs 经 shims 直接消费自由函数，是否改走服务留给它自己下一次重新 vendor 时决定）。`ui-chat/apply.ts` 三处调用点改经 `ctx.referent.open(...)`，值导入改回纯 `import type`；`ui-chat` 的 `inject` 数组新增 `'referent'`。`packages/test-support/client-runtime`（`SlotTestRuntime`）构造函数新增 `new ClientReferent(ctx)`，让每个测试台都拿到与生产环境行为一致的真实实现，而非另造一份桩——全部受影响测试（142 文件/2052 通过）零改动直接通过。`referent.client.spec.ts` 新增 `ClientReferent` 独立覆盖（注册、`open()` 委派/认领语义、跨作用域 `this.ctx` 重绑定、fiber 卸载自动退订）。**不做的事**（协调者显式否决）：不给 `ui-chat` 加 `dsh.client.external`（对 `packages/client/*` 行是硬性禁止，两个先例 `session-controller`/`workspace-controller` 都在 `packages/api/*`、不受该分支约束，援引它们是最初的误判）；不改 `verify-client-packages.ts` 或 `tsdown.client.ts` 本体。**偏差条目订正（每日滚动同步，基座 0.1.2-alpha.3，重落于新哈希 `147592a436`）**：本条目"偏差"一节所依据的前提——"`121338b26f` 已在 `control.ts::admitPromptContent()` 新增服务器端对称拒收"——在 alpha.2→alpha.3 之间已被上游推翻（见 `121338b26f`/`98020a23cd` 两条目本次的订正：该函数已随上游 `7c38fd8102`/`21d2d9395d` 整体消失，subagent 续接转为按模型能力门控准入图片，不再拒收）。本条目自身未受影响（不落到 `subagent` 包，只落到 `ui-chat`/`api-session-controller` 客户端），但引用的"服务器端已对称拒收，故本条目省略客户端检查是刻意设计、非缺口"这一判断现已不成立——真正补上等价保护的是 `98020a23cd`（新哈希 `602ba62181`）在 `Session.prompt()` 里新增的显式前置检查，细节见该条目本次订正。
+**指向历史的写法**：指向本 fork 的改动写 slug 或相对链接指向该补丁的 Agent Note；指向上游的改动写上游 PR 号（`Merge pull request #NNNN`，即合并提交标题里的那个号，不是分支名里的 issue 号）或发布 tag。
 
-## fix(ui-attachment,web): repair a build-purity gap and stale assembled-snapshot copy — 59657e0132
-- **改了什么**：`ui-attachment/package.json` 的 `dsh.client.external` 新增 `@deepseek-ai/dsh-client-ui-conversation/client`（仓库首次真实使用该字段）；`apps/web/tests/image-display.snapshot.ts` 更新遮罩文案与"不支持粘贴"场景断言；新增 `apps/web/tests/file-display.snapshot.ts`（跑通构建图的粘贴-发送-展开往返，验证会话日志只存引用不存内联文本，`FileCard` 默认动作经 `session.file` 解出原文）。
-- **为什么**：`ComposerAttachments.tsx` 值导入 `attachmentSizeText`/`partitionDroppedFiles` 却未在 `dsh.client.external` 声明该 specifier，`pnpm run build` 的 tsdown bundle 纯净度门直接拒收——这是 composer-intake 提交（98020a23cd）遗留的缺陷，因为该提交后未曾跑过一次完整构建而未被发现；构建修好后，`image-display.snapshot.ts` 里的遮罩文案与粘贴场景断言仍是 composer-intake 之前的旧版本。
-- **要达到的效果**：`pnpm run build` 干净通过；两份组装快照准确反映 composer-intake 与 referent/open 提交实际交付的文案与行为。
-- **退役条件**：上游自己的构建纯净度检查覆盖到这条 specifier，或本系列覆盖层整体退役。
-- **状态**：**MOOT（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.2）**。本补丁修的构建纯净度缺陷从未在本次移植中被引入：98020a23cd 的设计端口（`a21f837b51`）从一开始就把 `attachmentSizeText`/`partitionDroppedFiles` 放到不带 `dsh.client` 字段、豁免动态包 `external` 限制的 `packages/client/ui-primitives`，而不是原补丁那种经 `ui-conversation` 出口重新导出、需要显式 `external` 声明的跨动态包运行时导入形态——该形态已实测确认会被 `verify-client-packages` 拒绝（见 98020a23cd 移植的 Agent Note "考虑过的替代方案"一节）。两份组装快照（`image-display.snapshot.ts` 遮罩文案、`file-display.snapshot.ts`）留给 wrap-up 阶段的快照重录处理，不构成本补丁独立的移植目标。不计入台账"已移植"计数，仅记为不适用。
+**每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态；`在役` 与 `局部退役` 的记录另带 `路径` 行。状态取 `在役`、`局部退役`、`退役` 之一：在役与局部退役写明所在线，退役写明在哪一条线上退的役。**局部退役**指同一族里的部分子件已被上游覆盖或在新基座上失去落点、而族整体仍在役；子件逐条列出，族自己的退役条件不变。
 
-## feat(ui-chat,ui-primitives): a proseReferents seam for chat prose — ae19472402 (+ 0c9b669a3c, 6e7045d8cf, 1d8e975c1a, f495eefd50, 83eb0e3ddb)
-- **改了什么**：`MarkdownRenderContext`（ui-primitives `render.tsx`）新增可选服务缝隙 `referents`（`scan(text, inlineCode)`/`open(span)`，后续补丁又加上 `resolveLink`/`subscribe`），命中即渲染成与既有 `chatFileMentions` 同款的 `fileMention` 按钮 token；`ui-chat` 的 `contract/slots.ts` 新增完整 `ProseReferentSpan`（含 `kind`/`target`/`raw`）与 `ProseReferents` 可选服务；`apply.ts` 的 `buildProseReferents` 绑定 cwd/Host home，经 `dispatchReferentOpen` 派发自己的 `ReferentRef`（`source: 'chat-prose'`）。后续补丁在此基础上补 `resolveLink`（本地路径 markdown 链接目的地经该缝隙解析）、`subscribe`（referents 校验 tick 触发重渲染）、以及两批覆盖率/CommonMark 真实解析测试。
-- **为什么**：Assistant 输出的纯文本与未被 `chatFileMentions` 认领的行内代码里提到的文件/目录引用，此前完全不可点击、不可拦截。
-- **要达到的效果**：模型散文里的路径提及获得与既有文件提及同等的可点击、可拦截呈现，本地路径 markdown 链接目的地经同一缝隙解析。
-- **退役条件**：上游自己的会话 UI 原生扫描并渲染散文中的路径/文件引用。
-- **状态**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.2）**。此前一轮尝试因整条系列建立在已 SKIPPED 的 fabc93555c（`referent/open`/`dispatchReferentOpen`）与 88129b7b44（`probeTargets`）之上而整体 SKIPPED；两者均已在本次 B 族分别落地为 `0b32bd30ad`、`35ca000207`，此系列随后按六个原始补丁逐一移植为六个独立提交，一个原始补丁一个提交，现已全部落地。**`ae19472402`（A1 基础缝隙：`referents.scan`/`open`）→ `43d944b8fd`**——`ProseReferents`/`ProseReferentSpan` 落在 `ui-chat`（不是原补丁的 `ui-conversation`，因为 `chat/*.tsx`/`apply.ts` 已随重组搬到 `ui-chat`）；Host `home` 经 `connection.generation.getSnapshot()?.host.home` 读取（不是原补丁的 `connection.hostDescription`，该字段在当前 `ConnectionHandle` 上不存在）；默认打开动作用 `ctx.remote.session.openWorkspacePath`（不是原补丁的 `ctx.workspaces.openPath`，该服务在重组后的代码树上不存在）。**`0c9b669a3c`（A1 续：`resolveLink`/`subscribe`）→ `21c8b07bd5`**——文本层可直接照搬，落点跟随 `ae19472402` 已确立的三处适配；`buildProseReferents` 解构 `resolveLink`/`subscribe` 以便 TypeScript 把"已定义"的窄化带进后续闭包，解构本身与两条新单测的裸存在性断言各需一条 `oxlint-disable-next-line typescript/unbound-method`（纯回调属性，不依赖 `this`，与 `packages/core/tools/src/testing.ts`、`packages/core/agent/src/dispatch.ts` 里已有的同类豁免同一性质）。**`6e7045d8cf`（A2：本地路径 markdown 链接目的地经 `resolveLink` 路由）→ `bf2537030f`**——文本层原样照搬（`ui-primitives` 未随重组搬迁），同样需要一条 `unbound-method` 豁免（`renderLocalLinkDestination`）。**`1d8e975c1a`（A3：`useReferentsRevision` 结算重渲染修复）→ `bfd732dd65`**——原样照搬，`MarkdownText.tsx` 的 `labels` 参数名（原补丁基线树是 `codeLabels`）随本代码树早先一次无关的上游重命名/合并已经是 `labels`，未在本次改动。**`f495eefd50`（`linkPlainText` 分支覆盖率）→ `16ad7f6cd8`**、**`83eb0e3ddb`（CommonMark 空格转义真实解析覆盖）→ `a8cc98f350`**——两条纯测试补丁，原样照搬，无落点偏差。Agent Note：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md`（六个提交共用一份笔记，逐段记述各自的移植决策）。
+## ansi-line-parser-export — ui-primitives 导出 ANSI 行解析器
 
-## feat(host-apiproxy,client-runtime): a batch path-existence probe for the referent verification layer — 88129b7b44 (+ ac91819ac4, a285c53cf3)
-- **改了什么**："三层可点击引用" 规格的 A4：`ctx.workspaces.probeTargets` 提供只读、每调用 64 个、8 并发的 stat 批处理（存在性/kind，从不列目录或读内容），经既有 `host.<method>` RPC 模式（schema、dispatcher、`IApiClient`、fixture 与每个测试替身）接入 `packages/host/apiproxy`；后续两个补丁分别补 wire 往返覆盖率测试与 UNC 目标在 stat 前的短路修复。
-- **为什么**：proseReferents 扫描出的散文引用需要一种方式区分"这个提及现在还指向一个真实存在的路径"与"已经过时/从未存在"，此前没有任何只读、无能力闸的批量存在性探测 RPC。
-- **要达到的效果**：referents 校验层可以低成本批量确认散文提及的路径是否仍然存在，用于决定按钮态呈现。
-- **退役条件**：上游为 Host RPC 自己提供等价的批量路径存在性探测。
-- **状态**：在役（仅服务端 RPC 本体；原消费方仍待设计）。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `35ca000207`）**：三个补丁全部落点的 `packages/host/apiproxy` 已随上游重组整体消失，`probeTargets` 移植为 `packages/api/session-controller/src/index.ts` 的 `SessionController.probeTargets()`（`@Remote('probeTargets')`，`session-controller` 顶层，紧邻 `openPath`）——批大小上限 `PROBE_TARGETS_MAX_PATHS = 64` 与并发上限 `PROBE_TARGETS_CONCURRENCY = 8` 的 worker-pool 批处理（`probeTargetsBatch`/`probeOneTarget`）、只读 `stat`（从不列目录或读内容）、UNC 目标（`\\` 前缀）在 `stat` 前短路等原补丁行为全部保留；批大小校验用命令式 `if` 检查（`gateway/bad-request`），因为新架构不再有 zod schema 校验层。`session-probe-targets.host.spec.ts`（新文件）覆盖 wire 往返、批大小越界拒收、UNC 短路、以及部分失败结果的场景。**下游消费方现状（rc.26 同步二阶段 B 族更新）**：本条目原本的下游消费方——proseReferents 校验层——此前建立在已 SKIPPED 的 `ae19472402` 系列之上；该系列现已全部落地（见该条目），`referents.subscribe` 缝隙本身随 `0c9b669a3c` 落地，但校验层自己批量调用 `probeTargets` 的实际调用方（仓库之外的 `@haoran/dsh-clickable-refs` 插件，见 `ae19472402` 移植笔记）依旧不在本仓库，且设计上永远不会在本仓库——`probeTargets` 仍没有任何仓库内调用方，只有 `session-controller` 自身的 `test-remote.ts` 测试替身。与 `openWorkspacePath` 一样，本方法本身在新架构上也没有客户端包装——直接 RPC 调用，符合既定模式。
+- **改了什么**：`packages/client/ui-primitives/src/index.ts` 增加 `parseAnsiLines` 与其行类型的包入口导出，实现文件不动。
+- **为什么**：解析器已在包内 `ansi.ts` 实现并由 `TerminalBlock.tsx` 使用，但不在包入口上，仓外客户端插件要渲染同样的 ANSI 输出只能自带一份副本。
+- **要达到的效果**：仓外插件与仓内组件读同一份实现，终端输出的换行、控制序列处理只有一处行为。
+- **退役条件**：上游自己把 `parseAnsiLines` 加进 `packages/client/ui-primitives/src/index.ts` 的导出面。
+- **状态**：在役（`feature/core-patches`）。核实依据：上游 `parseAnsiLines` 三处命中全在包内（`TerminalBlock.tsx`、`ansi.ts`、`ansi.client.spec.ts`），包入口仍不导出。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`ui-primitives` README 两块冲突取上游段落，再接回本族的 allowlist 一句与 `parseAnsiLines` 一句；`src/index.ts` 上游新增的若干导出与本族那一行自动合并。
+- **Agent Note**：[`export-ansi-parser`](../.agents/notes/implemented/feature/2026-08-27-export-ansi-parser.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-27-export-ansi-parser.*` `packages/client/ui-primitives/README.*` `packages/client/ui-primitives/src/index.ts`
 
-## docs: Agent Note for the three-layer clickable-reference architecture (A1-A5) — 74cb3def3c
-- **改了什么**：新增 Agent Note 记述 A1-A5 全系列（referent/open、proseReferents、resolveLink/subscribe、probeTargets、A5 勘察结论）。
-- **状态**：**SKIPPED（本条目本身不重落，仍作废）**。撤回时（rc.26 同步一阶段侦察）该系列的全部代码改动（fabc93555c、ae19472402 系列、88129b7b44 系列）均已 SKIPPED，未有任何一处落地；cherry-pick 本身无冲突干净应用（仅新增独立笔记文件），但记述一套在本分支上完全不存在的"已实现"架构会误导后续读者，已用 `git reset --hard HEAD~1` 撤回，未重落。**现状更新（rc.26 同步二阶段 B 族）**：上述三个系列此后确已逐一设计落地（`fabc93555c`→`0b32bd30ad`、`88129b7b44`→`35ca000207`、`ae19472402` 系列进行中），但本被撤回的独立文档提交本身依然不重落——每个落地的补丁各自在其自身移植提交里携带准确反映当时落点的 Agent Note（`ae19472402` 见 `.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md`），不再需要一份脱离代码改动的独立架构总纲文档。
+## approval-detail-by-tool — 审批详情按工具名键控
 
-## feat(client-runtime): broadcast the connection's coarse state as a typed client event — 244cc6c6c6
-- **改了什么**：`packages/client/connection/src/client/index.ts` 的 `declare module Events` 合并在 `connection/reset` 旁新增 `'connection/state'(state: ConnectionState): void`；实际派发点在 `packages/api/gateway/src/client/index.ts`——`ClientRemoteService` 构造函数里传给 `connection.start({...})` 的 sinks 新增 `onStateChange: (state) => { this.ownerCtx.emit('connection/state', state) }`，与既有 `onConnected: () => { this.ownerCtx.emit('connection/reset') }` 对称。`scripts/gen-cordis-catalog.ts` 的 `EVENT_WALK_EXEMPTIONS`、`scripts/gen-cordis-inspect-catalog.ts` 的 `CLIENT_EVENTS` 各追加一条与 `connection/reset` 同款的豁免/白名单项（文档归属沿用上游已把 `connection/reset` 判给 `packages/api/session-controller/README.md` 的记法）；`pnpm run gen-cordis-inspect-catalog` 重新生成 `packages/extensions/cordis-client-runner/src/client/api-catalog.ts`。`gateway.client.spec.ts` 的 "Client Remote transport readiness" 里新增两条单测，复用既有 `start.mock.calls[0]![0]` 取真实 sinks 的既定手法：一条断言连续三次假状态迁移按序广播，一条断言无人监听时不抛异常。
-- **为什么**：断线重连横幅这类客户端 UI 需要感知连接的粗粒度状态迁移，但状态迁移此前从未作为具名 cordis 事件对外广播。
-- **要达到的效果**：每次连接生成的粗粒度状态迁移都通过 `ctx.emit('connection/state', state)` 广播给任何监听者；没有监听者时行为逐字节不变。
-- **退役条件**：上游自己发出等价的客户端连接状态事件。
-- **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2）**：补丁原作时 `packages/client/runtime` 是单一包，`onStateChange` 接线、`declare module Events` 与实际 `ctx.emit` 调用在同一个文件里。上游把该包拆成至少三个：`packages/client/connection`（`ConnectionController`/`ConnectionSinks`/`ConnectionState` 机制本身，只负责把 sinks 转调给调用方，自己不 emit 具名事件）、`packages/api/gateway`（`ClientRemoteService` 才是真正把 sinks 接上 `ctx.emit` 的调用方——`connection/reset` 现在也是从这里发的，不是从 `connection` 包）、以及不相关的 `packages/api/session-controller`（sessions/workspaces 消费侧，文档记账上仍把 `connection/reset`/`connection/state` 两个客户端事件挂在它的 README 下）。因此本补丁的 `declare module Events` 新增落在 `client/connection`，实际 `ctx.emit` 调用落在 `api/gateway`，与原补丁"同一文件两件事"的结构不同；`wire-events.client.spec.ts` 测试文件本身不复存在，两条新单测改落 `packages/api/gateway/tests/gateway.client.spec.ts` 的 "Client Remote transport readiness"，复用该文件已有的 `start.mock.calls[0]![0]` 取真实 sinks 手法而非旧文件的专用 `bench.sinks` helper。原补丁同时改的 `packages/api/remotes/src/client/index.ts`（把 `ConnectionState` 重导出给 `client/runtime`）在新结构下不再需要——`ConnectionState` 现在由 `client/connection` 包自己定义并直接可见，不必绕经 `api-remotes`。逐文件跑 `npx vitest run packages/api/gateway/tests/gateway.client.spec.ts packages/client/connection`（239/239 通过）与 `pnpm exec tsc -b packages/api/gateway/tsconfig.json packages/client/connection/tsconfig.json`（干净）验证。仓库级 `pnpm run gen-cordis-catalog` 在本补丁改动之外、因已 SKIPPED 的 d56a5f7348 遗留的 attachment 文件类型 LINK_MAP 分类缺口而失败（该缺口已在 d56a5f7348 的退役记录里记载，非本补丁引入，未在此修复）。 **提交后修正**：原补丁假定的两态模型（`'connected'`/`'reconnecting'`）已随本次重组变成三态 `'connected' | 'disconnected' | 'connecting'`（见 `connection.ts` 的 `emitState` 调用点：`'connecting'` 对应发起物理载体尝试、`'disconnected'` 对应尝试间隔的载体不可用、`'connected'` 对应握手成功）——起初按旧两态模型写的两条单测与事件 JSDoc 用了不存在的字面量 `'reconnecting'`，被仓库级 `pnpm exec tsc -b tsconfig.client.json`（`typecheck:contracts-ready`，pre-push 钩子的一部分）用 `TS2345` 拦下，随后改为三态字面量并重新生成 `api-catalog.ts`，`tsc -b tsconfig.client.json --force` 复核后客户端面 0 错误。
+- **改了什么**：`conversation.approval.detail` 槽由 `kind: 'single'` 改为按工具名键控（`packages/client/ui-approval`），`ui-tool` 为 `write`／`edit`／`str_replace_editor` 占位并新增 `approval-diff-row`，`ui-chat` 的既有占位保持为其余工具的兜底；新增 `apps/web/tests/approval-preview-diff.e2e.ts` 与 `snapshots/web/approval-preview-diff`。
+- **为什么**：文件改动等待审批时，卡片只显示工具名与参数摘要，看不到它将写入的路径与行；`single` 槽一次只能有一个占用者，第三方无法只为文件类工具换一张卡。
+- **要达到的效果**：文件改动的审批卡显示路径与将写入的行，diff 模型与会话行共用一份；其余工具的审批卡不变。
+- **退役条件**：上游把 `conversation.approval.detail` 改成按工具名键控的槽，或自己为文件改动的审批卡渲染 diff。
+- **状态**：在役（`feature/core-patches`）。核实依据：上游 `packages/client/ui-approval/src/client/index.ts` 仍声明 `kind: 'single'`。`core-patches-v11` 那一轮适配两处上游改动：`SessionSummary` 新增必填的 `retainedBy`、`SessionListState` 去掉 `current` 与 `currentAddress`（上游 PR #4368），本族 diff 行的列表桩照上游自有卡片 spec 的写法重建；`SlotTestRuntime` 自己提供 `remote`（上游 PR #4231），本族注册用例不再另建一个 `TestRemote`。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：三处。① `ApprovalPanel.tsx` 以上游为底（上游 PR #4793 新增 `displayReason` 与键盘操作）：三参数 `renderSlot` 保留，标题改读上游的 reason，容器改用 `css.detail`；`ui-approval` spec 保留本族用例并补上上游 6 例。② 上游把工具行拆成 preparing／start／result 三阶段（上游 PR #4985），diff 预览只在 `root.phase === 'start'`（已派发的调用）时出现，spec 加一条 preparing 用例；`ApprovalDiffPreview` 的 props 用 `Pick` 收窄到它读取的字段，spec 改成有类型的快照字面量（上游 PR #4610 禁止新增 `as unknown`）。③ 上游新增的两份欠费提示 spec（上游 PR #4858）挂载 `ui-chat` 时要声明本族的 keyed 子位，否则注册失败；它们因此进入本族 `路径`。
+- **Agent Note**：[`approval-detail-keyed-by-tool`](../.agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.*` `apps/web/tests/approval-preview-diff.e2e.ts` `apps/web/tsconfig.json` `packages/client/ui-approval/src/client/ApprovalPanel.module.css` `packages/client/ui-approval/src/client/ApprovalPanel.tsx` `packages/client/ui-approval/src/client/contract/slots.ts` `packages/client/ui-approval/src/client/index.ts` `packages/client/ui-approval/tests/ui-approval.client.spec.tsx` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/ApprovalCommand.module.css` `packages/client/ui-chat/src/client/chat/ApprovalCommand.tsx` `packages/client/ui-chat/tests/chat-apply.client.spec.tsx` `packages/client/ui-chat/tests/quota-notice.client.spec.tsx` `packages/client/ui-settings-account/tests/quota-notice-hold.client.spec.tsx` `packages/client/ui-tool/README.*` `packages/client/ui-tool/package.json` `packages/client/ui-tool/src/client/apply.ts` `packages/client/ui-tool/src/client/host-info.ts` `packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.module.css` `packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.tsx` `packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx` `snapshots/web/approval-preview-diff/session.v2.jsonl` `snapshots/web/approval-preview-diff/session.v3.jsonl` `snapshots/web/approval-preview-diff/snapshot.yml` `snapshots/web/approval-preview-diff/workspace.expected/notes.txt` `tsconfig.host.json`
 
-## fix(ui-chat): degrade a prose referent's not-found race to the composer's own notice — 13cead33dd
-- **改了什么**：`buildProseReferents.open` 的 stat-到-click 竞态失败改为复用 composer 通知通道给出用户可见提示，而非只在 console 记日志。
-- **状态**：**在役（rc.26 同步二阶段 B 族，提交 `b2029bc350`）**。`ae19472402` 系列已全部落地（见该条目），本补丁随之一并移植。落点在 `ui-chat`（不是原补丁的 `ui-conversation`，`buildProseReferents` 已随重组搬到那里）。原补丁同文件的 `InputHub` 类实例（`inputHub.shell(id).notify(...)`）在 `ui-chat` 没有对应物——`InputHub` 仍留在 `ui-conversation`，作为 `ctx.conversation.input` 暴露；跨包接线采用与 `packages/client/ui-commands/src/client/service.ts` 自己的 `noticeFor()` 完全相同的手法：`sessions.scope(id)` 取会话作用域 Context，再 `actx.get('conversation')`（禁用直接属性访问 `actx.conversation`——`actx` 是当前插件 `inject` 数组管不到的作用域，首次尝试即被 `"cannot get property conversation without inject"` 拦下）`.input.for(actx).notify(...)`；`'conversation'` 随之加入 `ui-chat` 的必需 `inject`，与既有的 `'uiConversation'` 同源对齐。原补丁的 `PathOpenError`/`error.rpcError.code === 'not-found'` 判支在本代码树无对应物：`openWorkspacePath` 返回 `{ok:false, error: RemoteError}` 而非抛错包装类，且真实 code 是 `session/path-not-found` 不是 `not-found`；`onDefault` 改为原样重新抛出 `result.error`（真实 `RemoteError`，不再压扁成纯文本 `Error`），`.catch` 用本代码树自己文档化的 `remoteErrorOf(error)`（"structural, not instanceof"，`packages/typert/protocol/src/remote-error.ts` 自己的注释）分类，而非 `instanceof`；`@deepseek-ai/dsh-typert-protocol` 加入 `ui-chat` 的 `devDependencies`（纯工具值导入，非 cordis 服务，不需要 `dsh.client.inject` 条目）。**顺带修复一处 `ae19472402`（`43d944b8fd`）遗留的测试缺口**：`ui-tool` 的三个测试文件（`chat-code-subcalls`/`assembly-surfaces`/`toolview-slot`）挂载 `applyChat` 但从未在 `ae19472402` 给 `ui-chat` 加 `'connection'` 必需依赖时同步补上 `connection` 桩——因为那次提交的受影响测试范围只圈定了 `ui-chat`/`ui-workflow-run`/`ui-primitives`/`ui-conversation`，漏了 `ui-tool`；本补丁跑更宽的受影响套件时发现并顺带修复，与本补丁自身新增的 `'conversation'` 桩落在同一提交而非拆成独立提交（拆分需要先临时撤回 `ae19472402` 已合并的 `apply.ts` 改动才能让修复提交独立可测，得不偿失）。Agent Note：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md`。
+## auto-compaction-policy-seat — 自动压缩的实时策略位、分子对齐上下文计量与压缩失败卡
 
-## feat(ui-conversation,ui-attachment,host-apiproxy): confirm before sending a file that lives in a known secret container — ebd4e9c1f4
-- **改了什么**：新增 `secret-container.ts`（纯名称/路径启发式判定，零内容读取），composer 对文件草稿做已知密钥容器（`.env`/`id_rsa`/`*.pem`、`/.ssh/`/`/.aws/` 路径段等）匹配，命中则弹两键确认；`FileChip`/`ComposerAttachments`/`InputBar` 接入芯片持续警示态（描边+圆点+行内标签+行下方带「移除」的提示）；宿主侧新增部署可追加的 `secretContainerExtraPatterns` 会话投影（仅可追加，基础名单从不上这根线）。
-- **退役条件**：上游自带等价的添加时密钥容器确认（同款零内容读取、名单可追加的产品行为，覆盖警示态文案与芯片布局）。
-- **状态**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.3）**。此前一轮（基座 0.1.2-alpha.2）因直接依赖当时已 SKIPPED 的 98020a23cd（`FileChip.tsx`/`ComposerAttachments.tsx`/composer 文件草稿）与 a5c4d3a29d/d56a5f7348 记录的已删除 `packages/host/apiproxy` 包而整体 SKIPPED；98020a23cd 已落地为 `a21f837b51`，宿主侧落点改为 `packages/api/session-controller`，本系列随后经 `4b7d225e25` 与 `7e37c74cdf` 压扁为一个提交落地。**落点更新（提交 `4b7d225e25`）**：与 `7e37c74cdf` 一并设计端口、squash 进同一提交——`matchSecretContainerFiles`（`packages/client/ui-conversation/src/client/secret-container.ts`）原样落地为纯文件名/路径启发式；`InputBar.tsx` 据文件草稿与 `secretContainerExtraPatterns` 投影算出命中，驱动 `FileChip` 警示态，并按当时的第一版设计在键盘 Enter 与发送按钮两个入口前插入二次确认 Modal（该时机已被下文的终态修正推翻）；部署方追加的模式经 `SessionController.Config` 新字段 `secretContainerExtraPatterns`（纯增量）、直接注册在 `ApiSessionList` 构造函数里的常量会话投影传递——`packages/host/apiproxy` 已随本次同步整体消失，其等价的 `imageLimits`/`fileLimits` 投影本就搬迁到了这同一个新落点。详见配套 Agent Note `.agents/notes/implemented/feature/2026-09-01-secret-container-confirmation-port.md`。本条目取代此前的 SKIPPED 记录。**落地形态修正（本次提交）**：`4b7d225e25` 移植的是本系列的第一版设计（发送时确认），而该设计已被 `16daeaa345`（旧 `core-patches` 分支顶端、随 rc.25 发行的终态）按用户产品决策推翻——确认时机整体前移到添加时按批。本次提交把落点改回终态，与 `core-patches-v3` 的 `4b9b242ee9` 语义逐条一致：`InputBar.tsx` 删除 `requestSubmit`/`pendingSubmitRef`/`secretConfirmNames` 及其发送时 `Modal`，键盘 Enter 与主发送按钮恢复直接调用机器（`gate.current` 只留 `intakeDrop`）；`intakeFiles` 在 `addFiles(files)` 成功后对本批次自身重跑 `matchSecretContainerFiles`，命中的 `File` 引用记入 `pendingAddHitFilesRef`，一个监听 `fileAttachments` 的 `useEffect` 把它们解析为机器分配的 `DraftAttachmentId`（本代码树的 `apply.ts` 同样丢弃 `createDraftFiles` 的返回值，只回传拒绝原因字符串），随后弹同款两键 `Modal`：「添加确认」/「仍要添加吗？」/「不添加」+「仍要添加」。「仍要添加」是纯关闭（文件已附着），「不添加」按 id 逐个 `removeImage`，只撤销本批命中子集；芯片持续警示态与本弹窗解耦，在整批附着那一刻就渲染。`locales.ts` 的 `.title`/`.message`/`.sendAnyway`/`.dontSend` 四键替换为 `.addTitle`/`.addMessage`/`.addAnyway`/`.dontAdd`，`chipLabelTitle`/`notice` 去掉已失实的"发送前会再向你确认"从句。测试块 `secret-container pre-send confirmation` 换为 `secret-container add-time confirmation`（经 `onAddFiles` 走真实添加路径的假机器，覆盖单批多命中合并、「不添加」只撤销命中子集、重新拖入复现同一道闸、部署追加名单、无命中零弹窗）加 `secret-container: no send-time re-prompt`（预置未经确认的命中附件，Enter 与主按钮均立即提交且全程无 dialog）。本树带 develop 侧的 `apps/web/tests/secret-container-confirmation.e2e.ts` 与其金样（金样本就录的是拖入版）。该 e2e 另需跟上本代码树在它写就之后确立的两处写法才能跑起来：页面改开 `scaffold.authenticatedUrl`（直接开 `baseUrl` 只会拿到登录闸的 "authentication required" 页，全仓其余 30 余个浏览器 e2e 早已如此），输入区改用 `[data-composer-input][contenteditable="true"]` 定位（Lexical 文本面把占位文案挂在 `data-placeholder` 上，`textarea[placeholder]` 够不着）；两处都是本代码树自身既有写法，金样未改一字，`DSH_SNAPSHOT=replay` 下两条断言全绿。本条目取代 917f610fd9 的原始 ledger 记录。
+- **改了什么**：三片。① 策略位：`compaction-basic` 的 `types.ts` 新增 Service Definition `CompactionPolicy`（`isEnabled()`、`thresholdRatio()`），`index.ts` 把它声明合并到 cordis `Context` 的 `compactionPolicy` 键并从包根再导出，`agent/pre-step` 的压力路径在 `isEnabled()` 答 `false` 时不进入，`pressureSpec()` 用 `thresholdRatio()` 覆盖加载期阈值；`scripts/gen-cordis-catalog.ts` 的 `SERVICE_PAGE` 与 `scripts/gen-doc-graphs.ts` 的 `SERVICE_ROLES` 各登记一行（两张表是写死在门禁脚本里的完备性名单）。② 分子对齐：`static inject` 加 `sessionProjections`，`occupancyTokens()` 在用量锚定时取 `contextPressure` 投影已发布的 `projectedTokens`（环形计所除的同一个值），未锚定时仍取 `measure()` 的总量；`package.json` 把 `@deepseek-ai/dsh-session-projection` 提为 peer，`tsconfig.json` 加 project reference。③ 失败卡：`ui-chat` 的压缩节点 Definition 收下带 `error` 的 `compaction/end`，没有落地检查点时发出 `compaction-failure` 节点（`contract/chat-nodes.ts` 的 `CompactionFailureChatData`、`MessageItem.tsx` 的行、`register-node-renderers.ts` 的座位、`locale.ts` 的本地化整句）；取消（abort 措辞）不出卡，后端原文只挂 `title`；`turn: null` 的轮外标记对同样出卡。文档：包 README、`docs/subsystems/compaction.*`；生成物 `docs/{capability-seams,config-catalog}.md`、`api-catalog.ts`、`slot-catalog.ts` 由各自的 `gen-*` 重生成，中文对侧手工对齐。本族还订正了两份上游 Agent Note：`2026-07-20-routed-model-context-and-compaction-policy` 与 `2026-07-29-projected-token-usage-and-request-context` 各加一句「部分被本族取代」的交叉链接（核心路径改动，随本族退役时一并还原）。
+- **为什么**：触发用的数与用户看的数不是同一个——环形计除的是 prompt 侧的 `projectedTokens`，引擎比的是含 output 的 `totalTokens`；`thresholdRatio` 与 `auto` 只在加载期存在，设置页没有可写入的对象，而引擎每个 agent preset 一实例，插件层加不了 `Context` 键也改不了 pre-step 的读取点。自动压缩失败时标记对以带 `error` 的 `compaction/end` 闭合，但 `buildViewNode` 没有检查点就返回 `null`，对话里什么都不画。
+- **要达到的效果**：host 平面插件挂一个 `compactionPolicy` 服务，就能把自动压缩变成运行期生效的用户设置；`isEnabled(): false` 只停压力路径，溢出恢复照常；未挂载提供方时行为与上游逐字相同。用量锚定的会话按环形计显示的百分比触发，未锚定的会话（尤其图片密集）触发点逐字不变——分子只在 `baseline.kind === 'usage'` 时读投影，这道门让 `snapshots/acp/image-compaction` 仍然压缩。自动压缩失败时对话里出现一行本地化提示，手动 `/compact` 的失败仍只走命令卡。
+- **退役条件**：三条，分别退役。① 上游让自动压缩获得运行期策略输入，即退役策略位（判据 `git grep -nE "compactionPolicy|thresholdRatio\(\)" <tag> -- packages/compaction`）；② 上游把触发改到 context-pressure 投影上，即退役分子对齐（判据 `git grep -n contextPressure <tag> -- packages/compaction`）；③ 上游以任何形式渲染自动压缩失败，即退役失败卡（判据 `git grep -n compaction-failure <tag>`）。
+- **状态**：在役（`feature/core-patches`）。核实依据：`compactionPolicy` 与 `compaction-failure` 在 `dsh-v0.1.7-rc.2` 零命中。随附桌面组合里 `@haoran/dsh-auto-compact` 让 `isEnabled()` 答 `false`、在轮末自己调 `compactNow`，所以那里压力路径不进入、`thresholdRatio()` 没有读者；核心补丁本身不因此改动。Agent Note 的 Related 行点名的桌面 Note「automatic compaction moves to the end of the turn」只在 fork 产品线上，这里不加链接。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游在 `config.ts` 新增 `headroomTokens` 并按「窗口 − 预留输出 − headroom」算压力触发点（上游 PR #4530）。`pressureSpec(policy, contextWindow, reservedCompletionTokens, targetKey)` 现在取 `floor(min(W × ratio, W − O − headroomTokens))`：策略比例只能把触发点往前移，不能越过上游的预留；spec 的测试引擎以 `headroomTokens: 0`、`maxTokens: 8192` 构造，README 中英第 96 行补上 headroom 限定。失败卡 `CompactionFailureNodeView` 的 props 收窄为 `Pick<…, 'node' | 't'>`，失败行 spec 改用有类型的 `ChatNode`（上游 PR #4610）。
+- **滚动同步注意**：`compaction-basic` 的两份 README 是活跃冲突面，每轮先解 README 再看代码。上游改 `compactIfNeeded` 的压力段、`TokenMeasurement`／`contextPressure` 投影字段、`resolveCompactSpec` 的参数（`dsh-v0.1.7-rc.2` 在 `config.ts` 新增 `headroomTokens`，要在新语义下重核分子），或往两张门禁名单里插行，都会与本族撞行。失败卡落在 `ui-chat` 的压缩节点 Definition、`MessageItem.tsx`、`locale.ts`，是 client-UI 补丁。生成物冲突时取上游侧后重跑对应 `gen-*`，中文对侧手工带上新增行再 `verify-translation-pairing --write`。
+- **Agent Note**：[`auto-compaction-policy-seat`](../.agents/notes/implemented/feature/2026-09-14-auto-compaction-policy-seat.md)
+- **路径**：`.agents/notes/implemented/architecture/2026-07-20-routed-model-context-and-compaction-policy.*` `.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.*` `.agents/notes/implemented/feature/2026-09-14-auto-compaction-policy-seat.*` `docs/subsystems/compaction.*` `packages/client/ui-chat/src/client/chat/MessageItem.module.css` `packages/client/ui-chat/src/client/chat/MessageItem.tsx` `packages/client/ui-chat/src/client/chat/register-node-renderers.ts` `packages/client/ui-chat/src/client/contract/chat-nodes.ts` `packages/client/ui-chat/src/client/conversation-nodes/compaction.ts` `packages/client/ui-chat/src/client/locale.ts` `packages/client/ui-chat/tests/compaction-failure-row.client.spec.tsx` `packages/client/ui-chat/tests/conversation-node-definitions.client.spec.ts` `packages/compaction/compaction-basic/README.*` `packages/compaction/compaction-basic/package.json` `packages/compaction/compaction-basic/src/index.ts` `packages/compaction/compaction-basic/src/types.ts` `packages/compaction/compaction-basic/tests/auto-compaction-policy.spec.ts` `packages/compaction/compaction-basic/tsconfig.json` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts`
 
-## fix(ui-attachment,ui-conversation): align the composer file chip with the rail and format sizes in B/KB/MB — 7e37c74cdf
-- **改了什么**：`FileChip.tsx`/`ComposerAttachments.tsx` 视觉对齐修正；`labels.ts`/`attachment-labels.ts` 的字节数格式化从"仅 MB"扩展到 B/KB/MB 三档。
-- **状态**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.3）**。此前一轮（基座 0.1.2-alpha.2）因直接依赖当时已 SKIPPED 的 98020a23cd 引入的 `FileChip.tsx`/`ComposerAttachments.tsx`/`attachment-labels.ts` 而 SKIPPED；98020a23cd 已落地为 `a21f837b51`。**落点更新（提交 `4b7d225e25`）**：本条目从未在上游独立于 `ebd4e9c1f4` 以值得单独复现的形态发布过，故随 `ebd4e9c1f4` 一并 squash 进同一提交落地——对齐修正与三档字节数格式化（`attachmentSizeText` 的 B/KB/MB 修复跟随函数落在 `packages/client/ui-primitives/src/byte-size.ts`），连同一个更易读的警示文案与行下方提示（替代原设计里容易被忽略的圆点+描边），均已并入 `ebd4e9c1f4` 描述的确认流程。详见同一配套 Agent Note `.agents/notes/implemented/feature/2026-09-01-secret-container-confirmation-port.md`。本条目取代此前的 SKIPPED 记录。本补丁自身的视觉与格式化改动不受确认时机影响；同系列的确认时机后由本次提交按 `16daeaa345` 终态修正为添加时确认，详见 ebd4e9c1f4 条目。
+## auto-compaction-running-card — 自动压缩进行中的运行行
 
-## feat(attachment,llm,llm-deepseek,llm-pi-ai): spill oversized file attachments instead of truncating them — 5cd83e5a14
-- **改了什么**：超限文本文件从截断改为落盘"溢出"文件，两个 LLM 适配器的 `file-lowering.ts` 降级路径相应调整。
-- **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `41a6561189`）**：`packages/llm/llm/src/file-lowering.ts`/`tests/file-lowering.spec.ts` 原样移植（`CallId` 改名 `ToolCallId` 外无其他改动），新增 `FileSpillOptions`/`LoweredFileSpillRef`/`lowerSpilledFileBlockText`/`lowerFileBlocksFromStore` 的可选第四参数 `spill?`。新建 `packages/attachment/attachment-spill` 包（`AttachmentSpill` 服务、`ctx.attachmentSpill`、`attachment/materialized` 会话事件），依赖图与原补丁一致（`dsh-agent`/`dsh-attachment`/`dsh-llm`/`dsh-spill` 之上）。两个适配器（`llm-deepseek`、`llm-pi-ai`）在各自既有的文件降级调用点经 `fileSpillOptionsFrom` 接入 `ctx.attachmentSpill`——`llm-pi-ai` 的 `toPiContext`/`PiAiAdapter` 已独立于本特性从位置参数重构为对象参数 `PiImageRequestContext`，spill 接线相应改为该接口新增的可选 `spill?` 字段（按条件展开而非位置传参，因 `exactOptionalPropertyTypes` 拒绝显式 `spill: undefined`）。`attachment/materialized` 经 `gen-persistence-catalog` 的 AST 扫描登记进 `KNOWN_SESSION_EVENT_TYPES`（第一方包穷尽枚举机制，非 `ignorable` 通道）。`packages/bundle/base`（`cordis.patch.yml`+`package.json`）与 `python/sdk-runtime/package.json` 新增 `@deepseek-ai/dsh-attachment-spill` 依赖（`pnpm run hygiene` 对已加载插件的要求）；`tsconfig.base.json`（路径别名）、`tsconfig.host.json`（project reference，`gen-cordis-catalog` 静态分析器发现新 Context 合并服务的前提）、`scripts/gen-cordis-catalog.ts`（`SERVICE_PAGE`）、`scripts/gen-doc-graphs.ts`（`SERVICE_ROLES`）均已跟进。`dsh-attachment-spill/README.{md,zh.md}` 按当前包 README 文档标准模板重新组织（该标准晚于原补丁出现）。详见配套 Agent Note `2026-08-31-rc26-file-attachment-and-spill-family-a-port.md`。本条目取代 87dc70d4bf 的原始 ledger 记录。**constraints 门禁跟进（B 族收尾扫描发现，独立小提交）**：`package.json` 的 `files` 数组多列了一项 `lib/types/**/*.js`（该包不产出任何 `lib/types/*.js`，只有 `.d.ts`），`pnpm run constraints`（`scripts/check-workspace-constraints.ts`）对本包要求的精确值是 `["lib/index.js","lib/invariant.js","lib/types/**/*.d.ts"]`；删掉多余一项即通过，无行为改动。
-- **部分退役 + 门禁跟进（每日滚动同步，基座 0.1.2-alpha.4）**：`tsconfig.base.json` 里本补丁曾一并携带的 `@deepseek-ai/dsh-attachment-local/invariant` 路径别名退役（上游 `01a8882601` 删掉了该 invariant 文件本身）；`@deepseek-ai/dsh-attachment-spill` 自己的两条别名仍在役。另：`Session.events` getter 随上游 `876a3e0414` 更名为 `snapshotEvents()`，`tests/attachment-spill.spec.ts` 的 4 处读取点跟随改名。
-- **门禁跟进（每日滚动同步，基座 0.1.2-alpha.5，两个独立小提交）**：本包两处门禁红在 `develop` 顶端（`719cec2365`）即已存在，非变基引入，随 v5 一并修。(1) `f98f0dffd3`——`package.json` 的 `version` 停在 `0.1.2-alpha.2`，跨三次基座升版未跟上，`check-workspace-constraints` 要求每个工作区包版本等于根版本；改法与上游发版提交 `db6bdc3576` 对每个工作区包做的一致（单行版本号），改成 `0.1.2-alpha.5`。(2) `9127951ebb`——`src/invariant.ts` 的 `install` 是空函数体，`verify-package-invariants` 明确拒收（`empty install function is unnecessary; omit the companion and its publication wiring`），规则见 `packages/AGENTS.md`「Publish `./invariant` only for diverging observations」与上游 `01a8882601`。本包确实没有可独立观测的事件序列或可变关系——幂等缓存与其 `attachment/materialized` 日志记录在 `resolveSpill` 调用点直接落实。按上游同款处理：删 `src/invariant.ts`、删 `package.json` 的 `./invariant` 导出与 `files` 条目与 `dsh-invariants` 依赖对、删 `tsconfig.json` 的 project reference 与 `tsconfig.base.json` 的路径别名，并在双语 README 源码地图里写成「有解释的空伴生」一行（对齐 `attachment-local` 已有写法）。
+- **改了什么**：`ui-chat` 的压缩节点 Definition（`conversation-nodes/compaction.ts`）新增无载荷类别 `compaction-running`：标记对打开、尚无检查点也无失败时，发出锚在 `compaction/start` seq 上的运行行；标记对闭合（`bracketClosed()` 读 `compaction/end`）或所在 step/turn 已关闭（`bracketAbandoned()`，与工具卡的 `interruption()` 读同一个位置状态）时，以同 key 发布 `visibility: 'hidden'` 的节点收束，不返回 `null`。`chat-snapshot-builder.ts` 把 `compaction-running` 登记为已知但不贡献的行；`CompactionItem.tsx` 接受 `node: null` 并走运行态标题 `message.compaction.running`，另有一条视觉隐藏的播报；`MessageItem.tsx` 与 `register-node-renderers.ts` 挂座位；`slot-catalog.ts` 重生成。零新增 locale 键。`ui-chat` README 双语新增「Automatic compaction」一节。
+- **为什么**：自动压缩的摘要调用要花数秒，标记对打开期间 `buildViewNode` 返回 `null`，对话里什么都不画；同一笔事务手动发起时从第一刻起就显示「正在压缩…」。本 fork 的策略位让部署方调低触发阈值，这个缺口在长会话里反复出现。
+- **要达到的效果**：自动压缩三态齐全：打开时「正在压缩…」，落地后变成既有的已压缩标记，出错时仍是失败卡；Stop 取消后这一行隐藏。实时尾部按 key upsert，撤回已物化目标会抛 `withdrew materialized target`，所以收束一律发布隐藏节点。已闭合的历史标记对渲染路径零改动；start 不在已加载窗口内的历史标记对不出运行行。
+- **已知限制**：`turn: null` 的轮外标记对落在 `session` 位置，该位置永不关闭。随附 `@haoran/dsh-auto-compact` 的轮末压缩正是这种标记对，所以压缩进行的那几秒内宿主被杀，该会话重开后会永久保留一行「正在压缩…」。收口判据可以复用引擎自己的「存在 seq 大于该未配对 start 的 `session/end-seed`」，但该事件不在本 Context 的 Matches 里，排在后续版本。
+- **退役条件**：上游以任何形式为打开中的自动压缩标记对渲染出任何东西（判据 `git grep -n compaction-running <tag>`）。
+- **状态**：在役（`feature/core-patches`）。核实依据：`compaction-running` 在 `dsh-v0.1.7-rc.2` 零命中，上游 `buildViewNode` 没有落地检查点时仍 `return null`。与 `auto-compaction-policy-seat` 的失败卡共用 `ui-chat` 的同一批文件，每轮同步一起移植、一起核实。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游 V4 把检查点来源写成 `{ kind: 'compact-checkpoint', compactionId }`（上游 PR #4429），`conversation-node-definitions` 的运行行夹具随之改写；运行行的 props 收窄为 `Pick<…, 't'>`，运行行 spec 直接渲染 `t` 与落地后的 `CompactionItem`（上游 PR #4610）。**工作步骤展示：方案 A（09-26 默认，用户未否决）**：上游「工作步骤展示」在 compact 与 standard 档下连进行中的轮次也折叠，轮内压缩（溢出恢复、关闭 auto-compact 后的步间压力压缩、rc.34 计划中的步间压缩）的运行行原先被折进过程组。现在 `process-groups.ts` 的 `INDEPENDENT` 把 `compaction-running` 与 `model-retry` 并列：运行行结束前面的组、作为独立根单独成行，组折叠时也看得到，组标题不因压缩改变；运行行之前的组随之闭合、换成已完成标题，之后的过程内容另起一组，运行行隐藏后两组重新合并；落地的 `compaction` 标记照旧进组。`conversation-nodes/README` 双语那张分组表同步加上这一类别。失败卡属于 `auto-compaction-policy-seat`，本次未改，仍进组，移出组记为 rc.35 候选（09-26 默认）。轮末 idle 压缩写 `turn: null`，不进组。测试：`chat-view.client.spec.tsx` 在 compact 档渲染打开中的轮次，钉住运行行在折叠的组外且未隐藏、落地标记以同一 key 取代运行行后在组内；去掉 `INDEPENDENT` 里的 `compaction-running` 后该用例失败。无 `test:snapshot` 或 web e2e 金样覆盖本场景；真机确认在 §8 打包前冒烟第 4 步。
+- **滚动同步注意**：client-UI 补丁，落点 `conversation-nodes/{compaction,chat-snapshot-builder,process-groups}.ts`、`chat/{CompactionItem,MessageItem}.tsx`、`register-node-renderers.ts`；`dsh-v0.1.7-rc.2` 大改 `CompactionItem.tsx`、`chat-snapshot-builder.ts` 与 `conversation-node-definitions.client.spec.ts`，合并后要重新核对「运行行结算后隐藏」仍然成立。`process-groups.ts` 里的 `INDEPENDENT` 集合必须仍含 `compaction-running`（与 `model-retry` 并列）；上游改名、拆分或改写这个集合时，把 `compaction-running` 接回新的独立根判定，再核对运行行在折叠组外可见、隐藏后两组合并为一组，并同步 `conversation-nodes/README` 双语分组表。README 冲突时取上游段落再接回本族那一节，然后 `verify-translation-pairing --write`。
+- **Agent Note**：[`auto-compaction-running-card`](../.agents/notes/implemented/feature/2026-09-18-auto-compaction-running-card.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-18-auto-compaction-running-card.*` `packages/client/ui-chat/README.*` `packages/client/ui-chat/src/client/chat/CompactionItem.tsx` `packages/client/ui-chat/src/client/chat/MessageItem.tsx` `packages/client/ui-chat/src/client/chat/register-node-renderers.ts` `packages/client/ui-chat/src/client/conversation-nodes/README.*` `packages/client/ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts` `packages/client/ui-chat/src/client/conversation-nodes/compaction.ts` `packages/client/ui-chat/src/client/conversation-nodes/process-groups.ts` `packages/client/ui-chat/tests/chat-view.client.spec.tsx` `packages/client/ui-chat/tests/compaction-running-row.client.spec.tsx` `packages/client/ui-chat/tests/conversation-node-definitions.client.spec.ts`
 
-## fix(storage-json): bootstrap a per-record unit only from a same-version legacy file — 4923774808
-- **改了什么**：`packages/storage/storage-json/src/per-record-unit.ts` 的 `bootstrapLegacyUnit` 在引导前核 `unit.version === descriptor.version`，不同即视为过期不引导；`tests/json-backend.spec.ts` 的「任何更老版本都引导」改为同版本引导 + 新增异版本不引导用例。
-- **为什么**：`bootstrapLegacyUnit` 此前只核 `unit.name`，把旧单文档（rc.22/24 写的 `session_projcache.json`，`unit.version` 3）里的记录原样复制成当前版本（5）的记录文档；`storage-domain.open` 随后按 v5 schema 逐条 zod 校验 → 抛错 → session-projection-cache 初始化失败 → 服务端拒启，桌面 app 停在「startup failed」。真机复现于郝然本机（rc.22 家目录升 rc.27）。
-- **状态**：**退役（每日滚动同步，基座 0.1.2-alpha.5）。** 依据：上游 `d921d4b357` + `fcd109d29a` 在同一函数里加了 `const stamped = document.unit.version; if (typeof stamped !== 'number' || !acceptedStamps(descriptor).includes(stamped)) return`——`acceptedStamps` = 当前版本 + 包属主显式声明的 `compatibleVersions`，是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）。测试等价覆盖逐条核过：我方「同版本引导」对应上游 `bootstraps an empty per-record tree from a legacy whole-unit file and preserves it`（夹具写 `version: descriptor.version`），我方「异版本不引导」对应上游 `bootstraps from a legacy file only when its stored version is accepted`（`version: 3` 对 current 2 无 compat → 空读、无记录文档、legacy 文件逐字节保留；同一用例再证声明 `compatibleVersions:[3]` 后引导且按当前版本重新打戳），我方给「tables 形状不合法」夹具补 `version: 2` 那一处上游同样已做——**无缺口，未补测试提交**。本轮预审 b 另证上游方案更优：alpha.5 的投影缓存描述符是 `version: 6 / compatibleVersions: [3,4,5]`，真机那份 `unit.version 3` 的遗留单文档被正常迁移成 31 条 v6 记录文档；继续保留我方补丁反而会让 rc.24 用户升级后丢掉全部缓存标题。本补丁在 `core-patches-v5` 上整提交 drop（`git rebase --skip`），`git diff upstream/master HEAD -- packages/storage/storage-json` 为空。 **残留风险（对抗复核补记）**：退役后行为随上游 `acceptedStamps`——v3 遗留单文档不再被拒，而是**被引导并按当前版本重贴 v6 标**。若某条 v3 记录的内容其实不满足 v6 的行/身份语义，它会以 v6 的身份被读进来；域层的 `invalidRecords: 'backup-and-skip'` 会把真正过不了 schema 的记录挪走并按未缓存服务该会话，**缓存本身可从会话日志重建**，故该风险的最坏后果是「标题等列表投影暂缺、下次打开会话后重建」这一降级，不是启动失败或错值。另：**v5→v6 的产品面证据本轮只有域层直测**（用上游夹具在 scratch store 里验 v3/v4/v5 读出、v7 丢弃、写后重戳 6）；「真机 UI 上看到 rc.27 写出的 v5 记录标题被服务出来」这一级证据本轮未取得（尝试过的 UI 级探测因那条 session 既不在可见列表、也无写触发重戳而结论不成立，已弃用），记为**派单者另行用真实 rc.27 家目录副本验证**。
+## chat-prose-referents — Assistant 正文的 proseReferents 缝
 
-## feat(session-log-export): show export progress and failures in the page — f13efcd83b
-- **改了什么**：`packages/session-query/session-log-export` 两个半包 + `apps/web/tests/navigation-panes.e2e.ts`。Host 侧新增 `src/export-extent.ts`（三个响应字段名 + `SessionLogExportExtent`，host/client 两个编译面共同纳入，先例是 `dsh-client-connection` 的 `src/rpc.ts`）与 `src/archive.ts` 的 `measureSessionLogZip`；把 `sessionLogZipEntries` 里的日志遍历抽成共享的 `sessionLogTextEntries`，让「测量」和「产出条目」跑同一个遍历函数——但各跑一遍（测量一遍、产出一遍），因此两遍之间追加了事件的活动子会话会让声明值低于归档实际值。路由在流式传输前测量一次，并在 `GET`/`HEAD` 上发出 `X-Session-Export-Entries`、`X-Session-Export-Bytes` 与 `X-Session-Export-Estimated-Wire-Bytes`。客户端侧新增纯模型 `src/client/progress.ts`（按线上估算值缩放的字节度量 + 跨块统计 ZIP 局部文件头签名作下界，取较大值、条目数封顶、流未结束前压在 0.99）与 `Dialog.module.css`；`controller.ts` 从「HEAD 预检 + `<a download>` 导航」改为「`fetch` GET + `getReader()` 逐块读 + `Blob` + object URL 锚点」，新增 `cancel()`、`filenameFromContentDisposition()`（RFC 5987 `filename*` 优先），下载状态存储改 `flush: 'raf'` 按帧合并重绘；`Dialog.tsx` 变成带进度条、`已导出 <大小>`、完成态与具名失败态的面板，底部按钮传输中为「取消」、结束后为「关闭」。双语 README 与 Agent Note 三件套 `2026-09-03-session-export-progress.{md,zh.md,i18n.yaml}` 同步。
-- **为什么**：插件层做不到。导出的 UI 与导出的路由属于**同一个上游插件** `session-log-download`——fork 插件可以新增路由或槽位占位组件，但无法在保留其 Host 半包的同时只替换它的客户端半包；而进度条需要的规模数字，只有走过归档的那条路由算得出来。上游现状还有两处硬伤：路由用 `Transfer-Encoding: chunked` 且不带 `Content-Length`（真机实测 6 个会话全部如此），任何一侧都没有可画进度的数据；子会话/附件读失败发生在 `200` 之后，只能让流出错，而上游 README 把这类报告推给「浏览器下载管理器」——嵌入式外壳未必有这个界面，于是撕裂的归档在用户那里显示为成功提示。郝然的原话：「不要只是提示正在导出了，加一个导出的进度条来展示导出进度」。
-- **要达到的效果**：导出期间面板显示真实进度（路由给出规模时为确定百分比，含单条目归档；否则为不确定态），失败在页面里可见、且失败不落盘任何文件，传输中可取消；关闭面板仍不中断传输（保持上游既有语义）。
-- **退役条件**：上游落地同等能力（一次导出的进度与失败在页面里可见）即退役。
-- **状态**：在役。
-- **两处设计缺陷由真机取证否证后改掉**：(1) 早期版本按「已开始的条目数」计数，单条目归档从第一块起就顶到 99%；改为「下一个条目的头到达才算完成」。(2) 改完后字节度量除以的是**未压缩**总量，而实测压缩比 7.6 倍（779768 → 102934），进度条爬到 13% 再猛跳 100%——读起来像卡住。故新增 `X-Session-Export-Estimated-Wire-Bytes`：文本条目乘标定系数 `TEXT_DEFLATE_RATIO = 0.14`（实测区间 0.13–0.15），媒体按原值（PNG/JPEG 不可再压），`compressionLevel: 0` 时该值即未压缩总量，但仍略低于真实体积——差的是被忽略的每条目数十字节 ZIP 框架，小归档上实测偏低约 6%（9200 对 9758）。误差表现写进 README：压得更狠→提前停在 99% 等待，压得更松→约八成处直接完成。host 侧测试断言的是「level 0 下估算值等于未压缩总量」，不是「等于真实体积」。
-- **一项文档主张被取证否证并已订正**：README 原写「中途撕裂时面板显示 Host 自己的报错信息」。真机造了一个「谱系可见、日志读到一半炸」的子会话后实测：响应已是 `200`，Host 无法再传达任何信息，浏览器只给 `network error`。四份文档（双语 README + 双语 Note）已改为「报告导出撕裂了，而非为什么」，并在 README 限制条目里立案。
-- **门禁实跑（基座 `origin/core-patches-v6` = `72d966ed10`，0.1.2-rc.1）**：包内 `pnpm exec vitest run --coverage --coverage.include='packages/session-query/session-log-export/src/**' packages/session-query/session-log-export` **9 文件 / 86 用例全绿**，逐文件覆盖率 100%（statements 423/423、branches 223/223、functions 87/87、lines 370/370）。不带 `--coverage.include` 直接跑该包会退出码 1：插桩范围是全工作区，本包测试够不到的文件（`ui-primitives`、`core/tools`、`agent-presets` 等）一并计入——与本文件「每日滚动同步：alpha.4 → alpha.5」一节记过的同一个陷阱；`pnpm run typecheck` / `lint` / `build` / `verify-export-jsdoc` / `verify-agent-note-format` / `verify-translation-pairing` / `verify-md-links` / `verify-doc-budgets` 退出码均为 0；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` **7 通过 / 1 跳过**，单独跑导出用例 `-t 'downloads through the Session Header'` 亦通过。
-- **真机取证**（本工作树 `pnpm run dsh web --no-open --port 0` + scratch `DSH_HOME`，Playwright 驱动 Chromium，CDP 20 KB/s 限速）：6 个种子会话的 `entries`/`bytes` 与 `unzip -l` 实际条目数、未压缩大小逐一相等，`unzip -t` 全部无错；单条目会话进度条 1%→90% 平滑推进后完成；自造两个子会话的三条目归档 1%→94%→100%；路由改 500 拍到失败面板；日志读到一半炸的子会话拍到 `200` 后撕裂、面板显示失败且 `dl3/` 零文件落盘。自造会话已在取证后删除，六个原有会话未被改动。
+- **改了什么**：`ui-primitives` 的 `MarkdownRenderContext` 增加不透明的 `referents`（`scan`/`open`/`resolveLink`/`subscribe`），`MarkdownProseSpan` 只携带 `start`/`end`；`ui-chat` 的 `contract/slots.ts` 声明 `ProseReferents` 可选服务，`apply.ts` 的 `buildProseReferents` 绑定 `cwd` 与 Host `home` 并经 `referent/open` 派发；本地路径的 markdown 链接目标经 `resolveLink` 路由，校验节拍上重渲已定稿消息。
+- **为什么**：Assistant 正文里的路径与 URL 只有行内代码一条通路（`chatFileMentions`），纯文本与未被认领的行内代码无法成为可点元素，仓外的校验索引插件没有接入口。
+- **要达到的效果**：正文命中渲染成与文件提及同一枚常显按钮；`ui-primitives` 不依赖运行时的 `ReferentKind`；无提供者时行为与改动前一致。
+- **子件：正文引用 not-found 竞态降级**。`buildProseReferents.open` 的 stat-到-click 竞态失败复用 composer 的通知通道给出用户可见提示，而不是只写 console。它有自己的退役条款，与父族的不同：`git grep path-not-found <tag> -- packages/client` 非空即退役（`dsh-v0.1.7-rc.2` 上为空），或父族整体退役时随之消失。
+- **退役条件**：上游自己的会话 UI 原生扫描并派发 Assistant 正文里的可点引用。
+- **状态**：在役（`feature/core-patches`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `dsh-v0.1.7-rc.2` 零命中；子件的判据 `git grep path-not-found dsh-v0.1.7-rc.2 -- packages/client` 同样为空。`core-patches-v11` 那一轮适配三处上游改动：`ui-chat` 的 `inject` 列表新增 `uiWorkspace`（上游 PR #4368），本族的 `connection` 与它并列；`ChatView` 的 props 新增 `openExternalLink`（上游 PR #4379），`referents` 与它并列；`MarkdownText` 新增 `variant` prop（上游 PR #4390），`referents` 与 `referentsRevision` 与它同在参数表与依赖数组里；`renderAnchor` 的调用点新增 `context.streaming` 实参（上游 PR #4379），本族的本地路径分支仍在该调用之前返回；`apply-inject` 测试台的 `chatViewApi` 改收 `SessionReference` 而不是裸 `SessionId`（上游 PR #4368），本族 13 条用例改传 `b.rootReference`。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：四处。① `apply.ts` 抽出 `openExternalLink`，跟随上游的链接打开偏好 `linkOpening`（上游 PR #4671），作为新参数传给 `buildProseReferents`（§9 Q14 默认）。② `render.tsx` 的本地路径链接分支加 `classifyLinkPath(destination) !== 'image'`：图片链接交给上游的图片链接预览（上游 PR #5029），不再经本族的 `resolveLink`（§9 Q22 默认），另加一条 markdown 用例。③ `scripts/gen-cordis-catalog.ts` 在第 182–186 行冲突，本族的 `proseReferents` 行与上游新增的 `shortcuts` 行（上游 PR #4891）都保留。④ 上游新增的两份欠费提示 spec（上游 PR #4858）挂载 `ui-chat` 时要提供本族注入的 `connection` 服务；`apply-inject` 测试改用类型守卫 `isComposerBarInject`，它们进入本族 `路径`。
+- **Agent Note**：[`chat-prose-referents-seam-port`](../.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md)、[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.*` `packages/client/ui-chat/package.json` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/AssistantMarkdown.tsx` `packages/client/ui-chat/src/client/chat/AssistantNodeView.tsx` `packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx` `packages/client/ui-chat/src/client/chat/ChatView.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/locale.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/client/ui-chat/tests/chat-apply.client.spec.tsx` `packages/client/ui-chat/tests/chat-view.client.spec.tsx` `packages/client/ui-chat/tests/quota-notice.client.spec.tsx` `packages/client/ui-primitives/src/index.ts` `packages/client/ui-primitives/src/markdown/MarkdownText.tsx` `packages/client/ui-primitives/src/markdown/render.tsx` `packages/client/ui-primitives/tests/markdown-render-units.client.spec.tsx` `packages/client/ui-primitives/tests/markdown.client.spec.tsx` `packages/client/ui-settings-account/tests/quota-notice-hold.client.spec.tsx` `packages/client/ui-tool/tests/assembly-surfaces.client.spec.tsx` `packages/client/ui-tool/tests/chat-ptc-subcalls.client.spec.tsx` `packages/client/ui-tool/tests/toolview-slot.client.spec.tsx` `packages/client/ui-workflow-run/tests/workflow-run.client.spec.tsx` `scripts/gen-cordis-catalog.ts`
 
-## product/server-console 线自己携带的上游改动（不在 core-patches 分支上）
+## claude-skills-roots — 扫描项目与用户的 `.claude/skills` 根
 
-本节登记 `product/server-console` 自己的提交（`7c64d32f85..product/server-console`）对上游拥有文件的全部手改。上游拥有文件指在基座 `76fda72979` 就存在的路径，外加本线新增在上游包目录里的三个文件（`packages/client/connection/src/client/base.ts`、`packages/client/connection/tests/base.client.spec.ts`、`packages/client/hmr/tests/browser-half.client.spec.ts`）。清点口径：`git diff --name-status 76fda72979 product/server-console` 里基座已有的路径中，本线末端内容与 `develop`@rc.29 不同的共 90 个；其中只由 `develop`@rc.29 带来的改动归上面的 `core-patches-v6` 各族，不在此重复。
+- **改了什么**：`packages/skill/skill-filesystem` 新增 `PROJECT_CLAUDE_RANK` 210 与 `USER_CLAUDE_RANK` 510 两个根、`claudeHome` 配置字段（覆盖变量 `$DSH_CLAUDE_HOME`）、`roots()` 按规范路径去重；`packages/skill/skill` 的 `SkillSource` 增加 `project-claude`／`user-claude`；不可扫描的单个根被跳过而不是让整个提供方归零；`tool-skill` 在部分根失败时发布部分目录而不是不发布。`packages/test-support/loader-smoke` 新增并导出 `isolatedSkillRootEnv(cwd, overrides)`，由它驱动测试与脚本里的钉根环境块。
+- **为什么**：本 fork 的用户把技能写在 `.claude/skills` 下（与 Claude Code 同一约定），标准 harness 不扫描这两个根，这些技能对模型不可见。
+- **要达到的效果**：两个 `.claude/skills` 根按既定优先级参与技能发现；一个根不可读只损失该根，不再让同提供方的全部根一起归零；测试与脚本用同一个函数钉隔离根，不再各写一份键名。
+- **退役条件**：上游自己扫描项目与用户的 `.claude/skills` 根（出现等价的根与 `SkillSource` 取值）。另一条独立条款：上游自己按根降级——单根扫描失败只丢该根、不清零整个提供方，无论落在 `skill-filesystem`、`packages/skill/skill` 聚合层，还是 `tool-skill` 改为从部分观测发布目录——本族的按根降级扩展与模型面补齐一并退役（线上 5 个提交属于这一半）。
+- **状态**：在役（`feature/core-patches`）。核实依据：`PROJECT_CLAUDE_RANK` 与 `isolatedSkillRootEnv` 在 `dsh-v0.1.7-rc.2` 零命中；上游 `skill-filesystem` 的 `list()` 仍只为 `watchManager.observeRoots` 失败降级（`complete: false`），`discoverRoot` 抛出仍会整个 `list()` 拒绝，第二条退役条款（按根降级）未满足。`core-patches-v11` 那一轮适配一处上游改动：`apps/web/tests/scaffold.ts` 把 `dsh-app-boot` 的函数导出改为在函数体内动态 import、顶部只留类型导入（上游 PR #4471），本族新增的 `isolatedSkillRootEnv` 导入改挂在那条类型导入之后。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游新增的三个启动器——`apps/cli/tests/profiles/headless/tests/profile-resolution.ts`、`source-tool.built.e2e.ts`（上游 PR #4570）与 `apps/web/tests/server-restart.e2e.ts`（上游 PR #4855）——只钉了 `DSH_HOME` 与 `DSH_AGENTS_HOME`，现在各自展开 `isolatedSkillRootEnv`，沿用原来的 home 与 agents 路径。
+- **Agent Note**：[`claude-skills-root`](../.agents/notes/implemented/feature/2026-09-06-claude-skills-root.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-06-claude-skills-root.*` `apps/cli/tests/agent-team-headless.e2e.ts` `apps/cli/tests/github-webhook-real.e2e.ts` `apps/cli/tests/headless-shutdown.e2e.ts` `apps/cli/tests/profiles/headless/tests/profile-resolution.ts` `apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts` `apps/cli/tests/web-auth.e2e.ts` `apps/cli/tests/web-browser-open.expected.e2e.ts` `apps/web/tests/scaffold-hermetic.e2e.ts` `apps/web/tests/scaffold.ts` `apps/web/tests/server-restart.e2e.ts` `apps/web/tests/smoke-real.e2e.ts` `docs/subsystems/skills.*` `packages/skill/skill-filesystem/README.*` `packages/skill/skill-filesystem/src/index.ts` `packages/skill/skill-filesystem/tests/skill-filesystem-watcher.spec.ts` `packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts` `packages/skill/skill/src/index.ts` `packages/skill/tool-skill/README.*` `packages/skill/tool-skill/src/index.ts` `packages/skill/tool-skill/tests/tool-skill.spec.ts` `packages/test-support/loader-smoke/README.*` `packages/test-support/loader-smoke/src/index.ts` `packages/test-support/loader-smoke/tests/loader-smoke.spec.ts` `packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/launcher.ts` `scripts/publish-npm-baseline.ts` `scripts/release/verify-packed-install.ts` `scripts/smoke-python-runtime.py` `snapshots/sdk/sdk.snapshot.ts`
 
-前两条（`3bdd0135a5`、`e72dec971a` 的一行）随本线迁到 0.1.2-alpha.4 的合并产生，是「本线组合把上游文件拖进了上游自己没走过的程序」的产物，不是对上游行为的改造。其后 A–I 九族是 2026-09-24 补登的：此前本节只登记了前两条，其余手改一直没有认领。
+## command-engages-session — 命令自己声明是否让所在会话转正
 
-**身份约定不一致**：本线台账沿用 `core-patches-v6` 的约定，标题写「提交主题 — 提交哈希」；`core-patches-v11` 已改为 slug + 每个提交一条 `Patch: <slug>` trailer，并由 `verify-core-patches` 门禁核对。本节每族另给一个拟用 slug，本线台账迁到 v11 约定时直接采用；届时 `3bdd0135a5` 与 `e72dec971a` 两条也要补 slug。
+- **改了什么**：`CommandDefinition` 增加 `engages?: boolean`（默认 true），只有声明为 false 时把 `engages: false` 写进 `command/run` 载荷；`session-format-v0-to-v1` 的处置表与 payload 校验收该成员为可选布尔；`applySessionListMetadata` 在 `turn/start` 与未写 `engages: false` 的 `command/run` 上清除 `blank`，`stateVersion` 有意保持 1；客户端只在观察到本会话自己的 `command/run` 时转正，并落闩防止陈旧摘要把它抬回去；`/plan` 与 `/permission` 声明 `engages: false`。
+- **为什么**：全新会话里把一条命令作为第一条消息发出，host 已执行并落盘，但界面停在欢迎页、侧栏不列出该会话——host 折叠只认 `turn/start`。而「每条命令都转正」同样错：欢迎页自己的访问模式 chip 运行的就是 `/permission`，会话若因此转正，人在为尚未开始的会话设访问模式的那一刻就失去欢迎页。
+- **要达到的效果**：只跑过转正命令的会话有侧栏行、打开在自己的转录上；只跑过 `/plan`／`/permission` 的会话一切照旧。翻转点是 `command/run` 而非 `command/done`。
+- **退役条件**：上游自己让命令声明是否使会话转正（`CommandDefinition` 出现等价字段，或 `applySessionListMetadata` 自己按某种声明在 `command/run` 上清除 `blank`），且客户端镜像在同一判据上转正。两半各自判定。
+- **状态**：局部退役（`feature/core-patches`）。宿主半在役，核实依据：`engages` 在 `dsh-v0.1.7-rc.2` 的 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；上游改了 `list.ts` 的周边，`applySessionListMetadata` 的 fold 未动，仍只在 `turn/start` 上清除 `blank`。客户端半被上游覆盖（上游 PR #4351、#4349：客户端经宿主 fold 的 `sessionListMetadata` 投影读 blank 位），以下子件退役、取上游原文：
+  1. `packages/api/session-controller/src/client/sessions/session.ts` 的 `observeEngagement` 与 `engaged` 闩；
+  2. `packages/api/session-controller/tests/session.client.spec.ts` 的 `blankOpened` 与本族七个用例，以及 `tests/event-script.client.ts` 的 `commandRunConfiguring`；
+  3. `packages/client/ui-commands/README.*` 的「Admission is all this package does…」一句与 `tests/service.client.spec.ts` 的「engagement is not this layer's business」用例；
+  4. `packages/client/ui-conversation/tests/skeleton.client.spec.tsx` 的注释改动。
+  rc.30 及更早版本留下的、只跑过转正命令的旧会话，客户端不再自愈；但这些会话在侧栏里不列出，用户在界面上够不到它们。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：客户端半取上游（见上）；Agent Note 的客户端一节改写为「客户端经上游 #4351 读宿主 fold 的 `sessionListMetadata` 投影」，删掉「第二个标签页要等下次 list pull」这条限制；`web-client-session-scope` Note 取上游段落；发送方标签页一条保持上游原文，宿主判据一条改写为「没有 `turn/start`，也没有未记录 `engages: false` 的 `command/run`」并链接命令转正 Note（上游那句「只有 `turn/start` 会清除」在本族的宿主 fold 下不成立）。回归覆盖见 `session-format-out-of-repo-events` 的目录测试（`engages: false` 经 V0→V4 保留）。上游自带的四份 V4 web 夹具日志按本族重录，`/permission` 与 `/plan` 的 `command/run` 带上 `engages: false`，与同名 V2／V3 日志一致。
+- **待拍板：要不要继续背这条语义分歧**。`dsh-v0.1.7-rc.2` 上该 spec 的模块头注释明写「standalone plugin events — command lifecycle records … never flip it」，与本族的契约相反；该注释在 v9 基座上就已经是这样，v9 已经覆盖它，不是本轮新出现的冲突。上游的意图是明示的，不是疏忽，fork 的「退化条款」（上游一改同处即退役去适配）在字面上未触发（上游改了 `list.ts` 的周边，fold 未动），但这正是该条款想覆盖的情形，需要显式确认「继续背」。
+- **已知后果（未立案迁移）**：`applySessionListMetadata` 的 `stateVersion` 有意停在 1（`packages/api/session-controller/src/list.ts` 的注释写明理由：升版会让每个未重开的会话丢掉 `lastPromptAt`，整条侧栏改按创建时间排序与标注，代价大于纠正 `blank`）。因此**本次构建之前跑过命令的会话保留旧的 blank 判决，不会自愈**；要不要做一次性迁移未定。
+- **Agent Note**：[`command-engages-blank-session`](../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)
+- **路径**：`.agents/notes/implemented/architecture/2026-07-25-web-client-session-scope-and-provide-channel.*` `.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.*` `apps/web/tests/feedback-command.e2e.ts` `docs/persistence-changes/2026-09-17-command-run-engages.md` `docs/persistence-changes/2026-09-17-command-run-engages.schema.json` `docs/persistence-changes/2026-09-17-command-run-engages.zh.md` `docs/subsystems/commands.*` `packages/api/session-controller/src/list.ts` `packages/api/session-controller/tests/session-list-blank.host.spec.ts` `packages/client/ui-workspace/README.*` `packages/feedback/command-feedback/README.*` `packages/interaction/commands/README.*` `packages/interaction/commands/src/index.ts` `packages/interaction/commands/src/types.ts` `packages/interaction/commands/tests/commands.spec.ts` `packages/interaction/permission-presets/src/index.ts` `packages/interaction/permission-presets/tests/projection.spec.ts` `packages/plan/plan-mode/src/index.ts` `packages/plan/plan-mode/tests/plan-mode.spec.ts` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/payload-validation.ts` `packages/session/session-format-v0-to-v1/tests/validation.spec.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `snapshots/web/approval-composer/session.v2.jsonl` `snapshots/web/approval-composer/session.v3.jsonl` `snapshots/web/approval-composer/session.v4.jsonl` `snapshots/web/permission-policy-context/session.v2.jsonl` `snapshots/web/permission-policy-context/session.v3.jsonl` `snapshots/web/permission-policy-context/session.v4.jsonl` `snapshots/web/plan-review/session.v2.jsonl` `snapshots/web/plan-review/session.v3.jsonl` `snapshots/web/plan-review/session.v4.jsonl` `snapshots/web/ptc-escalation-approved/session.v3.jsonl` `snapshots/web/ptc-escalation-approved/session.v4.jsonl`
 
-**生成物与配对记录（由门禁重生成，不登记为补丁）**：下列文件的差异全部由本线在其他文件里的改动推导出来，换基或合并时取任一侧解冲突，随后跑对应生成器定案，不手改。
-- `packages/core/session/src/known-event-types.ts`（`gen-persistence-catalog`）。本线的六条新增 `content-component/resolved`、`content-component/shown`、`content-surface/dismissed`、`content-surface/selected`、`content/navigated`、`content/shown` 来自本线实验包自己声明的 `SessionEventMap` 成员；生成器把仓内每个包的声明都列为已知类型，所以这六类事件走的是第一方必读路径而不是 `ignorable` 通道：不含这些包的构建（包括上游原版）读到带这六类事件的会话日志会拒读。移除或移出这些包之前要先处理这一点。
-- `docs/capability-seams.md`、`docs/event-producer-consumer.md`（`gen-doc-graphs`）；`docs/config-catalog.md`（`gen-config-catalog`）；`docs/module-graph.md`（`gen-module-graph`）；`docs/persistence-catalog.md`（`gen-persistence-catalog`）；`THIRD_PARTY_NOTICES.md`（`gen-third-party-notices`）；`packages/extensions/cordis-client-runner/src/client/api-catalog.ts`（`gen-cordis-inspect-catalog`）；`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`（`gen-client-catalog`）；`packages/extensions/tool-cordis/src/api-catalog.ts`（`gen-cordis-api`）；`pnpm-lock.yaml`（`pnpm install`）。
-- 中文侧：`docs/module-graph.zh.md` 同样由 `gen-module-graph` 生成；`docs/{capability-seams,config-catalog,event-producer-consumer,persistence-catalog}.zh.md` **不是生成物**，是英文生成页的双语对侧，文件头要求先跑生成器、再按英文手工更新中文、再重录配对。它们只随英文生成页逐行跟进，不单独构成补丁，但解冲突时不能当生成物直接取一侧了事。本线手改文档的 `.zh.md` 归入下面各族。
-- 双语配对记录 `docs/{capability-seams,config-catalog,event-producer-consumer,module-graph,persistence-catalog,testing}.i18n.yaml`、`docs/subsystems/{client-modules,README}.i18n.yaml`、`packages/client/ui-approval/README.i18n.yaml`、`packages/experimental/README.i18n.yaml`（`verify-translation-pairing --write`）。
+## connection-state-event — 连接粗粒度状态作为类型化客户端事件
 
-### fix(client): build the trajectory-cell test wrapper with createElement — 3bdd0135a5
+- **改了什么**：`packages/client/connection/src/client/index.ts` 声明 ROOT 作用域客户端事件 `connection/state`，`packages/api/gateway/src/client/index.ts` 在连接状态变化时派发它，取值为该连接实际的三态模型。
+- **为什么**：仓外客户端插件要按连接状态显隐自己的界面，只能轮询运行时内部对象。
+- **要达到的效果**：插件订阅一个类型化事件即可跟随连接状态，不碰运行时内部。
+- **退役条件**：上游自己广播等价的连接状态事件。
+- **状态**：在役（`feature/core-patches`）。核实依据：`connection/state` 在 `dsh-v0.1.7-rc.2` 零命中。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：无改动，自动合并。
+- **路径**：`packages/api/gateway/src/client/index.ts` `packages/api/gateway/tests/gateway.client.spec.ts` `packages/client/connection/src/client/index.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-cordis-inspect-catalog.ts`
 
-- **改了什么**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx` 的测试包装函数，从 JSX 展开 `<LocalizedTrajectoryCell {...props} t={t} />` 改为 `createElement(LocalizedTrajectoryCell, { ...props, t })`。行为不变。
-- **为什么**：`dsh-experimental-vue2-echarts-poc` 钉 Vue 2.7，其类型入口 `vue/types/index.d.ts` 无条件 `import './jsx'`，而该文件 `declare global` 给 `JSX.IntrinsicAttributes` 加了 `slot?: string`。`paths` 把工作区导入解析到源码，于是这份全局增强落进同时编译 `packages/client` 的 Client 聚合程序；在 `exactOptionalPropertyTypes` 下，它拒绝每一处携带 `slot?: string | undefined` 的 React JSX 展开。rc.27 恰好把这个测试的包装函数改写成了那种展开。上游自己的组合里没有 Vue 包，看不到这个冲突。
-- **要达到的效果**：`createElement` 按 `React.Attributes` 而不是全局 `JSX` 座位校验 props，因此同一次调用在程序里有没有 Vue 包都类型正确，测试行为不变。
-- **退役条件**：Vue 2.7 的全局 JSX 增强不再进入 Client 聚合——即给 Vue 探针包一个自己的编译面。这条路径当前与 `docs/development.md#typescript-project-layout` 的成文约束相抵：Host/Client 两个聚合之外不设第三个，普通包只登记在其中一个聚合里。所以真正的退役前提是先就「Vue 探针是否值得第三个编译面」做一次架构决定；在那之前本条在役。**机械判定**：把那一行还原成 JSX 展开后跑 `pnpm run typecheck`——不再报 `cell.client.spec.tsx … error TS2375: Types of property 'slot' are incompatible` 即可退役。上游若再次改写这个包装函数，本条即刻冲突，按本条说明重新应用或退役。另一条更小的路——在手写 `paths` 区把 `vue` 指向本线自写的 shim `.d.ts`——已评估否决：那等于拿一份手工维护的假 Vue 类型去 typecheck 真 Vue 组件，静默出错的代价高于改一行测试。
-- **状态**：在役。
+## core-patches-ledger — 补丁登记文档自身
 
-### fix(experimental): name the Agent Teams CSS module face in the Client aggregate — e72dec971a（该提交的一行）
+- **改了什么**：`.claude/core-patches.md` 本身——每轮同步登记基座、逐条补丁的五要素与状态。
+- **为什么**：补丁线是一组长期存在的对上游的偏离，没有一份登记就无法判断某条补丁是否已被上游实现、是否该退役。
+- **要达到的效果**：任何一轮同步都能只读本文件决定每条补丁的去留。
+- **退役条件**：不适用——fork 不再维护补丁线时本文件随之消失。
+- **状态**：在役（`feature/core-patches`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：基座声明改为 `dsh-v0.1.7-rc.2`，全部在役记录改写状态行与核实依据，新增 `llm-tool-choice` 与 `llm-response-format` 两条，`legacy-preset-alias` 退役。
+- **路径**：`.claude/core-patches.md`
 
-- **改了什么**：`tsconfig.client.json` 的 `include` 新增一行 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts`。
-- **为什么**：这是**上游自己的缺口**，不是本线的适配需要。rc.27 的 `806642b064` 新增了 `client-ui-agent-team` 及其 `css-modules.d.ts`，但只在 `tsconfig.client.json` 里加了 `{"path": …}` 引用、没有把该声明文件写进聚合的 `include`，于是聚合从不加载它。上游的 `scripts/client-tsconfig.spec.ts` 只检查 `client` 与 `extensions` 两组，看不到 `experimental` 组，因此这个缺口在上游是静默的；本线把该 spec 的 `clientGroups` 扩到 `experimental`（为覆盖本线自己的实验包），扩完就照出了它。
-- **要达到的效果**：聚合加载该 CSS 模块声明，`experimental` 组的 client 包在同一条规则下受检，而不是为了让门禁过关把 `client-ui-agent-team` 从检查里豁免掉——那样会把上游的真缺口藏起来。
-- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条与另外两处上游缺口一起记在 [Agent Note 的 Upstream gaps 一节](../.agents/notes/implemented/architecture/2026-09-03-server-console-on-the-alpha-5-base.md#upstream-gaps-this-migration-found)；复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
-- **状态**：在役。
+## core-patches-registry-gate — 按 slug 登记补丁身份与其门禁
 
-### A. feat(experimental): serve the console under a URL prefix — deployment base for every browser-built URL — 051242599c（+ `8b67e9350a`、`d1752f738e`、`0598318a6e`、`ec4950cad9`、`64adb52113`；另有合并 `c4ea4c4ba0` 的手工解析）
+- **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。门禁按本文件开头的 `**基座 tag**` 取基座，核对三件事：first-parent 链上每个非合并提交恰有一条登记过的 `Patch:` trailer；链上的合并只能是恰有两个父提交、第二父为 `dsh-v*` 发布提交的合并，或树等于第一父的 `-s ours` 接续；与基座的每一处差异（生成物除外）都由某条在役记录的 `路径` 行认领，每条在役记录和它的每条 pathspec 都至少命中一处差异。
+- **为什么**：登记曾用提交哈希做身份。哈希每轮变基全部作废——上一轮登记的 284 个哈希里只有 72 个还能在当时的线上解析——而上游新增的 `verify-repository-references`（上游 PR #4060）拒绝维护中的散文里出现能解析成本仓提交的十六进制串，两条一起使哈希不可用。
+- **要达到的效果**：补丁身份不依赖提交哈希且可机械核对；登记写明每族相对上游占着哪些路径，线上多出一处无主改动、或某族改动已消失而记录仍在役，门禁都会失败。
+- **退役条件**：上游为引用门禁提供排除或配置口且本 fork 改回哈希登记，或上游自己提供等价的补丁登记机制。
+- **状态**：在役（`feature/core-patches`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`dsh-v0.1.7-rc.2` 起 `gen-config-catalog`、`gen-doc-graphs` 自己写 `docs/config-catalog.zh.md` 与 `docs/event-producer-consumer.zh.md` 的生成区块，两份进入 `GENERATED_PATHSPECS`；spec 加一例：两份与基座不同时无人认领也通过（豁免按整份文件生效，不是按生成区块），并加一例反证：人工维护的 `docs/capability-seams.zh.md` 无人认领时仍报 `unclaimed-path`。
+- **提交信息订正**：提交 `fix(scripts): close the four ways the patch-registry gate let real errors by` 的信息写「`upstream/master` was checked for existence, not for being this line's base. A stale ref silently widened the range, and the extra upstream commits surfaced as trailer violations pointing at upstream's own work. It is now compared against `git merge-base upstream/master HEAD`」。这条修法没有解决它声称解决的问题：`upstream/master` 落后真实基座时它仍是 HEAD 的合并基座，基座判据照样接受它，范围照样撑到上游的提交上，门禁随即把上游自己的提交报成 `trailer-count`／`merge-commit` 违规而失败——就是该信息描述的那个症状，只是落点从基座判据挪到了违规清单。反方向（`upstream/master` 前进，每次 `git fetch upstream` 之后的常态）则直接失败在基座判据上，而提示里的「fetch」只会让它更红。基座现由本文件的 `**基座 tag**` 声明给出，按 `refs/tags/<tag>` 解析并要求已并进 HEAD，门禁不读 `upstream/master`。本线只追加提交、不改写历史，以本条为准。
+- **Agent Note**：[`core-patch-identity-trailers`](../.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.md)、[`merge-based-core-patch-line`](../.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.md)
+- **路径**：`.agents/notes/implemented/process/2026-09-17-core-patch-identity-trailers.*` `.agents/notes/implemented/process/2026-09-24-merge-based-core-patch-line.*` `package.json` `scripts/run-gates.ts` `scripts/verify-core-patches.spec.ts` `scripts/verify-core-patches.ts`
 
-- **拟用 slug**：`console-deployment-base-path`
-- **改了什么**：浏览器侧每一处用 Host 路由常量拼 URL 的地方改为按部署前缀解析。
-  - `packages/client/connection`：新增 `src/client/base.ts`（`resolveClientBase`/`clientUrl`/`INTERNAL_BASE`，优先读 `__DSH_BASE__`，其次读同源的 `document.baseURI`，只取路径、权威部分永远取页面 origin）与 `tests/base.client.spec.ts`；`src/client/index.ts` 导出这三个名字（同文件的 `ClientTransportHooks` 注释改动属 B 族）；`src/client/rpc.ts` 删掉私有 `resolveBase()`，改走 `clientUrl`；`src/api-path.ts` 注释写明常量保持根绝对；`tsconfig.client.json` 纳入 `base.ts`；`tests/client-apply.client.spec.ts` 加前缀用例。
-  - `packages/client/hmr`：`src/client/index.ts` 的 `EventSource` 改用去掉前导斜杠的相对路径；`tsconfig.json` 改继承 `tsconfig.base.client.json`；新增 `tests/browser-half.client.spec.ts`（`8b67e9350a` 撤掉了 `051242599c` 对该包 `package.json` 的改动，净差为零）。
-  - `packages/client/modules`：`src/index.ts` 新增 `pageUrl()`（图里的 bundle 行与批次 URL 改为相对）与 `scriptRelativeMapUrl()`（`sourceMappingURL` 只写查询串，按脚本自身地址解析，`d1752f738e`），响应表与路由键仍是根绝对；`src/invariant.ts`、`src/client/{manifest,system}.ts` 注释跟进；`tests/node-half.client.spec.ts` 跟进（`0598318a6e`）；`docs/subsystems/client-modules.{md,zh.md}` 同步 `WebBootEntry`/`WebBootBatch` 的 JSDoc（type-equiv 逐字核对）与 combo 路由一段。
-  - `packages/host/frontend-static/src/index.ts`：渲染后的 index 已有 `<base>` 时不再追加 `<base href="/">`（`ec4950cad9`），让本线 `dsh-experimental-server-base` 注入的前缀行生效。
-  - `packages/api/gateway`：`src/client/stream-client.ts` 的 mux 下行 socket 地址改走 `clientUrl`；`tests/gateway.client.spec.ts` 加用例；`package.json` 的 `dsh.client.external` 声明 `@deepseek-ai/dsh-client-connection/client`（`64adb52113`）。这个包的改动最初写在 `host/apiproxy/src/fetch/client.ts` 上（`051242599c`），rc.1 上游把该载体删掉、浏览器 URL 搬进 `stream-client.ts`，由合并 `c4ea4c4ba0` 手工移植过来，所以在 `git log --no-merges` 里查不到。
-  - `packages/session-query/session-log-export`：`src/client/controller.ts` 删掉私有 `hostBase()`，导出请求改走 `clientUrl`；`tests/controller.client.spec.ts` 加前缀用例；`package.json` 同样声明 external；`tsconfig.client.json` 引用 connection 的 client 面（后两处经 `c4ea4c4ba0` 落地）。
-  - `apps/web`：`index.html` 的 manifest、favicon、入口脚本改相对路径；`vite.config.ts` 只改 `base: './'` 的注释；`tests/assembled-boot.ts` 支持挂在前缀上起壳，`tests/pwa-manifest.e2e.ts` 跟进。
-- **为什么**：Host 把路由注册在服务器根（`/api`、`/plugins`、HMR 事件端点），反向代理在前缀下提供页面时会先剥掉前缀。上游浏览器侧拼 URL 的地方都是包内私有函数：`rpc.ts` 的 `resolveBase()`、导出控制器的 `hostBase()`、`stream-client.ts` 的 `remoteStreamUrl()` 都是 `new URL(根绝对路径, location.origin)`，HMR 直接 `new EventSource('/…')`，模块图下发根绝对的 combo URL，`frontend-static` 无条件写死 `<base href="/">`。插件层能做的只有往 index 里注入行（`server-base` 注入 `<base href>` 与 `__DSH_BASE__`），但根绝对路径不受 `<base>` 管辖，这些私有函数也没有任何可替换的座位，所以只能改源码。
-- **要达到的效果**：同一份构建产物可以挂在任意路径前缀下（线上 `https://lhr.ink/console/`），RPC、mux socket、HMR、插件 bundle 与 source map、会话导出都落回同一前缀；Host 侧路由常量与响应键不动，前缀只在浏览器侧补回；前缀只贡献路径，`<base>` 或注入的全局指向别的 origin 也改不了 Host 流量去向。
-- **退役条件**：随基座 0.1.7 并入时改用上游 `eeb9b03465` 的相对基路径（`feat(web): serve the shell, API and plugin resources from the document directory`，已在 `dsh-v0.1.7-rc.1` 内）。上游这一提交把 `frontend-static` 改为写 `<base href="./">`，`stream-client.ts` 改按 `document.baseURI` 解析，模块图、HMR、`rpc.ts` 改为文档相对；会话导出的相对路由来自同在该 tag 内的上游 `29182514ed`（`SESSION_LOG_EXPORT_ROUTE` 去掉前导斜杠）。**机械判定**：上面每个文件取上游侧；删除 `base.ts` 与 `base.client.spec.ts`；`git grep -n clientUrl -- packages apps` 零命中；本线 `dsh-experimental-server-base` 同时停止注入 `<base href>` 与 `__DSH_BASE__`（上游已无条件写 `<base href="./">`，再注入一条会留下第二个 `<base>`），其 `apps/web/tests/base-path*.e2e.ts` 在上游机制下仍然通过。
-- **状态**：在役，计划退役：随基座 0.1.7 并入时改用上游 `eeb9b03465` 的相对基路径。
+## disallowed-link-destination-notice — 被阻止的链接目标不再静默丢弃
 
-### B. fix(experimental): correct the carrier's own account of who may declare ownsHost — 5830f82ab1（+ `73f8c25273`）
+- **改了什么**：`packages/client/ui-primitives` 的 markdown 渲染在链接目标不被允许时保留可读文本与目标串，而不是渲染成空。自 `core-patches-v11` 那一轮起覆盖两条通路：`renderSafeLink` 的 `safeHref === ''` 分支，以及上游新增的 `MarkdownFileLink` 在 `openFile === undefined` 时的分支（`renderAnchor` 把归一化后的目标串一并传下去，两条通路写出同一串 `文本（目标）`）。
+- **为什么**：模型写出的本地路径或非允许协议链接被静默丢成空元素，读者既看不到文本也看不到目标。
+- **要达到的效果**：被阻止的目标仍以纯文本呈现，用户能读到模型实际写了什么。
+- **退役条件**：上游 `renderSafeLink` 自己对不被允许的目标保留可读文本。
+- **状态**：在役（`feature/core-patches`）。核实依据：上游 `renderSafeLink` 的 `safeHref === ''` 分支仍返回只含 children 的 `Fragment`，上游 `MarkdownFileLink` 在 `openFile === undefined` 时仍 `return <>{children}</>`，两条通路都仍丢目标串（`git show dsh-v0.1.7-rc.2:packages/client/ui-primitives/src/markdown/render.tsx`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游改写了 `render.tsx` 的文件链接段（上游 PR #5029 的图片链接预览等），合并时取上游那 6 行，本族只改其中没有 opener 的那一行，让它在文本后接 `（目标）`；`ui-primitives` README 的块变了，取上游段落后接回本族那半句。
+- **`core-patches-v11` 那一轮适配**：上游把 anchor 渲染拆成 `MarkdownAnchor` 组件、由 `MarkdownDelegateProvider` 提供 `openExternalLink`（上游 PR #4379），本补丁只改那条被拒分支，允许分支改为返回上游的 `MarkdownAnchor`；`ui-primitives` README 的「Rendering agent output」整段被上游重写，本补丁那半句重新落在 `MarkdownText` 段里；上游同一 PR 新增的 `parseFileLink`／`MarkdownFileLink` 把本地路径形状的目标从 `renderSafeLink` 手里接走，本补丁跟进到那条新通路的无委托分支上；上游新增的 `markdown-file-links.client.spec.tsx` 那 17 条惰性目标断言与 1 条撤委托断言改成本 fork 的渲染，并新增 4 条无委托用例。
+- **判错订正（`core-patches-v11` 那一轮）**：本族一度被记成「局部退役」，理由是「没有委托时目标丢失不是产品里的配置」。该前提不成立：全仓产品代码里 `MarkdownDelegateProvider` 只有 `packages/client/ui-chat/src/client/chat/ChatView.tsx` 一处，且只包住 `ChatNodeList`；`ui-sidebar-documentpreview` 的 `MarkdownBody`、`ui-plan` 的 `PlanPreview`、`ui-trajectory` 的 `TrajectoryTable`、`ui-user-questions` 的 `QuestionComposer` 四处分别挂在 `sidebar.right.pane.tab`／`conversation.view`／`conversation.composer` 上，都是 `conversation.chat` 的兄弟槽，不可能落进那棵子树。实测真实的 `MarkdownBody` 渲染 `[relative](/settings) and [js](javascript:alert(1))`：跟进前是 `relative and js (javascript:alert(1))`（本地路径目标被丢），跟进后是 `relative (/settings) and js (javascript:alert(1))`。因此这是那一轮新引入的用户可见回归（`file-link.ts` 在上一轮基座上不存在），不是上游接管。族整体维持在役。
+- **提交信息订正**：提交 `test(ui-primitives): follow the destination the file-link path now claims` 与 `docs(notes): name the half of the link-destination fallback upstream now owns` 的信息写「no product surface renders markdown without the delegate」及等价中文表述，该前提按上一条订正；两条提交已推 origin、不改写历史，以本条为准。
+- **Agent Note**：[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.*` `packages/client/ui-primitives/README.*` `packages/client/ui-primitives/src/markdown/render.tsx` `packages/client/ui-primitives/tests/fixtures/markdown-dom/links-and-autolinks.settled.txt` `packages/client/ui-primitives/tests/fixtures/markdown-dom/links-and-autolinks.streaming.txt` `packages/client/ui-primitives/tests/markdown-file-links.client.spec.tsx` `packages/client/ui-primitives/tests/markdown.client.spec.tsx` `packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx`
 
-- **拟用 slug**：`served-page-owns-host-contract`
-- **改了什么**：三处只改 JSDoc/注释，不改任何代码：`packages/client/connection/src/client/index.ts` 的 `ClientTransportHooks` 与 `ownsHost` 注释（与 A 族共用这个文件）；`packages/client/ui-settings-general/src/client/settings-document-store.ts` 构造函数的 `@param ctx`；`packages/client/web/src/boot.ts` 读 `loadBundle` 处的注释。
-- **为什么**：上游契约写的是「只有自己组装传输的外壳能设 `ownsHost`，served 页面根本不带这个全局」。本线 `dsh-experimental-server-base` 在登录门之后的 served index 里注入 `__DSH_TRANSPORT__ = { fetch, ownsHost: true }`，上游代码本来就照读这个全局，行为无需改动，但三处注释把本线的真实用法写成了不可能的情况。注释写在上游的声明处，插件层没有地方能改它们。
-- **要达到的效果**：契约文字说清楚两类声明方（自带 worker 的外壳、以及由门控决定谁能访问的部署）以及代价：它不移动任何服务端检查，served 页面的声明只值其门控那么多，门控放进来的每个访客拿到同样的特权面。
-- **退役条件**：上游自己的契约文字承认 served 页面也可以声明 `ownsHost`，或本线不再注入该载体。`dsh-v0.1.7-rc.1` 仍是原句（`served pages never carry the global at all`），并在同一接口新增了 `streamBaseUrl` 字段，换基时这三处是纯文字冲突，按本条重写即可。
-- **状态**：在役。
+## factory-zero-deepseek-egress — 出厂零 DeepSeek 出站
 
-### C. fix(client): keep the approval reason's own line breaks — a974804471
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 与 `plugin-package-inventory-deepseek` 两行加 `disabled: true`，`session-log-deepseek` 一行加 `config: { enabled: false }`；`packages/bundle/sdk-minimal/cordis.patch.yml`（该 bundle 刻意不叠加 base，是自己完整的树）的 `plugin-package-inventory-deepseek` 一行加 `disabled: true`、`session-log-deepseek` 一行加 `config: { enabled: false }`；各行的上游配置声明原样保留；两个 bundle 的 `tests/*.spec.ts` 各自钉住本 bundle 每一行的字面内容，并把 `session-log-deepseek` 行再经该插件自身 schema 解析一遍钉住实际取值；四份 README 改述本产品出厂状态。`snapshots/sdk/text-turn/cordis.yml` 补一行 `session-log-deepseek` 的 `enabled: true`：该组合是语料里对上传通路的覆盖，原先靠插件 schema 默认开启，base 出厂关闭后覆盖会变成死覆盖。
+- **为什么**：本 fork 的产品决定是出厂即零会话遥测、零已装插件清单、零会话日志贡献流向 DeepSeek 官方 API，且不依赖用户设置环境变量。`session-telemetry-otel` 的 `mode` 只选采集策略、表达不了「关」；`plugin-package-inventory-deepseek` 没有等价开关；`session-log-deepseek` 的 `enabled` 在 `0.1.6-alpha.1` 基座上默认为 true。
+- **要达到的效果**：两个 bundle 各自把通往 DeepSeek 的上报路径出厂关闭；用行标志的那些 `apply()` 根本不运行，`session-log-deepseek` 用的是插件自身的 `enabled` 字段——`apply()` 仍运行一次，但在注册 `dsh_session_log` 请求贡献之前返回，而那条贡献是该插件贡献的全部；profile patch 重新开启任一行即得到上游自己的行为。
+- **退役条件**：上游自己把这些行出厂关闭，或 fork 不再发布面向终端用户的产品。
+- **状态**：在役（`feature/core-patches`）。核实依据：上游 `packages/bundle/base/cordis.patch.yml` 两行仍无 `disabled: true`、`session-log-deepseek` 行仍无 `config`；上游 `packages/bundle/sdk-minimal/cordis.patch.yml` 的 `plugin-package-inventory-deepseek` 行仍无 `disabled`、`session-log-deepseek` 行仍无 `config`；该插件 schema 为 `enabled: z.boolean().default(true)`。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：两个判定（§9 Q13）。① 上游自 `dsh-v0.1.7-rc.1` 起在 base 新挂 `deepseek-account`。② `dsh-v0.1.7-rc.2` 把 base 的 `llm-deepseek` 行改装 `@deepseek-ai/dsh-llm-deepseek-api-key`，并新增启用的 `llm-deepseek-account` 行（账户认证的 LLM 路由 `deepseek-account`，`packages/bundle/base/cordis.patch.yml` 第 524–528 行）；sdk-minimal 与 `snapshots/sdk/text-turn/cordis.yml` 同步改名。账号推理路由无 token 不出站：未登录时 `discoverModels` 返回 `[]`。本族的 `enabled: false`／`disabled: true` 在别的行，自动合并；base 第 43、77、204 行三行仍是开启，退役条件未满足。`apps/web/tests/scaffold.ts` 的冲突块与上一轮相同。
+- **提交信息订正**：提交 `chore(bundle): hold the DeepSeek session-log contributor shut through its own config field` 的信息写「withholds the `dsh_session_log` request contribution while the plugin's remaining contributions stay mounted」——不成立：`packages/session/session-log-deepseek/src/index.ts` 的 `apply()` 只注册一样东西，且在 `enabled !== true` 时直接返回，「其余部分」是空集；与 `disabled: true` 的唯一差别是模块仍被导入、`apply()` 仍空跑一次。本文件返工前写的「插件其余部分照常挂载」是同一处失真的中文措辞，出自本文件自己而非那条提交信息，已按事实改写。提交已推 origin、不改写历史，以本条为准。
+- **提交信息订正**：提交 `test(sdk): declare the upload policy on the text-turn composition` 的信息写 `snapshots/sdk/text-turn` 是「the corpus's only coverage of the DeepSeek upload path」——「唯一」不成立：`snapshots/sdk/serial-created` 与 `snapshots/sdk/subagent-dsh-sdk-diagnostic` 的 `cordis.yml` 同样声明 `enabled: true`，两者的金样里都有 `session-log-deepseek/delivery-accepted`。该提交信息的另一半成立：text-turn 是当时唯一还靠插件 schema 默认继承该策略的组合。本线只追加提交、不改写历史，以本条为准。
+- **提交信息订正**：提交 `test(bundle): read the base patch once and title each case by what holds it` 的标题里「read the base patch once」这半句过实：同一份 `packages/bundle/base/tests/base.spec.ts` 的第二个用例仍就地重解析 `cordis.patch.yml`（它按 `Record<string, unknown>` 读平台表达式，与 `patchRows()` 的行类型不是一回事），该文件在同一 spec 里仍被读两次。去重只落在第一个用例上。本线只追加提交、不改写历史，以本条为准。
+- **滚动同步注意**：patch 是整段替换目标行的 `config` 而非合并，因此后续任何一层只要给 `session-log-deepseek` 行任何 `config` 却没重述 `enabled: false`，就会恢复上游的默认开启。
+- **不回补的一半**：壳侧的 `DSH_TELEMETRY_DISABLED` 与桌面组装层用例——补丁线上没有 fork 外壳，上游同名的 `apps/desktop` 是另一个应用。
+- **Agent Note**：[`fork-kills-session-telemetry-and-plugin-inventory`](../.agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md)
+- **路径**：`.agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.*` `apps/web/tests/scaffold.ts` `packages/bundle/base/README.*` `packages/bundle/base/cordis.patch.yml` `packages/bundle/base/tests/base.spec.ts` `packages/bundle/sdk-minimal/README.*` `packages/bundle/sdk-minimal/cordis.patch.yml` `packages/bundle/sdk-minimal/tests/sdk-minimal.spec.ts` `snapshots/sdk/text-turn/cordis.yml`
 
-- **拟用 slug**：`approval-reason-line-breaks`
+## llm-tool-choice — 要求直接请求的回答调用已提供的工具
+
+- **改了什么**：`packages/llm/llm/src/types.ts` 的 `GenerateOptions` 新增 `toolChoice?: { type: 'any' }`（紧跟 `toolHistory`），不进 `LlmCallConfig`；`packages/core/agent-loop/src/invariant.ts` 要求 loop 请求不带它。`llm-deepseek` 把它映射成 Messages 的 `tool_choice: { type: 'any' }`，所有思考档位照常映射；`tools` 为空或缺省时在发出 Messages 请求之前抛 `INVALID_REQUEST`（带图片的请求此前已向 Files API 上传）。`llm-pi-ai` 在任何 I/O 之前以 `UNSUPPORTED_OPTION` 拒收，消息点名 `GenerateOptions.toolChoice`。三份 README、`docs/subsystems/llm-streaming` 的类型粘贴块、`docs/user/develop/practice/llm-adapter` 和 Agent Note 同步更新。
+- **为什么**：仓外的判官要一个机器可读、不会跑题的回答。rc.33 的 JSON 模式（`llm-response-format`）落在 chat-completions 协议上，上游 #4629 删掉了这个协议；harness 的 Messages 请求类型里没有 JSON 模式字段。强制工具调用是 Messages 原生的结构化回答方式。2026-09-24 的实测：`{ type: 'any' }` 在 thinking 开和关下都返回 `tool_use`；`{ type: 'tool', name }` 在 thinking 开时返回 400。
+- **要达到的效果**：判官请求只提供 `submit_verdict` 一个工具并强制调用，结论只从 tool_use 的 input 里读，不再依赖模型是否听从「只写 JSON」；做不到的适配器明确失败，不会悄悄退回纯文本；不带这个字段的请求逐字节不变。
+- **退役条件**：上游 `GenerateOptions` 出现 `toolChoice` 或等价的工具选择字段。核实只读声明点：`git grep -n "toolChoice" upstream/master -- packages/llm/llm/src/types.ts`，非零即人工复核。不要 grep 整个仓库：openrouter 夹具里的 `tool_choice`、`python/sdk/tests/test_smoke_model.py` 的 `"toolChoice"`、README 里「不映射 `tool_choice`」的旧句都会命中，它们都不是退役信号。局部退役：上游加了字段但 `llm-deepseek` 仍不映射时，本族只剩 deepseek 映射那一半。
+- **状态**：在役（`feature/core-patches`，基座 `dsh-v0.1.7-rc.2`）。同一改动将作为 PR 提给上游（推送与提 PR 待确认，提交后补上 PR 号）。
+- **滚动同步注意（无门禁的一处）**：随包的 gateway 用声明合并重述 `GenerateOptions.toolChoice`，本仓没有任何东西编译它；声明合并只要求属性类型一致。核心这个字段的类型一变（例如上游加成员），两处必须同一轮改。
+- **SDK 期望输出**：两份 SDK 的期望输出（TypeScript 快照与 `scripts/snapshots/python-sdk-single-exe/`）本轮预计不变，交 python-runtime CI 核对，本机未构建 exe。依据：本轮碰 agent-loop 的只有本族的 C2，它只在开发期使用的 `./invariant` companion 里加了 `options.toolChoice === undefined` 一个条件，且只作用于登记过的 loop 请求；两份 SDK 都没有 `GenerateOptions` 投影。这条记在本族而不是 `rolling-sync-settle`：CLAUDE.md 要求改 agent-loop 的改动在同一处交代 SDK 期望输出，而本轮唯一的 agent-loop 改动属于本族；`rolling-sync-settle` 只收没有所属族的跨族收敛。
+- **Agent Note**：[`llm-tool-choice`](../.agents/notes/implemented/feature/2026-09-26-llm-tool-choice.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-26-llm-tool-choice.md` `.agents/notes/implemented/feature/2026-09-26-llm-tool-choice.zh.md` `docs/subsystems/llm-streaming.md` `docs/subsystems/llm-streaming.zh.md` `docs/user/develop/practice/llm-adapter.md` `docs/user/develop/practice/llm-adapter.zh.md` `packages/core/agent-loop/src/invariant.ts` `packages/core/agent-loop/tests/invariant.spec.ts` `packages/llm/llm-deepseek/README.md` `packages/llm/llm-deepseek/README.zh.md` `packages/llm/llm-deepseek/src/serialize.ts` `packages/llm/llm-deepseek/src/wire-types.ts` `packages/llm/llm-deepseek/tests/adapter.e2e.ts` `packages/llm/llm-deepseek/tests/adapter.spec.ts` `packages/llm/llm-deepseek/tests/serialize.spec.ts` `packages/llm/llm-pi-ai/README.md` `packages/llm/llm-pi-ai/README.zh.md` `packages/llm/llm-pi-ai/src/adapter.ts` `packages/llm/llm-pi-ai/tests/adapter.spec.ts` `packages/llm/llm/README.md` `packages/llm/llm/README.zh.md` `packages/llm/llm/src/types.ts`
+
+## open-path-not-found-error — 路径打开器返回可区分的 not-found
+
+- **改了什么**：`session/openWorkspacePath` 在目标不存在时返回带 `session/path-not-found` 码的失败，而不是一个无法区分的通用错误。
+- **为什么**：客户端要把「目标不存在」降级成自己的提示，但拿不到可判别的失败码，只能匹配错误文案。
+- **要达到的效果**：调用方按码分支；文案变化不影响判别。
+- **退役条件**：上游为该端点提供等价的可判别失败码。
+- **状态**：在役（`feature/core-patches`）。核实依据：`session/path-not-found` 在 `dsh-v0.1.7-rc.2` 零命中。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游 `openWorkspacePath` 改为先查询桌面文件应用（上游 PR #4562，`workspacePathApplications`／`verifyDesktopPath`）。合并后的顺序是 `verifyDesktopPath` → `stat`（`ENOENT` 映射为 `session/path-not-found`）→ `signal.throwIfAborted()` → 三路打开；`@throws` 文案随之改写。host spec 以上游为底重写，用 `statOverride` 桩与 `realpath(mkdtemp)` 下的真实文件，本族三例改用真实文件。
+- **路径**：`packages/api/session-controller/src/index.ts` `packages/api/session-controller/src/types.ts` `packages/api/session-controller/tests/session-open-workspace-path.host.spec.ts`
+
+## permission-preset-glyph — 宿主配置的预设可点名选择器图标
+
+- **改了什么**：`PresetSpec` 与 `PresetOption` 增加可选 `glyph`，取值为封闭设计集 `read-only`／`workspace-write`／`danger-full-access`；schemastery Config schema 用 `PRESET_GLYPHS` 做闭集校验，未知名称在插件加载时带配置路径失败；`PermissionSelect` 每一行与 trigger 都按 `option.glyph ?? option.value` 取图标，设计集外的键画裸盾牌轮廓。
+- **为什么**：选择器的图标表按 option 值硬编码在客户端里，只有三个内置预设 id 能解析到图样；部署自配的预设渲染成一行没有图标的文字，且没有任何插件层能从外部修正。
+- **要达到的效果**：部署自配的预设能点名一枚设计集图标；任何其他键画裸盾牌，因此没有一行是无图标的。
+- **退役条件**：上游让宿主配置的预设决定选择器图标（`PresetSpec`／`PresetOption` 出现等价字段）。
+- **状态**：局部退役（`feature/core-patches`）。族整体在役，核实依据：`PresetGlyph` 在 `dsh-v0.1.7-rc.2` 零命中；schemastery 侧的闭集校验（`PRESET_GLYPHS` + `z.union`）与 `optionOf` 透传原样保留，未知名称仍在插件加载时带配置路径失败。四处局部退役：
+  1. **投影 wire schema 里的 `glyph` 校验**：上游 PR #3304 把目录改成类型化的 `@Remote('catalog')`，`permissions` 投影的 wire view 只剩 `currentValue`，本补丁加在那份 zod 里的闭集校验随该 schema 一并消失。
+  2. **`projection.spec` 的「经 wire schema 服务一枚配置的 glyph」用例**：同一原因，该投影不再带 `options`，用例已无被测对象，取上游侧。替代覆盖在 `permission-presets.spec.ts` 的「carries a configured design-set glyph into the option and rejects any other name at load」（含 `glyph: 'sparkles'` 的加载期拒绝）。
+  3. **本补丁自带的 `shieldOutline` 路径数据**：上游 PR #4461 把三枚内置图标改成了图标组件，`PermissionSelect.tsx` 不再就地组合 svg；本补丁的裸盾牌随之改用 `IconShieldOutlineRegular`（`const bareShield = <IconShieldOutlineRegular />`），不再自带路径数据。
+  4. **README Summary 里的 glyph 说明**：上游整段重写了 `packages/interaction/permission-presets/README.md` 的 Summary（上游 PR #3304），且该段受字数上限约束，本补丁原先压进去的那句（「A table entry may also name its selector `glyph`.」）随之丢弃。glyph 只剩「Configuring presets」一段说明。
+  trigger 上那条注释的丢失**不是** `ModelSelect` 迁包造成的——`ModelSelect.tsx` 在 v9 基座上就已在 `ui-model-selection`，与 `PermissionSelect` 本就不同包。真实原因是上游把 `PermissionSelect` 迁进新包 `ui-permission-presets`（上游 PR #3304）并自己拥有了那几行 chevron JSX，本补丁不再新增它们，注释因此失去落点。
+- **提交信息订正**：本族有一条 `adapt(permission-preset-glyph)` 提交的信息首段描述的是前一提交已完成的组件搬迁（glyph 用例随组件进入 `ui-permission-presets`），与它自己的 diff 不符——该提交的实际改动只有既有用例的 svg 计数 1→2 加一条注释。提交已推 origin、不改写历史，以本条为准。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游 PR #4587 把 `permission` 的 Config 改成 volatile 并让目录带 `defaultPreset`／`defaultOptions`：本族 glyph 用例的 Config 写成有类型的字面量（`'sparkles' as string as PresetGlyph`，上游 PR #4610 禁止 `as unknown`），`permission-select` 的 glyph 目录夹具补上两个必填字段；`src/index.ts` 以 `static Config = z.object({ presets: z.dict(presetSpecSchema) … })` 合并，删掉 `presetChoice()`。
+- **Agent Note**：[`permission-preset-glyph`](../.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.*` `docs/subsystems/permission-presets.*` `packages/client/ui-permission-presets/src/client/PermissionSelect.tsx` `packages/client/ui-permission-presets/tests/permission-select.client.spec.tsx` `packages/interaction/permission-presets/README.*` `packages/interaction/permission-presets/src/index.ts` `packages/interaction/permission-presets/src/types.ts` `packages/interaction/permission-presets/tests/permission-presets.spec.ts` `scripts/type-equiv.manifest.json`
+
+## permission-preset-tone — 宿主配置的预设可点名选择器色调
+
+- **改了什么**：`PresetSpec` 与 `PresetOption` 在 `glyph` 旁增加可选 `tone`，取值为封闭集 `PresetTone`（只有 `danger`）；schemastery 预设表 schema 用 `PRESET_TONES` 做闭集校验，未知色调在插件加载时带配置路径失败；`optionOf` 把 `tone` 透传到选项上。`settings-store.ts` 把 `catalog.defaultOptions[i].tone` 透传到行选项。两个访问模式菜单——输入框旁的 `PermissionSelect` 与设置页的 `PermissionRow`——把 `tone: 'danger'` 映射成 `Menu` 原语已有的破坏性行，不新增 CSS 或颜色 token。`packages/bundle/base/cordis.patch.yml` 给 `danger-full-access` 标 `tone: danger`，插件自带的默认表不标。`/permission` 命令弹出的选择器不上色。文档：两包 README、`docs/subsystems/permission-presets.*`（含 `PresetTone` 的 type-equiv 块与 `scripts/type-equiv.manifest.json` 一行）；`docs/config-catalog.md`、`api-catalog.ts` 由 `gen-*` 重生成。
+- **为什么**：两个访问模式菜单把每个预设都画成普通文字色，`danger-full-access` 与 `workspace-write` 看起来一样，直到点下去才弹风险确认。哪一行危险是宿主配置决定的，不是客户端事实：gateway 层的 `yolo-access` 也是完全权限，但仍要问人，必须保持普通色。
+- **要达到的效果**：宿主给哪个预设标 `danger`，两个菜单就把那一行画成破坏性行；共用完全权限图标不等于标了危险色调；未标的行与改动前相同。
+- **退役条件**：上游让宿主配置的预设决定菜单行的色调（`PresetSpec`／`PresetOption` 出现等价字段）。判据：`git grep -n "PresetTone\|tone?:" <tag> -- packages/interaction/permission-presets/src` 零命中即未退役。
+- **状态**：局部退役（`feature/core-patches`）。族整体在役，核实依据：`PresetTone` 在 `dsh-v0.1.7-rc.2` 零命中。四个子件在新基座上失去落点：
+  1. **投影 zod wire schema 里的 `tone`**：上游 PR #3304 把可选项改成类型化的进程级目录，`permissions` 投影的 wire view 只剩 `currentValue`，`tone` 随 `PresetOption` 的类型透传即可。与 `permission-preset-glyph` 的第 1 条同因。
+  2. **`projection.spec.ts` 的 glyph 与 tone 用例**：同一原因，该投影不再带 `options`，用例没有被测对象，取上游侧。
+  3. **`input-bar.client.spec.tsx` 的「paints the row whose tone the host named」用例**：上游把 `PermissionSelect` 迁进 `ui-permission-presets`，输入框的 spec 不再引用它；用例改写后搬进 `ui-permission-presets/tests/permission-select.client.spec.tsx`（本族的 `adapt(permission-preset-tone)` 提交），去掉映射那一行即失败。
+  4. **设置行经 schemastery `extra` 槽读 tone**：上游 PR #4587 把 `defaultPreset` 改成 volatile 字符串，设置行从 `catalog.defaultOptions` 取选项，`defaultPreset` 的 union 成员、`presetChoice()` 与 `PERMISSION_SETTINGS_NAMESPACE` 都不存在了；tone 只走 `optionOf` 一条通路。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：tone 用例改读 `mounted` 的目录，删掉 settings union 那一半与它独占的 `defaultPresetChoices` 导入；Config 写成有类型的字面量（`'caution' as string as PresetTone`）；设置行 spec 的目录类型化为 `PermissionCatalog`、给 `danger-full-access` 标 `tone: 'danger'`；`permission-select` 的 tone 目录补上 `defaultPreset`／`defaultOptions`；Agent Note 第 17 行改写为「两个菜单都读进程级目录」，删掉 Alternatives 里「用 schemastery 的 `role` 承载色调」一条。上游的 `focus-rings.e2e.ts` 用 End／Home 走访问模式菜单并要求每一行都是普通悬停底色，而 base bundle 给最后一行 `danger-full-access` 标了 `danger`，它是破坏性行、底色取 `--dsw-alias-interactive-bg-hover-danger`；该用例改为对最后一行断言这个 token。
+- **提交信息订正**：本族首条提交沿用 develop 的提交信息，其中「carried on the permission projection's zod wire schema」与上面第 1 条不符——本线上 `tone` 不经过任何 zod wire schema。以本条为准。
+- **随附组合**：桌面组合里 gateway 包按 id 替换 `permission` 行的整个 `config`，所以桌面实际跑的是 gateway 重述的预设表；`tone: danger` 要在那张表里再标一次（属 fork 插件侧，不在本线）。
+- **滚动同步注意**：与 `permission-preset-glyph` 同文件（`permission-presets` 的 `src/index.ts`、`src/types.ts`、README、spec，`ui-permission-presets` 的 `PermissionSelect.tsx`），两族一起移植、一起核实。`dsh-v0.1.7-rc.2` 把 `defaultPreset` 改成 volatile 并删掉 `PERMISSION_SETTINGS_NAMESPACE`，`settings-store.ts` 以上游为底接回 `tone` 的透传；rc.2 起行选项来自 `catalog.defaultOptions`。
+- **Agent Note**：[`permission-preset-danger-tone`](../.agents/notes/implemented/feature/2026-09-17-permission-preset-danger-tone.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-17-permission-preset-danger-tone.*` `apps/web/tests/focus-rings.e2e.ts` `docs/subsystems/permission-presets.*` `packages/bundle/base/cordis.patch.yml` `packages/client/ui-permission-presets/README.*` `packages/client/ui-permission-presets/src/client/PermissionRow.tsx` `packages/client/ui-permission-presets/src/client/PermissionSelect.tsx` `packages/client/ui-permission-presets/src/client/settings-store.ts` `packages/client/ui-permission-presets/tests/permission-presets-row.client.spec.tsx` `packages/client/ui-permission-presets/tests/permission-select.client.spec.tsx` `packages/client/ui-permission-presets/tests/settings-store.client.spec.ts` `packages/interaction/permission-presets/README.*` `packages/interaction/permission-presets/src/index.ts` `packages/interaction/permission-presets/src/types.ts` `packages/interaction/permission-presets/tests/permission-presets.spec.ts` `scripts/type-equiv.manifest.json`
+
+## referent-open-seam — `referent/open` 引用点击拦截缝
+
+- **改了什么**：`packages/api/session-controller` 新增 ROOT 作用域 waterfall 事件 `referent/open` 与 `dispatchReferentOpen(ctx, ref, onDefault)`；`ReferentRef` 只携带引用身份——`kind`、`target`、`raw`、可选 `sessionId`、点名派发点的 `source`、以及 `enteredAs`（`structured`／`model-text`／`tool-output`／`user-text`）——绝不携带被引用内容；`ui-chat` 的 `openFile` 闭包与正文 span 打开器都经该缝派发。
+- **为什么**：浏览器会话 UI 里每一处「打开该引用」各自直连打开动作，仓外插件无法在任何一处之前介入。
+- **要达到的效果**：此后新增的可点元素只要派发就自动可拦截；监听者不调用 `next()` 即认领该次点击，抛出或拒绝按等同于 `next()` 处理，因此一次点击总能落到某个打开动作上。
+- **退役条件**：上游自己提供等价的引用点击拦截点。
+- **状态**：在役（`feature/core-patches`）。核实依据：`referent/open` 在 `dsh-v0.1.7-rc.2` 零命中。上游 PR #3151 新增的 `scripts/verify-concrete-terms.ts` 拒绝本缝原字段名里那个含糊的来源标签，字段因此改名为 `enteredAs`，取值与语义不变。`core-patches-v11` 那一轮适配一处上游改动：`packages/api/session-controller/src/client/index.ts` 新增 `typertOwnedValue` 导入（上游 PR #4368），`ClientReferent` 的导入与它并列。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`session-controller` README 冲突块取上游段落，本族的 referent 段接在「During uninterrupted…」之后、`skills/list` 之前；`apply.ts` 与 `gen-cordis-catalog.ts` 的并集见 `chat-prose-referents`。
+- **Agent Note**：[`referent-open-seam-port`](../.agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.*` `apps/web/tests/navigation-panes.e2e.ts` `docs/subsystems/session.*` `packages/api/session-controller/README.*` `packages/api/session-controller/src/client/index.ts` `packages/api/session-controller/src/client/referent.ts` `packages/api/session-controller/tests/referent.client.spec.ts` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/test-support/client-runtime/src/index.ts` `scripts/gen-cordis-catalog.ts`
+
+## referent-target-probe — 批量路径存在性探测 `probeTargets`
+
+- **改了什么**：`session-controller` 新增 `probeTargets` 端点，一次调用回答一批路径是否存在。
+- **为什么**：引用校验层要在渲染前判断一批目标是否可打开，逐条 RPC 的往返次数与正文里的引用数同阶。
+- **要达到的效果**：一次调用得到整批结论，校验层不按引用数发请求。
+- **退役条件**：上游自己提供等价的批量存在性探测端点。
+- **状态**：局部退役（`feature/core-patches`）。族整体在役，核实依据：`probeTargets` 在 `dsh-v0.1.7-rc.2` 零命中。一处局部退役：原先给穷举式客户端假实现 `packages/api/session-controller/tests/fake-api.client.ts` 绑定 `probeTargets` 的那条提交在 `core-patches-v11` 那一轮退役——上游 PR #3960 把该假实现整体换成 `tests/remote/{session,bench,history}.client.ts` 的部分规则表，不再要求绑定每个端点，该补丁存在的理由消失。宿主侧覆盖未损失：`session-probe-targets.host.spec.ts` 与 `test-remote.ts` 仍钉着该端点。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`session-controller/src/index.ts` 的 import 取并集；上游新增的 `workspacePathApplications`／`verifyDesktopPath`（上游 PR #4562）在前，本族的 `probeTargets` 在后，各自带 JSDoc。`types.ts` 上游新增的 `session/provider-*` 错误码与本族的 `PROBE_TARGETS_MAX_PATHS` 共存。
+- **路径**：`docs/subsystems/session.*` `packages/api/session-controller/src/index.ts` `packages/api/session-controller/src/types.ts` `packages/api/session-controller/tests/session-probe-targets.host.spec.ts` `packages/api/session-controller/tests/test-remote.ts` `scripts/gen-cordis-catalog.ts`
+
+## rolling-sync-settle — 每轮滚动同步的适配与生成物收敛
+
+- **改了什么**：每轮同步里**没有所属补丁族**的跨仓适配与生成物收敛：重跑 `gen-*` 生成物、重录双语配对记录、把跨多族的合并文档收敛到字数上限、把横跨多族的测试夹具搬到本基座的 harness 上。
+- **为什么**：补丁本身不变，但它依赖的上游 API、测试夹具与生成器输出每轮都在动；不收敛这些，补丁在新基座上编译不过或门禁不绿。而这类收敛里有一部分跨了多个补丁族，挂不到任何一族的 slug 上。
+- **要达到的效果**：生成物与源树一致，`gen-*`／`verify-*` 的 `--check` 全部退出 0；跨族的文档与夹具在当前基座上成立。
+- **归属规则**：**只服务单一补丁族的适配提交挂那一族自己的 slug**，不挂本族——`core-patches-v10` 上的三条 `adapt(referent-open-seam)`／`adapt(permission-preset-glyph)`／`adapt(command-engages-session)` 即如此。否则按 slug 退役某一族时会找不到它这一轮的适配提交。并入上游 tag 时的冲突解决是另一回事：它落在并入 tag 的那个合并提交里，合并提交不带 trailer；合并之后的适配提交再按上面的规则，只服务单一族的挂那一族的 slug，跨族的挂本族。`core-patches-v11` 及以前各轮是变基，冲突解决直接落在被重放的补丁提交里，逐处记在各族的状态行上。
+- **退役条件**：不适用——本族随每轮同步重生成，不是可退役的 overlay；它服务的补丁族退役时，对应的适配随之消失。
+- **状态**：在役（`feature/core-patches`）。`dsh-v0.1.7-rc.2` 这一轮新增：合并后重跑全部 `gen-*`（client、Cordis、Cordis-inspect、config、persistence 目录与 doc graphs），并把 22 份旧格式配对记录按基座的逐标题格式重录（18 份合并进来的 fork 记录，加回补线新增的 4 份 Note）；web 与会话快照金样的重录见各自所属的族。`core-patches-v11` 那一轮新增 1 条（重跑 `gen-*` 收敛生成物），线上另有 4 条继承自 `core-patches-v9`。
+- **路径**：`docs/capability-seams.zh.md` `packages/session-query/session-log-export/README.*` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts`
+
+## session-export-progress — 导出面板显示进度与失败
+
+- **改了什么**：`session-log-export` 的导出路由回送条目总数头（`SESSION_EXPORT_ENTRIES_HEADER`），页面据此显示进度并在失败时留在页面上说明原因；面板文案与两趟测量的实际语义同步。
+- **为什么**：大会话导出期间页面没有任何进展迹象，失败时也只是弹窗消失。
+- **要达到的效果**：导出有可见进度条与可读的失败说明。
+- **退役条件**：上游自己让导出回送进度信息并在页面显示。
+- **状态**：在役（`feature/core-patches`）。核实依据：`SESSION_EXPORT_ENTRIES_HEADER` 在 `dsh-v0.1.7-rc.2` 零命中。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游把导出改为请求文档相对路由（上游 PR #4203），`controller.ts` 以 `GET` 请求该路由，`controller` spec 的 null-origin 用例改名为「requests the document-relative route through the default carrier」，删掉 `downloadUrl` 用例；Agent Note 第 15 行删掉 null-origin 兜底从句。强转改写（上游 PR #4610）：`dialog.client.spec.tsx` 的 props 断言保持与上游逐 token 相同，`cancel` 移到断言之外展开；`controller` spec 的 save mock 类型化后直接取 `save.mock.calls[0]!`，无响应体用例改用 `new Response(null, { status: 200 })`。
+- **Agent Note**：[`session-export-progress`](../.agents/notes/implemented/feature/2026-09-03-session-export-progress.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-03-session-export-progress.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/client/ui-chat/tests/apply-inject.client.spec.tsx` `packages/session-query/session-log-export/README.*` `packages/session-query/session-log-export/src/archive.ts` `packages/session-query/session-log-export/src/client/Dialog.module.css` `packages/session-query/session-log-export/src/client/Dialog.tsx` `packages/session-query/session-log-export/src/client/controller.ts` `packages/session-query/session-log-export/src/client/index.ts` `packages/session-query/session-log-export/src/client/locales.ts` `packages/session-query/session-log-export/src/client/progress.ts` `packages/session-query/session-log-export/src/export-extent.ts` `packages/session-query/session-log-export/src/index.ts` `packages/session-query/session-log-export/tests/archive.host.spec.ts` `packages/session-query/session-log-export/tests/client-apply.client.spec.tsx` `packages/session-query/session-log-export/tests/controller.client.spec.ts` `packages/session-query/session-log-export/tests/dialog.client.spec.tsx` `packages/session-query/session-log-export/tests/header-action.client.spec.tsx` `packages/session-query/session-log-export/tests/progress.client.spec.ts` `packages/session-query/session-log-export/tests/route.host.spec.ts` `packages/session-query/session-log-export/tsconfig.client.json` `packages/session-query/session-log-export/tsconfig.host.json`
+
+## session-export-size-text — 导出面板尺寸文案取自 ui-primitives
+
+- **改了什么**：删除 `session-log-export` 自带的 `byte-size.ts` 与其用例，`Dialog.tsx` 改用 `ui-primitives` 已导出的 `fileSizeText`。
+- **为什么**：那是仓内已有格式化函数的私有副本。
+- **要达到的效果**：面板读数走仓内唯一一份实现；文案随之变化（不加空格、所选单位十以下保留一位小数）。
+- **退役条件**：不适用——本条是删除自有代码改用上游实现，不构成对上游的补丁负担。
+- **状态**：在役（`feature/core-patches`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：无改动，自动合并。
+- **路径**：`packages/session-query/session-log-export/src/client/Dialog.tsx` `packages/session-query/session-log-export/tests/dialog.client.spec.tsx` `packages/session-query/session-log-export/tsconfig.client.json`
+
+## session-export-unreadable-entries — 不可读附件写成归档条目而不撕裂流
+
+- **改了什么**：`session-log-export` 的 `archive.ts` 在附件对象读不出来时，把一条说明记录写进归档里该附件本该占的条目，而不是让 ZIP 流中断。图片半边是 `mediaEntry`/`unreadableMediaEntry`；通用文件半边是 `fileEntry`/`unreadableFileEntry`/`resumedFileChunks`——`fileEntry` 在产出条目前先拉存储的第一个分块（写入器本就在花这一个分块的内存预算），拉取被拒才改记录。两条路径共用 `unreadableAttachmentReason`。记录的路径键与碰撞前提写在 `archive.ts` 的 JSDoc 里。
+- **为什么**：一个读不出来的附件会让整次导出失败，用户拿不到任何内容，也看不到是哪个附件出的问题。现场触发源是仓外截图插件把 JPEG 按 `image/png` 声明保存，已写进日志的引用永久保留；通用文件半边则是上游把文件对象搬到 `file-objects/`／`files/`（上游 PR #3109）之后，`attachment-text-file-kind` 时代写下的文件对象一律读不到（见该条的破坏性变化）。
+- **要达到的效果**：不可读的图片留下带 `attachmentId`、`mediaType`、`bytes`、`width`、`height` 的记录，不可读的通用文件留下带 `attachmentId`、`name`、`bytes` 的记录（**文件记录没有 `mediaType`**，引用本身不带）；两者都附失败原因，条目数因此把它计在内。
+- **三项例外——导出并非总能完成**：(1) **取消仍撕裂**：`archive.ts` 的 `fileEntry` 与 `mediaEntry` 在返回不可读条目之前都先 `signal?.throwIfAborted()`，取消在两条路径上都让流出错；(2) **通用文件第一个分块之后抛出的失败仍撕裂**，字节已经上线，无法再改写成记录；(3) **读不出来的子会话日志仍让流出错**——`sessionLogTextEntries` 对没有存储日志的子会话直接抛错。
+- **安全动机（不可回退）**：`unreadableAttachmentReason` 只在失败是 `AttachmentError` 且带字符串 `code` 时写出 `code` 与 `message`，其余一律只写一行匿名原因。理由是本包对 attachment 包只有类型依赖、按 `name` 结构匹配，而 Node 的 fs 错误同样带字符串 `code` 且 `message` 含主机绝对路径——归档是用户会下载并转发的文件，**绝不回显可能含主机绝对路径的 message**。这比 `error.ts` 的「按 code 路由」更严，是有意的。
+- **退役条件**：上游自己在导出遇到不可读附件时记录并继续（图片与通用文件同一判据）。
+- **状态**：在役（`feature/core-patches`）。核实依据：`unreadableMediaEntry` 在 `dsh-v0.1.7-rc.2` 零命中。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`archive.ts` 保留本族整块，接上上游的两行 JSDoc（上游 PR #4603 把附件发现限定在声明过的事件内容上）；archive spec 保留本族三例、删掉上游已删的 nested 用例；两条不可读图片事件改写成有类型的 V4 `user/message`（上游 PR #4610）；上游把侧栏搜索框的占位符改成「Search session names」（仍经内容索引匹配正文），`navigation-panes.e2e.ts` 的不可读媒体导出用例跟着改定位器。
+- **Agent Note**：[`export-records-unreadable-media`](../.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/session-query/session-log-export/README.*` `packages/session-query/session-log-export/src/archive.ts` `packages/session-query/session-log-export/src/index.ts` `packages/session-query/session-log-export/tests/archive.host.spec.ts`
+
+## session-format-legacy-message-source — 一种历史消息来源种类过 V3 迁移边
+
+- **改了什么**：`session-format-v2-to-v3` 接受语料里仍在的一种仓外历史消息来源种类，并说明每处检查与定位器各自在判断什么。
+- **为什么**：该来源种类由本 fork 的产品线写入，V3 边不认识它就拒绝整份会话日志，而一次拒绝会让派生索引的整轮观察中止、内容搜索全库退回名称匹配。
+- **要达到的效果**：携带该来源种类的会话能迁移、能索引；接受面仍是一份按盘上实测列出的名单，不是通用放行。
+- **退役条件**：上游把该来源种类纳入已发布来源词表，或为来源分类提供自定义扩展点，或语料里不再存在它。
+- **状态**：在役（`feature/core-patches`）。核实依据：`git grep -c 'LEGACY_UNINTERPRETED_SOURCE_KINDS\|at-file-mention' dsh-v0.1.7-rc.2 -- packages/session` 零命中，上游既没纳入该来源种类也没开扩展点；备份 home 语料（`~/.dsh.backup-2026-09-02-before-rc27` 的 121 份日志）里 `at-file-mention` 仍命中 8 份。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`legacy-uninterpreted.spec.ts` 的历史 `at-file-mention` 事件直接标注为 `SessionFormatEvent`，不再经 `as unknown`（上游 PR #4610）。`payload.ts` 的 `assertSource` 改为先在字符串判定之后放行点名的来源种类、再走上游原样的单一拒收条件：基座的载荷校验已先拒收非字符串 `kind`，本族原先单独的非字符串分支没有可达输入，过不了逐文件覆盖率门禁；行为不变。经完整目录 V0→V4 的回归测试 `session-format-catalog/tests/fork-historical-events.spec.ts` 同时断言 `at-file-mention` 来源原样保留，该文件登记在 `session-format-out-of-repo-events`。
+- **Agent Note**：[`v2-to-v3-legacy-source-kind`](../.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.*` `apps/web/tests/navigation-panes.e2e.ts` `packages/session/session-format-v2-to-v3/README.*` `packages/session/session-format-v2-to-v3/src/index.ts` `packages/session/session-format-v2-to-v3/src/payload.ts` `packages/session/session-format-v2-to-v3/tests/legacy-uninterpreted.spec.ts`
+
+## session-format-out-of-repo-events — 已落盘的仓外历史事件过迁移边
+
+- **改了什么**：`session-format-v0-to-v1` 的 `LEGACY_UNINTERPRETED_EVENT_TYPES` 点名本 fork 产品线写过的仓外事件类型，三条迁移边读同一个被点名集合，逐条原样带过并在 v2 标记 `ignorable: true`。
+- **为什么**：迁移边拒绝一切不在冻结清单上的历史事件类型，本 fork 的产品线写过的事件因此让整份会话日志打不开。
+- **要达到的效果**：被点名的类型原样过边，其余未点名的仍被拒绝。
+- **退役条件**：上游把这些类型纳入自己的迁移清单，或为迁移边提供自定义词汇扩展点，或 fork 不再需要打开这些会话。
+- **状态**：在役（`feature/core-patches`）。核实依据：`LEGACY_UNINTERPRETED_EVENT_TYPES` 在 `dsh-v0.1.7-rc.2` 零命中。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`dsh-v0.1.7-rc.2` 新增 V3→V4 边：未知类型的 ignorable 事件在 V4 保留为名为 `plugin:<type>` 的不透明事件。`session-format-v0-to-v1` README 中英与 `dispositions.ts` 的 JSDoc 改写为「在 V0–V3 各边原样带过并在到达 V3 时标 `ignorable: true`；V3→V4 边再把它保留为 `plugin:<type>`」。新增 `packages/session/session-format-catalog/tests/fork-historical-events.spec.ts`：以 strict + current 跑完整目录 V0→V4，断言 8 个点名类型变成 ignorable 的 `plugin:<名>`、`at-file-mention` 原样保留、`command/run` 的 `engages: false` 保留。
+- **实证（按盘上语料，不是推断）**：本机 `~/.dsh` 全部 128 份日志逐份解压扫描——`permissionRules/decision` 命中 3 份，`attachment/materialized` **命中 0 份**。那 3 份的只读副本补丁前 `OPEN FAILED`、补丁后全部读回，原始文件 sha256 前后一致。语料回放另证第三条边（V2→V3）必要：`permissionRules/decision` 在纯 `upstream/master` 上被拒，只加本补丁即全部读出。
+- **测试覆盖**：`session-format-v1-to-v2/tests/migration.spec.ts` 的「carries a named uninterpreted historical event into v2 with its ignorable envelope」用例按事件逐条跑 v1→v2 这条边，并用 `restoreReleasedV2Artifact` 断言被点名的类型经已安装的当前还原器的 `ignorable` 分支到达 v2 世代。它的 `carried` 数组同时列了本族的 `attachment/materialized`、`permissionRules/decision` 与 `session-format-v0-legacy-shapes` 的六种内容事件类型；测的是「按名单原样带过」这条机制，归本族。
+- **提交信息订正**：本族提交信息写的「Two such types exist on this fork's disks」对 `attachment/materialized` 不成立——它在本机零命中，只会出现在触发过溢出附件的 rc.29／rc.30 用户机上。提交已推 origin、不改写历史，以本条为准。
+- **路径**：`packages/session/session-format-catalog/tests/fork-historical-events.spec.ts` `packages/session/session-format-v0-to-v1/README.*` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/migration.ts` `packages/session/session-format-v0-to-v1/src/validation.ts` `packages/session/session-format-v0-to-v1/tests/migration.spec.ts` `packages/session/session-format-v1-to-v2/src/migration.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts` `packages/session/session-format-v2-to-v3/README.*` `packages/session/session-format-v2-to-v3/src/payload.ts` `packages/session/session-format-v2-to-v3/tests/legacy-uninterpreted.spec.ts`
+
+## session-format-v0-legacy-shapes — 接住语料里仍在的三种遗留 v0 形状
+
+- **改了什么**：`session-format-v0-to-v1` 增加两个归一化器——`permission/preset` 去掉旧构建写下的多余成员，`subagent/descriptor` 把版本 2 改写为 3——并在处置表里点名本 fork 产品线写过的六种内容事件类型。
+- **为什么**：这三种形状由本 fork 发过的构建写下，v0 边拒绝它们，对应会话打不开，并连带让内容搜索全库不可用。
+- **要达到的效果**：携带这三种形状的会话能打开、迁移、索引；接受面仍窄——其他多余成员、其他描述符版本、未点名的事件类型一律仍被拒绝。
+- **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移、把这些内容事件类型纳入清单，或为迁移边提供自定义词汇扩展点，或语料里不再存在写下它们的构建的产物。
+- **状态**：在役（`feature/core-patches`）。核实依据：`git show dsh-v0.1.7-rc.2:packages/session/session-format-v0-to-v1/src/dispositions.ts` 里 `'permission/preset'` 仍是 `disposition(['preset'])`、不含 `origin`；`LEGACY_SUBAGENT_DESCRIPTOR_VERSION` 在上游零命中（descriptor 版本 2→3 的迁移仍是 fork 独有）；备份 home 语料（121 份日志）里本族三种形状各自的命中：`permission/preset` 带 `origin` 11 份、`subagent/descriptor` 的 `version: 2` 4 份、六种内容事件类型里 `content/shown` 6 份（共 46 处）与 `content-surface/*` 2 份（共 40 处）。`attachment/materialized` 与 `permissionRules/decision` 虽与本族共用 `LEGACY_UNINTERPRETED_EVENT_TYPES` 这一张表，归属的是 `session-format-out-of-repo-events`，语料数字记在那一族。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：无改动，自动合并。
+- **测试覆盖**：`session-format-v0-to-v1/tests/legacy.spec.ts` 让六种内容事件的迁移结果再过一遍已发布 v1 世代的校验器 `assertReleasedV1Artifact`；这些类型不在 `RELEASED_V0_EVENT_DISPOSITIONS` 里，校验器不检查它们的载荷，这一步钉住的是 v1 表头版本与连续的 seq。这六种类型经 v1→v2 边带到 v2 的断言在 `session-format-out-of-repo-events` 那一族认领的 `session-format-v1-to-v2/tests/migration.spec.ts` 里。
+- **Agent Note**：[`v0-migration-legacy-shapes`](../.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md)
+- **路径**：`.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.*` `packages/session/session-format-v0-to-v1/README.*` `packages/session/session-format-v0-to-v1/src/dispositions.ts` `packages/session/session-format-v0-to-v1/src/migration.ts` `packages/session/session-format-v0-to-v1/tests/legacy.spec.ts` `packages/session/session-format-v1-to-v2/tests/migration.spec.ts`
+
+## session-index-generation-identity — 派生索引身份带上 Session 世代
+
+- **改了什么**：`session-query-sqlite` 的索引身份（`SESSION_QUERY_SQLITE_INDEX_IDENTITY`）纳入 Session 世代，世代变化时重建派生索引。
+- **为什么**：重置判据只比对 schema 版本，会话格式换代后旧索引被当作仍然有效，搜索结果指向已不存在的行。
+- **要达到的效果**：会话世代变化即重建索引，搜索结果与当前世代一致。
+- **退役条件**：上游把世代纳入自己的索引重置判据。
+- **状态**：在役（`feature/core-patches`）。核实依据：上游 `session-query-sqlite/src/schema.ts` 的 `PRAGMA user_version` 仍只比对 schema 版本。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：无改动，自动合并。上游 #4311、#4635 给历史 revision 加的后缀，在本轮 3→4 升级中会重读同一批会话，与本补丁部分重叠；是否退役留到下一轮（§9 Q16）。
+- **路径**：`packages/session-query/session-query-sqlite/README.*` `packages/session-query/session-query-sqlite/src/index.ts` `packages/session-query/session-query-sqlite/src/schema.ts` `packages/session-query/session-query-sqlite/tests/sqlite.spec.ts`
+
+## settings-navigation-groups — 设置页导航两级化
+
+- **改了什么**：`ui-settings-general` 新增 `nav-groups.ts`（分组键闭合联合 `SettingsNavGroupKey`、固定分组表与兜底「其他」组、纯投影 `groupNavRows(rows)`）。`SettingsRoot.tsx` 用按组键取图标的 `GROUP_ICONS` 取代按分区 id 取图标的 `navIcon()`，导航栏改为「组（`role="group"` + `aria-labelledby` 指向不可点击的组标题）+ 组内成员行」两级，成员行不画图标；`SettingsRoot.module.css` 让导航可滚并加两级版式；`locales.ts` 中英各加 7 条 `nav.group.*`；`index.ts` 的分区投影改用 `entriesOfSlot(...)`，同 id 的遮蔽条目只出一行。成员行与组标题重名时改成员行文案：`general.nav` 英文 `General settings`，`ui-settings-models` 的 `nav` 英文 `Providers & models`、中文「提供方与模型」；随之改两包的 README 入口句、`docs/user/guide/{index,providers}` 的导航指引、两包 `apply.client.spec.ts` 的文案断言，以及 `apps/web/tests/` 下六个 e2e 的导航定位器。
+- **为什么**：fork 的桌面组合在上游的分区之外再加七个，导航栏是一条十余项的平铺列表，`navIcon()` 只点名几个上游 id，其余全画齿轮；`.navList` 没有 `min-height: 0` 也没有 overflow，视口再矮或再多一个插件就会被静默裁掉。`settings.section` 注册项只带 `key`/`id`/`order`/`label`/`priority`，浏览器端插件收不到 cordis.yml 配置，所以分组表只能写在外壳里。
+- **要达到的效果**：导航栏画六个具名分组（通用／模型／智能体／扩展／账户与用量／关于）加兜底「其他」，每组一个图标与一个不可点击的组标题；分区 id、`order`、label、`openSection(id)` 入口不变。被点名的分组按表内顺序排成员，成员全缺席的分组不画，表中未点名的 id 按账本顺序留在「其他」，没有分区会因为不被认识而消失；导航超高时自行滚动。
+- **退役条件**：上游让 `settings.section` 注册项自带分组或图标，或外壳自己长出分组、图标或导航滚动——对应部分退役，fork 适配上游形式。核实：`git grep -l navGroup <tag> -- packages/client/ui-settings-general` 零命中，且上游 `SettingsRoot.module.css` 的 `.navList` 块里没有 `overflow-y`／`min-height`（只看这一块，`.options` 本来就带这两条）。
+- **状态**：在役（`feature/core-patches`）。核实依据：`navGroup` 在 `dsh-v0.1.7-rc.2` 的 `ui-settings-general` 零命中。回补时适配三处：① 基座新增的 `archived-sessions` 设置页放进「通用」组、排在 `at-file` 之后（develop 的分组表没有收录它，否则会落进「其他」；放哪一组待拍板，这里取默认）；② 基座给 `archived-sessions` 行配的 `IconArchiveOutline20` 随 `navIcon()` 一起让位给组图标；③ 基座新增的 `deepseek-messages-settings.e2e.ts` 的导航定位器跟着改名。`settings-chrome.e2e.ts` 里插件页的断言保留本基座的写法（单一贡献直接显示页面、无标签行），只把模型行的名字换成新名。受影响的 ARIA 金样在并入 `dsh-v0.1.7-rc.2` 之后统一重录（见下）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：五处。① 上游新增账号设置页（`ui-settings-account`，id `account`，order −10，上游 PR #4475），分组表把它排进 `account` 组、在 `balance` 之前（§9 Q3 默认）；上游 `settings-root` spec 的账号启动器用例原先断言行按钮带图标，改为断言账号行在「Account & usage」组内、组标题带图标。② 上游新增的四个 web e2e 按旧行名点击：`bonus-notice.e2e.ts`（上游 PR #5040）、`onboarding-native.e2e.ts`（上游 PR #4475）、`settings-appearance.e2e.ts`（上游 PR #5030）的「模型」改成「提供方与模型」，`agent-preset-selection.e2e.ts`（上游 PR #5108）的「General」改成「General settings」；简报只列了前三个文件，`settings-appearance` 是本轮实测补上的。`onboarding-native` 的该用例在 macOS 本机先失败在第 67 行（账号菜单的「设置」项带出 `⌘,` 快捷键提示，上游只给 `web:linux` 以外的平台配了 `settings.open` 默认键），与本族无关，本族改的第 91 行只能由 Linux CI 验证。③ 合并把上游加在旧 `.navList` 块上的 `overflow-y: auto` 带进了本族的 `.navGroup`，各组自行滚动、导航栏永不溢出，上游 `settings-chrome` 的短视口用例因此失败；已删掉该行，CSS spec 断言 `.navGroup` 不声明 `overflow-y`。④ `SettingsRoot.tsx` 以上游为底接回两级分组，把上游的 `data-modal-autofocus` 加到组内按钮上。⑤ 18 份设置页 ARIA 金样按两级导航重录。
+- **滚动同步注意**：client-UI 补丁，落点 `ui-settings-general` 的 `SettingsRoot.tsx`、`SettingsRoot.module.css`、`index.ts`、`locales.ts`、`nav-groups.ts`，以及 `ui-settings-models/src/client/locales.ts` 的 `nav` 中英两行；与 `settings-trigger-action-seat` 同文件，两族一起移植、一起核实。`dsh-v0.1.7-rc.2` 新增 `settings.launcher` 与账号页（`ui-settings-account`），账号页默认进 fork 的 `account` 组；上游把「开发者工具」改名「代码工作工具」，取上游文案，`nav.group.*` 保留。
+- **Agent Note**：[`settings-navigation-groups`](../.agents/notes/implemented/feature/2026-09-14-settings-navigation-groups.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-14-settings-navigation-groups.*` `apps/web/tests/agent-preset-selection.e2e.ts` `apps/web/tests/bonus-notice.e2e.ts` `apps/web/tests/deepseek-messages-settings.e2e.ts` `apps/web/tests/models-settings-recovery.e2e.ts` `apps/web/tests/models-settings.e2e.ts` `apps/web/tests/onboarding-deepseek-config.e2e.ts` `apps/web/tests/onboarding-native.e2e.ts` `apps/web/tests/onboarding-usable-provider.e2e.ts` `apps/web/tests/settings-appearance.e2e.ts` `apps/web/tests/settings-chrome.e2e.ts` `docs/user/guide/index.*` `docs/user/guide/providers.*` `packages/client/ui-settings-general/README.*` `packages/client/ui-settings-general/src/client/SettingsRoot.module.css` `packages/client/ui-settings-general/src/client/SettingsRoot.tsx` `packages/client/ui-settings-general/src/client/index.ts` `packages/client/ui-settings-general/src/client/locales.ts` `packages/client/ui-settings-general/src/client/nav-groups.ts` `packages/client/ui-settings-general/tests/apply.client.spec.ts` `packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` `packages/client/ui-settings-general/tests/shell.client.spec.ts` `packages/client/ui-settings-models/README.*` `packages/client/ui-settings-models/src/client/locales.ts` `packages/client/ui-settings-models/tests/apply.client.spec.ts`
+
+## settings-trigger-action-seat — 设置触发行右端的同行贡献位
+
+- **改了什么**：`ui-settings`／`ui-settings-general` 在设置触发行右端开一个同行贡献位（`settings.trigger.action`），并给它一个打开设置面板的 opener；触发行自己拥有该贡献位所在的 hover 面。
+- **为什么**：仓外插件要在设置行右端放一个自己的动作，没有任何槽位可用。
+- **要达到的效果**：插件在设置行右端占位，hover 表现与该行一致。
+- **退役条件**：上游在设置触发行提供等价贡献位，或 fork 改用上游桌面外壳、不再需要那个更新按钮插件。
+- **状态**：在役（`feature/core-patches`）。核实依据：`settings.trigger.action` 在 `dsh-v0.1.7-rc.2` 零命中。`core-patches-v11` 那一轮适配一处上游改动：上游在同一行的 `ConnectionIndicator` 之后放了自己的 `DesktopUpdateIndicator`（上游 PR #4033），本族的贡献位改排在它之后，两者同行共存。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游重写快捷键与设置启动器（上游 PR #4891、#4938、#5117、#4475）：`SettingsRoot.tsx` 以上游为底，本族的 `<div className={css.triggerActions}>{renderSlot('settings.trigger.action', { wide, openSection })}</div>` 插在 launcher／Tooltip 之后，`openSection` 仍来自 `actions`；`ui-settings-general/src/client/index.ts` 上游改为闭包，本族的 `settings.trigger.action` 子位接在其中。上游新增的圆角门禁（上游 PR #5030）拒绝不在主题 token 上的圆角，触发行的 `12px` 改为 `var(--dsw-radius-md)`。
+- **滚动同步注意**：这是 client-UI 补丁，每轮都要重新移植并重新核实。两处会撞行：`SettingsRoot.tsx` 传给本位的 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改那段时两处一起看；宽行的悬停面落在 `SettingsRoot.module.css` 的触发行选择器上，上游改触发行悬停样式会与它撞。`slot-catalog.ts` 是生成物，冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
+- **Agent Note**：[`settings-trigger-action-slot`](../.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.*` `docs/subsystems/slots.*` `packages/client/ui-settings-general/src/client/SettingsRoot.module.css` `packages/client/ui-settings-general/src/client/SettingsRoot.tsx` `packages/client/ui-settings-general/src/client/index.ts` `packages/client/ui-settings-general/src/client/shell-contract.ts` `packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` `packages/client/ui-settings-general/tests/shell.client.spec.ts` `packages/client/ui-settings/src/client/contract/slots.ts` `packages/client/ui-settings/src/client/index.ts`
+
+## stats-usage-pill-seats — 会话 Token 用量药丸上的文案位与明细行位
+
+- **改了什么**：`ui-chat` 的 `contract/slots.ts` 新增会话作用域的 single 槽 `conversation.chat.stats.usageLabel` 与 list 槽 `conversation.chat.stats.usageRows`，以及两者共用的 owner props `StatsUsageOwnerProps`（`totalTokens`、`cacheHitPercent`），`index.ts` 再导出该类型；`apply.ts` 的 `conversation.composer.dock` / `stats` 注册项用 `children` 声明这两个子位；`StatsPills.tsx` 把药丸文案开头那一段交给 `usageLabel`（空位时 fallback 为 token 总量），在弹层 `dl[data-session-stats-usage]` 的 output 行之后渲染 `usageRows`，删掉用量按钮的 `aria-label`，两颗药丸的分隔符去掉 `aria-hidden` 并自带前后空格。`docs/subsystems/slots.{md,zh.md}` 的声明树各加两行，`slot-catalog.ts` 由 `gen-client-catalog` 重生成。
+- **为什么**：fork 的余额插件要把金额显示在输入框下的 token 读数里。`conversation.composer.dock` 是纵向排列的会话作用域 list，占位者只能在统计药丸下方自成一行；画出两枚药丸的 `stats` 条目不声明 children，想进药丸或弹层只能整体遮蔽 `stats`，接管随产品发布的时间药丸、用量药丸与两个弹层。槽名是上游 `SlotMap` 的声明合并键，渲染点在上游组件里，插件层做不到。
+- **要达到的效果**：插件注册两个条目即可把金额放进药丸文案开头、把花费行追加进弹层明细，不替换任何随产品发布的 chrome；无人占位时药丸与弹层与改动前逐字相同（可访问名由可见文案给出，读作 `105 tok · Cache hit 90%`，与上游原 `aria-label` 字符串相同）。两个位拿到的是药丸自己算出的精确总量与裸百分数。
+- **退役条件**：上游以任何形式在统计药丸或其弹层上开出等价贡献位。
+- **状态**：在役（`feature/core-patches`）。核实依据：`conversation.chat.stats` 在 `dsh-v0.1.7-rc.2` 零命中。分隔符变成可读文本后，`snapshots/web/**` 与 `apps/web/tests/expected/**` 里两颗药丸的 ARIA 金样要重录；回补阶段没有拣 develop 上的两条金样重录提交，金样在并入 `dsh-v0.1.7-rc.2` 之后统一重录（见下）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游给统计药丸加了性能与用量的显示偏好（上游 PR #4478）：`StatsPills.tsx` 的 props 类型写成 `InjectFace<PerformanceUsageInjected> & {…} & PropsRenderSlots<…>`，`chat-stats` spec 用上游的 `usePerformanceUsage` 加本族的多行字段；`chat-branch-tails`／`gate-branch-tails` 两份 spec 取上游 import 并保留 `type StatsPillsProps`。47 份 web 金样按可读分隔符重录（药丸的可访问名读作 `16K tok · Cache hit 98%`）。
+- **滚动同步注意**：client-UI 补丁，落点 `ui-chat` 的 `contract/slots.ts`、`apply.ts`、`chat/StatsPills.tsx`，上游改药丸标记、弹层明细或 chat 槽契约都会撞行。`slot-catalog.ts` 冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
+- **Agent Note**：[`stats-usage-pill-seats`](../.agents/notes/implemented/feature/2026-09-14-stats-usage-pill-seats.md)
+- **路径**：`.agents/notes/implemented/feature/2026-09-14-stats-usage-pill-seats.*` `docs/subsystems/slots.*` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/StatsPills.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/index.ts` `packages/client/ui-chat/tests/chat-branch-tails.client.spec.tsx` `packages/client/ui-chat/tests/chat-stats.client.spec.tsx` `packages/client/ui-chat/tests/gate-branch-tails.client.spec.tsx`
+
+## user-message-action-seat — 用户消息上的贡献位
+
+- **改了什么**：`ui-conversation` 在用户消息上开一个贡献位（`conversation.chat.user-actions`）与对应的 `renderUserActions` 传参。
+- **为什么**：仓外插件要在用户消息旁放自己的动作（例如引用该消息），没有槽位可用。
+- **要达到的效果**：插件在用户消息上占位；无占用者时渲染不变。
+- **退役条件**：上游在用户消息上提供等价贡献位。
+- **状态**：在役（`feature/core-patches`）。核实依据：`conversation.chat.user-actions` 与 `renderUserActions` 在 `dsh-v0.1.7-rc.2` 零命中。`core-patches-v11` 那一轮适配两处上游改动：`ChatView` 把节点列表包进 `MarkdownDelegateProvider`（上游 PR #4379），`renderUserActions` 随 `ChatNodeList` 一起进了那层包裹；`TurnTailNodeView` 的 `renderSlotChain` prop 被上游删除（上游 PR #4414），本族测试台里那条随之删除的桩不再重建。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`chat-branch-tails.client.spec.tsx` 的 props 断言恢复为上游逐 token 相同的写法，`renderUserActions` 在断言之外展开，基座 baseline 登记的那条强转照旧命中（上游 PR #4610）。
+- **Agent Note**：[`user-message-action-slot`](../.agents/notes/implemented/feature/2026-08-24-user-message-action-slot.md)
+- **路径**：`.agents/notes/implemented/feature/2026-08-24-user-message-action-slot.*` `packages/client/ui-chat/src/client/apply.ts` `packages/client/ui-chat/src/client/chat/ChatNodeSeat.tsx` `packages/client/ui-chat/src/client/chat/ChatView.tsx` `packages/client/ui-chat/src/client/chat/MessageItem.tsx` `packages/client/ui-chat/src/client/contract/slots.ts` `packages/client/ui-chat/src/client/index.ts` `packages/client/ui-chat/tests/chat-branch-tails.client.spec.tsx` `packages/client/ui-chat/tests/chat-view.client.spec.tsx` `packages/client/ui-workflow-run/tests/workflow-run.client.spec.tsx`
+
+## workspace-gate-private-apps — 工作区门禁看见不发布的 app
+
+- **改了什么**：`scripts/check-workspace-constraints.ts` 与其 `.spec.ts` 给 `apps/*` 引入 private／发布成员两种类别（`isPrivateApp`、`checkPrivateAppManifest`），并让 `checkDshFamilyVersion` 对私有 app 跳过共享版本校验。
+- **为什么**：本 fork 在 `apps/*` 下有只随客户端构建分发、从不发到 npm 的产品装配，却被当成发布成员校验，四条发布元数据规则同时落空；上游自己只按名字排除了它自有的两个目录，覆盖不到 fork 的目录。私有 app 带的是各自的产品发行版本（桌面更新源与已安装外壳据以比对的那一个），不能由 dsh 家族共享版本占有。
+- **要达到的效果**：`apps/*` 下未发布的产品装配通过门禁，同时仍受工作区卫生规则约束；判别只靠 `private: true` 一个布尔字段。
+- **退役条件**：上游的 `check-workspace-constraints.ts` 自己区分 `apps/*` 下未发布的私有产品装配与发布成员，或 fork 不再拥有此类目录。
+- **状态**：在役（`feature/core-patches`）。核实依据：`isPrivateApp` 在 `dsh-v0.1.7-rc.2` 零命中。`core-patches-v11` 那一轮适配一处上游改动：上游自己的 `check-workspace-constraints.spec.ts` 也导入了 `checkWorkspaceManifest`，变基把两份导入表并了起来，本族只保留自己新增的 `checkPrivateAppManifest`。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游在 `check-workspace-constraints.ts` 加了 shortcuts 的 files 规则（上游 PR #4891），自动合并；`.spec.ts` 冲突块合并头注释，保留上游两例与本族那一段。
+- **Agent Note**：[`private-apps-are-not-release-members`](../.agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md)
+- **路径**：`.agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.*` `scripts/check-workspace-constraints.spec.ts` `scripts/check-workspace-constraints.ts`
+
+## legacy-preset-alias — 遗留 `code` 预设 id 解析为 `ptc`
+
+- **改了什么**：`packages/preset/agent-presets` 新增 `LEGACY_PRESET_IDS` 与 `rosterIdFor`，在没有任何根提供 `code` 时把它解析为 `ptc`；别名只按自有键查找，查找是全函数。
+- **为什么**：上游把 `code` 预设改名为 `ptc`（上游 PR #3074）并只保留会话持久化词汇，落在设置默认值、已恢复会话与切换动作里的 `code` 因此指向不存在的预设。
+- **要达到的效果**：旧设置与旧会话继续解析到同一个预设；有根提供 `code` 时别名让位给该根。
+- **退役条件**：上游自己为改名前的预设 id 提供别名解析，或语料里不再存在 `code`。
+- **状态**：退役（`feature/core-patches`，随 `dsh-v0.1.7-rc.2` 合并）。两条依据：上游 PR #4569 把 Agent 组合改为在 profile YAML 里声明，删掉了本补丁的落点 `packages/preset/agent-presets/src/index.ts` 与 `tests/settings.spec.ts`；日志侧 `code`→`ptc` 的改写已在上游的 v2→v3 迁移里。
+
+## llm-response-format — 请求上的 JSON 应答格式
+
+- **改了什么**：`GenerateOptions.responseFormat?: { type: 'json_object' }`；`llm-deepseek` 在 chat-completions 协议上映射成 `response_format`；`llm-pi-ai` 以 `UNSUPPORTED_OPTION` 拒收；agent-loop 不变式要求 loop 请求不带它。
+- **为什么退役**：上游 #4629 把官方 DeepSeek 适配器改成只走 Messages，并删掉了 `packages/llm/llm-deepseek/src/protocols/**`；harness 的 Messages 请求类型里没有 JSON 模式字段，这一族在新基座上没有落点。判官改用 `llm-tool-choice` 的强制工具调用。
+- **退役条件**：已退役。
+- **状态**：退役（在 `feature/core-patches` 以 `dsh-v0.1.7-rc.2` 为基座的这一轮退役；它从未进入 v11 线，最后一次随包是 `desktop-v0.1.0-rc.33`，当时的台账留在该 tag 的 `.claude/core-patches.md`）。
+
+## attachment-text-file-kind — 持久附件缝的文本文件种类
+
+- **改了什么**：曾给 `packages/attachment` 增加与图片平行的文件类型族与 `AttachmentStore` 的文件准入／保存／读回方法。
+- **为什么**：标准 harness 没有非图片附件通路，第三方插件把文件当原始文本拼进草稿，绕过已有的持久、内容寻址服务边界。
+- **要达到的效果**：文本文件像图片一样经服务边界准入、按内容寻址持久化、可按引用重新读取校验。
+- **退役条件**：上游为 `@deepseek-ai/dsh-attachment` 添加镜像图片的文件准入与存储服务边界。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 通用文件上传）。核实依据：上游 `packages/attachment` 的文件对象只读写 `file-objects/` 与 `files/` 两棵树，`attachments/v1/objects/` 下的文件对象不在任何读路径上。与我方实现的差异：上游不做文本嗅探、不设限额、按 verbatim 存任意字节，文件对象落在两棵新树而不是与图片共用的对象树。
+- **已知破坏性变化（rc.28–rc.30 发出的构建）**：我方实现把文件对象写在 `attachments/v1/objects/`，上游只读 `file-objects/` 与 `files/` 两棵树，因此那两个版本写下的文件附件在 `core-patches-v7` 及其后的基座上**一律读不回来**。2026-09-05 决定**不做读侧回退**：受影响的只有文件附件这一条通路，日志与图片照常，而回退要在上游的存储实现里再加一棵历史树。`session-export-unreadable-entries` 的通用文件半边正是为这批会话仍能整包导出而做。
+
+## llm-file-attachments — 文件附件上线、入日志、进请求
+
+- **改了什么**：曾给 `llm` 与 host 代理增加文件内容块、准入参数与请求期装配。
+- **为什么**：文件附件必须像图片一样可重建——日志里有引用、请求期按引用取回。
+- **要达到的效果**：文件附件在会话日志里以引用存在，模型请求由引用装配。
+- **退役条件**：上游为文件附件提供等价的线上／日志／请求期通路。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109）。上游 `ContentBlockMap['file']` 与我方结构相同。
+
+## composer-file-drafts — composer 草稿里的文本文件
+
+- **改了什么**：曾给 `ui-conversation`／`ui-attachment` 增加把文本文件作为 composer 草稿附件的通路。
+- **为什么**：没有这条通路，用户只能把文件内容粘成正文。
+- **要达到的效果**：文件以草稿附件形式进入消息。
+- **退役条件**：上游提供等价的 composer 文件草稿通路。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109，`packages/client/file-upload` 提供 HTTP 上传路由与客户端后台上传运行时）。
+
+## composer-file-chip — composer 文件 chip 与尺寸文案
+
+- **改了什么**：曾对齐 composer 文件 chip 与输入栏，并按 B／KB／MB 格式化尺寸。
+- **为什么**：chip 与行不对齐、尺寸没有可读格式。
+- **要达到的效果**：chip 与输入栏对齐，尺寸可读。
+- **退役条件**：上游自带文件卡与混合附件呈现。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 的 `FileCard` 与混合附件呈现；`ui-primitives` 自带 `fileSizeText`）。
+
+## attachment-spill-oversized — 超限文件附件溢出而不截断
+
+- **改了什么**：曾让超过限额的文件附件溢出到可读路径句柄而不是截断正文。
+- **为什么**：截断把文件中段悄悄丢掉，模型看到的是不完整且无标记的内容。
+- **要达到的效果**：超限文件不进正文，模型拿到可读路径。
+- **退役条件**：上游对超限文件采取等价处理。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 的 `projectFilesToText` 把文件降级成可读路径句柄、从不内联正文）。
+
+## ui-attachment-build-purity — 附件族的构建纯净度与装配快照文案
+
+- **改了什么**：曾修复 `ui-attachment`／`web` 的一处构建纯净度缺陷与一处过时的装配快照文案。
+- **为什么**：缺陷与文案都属于文件附件族。
+- **要达到的效果**：构建纯净、快照文案与实际装配一致。
+- **退役条件**：随文件附件族整体退役。
+- **状态**：退役（在 `core-patches-v7` 上随 `attachment-text-file-kind` 一族退役）。
+
+## storage-json-legacy-bootstrap — 按同版本遗留文件引导每记录单元
+
+- **改了什么**：曾让 `storage-json` 只从同版本的遗留文件引导每记录单元。
+- **为什么**：跨版本引导会把不同格式的记录混进同一个单元。
+- **要达到的效果**：引导只发生在版本相同时。
+- **退役条件**：上游采取等价判据。
+- **状态**：退役（在 `core-patches-v6` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **退役依据**：上游在同一个 `bootstrapLegacyUnit` 里加了 `acceptedStamps` 判据（上游 PR #3431、#3438）——当前版本加包属主显式声明的 `compatibleVersions`——是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）；测试等价覆盖逐条核过，无缺口。上游方案还更优：保留我方补丁会让旧版本用户升级后丢掉全部投影缓存标题。
+- **为什么当初要做（真机故障链）**：rc.22 的家目录升到 rc.27 后，旧单文档里的记录被原样复制成当前版本的记录文档 → `storage-domain.open` 按新 schema 逐条校验抛错 → session-projection-cache 初始化失败 → 服务端拒启 → 桌面停在 startup failed。
+
+## rescope-exact-edits — 重新锚定两处 rescope 精确编辑
+
+- **改了什么**：曾把两处 rescope 脚本的精确编辑重新锚定到当时的上游树。
+- **为什么**：锚点随上游文件变动而失配。
+- **要达到的效果**：rescope 脚本在当时的基座上可跑。
+- **退役条件**：上游改写该脚本或锚点不再存在。
+- **状态**：退役（在 `core-patches-v2` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **退役依据**：在新基座上不重落本补丁、直接跑 `pnpm run rescope-vendor:check`，结果为 `post-state verified — no residue, every exact edit landed, idempotent`；上游区间内有 4 个提交碰过该脚本，`EXACT_EDITS` 表里旧的 `packages/util/home` 锚点随之消失，对应的是上游移除 Knip，中文 vendoring cookbook 链接锚点也已由上游自己修正。
+
+## file-part-bubble-card — 消息气泡里的文件分片卡
+
+- **改了什么**：曾新增 `FileCard.tsx`，由用户气泡与 Assistant block 直接内联渲染 `{kind:'file'}` 分片；点击先派发 `referent/open`，落空后切换内联展开/收起，经新增的 `loadFile`／`ISession.readFile`（对偶于既有的 `loadImage`／`readAttachment`）惰性抓取文本；`event-projection` 增 file 分支，宿主侧增 `session.file` 回读 RPC 与 `loadFile` 的失败错误码。
+- **为什么**：文件分片已经上了 wire、日志与请求物化，也进了 composer 草稿，但已发送的文件分片在消息气泡里完全不渲染。
+- **要达到的效果**：文件分片与图片分片一样在消息流里可见、可展开读回原文。
+- **退役条件**：上游自己的会话 UI 原生渲染文件内容分片。
+- **状态**：退役（在 `core-patches-v7` 上退役）。本条与 `referent-open-seam` 原是同一条补丁的两半：缝那一半在役、另立记录，文件气泡卡这一半连同 `session.file` 回读 RPC 与 `loadFile` 失败码两条随附提交一并不移植；`ReferentRef` 上那个只服务文件卡的 attachment 字段随其唯一生产者删除。**依据订正**：原先写的「上游 PR #3109 的 `FileCard`」认错了对象——`packages/client/ui-attachment/src/FileCard.tsx` 是 composer 里的上传卡；已发送消息里的文件 chip 是 `packages/client/ui-chat/src/client/chat/MessageItem.tsx` 里 `css.fileCard` 那个 span，它让已发送的文件在用户气泡里可见，但没有 onClick，也没有回读 RPC。
+- **待重做**：「点击 → `referent/open`、内联展开、惰性读回原文」这一半上游没有覆盖。本条一行代码都没有，新门禁下 `局部退役` 必须认领至少一个差异路径，所以状态仍写 `退役`（偏离复核的局部退役改判，§9 Q19 默认）。重做要在上游的 `file-objects/` 和 `files/` 两棵树上新写回读 RPC；rc.29／rc.30 写下的旧文件对象救不回来。
+
+## clickable-reference-architecture-note — 三层可点引用架构的 Agent Note
+
+- **改了什么**：曾有一份描述三层可点引用架构的 Agent Note。
+- **为什么**：该架构横跨多个补丁，需要一处记录。
+- **要达到的效果**：读者从一处看懂 nominate／verify／open 三层如何分工。
+- **退役条件**：落地的每条缝各自带 Note。
+- **状态**：退役（在 `core-patches-v2` 上撤回，其后各轮均未重落）。该记录已拆进 `referent-open-seam` 与 `chat-prose-referents` 各自的 Note，本条不再单独存在。
+
+## secret-container-confirm — 添加位于已知密钥容器内的文件时确认
+
+- **改了什么**：曾新增 `secret-container.ts`——**纯名称/路径启发式判定，零内容读取**；composer 对文件草稿按已知密钥容器匹配（名称类 `.env`、`id_rsa`、`*.pem`；路径段类 `/.ssh/`、`/.aws/`），命中即弹两键确认。芯片进入**持续警示态**（描边 + 圆点 + 行内标签 + 行下方带「移除」的提示）。宿主侧另有一个**只可追加**的 `secretContainerExtraPatterns` 会话投影供部署扩充，基础名单从不上这根线。确认时机是**添加时按批**，不是发送时——发送时确认是被推翻的第一版设计。
+- **为什么**：用户可能在不经意间把凭据文件作为附件发出。
+- **要达到的效果**：此类文件在**加入草稿**时需要一次显式确认；「不添加」只撤销本批命中的子集，「仍要添加」是纯关闭；发送路径上不再二次追问。
+- **退役条件**：上游自带等价的添加时密钥容器确认（同款零内容读取、名单可追加，覆盖警示态文案与芯片布局）。
+- **状态**：退役（在 `core-patches-v7` 上随文件附件族退役，线上无提交）。
+- **待重做（第二片）**：上游无对应物、产品价值仍在，但整个挂载点（composer 文件草稿）已随文件附件族在 `core-patches-v7` 上退役，重做的挂点是 `InputBar.tsx` 的 `intakeFiles` 里、`addFiles` 调用之前（上游 PR #3109 的 `file-upload` 通路）。同族的另两条改动（确认时机从发送时移到添加时；Config 断言不再架空自己的注解）一并押后。
+
+## console-deployment-base-path — 控制台挂在 URL 前缀下（浏览器侧每处 URL 按部署前缀解析）
+
+- **改了什么**：`packages/client/connection` 新增 `client/base.ts`（`resolveClientBase`／`clientUrl`／`INTERNAL_BASE`）并让 `rpc.ts`、`api-path.ts` 走它；`packages/client/hmr`、`packages/client/modules`、`packages/host/frontend-static`、`packages/api/gateway`、`packages/session-query/session-log-export`、`apps/web` 的入口与测试脚手架跟进；`dsh-experimental-server-base` 注入 `<base href>` 与 `__DSH_BASE__`。
+- **为什么**：Host 路由注册在服务器根，反向代理在前缀下提供页面时先剥掉前缀；上游浏览器侧拼 URL 的函数都是包内私有的根绝对路径，插件层没有可替换的座位。
+- **要达到的效果**：同一份构建挂在任意路径前缀下（线上 `/console/`），RPC、mux socket、HMR、插件 bundle 与 source map、会话导出都落回同一前缀。
+- **退役条件**：上游让浏览器侧从文档目录解析路由。
+- **状态**：退役（`product/server-console`，随并入 `dsh-v0.1.7-rc.2`）。上游 `dsh-v0.1.7-rc.1` 内的 `feat(web): serve the shell, API and plugin resources from the document directory` 让 `frontend-static` 写 `<base href="./">`，`stream-client.ts`、模块图、HMR、`rpc.ts` 改为文档相对，`fix(web): resolve feature routes from the document directory and gate browser routes` 让会话导出路由去掉前导斜杠。本轮上述上游文件全部取上游侧，`client/base.ts`、`tests/base.client.spec.ts`、`packages/client/hmr/tests/browser-half.client.spec.ts` 删除，`git grep -n clientUrl -- packages apps` 零命中；本线实验包的路由改为 `new URL(ROUTE.slice(1), document.baseURI)`，cookie 路径取 `new URL('.', document.baseURI).pathname`；`server-base` 只保留 `ownsHost`，删掉 `basePath` 与 `overlay/base-path.patch.yml`；`apps/web/tests/base-path.e2e.ts` 改走上游 `prefix-proxy`，`base-path-boot.e2e.ts` 与 `prefix-proxy.spec.ts` 删除。ECS 部署 overlay 若仍写 `basePath`，schemastery 放行未知键，不报错也不生效，需要从 overlay 删掉。
+
+## served-page-owns-host-contract — 被服务页面也可以声明 ownsHost 的契约文字
+
+- **改了什么**：三处只改 JSDoc／注释：`packages/client/connection/src/client/index.ts` 的 `ClientTransportHooks` 与 `ownsHost`；`packages/client/ui-settings-general/src/client/settings-document-store.ts` 构造函数的 `@param ctx`；`packages/client/web/src/boot.ts` 读 `loadBundle` 处。
+- **为什么**：上游契约写「served 页面根本不带这个全局」，本线 `dsh-experimental-server-base` 在登录门之后的 served index 里注入 `__DSH_TRANSPORT__ = { ownsHost: true }`，上游代码照读这个全局，注释却把本线的用法写成不可能的情况；注释在上游声明处，插件层改不到。
+- **要达到的效果**：契约文字写明两类声明方（自带 worker 的外壳、由门控决定谁能访问的部署）以及代价：不移动任何服务端检查，门控放进来的每个访客拿到同样的特权面。
+- **退役条件**：上游契约文字承认 served 页面也可以声明 `ownsHost`，或本线不再注入该载体。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 仍是原句。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`connection/src/client/index.ts` 的包头注释去掉 `base.ts` 的再导出与前缀一句，只保留 `ownsHost` 的说法。
+- **路径**：`packages/client/connection/src/client/index.ts` `packages/client/ui-settings-general/src/client/settings-document-store.ts` `packages/client/web/src/boot.ts`
+
+## approval-reason-line-breaks — 审批理由保留自己的换行
+
 - **改了什么**：`packages/client/ui-approval/src/client/ApprovalPanel.module.css` 的审批标题规则加 `white-space: pre-line`；`packages/client/ui-approval/README.{md,zh.md}` 的维护者说明写明这一点。
-- **为什么**：本线 `dsh-experimental-component-surface` 的审批理由自带换行：`show_component` 的 `dataSource` 卡把每张表在后端的名字写成单独一行 `\n数据表：<name>`，一张卡描述两张表时中间空一行；`toy.crud` 卡在自己那句话下面写同样的标识行。上游标题规则把这些换行都折叠成空格，标识符接进上一句，两条请求读成一段。样式在 CSS Modules 里，类名构建时散列，外部样式表没有稳定选择器可挂；`ui-approval` 也没有渲染理由文本的插件座位。
-- **要达到的效果**：审批面板照理由原样分行显示，连续空格仍折叠；只想写一段的理由写成一行即可。
-- **退役条件**：上游的审批标题保留换行（`dsh-v0.1.7-rc.1` 的该文件无 `pre-line`），或本线的审批理由不再依赖换行排版。
-- **状态**：在役。
+- **为什么**：本线 `show_component` 的 `dataSource` 卡与 `toy.crud` 卡的审批理由按行写后端表名，上游标题规则把换行折叠成空格；样式在 CSS Modules 里，类名构建时散列，没有外部选择器可挂，也没有渲染理由文本的插件座位。
+- **要达到的效果**：审批面板照理由原样分行显示，连续空格仍折叠。
+- **退役条件**：上游审批标题保留换行，或本线审批理由不再依赖换行排版。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 的该文件无 `pre-line`。
+- **路径**：`packages/client/ui-approval/README.*` `packages/client/ui-approval/src/client/ApprovalPanel.module.css`
 
-### D. feat(experimental): group the sidebar's workflows, pin a group, and gather unsaved conversations under 临时工作流 — a9f14c57ed（该提交的一处）
+## client-library-config-export — 导出 client 库的 tsdown 配置函数
 
-- **拟用 slug**：`client-library-config-export`
-- **改了什么**：`packages/client/tsdown.client.ts` 的 `clientLibraryConfig` 从模块私有改为 `export`，并补 JSDoc。
-- **为什么**：`packages/experimental/server-sidebar/tsdown.config.ts` 需要把 `lib/types/invariant.js` 作为独立的单入口 bundle 产出：两入口一起构建时 tsdown 会把共享模块提成带哈希名的 chunk，而精确的 `files` 列表发布不了它。依赖规则写在这个上游构建辅助模块里，不导出就只能在本线整段复制一份，复制后既会漂移又会被 `duplication` 门禁报克隆。
-- **要达到的效果**：本线包复用上游同一套 client 库依赖规则来产出单入口伴随 bundle，行为与上游包一致。
-- **退役条件**：上游自己导出该函数（`dsh-v0.1.7-rc.1` 仍未导出），或 `server-sidebar` 不再需要分开构建的伴随入口。
-- **状态**：在役。
+- **改了什么**：`packages/client/tsdown.client.ts` 的 `clientLibraryConfig` 从模块私有改为 `export` 并补 JSDoc。
+- **为什么**：`server-sidebar` 要把 `lib/types/invariant.js` 作为独立单入口 bundle 产出（两入口一起构建会被提成带哈希名的 chunk，精确 `files` 列表发布不了）；不导出就只能整段复制上游依赖规则。
+- **要达到的效果**：本线包复用上游同一套 client 库依赖规则。
+- **退役条件**：上游自己导出该函数，或 `server-sidebar` 不再需要单独构建的伴随入口。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 仍未导出。
+- **路径**：`packages/client/tsdown.client.ts`
 
-### E. 本线自有包在上游根配置、门禁与索引表里的登记 — 多提交（`6fbc815208` 起，含 `93fdd58fba`、`c3af011f1e`、`ec1f88620d`、`1ebcc29985`、`fc6a589bd2`、`37b58e6903`、`468be44991` 等）
+## experimental-package-gate-registration — 本线实验包在上游根配置、门禁手写表与索引页里的登记
 
-- **拟用 slug**：`experimental-package-gate-registration`
-- **改了什么**：只增行，不改上游已有行。
-  - TypeScript 聚合：`tsconfig.base.json`（本线实验包的 `paths` 别名）、`tsconfig.client.json`（除上面 `e72dec971a` 已登记的一行外，其余是本线 client 包的引用与 CSS Modules 声明）、`tsconfig.host.json`（本线 host 包的引用）；`apps/web/tsconfig.json` 的 `exclude` 列出本线的 e2e 与辅助文件。
-  - 根 `package.json`：`devDependencies` 声明 console 线的四个插件（`93fdd58fba`，从 `apps/cli` 搬到根，保持发布 CLI 的依赖不变）。
-  - 门禁里的手写表：`scripts/check-workspace-constraints.ts` 的 `packageFileExtras`（`component-surface` 的哈希 chunk、`library-skills` 的 `skills` 目录）；`scripts/gen-cordis-catalog.ts` 的 `SERVICE_PAGE`/`LINK_MAP`/`TYPE_LINK_EXEMPTIONS`（`contentSurface`、`bizBackend` 及其类型）；`scripts/gen-doc-graphs.ts` 的 `SERVICE_ROLES`；`scripts/verify-package-readme-model-experience.ts` 的九个本线包；`scripts/type-equiv.manifest.json` 的 `content-surface` 三个类型；`scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加 `experimental`（`e72dec971a` 一条记的就是这次扩组照出来的上游缺口）。
-  - 索引页：`docs/subsystems/README.{md,zh.md}` 加 `content-surface.md`、`biz-backend.md` 两行；`packages/experimental/README.{md,zh.md}` 加本线实验包的行。
-- **为什么**：这些都是上游门禁与生成器里手写的全量表，要求仓内每个工作区包、每个 Context 服务都被点名，否则 `typecheck`、`constraints`、`doc-sync` 直接失败；仓库没有让一个包自己登记进这些表的扩展点。本线的实验包住在上游工作区里，就必须出现在这些表上。
-- **要达到的效果**：本线的实验包与上游包受同一套构建、类型、目录与文档门禁约束，不靠豁免过关。
-- **退役条件**：只要这些包还在本仓工作区内，本族就一直存在，属于结构性常驻；真正的退役路径是把这些包移出仓库（作为仓外插件以 tarball 形式引入），或上游门禁改为从包元数据推导这些表。`feat/skill-pack-v0` 还会给同一批表再加行（`console-mcp`、`skill-pack`、`skill-pack-components`、`system-map`），合并进本线时一并记在本族下。
-- **状态**：在役。
+- **改了什么**：只增行，不改上游已有行。TypeScript 聚合：`tsconfig.base.json` 的 `paths`、`tsconfig.client.json` 的 client 包引用与 CSS Modules 声明、`tsconfig.host.json` 的 host 包引用、`apps/web/tsconfig.json` 的 `exclude`。根 `package.json` 的 `devDependencies` 声明 console 线的四个插件。门禁手写表：`scripts/check-workspace-constraints.ts`、`scripts/gen-cordis-catalog.ts`、`scripts/gen-doc-graphs.ts`、`scripts/verify-package-readme-model-experience.ts`、`scripts/type-equiv.manifest.json`、`scripts/client-tsconfig.spec.ts`（`clientGroups` 加 `experimental`）。索引页：`docs/subsystems/README.*`、`packages/experimental/README.*`。随之由生成器写出、又不在生成物豁免集里的：`packages/core/session/src/known-event-types.ts`、`docs/module-graph.*`、`docs/capability-seams.zh.md`（人工对侧）、`docs/persistence-changes/historical-formats/README.*`（V4 行的根数与类型数）、`packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md`（`gen-plugin-packages` 列出本线包，这份参考是模型可读的 SKILL 资料）。
+- **为什么**：这些是上游门禁与生成器里手写或扫描全工作区的全量表，不点名就 `typecheck`、`constraints`、`doc-sync` 失败；仓库没有让包自己登记进去的扩展点。
+- **要达到的效果**：本线实验包与上游包受同一套构建、类型、目录与文档门禁约束，不靠豁免过关。
+- **退役条件**：结构性常驻；把这些包移出仓库（仓外 tarball 引入），或上游门禁改为从包元数据推导这些表。
+- **状态**：在役（`product/server-console`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
+- **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
-### F. feat(experimental): run the original toy components through a compatibility seam — vendored tarball, one shared Vue — 0de1bdb52a（+ `ae987eac77`、`a55d52b30a`）
+## agent-team-css-face-in-client-aggregate — Client 聚合加载 Agent Teams 的 CSS 模块声明
 
-- **拟用 slug**：`vendored-component-kit-gates`
-- **改了什么**：
-  - `scripts/gen-third-party-notices.{ts,spec.ts}`：`FIRST_PARTY` 从集合改为带披露方式的映射，加入 `@sumomok/toy-surface-kit`、`@sumomok/toy-crud-kit`；`bundled-manifest` 类载荷必须自带 `BUNDLED.json` 声明其编进 bundle 的第三方库，缺失或为空即报错；新增 `payloadRuntimeDeps`/`readBundledManifest`；`OVERRIDES` 补 `randomcolor`（`CC0` 不是 SPDX 标识）与 `element-ui`（scp 风格仓库地址）；`normalizeRepo` 处理 `git@host:` 与 URL 里的账户名。
-  - `scripts/publint-all.{ts,spec.ts}`：只对 `packages/experimental/` 下的包豁免 publint 的 `LOCAL_DEPENDENCY` 一条消息。
-  - `pnpm-workspace.yaml`：`packageExtensions` 给 `vitepress-plugin-mermaid` 补 `vue ^3.5.13` peer；`allowBuilds` 拒绝 `core-js` 的安装脚本。
-  - `packages/client/ui-theme/tests/stylesheet-scan.ts`：`VENDORED_STYLESHEETS` 把原样拷入的 element-ui 主题表排除在样式契约扫描之外，并断言该文件仍存在（`a55d52b30a`）。
-- **为什么**：本线的组件行用 `file:` 引入仓外构建的 tarball，并把 Vue 2 与 element-ui 拉进工作区。上游这几道门禁是按「仓内包都从 registry 发布、第三方代码都出现在 lockfile」写的：publint 把 `file:` 依赖报成错误；许可证生成器不认识 tarball 里编进去的第三方库，不改就漏披露；pnpm 的 hoist 让文档站按 Vue 2 解析 mermaid 插件的 `vue`，VitePress SSR 构建失败；样式契约扫描会把 element-ui 的原样主题表当成本产品自己写的样式来判。四处都是脚本里写死的判定或根配置，插件层碰不到。
-- **要达到的效果**：vendored tarball 的第三方代码照样被披露（缺声明就报错而不是静默算零）；豁免只覆盖不发布的 `packages/experimental/` 与 publint 的那一条消息；文档站构建与 install 不受本线依赖影响；样式契约只管本产品自己写的样式表。
-- **退役条件**：`@sumomok/toy-*-kit` 改为从 registry 发布的包或移出本仓，且 Vue 2/element-ui 不再进入工作区；或上游门禁自己学会处理 `packages/experimental/` 下的本地依赖与 vendored 样式。`dsh-v0.1.7-rc.1` 里这几处都还没有对应能力。
-- **状态**：在役。
+- **改了什么**：`tsconfig.client.json` 的 `include` 加 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 一行。
+- **为什么**：上游自己的缺口：`client-ui-agent-team` 只在聚合里加了 project 引用，没有把 CSS 模块声明写进 `include`；上游 `scripts/client-tsconfig.spec.ts` 只查 `client` 与 `extensions` 两组，看不到它，本线把检查扩到 `experimental` 后照出来。
+- **要达到的效果**：`experimental` 组的 client 包在同一条规则下受检，不为过门禁豁免上游包。
+- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 的该段 `include` 仍只有 `ui-cordis` 一行。
+- **路径**：`tsconfig.client.json`
 
-### G. test(snapshots): re-home the console lane as snapshots/console over the acp profile — 605849b7b9（+ `1ebcc29985` 的 `afterSpawn`，经合并 `c4ea4c4ba0` 落地）
+## vue2-jsx-trajectory-cell-wrapper — trajectory 单元格测试包装改用 createElement
 
-- **拟用 slug**：`console-snapshot-lane`
-- **改了什么**：
-  - `packages/test-support/session-snapshot/src/{harness.ts,suite.ts}` 与 `tests/{harness,suite}.spec.ts`：`RunOptions`/`Scenario` 新增可选 `afterSpawn`，在 agent 进程起来之后、第一步输入之前执行，处于场景的失败即拆除范围内。`1ebcc29985` 原本写在当时的 `acp-snapshot` 包上，rc.1 上游把它并进 `session-snapshot` 后由合并 `c4ea4c4ba0` 移植过来。
-  - `scripts/session-snapshot-corpus.corpus.ts`：`profiles` 常量改为 `profileByLane` 映射，加入 `console` 通道（跑 `acp` profile），并登记 `snapshots/console/console.snapshot.ts` 适配器；ACP 专属文件的判定改看场景声明的 profile。
-  - `docs/testing.{md,zh.md}`：一句话写明「组合补丁挂在已发布 profile 上的通道单独占一个语料目录」，以 `snapshots/console/` 为例。
-- **为什么**：console 的录制会话场景需要先向组合里的路由提交凭据，才能走到需要凭据的数据行；这类状态只有进程起来后才存在，上游 harness 只有进程起来之前的 `prepareWorkspace`。语料门禁把目录名与 profile 写死成一一对应，一个跑 `acp` profile 但带自己组合补丁的通道放不进去。两处都是上游测试基建的源码，没有扩展点。
-- **要达到的效果**：console 通道的录制会话场景和上游四个通道一样受语料门禁约束（所有权、钉版本、脱敏、表头清洗），`afterSpawn` 抛错时照常拆掉子进程。
-- **退役条件**：上游 harness 提供进程起来后的准备钩子，且语料门禁支持通道目录与 profile 解耦（`dsh-v0.1.7-rc.1` 两者都没有）；或 console 通道移出本仓。
-- **状态**：在役。
+- **改了什么**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx` 的测试包装函数由 JSX 展开改为 `createElement(LocalizedTrajectoryCell, { ...props, t })`，行为不变。
+- **为什么**：本线 `vue2-echarts-poc` 钉 Vue 2.7，其类型入口无条件加载 `vue/types/jsx.d.ts`，`declare global` 给 `JSX.IntrinsicAttributes` 加 `slot?: string` 与 `ref`；它进入同时编译 `packages/client` 的 Client 聚合，在 `exactOptionalPropertyTypes` 下拒绝这处展开。
+- **要达到的效果**：`createElement` 按 `React.Attributes` 校验，程序里有没有 Vue 包都类型正确。
+- **退役条件**：Vue 2.7 的全局 JSX 声明不再进入 Client 聚合（Vue 探针包另有编译面，需要先做架构决定：`docs/development.md#typescript-project-layout` 只设 Host／Client 两个聚合）。机械判定：还原成 JSX 展开后 `tsc -b tsconfig.client.json` 不再报该行。
+- **状态**：在役（`product/server-console`）。同一冲突在本轮扩大且未处理：`dsh-v0.1.7-rc.2` 的 `ui-chat/tests/turn-navigator.client.spec.tsx`（两处）、`ui-primitives/tests/atoms.client.spec.tsx`、`ui-primitives/tests/menu-surface.client.spec.tsx` 在 JSX 上传 `ref`，被 Vue 2.7 的全局 `ref?: VNodeRef` 拒绝（`TS2322`）。进入路径：`vue2-echarts-poc` 与 `component-kit` 的 client spec 及其 `lib/types/client/*.d.ts` 导入 `vue`。候选做法是仿上游 `tsconfig.desktop-keyboard-tests.json` 给 Vue 2 探针单开一个测试程序，待决定。
+- **路径**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx`
 
-### H. web 测试脚手架的三处增补 — `a904096852`、`47431f46f5`（+ `65718089d6`、`fd56b928f6`、`3a2f0ec49d`）、`a557edef47`
+## vendored-component-kit-gates — vendored 组件 tarball 与 Vue 2／element-ui 在上游门禁里的处理
 
-- **拟用 slug**：`web-test-scaffold-console`
-- **改了什么**：`apps/web/tests/scaffold.ts`：桩模型目录加 `deepseek-v4-flash-vision-exp`（声明图像输入，`a904096852`）；`recordFixture` 新增 `afterSeed` 选项与 `withoutSeededHistory`/`afterSeededHistory`，录制时剪掉场景预置的历史（`47431f46f5` 及其文档跟进）。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口与语言设置（`a557edef47`）。
-- **为什么**：本线的内容栏 e2e 要把读图工具路由到声明图像输入的模型；要在同时预置历史又驱动一轮的场景里录制可回放的 fixture（回放引擎按首次调用顺序绑定脚本，预置轮会被错配给第一次调用）；登录门场景要在同一 context 里开第二个同源标签页共享 `localStorage`。这些辅助函数都在上游 `apps/web/tests` 里，本线的 e2e 直接复用上游 web 测试脚手架，没有另起一套。
-- **要达到的效果**：本线的浏览器场景复用上游的起壳、录制与回放机制，而不是分叉一份脚手架。
-- **退役条件**：视觉模型那一处在 `dsh-v0.1.7-rc.1` 的 `scaffold.ts` 里上游已自带同名条目，换基时取上游侧即退役；`afterSeed` 与 `newEnglishContext` 要等上游提供等价能力或本线场景移出本仓。上游 `eeb9b03465` 也改了 `scaffold.ts`（85 行改动），换基时这里会冲突。
-- **状态**：在役（视觉模型条目随基座 0.1.7 并入时退役）。
+- **改了什么**：`scripts/gen-third-party-notices.{ts,spec.ts}` 的 `FIRST_PARTY` 改为带披露方式的映射并要求 `bundled-manifest` 载荷自带 `BUNDLED.json`，`OVERRIDES` 补 `randomcolor` 与 `element-ui`，`normalizeRepo` 处理 `git@host:` 与账户名；`scripts/publint-all.{ts,spec.ts}` 只对 `packages/experimental/` 豁免 publint 的 `LOCAL_DEPENDENCY`；`pnpm-workspace.yaml` 给 `vitepress-plugin-mermaid` 补 `vue ^3.5.13` peer、拒绝 `core-js` 安装脚本；`packages/client/ui-theme/tests/stylesheet-scan.ts` 把原样拷入的 element-ui 主题表排除在样式契约扫描之外。
+- **为什么**：本线组件行用 `file:` 引入仓外 tarball，把 Vue 2 与 element-ui 拉进工作区；上游这几道门禁按「仓内包从 registry 发布、第三方代码都在 lockfile」写死，插件层碰不到。
+- **要达到的效果**：vendored 第三方代码照样被披露（缺声明就报错），豁免只覆盖不发布的 `packages/experimental/`，文档站构建与 install 不受本线依赖影响，样式契约只管本产品自己写的样式表。
+- **退役条件**：`@sumomok/toy-*-kit` 改为 registry 包或移出本仓，且 Vue 2／element-ui 不再进入工作区；或上游门禁自己处理这些情况。
+- **状态**：在役（`product/server-console`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`gen-third-party-notices.ts` 的 `FIRST_PARTY` 改用上游的 `node-addon-system` 包名，`collectNpmDeps` 接上游的浏览器分层参数，`renderBundled` 放在 `renderClaudeDistribution` 之前；`stylesheet-scan.ts` 以上游 `packageFiles(accepts)` 为底接回排除；`publint-all.spec.ts` 的 vendored tarball 用例改为 await 上游的异步 `run`；桌面删除后 `OVERRIDES` 里 desktop-server tarball 的条目与 `node-pty` 覆盖一起删掉。
+- **路径**：`packages/client/ui-theme/tests/stylesheet-scan.ts` `pnpm-workspace.yaml` `scripts/gen-third-party-notices.spec.ts` `scripts/gen-third-party-notices.ts` `scripts/publint-all.spec.ts` `scripts/publint-all.ts`
 
-### I. docs: point every examples/content-console reference at snapshots/console — c8fbc669f0（该提交的一处）
+## console-snapshot-lane — console 录制会话通道 snapshots/console
 
-- **拟用 slug**：`doc-budget-dead-examples-target`
-- **改了什么**：`docs/AGENTS.md` 的字数预算目标列表删掉 `examples/AGENTS.md 310` 一项。
-- **为什么**：这是**上游自己的死引用**：基座 `76fda72979` 与 `dsh-v0.1.7-rc.1` 都没有 `examples/AGENTS.md`，也没有 `examples/` 目录。本线的提交在清理 `examples/` 残留时顺手删了它。
+- **改了什么**：`packages/test-support/session-snapshot/src/{harness.ts,suite.ts}` 与 `tests/{harness,suite}.spec.ts`：`RunOptions`／`Scenario` 新增可选 `afterSpawn`，在 agent 进程起来之后、第一步输入之前执行；`scripts/session-snapshot-corpus.corpus.ts` 的 `profiles` 改为 `profileByLane` 映射并加入跑 `acp` profile 的 `console` 通道；`docs/testing.{md,zh.md}` 一句话写明组合补丁挂在已发布 profile 上的通道单独占一个语料目录。
+- **为什么**：console 场景要在进程起来后先向路由提交凭据，上游 harness 只有进程起来之前的 `prepareWorkspace`；语料门禁把目录名与 profile 写死成一一对应。
+- **要达到的效果**：console 通道与上游通道受同一语料门禁约束，`afterSpawn` 抛错时照常拆掉子进程。
+- **退役条件**：上游 harness 提供进程起来后的准备钩子且语料门禁支持通道目录与 profile 解耦，或 console 通道移出本仓。
+- **状态**：在役（`product/server-console`）。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`snapshots/console/cordis.yml` 的 `system-prompt` 配置 `persona` 改为上游改名后的 `personaPrefix`。已录的 12 个场景夹具是 V4 之前录的：keyless 回放 12 个场景全部与期望输出不符，夹具头检查报「pinning fixture 必须恰好带一条 system 消息」；按本通道规则需要带 key 重录（`pnpm run test:snapshot:record`），本轮没有重录。
+- **路径**：`docs/testing.*` `packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/suite.ts` `packages/test-support/session-snapshot/tests/harness.spec.ts` `packages/test-support/session-snapshot/tests/suite.spec.ts` `scripts/session-snapshot-corpus.corpus.ts`
+
+## web-test-scaffold-console — web 测试脚手架的增补
+
+- **改了什么**：`apps/web/tests/scaffold.ts`：`recordFixture` 新增 `afterSeed` 选项与 `withoutSeededHistory`／`afterSeededHistory`，录制时剪掉场景预置的历史；回放模型目录旁一段注释说明视觉路由为什么要发布。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口、语言与时区。
+- **为什么**：本线的内容栏 e2e 要在同时预置历史又驱动一轮的场景里录可回放夹具（回放按首次调用顺序绑定脚本，预置轮会错配给第一次调用）；登录门场景要在同一 context 里开第二个同源标签页。
+- **要达到的效果**：本线浏览器场景复用上游的起壳、录制与回放机制，不分叉脚手架。
+- **退役条件**：上游提供等价能力，或本线场景移出本仓。
+- **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；只剩本线那段注释。本轮 `stableSessionFixture` 以上游的世代感知录制为底，把 `afterSeed` 的剪裁作为 `keep` 参数接进 `prepareSessionSnapshotFixtureForComparison` 之前；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。
+- **路径**：`apps/web/tests/scaffold.ts` `apps/web/tests/support.ts`
+
+## doc-budget-dead-examples-target — 删掉字数预算里不存在的 examples/AGENTS.md
+
+- **改了什么**：`docs/AGENTS.md` 的预算目标列表删掉 `examples/AGENTS.md 310`。
+- **为什么**：上游自己的死引用：基座 tag 里没有 `examples/` 目录。
 - **要达到的效果**：预算目标只列真实存在的文件。
-- **退役条件**：上游自己删掉这一项（`dsh-v0.1.7-rc.1` 仍在），或换基时直接取上游侧放弃这一行改动（它不影响任何门禁结果）。
-- **状态**：在役。
+- **退役条件**：上游删掉这一项，或合并时直接取上游侧放弃这一行（不影响任何门禁）。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 仍列这一项。
+- **路径**：`docs/AGENTS.md`
 
-## rc.26 合并事故复核：`e6991dfba2` 手工解析删掉了两个父都有的内容（已修）
+## product-sealed-referent-notes — 本线归档清单里的两份 referent Note
 
-`rc26-integration` 的大合并 `e6991dfba2`（父1 `44fd5de259` develop、父2 `1988f0dca5` core-patches-v2）对 **71 个文件**留下了 combined-diff hunk（结果与两个父都不同 = 纯手工决定）。逐个做三方核对（对比合并基 `b150a551b8` 与两父、并用 `git merge-file` 还原「机械三方合并本应产出的结果」）后的判定：
+- **改了什么**：`.agents/notes/archived/manifest.json` 在 `core-patches` 的条目之外保留 `feature/2026-08-28-chat-prose-referents-seam.*` 与 `feature/2026-08-28-file-attachment-bubble-and-referent-seam.*` 六个条目，对应文件留在 `.agents/notes/archived/feature/`。
+- **为什么**：本线基线已把这两份 Note 封存进归档清单；`verify-archived-agent-notes` 以 HEAD 清单为基线，已封存的条目不能删除。
+- **要达到的效果**：归档门禁在本线通过，归档 Note 冻结不改。
+- **退役条件**：`core-patches` 的归档清单自己收录这两份 Note，或本线决定按归档政策删除它们。
+- **状态**：在役（`product/server-console`）。
+- **路径**：`.agents/notes/archived/manifest.json`
 
-- **54 个文件：git 本可干净自动合并，结果却偏离机械合并**，且偏离几乎全是纯删除（101 删 / 16 增）。删掉的是两侧已有的 `oxlint-disable`／`eslint-disable` 抑制注释及其理由文字，共 87 处，直接造成全仓 `pnpm run lint` 的 159 个 error 里的 154 个——**没有一个是真缺陷**，全是被抑制的模式在抑制消失后重新报警。最典型的是 `packages/client/ui-slots/src/index.ts`：两个父都带着同一段五行说明（`keyof SlotMap & string` 是声明合并的键模式，SlotMap 在本编译单元里是空的所以交叉读作 `never`，规则命中的是空 map 视图而非真冗余），合并结果一行不剩，该规则随即报 38 次。
-- **9 个文件有真冲突**，必须手工解析：`MarkdownText.tsx`／`render.tsx`／`attachment-local` 的 `index.ts`/`store.ts`／`test-invariants.ts` 与四个 `.i18n.yaml`。除抑制注释外逐行核对，**未发现非预期丢失**——`MarkdownText.tsx` 里看似缺失的 develop 行是 `codeLabels`→`labels` 上游重命名后的旧拼法（该重命名已在 `ae19472402` 移植条目里记载），`test-invariants.ts` 的 `fileLimits` 值差异来自刻意的 `5ba7bc7b63`（把文件附件抽象成员在每个 `AttachmentStore` 测试替身上打桩），`.i18n.yaml` 的差异是翻译配对哈希的正常重录。
-- **8 个文件结果与机械三方合并逐字节相同**，无手工偏离：`THIRD_PARTY_NOTICES.md`、`apps/web/tsconfig.json`、`packages/client/ui-attachment/package.json`、`scripts/translation-pairing.spec.ts`、`docs/persistence-catalog.{md,zh.md}`、`docs/subsystems/attachment.{md,zh.md}`。
-- **同类先例**：`apps/web/tests/image-display.expected.e2e.ts` 的遮罩文案回退（已由 `3ca776cc48` 修复）正是同一次合并同一类失手的另一个实例，当时并未识别出它属于系统性模式。
+## 历史轮次
 
-**修法**：抑制注释按「逐字取自持有它的父提交」脚本化还原，两道机械护栏逐文件校验——(1) 把本次改动碰过的行全部去掉后必须逐字还原改动前的文件，(2) 每一行被碰过的内容必须与该父提交的某一行逐字节相同。产出两个提交（`oxlint-` 与 `eslint-` 两种写法，第一遍的检测器只匹配了前者）：58 文件 / 102 行插入 / 3 行改写（那 3 行是重新获得行尾 `// oxlint-disable-line` 注释的语句）。**未新造任何抑制**。全仓 lint 由 **159 → 5**。
+本线由 `core-patches-v1` 起逐轮变基而来，到 `core-patches-v11` 为止；此后改为合并上游发布。变基那些轮次的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
 
-**遗留 5 项（不属本次合并，未修）**：全在 `apps/desktop/tests/`（`profile-seed.spec.ts` 2 项 `no-unnecessary-type-assertion`、`render-service.spec.ts` 2 项 `no-unsafe-assignment` + 1 项 `no-unnecessary-template-expression`）。这两个文件不在合并的 71 个之列。真因是 **`apps/desktop/tests` 不属于任何 TypeScript 工程**——`apps/desktop/tsconfig.json` 的 `include` 只有 `["src"]`（develop 上同样如此），全仓没有任何 tsconfig 引用 `apps/desktop`，于是 type-aware lint 只能在一个降级的默认程序上给它做类型判断：`WITHDRAWN_WEB_BUNDLES[0]!` 在基座 `noUncheckedIndexedAccess: true` 下本是必需的断言，在那个降级程序里却被判为多余；`no-unsafe-assignment` 同理来自导入解析成 `any`。**因此删掉 `!` 会反过来弄坏 `tsc`**，不是机械修复。正确修法是把 `apps/desktop/tests` 纳入某个 TypeScript 工程（会让一整套此前从未被类型检查的测试首次接受检查）或给该路径加 lint 覆盖配置，两者都是配置/策略决策，留待拍板。
+### 只活在 develop 的核心路径改动
 
-## rc.26 同步二阶段 B 族收尾：基座环境敏感测试红（不修，仅记录）
-`pnpm run test`（全仓）在本次 B 族收尾扫描中发现 3 项稳定红，与 Family A/B 的任何提交均无关（`git log --oneline 8c87b9ef19..HEAD -- <各自文件>` 均为空，两族从未触碰这三个文件），去沙箱（`dangerouslyDisableSandbox: true`）复现结果相同，单独重跑一次结果依旧相同——三次独立复现（全量套件、去沙箱、单文件隔离跑）结果完全一致，均判定为**稳定红（非抖动）**，不是间歇性失败：
-- `scripts/benchmark-npm-resolution.spec.ts` › `npm resolution benchmark > force-kills a timed-out process tree`：`Error: child reported invalid pid`——子进程树 PID 上报在本环境不可见。
-- `scripts/oxlint-contract.spec.ts` › `Oxlint executable contract > preserves successful fix output channels`：`expect(result.stderr).toBe('')` 失败——`NO_COLOR`/`FORCE_COLOR` 环境变量冲突产生的 Node 子进程告警泄漏进 stderr。
-- `packages/spill/spill-local/tests/spill-local.spec.ts` › `startup cleanup sweep > keeps a file exactly at the boundary (only strictly-older expires)`：mtime 边界精度断言失败。
+下面三处改动碰的是核心路径，却不登记成 slug 记录：它们要么只服务 fork 的产品外壳，要么应当离开核心路径，不随本线同步。
 
-三项均判定为**基座环境敏感项**（进程 PID 可见性、子进程环境变量继承、文件系统 mtime 精度，均为宿主环境特征而非代码逻辑），本次不修。留待周三验证矩阵重验（换宿主/CI 环境复核是否同样红，以判断是否需要修正测试本身的环境假设）。
+- **fork 产品门禁一族**：桌面外壳需要的门禁并集段、几个新增脚本文件和 electron-updater 补丁。它们只在 develop 上，按 develop 合并时的 allowlist A 处理：并集文件取本线的版本，再加上且只加上为该文件列出的 fork 段。其中新增的文件宜迁到 `apps/desktop-shell/` 下，迁走后就不再碰核心路径。
+- **`docs/cookbook/adding-a-tool` 里的「How your tool reaches the model」一节**：迁到 fork 自有文档 `.claude/tool-copy-rules.md`，`.claude/CLAUDE.md` 的链接改指过去，核心文件回到本线的版本。
+- **上游 Note `2026-08-18-session-history-and-event-transport` 里删掉的那一句**：develop 回到本线的版本。订正本身成立（上游的 `packages/` 里已经没有 `HostFrame`），应当作为 PR 提给上游，而不是作为补丁留在 fork。
 
-## chore(bundle): disable session-telemetry-otel by default — a426a88c90
-- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 条目新增 `disabled: true`（`config` 块保留未删，供 `DSH_TELEMETRY_MODE`/`DSH_TELEMETRY_OTLP_URL` 说明用途）；`base.spec.ts` 新增该行 `disabled: true` 的断言；`apps/desktop/src/server.ts` 的 `startServer` 额外在内置服务器 spawn 环境上无条件设置 `DSH_TELEMETRY_DISABLED: '1'`（`spec.env` 仍可覆盖），叠加上游既有的 `apps/cli/src/profile-boot.ts::resolveTelemetryPatch` 环境变量开关；`server.spec.ts` 新增脚本化子进程测试覆盖默认值与覆盖场景。
-- **状态**：在役。本 fork 的产品决定：出厂即零会话遥测出站，不依赖用户是否触发反馈或设置 `DSH_TELEMETRY_MODE`。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
-- **副作用与处置（rc.28 集成，2026-09-02）**：出厂关闭让 `apps/web` 的 `feedback-command`/`feedback-release` 两个组装场景全红三条——`Session sharing is enabled.`、`Session sharing is feedback-gated; …`、以及 `expect.poll(() => uploads.length).toBe(1)` 的真实上报计数。**未按「fork 出厂态重录金样」处置**：`feedback-release` 断言的是记录真的抵达采集端，行关掉后该场景没有主语可断言；`feedback-command` 存在的目的就是钉住 FULL 那句。重录会把这两条上游能力覆盖直接抹掉，而不是换成 fork 保真。改法是 `apps/web/tests/scaffold.ts`：**场景显式钉了 `telemetryUrl` 时，patch 一并带 `disabled: false`**——不钉端点仍旧关闭（没有任何场景会打到真采集端），出厂默认一字未改，金样零改动，两场景 7/7 转绿。fork 真实出厂那句 `Session sharing is not configured.` 由 `packages/feedback/command-feedback/tests/command-feedback.spec.ts` 的单测钉住（该文件自述覆盖「无遥测服务」分支），README 的状态表亦有记载。**上游若重录这两份金样**，须确认重录环境同样显式钉了端点，否则录到的是 fork 的关闭态。
+develop 台账里 rc.26–rc.33 的集成审计、gateway 和 vendoring 历史不搬进本文件：那份台账含大量本仓提交哈希，`verify-repository-references` 不允许它们出现在维护中的文件里。需要时用 `git show desktop-v0.1.0-rc.33:.claude/core-patches.md` 取回。
 
-## chore(bundle): disable plugin-package-inventory-deepseek by default — a426a88c90
-- **改了什么**：`packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 各自的 `plugin-package-inventory-deepseek` 条目均新增 `disabled: true`；`base.spec.ts`/`sdk-minimal.spec.ts` 新增对应断言。
-- **状态**：在役。本 fork 的产品决定：出厂即零已装插件清单上报给 DeepSeek 官方 API。该插件没有等价的环境变量开关（`DSH_TELEMETRY_DISABLED` 只覆盖 `session-telemetry-otel`），`disabled: true` 是唯一关闭途径。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
+### 基座环境敏感的稳定红（不修，仅记录）
 
-**复核补遗(Fable 独立复核,2026-09-01)**:还原脚本在三处(subagent×2、core/tools×1)把两父各自措辞的同一条 `no-misused-promises` 抑制都插了回去,叠行首条报 unused directive——已去重,保 alpha.2 父措辞。遗留 5 项拍**乙案**:`.oxlintrc.json` 给 `apps/desktop/tests/**` 加窄例外(仅关三条误报的 type-aware 规则,注释记载真因:无工程背书的降级默认程序与 tsconfig.base 语义相悖);**甲案(把 apps/desktop/tests 纳入 TypeScript 工程)列为 rc.26 后续项**,届时删此例外。
+`core-patches-v2` 那一轮的全仓 `pnpm run test` 扫出三项稳定红，与任何补丁提交无关（三次独立复现——全量套件、去沙箱、单文件隔离跑——结果完全一致，不是抖动）：
 
-**退役(2026-09-02,甲案落地)**:`.oxlintrc.json` 的 `apps/desktop/tests/**` 例外已删除,`scripts/lint-rule-fingerprint.spec.ts` 的 override 条数钉回 9;两个文件均与上游逐字节一致。依据:`tsconfig.host.json` 的 include 加入 `apps/desktop/src/**/*.ts`、`apps/desktop/scripts/**/*.ts` 与 `apps/desktop/tests/**/*.ts`(与已有的 `scripts/**/*.ts`、`website/**/*.ts` 同型:私有不发布的源码树直接并入 noEmit 聚合面,**不加 Project Reference**),oxlint 对 tests 与 scripts 两个目录由 `Got tsconfig for file …: <none>` 变为 `…/tsconfig.host.json`(`src` 仍归更具体的 `apps/desktop/tsconfig.json`,与此前一致),三条规则在真实程序上判断后误报归零,另查出三处真缺陷(两处 `expect.any(Number)` 落进 `maxAgeMs: number`、一处多余模板串),已在 `apps/desktop/tests/render-service.spec.ts` 修好而非抑制。**不可用 reference**:`scripts/clean.ts:135-139` 要求 Project Reference 图里每个工程的 `outDir` 以 `/types` 结尾,而 `apps/desktop` 的 `outDir` 是发货运行时目录 `lib`(`main: lib/main.js`),加 reference 会让整仓 `pnpm run clean` 在 `plan()` 阶段抛错。**遗留的 fork 增量**:`tsconfig.host.json` 的这三条 include(`apps/desktop` 是 fork 独有,上游不会自带);**退化条款**:上游若自己把 `apps/desktop` 纳入某个聚合面,或本 fork 不再拥有该目录,则本增量退役。详见 Agent Note `.agents/notes/implemented/process/2026-09-02-desktop-tests-join-host-aggregate.md`。
+- `scripts/benchmark-npm-resolution.spec.ts` › `force-kills a timed-out process tree`：`child reported invalid pid`，子进程树 PID 上报在该宿主上不可见。
+- `scripts/oxlint-contract.spec.ts` › `preserves successful fix output channels`：`NO_COLOR`/`FORCE_COLOR` 冲突产生的 Node 子进程告警泄漏进 stderr。
+- `packages/spill/spill-local/tests/spill-local.spec.ts` › `keeps a file exactly at the boundary`：mtime 边界精度断言失败。
 
-**rc.26 打包期缺陷(Fable 亲修,2026-09-01)**:staged boot 双缺陷——① alpha.2 给 subagent/session-controller 新增 peer `dsh-util-time`(运行时值导入 `canonicalClientTimeZone`)与 session-controller 的 `dsh-util-workspace-path`,装配层 desktop-server 未跟进供给(工作区提升掩盖,`pnpm deploy --prod` 现形);已补两依赖。② 社区内置插件 dsh-at-file(github 钉 0.6.5)/dsh-better-sidebar(npm 0.15.2)调用 alpha.2 已删除的 `settingsNamespace`(旧实现=校验+brand 返回原串,纯串替换语义等价、命名空间键不变);以钉定版为基打机械补丁(剥调用包装+清 import,含 sidebar 发行包内的 src/index.ts),重打 tgz 走 vendor 通道(`*-patched1.tgz`,剥 lifecycle scripts),清单改指 file:。**后续项**:at-file 上游 HEAD 已 0.7.0、better-sidebar 0.18.0-alpha.0 明确面向 0.1.2-alpha.2——rc.27 按第三方审计铁律(出网/raw fs/路由/自定义会话事件)升级换钉,届时退役两补丁。缺 peer 全量扫描其余 6 项(client-ui 类/authorization/hook-protocol/sdk-protocol)均非服务端运行时值导入,与 rc.25 同态,不动。
+三项的共同性质是**宿主环境特征**（进程 PID 可见性、子进程环境变量继承、文件系统 mtime 精度），不是代码逻辑。**决定：不修，只记录**，留待换宿主／CI 环境重验，再判断是否要改测试自己的环境假设。另有一项真抖动：`locale-dictionary-parity.spec.ts` 与 `oxlint-contract.spec.ts` 并行时往同一个真实源码目录写临时文件。
 
-**at-file 升级换钉(2026-09-01)**:0.6.5-patched1 的浏览器端顶层 `require("@deepseek-ai/dsh-client-runtime/client")`(取 createSnapshotStore)在 alpha.2 无解(包已改名、宿主无别名)——settingsNamespace 补丁救不了它。上游 HEAD `da602d1a8f`(0.7.0,5 个 fix)自带 client-store 兼容回退(try dsh-client-store catch client-runtime/client)且 inject 已剔除 client-runtime;src 级增量审计通过(仅 files.ts 增 node:fs/promises 目录遍历=插件本职;零出网/路由/会话事件;无 lifecycle scripts,lib 随仓提交)。因本机 gitconfig 无关的 SSH known_hosts 问题挡 pnpm git fetch,改走 gh api tarball → vendor tgz(`dsh-at-file-0.7.0-da602d1.tgz`,剥 scripts),与其余 vendor 件同型。patched1 tgz 退役删除。**sidebar 0.15.2-patched1 留任**:chunk 内 client-runtime 仅为外部件超集名单副本与注释,无真实 require;0.18.0-alpha.0 升级排 rc.27 审计。
+### 两次重落前风险预审的结论
 
-**sidebar 升级换钉(2026-09-02,rc.28)**:`dsh-better-sidebar` 0.15.2-patched1 退役,换钉 0.18.0-alpha.0-patched1(`sha256 0927f60a1a40e87be0999654b9cbe4668be0e2842072d8a53b3820a79bb97a8d`)。补丁三项:① 上游 `sessionQuery.inspect(persistence, id)` 在 0.1.2 已改名,`lib/index.js` 四处调用点(`3507`/`3573`/`3717`/`3807`)与 `src/` 对应处改为 `readColdSessionLog`——签名与返回同型(`(persistence, sessionId) => { header, inheritedEventCount, events }`),消费方只读 `.events` 与 `.header.cwd`,语义不变;② 剥掉 lifecycle `scripts`(与其余 vendor 件同型,vendor 通道不跑安装脚本);③ `peerDependencies` 补 `@deepseek-ai/dsh-session-query`——0.15.2 未声明该 peer,pnpm 因此从 registry 拉了一份 `@deepseek-ai/dsh-session-query@0.1.1-rc.2` 独立副本,换钉后锁文件记为 `link:packages/session-query/session-query`(净减 684 行),装配层不再有第二份 session-query。15 个 peer 经 `createRequire` 从插件 `lib/index.js` 逐个实证解析到工作区包(含 `@deepseek-ai/cordis` → `vendor/cordis`),插件目录下无嵌套 `node_modules/@deepseek-ai/`,服务身份单一。
+- **上游 PR #3339（remove SQLite persistence backend）——可继续。** `SESSION_FORMAT_VERSION` 全程未 bump；被删的 `session-persistence-sqlite` 是产品从未使用的候选后端（`packages/bundle/base/cordis.patch.yml` 一直只挂 `session-persistence-jsonl` 作真正的会话日志存储，SQLite 只服务 `session-query-sqlite` 这个派生检索索引），对已落盘的会话文件零影响。fork 自有的事件登记机制未被该 PR 触及。
+- **上游 PR #3346（distinguish event seqs from log offsets）——可继续。** 落盘格式其实未变：JSONL 物理头行仍原样携带可选数字 `seedLength`，读时翻译成内存态、写时翻译回去，两道硬拒作用于内存态 header 而非磁盘行；`SessionSeq`/`SessionLogOffset` 是 `dsh-brand` 的编译期品牌，运行期不改变任何值。用旧代码树的生产写路径写出真旧日志实测确认。
 
-**slot 声明竞速修复(2026-09-02)**:真机冒烟抓到 connection-banner/clickable-refs 客户端 fiber 失败(「slot 未声明」)——alpha.2 把 slot 声明从 boot 期 slots 模块移进各归属包 register 调用的 children 表,客户端 fiber 竞速下裸 `ctx.slots.register` 可先于声明执行。规范姿势=`ctx.slots.inject(slotName, () => register(...))`(声明即触发、控制器自绑 fiber;仓内 ui-cordis/balance 均此写法)。两插件已在 dsh-plugins 修复升版(connection-banner 0.2.1、clickable-refs 0.4.1,均已推 backup),重贩售换钉。全 vendor 扫描:其余插件均已包裹,无同类残留。冒烟基线:57 客户端模块零错误、整框渲染、双首启弹窗可走通;composer 交互在无工作区虚拟家目录不可达(原生目录选择器),由 apps/web 三场景金样覆盖。
+### 每轮都适用的做法
 
-## 每日滚动同步：0.1.2-alpha.2 → alpha.3（`core-patches-v2` 1988f0dca5 → `core-patches-v3`，117 个上游提交）
-镜像快进 `master` 到 `upstream/master`（`0a53fb55be..dd6322d604`）后推 `origin`；`git worktree add ../dsh-roll -b core-patches-v3 1988f0dca5` 建滚动树；`git rebase --onto upstream/master 0a53fb55be` 把 v2 的 45 个补丁提交滚到 alpha.3 上，全部落地，无一 `--skip` 整提交（细粒度的部分退役见下）。
+- **冲突解决**：生成物（`slot-catalog.ts`、`api-catalog.ts`、`docs/` 下的目录）一律取上游侧后重跑对应 `gen-*`，从不手改；双语文档取并集或按上下文合并措辞；**从不用 `git checkout --ours/--theirs` 整文件覆盖**。
+- **退化条款**：上游改了同一处，我方补丁就退役去适配，而不是把补丁改得更复杂去共存。
+- **并集的陷阱**：冲突一侧为空、我方侧有内容时，取并集会把**已死**的内容带回来——上游删掉某段的唯一消费者时正是如此。取并集前先确认我方那几行今天还有读者。
+- **三方核对脚本的已知盲区**（下一轮若要再用，先补这四条）：它只看「两父都保留而结果丢失」的行，所以「只在一个父里有、另一个父已删除、却出现在结果里」的行不判违规——上一条说的死内容正是从这个口子进来的；结果里缺失的文件只报 SKIP 不判违规；抑制注释正则不含 `TODO|FIXME|XXX`；行频提示在父计数为 0 时会刷屏。
+- **覆盖率陷阱**：不带 `--coverage.include` 直接跑单包会退出码 1——插桩范围是全工作区，本包测试够不到的文件一并计入。圈定被改包再跑。
+- **冷构建陷阱**：被上游删掉的包目录会残留只含 `node_modules/` 的孤儿目录，tsdown 的 workspace glob 命中后向上找到仓库根，`pnpm run build` 冷跑报 `Cannot find entry`；残留的旧 `lib/` 还会让 tsdown 报 `MISSING_EXPORT`。`pnpm run clean` 再 `pnpm install`；`dsh-v0.1.7-rc.2` 上 `pnpm run clean` 自己因 `lib/desktop-keyboard-test-types` 的 outDir 检查报错，改为手删只含 `lib/`、`node_modules/` 的孤儿目录。
 
-**重落前风险预审（上游 #3339，`817c67d799`，"remove SQLite persistence backend"）**：①旧会话文件仍可打开——`SESSION_FORMAT_VERSION` 全程保持 `0`，未 bump；被删的 `session-persistence-sqlite` 是产品从未使用的**候选后端**（`packages/bundle/base/cordis.patch.yml` 一直只挂载 `session-persistence-jsonl` 作真正的会话日志存储，SQLite 只用于独立的 `session-query-sqlite` 全文检索索引这一派生缓存，从未是任何已发布 rc 的会话日志物理格式），故本条上游改动对我们的落盘会话文件零影响。②`packages/attachment/` 与 `attachment/materialized` 等自有事件登记机制未被该 PR 触及（diffstat 对 `packages/attachment/` 零改动，`dsh-session` 包本身零改动）。两问均为"可继续"结论，未触发中止上报。
+### 旧会话可读性预审（每轮移植前必做）
 
-**冲突与退役统计**：45 个提交中 9 个产生真实冲突（其余 36 个自动合并干净），全部人工核实语义后落地，无 `git checkout --ours/--theirs` 类整文件覆盖（该命令类被权限分类器拦下一次，转为读取 HEAD 内容后用 Edit 逐段落地，达到等效结果）：
-- **纯生成文件冲突**（`slot-catalog.ts`/`api-catalog.ts`，均由 `gen-client-catalog`/`gen-cordis-inspect-catalog` 重新生成后清零，6 处）：机械，无判断空间。
-- **文档并列**（`ChatView.tsx`/`ChatView.zh.md` 等的 import/文案冲突，均为"上游改了同一行、我们也改了同一行、各自理由不同"）：取并集或按上下文合并措辞，逐处见对应重落提交。
-- **两处退化（上游已改同处→我方补丁退役去适配）**：
-  1. `121338b26f`（feat(session-controller,subagent): admit file parts on the prompt path，新哈希 `ee27f8f50e`）——`subagent` 侧的 `SUBAGENT_FILE_UNSUPPORTED`/`admitPromptContent(childSessionId, content)` 本地拒收函数整体退役：上游 `7c38fd8102`+`21d2d9395d` 把续接子智能体的图片准入从"一律拒收"改造成"经共享 `admitPromptContent()`（`dsh-attachment`）按模型能力门控准入"，该本地拒收函数已不存在。`control-types.ts`/`control.ts`/`control.spec.ts` 三文件全部还原为与上游逐字节一致；`(1)`/`(3)` 记的 session-controller 侧 `durablePromptContent()`（图片+文件双准入）不受影响。
-  2. `fabc93555c`（0b32bd30ad，file-part bubble card and the referent/open seam）自身"偏差"记录所依赖的前提（"服务器端已对称拒收"）随上述退化一并失效，已订正引用关系，指向真正补位的 `98020a23cd`（`602ba62181`）。
-- 三条目（`d56a5f7348`/`98020a23cd`/`fabc93555c`）的既有台账条目已各自追加"落点订正"说明，见上文对应位置，此处不重复。
-
-**遗留（本次未清理，供后续参考）**：`packages/client/ui-conversation/src/client/attachment-labels.ts`（`case 'SUBAGENT_FILE_UNSUPPORTED'`）、`locales.ts`（`file.subagentUnsupported` 中英两条）、`tests/attachment-labels.client.spec.tsx` 三处仍保留对已不可达原因码的映射与断言——死代码但无害（`reason` 是裸 `string`，不影响类型检查或已通过测试），是简化候选而非缺陷。
-
-**门禁重落后暴露的 5 处缺口**（均为"上游在这些文件的既有代码里新增了 `AttachmentStore` 子类/`PendingSubmission`/`BeginSubmissionInput` 字面量，落在我方 45 个补丁的任何一个 diff 上下文之外，因此文本合并零冲突、但语义上少了文件变体成员"，逐一核实为 alpha.2→alpha.3 之间的上游新增内容，非我方补丁引入，修复随本次同步一并提交）：
-1. `packages/fs/tool-fs/tests/read-image.spec.ts`：上游 `f3c69c2c3f`（`refactor(tool-fs): keep image sniffing tool-local`）新增两个 `extends AttachmentStore` 测试替身（`JpegOnlySniffStore`/`MismatchStore`），未定义 `fileLimits`/`validateFile`/`saveFile`/`readFile` 四个抽象成员——按本文件既有的另外四个替身同款 stub 补齐。
-2. `packages/client/ui-chat/tests/chat-view.client.spec.tsx`（"renders a local steer echo..."）、`packages/client/ui-conversation/tests/queue-dock.client.spec.tsx`（"renders a queued local echo..."）：两处 `pendingSubmissions` 字面量遗漏 `files: []`——均为原始 `98020a23cd`/`fabc93555c` 系列本身未触达的既存测试（其原始 diff 从未提及这两处），非重落引入，补 `files: []` 即可。
-3. `packages/api/session-controller/tests/session-pending-submissions.client.spec.ts`：三处单行 `beginSubmission({ mode, text, images: [] })` 调用同理遗漏 `files: []`，补齐。
-4. `packages/api/session-controller/tests/client-contract.client.spec.ts`：上游 `b67663c583`（`fix: retain prompt parts in client catalog`，随 alpha.3 新增）加入的类型守卫 `expectTypeOf<SessionPromptContentPart>().toEqualTypeOf<AttachmentPromptContentPart>()`（"session-controller 本地 `PromptContentPart` 须与 `dsh-attachment` 的 `PromptContentPart` 完全同型"）与我方 `121338b26f` 给 session-controller 本地类型新增的 `'file'` 变体正面冲突——两者不应继续要求完全同型（`dsh-attachment` 的 `PromptContentPart` 保持 2 变体，为 subagent wire 边界服务；session-controller 本地类型是文本/图片/文件 3 变体的超集）。改法：断言从"完全同型"收窄为"排除 `'file'` 变体后同型"（`expectTypeOf<Exclude<SessionPromptContentPart, {type:'file'}>>().toEqualTypeOf<AttachmentPromptContentPart>()`），并加注释说明这一分歧是刻意的、原因是什么，而不是弱化或删除这条守卫。
-5. **环境残留（非代码问题）**：`pnpm run build` 首次冷跑在 `[@deepseek-ai/dsh-root] Cannot find entry` 上失败——根因是 `packages/session/session-persistence-sqlite/`（已被上游删除）与 `packages/examples/agent-spine-demo/` 两个目录残留了仅含 `node_modules/` 的孤儿目录（无 `package.json`，来自变基前那次 `pnpm install` 针对旧 alpha.2 依赖图的产物），tsdown 的 `workspace: ['packages/*/*', ...]` glob 命中这两个无主目录后向上找 package.json 落到仓库根（`dsh-root`），其 `entry` glob 自然无法解析。`pnpm run clean`（脚本自带命令，非临时手搓）清除后 `pnpm install` 重新对齐，问题消失，不是任何补丁代码的缺陷。
-
-**门禁实跑结果**：`pnpm run build` 全绿（host lib + client lib + web app，含上述 5 处修复）；`pnpm exec tsc -b tsconfig.host.json --force`、`pnpm exec tsc -b tsconfig.client.json --force` 双 face 冷启动 0 错误；`pnpm run doc-sync` 32 门全绿；`pnpm run test`（全仓，连跑三次）——`benchmark-npm-resolution`/`oxlint-contract` 两项在三次里稳定复现（与已立案的基座环境敏感项一致，原因不变）；已立案的第三项 `spill-local` 边界测试仅在其中两次复现，另有 `locale-dictionary-parity.spec.ts`（一次，与 `oxlint-contract.spec.ts` 并行写临时文件到同一真实源码目录 `packages/fs/fs-observation-policy/src/` 产生的扫描竞态，单独重跑该文件即绿）与 `packages/boot/app-boot/tests/hmr-config.spec.ts`（一次，`fs.watch` 创建事件在全量并行负载下的等待超时）各出现一次——四个文件均核实为 alpha.2→alpha.3 之间零改动（我方与上游均未触碰），判定为同一类"宿主环境定时/并发敏感"抖动的更大样本，而非新引入的代码回归；均不修，留待验证矩阵。台账本节 + 上文三处"落点订正"共计更新 4 处既有条目、新增本节 1 处，合计 5 处台账改动。全绿后 `git push origin core-patches-v3`。
-
-## 每日滚动同步：0.1.2-alpha.3 → alpha.4（`core-patches-v3` 4b9b242ee9 → `core-patches-v4`，297 个上游提交）
-镜像快进 `master` 到 `upstream/master`（`dd6322d604..4e84901e64`，`git merge-base --is-ancestor` 先验证确为祖先关系，纯快进无 force）后推 `origin`；在既有滚动树 `../dsh-roll` 上 `git checkout -b core-patches-v4` + `git rebase upstream/master`，v3 的 48 个补丁提交全部落到 alpha.4 上，无一 `--skip` 整提交（细粒度的部分退役见下）。
-
-**重落前风险预审（上游 #3346，`876a3e0414`，`refactor(session)!: distinguish event seqs from log offsets`）——结论：旧会话可正常打开，未触发中止上报。**
-- **风险面**：该 PR 改了 `packages/api/session-controller` 的 `history.ts`/`commands.ts`/`types.ts` 读侧，并把 `SessionHeader` 的可选 `seedLength?: number` 换成必填 `isSeeded: boolean`（`packages/core/session/src/types.ts`）；`validateSessionHeader` 同时新增两道硬拒：`Object.hasOwn(record,'seedLength')` 直接抛 `session header has invalid field "seedLength"`，且 `typeof record.isSeeded !== 'boolean'` 抛错。而 `SESSION_FORMAT_VERSION` 上游仍为 `0`，未 bump——即版本拒读通道不会兜住这类不兼容，一旦落盘格式真变了，旧日志会以硬错误而非干净的"不支持版本"失败。
-- **静态核对**：落盘格式其实未变。JSONL 物理头行仍原样携带可选数字 `seedLength`（`packages/session/session-persistence-jsonl/src/format.ts` 的 `HeaderLine`），`fromHeaderLine()` 在读时把它翻译成内存态的 `isSeeded: line.seedLength !== undefined` + `inheritedEventCount: SessionLogOffset(line.seedLength ?? 0)`，`toHeaderLine()` 写时反向翻译。`validateSessionHeader` 的两道硬拒作用于**内存态** header，不作用于磁盘行。另：`SessionSeq`/`SessionLogOffset` 是 `dsh-brand` 的编译期品牌（`brandNumber` 实现是 `return value as T`），#3346 的读侧改造在运行期不改变任何值。
-- **实证（结论必须来自 v4 代码读旧日志，故以下为真机实测）**：
-  1. **产旧日志**：以 rc.25 时代代码树 `../dsh-rc25src`（`44fd5de259`，版本 `0.1.1-rc.2`，全程只读）的**生产写路径**（`SessionStore` + `JsonlSessionPersistence` → `toHeaderLine`/`packChunkRuns`/zstd 分帧，默认 `compression: 'zstd'`、默认 `packChunks`）在一个全新 scratch `DSH_HOME`（`~/.claude/jobs/5be3c9c2/tmp/audit3346/home`，绝不碰 `~/.dsh`）里写出 4 个会话日志。事件内容取自 rc.25 自己 record 模式录下的 ACP 快照会话（`examples/acp-agent/tests/snapshots/{text-turn,tool-call-turn,subagent-fork-in-process}/session*.jsonl`，`{{cwd}}` 替换为真实绝对路径，`seq`/`time` 因录制时被归一化剥离而重新打戳）。落盘头行经实测确为旧格式：`{"type":"session","version":0,...,"seedLength":42,"origin":"subagent","delegationDepth":1}`——带 `seedLength`、无 `isSeeded`。
-  2. **用 v4 代码读**：在**重落后的 `core-patches-v4` 工作树**（构建产物 `lib/`）里对同一 `DSH_HOME` 跑 `list` → `listSnapshots` → `load` → `prepare` → `readRaw` → `foldSurface`/`deriveEventMessage`。
-  3. **结果全绿**（`allOk: true`，4/4）：会话全部被列出（`list`=4、`listSnapshots`=4）；`load` 返回完整、`seq` 从 0 起连续无洞的事件流（40/104/200/99 条，11~14 种事件类型），无版本拒读、无解析错误；分叉子会话的磁盘 `seedLength: 42` 正确翻译为 `isSeeded: true` + `inheritedEventCount: 42`，`prepare()` 冷态物化后 `ownEvents()`=58=100−42、`snapshotEvents()`=100；`prepare()` 对每个会话都成功走完冷恢复（`seq` 比 `load` 多 1，即 v4 按文档契约把被中断的末尾 turn durably 补齐关闭了）——旧会话不只可读，且可续跑；`readRaw` 逐字返回原始 artifact；`foldSurface` + `deriveEventMessage` 重建出会话表面与消息（首条用户文本可完整读回，例如 `Reply with exactly the word: PONG. ...`）。
-
-**两处上游结构变动的适配点**（简报点名）：
-- **`packages/subagent/tool-subagent-report` 被上游删除**（`b91e7ce366`/`ec493c2db8` 统一相邻 agent 投递）：我们 48 个补丁的 237 个受影响文件中**无一处**引用它（`git diff --name-only upstream/master...HEAD | grep tool-subagent-report` 为空），代码层零适配。唯一实际影响是**未跟踪残留**：v3 检出遗留的 `packages/subagent/tool-subagent-report/{lib,node_modules}` 空壳目录（git 只删跟踪文件）让 `pnpm run gen-tool-catalog` 报 `1 tool package(s) not in the boot manifest: tool-subagent-report`；`pnpm run clean`（脚本自带，清 267 条路径）清除后恢复。上游自己的 `apps/cli/tests/profiles/headless/team-snapshot.patch.yml` 仍留有一条 `- id: tool-subagent-report / disabled: true`，与 `upstream/master` 逐字节一致，属上游侧遗留，未改。
-- **`packages/code-runtime/code-runtime-python` 搬到 `packages/experimental/code-runtime-python`**：同样无我方引用需跟随（`tsconfig.base.json` 路径别名、`apps/cli/package.json`、`docs/capability-seams.*` 等引用点全部由上游自己更新，我方树与上游一致）；同样只有 `packages/code-runtime/code-runtime-python/` 的未跟踪残留，随同一次 `pnpm run clean` 清除。搬迁的副作用是该包测试现在随默认套件运行，在本宿主上因 CPython 版本而稳定红（见下）。
-
-**冲突与决定**（48 个提交中 13 个产生真实冲突，其余 35 个自动合并干净；每个手工解析文件解完都逐一 `git diff` 自查，确认只含冲突本身的决定，无任何一方内容被顺手删除）：
-- `bad06e415f`（open a contribution seat on user messages）：`ChatNodeSeat.tsx`/`ChatView.tsx`/`MessageItem.tsx`/`slot-catalog.ts`。上游 chat 性能重构（`577f0cf7d9` bind keyed chat sources in renderer、`0e90d47d19`、`5934201109`）把 `useChat` prop 换成 `useChatNode`/`useChatNodeProcess`，并把内联 `order.map(<ChatNodeSeat/>)` 抽成 `<ChatNodeList/>`。**决定**：一律取上游新结构，只把我方新增的 `renderUserActions` 插进去（`ChatNodeList` 的 props 是 `Omit<ComponentProps<typeof ChatNodeSeat>,'nodeKey'>` 并整体 `...seatProps` 透传，故只需在调用点加一行）。
-- `d7c2b4637c`（stub the file-attachment abstract members on every AttachmentStore test double）：`scripts/test-invariants.ts`。**退役：上游 `01a8882601` 覆盖**——上游删掉了该文件里的 `TestAttachmentStore` 与 `ATTACHMENT_COMPANION`（连同 `packages/attachment/attachment-local/src/invariant.ts` 本体），我方对该文件的改动整体退役，文件回到与上游逐字节一致。同补丁在另外 8 个文件的 12 处 stub 未受影响，仍在役。
-- `ab255686f5`（admit file parts on the prompt path）：`commands.ts` import 行。**决定**：并集（上游新增的 `SessionLogOffset`/`SessionSeq` 导入 + 我方新增的 `ContentBlock` 类型导入）。
-- `91d007fae6`（session.file readback RPC）：`commands-queue-attachment.host.spec.ts`。**决定**：保留我方新增的 `fileRef()` 助手，`event()` 的 `seq` 形参签名取上游品牌化后的 `SessionSeq`。
-- `8883c65f97`（spill oversized file attachments）：`tsconfig.base.json`、`docs/config-catalog.{md,i18n.yaml}`、`docs/event-producer-consumer.{md,i18n.yaml}`。**决定**：`tsconfig.base.json` 保留我方两条 `attachment-spill` 别名，**退役**同一冲突块里的 `@deepseek-ai/dsh-attachment-local/invariant` 别名（上游 `01a8882601` 已删该文件）；四个文档冲突均为纯生成锚点行号漂移，取上游锚点后由生成器重跑定案。
-- `763838fb5a`（text files as composer draft attachments）：`list.ts`（import 并集）、`session-pending-submissions.client.spec.ts`（我方 `files: []`/`fileRefs` 形参 + 上游 `SessionSeq(...)` 品牌，4 处调用点合并）、`InputBar.tsx`（上游把 `export function InputBar` 包成 `memo(function InputBar(...))`，取上游包装 + 我方 `addFiles` prop）。
-- `9d8688b4b8`（file-part bubble card and the referent/open seam）：`ChatNodeSeat.tsx`/`ChatView.tsx`/`MessageItem.tsx`/`contract/slots.ts`/`api-catalog.ts`/`slot-catalog.ts`。**决定**：同 `bad06e415f`，取上游 props 结构 + 我方 `loadFile`/`openReferent`/`referents` 透传；`slots.ts` 两条 import 取并集。**退役一处**：`UserStyleBubble` 的 `reveal?: 'always' | 'hover'` prop 及其文档随上游一并去掉——上游在 alpha.4 里删掉了 `UserMessageNodeView` 的 `isLatestUserRow` 近期性门控（该机制本就来自上游基座、非我方补丁引入），保留一个无消费方的 prop 属死代码。`api-catalog.ts` 为生成文件，冲突块取上游整块（含上游新增的 `KeyedHooksSources`/`KeyedSnapshotSelectorHook`/`KeyedStandardSource` 三条）后把我方 `ISession.readFile(...)` 成员拼回 `readAttachment` 之后；生成器重跑后该文件零 diff，反证手工合并与生成器输出逐字节一致。
-- `eb33ca11ea` 与 `9a44ed81a6`（secret container 确认，两次同处冲突）：`InputBar.tsx`。上游删掉了 `footer` 变量、改为内联 `variant === 'composer' && ... ? renderSlot('conversation.composer.dock', {}) : null`。**决定**：取上游表达式 + 我方确认 `Modal`（`{footer}` 一行退役，因为上游已无该绑定）。
-- `1a19be9076`（proseReferents seam）与 `a7c02ffda1`（resolveLink/subscribe）：`ChatNodeSeat.tsx`/`ChatView.tsx`/`contract/slots.ts`/`slot-catalog.ts`。同上：取上游结构 + 我方 `referents` 透传与 `ReferentKind` import 并集；`slot-catalog.ts` 全部为锚点漂移。
-- `be734d0df2`（wrap-up doc-sync/hygiene gaps）：`docs/event-producer-consumer.{md,i18n.yaml}`，纯锚点漂移。
-- `43004a6972`（close file-attachment gaps exposed by the alpha.3 rebase）：`client-contract.client.spec.ts`。**决定**：并列保留——上游新增的两个 `it()`（`requires branded Session positions...`、`brands same-process Session event positions...`）原样保留，我方把第三个 `it()` 收窄为 `Exclude<SessionPromptContentPart,{type:'file'}>` 的改法与注释同样保留。
-- **纯生成文件冲突小结**：`slot-catalog.ts`（3 个提交、18 处）、`api-catalog.ts`、`docs/config-catalog.md`、`docs/event-producer-consumer.md` 及两份 `.i18n.yaml` 配对记录，全部为 `source:`/链接行号漂移；解析时机械取上游锚点（用一段只接受"两侧仅数字不同"的脚本逐 hunk 断言，任何非漂移 hunk 会直接抛错），随后由 `gen-client-catalog`/`gen-cordis-inspect-catalog`/`gen-config-catalog`/`gen-doc-graphs`/`gen-tool-catalog`/`gen-persistence-catalog` 重跑定案，`verify-translation-pairing --write` 重录 2 份配对记录。生成物一律不手改。
-
-**重落后暴露的适配缺口（4 项，随本次同步一并修复）**：
-1. `packages/api/session-controller/tests/commands-queue-attachment.host.spec.ts`：6 处 `event('...', 0, ...)` 仍传裸数字，而 `event()` 的 `seq` 形参已随 #3346 品牌化为 `SessionSeq`——包成 `SessionSeq(0)`，与同文件上游自己的调用点写法一致。
-2. `packages/attachment/attachment-spill/tests/attachment-spill.spec.ts`：`Session.events` getter 随 #3346 更名为 `snapshotEvents()`，4 处读取点跟随。
-3. **上游新增的两道仓库级样式不变量首次扫到我方 CSS**（`packages/client/ui-theme/tests/{elevation-styles,corner-shape-styles}.client.spec.ts` 遍历 `packages/**/*.module.css`）：`FileChip.module.css`/`FileCard.module.css`/`MessageItem.module.css` 三处 `border: 1px solid var(--dsw-alias-border-l2-darkmode-thin)` 改 `0.5px`（发丝边框），`FileChip.module.css` 的 `.remove { border-radius: 50% }` 补 `corner-shape: round`（全圆角必须自述弧形）。改法逐字对齐上游同类写法（`AttachmentRail.module.css`/`ImageLightbox.module.css`）。
-4. 生成物与配对记录重跑（见上）。
-
-**基座环境敏感测试红：3 项已立案 + 新增 1 项（不修，仅记录）**。`pnpm run test` 末次全量：`Test Files 5 failed | 1026 passed | 9 skipped (1040)`、`Tests 248 failed | 17415 passed | 118 skipped`。
-- 已立案 3 项照旧同因复现：`scripts/benchmark-npm-resolution.spec.ts`（1 条，子进程树 PID 不可见）、`scripts/oxlint-contract.spec.ts`（1 条，`NO_COLOR` 告警泄漏进 stderr）、`packages/spill/spill-local/tests/spill-local.spec.ts`（1 条，mtime 边界精度）。
-- **新增第 4 项**：`packages/experimental/code-runtime-python/tests/{boot-write-failure,runtime}.spec.ts`（6 + 239 = 245 条，占本次 248 条红的绝大多数）。单一根因，与代码逻辑无关：本宿主 `/usr/bin/python3` 是 CPython 3.9.6，而 `validatePythonBin` 要求 ≥ 3.10，插件在 `new PythonCodeRuntime` 构造期即抛 `must be CPython 3.10 or newer, got cpython 3.9.6`。两个测试文件在 alpha.3 基座上不存在（`git show 4b9b242ee9:packages/code-runtime/code-runtime-python/tests/boot-write-failure.spec.ts` 为空），随上游把该包搬进 `packages/experimental/` 一并进入默认套件；我方 48 个补丁对该包零改动。判定为**基座环境敏感项**（宿主 Python 版本），本次不修，留待验证矩阵在装有 CPython ≥3.10 的环境复核。
-- 反证归属：本轮先跑的一次全量还额外红了 `packages/client/ui-theme/tests/{corner-shape-styles,elevation-styles}.client.spec.ts` 两文件——那两条**确属我方**（报错逐字点名 `ui-attachment/src/FileChip.module.css`、`ui-chat/.../FileCard.module.css`、`ui-chat/.../MessageItem.module.css`），已按上述第 3 项修复，重跑绿，故不列入环境红。
-
-**门禁实跑结果**：`pnpm install`（lockfile 已对齐，供应链策略 1263 条通过）→ `pnpm run clean`（清 267 条 v3 残留）→ `pnpm install` → `pnpm run build` 全绿（host lib + client lib + web app）；`npx tsc -b tsconfig.host.json --force` 与 `npx tsc -b tsconfig.client.json --force` 双 face 冷启动 0 错误；`pnpm run lint` 退出码 0；`pnpm run test` 见上（5 红全部归因为基座环境敏感项）；`pnpm run doc-sync` 32 门全绿。全绿后 `git push origin core-patches-v4`。
-
-## rc.27 合并审计：`develop` × `core-patches-v4`（基座 0.1.2-alpha.4）
-
-合并基 `0a53fb55be`（上游 alpha.2 的发布合并）是一个上游提交，因此十个 fork 独有文件全部以 add/add 落入冲突、无共同祖先可用。这些文件改用两侧真正的内容祖先 `1988f0dca5`（`core-patches-v2` 顶端）做三方合并，其中五个由此机械消解为零冲突。42 个冲突文件逐个解完后跑两道机械护栏：①「两个父都有的行」必须全部存活——24 个文件的结果与两个父都不同，丢失 0 行；②任何一行在结果里的出现次数不得超过任一父——这一道抓出三处 git 自动合并（全程无冲突标记）静默重复插入的内容：
-
-- `packages/api/session-controller/src/client/contract/snapshot.ts` 的 `PendingSubmissionFile` 接口整块重复两次。TypeScript 的接口声明合并使其通过了全量 `build` 与 `tsc -b` 双 face，只有 `gen-cordis-inspect-catalog` 重新生成时把该类型从目录里整条删掉才暴露。
-- `packages/api/session-controller/README.md` 与 `.zh.md` 的 `dispatchReferentOpen` 段落各重复两次。
-- `docs/persistence-catalog.zh.md` 的 `attachment/materialized` 小节重复两次（`.md` 侧由生成器自行修正，中文侧手工去重）。
-
-**随本次合并完成的退役**（均已在上文对应条目登记）：`subagent` 本地 `admitPromptContent` 的文件拒收及其 `control.spec.ts` 测试（上游自有的 prompt-content 准入取而代之，该行为由 `Session.prompt()` 的客户端前置检查兜住）；`scripts/test-invariants.ts` 的 attachment 伴生桩；`tsconfig.base.json` 的 `dsh-attachment-local/invariant` 路径别名。`apps/desktop-server` 去掉上游已删除的 `@deepseek-ai/dsh-session-persistence-sqlite` 依赖。
-
-**门禁结果**：`pnpm install` → `clean` → `build` 全绿；`tsc -b tsconfig.host.json --force` 与 `tsconfig.client.json --force` 双 face 零错；`lint` 0/0（抑制注释逐类计数与两个父一致，未重演 rc.26 的删注释事故）；`doc-sync` 32/32；三场景快照 8/8 且金样零改动；`pnpm run test` 五个红文件全部归属环境：`code-runtime-python` 两文件 244 条（本机 `/usr/bin/python3` 是 3.9.6，该包要求 ≥3.10）、`benchmark-npm-resolution` 1 条、`oxlint-contract` 1 条（`FORCE_COLOR`/`NO_COLOR` 的 Node 警告串进 stderr）、`verify-application-entrypoints` 1 条（工作树里 `apps/desktop/dist-app` 与 `staging` 两份 gitignore 的打包残留被扫进来；把两目录移开后该 spec 转绿，随即原样还回）。桌面装配层按 pnpm 每实例 peer 解析复查 157 个链接包，真实缺失为零——唯一命中落在 `.ignored_dsh-llm-deepseek` 影子目录，不属装配闭包。
-
-**顺带修掉的 develop 既有红**：`scripts/lint-rule-fingerprint.spec.ts` 把 `.oxlintrc.json` 的 override 条数钉在 9，而 `ce5929b494` 早已加入第 10 条（`apps/desktop/tests` 例外）却没跟着改钉子，该红在 develop 顶端就已存在。本次改钉为 10；三个 profile 指纹的索引集不含该条，不受影响。（2026-09-02 甲案落地后例外已删，该钉子随之回到上游的 9。）
-
-**在役:per-record 遗留引导须同版本(2026-09-02,Fable,rc.27 发布阻断)**:`storage-json` 的 `bootstrapLegacyUnit` 只核 `unit.name`,把旧单文档(rc.22/24 写的 `session_projcache.json`,unit.version 3)里的记录原样复制成当前版本(5)的记录文档;`storage-domain.open` 随后按 v5 schema 逐条 zod 校验(`identity.isSeeded`/`inheritedEventCount` 缺失)→ 抛错 → session-projection-cache 初始化失败 → **服务端拒启,桌面 app 停在「startup failed」**。真机复现于郝然本机(rc.22 家目录升 rc.27)。补丁:引导前核 `unit.version === descriptor.version`,不同即视为过期不引导(与 spec.ts「per-record 过期记录丢弃不迁移」一致;缓存可重建);上游测试「任何更老版本都引导」改为同版本引导 + 新增异版本不引导用例。**退化条款**:上游若在同处修(引导判版本或域层对 per-record 改丢弃),本补丁退役。**教训**:打包冒烟必须加「真实旧家目录升级启动」场景;旧会话预审只覆盖 JSONL 日志,storages/ 里的派生文档是另一条兼容面。
-
-**在役:遗留预设 id `code` → `ptc` 别名(2026-09-02,Fable,rc.27 真机缺陷)**:上游 `3ca9c7d489`(08-25)把出厂预设 `code` 改名 `ptc`,但用户机 `settings.yaml` 里 `agent-presets: default: code` 与 31 份会话日志的 `agentPreset: "code"` 都是 rc.24 写下的。alpha.4 的 `AgentPresets.defaultId` 原样回 `code`,`resolve()` 对名册查无此 id → `agent-preset/not-found`;名册里没有任何 `isDefault`,客户端模式芯片卡在 `code`、选 PTC 不生效(郝然真机:"模式无法选择")。补丁:`packages/preset/agent-presets/src/index.ts` 增 `LEGACY_PRESET_IDS = { code: 'ptc' }` 与 `rosterIdFor(wanted, presets)`——**仅当名册里没有该 id** 才映射到别名;`resolve()`、`remoteExportList()`、`compositionInventory()` 三处经它取 id;`swap()` 落日志的是解析后的真实 id(`preset.id`),不写别名。测试(`tests/settings.spec.ts` +3):settings default `code` → `resolve()` 得 `ptc` 且名册标 `ptc` 默认;用户根自带 `code` 预设时不别名;非别名的未知 id 照旧 not-found;别名表只查自有键,settings 里写 `constructor` 之类原型成员名不会穿透。**形态更新(每日滚动同步,基座 0.1.2-alpha.5,提交 `c99791cec0`)**:别名表由 `Readonly<Record<string,string>>` + `Object.hasOwn(...) ? MAP[wanted] ?? wanted : wanted` 改为 `ReadonlyMap<string,string>` + `LEGACY_PRESET_IDS.get(wanted) ?? wanted`——原写法的 `?? wanted` 在字面量别名表下永不可达(只因 `noUncheckedIndexedAccess` 才存在),逐文件 100% 分支门因此红(`index.ts:75:82 uncovered branch`);Map 没有原型链条目,原型穿透防护由数据结构本身保证而非显式判断,上述 `constructor` 用例原样通过。已知残留:已开始的旧会话芯片仍显示原始 `code`(投影是日志的纯折叠,且已开始会话预设锁定),不影响续跑——恢复时 `resolve('code')` 已能挂到 `ptc`。**退化条款**:上游若自己加预设 id 迁移/别名(settings 迁移或名册别名),本补丁退役。同类风险:rc.26 回退版(alpha.2 基座,预设也已是 `ptc`)带同一缺陷,若走回退路线须一并带上本补丁。
-
-## 每日滚动同步：0.1.2-alpha.4 → alpha.5（`core-patches-v4` 63a7eead67 → `core-patches-v5`，44 个上游提交）
-镜像快进 `master` 到 `upstream/master`（`4e84901e64..49a606bc5b`，`git merge-base --is-ancestor origin/master upstream/master` 先验证确为祖先，纯快进无 force）后推 `origin`。注：`dsh-v0.1.2-alpha.5` 标签落在 `db6bdc3576`，`upstream/master`（`49a606bc5b`）比该标签再多 38 个已合并提交（`git describe` = `dsh-v0.1.2-alpha.5-38-g49a606bc5b`），本轮基座取 `upstream/master` 而非标签。在既有滚动树 `../dsh-roll` 上 `git checkout -b core-patches-v5 origin/core-patches-v4` + `git rebase --onto upstream/master 4e84901e64`：v4 的 53 个提交中 52 个落地、1 个整提交 drop（见上 `4923774808` 条目），随后本轮新增 11 个提交，合计 63 个（含对抗复核后的追加修复；分支最终 HEAD 见本节末）。
-
-**在役核实：`8a2878ae6d` + `63a7eead67`（agent-presets 遗留预设 id `code`→`ptc` 别名）。** `git grep -iE "legacy|alias" upstream/master -- packages/preset` 无任何命中，上游 `packages/preset/` 只有 `agent-presets`/`persona` 两个包、没有任何 id 迁移或别名机制，退化条款未触发。两个提交重落无冲突。重落后 `npx vitest run --coverage --coverage.include='packages/preset/agent-presets/src/**' packages/preset/agent-presets`：12 文件 190 用例全绿、覆盖率 100%——但首跑不是 100%，见下「本轮新增提交」第 4 条。
-
-**冲突与决定**（53 个重放提交中 10 个产生真实冲突，其余 43 个自动合并干净；每个手工解析文件都过三方审计 a/b1/b2）：
-- `bad06e415f`（open a contribution seat on user messages）：`ChatNodeSeat.tsx`（2 处）、`slot-catalog.ts`。上游给 `ChatNodeSeat` 的解构参数与 `useMemo` 依赖数组新增了 `loadImage`（会话授权图片加载器下穿），与我方新增的 `renderUserActions` 撞在同两行。**决定**：并集——两侧都是纯参数新增，无语义冲突；同一提交里的 owner 对象字面量本已自动合并成并集，反证并集是正确形状。
-- `763838fb5a`（text files as composer draft attachments）：`packages/client/ui-attachment/README.{md,zh.md}` 摘要段。上游把「durable images in Chat, Trajectory」扩成「Chat, Trajectory, and Tool results」并加了尾句「non-image files have no surface here」；我方把草稿一侧扩成「images and draft text files」并把尾句改成「已发送文件的卡片落在消息气泡上」。**决定**：取上游的三处枚举 + 我方的草稿文本文件与尾句——上游那句「非图片文件在此没有任何表面」在本分支上已是事实错误（文件草稿芯片就在本包里），不能保留。
-- `940859351b`（re-record i18n pairing sidecar）：`README.i18n.yaml`。仓库自带的 `merge-translation-pairing` 合并驱动直接判冲突并指明修法。**决定**：不手改，跑 `verify-translation-pairing --write packages/client/ui-attachment/README.md` 重录，`git hash-object` 比对两侧 blob 与记录一致。
-- `9d8688b4b8`（file-part bubble card and the referent/open seam）：`ChatNodeSeat.tsx`（2 处）、`slot-catalog.ts`。同 `bad06e415f`：上游 `loadImage` 与我方 `loadFile`/`openReferent` 撞行，取并集。
-- `eb33ca11ea`（secret container 确认）：`packages/api/session-controller/src/{index.ts,list.ts}`。上游把冷列表观测阈值从单个 `coldBlankProbeMaxBytes` 数字扩成 `ColdBlankProbePolicy` 对象（新增 `coldBlankProbeMaxEvents`），`ApiSessionList` 构造函数第二参随之从数字变成策略对象，`static Config` 也补了 `z<Config>` 标注；我方在同两处加了 `secretContainerExtraPatterns`（Config 字段 + 构造函数第三参）。**决定**：取上游的策略对象形态，我方参数作为第三个位置参数并列保留（`new ApiSessionList(ctx, { coldBlankProbeMaxEvents, coldBlankProbeMaxBytes }, config.secretContainerExtraPatterns ?? [])`），JSDoc 取两侧并集——上游新增的 `@param internals` 必须保留，否则 `verify-export-jsdoc` 红。
-- `1a19be9076`（proseReferents seam）：`ChatNodeSeat.tsx`（2 处）、`slot-catalog.ts`，并集加 `referents`。
-- `a7c02ffda1`（resolveLink/subscribe）：`slot-catalog.ts`，纯生成物。
-- `9a44ed81a6`（确认时机前移到添加时）：`packages/api/session-controller/src/index.ts` 一行 JSDoc（`pre-send` → `add-time`）与上游新增的 `@param internals` 相邻。**决定**：并集，取我方 `add-time` 措辞 + 上游 `@param internals` 行。
-- `e7b263f31e`（close the gaps exposed by the alpha.4 rebase）：`docs/config-catalog.{md,i18n.yaml}`、`slot-catalog.ts`，均为生成物的锚点行号漂移。
-- `8a2878ae6d` 与 `63a7eead67`（两个 preset 提交，两次同处冲突）：`.claude/core-patches.md`。**唯一由本轮 drop 造成的冲突**——被 drop 的 `4923774808` 也向台账尾部追加过一段，两个 preset 提交的上下文含那一段。**决定**：提交里只保留 preset 段落，`4923774808` 的条目由本节上方以「退役」形态重新登记（记法对齐已退役的 `9b498d4a3e`）。
-- **生成物一律不手改**：`slot-catalog.ts`（5 个提交）、`docs/config-catalog.md`、两份 `.i18n.yaml` 全部先取上游侧或让合并驱动落定，随后跑 `gen-client-catalog` / `gen-config-catalog` / `verify-translation-pairing --write` 重生成定案；`doc-sync` 的 `verify-client-catalog`/`verify-config-catalog`/`verify-translation-pairing` 三门事后全绿，即生成器输出与提交内容逐字节一致。
-
-**三方审计**（每个手工解析文件都跑，脚本读 `git show :2:<path>` / `:3:<path>` 两父）：
-- (a) 抑制注释：两父各自的 `eslint-disable`/`oxlint-disable`/`@ts-expect-error` 类注释在结果里逐条仍在。`session-controller/src/index.ts` 两父各 1 条、`.claude/core-patches.md` 两父各 1 条（文内引用），其余手解文件两父均为 0 条，**无一丢失**。
-- (b) 重复插入：块级检查（任意 ≥3 行的连续「有辨识度行」窗口在结果中的出现次数不得超过其在任一父中的最大值）对全部手解文件通过；行级超额项逐条人工核过，全部是「两父各半、由我合成的并集行」（如 `loadImage, renderMessageImages, renderUserActions, fileMentions, referents, loadFile, openReferent,`），出现次数均为 1，不是重复插入。生成物按「生成器 `--check` 是权威」豁免块级启发式。
-- (c) 手工改过的非源码文件：`packages/client/ui-attachment/README.md`、`README.zh.md`、`.claude/core-patches.md`（两次）。`README.i18n.yaml`/`docs/config-catalog.{md,i18n.yaml}`/`slot-catalog.ts` 由工具重录或重生成，未手改。
-
-**硬前置预审 a：旧会话可读（上游 `bec6805d6a`，`refactor(session-persistence)!: handle-based seam with a lifecycle-owned write path`，314 文件）——绿。**
-- 产旧日志：以 rc.25 代码树 `../dsh-rc25src`（`44fd5de259`，全程只读，模块解析全部指向它自己的 `node_modules`）的生产写路径写出 4 个会话到一个全新 scratch `DSH_HOME`（绝不碰 `~/.dsh`）。落盘头行实测为旧格式：`{"type":"session","version":0,...,"seedLength":42,"origin":"subagent","delegationDepth":1}`——带 `seedLength`、无 `isSeeded`。
-- 用 v5 代码读：按 alpha.5 的新 API 重写读侧探针，逐字复刻 `AgentLoop.resume` 的冷恢复事务：`list()` → `stat()` → `open(id,'read')` + `handle.read(0)` → `open(id,'write')` + `interruptedTurnClosers()` + `append(closers)` + `sessions.prepare(id, { seed, meta, inheritedEventCount, seedSource: 'persistence' })` → 追加一条新事件 + `flush()` + 重读 → `foldSurface`/`deriveEventMessage`。
-- 结果 `allOk: true`（4/4）：4 个会话全部列出；事件流 40/104/200/99 条、`seq` 从 0 起连续无洞、11~14 种事件类型，无版本拒读；分叉子会话磁盘 `seedLength: 42` 正确翻译成 `isSeeded: true` + `inheritedEventCount: 42`，`prepare()` 后 `ownEvents()`=58=100−42、`snapshotEvents()`=100；**续写通过**——在旧日志末尾 append 一条新 `user/message` 并 `flush()` 后重读仍连续；`foldSurface` 重建出会话表面，首条用户文本可完整读回。全部操作后磁盘头行仍是 `version: 0`、仍带 `seedLength: 42`、仍无 `isSeeded` 字段，落盘格式零变化。
-- 一处记法订正：`prepare()` 后 `session.seq` 比持久化事件数多 1，**不是**「durably 补齐关闭了被中断的 turn」（本轮 `interruptedTurnClosers()` 对 4 个会话都返回 0 条）。单独探针证实多出的那一条是 `Session.fromRestore` 合成的内存态 `session/end-seed` 标记，从不落盘——续写的下一条事件正是接在持久化长度处。alpha.3→alpha.4 那节的同一观察应按此理解。
-
-**硬前置预审 b：投影缓存跨版本（rc.24 用户升级路径）——绿。**
-- 素材：`~/.dsh.backup-2026-09-02-before-rc27` 的只读副本（拷贝时过滤掉 `profiles/` 与全部 `.credentials*`，本预审从不发起任何供应商调用）。其 `storages/session_projcache.json` 实测为 `unit: {"name":"session_projcache","version":3}`、`tables.sessions` 31 条记录——正是退役补丁当年针对的那份文件。
-- 启动：从 v5 源码树跑 `node --import tsx/esm apps/cli/src/bin.ts web --port 0 --no-open`，`DSH_HOME` 指向该副本。
-- 结果：服务端到达 URL 行；UI 里列出 5 个旧会话（真实标题「收到：日报即销售柱状图 3天」「2025年季度销售额柱状图 3天」「文件 session.jsonl（1.1 MB）… 6天」等），浏览器控制台 0 错误、0 致命类错误；`storages/` 从「只有 `session_projcache.json`」变成「`session_projcache/` per-record 树 + 原 `session_projcache.json`」，树内 `sessions/` 31 条文档、抽样 `version: 6`，遗留单文档字节数前后一致（151299）未被改动或删除；服务端日志 0 条 storage/bootstrap 类拒收。即 v3 → v6 迁移成功，不是重建。
-- v5 → v6：在域层探针里用上游自己的夹具（`tests/fixtures/v5-session-doc.json`、`v4-session-doc.json`）在一个 scratch store 里种下 v3/v4/v5/v7 四份记录文档，用 alpha.5 真实的 `projectionCacheDomainSpec`（`version: 6`、`compatibleVersions: [3,4,5]`）打开域。结果：v3/v4/v5 三份全部读出（标题分别为「验收标题-rc2」「验收标题-alpha3」「验收标题-rc2」），v7（范围外）丢弃读作缺失、不是启动失败；随后对 v5 那条写一次，其文档被重新打戳为 6，未被写到的其余文档保持原戳（per-record 懒重戳，符合契约）；无 `.bak` 备份文件产生、无校验类日志。
-
-**本轮新增 11 个提交**：
-1. `f98f0dffd3` fix(attachment-spill): match the workspace version constraint——该包 `version` 停在 `0.1.2-alpha.2`，跨了三次基座升版没跟上，`check-workspace-constraints` 要求每个工作区包版本等于根版本。改法与上游发版提交 `db6bdc3576` 对每个工作区包做的完全一样（单行版本号），改成 `0.1.2-alpha.5`。该红在 `develop` 顶端（`719cec2365`）已存在，非本次变基引入。
-2. `9127951ebb` fix(attachment-spill): omit the invariant companion instead of publishing an empty one——`src/invariant.ts` 的 `install` 是空函数体，`verify-package-invariants` 明确拒收（`empty install function is unnecessary; omit the companion and its publication wiring`；规则见 `packages/AGENTS.md`「Publish `./invariant` only for diverging observations」与上游 `01a8882601`）。本包确实没有可独立观测的事件序列或可变关系——幂等缓存与其 `attachment/materialized` 日志记录在 `resolveSpill` 调用点直接落实。按上游同款处理：删 `src/invariant.ts`、删 `package.json` 的 `./invariant` 导出与 `files` 条目与 `dsh-invariants` 依赖对、删 `tsconfig.json` 的 project reference 与 `tsconfig.base.json` 的路径别名，并在双语 README 源码地图里写成「有解释的空伴生」一行（对齐 `attachment-local` 已有写法）。该红同样在 `develop` 顶端已存在。
-3. `d21390db0e` test(web): match the composer's own drop-overlay copy and text-file intake——`apps/web/tests/image-display.expected.e2e.ts`（上游在 alpha.5 把原 `.snapshot.ts` 改成了 `.expected.e2e.ts`）里两处断言仍是本分支 composer 文件准入之前的文案与行为：拖放遮罩断言 `Drag images here to add them` / `Up to 20 images, 5MB each`，而本分支实际渲染 `Drag images or text files here to add them` / `Up to 20 images, 5 MB each; text content is sent as-is — check for passwords or secrets before sending`；「不支持粘贴」场景用 `text/plain` 触发，而本分支把文本文件路由到文件芯片行、不再走图片专属拒收。改法与原始补丁 `59657e0132` 当年做的一致：断言改成实际交付的文案，拒收场景改用 NUL 打头的字节载荷（`application/octet-stream`），它无论声明何种 MIME 都过不了客户端文本嗅探（`file-sniff.ts`），因而稳定停在图片专属准入路径。金样未重录——这是手写 expected e2e 的断言，不是录制产物。
-4. `c99791cec0` fix(agent-presets): make the legacy alias lookup total——`rosterIdFor` 里 `Object.hasOwn(LEGACY_PRESET_IDS, wanted) ? LEGACY_PRESET_IDS[wanted] ?? wanted : wanted` 的 `?? wanted` 分支在字面量别名表下永不可达（只因 `noUncheckedIndexedAccess` 才存在），逐文件 100% 分支覆盖门因此红（`index.ts:75:82 uncovered branch`）。改法：别名表从 `Readonly<Record<string, string>>` 换成 `ReadonlyMap<string, string>`，查表收敛成一个全函数表达式 `LEGACY_PRESET_IDS.get(wanted) ?? wanted`——Map 没有原型链条目，`63a7eead67` 要防的「settings 写 `constructor` 穿透原型」由数据结构本身保证，该提交的测试 `does not resolve a prototype member name through the alias table` 原样通过。此缺陷在 `origin/core-patches-v4` 上逐字节相同，非本次变基引入；因 v4 那两个 preset 提交是 rc.27 发版后补挂的、未过覆盖率门才漏到现在。
-
-5. `f7df795875` test(ui-chat,session-query): cover the file-attachment and referent seams this branch added——见下「覆盖率门」一节：逐文件 100% 门点名了四处只有本分支自有代码才到达的位置，逐一补上缺的行为测试：Chat View 的 `loadFile`（成功 + 失败两路）与 `openReferent`（把本会话 id 盖到 chat node 直接打开的 referent 上）、工作区根 `.` 解析成 `dir` referent（`ProducedFiles` 的唯一目录入口）、composer 提示的「会话已死」落空路（用真实竞态驱动：not-found 打开尚在飞行时会话被移除，`sessions.scope(id)` 返回 undefined），以及 session-query 文本遍历里的 `file` 内容分片。
-6. `6b23214d04` refactor(ui-conversation): drop the unreachable SUBAGENT_FILE_UNSUPPORTED reason——即 `98020a23cd` 条目「遗留」段点名的三处死映射（`attachment-labels.ts` 的 case、`locales.ts` 两语言的 `file.subagentUnsupported`、`tests/attachment-labels.client.spec.tsx` 的两条断言）。该原因码已无任何生产路径产出：上游把子智能体续接的「一律拒收文件」换成按模型能力门控的准入，本分支的客户端检查又在发起 RPC 之前就抛错（不返回原因字符串），标签 case 与两条文案是仅剩的读者。删除后 `ui-conversation` 31 文件 388 用例全绿。
-7. `4d4c795a5f` docs(core-patches): correct the coverage evidence and record the three follow-up commits——订正作废的覆盖率取证并登记第 5/6 条。
-8. `64ec922681` fix(ui-chat): drive the loadFile failure test with a declared remote error code——`session/attachment-not-found` 不在 `RemoteErrorDetailsMap` 里；vitest 不做类型检查，只有 `pnpm run build` 抓到，改用真实的 `session/attachment-invalid`。
-9. `1e705c9808` fix(api-session-controller): stop the Config assertion from voiding its own annotation——见下「对抗复核追加修复」。
-10. `e1f47b2e34` fix(ui-conversation): sync the drop-overlay description to its settled copy——`image.dropDesc` 两语言在补丁线一直是第一版草稿，`develop` 线早已定稿；逐字节取自 `origin/develop`，连同 `apps/web/tests/image-display.expected.e2e.ts` 的对应断言。详见 `98020a23cd` 条目。
-11. `docs(core-patches)`：本节自身与上述几处既有条目的订正。
-
-**对抗复核追加修复（FINDING A，提交 `1e705c9808`）**：`eb33ca11ea`/`058092ae0b` 那处冲突的解法留下了一个**恒真的类型标注**。上游是 `static Config: z<Config> = z.object({...})`（只有标注，标注会真正检查 schema 与 `Config` 一致）；v4 是 `static Config = z.object({...}) as z<Config>`（只有断言，因为我方给 `Config` 加的 `secretContainerExtraPatterns?: readonly string[]` 让标注编不过）；重落后**两者都在**，尾部的 `as` 让标注恒被满足、把上游那道检查废掉了。先按「只保留上游标注、删掉 `as`」试了一次，`tsc -b tsconfig.host.json --force` 直接报 TS2375，根因逐字确认为该字段：`The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'`——`z.array(z.string())` 推断出可变 `string[]`，`exactOptionalPropertyTypes` 下与 `readonly string[]` 不合。故退回 v4 形态（只留断言）并在断言旁写明原因。该形态**正是上游自己对带数组字段的 schema 的写法**：`packages/core/agent-loop/src/index.ts:363` 与 `packages/preset/agent-presets/src/index.ts:129` 都是 `static Config = z.object({...}) as z<Config>`（无标注），前者与 `upstream/master` 逐字节一致。改后双面 `tsc --force` 0 错误、`session-controller` 35 文件 463 用例全绿、`doc-sync` 32 门全绿。
-
-**门禁实跑结果**（全部在 `../dsh-roll`，下列数字均在**代码最终 HEAD `1e705c9808`** 上重跑取得——此前一版数字早于末尾几个提交，已作废）：`pnpm install --prefer-offline` 绿（lockfile 已对齐，供应链策略 1263 条通过，28s）→ `pnpm run build` 绿（host lib + client lib + web app，10s 增量）→ `pnpm exec tsc -b tsconfig.host.json --force` 0 错误（26s）与 `pnpm exec tsc -b tsconfig.client.json --force` 0 错误（22s）双面冷启动 → `pnpm run lint` 退出码 0（24s）→ 聚焦 `npx vitest run`（本轮触碰的 28 个包 + storage 全组 + session-projection-cache + session-persistence(-jsonl) + agent-presets）**464 文件 / 7708 通过 / 1 跳过**（53s）→ 覆盖率门见下（`--coverage.include` 逐文件覆写那次测到的是 0/0，作废）→ `npx vitest run --config vitest.web.config.ts` apps/web **全量 91 文件通过 / 1 跳过、310 用例通过 / 15 跳过**（6m39s）→ `pnpm run doc-sync` **32 门全绿**（47s）→ `pnpm run hygiene` **15 门全绿**（10s）。
-
-- 点名的三个 playwright 场景里只有 `apps/web/tests/image-display.expected.e2e.ts` 存在于本分支：`file-display.*` 与 `secret-container-confirmation.e2e.ts` 只存在于 `develop`（`git log --all` 显示它们分别来自 `272bca6063`/`5ae2c7edfb` 与 `3b7deee139`/`1e712c1c9d`，均不在 core-patches 线上），与 `ebd4e9c1f4` 条目「本代码树没有 `secret-container-confirmation.e2e.ts` 及其金样」的既有记录一致。为不漏掉同类隐患，改跑 apps/web 全量 91 个文件，其中只有 `image-display` 一处红，即上表第 3 条新增提交修的那处。
-- **基座环境敏感测试红**：本轮未跑全仓 `pnpm run test`（按仓库规矩不默认跑全套），聚焦范围与 apps/web 全量范围内零红。台账已立案的 4 项（`benchmark-npm-resolution` 进程树 PID、`oxlint-contract` FORCE_COLOR、`spill-local` mtime 边界、`code-runtime-python` 宿主 CPython 3.9.6）均落在聚焦范围之外，本轮既未复现也未证伪，状态不变。
-
-**覆盖率门（`pnpm run test:coverage`，CI 的真门，本轮首次在 core-patches 线上真跑）**：
-- 一次失败的取证方式先记在案：起初用 `npx vitest run --coverage --coverage.include=<71 个被改源文件>` 想「只测本轮改动」，结果报告是 `Statements: Unknown% (0/0)`——CLI 覆写 `include` 后什么都没被插桩，那条证据是空的，已作废。逐文件 100% 门本质是**全仓门**：任何部分选测都会让未选到的文件掉到 0%，只有全量跑才有意义。
-- 全量 `pnpm run test:coverage` 在本宿主**跑不完**：`code-runtime-python` 245 条（`/usr/bin/python3` 是 CPython 3.9.6，`validatePythonBin` 要求 ≥3.10）与 `spill-local` 1 条（mtime 边界精度）失败，测试一红覆盖率报告就不输出。两项都是台账已立案的基座环境敏感项，且本分支从未触碰这两个文件。
-- 取证办法：用一份**临时置于仓库根、跑完立刻删除**的配置（`import base from './vitest.config.ts'` 再往 `exclude` 追加那两个套件；vite 的配置打包要求它与 `vitest.config.ts` 同根，放到仓库外会加载失败），让报告能真正打印。结果：`ERROR: Coverage ... for packages/client/ui-chat/src/client/apply.ts`（4 项）与 `packages/session-query/session-query/src/extraction.ts`（3 项）——**全部落在本分支自有代码上**：`apply.ts:238:15`（composer 提示的落空路）、`257:36`（`path === '.'` 的 `dir` 侧）、`275:21`~`280:45`（`loadFile`/`openReferent` 两个闭包），`extraction.ts:83:5`~`84:7`（`file` 内容分片 case）。逐一比对 `git show origin/core-patches-v4:<path>` 证实两文件与 v4 **逐字节相同**，即缺口是 v4 就有的、非本次变基引入（v4 那轮同步跑的是 `pnpm run test` 不是 `test:coverage`，这道门从未在本分支线上跑过）。
-- 补齐后（第 5 条提交）复跑：`Uncovered locations` 里**再没有一条落在被排除套件自身源码之外**，也没有一条 `ERROR: Coverage` 落在它们之外。剩下的 1397 条全部属于被排除的 `code-runtime-python`/`spill-local` 自己的源文件（排除了它们的测试，其源码自然测不到），是取证手段的产物而非缺口。
-- 复跑期间另见两次**并发抖动**（各出现一次、互不重合）：`packages/boot/app-boot/tests/hmr-config.spec.ts`（`fs.watch` 创建事件在全量并行负载下等待超时，alpha.2→alpha.3 那节已记过同一现象）与 `packages/experimental/inspector/tests/integration.host.spec.ts`（真实 Worker 转发）。两文件本分支均零改动，判定为宿主并发敏感抖动，不修。
-
-**分支 HEAD 登记**：代码最终 HEAD = `e1f47b2e34`；上表门禁数字在其前一个代码 HEAD `1e705c9808` 上取得，`e1f47b2e34` 只改两条文案字符串与一条对应断言，改后已重跑 `pnpm run build` + `image-display.expected.e2e.ts`（4 用例）+ `ui-conversation`/`ui-attachment`（37 文件 431 用例）+ `tsc -b tsconfig.client.json --force` + `doc-sync` 32 门，全绿；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。起点 `origin/core-patches-v4` = `63a7eead67`（未动），基座 `upstream/master` = `origin/master` = `49a606bc5b`。
-
-全绿后 `git push origin core-patches-v5`（新分支，非 force；对抗复核后的修复以追加提交推同一分支，全程不重写历史）。
-
-## rc.28 集成合并审计：`develop` × `core-patches-v5`（基座 0.1.2-alpha.5）
-
-合并基 `git merge-base origin/develop origin/core-patches-v5` = `4e84901e64`（上游 alpha.4 发布提交，`--all` 唯一）。它是上游提交，因此 **32 个冲突文件全部是 fork 独有文件的 add/add、无共同祖先**。改用两侧真正的内容祖先 `63a7eead67`（`core-patches-v4` 顶端——develop 的祖先、v5 的内容来源）逐文件 `git merge-file`：**29 个机械消解为零冲突**，其中 21 个因 develop 自 v4 起逐字节未动而与 v5 侧完全相同（`cmp` 实证，取 v5 可证无损），8 个是并集（两条 Agent Note 中英各一段 + 其配对记录、`locales.ts` 的 dropDesc 文案、`pnpm-lock.yaml` 的 fork 依赖闭包）。手判 3 个：`image-display.expected.e2e.ts` 的遮罩断言取 develop（须与并集后的 `locales.ts` 一致）、`search-helpers.spec.ts` 取 v5（两侧各自加了语义等价的同一份 file-part 覆盖）、`.claude/core-patches.md` 两处并集。补丁线随后自己把 dropDesc 终态同步了过去（`e1f47b2e34`），第二次合并时这两处已自动收敛。
-
-**三道机械护栏跑遍 246 个「两侧都改过」的文件**（`git diff --name-only 4e84901e64 <each side>` 求交集，含 32 个冲突文件与 214 个 git 自动合并的）：① 两父任一持有的 lint 抑制注释逐字存活——0 丢失；② 任意 ≥3 行连续有辨识度行的块在结果中出现次数不超过任一父——0 命中；③ 行级超额逐条判定——9 条全部正当（1 条是手拼的并集行、6 条是生成器重跑后的新值、2 条是锁文件并集后依赖方增加）。
-
-**三处 git 静默错合**（全程无冲突标记，`build`/`tsc -b` 双 face 全部放行）：
-
-- **新缺陷类：被一侧删除的文件因合并基是上游提交而复活。** v5 的 `9127951ebb` 删掉了 `packages/attachment/attachment-spill/src/invariant.ts`（空 invariant 伴生），但该包在合并基 `4e84901e64` 上根本不存在，于是「v5 侧的删除」在 git 眼里等价于「develop 侧的新增」，文件被无条件保留，`gen-tsconfig-paths` 还顺手给它加回了 `@deepseek-ai/dsh-attachment-spill/invariant` 路径别名。**任何以上游提交为合并基的 fork×补丁线合并都吃这一类**，行级/块级护栏都看不见它。新增护栏：`git diff --name-status --diff-filter=D <v4tip> <v5>` 全量扫描一侧的删除，逐个核对是否仍在结果树里（本轮 14 个删除，13 个是上游自己删的、已不在树上，1 个即本条）；反向（develop 删、v5 留）0 个。
-- `packages/extensions/tool-cordis/src/api-catalog.ts` 的 `SessionProbeTargetsRequest`/`SessionProbeTargetsValue` 两条整块重复——`{`/`},` 属样板行，块级护栏的「窗口内每行都要有辨识度」条件把它漏掉，靠 `gen-cordis-api` 重生成才现形。
-- `docs/persistence-catalog.zh.md` 的 `attachment/materialized` 小节重复两次（两父各 1、结果 4 次命中）——中文侧不是生成器产物，手工去重后 `verify-translation-pairing --write` 重录配对。**方法学教训**：第一遍把 `.zh.md` 误列进「生成物跳过名单」，正好复刻 rc.27 的失手模式；改为 246 个文件一个不跳重跑护栏才抓到。
-
-生成物一律重跑不手改：12 个生成器 + `verify-translation-pairing --write` 全跑，**第二遍零 diff（幂等自证）**，`doc-sync` 32/32 反证与生成器一致。
-
-**随本次集成完成的清理**：
-
-1. **develop 线死文件**：`packages/client/ui-conversation/src/client/file-sniff.ts` 与其 spec 删除。v 系列早已把 `sniffIsText`/`partitionDroppedFiles` 搬到 `packages/client/ui-primitives`，ui-conversation 的 client 出口不再重导出、无任何相对导入到达它，只剩自己的测试文件当读者。连带修 `2026-08-28-file-attachment-composer-intake` 这条 Agent Note 中英两侧的过期路径与出口描述（`verify-package-paths` 因删除而报红，是它把过期引用逼了出来）。
-2. **上游抑制注释还原**：`packages/experimental/webworker-runtime/src/node/builtin_modules/implemented/stream.ts` 的 `/* oxlint-enable typescript/unbound-method */` 被 develop 线 `e883dc2354` 丢掉，导致该文件第 35 行以下所有 unbound-method 长期不受检；逐字节从 `upstream/master` 取回原位，文件重新与上游一致。
-3. **feedback 两场景**：见上文 `a426a88c90` 条目的「副作用与处置」。
-
-**`pnpm run duplication` 现状：4 → 3**（file-sniff 那一份重复随删除消失）。剩下三处**全在补丁线我方 hunk 内，本轮不修，登记为补丁线技术债**：`api/session-controller/src/commands.ts` 两对（`[353:86-367:16]`↔`[394:68-408:16]` 15 行 76 token；`[589:23-596:17]`↔`[643:22-650:17]` 8 行 62 token）与 `client/ui-attachment/src/FileChip.tsx [111:57-123:8]` 复制 `AttachmentRail.tsx [176:21-188:8]` 的 13 行 65 token。该门禁在 develop 顶端同样红（当时 4 处），**不是本次集成引入**；抽取动作排到下一次滚动同步，抽完两边一起过门。
-
-## 每日滚动同步：0.1.2-alpha.5 → rc.1（`core-patches-v5` 001c0d7ded → `core-patches-v6`，63 个上游提交）
-镜像快进 `master` 到 `upstream/master`（`49a606bc5b..76fda72979`，先验 `git merge-base --is-ancestor master upstream/master` 与 `origin/master` 同为祖先，纯快进无 force），`git push origin master` 成功。注：`dsh-v0.1.2-rc.1` 标签落在 `a66e470204`（发版分支上），`upstream/master` 上无标签，`git describe` = `dsh-v0.1.2-rc.1-99-g76fda72979`；本轮基座取 `upstream/master`，其 `package.json` 版本即 `0.1.2-rc.1`。新工作树 `../dsh-roll6` 上 `git worktree add -b core-patches-v6 origin/core-patches-v5` + `git rebase --onto upstream/master 49a606bc5b`：v5 的 65 个提交全部落地、零 drop、零退役、零缩减（`git log --format=%s` 两侧逐行 diff 为空），随后新增 1 个适配提交，合计 66 个。
-
-**上游本轮改了什么（63 提交）**：新库 `packages/util/http-proxy`（把所有出站请求按配置的代理路由，含子进程/worker 的 `NODE_USE_ENV_PROXY` 下穿与 `.env` 代理名读取）、`packages/llm/llm-pi-ai` + `packages/client/ui-settings-models` 的模型清单发现、python 打包运行时不再劫持被 spawn 的 node 命令、`feat(session, agent, web): support same-session message editing` 合入后又整体 revert、issue-management 策略。
-
-**零退役核实（逐条对齐退化条款）**：
-- **文件级证据**：我方 239 个改动文件与上游 387 个改动文件求交，只有 13 个重合，且全是清单/生成物——`docs/config-catalog.{md,zh.md,i18n.yaml}`、`pnpm-lock.yaml`、`tsconfig.base.json`、`tsconfig.host.json`、5 个 `package.json`、2 个 `tsconfig.json`。**没有一个补丁的实体源文件被上游碰过**，因此没有任何补丁触发「上游一改同处就退役」。
-- `08f12ee732`（workspace gate 认私有 app）：上游本轮改了 12 个 `scripts/` 文件，其中**不含** `check-workspace-constraints.ts`，退化条款未触发。
-- `00770bab13`（preset selector glyph）等全部客户端补丁：上游本轮客户端改动只有 `ui-settings-models`（`ModelListEditor.tsx` + 双语 README + `provider-form.client.spec.tsx`）与 `apps/web/tests/models-settings.e2e.ts`，其余 `packages/client/*` 全是版本号行；我方补丁线在 `ui-settings-models` 下**零文件**，两侧无交集。
-- `8a2878ae6d`/`63a7eead67`（agent-presets 遗留 id `code`→`ptc`）：`git ls-tree upstream/master packages/preset/` 仍只有 `agent-presets`/`persona` 两个包，`git grep -iE "legacy|alias"` 零命中，机制仍不存在于上游。
-- 已退役的 `9b498d4a3e`、`4923774808` 维持退役，本轮未重落。
-
-**冲突与决定**（65 个重放提交中 1 个产生冲突，其余 64 个自动合并干净）：
-- `0d6f579a96`（spill oversized file attachments）：三处依赖清单并集。`packages/llm/llm-deepseek/package.json` 与 `packages/llm/llm-pi-ai/package.json` 的 `devDependencies`——上游把 `@deepseek-ai/dsh-http-proxy` 追加在 `dsh-timeout` 之后（非字典序），我方在 `dsh-timeout` 之前插 `@deepseek-ai/dsh-spill`。**决定**：并集，保留上游 `http-proxy` 的末位落点不动，`dsh-spill` 仍按字典序落在 `dsh-settings` 与 `dsh-timeout` 之间。`python/sdk-runtime/package.json`——上游把 `dsh-attachment` 移到了 `dsh-atomic-write` 之后，而本补丁原作时顺序相反。**决定**：取上游的排序形态，只在上游那行 `dsh-attachment` 后补一行 `dsh-attachment-spill`，即最小增量，不把上游的重排改回来。
-- 自动合并干净的同类文件：`packages/bundle/base/package.json`、两个 `llm/*/tsconfig.json`、`tsconfig.base.json`、`tsconfig.host.json`、`docs/config-catalog.{md,zh.md}`、`pnpm-lock.yaml`。
-- `pnpm-lock.yaml` 自动合并后**未手改**：变基后跑 `pnpm install --prefer-offline` 退出码 0，与合并结果逐字节 `diff` 无差异，供应链策略校验通过。
-
-**本轮新增 1 个适配提交**：
-1. `f62694e1ae` fix(attachment-spill): match the workspace version constraint——唯一的 fork 自有工作区包 `packages/attachment/attachment-spill` 版本停在 `0.1.2-alpha.5`，上游发版把根版本推到 `0.1.2-rc.1`，`check-workspace-constraints` 要求每个工作区包版本等于根版本。改法与上游发版提交 `a66e470204` 对每个已发布包做的完全一样（单行版本号）。变基后先单跑 `tsx scripts/check-workspace-constraints.ts` 复现该红（`package.json version must match root version 0.1.2-rc.1`），改后同一命令零输出。这是**每次基座升版都会复发**的机械项，不是本次变基引入的缺陷。
-
-**上游改动对本线的四项定向核查**：
-- **`http-proxy` 库**：我方补丁线的整段 diff 里 `https?_proxy`/`ProxyAgent`/`undici`/`globalDispatcher`/`new Agent`/`fetch(` 全部零命中——本线没有任何自建 fetch 或代理读取，无需适配。`doc-sync` 的 `proxy-aware dispatchers` 门（上游本轮新加的 `verify-no-bare-dispatcher`）在本线通过。
-- **`ui-settings-models` 模型清单发现**：本线在该包下零文件，无交集（见上「零退役核实」）。
-- **`SESSION_FORMAT_VERSION`**：上游**未**改动，`packages/core/session/src/types.ts:87` 在 alpha.5 与 rc.1 上同为 `= 0`，变基后的树亦为 `0`。
-- **`SessionEventMap` 净变化 = 0**：同会话消息编辑 `ef88756f13`（208 文件 +4057/−348）与其 revert `e974a655a0`（208 文件 +348/−4057）互相抵消，`git diff ef88756f13^ e974a655a0` 输出为空，即 revert 逐字节还原。alpha.5→rc.1 在 `packages/core/session` 与 `packages/session/*` 下的净改动只剩版本号行加一个 `session-telemetry-otel` 出网测试文件，无任何新事件成员。
-
-**门禁实跑结果**（全部在 `../dsh-roll6`，代码 HEAD `f62694e1ae`）：`pnpm install --frozen-lockfile` 退出码 0 → `pnpm run build` 退出码 0（1m23s）→ `pnpm run typecheck` 退出码 0，另跑双面冷启动 `tsc -b tsconfig.host.json --force` 与 `tsc -b tsconfig.client.json --force` 各 0 错误（24s/25s）→ `pnpm run lint` 退出码 0（23s）→ `pnpm run test` 退出码 1（见下「基座环境敏感测试红」；1057 文件中 1044 通过 / 4 失败 / 9 跳过，17835 用例中 17471 通过 / 246 失败 / 118 跳过，126s）→ `pnpm run hygiene` **16 门全绿**（11s）→ `pnpm run doc-sync` **32 门全绿**（53s）。
-
-**基座环境敏感测试红（4 个文件 246 条，全部非本次变基引入）**：
-- 取证方式：在 `upstream/master` 上新开一棵纯净工作树 `../dsh-roll6-base`（`git worktree add --detach`，`pnpm install --frozen-lockfile` 退出码 0），只跑这 4 个文件作基线。
-- `packages/experimental/code-runtime-python/tests/runtime.spec.ts`：我方 238 失败，基座 238 失败——同数。根因 `config.pythonBin "/usr/bin/python3" must be CPython 3.10 or newer, got cpython 3.9.6`，本机 `/usr/bin/python3` 是 CPython 3.9.6。
-- `packages/experimental/code-runtime-python/tests/boot-write-failure.spec.ts`：我方 6 失败，基座 6 失败——同数、同根因。
-- `packages/spill/spill-local/tests/spill-local.spec.ts`：我方 1 失败，基座 1 失败——同一条 `keeps a file exactly at the boundary`（mtime 边界精度）。
-- `packages/experimental/inspector/tests/integration.host.spec.ts`：我方全量跑里 1 失败，但在基座单跑**通过**，在本线单跑也**通过**（10/10）——判定为全量并行负载下的真实 Worker 抖动，台账已立案，不修。
-- 三项确定性红在基座合计 245 条，本线全量 246 条 = 245 + 抖动 1；四个文件在 `git diff upstream/master..core-patches-v6` 下**零改动**（与上游逐字节相同）。
-- 台账此前立案的另两项（`benchmark-npm-resolution` 进程树 PID、`oxlint-contract` FORCE_COLOR）本轮全量跑中**未复现**，状态维持立案。
-
-**旧会话可读性实证（本线读上一发行版写的真实日志）**：
-- 素材：把用户 rc.28 桌面写出的真实日志 `~/.dsh/sessions/--Users-haoran-CODE-work-project-evacuation-route--/session-9ca7767d-d3d9-4416-a6bc-b0201d6e1713/session.jsonl.zstd` **只读拷贝**到 scratch 造一个 `sessions` 根，全程不碰 `~/.dsh`。落盘头行实测 `{"type":"session","version":0,…,"agentPreset":"code"}`——带遗留预设 id `code`，正是 `8a2878ae6d`/`63a7eead67` 那对补丁负责翻译的那种老日志。
-- 用本线代码读（`JsonlSessionPersistence` + `SessionStore`，`compression: 'zstd'`）：`list()` 列出 1 个会话；`stat()` 与 `open(id,'read')` 的 header 均为 `version: 0`、`isSeeded: false`、`agentPreset: "code"`，无版本拒读；`handle.read(0)` 读出 **607 条事件**，`seq` 0..606 连续无洞，20 种事件类型（`assistant/chunk` 579、`user/message` 4、`tool/call` 1、`tool/result` 1 等），首条用户消息文本可完整读回。
-- 拒读路径仍在（不是「什么都不拒」造成的假绿）：同一个 backend 对一份伪造的 `version: 1` 头行抛 `SessionFormatUnsupportedError`，消息为 `uses log format v1, but this harness reads only v0: the log was written by a newer harness — upgrade the harness to open it`。
-
-**分支 HEAD 登记**：代码最终 HEAD = `f62694e1ae`（上表门禁数字即在其上取得）；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。起点 `origin/core-patches-v5` = `001c0d7ded`（未动），基座 `upstream/master` = `origin/master` = `76fda72979`。
-## rc.29 集成合并审计：`develop` 线 × `core-patches-v6`（基座 0.1.2-rc.1）
-
-分两次合并。第一次并入 `72d966ed10`（v6 变基落地 + 1 个适配提交 + 台账），第二次并入补丁线随后追加的 `4f01454e9a`（导出进度补丁 `f13efcd83b` + 其台账条目）。集成分支 `rc29-integration` 起自 `origin/chore/vendor-screenshot-0.5.1`（`ec01e6a40e`，`git merge-base --is-ancestor origin/develop HEAD` 为真），并先线性 cherry-pick 两条同辈分支：`4b0bb71113`（更新器日志收敛）与 `5d899090a4`（外壳落位下载）。两条都零冲突自动合并，`apps/desktop/README.{md,zh.md,i18n.yaml}` 三处自动并集后 `verify-translation-pairing` 1174 对全绿，提交信息与 trailer 逐字保留。
-
-**第一次合并**：`git merge-base` = `49a606bc5b`（上游 0.1.2-alpha.5 发布合并，`--all` 唯一）。它是上游提交，所以 fork 独有文件仍全部以 add/add 落入冲突、无共同祖先——与 rc.27/rc.28 同一机理。**15 个冲突文件**（rc.28 是 32 个，本轮少一半：补丁线这一轮零退役、零删除）。8 个 fork 独有文件改用两侧真正的内容祖先 `001c0d7ded`（`core-patches-v5` 顶端）逐文件 `git merge-file`，**7 个机械消解为零冲突**：两条 port Agent Note 的中英与配对记录共 6 个文件在 v6 与 v5 之间逐字节相同（`cmp` 实证），develop 的后续修改取胜且零丢失；`packages/attachment/attachment-spill/package.json` 反过来，develop 侧与祖先逐字节相同，取 v6 的 `f62694e1ae` 版本号提升。
-
-手判 7 个：
-- `pnpm-workspace.yaml`、`THIRD_PARTY_NOTICES.md`：两个根补丁并集——上游新增的 `@yao-pkg/pkg@6.21.0` 与 fork 的 `electron-updater@6.8.9`（连同其注释块），`node-pty` 仍在末位。
-- `scripts/build-exe-for-python-sdk.spec.ts`：并集。它覆盖的 `.ts` 自动合并后同时保留了上游的 `pnpm exec pkg`（上游改用被 patch 的根 devDependency，不再 `pnpm dlx @yao-pkg/pkg@6.21.0`）与 fork 的 `filteredDeployArgs` 整条 deploy 行，故两条断言都留。
-- `packages/llm/llm-deepseek/package.json`、`packages/llm/llm-pi-ai/package.json`、`python/sdk-runtime/package.json`：取 v6——它已含我方 `dsh-spill` 与上游新增 `dsh-http-proxy`，`python/sdk-runtime` 的排序也已按滚动同步的决定落在上游形态。解后 `json.loads` 校验两个 attachment 键各出现 1 次、依赖表整体有序。
-- `pnpm-lock.yaml`（44 处冲突）：整取 v6 侧，再跑 `pnpm install` 让补丁线没有的三个 importer（`apps/desktop`、`apps/desktop-server`、`apps/pwa`）重新解析——补丁线树上根本没有这三个 app。`install` 退出 0，随后 `pnpm install --frozen-lockfile` 退出 0，十一个 `file:./vendor/*.tgz` 供应商包全部在锁内。
-- `.claude/core-patches.md`：并集，develop 的 rc.28 集成审计段在前、v6 的滚动同步段在后。`comm` 逐行实证 merged ⊇ ours、0 丢失。三条「状态」行两侧措辞不同，**取 develop 侧**：composer-intake 条 develop 是 v5 的严格超集（前后缀比对下 anc-only 文本 0 字符）；`ebd4e9c1f4` 条 develop 含 v5「落地形态修正」整段另加「落点更新」段，而 v5 独有的那句「本代码树没有 `apps/web/tests/secret-container-confirmation.e2e.ts` 及其金样」**在集成树上为假**（develop 带着这个 e2e 与金样），develop 的对应句才是正确事实；`7e37c74cdf` 条 develop 是同一事实的更完整叙述，尾句两侧相同。
-
-**第二次合并**：`git merge-base` = `72d966ed10`，是**真正的内容合并基**（两侧共同祖先），因此不吃 add/add 那一类。两侧零删除。唯一冲突仍是台账，并集：新补丁条目按本文件既有次序落在补丁登记区、rc.26 审计段之前。
-
-**三道机械护栏跑遍 250 个「两侧都改过」的文件**（`git diff --name-only 49a606bc5b <each side>` 求交，一个不跳）：① 两父任一持有的抑制注释（`oxlint-disable`/`oxlint-enable`/`eslint-disable`/`@ts-expect-error`/`@ts-ignore`/`c8 ignore`/`v8 ignore`）逐字计数，**0 丢失**；② 行级超额 2 条，全在 `docs/module-graph.i18n.yaml`，是配对哈希的新值；③ 块级重复（≥3 行连续、每行 ≥12 字符）9 条命中**全部是 `count=1 vs max=0`**，即并集造成的新相邻而非重复插入。
-
-**rc.28 立案的「删除复活」护栏本轮零命中**：以内容祖先 `001c0d7ded` 为准，v6 侧删除且不在合并基上的 fork 文件 **0 个**，develop 侧同类 **0 个**；结果树中「两个父都没有」的文件 **0 个**。上游 `B→v6` 的 3 个删除是同一条 Agent Note（`2026-08-31-pr-opened-issue-start-dates` 三件套）被上游归档改名，结果树里原路径已不在、归档路径在，正确。
-
-**生成物一律重跑不手改**：第一次合并后 12 个生成器全跑，**零 diff**——自动合并的生成物与其生成器本就一致，`verify-translation-pairing` 1179 对全绿。第二次合并后再跑 12 个，**只改动一行**，而这行暴露了补丁线自身的一处遗漏：`f13efcd83b` 把 `session-log-export` 的 `Config` 从 `src/index.ts:45` 移到 `:59` 却没重跑生成器，`origin/core-patches-v6` 自己就过不了 `verify-config-catalog`。英文侧由 `gen-config-catalog` 修正，中文侧同一处来源行手工跟上，配对重录（1180 对全绿）。
-
-**门禁实跑结果**（最终 HEAD `79162d0f1f`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`build` 0；`typecheck` 0；`lint` 0；聚焦 `vitest run apps/desktop/tests scripts packages/session-query/session-log-export packages/llm/llm-deepseek` 114 文件 1807 条全绿；`packages/session-query/session-log-export` 单跑 9 文件 83 条全绿；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`hygiene` 16/16；`doc-sync` 33/33；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
-
-**`pnpm run test` 全量：4 文件 246 条红，全部非本次集成引入**：
-- `code-runtime-python` 两文件 244 条：本机 `/usr/bin/python3` 是 3.9.6，该包要求 ≥3.10。基座 `core-patches-v6` 同样 244 条。
-- `packages/spill/spill-local/tests/spill-local.spec.ts` 1 条（mtime 边界）：基座同样 1 条。
-- `apps/desktop/tests/server.spec.ts` 1 条：**流交错抖动**。该测试的假 server 把 loader 错误写 stderr、20 行 filler 写 stdout，父进程按到达顺序拼一个缓冲区，满载时 stderr 那一行可能排到 stdout 突发之后，于是「消息尾 15 行不含该错误」的断言失败。`apps/desktop/tests/server.spec.ts` 与 `apps/desktop/src/server.ts` **被两次合并各自的 diff 完全没碰过**（`git diff <合并前 HEAD> HEAD --` 为空），且 `vitest run apps/desktop/tests` 单跑 19 文件 458 条全绿、聚焦跑两轮亦全绿。
-- 另见一次一过性抖动：`scripts/gen-client-catalog.spec.ts` 在全量并发下读到 `scripts/oxlint-contract.spec.ts` 刚建又删的 `packages/fs/fs-observation-policy/src/oxlint-contract-<uuid>.ts`，报 ENOENT；重跑即绿。同属并发写真实包目录的既有竞态，非本次引入。
-
-**装配层实证**（照 `apps/desktop/scripts/package.ts` 的前几步做最小复现）：`scripts/filtered-deploy.ts` 的 `filteredDeployArgs` 原样驱动 `pnpm deploy`，**全程无 `ERR_PNPM_UNUSED_PATCH`**（`8a86b8604a` 的豁免在两个根补丁并存后依然成立）；`verifyStagedPatches` 在暂存闭包上通过；`--version` 打印 `0.1.2-rc.1`；scratch `DSH_HOME` + `--port 0` 起服，**11 个内置插件全部 seeded 且 linked**，索引里 57 个 client 模块 URL 逐个 200、都注册了 `__ModuleLoader__` 且不 import Node 内置。
-
-**旧会话可读性实证**（合并树读上一发行版写的真实日志）：把用户 rc.28 桌面写出的 `session-9ca7767d-d3d9-4416-a6bc-b0201d6e1713` 只读复制到 scratch 后用本树代码读——`list()` 1 个会话，`stat()`/`open()` 头行一致（`version: 0`，`agentPreset: "code"`），`read(0)` 得 **607 条事件、seq 0..606 连续**、20 种事件类型、首条 `user/message` 正文可读。拒读路径仍在：同一 backend 对伪造的 `version: 1` 头行抛 `SessionFormatUnsupportedError`。
-
-**随本次集成登记、不在本次修**：`scripts/filtered-deploy.ts` 的 `STAGED_PATCHES` 文档只解释了 `electron-updater` 为何不在表内；上游新增的 `@yao-pkg/pkg` 同样不在（它是根 devDependency，永远进不了 `--prod` 闭包），该理由尚未写进那段 JSDoc。不影响任何门禁，排到下一次触碰该文件时补齐。
-
-**第三次合并**：并入补丁线随后追加的 `fa7d5afc65`（`84676f680a` 目录重生 + `fa7d5afc65` 导出测量表述订正）。`git merge-base` = `4f01454e9a`，仍是真正的内容合并基；**零冲突**，18 个文件全部自动合并。`docs/config-catalog.{md,zh.md,i18n.yaml}` 压根没进合并 diff——补丁线这一次自己补跑了生成器，落到的结果与第二次合并时集成侧的手工修正逐字节相同；合并后 `gen-config-catalog` 重跑零 diff，`verify-config-catalog` 与 `verify-translation-pairing`（1180 对）全绿。代码面实质变化三处：`SessionLogExportExtent.bytes` 转为可选（它只作诊断，浏览器不按它缩放进度条，缺它仍是确定态进度条），`controller.ts` 在最后一次 read 与落盘之间补 `signal.throwIfAborted()`（晚到的取消不再把归档交给浏览器），`Dialog.tsx` 收到首字节后文案由「正在准备」切「正在传输」（新增 `dialog.transferringDescription` 双语条目）；其余是 JSDoc/README/Note 把「测量与产出共用一次遍历」订正为「共用遍历函数、各跑一遍」，以及 e2e 条目数断言由 `toBe(1)` 放宽为 `toBeGreaterThanOrEqual(1)`。
-
-**第三次合并后门禁实跑**（合并提交 `331f51b188`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`typecheck` 0；`lint` 0；`vitest run packages/session-query/session-log-export apps/desktop/tests` **28 文件 544 条全绿**；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`doc-sync` **33/33**；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
-
-**分支 HEAD 登记**：`rc29-integration` 三次合并依次为 `b4275d2c35`、`79162d0f1f`、`331f51b188`。桌面版本号在前两次合并时不动；本节所在的这个 `docs(core-patches)` 提交之后即 `release(desktop): 0.1.0-rc.29`（只改 `apps/desktop/package.json` 一行，照 rc.28 的 `9b21859de6` 原样），随后打包。
-
-## rc.28 基座合并：`feat/base-develop` ← `origin/develop`（`0da04a8ade`，上游 alpha.5+38）
-
-产品线 `product/server-console` 的开发分支 `feat/base-develop` 换基座：合并基 `719cec2365`（上一次合并带进来的 develop 顶端），带进 **120 个上游提交**，本线 **21 个适配提交全部保留**（`merge`，不 rebase），合并提交 `4f28d3eb1a`。根版本 `0.1.2-alpha.4` → `0.1.2-alpha.5`。
-
-**冲突 4 个**（上一次合并是 22 个），无一是静默错合：
-
-- `packages/experimental/README.md` / `README.zh.md`——包表两侧各自加行。手工并集：上游九行 + 本线九行 = 18 行，并采纳上游对 `tool-agent-team` 的更正（`Eight tools` → `Nine tools`／`九个工具`；对着 `origin/develop` 数 `tools.register(defineTool({` 实证为 9）。中英两侧行数与目录清单机械核对相等。
-- `packages/experimental/README.i18n.yaml`——`.gitattributes` 的 `merge=dsh-translation-pairing` 驱动**按设计 fail-closed**：它检出 `README.md` 的属主冲突后拒绝重算配对哈希，只报 `has content conflicts` 并把索引留在未解析态（驱动脚本的注释写明「干净的文本合并仍然是未经验证的配对元数据」）。属主两侧手工解完后跑 `verify-translation-pairing --write` 重录，`doc-sync` 的 translation pairing 门禁绿。**结论：配对哈希自动重算的链路完好，只是它拒绝在属主未定时先行重算——这是正确行为，不是缺陷。**
-- `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`——生成物。不手改，跑 `gen-client-catalog` 重生成（结果是两父的超集），`verify-client-catalog` 在 doc-sync 里绿。
-
-**上游三处待回报缺口在 alpha.5 的状态（逐条实证）**：
-
-1. `packages/attachment/attachment-spill` 版本号与根不符——**已修**。该包现为 `0.1.2-alpha.5`，`pnpm run constraints` 不再报它。
-2. 该包的空 invariant 伴生文件——**已修**。`packages/attachment/attachment-spill/src/invariant.ts` 已不在树上（补丁线 `9127951ebb` 删除），`verify-package-invariants` 报 `42 hand-owned package companion(s) conform.`。
-3. `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 未进 Client 聚合 `include`——**仍在**。`git show origin/develop:tsconfig.client.json` 只有 `packages/client/*/src/css-modules.d.ts` 与 `packages/extensions/ui-cordis/src/css-modules.d.ts` 两行，仍不覆盖 `experimental` 组。本线 `e72dec971a` 的那一行 **继续在役**。
-
-**两条在役上游改动的复核**：
-
-- `3bdd0135a5`（trajectory-cell 测试包装函数用 `createElement`）——按本文件登记的机械退役判定实测：把那一行还原成 JSX 展开后跑 `pnpm run typecheck`，仍报 `packages/client/ui-trajectory/tests/cell.client.spec.tsx:29:11 - error TS2375 … 'slot?: string | undefined'`。**在役**（已还原回 `createElement`）。
-- `e72dec971a`（`tsconfig.client.json` 的一行 include）——见上文缺口 3。**在役**。
-
-**本次合并后必需的两处本线适配**（各自独立提交）：
-
-- `fef729bf36` — alpha.5 的会话读路径新增 `assertMessageEventShape`：每条重放的 `tool/result` 的 `data.message` 必须带 `id`、`role: "user"`、`source.kind` 与数组 `content`。`show-chart.e2e.ts` 与 `content-surface.e2e.ts` 两个场景仍在拼 alpha.5 之前的扁平载荷（`callId`/`content`/`isError` 直接挂在 `data` 下），于是种下的日志一打开就被判为 corrupt（`stored session … is corrupt: session event at seq 66 lacks an identified message`），整条会话流渲染为空，`expandTurnProcesses` 卡在一个从未存在的控件上超时。两处改为写出完整的 tool-result 消息，身份沿用 fixture 自己的 `{{message:N}}` 记号空间（1–5 属录制 fixture，本线从 6 起）。
-- `1f35f1c06a` — 本线九个 `packages/experimental/*` 包的 `package.json` 版本从 `0.1.2-alpha.4` 抬到 `0.1.2-alpha.5`。`check-workspace-constraints` 要求每个工作区包版本等于根版本，合并把根抬到 alpha.5 后只剩这九个落在后面。
-
-**门禁**：`typecheck` 0、`lint` 0、`build` 0、`doc-sync` 32/32、`hygiene` 15/15（含 `constraints`）、包内 vitest 628/64 未变、8 条浏览器场景 55/55、三份 overlay 的 `--dump-config` 均为三档（`read-only`/`workspace-write`/`danger-full-access` → 只读／可修改文件／完全放开），三份 overlay 的 `permission` 块 md5 一致（`02ad6f547495e2235a55a77d684ab2f7`）。
-
-**特别核：alpha.5 的 `Session.append` 仍无 writer 面**（只报告，未改动）。信封字段 `ignorable?: true` 保留在 `packages/core/session/src/types.ts:454`，读路径 `session-persistence/src/storage-contract.ts:72` 以它决定是否拒绝未知事件类型；但 `Session.append(type, data, ...opts)` 的 `opts` 只有 `SurfaceIntent`（`surfaceOp` / `sourceEventSeqs`），**没有任何参数或重载能让写方把某条事件标成 `ignorable`**，全仓也没有一处生产代码写出 `ignorable: true`。上游 `2026-08-30-retain-ignorable-external-session-events` 明确记载该字段是为**树外第三方插件**保留的、由其自己的持久化路径写出，并明确否决了「按已挂载插件名注册已知事件」的替代方案。对本线的含义：本线的 `content/shown` 与 `content-surface/dismissed` 目前**在仓内**，已进 `KNOWN_SESSION_EVENT_TYPES`（`known-event-types.ts:37-38`），因此读得回来；一旦这两个包被抽到树外插件仓，它们就落在该集合之外，而 `Session.append` 给不出标记 `ignorable` 的手段——**卸载插件即锁死会话日志**的风险在 alpha.5 上原样存在，悬案未消。
+在**纯 `upstream/master`** 树上，对 `~/.dsh/sessions` 与备份 home 的**只读副本**逐份冷读（`JsonlSessionPersistence.open(id, 'read').read()`，与派生索引观测走同一条路），记下拒读份数与每类拒读原因；移植后同法复测，逐条对应到是哪条补丁清掉了哪一类。`core-patches-v8` 那轮的读数是：纯上游 127/139 与 96/121，五类拒读原因；三条会话格式补丁逐条叠加后 139/139 与 121/121，零拒读；两库共 281 个 `.zstd` 文件在全部回放之后 sha256 逐一未变（读路径只在内存里迁移）。**副本永远放 scratch，绝不对真实 home 做写操作。**
