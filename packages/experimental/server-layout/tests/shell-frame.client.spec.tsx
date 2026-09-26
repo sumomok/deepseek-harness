@@ -31,6 +31,8 @@ const FRAME = 1680
 /** A frame width below SIDEBAR_AUTO_COLLAPSE (1024) — the fold breakpoint. */
 const NARROW = 500
 const TEST_SESSION_ID = 'shell-frame-test-session' as SessionId
+/** A listed session no view retains, ahead of the main view's row in the list. */
+const BACKGROUND_SESSION_ID = 'shell-frame-background-session' as SessionId
 
 /** Observer stub: captures the callback so a spec can deliver a resize. */
 let deliverResize: ((width: number) => void) | null = null
@@ -55,18 +57,19 @@ function hookOf<T>(instance: { subscribe: (fn: () => void) => () => void; getSna
 
 /**
  * `mountFrame`'s content-surface control: a positive/zero entry count, no
- * main-view session at all, or a main-view session carrying no `contentSurface`
+ * main-view session at all, a main-view session carrying no `contentSurface`
  * projection value whatsoever (a deployment that never composes
  * `dsh-experimental-content-surface` — this package has zero dependency on
- * it, see the module doc).
+ * it, see the module doc), or `{ surface }`, a `contentSurface` value of any
+ * other form.
  */
-type ContentFixture = number | 'no-session' | 'no-projection'
+type ContentFixture = number | 'no-session' | 'no-projection' | { surface: unknown }
 
 /**
- * Build a `useSessions` stub reporting one main-view session whose
- * `contentSurface.entries` carries `contentEntries` items — see
- * {@link ContentFixture} for the two sentinel cases (both collapsed
- * readings; see `ShellFrame.tsx`'s own `currentContentEmpty`).
+ * Build a `useSessions` stub listing one background session no view retains,
+ * then one main-view session whose `contentSurface.entries` carries
+ * `contentEntries` items — see {@link ContentFixture} for the other cases
+ * (all collapsed readings; see `ShellFrame.tsx`'s own `currentContentEmpty`).
  * `contentSurface` is not a type this package depends on (soft-coupled read,
  * see the module doc), so the state is built loosely and cast through
  * `unknown` rather than satisfying `SessionListState` structurally.
@@ -74,10 +77,22 @@ type ContentFixture = number | 'no-session' | 'no-projection'
 function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSessions'] {
   const noSession = contentEntries === 'no-session'
   const noProjection = contentEntries === 'no-projection'
-  const entryCount = noSession || noProjection ? 0 : contentEntries
+  const surface = typeof contentEntries === 'object'
+    ? contentEntries.surface
+    : { entries: Array.from({ length: typeof contentEntries === 'number' ? contentEntries : 0 }, () => ({})) }
+  const background = {
+    id: BACKGROUND_SESSION_ID,
+    displayTitle: 'Background',
+    running: false,
+    blank: false,
+    updatedAt: 1,
+    retainedBy: {},
+    projectionValues: { contentSurface: { entries: [{}] } },
+  }
   const state = {
-    ids: noSession ? [] : [TEST_SESSION_ID],
-    byId: noSession ? {} : {
+    ids: noSession ? [BACKGROUND_SESSION_ID] : [BACKGROUND_SESSION_ID, TEST_SESSION_ID],
+    byId: noSession ? { [BACKGROUND_SESSION_ID]: background } : {
+      [BACKGROUND_SESSION_ID]: background,
       [TEST_SESSION_ID]: {
         id: TEST_SESSION_ID,
         displayTitle: 'Test',
@@ -86,7 +101,7 @@ function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSe
         updatedAt: 1,
         retainedBy: { mainView: 1 },
         ...noProjection ? {} : {
-          projectionValues: { contentSurface: { entries: Array.from({ length: entryCount }, () => ({})) } },
+          projectionValues: { contentSurface: surface },
         },
       },
     },
@@ -250,6 +265,15 @@ describe('ShellFrame', () => {
     const { frame } = mountFrame([], 'no-projection')
     expect(tracks(frame)[1]).toBe(0)
     expect(frame.dataset['contentEmpty']).toBe('true')
+  })
+
+  it('collapses the content column when the main view\'s content-surface value is not an entry list', () => {
+    for (const surface of ['entries', null, {}, { entries: 'none' }]) {
+      const { frame } = mountFrame([], { surface })
+      expect(tracks(frame)[1]).toBe(0)
+      expect(frame.dataset['contentEmpty']).toBe('true')
+      cleanup()
+    }
   })
 
   it('expands the content column once the main view has shown something', () => {

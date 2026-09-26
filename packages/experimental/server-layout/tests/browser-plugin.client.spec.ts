@@ -78,18 +78,25 @@ describe('server-layout browser half', () => {
     expect(ctx.layout.panelInfo.getSnapshot()).toEqual({ activePanelId: null })
   })
 
-  it('selects only registered main panels and drops a selection whose entry leaves', async () => {
+  it('selects only registered main panels, notifies panelInfo subscribers, and drops a selection whose entry leaves', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
 
     const panel = 'schedule' as MainPanelId
     expect(() => { ctx.layout.selectPanel(panel) }).toThrow(/not registered/)
     const dispose = slots.register({ name: 'main', key: 'schedule' }, () => null)
+    const notified = vi.fn()
+    const unsubscribe = ctx.layout.panelInfo.subscribe(notified)
     ctx.layout.selectPanel(panel)
     expect(ctx.layout.panelInfo.getSnapshot()).toEqual({ activePanelId: panel })
+    expect(notified).toHaveBeenCalled()
+    unsubscribe()
+    notified.mockClear()
 
     dispose()
     await vi.waitFor(() => { expect(ctx.layout.panelInfo.getSnapshot()).toEqual({ activePanelId: null }) })
+    // An unsubscribed listener hears nothing of the fallback to the Conversation.
+    expect(notified).not.toHaveBeenCalled()
   })
 
   it('registers both dictionaries under its own namespace', async () => {

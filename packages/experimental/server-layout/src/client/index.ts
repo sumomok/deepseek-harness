@@ -91,8 +91,11 @@ export function apply(ctx: ClientContext): void {
       getSnapshot: () => instance.getSnapshot().panelInfo,
       subscribe: listener => instance.subscribe(listener),
     }
-    const mainKeys = (): string[] => ctx.slots.entries('main').flatMap(entry =>
-      entry.options.key === undefined ? [] : [entry.options.key])
+    // The registry refuses a keyed registration without a key; the filter only
+    // narrows the entry options' optional `key` to `string`.
+    const mainKeys = (): string[] => ctx.slots.entries('main')
+      .map(entry => entry.options.key)
+      .filter(key => key !== undefined)
     const face = new PanelFace(instance.actions, id => mainKeys().includes(id), panelInfo)
     const disposePanelInfo = ctx.slots.provideRoot({ hooks: { panelInfo } })
     const disposeService = ctx.reflect.provide('layout', face)

@@ -243,6 +243,13 @@ describe('ShowChartRow', () => {
     expect(bridge.renders).toHaveLength(0)
   })
 
+  it('draws no chart and posts no report for a call still preparing its arguments', () => {
+    mount({ phase: 'preparing', callId: CALL_ID, name: 'show_chart', turn: 1, step: 1, time: 0, subCalls: [] })
+    expect(screen.getByText(en['row.unreadable'])).toBeDefined()
+    expect(bridge.renders).toHaveLength(0)
+    expect(posted).toEqual([])
+  })
+
   it('shows the unreadable row for a settled call whose head was cut from the window', () => {
     mount({ ...(settled({ option: OPTION }) as Extract<ToolCallBlock, { kind: 'tool-result' }>), call: null })
     expect(screen.getByText(en['row.unreadable'])).toBeDefined()
