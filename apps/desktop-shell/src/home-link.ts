@@ -19,7 +19,7 @@
 import { lstatSync, readlinkSync, symlinkSync, unlinkSync, type Stats } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { readDataId, type DataId } from './data-location.ts'
-import { sameLinkTarget } from './profile-seed.ts'
+import { fromExtendedLengthPath, sameLinkTarget } from './profile-seed.ts'
 
 /** What calibration reads from `lstat`. */
 export type LinkStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory'>
@@ -60,7 +60,7 @@ export function defaultHomeLinkTarget(defaultHome: string, fs: LinkFs = NODE_LIN
     // link: the value then means the path itself, as it always did.
     return undefined
   }
-  return resolve(dirname(defaultHome), target.startsWith('\\\\?\\') ? target.slice(4) : target)
+  return resolve(dirname(defaultHome), fromExtendedLengthPath(target))
 }
 
 /** What calibration found at `~/.dsh` and did about it. */

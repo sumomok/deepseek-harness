@@ -10,10 +10,11 @@ import {
 } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DATA_ID_FILENAME, type DataId } from '../src/data-location.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type LinkFs, type LinkStats } from '../src/home-link.ts'
+import { fromExtendedLengthPath, sameLinkTarget } from '../src/profile-seed.ts'
 
 let root: string
 let defaultHome: string
@@ -133,6 +134,14 @@ describe('defaultHomeLinkTarget', () => {
     unlinkSync(defaultHome)
     symlinkSync(join(root, 'Unplugged', 'DSH-Data'), defaultHome)
     expect(defaultHomeLinkTarget(defaultHome)).toBe(join(root, 'Unplugged', 'DSH-Data'))
+  })
+
+  it('restores a UNC path from its extended-length form rather than cutting it into a relative one', () => {
+    expect(fromExtendedLengthPath('\\\\?\\UNC\\srv\\share\\DSH-Data')).toBe('\\\\srv\\share\\DSH-Data')
+    expect(fromExtendedLengthPath('\\\\?\\E:\\DSH-Data')).toBe('E:\\DSH-Data')
+    expect(fromExtendedLengthPath('/Volumes/Ext/DSH-Data')).toBe('/Volumes/Ext/DSH-Data')
+    expect(win32.resolve('C:\\Users\\p', fromExtendedLengthPath('\\\\?\\UNC\\srv\\share\\DSH-Data'))).toBe('\\\\srv\\share\\DSH-Data')
+    expect(sameLinkTarget('\\\\?\\UNC\\srv\\share\\DSH-Data', '\\\\srv\\share\\DSH-Data', '/h')).toBe(true)
   })
 
   it('reads a Windows junction back without its extended-length prefix', () => {

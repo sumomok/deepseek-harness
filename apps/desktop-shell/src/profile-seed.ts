@@ -498,9 +498,21 @@ function initDesktopProfile(dir: string, bundles: readonly string[]): boolean {
  * @returns true when the existing link already points at `target`.
  */
 export function sameLinkTarget(read: string, target: string, linkDir: string): boolean {
-  const canonical = (path: string): string =>
-    resolve(linkDir, path.startsWith('\\\\?\\') ? path.slice(4) : path)
+  const canonical = (path: string): string => resolve(linkDir, fromExtendedLengthPath(path))
   return canonical(read) === canonical(target)
+}
+
+/**
+ * A Windows path in its ordinary form: `\\?\C:\dir` becomes `C:\dir`, and
+ * `\\?\UNC\server\share\dir` becomes `\\server\share\dir`. Removing only the
+ * four-character prefix from the second would leave `UNC\server\share\dir`,
+ * which resolves as a relative path.
+ * @param path - a path as `readlinkSync` returned it.
+ * @returns the path without its extended-length prefix; any other path unchanged.
+ */
+export function fromExtendedLengthPath(path: string): string {
+  if (path.startsWith('\\\\?\\UNC\\')) return `\\\\${path.slice('\\\\?\\UNC\\'.length)}`
+  return path.startsWith('\\\\?\\') ? path.slice(4) : path
 }
 
 /**
