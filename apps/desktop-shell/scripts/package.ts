@@ -36,6 +36,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
   findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer,
@@ -191,12 +192,15 @@ async function run(label: string, command: string, args: string[], cwd: string =
 
 /**
  * Restore direct dependencies pnpm's legacy deployer hoists beside the deploy
- * source instead of into the target (the build-exe-for-python-sdk recipe).
+ * source instead of into the target (the build-exe-for-python-sdk recipe), and
+ * the production dependencies it left only inside those
+ * ([[restoreHoistedDependencies]]).
  */
 async function restoreLegacyHoists(): Promise<void> {
   const manifest = JSON.parse(await readFile(join(SERVER_STAGING, 'package.json'), 'utf8')) as {
     dependencies?: Record<string, string>
   }
+  const restored: RestoredHoist[] = []
   for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
     const destination = join(SERVER_STAGING, 'node_modules', dependency)
     if (existsSync(destination)) continue
@@ -212,6 +216,12 @@ async function restoreLegacyHoists(): Promise<void> {
       filter: path => path !== nested && !path.startsWith(nested + sep),
     })
     console.log(`package: restored legacy deploy hoist: ${dependency}`)
+    restored.push({ name: dependency, source })
+  }
+  const { copied, unresolved } = await restoreHoistedDependencies(join(SERVER_STAGING, 'node_modules'), restored, WITHHELD_PACKAGES)
+  for (const name of copied) console.log(`package: restored production dependency left inside a legacy deploy hoist: ${name}`)
+  if (unresolved.length > 0) {
+    throw new Error(`package: production dependencies of a legacy deploy hoist resolve nowhere:\n  ${unresolved.join('\n  ')}`)
   }
 }
 
