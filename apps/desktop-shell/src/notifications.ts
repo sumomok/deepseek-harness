@@ -410,7 +410,7 @@ function nested(frame: Record<string, unknown>, key: string): Record<string, unk
  */
 function questionBody(who: string, request: Record<string, unknown>): string {
   const questions = request['questions']
-  const first = Array.isArray(questions) ? questions[0] as unknown : undefined
+  const first: unknown = Array.isArray(questions) ? questions[0] : undefined
   if (typeof first !== 'object' || first === null) return `${who}有一个问题等你回答。`
   const item = first as Record<string, unknown>
   if (nested(item, 'intent')?.['kind'] === 'plan-review') return `${who}有一份计划等待你的审阅。`
@@ -476,7 +476,7 @@ async function rpc(generation: Generation, endpoint: string, args: unknown): Pro
     response = await post()
   }
   if (!response.ok) throw new Error(`${endpoint} answered HTTP ${String(response.status)}`)
-  const body = await response.json() as unknown
+  const body: unknown = await response.json()
   const result = typeof body === 'object' && body !== null ? nested(body as Record<string, unknown>, 'result') : undefined
   if (result === undefined) throw new Error(`${endpoint} answered without a result`)
   if (result['ok'] !== true) {

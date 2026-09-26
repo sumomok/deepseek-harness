@@ -17,6 +17,9 @@
  */
 
 import { PassThrough, Writable } from 'node:stream'
+import { CancellationToken, HttpExecutor } from 'builder-util-runtime'
+import type { Logger } from 'electron-updater'
+import { DifferentialDownloader } from 'electron-updater/out/differentialDownloader/DifferentialDownloader.js'
 import { OperationKind } from 'electron-updater/out/differentialDownloader/downloadPlanBuilder.js'
 import { executeTasksUsingMultipleRangeRequests } from 'electron-updater/out/differentialDownloader/multipleRangeDownloader.js'
 import { describe, expect, it } from 'vitest'
@@ -44,27 +47,47 @@ function multipartResponse(): PassThrough {
   })
 }
 
+/** An HTTP executor that answers every request with one prepared response. */
+class ScriptedExecutor extends HttpExecutor<FakeRequest> {
+  /** @param response - the response every request receives. */
+  constructor(private readonly response: PassThrough) {
+    super()
+  }
+
+  createRequest(_options: unknown, callback: (response: PassThrough) => void): FakeRequest {
+    // The branch reads the request into a closure the callback uses, so the
+    // response may not arrive before `createRequest` has returned it.
+    return { end: () => { callback(this.response) }, abort: () => {} }
+  }
+
+  override addErrorAndTimeoutHandlers(): void {}
+}
+
+/** A downloader whose request options carry no URL, since no socket is opened. */
+class ScriptedDownloader extends DifferentialDownloader {
+  override createRequestOptions(): { headers: Record<string, string> } {
+    return { headers: {} }
+  }
+}
+
+/** A logger that drops every line. */
+const QUIET: Logger = { info: () => {}, warn: () => {}, error: () => {} }
+
 /**
  * A downloader whose HTTP executor answers the one multipart request with the
  * given response, delivered when the branch sends the request.
  * @param response - the response to deliver.
- * @returns the downloader to pass, typed as the real one.
+ * @returns the downloader to pass.
  */
 function downloaderReturning(response: PassThrough): Downloader {
-  return {
-    createRequestOptions: () => ({ headers: {} }),
-    fileMetadataBuffer: null,
-    options: {},
-    httpExecutor: {
-      createRequest: (_options: unknown, callback: (response: PassThrough) => void): FakeRequest => ({
-        // The branch reads the request into a closure the callback uses, so the
-        // response may not arrive before `createRequest` has returned it.
-        end: () => { callback(response) },
-        abort: () => {},
-      }),
-      addErrorAndTimeoutHandlers: () => {},
-    },
-  } as unknown as Downloader
+  return new ScriptedDownloader({ sha512: '' }, new ScriptedExecutor(response), {
+    oldFile: '',
+    newFile: '',
+    newUrl: new URL('https://example.invalid/update.zip'),
+    logger: QUIET,
+    requestHeaders: null,
+    cancellationToken: new CancellationToken(),
+  })
 }
 
 describe('executeTasksUsingMultipleRangeRequests', () => {

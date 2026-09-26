@@ -176,7 +176,7 @@ async function delay(ms: number, signal: AbortSignal): Promise<void> {
  * @returns the height in CSS pixels, never below the viewport and never above {@link MAX_FULL_PAGE_HEIGHT}.
  */
 async function fullPageHeight(window: BrowserWindow, request: RenderRequest): Promise<number> {
-  const measured = await window.webContents.executeJavaScript('document.documentElement.scrollHeight') as unknown
+  const measured: unknown = await window.webContents.executeJavaScript('document.documentElement.scrollHeight')
   if (typeof measured !== 'number' || !Number.isFinite(measured)) return request.height
   return Math.min(Math.max(Math.ceil(measured), request.height), MAX_FULL_PAGE_HEIGHT)
 }

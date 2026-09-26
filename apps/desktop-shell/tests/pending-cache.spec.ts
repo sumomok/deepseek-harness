@@ -71,9 +71,10 @@ async function validate(cacheDir: string, sha512 = SHA512): Promise<string | nul
   return helper.validateDownloadedPath(
     updateFile,
     // The cache check reads nothing off this argument — it compares the file
-    // info's sha512 — so the version is all a case has to state, and the rest of
-    // `UpdateInfo` is two deprecated fields it would otherwise have to name.
-    { version: VERSION } as unknown as UpdateInfo,
+    // info's sha512 — so only the version carries anything; the other fields
+    // are there because `UpdateInfo` requires them.
+    // oxlint-disable-next-line typescript/no-deprecated -- `UpdateInfo` still requires `path` and `sha512`.
+    { version: VERSION, files: [], path: FILE_NAME, sha512, releaseDate: '' } satisfies UpdateInfo,
     { info: { url: FILE_NAME, sha512 }, url: new URL(`https://example.invalid/mac/${encodeURI(FILE_NAME)}`) },
     QUIET,
   )
@@ -102,7 +103,7 @@ describe('a staged artifact', () => {
   it('is recorded with exactly the three fields electron-updater writes', () => {
     const cacheDir = cacheDirectory()
     stage(cacheDir, true)
-    const record = JSON.parse(readFileSync(join(pendingDir(cacheDir), 'update-info.json'), 'utf8')) as unknown
+    const record: unknown = JSON.parse(readFileSync(join(pendingDir(cacheDir), 'update-info.json'), 'utf8'))
     expect(record).toEqual({ fileName: FILE_NAME, sha512: SHA512, isAdminRightsRequired: true })
   })
 

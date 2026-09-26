@@ -1036,8 +1036,8 @@ describe('the report every answer carries', () => {
     expect(report.pending[0]).toMatchObject({ url: 'https://www.gravatar.com/avatar/0', type: 'image' })
     expect(report.pending[0]?.ageMs).toBeGreaterThanOrEqual(0)
     expect(report.hosts).toEqual([
-      { host: 'www.gravatar.com', pending: 7, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as unknown as number },
-      { host: 'cdn.example.test', pending: 2, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as unknown as number },
+      { host: 'www.gravatar.com', pending: 7, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as number },
+      { host: 'cdn.example.test', pending: 2, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as number },
       { host: 'api.example.test', pending: 0, failed: 2, blocked: 0, maxAgeMs: 0 },
     ])
     expect(report.failed).toEqual([
