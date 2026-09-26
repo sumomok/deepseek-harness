@@ -22,6 +22,9 @@ The 0.1.7-rc.2 base removed three seams the console line was built on. The setti
 
 **The three content commands declare `engages: false`.** The base's Session list now clears `blank` on any `command/run` that does not declare `engages: false`, where the console line cleared it only on `turn/start`. `show-content-page`, `content-navigated`, and `show-content-view` arrange the content column and add no turn, so each declares `engages: false`: a workbench draft that has only shown pages or views stays blank, a second workbench click reuses it, and the temporary group does not list it.
 
+**The console bundle declares its own `console` Agent preset, and the lock makes it the default.** On the earlier base the console ran a `console` preset read from `$DSH_HOME/.agent-presets` by `dsh-agent-presets`; 0.1.7-rc.2 removed that package, presets are now `@deepseek-ai/dsh-agent-preset` rows, and the console silently fell back to the shipped `standard` preset with its shell, search, background-job, goal, plan, delegation, and web tools. The bundle layer now inserts `preset-console` with the earlier preset's rows — persona (its `text` is the rc.2 `prefix`), `tool-fs`, `skill-filesystem`, `tool-skill`, the compaction group, `tool-ask-user`, and `tool-todo` — and the lock overlay carries `agent-preset-registry` with `default: console`. The registry row sits in the lock rather than the bundle layer for the same reason as `permission`: `selectedDefault` is volatile Config any admitted browser can write, and a value naming a preset the console does not declare fails every new session with `agent-preset/not-found`.
+
+
 ## Alternatives considered
 
 **A product importer that copies the menu out of `settings.yaml` into its own store.** The settings service already imports each section into the entry of the same id; a second importer would own a file the base retired and a persistence path the settings README tells plugins not to own.
@@ -35,6 +38,8 @@ The 0.1.7-rc.2 base removed three seams the console line was built on. The setti
 **Keeping the console as one `--patch` overlay.** Every row the settings service must save would stay above the profile patch, and config-editor would keep refusing the menu.
 
 **Moving every console row, `permission` included, into the bundle layer.** The menu would save, and so would a `defaultPreset` sent over `remote.settings`; the 2026-09-07 decision that no end user can change the preset would no longer hold.
+
+**The registry default in the bundle layer.** A bundle-layer `default: console` leaves `selectedDefault` writable over `remote.settings`, one write away from sessions that cannot start.
 
 **Keeping Vue specs in the aggregate and adjusting the four upstream specs.** The four `ref` props are correct React; the fault is a global declaration from a package the React program should not see.
 

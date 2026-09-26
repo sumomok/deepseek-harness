@@ -155,10 +155,64 @@
         includeDefaultRoots: false
         bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"
 
+# The `console` Agent preset: the customer assistant's own tool set. It keeps
+# the shipped `standard` preset's realm rules and drops every developer row —
+# shell, file search, background jobs, goals, plan mode, delegation, the web
+# tool, `present`, and the checkout's agent instructions — so a data question is
+# answered through the content column, whose tools (`content_show`,
+# `show_component`, and the reads the `content-frame` row registers) live on the
+# host plane and reach every preset. `tool-fs` stays so the agent can write the
+# skills it distils into `<workspace>/.dsh/skills`. The persona carries no
+# working-directory suffix, unlike the shipped presets'.
+#
+# The registry's default is set by the lock (`permission-lock.patch.yml`), not
+# here: the default's volatile `selectedDefault` field is writable through
+# `remote.settings`, and with this preset the only one declared, any other value
+# would make every new session fail.
+- insert:
+    - id: preset-console
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: console
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: 你是数据控制台助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+
 # The Agent preset named cordis mounts `tool-cordis` and the skill catalog whose
 # `cordis-composition-reference` skill lists every workspace package. The
 # console offers no preset picker (`ui-agent-preset` is disabled above), but
 # `session.create` accepts an `agentPreset` over RPC, so the preset is disabled
-# rather than merely unreachable from the page. `standard` stays the default.
+# rather than merely unreachable from the page.
 - id: preset-cordis
   disabled: true

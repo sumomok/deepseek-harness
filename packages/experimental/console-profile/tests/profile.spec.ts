@@ -98,6 +98,7 @@ interface Row {
   config?: {
     defaultPreset?: unknown
     presets?: Record<string, { name?: unknown; sandbox?: unknown; approval?: unknown }>
+    default?: unknown
   }
 }
 
@@ -145,21 +146,31 @@ describe('the console bundle manifest', () => {
 
   it('depends on every package its rows load, and on the package whose skills a row mounts', () => {
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
+      '@deepseek-ai/dsh-agent-preset',
+      '@deepseek-ai/dsh-command-compact',
+      '@deepseek-ai/dsh-compaction-basic',
+      '@deepseek-ai/dsh-compaction-tool-result-pruner',
       '@deepseek-ai/dsh-experimental-content-column',
       '@deepseek-ai/dsh-experimental-content-surface',
       '@deepseek-ai/dsh-experimental-library-skills',
       '@deepseek-ai/dsh-experimental-server-layout',
       '@deepseek-ai/dsh-experimental-server-sidebar',
+      '@deepseek-ai/dsh-persona',
       '@deepseek-ai/dsh-skill-filesystem',
+      '@deepseek-ai/dsh-tool-ask-user',
+      '@deepseek-ai/dsh-tool-fs',
+      '@deepseek-ai/dsh-tool-skill',
+      '@deepseek-ai/dsh-tool-todo',
     ])
   })
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
     expect(manifest.files).toContain('permission-lock.patch.yml')
-    expect(idsOf(LOCK_PATCH)).toEqual(['permission'])
-    // In the bundle layer the row would sit below the profile patch, where a
-    // settings write to `defaultPreset` outranks it.
+    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry'])
+    // In the bundle layer each row would sit below the profile patch, where a
+    // settings write to `defaultPreset` or `selectedDefault` outranks it.
     expect(idsOf(CONSOLE_PATCH)).not.toContain('permission')
+    expect(idsOf(CONSOLE_PATCH)).not.toContain('agent-preset-registry')
   })
 })
 
@@ -183,9 +194,18 @@ describe('the console layer over the shipped Web bundles', () => {
     }
   })
 
-  it('disables the cordis Agent preset row, leaving `standard` the default', () => {
+  it('disables the cordis Agent preset row', () => {
     expect(byId.get('preset-cordis')?.disabled).toBe(true)
-    expect(byId.get('preset-standard')?.disabled).not.toBe(true)
+  })
+
+  it('declares the `console` Agent preset with the customer assistant\'s rows and no developer row', () => {
+    const preset = byId.get('preset-console')
+    expect(preset).toMatchObject({ name: '@deepseek-ai/dsh-agent-preset', config: { id: 'console' } })
+    expect(preset?.disabled).not.toBe(true)
+    const plugins = (preset?.config as { plugins?: Row[] } | undefined)?.plugins ?? []
+    expect(plugins.map(row => row.id)).toEqual([
+      'persona', 'tool-fs', 'skill-filesystem', 'tool-skill', 'compaction', 'tool-ask-user', 'tool-todo',
+    ])
   })
 
   it('disables every shipped surface the customer page must not show', () => {
@@ -236,6 +256,21 @@ describe('the lock overlay\'s permission row', () => {
 
   it('disables the Settings row that would otherwise still write that default', () => {
     expect(rowOf(CONSOLE_PATCH, 'ui-permission')).toEqual({ id: 'ui-permission', disabled: true })
+  })
+})
+
+describe('the lock overlay\'s Agent-preset registry row', () => {
+  const registry = rowOf(LOCK_PATCH, 'agent-preset-registry')
+
+  it('patches the shipped row by id and by package name', () => {
+    expect(registry).toMatchObject({ id: 'agent-preset-registry', name: '@deepseek-ai/dsh-agent-preset-registry' })
+  })
+
+  it('makes the bundle layer\'s `console` preset the default and stores no selection of its own', () => {
+    // The whole config is restated: `selectedDefault` absent here is what a
+    // refused settings write leaves in effect.
+    expect(registry?.config).toEqual({ default: 'console' })
+    expect(idsOf(CONSOLE_PATCH)).toContain('preset-console')
   })
 })
 

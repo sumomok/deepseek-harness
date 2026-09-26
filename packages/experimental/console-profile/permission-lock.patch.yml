@@ -1,14 +1,15 @@
-# The console's permission lock: the one row a deployment applies above the
-# profile patch, with `dsh --profile <name> --patch <this file>` (or as the
-# home patch, `$DSH_HOME/cordis.patch.yml`). It is not part of this package's
-# bundle layer on purpose. `permission.defaultPreset` is volatile Config, so
-# the settings service writes it into the profile patch on request, and the
+# The console's lock: the rows a deployment applies above the profile patch,
+# with `dsh --profile <name> --patch <this file>` (or as the home patch,
+# `$DSH_HOME/cordis.patch.yml`). They are not part of this package's bundle
+# layer on purpose. `permission.defaultPreset` and
+# `agent-preset-registry.selectedDefault` are volatile Config, so the settings
+# service writes them into the profile patch on request, and the
 # `remote.settings` method answers any browser the deployment admits. Composed
-# in a layer above the profile patch, this row outranks any such write:
+# in a layer above the profile patch, these rows outrank any such write:
 # config-editor refuses it, and a value an earlier release stored in
 # `settings.yaml` stays in `settings.yaml.imported` instead of being imported.
 # The bundle layer below carries the rows the settings service must be able to
-# save; this file carries the one row no caller may change.
+# save; this file carries the rows no caller may change.
 #
 # Decision ②: the shipped preset table names its rows in vendor vocabulary —
 # "workspace-write" renders as "Workspace Write" on the composer's access chip
@@ -66,3 +67,13 @@
         name: 完全放开
         description: 可以修改任何文件，且不再逐次征求同意。
         glyph: danger-full-access
+
+# Every new session runs the bundle layer's `console` Agent preset. Restating
+# the whole config leaves `selectedDefault` unset, and config-editor refuses a
+# write to it: the one preset the console declares would otherwise be one
+# settings write away from a default no declaration answers, which fails every
+# new session with `agent-preset/not-found`.
+- id: agent-preset-registry
+  name: '@deepseek-ai/dsh-agent-preset-registry'
+  config:
+    default: console

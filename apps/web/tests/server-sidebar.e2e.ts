@@ -151,13 +151,13 @@ const RENAMED_PRESET = '可修改文件'
  * Every row the console's slash menu renders, by the text it shows (a
  * command's label where the menu has one, else its name), in menu order. `permission` is absent by composition rather than by filtering:
  * the console bundle isolates `commands` from the `permission-presets` row, so that
- * package's command child never activates. Pinning the whole set rather than
- * the one absence is what also fails on a command this composition gains.
+ * package's command child never activates. `Goal` and `Plan` are absent too:
+ * they belong to the shipped presets' `command-goal` and `plan-mode` rows,
+ * which the `console` Agent preset does not mount. Pinning the whole set rather
+ * than the one absence is what also fails on a command this composition gains.
  */
 const CONSOLE_COMMANDS = [
   'File',
-  'Goal',
-  'Plan',
   'Feedback',
   'Compact',
   'content-navigated',
@@ -251,6 +251,16 @@ async function launchConsole(
     ...lockForm === 'command-line' ? { commandLinePatchPath: PERMISSION_LOCK } : {},
   })
 }
+
+/**
+ * Every tool a session under the console's `console` Agent preset is offered
+ * in this composition, sorted: the preset's own (`read`, `write`, `edit`,
+ * `read_image`, `skill`, `ask_user_question`, `todo_write`) and the host
+ * plane's `content_show`.
+ */
+const CONSOLE_TOOLS = [
+  'ask_user_question', 'content_show', 'edit', 'read', 'read_image', 'skill', 'todo_write', 'write',
+]
 
 const sidebar = (page: Page): Locator => page.locator('[data-server-sidebar]')
 const workbenchButton = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workbench"]')
@@ -876,6 +886,25 @@ describe('web e2e: the product-console sidebar', () => {
     await expect(scaffold.ctx.settings.update('permission', { defaultPreset: 'danger-full-access' }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
     await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
+  })
+
+  it('runs a new session under the `console` preset, whose default no settings write can move', async () => {
+    const ctx = scaffold.ctx
+    await expect(ctx.agentPresets.resolve()).resolves.toEqual({ id: 'console' })
+    await expect(ctx.settings.update('agent-preset-registry', { selectedDefault: 'standard' }))
+      .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('server-sidebar-console-preset'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+    })
+    try {
+      // The exact catalog: the preset's own tools plus the host plane's
+      // content-column tools, which reach every preset. No shell, search,
+      // job, goal, plan, delegation, or web tool.
+      expect(ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()).toEqual(CONSOLE_TOOLS)
+    } finally {
+      await handle.dispose()
+    }
   })
 
   it('offers no `cordis` Agent preset, so no session can be created under it', async () => {

@@ -22,6 +22,9 @@ Status: implemented
 
 **三条内容命令声明 `engages: false`。** 基座的 Session 列表现在遇到任何未声明 `engages: false` 的 `command/run` 都会清掉 `blank`，而本线原来只在 `turn/start` 时清掉它。`show-content-page`、`content-navigated` 与 `show-content-view` 只安排内容栏、不增加回合，所以三者都声明 `engages: false`：只显示过页面或视图的工作台草稿仍是空白草稿，第二次点工作台会复用它，临时分组也不会列出它。
 
+**控制台 bundle 声明自己的 `console` Agent 预设，由锁把它定为默认。** 在更早的基座上，控制台跑的是 `dsh-agent-presets` 从 `$DSH_HOME/.agent-presets` 读入的 `console` 预设；0.1.7-rc.2 删掉了那个包，预设改为 `@deepseek-ai/dsh-agent-preset` 行，控制台于是悄悄退回出厂 `standard` 预设，带着 shell、搜索、后台任务、目标、计划、委派与 web 工具。现在 bundle 层插入 `preset-console`，行与旧预设相同——persona（它的 `text` 即 rc.2 的 `prefix`）、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`——锁 overlay 带上 `agent-preset-registry` 行，`default: console`。registry 行放在锁里而不是 bundle 层，理由与 `permission` 相同：`selectedDefault` 是任何被放行的浏览器都能写的 volatile Config，而指向控制台未声明预设的值会让每个新会话以 `agent-preset/not-found` 失败。
+
+
 ## Alternatives considered
 
 **由产品自带导入器把菜单从 `settings.yaml` 复制到自己的存储里。** settings 服务已经会把每个分区导入同名 id 的条目；第二个导入器将拥有一个基座已经退役的文件，以及一条 settings README 明确告诉插件不要自己拥有的持久化路径。
@@ -35,6 +38,8 @@ Status: implemented
 **让控制台保持为一份 `--patch` overlay。** settings 服务必须保存的每一行都会留在 profile 补丁之上，config-editor 会继续拒绝菜单写入。
 
 **把控制台的每一行（包括 `permission`）都移进 bundle 层。** 菜单能保存了，经 `remote.settings` 发来的 `defaultPreset` 也同样能保存；2026-09-07 那条「终端用户不能改预设」的决策就不再成立。
+
+**把 registry 默认值放在 bundle 层。** bundle 层的 `default: console` 让 `selectedDefault` 仍可经 `remote.settings` 写入，一次写入就会让会话无法启动。
 
 **让 Vue spec 留在聚合程序里，改动上游那四个 spec。** 那四处 `ref` prop 是正确的 React 写法；问题出在一个 React 程序本不该看见的包所带来的全局声明。
 

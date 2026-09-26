@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些会显示内部术语或开发者工具的出厂界面，挂载随包出厂的库技能，并禁用 `cordis` Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
+`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些会显示内部术语或开发者工具的出厂界面，挂载随包出厂的库技能，声明 `console` Agent 预设，并禁用 `cordis` Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
 
 ## 目录
 
@@ -51,9 +51,10 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission` | 禁用：内部术语、官方品牌与开发者界面 |
+| `preset-console` | 插入：`console` Agent 预设——persona、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`；没有 shell、搜索、后台任务、目标、计划、委派、web 与 `present` 行 |
 | `preset-cordis` | 禁用：该预设挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够 |
 
-锁 overlay 重述 `permission` 行：三个带面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。
+锁 overlay 重述两行。`permission` 行带三个面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。`agent-preset-registry` 行带 `default: console`、不带 `selectedDefault`，所以每个新会话都跑 `console` 预设。
 
 -----
 
@@ -63,14 +64,14 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <details>
 <summary>实现细节——点击展开</summary>
 
-层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset` 同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以 `permission` 行必须位于 profile 补丁之上。
+层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset` 与 `agent-preset-registry.selectedDefault` 同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以这两行必须位于 profile 补丁之上。存下的 `selectedDefault` 若指向控制台没有声明的预设，每个新会话都会以 `agent-preset/not-found` 失败。
 
 禁用行只按 id 指向出厂条目。bundle 的插件行通过 bundle 自己的 `dependencies` 解析，这一点由 `scripts/verify-cordis-config.ts` 强制；禁用行不加载任何东西。
 
 | 文件 | 作用 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、库技能，以及全部禁用行 |
-| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission` 行，叠在 profile 补丁之上应用 |
+| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、库技能、`console` Agent 预设，以及全部禁用行 |
+| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission` 行与 `agent-preset-registry` 行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
 | — | 不发布运行时 invariant 伴生插件；本包不拥有任何可变关系。组合由 Loader 与 profile 的补丁文件拥有。 |
 
@@ -91,7 +92,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行：`library-skills` 行把随包出厂的技能加入技能目录，禁用 `preset-cordis` 去掉了一个会话本可以运行在其下的预设，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令。`library-skills` 行把随包出厂的技能加入技能目录，禁用 `preset-cordis` 去掉了一个会话本可以运行在其下的预设，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
@@ -102,7 +103,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="known-limitations-and-deferred-work"></a>
 
 - **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，以及一个任何设置写入都能改的 `defaultPreset`。
-- **`console` Agent 预设不在本包里。** 除非部署自己组合一个，控制台跑的是出厂的 `standard` 预设。
+- **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
 <a id="dev-note"></a>
 ### 开发备注
