@@ -289,8 +289,13 @@ export function readSettingsMigrationMarker(path: string): SettingsMigrationMark
     // Absent or unreadable: either way no run has finished here.
     return undefined
   }
-  if (!isRecord(parsed) || (parsed['state'] !== 'pending' && parsed['state'] !== 'done')) return undefined
-  return parsed as unknown as SettingsMigrationMarker
+  return isSettingsMigrationMarker(parsed) ? parsed : undefined
+}
+
+/** Whether parsed JSON holds the fields every marker this module writes carries. */
+function isSettingsMigrationMarker(value: unknown): value is SettingsMigrationMarker {
+  return isRecord(value) && (value['state'] === 'pending' || value['state'] === 'done')
+    && Array.isArray(value['rows']) && Array.isArray(value['dropped']) && Array.isArray(value['skipped'])
 }
 
 /** Write the marker, private to the user like the files it describes. */
@@ -635,7 +640,8 @@ function rewriteDuplicateGatewayRow(patchPath: string): string | undefined {
   if (found === undefined) return undefined
   const items = (document.contents as { items: unknown[] }).items
   const entry = items[found.entry] as YAMLMap
-  const insert = entry.get('insert', true) as unknown as { items: unknown[] }
+  const insert = entry.get('insert', true)
+  if (!isSeq(insert)) return undefined
   const [inserted] = insert.items.splice(found.row, 1) as YAMLMap[]
   const targeted = new YAMLMap()
   targeted.set('id', 'llm-permission-gateway')
