@@ -48,7 +48,7 @@ process.getBuiltinModule('node:path').resolve(
 | 缝还是写死 | 挂载点是已经存在的缝——三个既有 `Config` 字段，其中一个的文档写的正是这种隔离 provider 用法。**内容**则刻意写死为 SKILL，且不会变成代码。一个包放多个库；provider 天然扫整个根。 |
 | 边界 | 库知识归技能，页面与业务知识归用户自己的根，工具缺陷归缺陷清单——混在一起意味着为了改一句关于某个客户页面的话而发一次包。出厂技能永不携带客户数据、真实记录标识、主机名、绝对路径或凭据形状，因为本包会到达每一个安装它的部署。天花板：不做热更新、不按部署裁剪、不做 A/B；若一个季度内纯文案修改逼出超过三次发布，则重新评估。天花板：一机一用户一进程上线前，不做按人可见性。 |
 
-本包需要的登记都很普通：`tsconfig.base.json` 的路径别名、`tsconfig.host.json` 的 project reference 与测试 include、`apps/web/tsconfig.json` 的 exclude、实验组 README 的索引行，以及 `scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 条目。最后那个文件在本 fork 上已经带着一条已登记的行为补丁（`.claude/core-patches.md`，`cd77abb2a5`）；本行属于数据登记而不是登记册素材，但下次上游同步要在同一个文件里一并对账两者。
+本包需要的登记都很普通：`tsconfig.base.json` 的路径别名、`tsconfig.host.json` 的 project reference 与测试 include、`apps/web/tsconfig.json` 的 exclude、实验组 README 的索引行，以及 `scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 条目。最后那个文件在本 fork 上已经带着一条已登记的行为补丁（`.claude/core-patches.md`，slug `workspace-gate-private-apps`）；本行属于数据登记而不是登记册素材，但下次上游同步要在同一个文件里一并对账两者。
 
 必须点名本包的部署流程写在 `packages/experimental/server-sidebar/README.md` 的 Composition 一节——customer overlay 需要能解析到的其他包已经列在那里。那是唯一的家：没有任何部署脚本枚举它们，overlay 的属主包也没把它们声明成 dependencies，所以在这里发明一条 manifest 边等于新造机制，而不是沿用既有的。
 
