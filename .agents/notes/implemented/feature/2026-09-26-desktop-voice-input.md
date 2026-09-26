@@ -32,7 +32,7 @@ The page records with `getUserMedia` in the app window. The app window runs on E
 
 The macOS payload grows by about 34 MB and the Windows payload by about 23 MB, whether or not a person switches voice input on. A machine that reaches neither model source cannot use voice input.
 
-The Windows payload is cross-built on macOS and checked for presence only. Whether `sherpa-onnx.node` loads its DLLs from `sherpa-onnx-win-x64` under the bundled Node runtime, and whether the Windows privacy setting for desktop-app microphone access is on, are known only after a recording on a real Windows machine. On macOS, the packaging run checks that the bundled Node runtime inside the signed app loads `sherpa-onnx-node`; the microphone prompt is checked only on a real machine.
+The Windows payload is cross-built on macOS and checked for presence only. Whether `sherpa-onnx.node` loads its DLLs from `sherpa-onnx-win-x64` under the bundled Node runtime, and whether the Windows privacy setting for desktop-app microphone access is on, are known only after a recording on a real Windows machine. On macOS the packaging run also checks the member for presence only; loading it and the microphone prompt are checked on a real machine.
 
 A later upstream package whose platform members use another spelling, or a relative require, needs the same three changes: `NATIVE`, the platform rule, and the gate's reading of its platform segment.
 

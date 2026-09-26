@@ -32,7 +32,7 @@ Status: implemented
 
 无论有没有人打开语音输入,macOS 载荷都增加约 34 MB,Windows 载荷增加约 23 MB。两个模型来源都连不上的机器用不了语音输入。
 
-Windows 载荷在 macOS 上交叉构建,只核对了在不在。`sherpa-onnx.node` 在随包 Node 运行时下能不能从 `sherpa-onnx-win-x64` 加载它的 DLL,以及 Windows 隐私设置里允许桌面应用使用麦克风的开关是否打开,要在真实 Windows 机器上录一次音才知道。macOS 上,打包那次运行核对了签名后应用里的随包 Node 运行时能加载 `sherpa-onnx-node`;麦克风弹窗只在真机上核对。
+Windows 载荷在 macOS 上交叉构建,只核对了在不在。`sherpa-onnx.node` 在随包 Node 运行时下能不能从 `sherpa-onnx-win-x64` 加载它的 DLL,以及 Windows 隐私设置里允许桌面应用使用麦克风的开关是否打开,要在真实 Windows 机器上录一次音才知道。macOS 上打包同样只核对成员在不在;能否加载与麦克风弹窗都在真机上核对。
 
 以后上游再来一个平台成员换了拼法、或者靠相对路径 require 的包,都要做同样三处改动:`NATIVE`、平台规则、门禁对它平台段的解读。
 
