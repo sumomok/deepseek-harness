@@ -12,7 +12,8 @@
  * a second React has its own hook dispatcher. The public `DSH_CLIENT_*` values
  * in this process's environment are substituted the way the repository's own
  * client bundles substitute them, so the version the desktop packaging build
- * sets is the version this half renders.
+ * sets is the version this half renders. The bundle carries no source map:
+ * the package publishes no `.map` file for it to name.
  * @module
  */
 import { rmSync } from 'node:fs'
@@ -44,7 +45,6 @@ await build({
   platform: 'browser',
   target: 'es2022',
   jsx: 'automatic',
-  sourcemap: true,
   external: [...PLATFORM_MODULES],
   define: clientBuildEnvironmentDefines(process.env),
   banner: {
