@@ -378,7 +378,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop-shell exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。它还要求先跑 `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts`,因为 `desktop-server-log` 这一行导入的是那个包的 `lib/`,而仓库构建不产出它。
-- `dsh-server.log` 从不轮转,而现在服务端的 logger 记录也和服务端输出一起进这个文件。
+- 日志只在启动时轮转:超过 10 MiB 的 `dsh-server.log` 改名为 `dsh-server.log.1`,覆盖上一份;诊断报告只保留最新五份(`src/log-retention.ts`)。一次长时间运行可以让文件在下次启动前超过 10 MiB,而现在服务端的 logger 记录也和服务端输出一起进这个文件。
 - 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把自己的期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分——把 `timeoutMs` 提到 120 秒天花板的调用方,花掉的也是排在它后面那些请求的时间。
 - 部分截图就是合成器当时画出来的那一帧:一个还在取样式表的页面,得到的是没有样式的文档,而不是画了一半的页面。有没有画出过任何东西(`firstPaint`)、load 事件有没有触发,由报告说出来;像素本身说不出。
 - 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
@@ -392,5 +392,4 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 在插件页停用内置插件,只到下一次启动为止:下一次启动会把它的名字播种回来;按「内置插件」一节关掉它那一行,才会一直生效。
 - Windows 的语音输入运行时只打了包、核对了在不在。`sherpa-onnx.node` 能不能在 `sherpa-onnx-win-x64` 里找到它的 DLL,要在真实 Windows 机器上录一次音才知道。
 - 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。
-- 诊断报告在日志目录里逐次累积,每次致命错误一个文件;没有任何东西清理旧报告。
 - 渲染进程崩溃或无响应只记日志,别的什么都不做:窗口不重新加载,因为内存耗尽的渲染进程重新加载只会重演同一次加载。

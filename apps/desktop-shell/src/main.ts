@@ -25,6 +25,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { pinAppIdentity } from './app-identity.ts'
+import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
@@ -658,6 +659,8 @@ if (!locked) {
     } catch {
       // Logging must never block the app; a failed sink drops chunks only.
     }
+    // Before the first write, so nothing holds the file while it is renamed.
+    const retention = [rotateLog(logFile, LOG_ROTATE_BYTES), pruneReports(logDir, KEPT_REPORTS)]
     // Every server byte lands in the file; the boot page shows phases only.
     const sink = (chunk: string): void => {
       try {
@@ -667,6 +670,7 @@ if (!locked) {
       }
     }
     logLine = sink
+    for (const line of retention) if (line !== undefined) sink(line)
     // Before the updater and the server: from here on a main-process
     // exception is in the file the user is asked to send, rather than only in
     // the box Electron opens over it.
