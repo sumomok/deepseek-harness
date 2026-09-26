@@ -44,7 +44,7 @@ export const CONTENT_COLUMN_PRESET: PresetDefinition = {
     id: 'persona',
     name: '@deepseek-ai/dsh-persona',
     config: {
-      text: 'You are an assistant powered by the {{model}} model, working with the user in a console.'
+      prefix: 'You are an assistant powered by the {{model}} model, working with the user in a console.'
         + ' Your working directory is {{cwd}}.',
     },
   }],
