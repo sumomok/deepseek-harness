@@ -824,9 +824,9 @@ if (!locked) {
       }))
       if (seeded !== undefined) sink(seeded)
       // After the seeding, whose permission-row retirement the gateway step
-      // waits for (the migration reads its record, so a seeding that stopped
-      // early defers that step), and before the server whose settings import
-      // this prepares.
+      // waits for (the migration reads its record in web-migration.json, so a
+      // seeding that stopped before recording it defers that step), and before
+      // the server whose settings import this prepares.
       const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
       const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
       for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)

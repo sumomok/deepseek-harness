@@ -52,7 +52,9 @@
  * between starts its server with no `settings.yaml`, so that server imports
  * nothing and runs on the profile's rows; it can never import the file as an
  * rc.33 client left it. The next launch finds the original moved and writes
- * the migrated copy from it. A run that finds no `settings.yaml` but a
+ * the migrated copy from it. A `settings.yaml` found while the marker is
+ * absent or cannot be read replaces any `settings.yaml.pre-rc34` an earlier
+ * run left, because the file in place is the one the server would import. A run that finds no `settings.yaml` but a
  * `settings.yaml.imported` another profile's import left, and no marker of
  * its own, copies that file to `settings.yaml.pre-rc34` and migrates it.
  * {@link SETTINGS_MIGRATION_MARKER} records every decision and makes the whole
