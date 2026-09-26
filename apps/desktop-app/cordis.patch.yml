@@ -144,31 +144,24 @@
     provider: deepseek-official
     model: deepseek-flash
 
-# Plugin management stays with @haoran/dsh-plugin-updates, which updates only
-# the built-ins this profile already holds and whose Host half refuses an
-# update the runtime's plugin compatibility check rejects. Upstream's manager
-# is a second installer beside it: the `plugin-manager` Host row serves the
-# `pluginManager` service that installs, enables, and removes bundles, and the
-# `ui-plugin-manager` row is the sidebar Plugins page over it. Neither shares
-# the shell's update lock, and with both off a package the payload leaves out
-# (see WITHHELD_PACKAGES in `apps/desktop-shell/scripts/package.ts`) has no
-# install path back in.
+# Plugin management is upstream's. dsh-base's `plugin-manager` Host row serves
+# the `pluginManager` service that installs, enables, and removes bundles, and
+# dsh-web-app's `ui-plugin-manager` row is the sidebar Plugins page over it;
+# both stay on. What this row sets is where that service finds pnpm.
+# `pnpmCommand` names one executable, spawned with no arguments of its own
+# before the pnpm subcommand, and the machines this product targets have
+# neither pnpm nor Node on `PATH`. A packaged launch names
+# `resources/runtime/dsh-pnpm` (`dsh-pnpm.cmd` on Windows) in
+# `DSH_DESKTOP_PNPM`, a script that runs the shipped pnpm under the bundled
+# Node (`apps/desktop-shell/src/pnpm-launcher.ts`); a development launch names
+# nothing, and the service falls back to the developer's own `pnpm`.
 #
-# `disabled: true` replaces dsh-base's `!!js "!ctx.get('profileContext')"` on
-# the Host row. The agent tool `@deepseek-ai/dsh-plugin-manager/tools` injects
-# `pluginManager`, so every preset row that enables it, the web app's cordis
-# preset included, waits for a service that never registers. That preset row
-# sits inside `preset-cordis`'s `config.plugins` rather than in a group, so no
-# id-targeted row here reaches it; an `id: tool-plugin-manager` row would patch
-# only dsh-base's top-level row, which dsh-base and dsh-web-app already
-# disable. The Settings Plugins section and its `settings.plugins.tab` slot
-# belong to `ui-settings-plugins`, which stays on, so the plugin-updates tab
-# keeps its place.
+# The row carries `config` alone, so dsh-base's `disabled` expression, which
+# mounts the service only under a profile, still applies. dsh-base's row
+# carries no config, so this whole-config replacement drops nothing.
 - id: plugin-manager
-  disabled: true
-
-- id: ui-plugin-manager
-  disabled: true
+  config:
+    pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'
 
 # No Office preview. The `office-to-pdf` Host row starts LibreOffice converters
 # for the right Sidebar's document tab, and the payload carries no LibreOffice
