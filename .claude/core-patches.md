@@ -561,6 +561,7 @@
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：同版本确认记录已补为本线新文件 `docs/persistence-changes/2026-09-26-console-content-events.*`，kind 名保持裸名；提取器只看到 `content-surface` 一种来源，`content-frame`、`content-component` 的 `MessageSourceMap` 声明在 `tsconfig.host.json` 之外的 client 聚合包里，未进记录。`tsconfig.client.json` 增加对 `tsconfig.vue2-tests.json` 的引用并排除其中的 spec（见上条退役记录）；`tsconfig.base.json` 删掉 `server-sidebar` 已移除的 `invariant` 别名。`packages.md` 核查：console 叠加层之下的 web 配置装配了 web-app 包的 `cordis` 预设（`tool-cordis` + 挂 `agent-preset/skills` 的 `skill-filesystem`），叠加层没有移除它；默认预设是 `standard`，`ui-agent-preset` 下拉与其设置行被叠加层禁用，控制台界面上选不到它。本轮不改。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：新增本线包 `console-profile`（客户控制台的 bundle 层）：`tsconfig.base.json` 手写一条 `paths` 别名（包名带 `experimental-` 前缀，生成器不覆盖）、`tsconfig.host.json` 加一条引用、`packages/experimental/README.*` 加一行；`scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 为它登记 `permission-lock.patch.yml`，这份锁 overlay 不在 `dsh.bundle.patch` 里，但要随包发布。`scripts/verify-package-readme-model-experience.ts` 为它加一条 `indirect` 的审计条目。
+- **本轮适配（并入 `feat/skill-pack-v0`）**：四个新本线包 `console-mcp`、`system-map`、`skill-pack`、`skill-pack-components` 按同一方式登记：`tsconfig.base.json` 的 `paths` 别名、`tsconfig.host.json` 的 host 引用（`skill-pack-components` 另进 `tsconfig.client.json`）、`packages/experimental/README.*` 各一行；`scripts/gen-cordis-catalog.ts` 的 `SERVICE_PAGE`（`skillPacks`、`skillPackParts`、`componentCatalog`、`componentViews`）、`SERVICE_WALK_EXEMPTIONS`（`componentRenderers`）与 `TYPE_LINK_EXEMPTIONS`（组件目录、业务后端权限、技能包的类型）；`scripts/gen-doc-graphs.ts` 的 `SERVICE_ROLES` 三项与 `ctx.skills` 实现加 `skill-pack`；`scripts/type-equiv.manifest.json` 加 `PartsSource`；`scripts/verify-package-readme-model-experience.ts` 为两个技能包包加 `indirect` 条目；`scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 为 `component-surface` 加 `lib/projection-*.js`。skill-pack 线带来的 `connection` 遍历豁免在 rc.2 上已失效（`ctx.connection` 由投影渲染），删去。`tsconfig.client.json` 把经由 component-kit 渲染器够到 Vue 2 全局 JSX 的四个 component-surface 测试文件排除到 `tsconfig.vue2-tests.json`（该程序另引用 `auth-gate`）；`apps/web/tsconfig.json` 排除、`tsconfig.host.json` 收录新的 `apps/web/tests/console-preset.spec.ts`。`console-mcp` 行随控制台 bundle 层（`packages/experimental/console-profile/cordis.patch.yml`）交付；它的 `servers` 是普通 Config，不是 `.volatile()` 字段，settings 服务不为它投影表单、以 `Plugin entry "console-mcp" has no volatile fields` 拒绝写入，所以与侧栏菜单不同，部署放行的浏览器改不了它（server-sidebar e2e 断言）。持久化提取器因 `skill-pack-components` 引入 `component-surface` 而看到 `content-component` 来源种类，`docs/persistence-changes/historical-formats/README.*` 随 `verify-persistence-formats --write` 更新，同版本记录为本线新文件 `docs/persistence-changes/2026-09-27-console-content-component-source.*`。
 - **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
 ## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
@@ -600,6 +601,7 @@
 - **状态**：在役（`product/server-console`）。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`snapshots/console/cordis.yml` 的 `system-prompt` 配置 `persona` 改为上游改名后的 `personaPrefix`。已录的 12 个场景夹具是 V4 之前录的：keyless 回放 12 个场景全部与期望输出不符，夹具头检查报「pinning fixture 必须恰好带一条 system 消息」；按本通道规则需要带 key 重录（`pnpm run test:snapshot:record`），本轮没有重录。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：`docs/testing.{md,zh.md}` 里本线加的那一句撤回，两文件回到 `dsh-v0.1.7-rc.2` 版本：上游对该文件设了字数预算，加句后超限。通道目录与 profile 解耦的事实由 `scripts/session-snapshot-corpus.corpus.ts` 的 `profileByLane` 与 `snapshots/console/README.*` 承载。
+- **本轮适配（并入 `feat/skill-pack-v0`）**：`snapshots/console/cordis.yml` 随 skill-pack 线加 `console-mcp`（`servers: []`）与 `system-map` 两行；`show-crud-turn` 改名 `show-data-page-turn`，其 V4 日志按 skill-pack 的 V0 脚本无 key 重新生成，新场景 `system-map-turn` 首次生成 V4 日志，两者都是 `recording: authored`；十三个场景全部回放通过。
 - **路径**：`packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/suite.ts` `packages/test-support/session-snapshot/tests/harness.spec.ts` `packages/test-support/session-snapshot/tests/suite.spec.ts` `scripts/session-snapshot-corpus.corpus.ts`
 
 ## web-test-scaffold-console — web 测试脚手架的增补
@@ -639,6 +641,7 @@
 - **退役条件**：本线包移出本仓（仓外 tarball 引入），或上游让包以自身元数据声明不发布。
 - **状态**：在役（`product/server-console`）。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：表中加 `packages/experimental/console-profile`，共十五个目录。
+- **本轮适配（并入 `feat/skill-pack-v0`）**：表中加 `console-mcp`、`skill-pack`、`skill-pack-components`、`system-map`，共十九个目录。
 - **路径**：`scripts/check-workspace-constraints.spec.ts` `scripts/experimental-package-policy.ts`
 
 ## unknown-casts-product-baseline — 本线既有 `as unknown` 断言进上游基线
@@ -649,6 +652,7 @@
 - **退役条件**：本线把这些断言改成类型化取值或收窄后 `pnpm run verify-no-unknown-casts --prune` 删净本线条目，或这些文件移出本仓。
 - **状态**：在役（`product/server-console`）。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第八轮）**：`packages/experimental/server-layout/tests/shell-frame.client.spec.tsx` 的会话列表桩改为类型化的 `SessionListState`，用 `--prune` 删去它原来那条断言的指纹，本线条目剩 200 处。
+- **本轮适配（并入 `feat/skill-pack-v0`）**：skill-pack 线带来 28 处新断言，全部在本线测试文件里（component-kit 的 data-page 与能力组合 spec、component-surface 的 data-page 与视图组合 spec、skill-pack、skill-pack-components、system-map 的 spec、`apps/web/tests/component-surface-data-page.e2e.ts`），按同一方法整表写回；改名后不存在的 `crud` 两文件条目随之删去。`console-mcp/src/index.ts` 里唯一一处源码断言改为直接 `as z<ConfigInput, Config>`，不进基线。
 - **路径**：`scripts/no-unknown-casts.baseline.json`
 
 ## console-cordis-preset-rescope-skip — rescope 门禁放行本线 e2e 里的 cordis 预设 id
@@ -667,6 +671,7 @@
 - **要达到的效果**：放宽只作用于这一个槽、只放宽到容下本线两行所需的最小值；其他槽仍按 120 行判，新写的长文档照样被拒。生成物 `slot-catalog.ts` 重新生成，`--check` 退出 0。
 - **退役条件**：上游自己在 `tool.call.toolview` 上的计数降到 118 行及以下，或上游把预算提高到 121 行及以上，或上游提供逐槽预算机制（届时改用上游机制）；任一成立即删掉 `SLOT_LINE_BUDGETS` 并还原两文件。这是本线有意保留的专属补丁，不进 `core-patches`。
 - **状态**：在役（`product/server-console`）。
+- **本轮核对（并入 `feat/skill-pack-v0`）**：system-map 的三个工具不注册 toolview，`gen-client-catalog --check` 在 121 行预算下退出 0，预算与退役条件不变。
 - **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
 
 ## 历史轮次
