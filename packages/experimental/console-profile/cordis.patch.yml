@@ -154,3 +154,11 @@
         providerName: library-skills
         includeDefaultRoots: false
         bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"
+
+# The `cordis` Agent preset mounts `tool-cordis` and the skill catalog whose
+# `cordis-composition-reference` skill lists every workspace package. The
+# console offers no preset picker (`ui-agent-preset` is disabled above), but
+# `session.create` accepts an `agentPreset` over RPC, so the preset is disabled
+# rather than merely unreachable from the page. `standard` stays the default.
+- id: preset-cordis
+  disabled: true

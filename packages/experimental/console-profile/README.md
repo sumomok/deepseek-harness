@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces that show internal vocabulary or developer tools, and mounts the bundled library skills. Its second file, `permission-lock.patch.yml`, pins the console's access presets in a layer above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned preset must not be.
+`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces that show internal vocabulary or developer tools, mounts the bundled library skills, and disables the `cordis` Agent preset. Its second file, `permission-lock.patch.yml`, pins the console's access presets in a layer above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned preset must not be.
 
 ## Table of Contents
 
@@ -51,6 +51,7 @@ The console bundle composes these changes over the shipped Web profile:
 | `library-skills` | Inserted: an isolated `skill-filesystem` provider over `@deepseek-ai/dsh-experimental-library-skills` |
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
 | `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission` | Disabled: internal vocabulary, official branding, and developer surfaces |
+| `preset-cordis` | Disabled: the preset mounts `tool-cordis` and a skill that lists every workspace package, and `session.create` accepts an `agentPreset` over RPC, so hiding the picker is not enough |
 
 The lock overlay restates the `permission` row: three presets with customer-facing names, `defaultPreset: workspace-write`, and `isolate: { commands: true }`, which keeps `/permission` unregistered.
 
@@ -90,7 +91,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the rows it composes: the `library-skills` row adds the bundled skills to the skill catalog, and every other composed plugin owns its own model-visible contribution.
+Indirectly, through the rows it composes: the `library-skills` row adds the bundled skills to the skill catalog, disabling `preset-cordis` removes a preset a session could otherwise run under, and every other composed plugin owns its own model-visible contribution.
 
 #### KV Cache effect
 

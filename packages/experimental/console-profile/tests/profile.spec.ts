@@ -183,6 +183,11 @@ describe('the console layer over the shipped Web bundles', () => {
     }
   })
 
+  it('disables the `cordis` Agent preset, leaving `standard` the default', () => {
+    expect(byId.get('preset-cordis')?.disabled).toBe(true)
+    expect(byId.get('preset-standard')?.disabled).not.toBe(true)
+  })
+
   it('disables every shipped surface the customer page must not show', () => {
     for (const id of [
       'ui-layout', 'ui-sidebar', 'ui-agent-preset', 'ui-brand-official', 'ui-cordis', 'ui-trajectory',

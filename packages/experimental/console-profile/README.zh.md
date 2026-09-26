@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些会显示内部术语或开发者工具的出厂界面，并挂载随包出厂的库技能。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
+`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些会显示内部术语或开发者工具的出厂界面，挂载随包出厂的库技能，并禁用 `cordis` Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
 
 ## 目录
 
@@ -51,6 +51,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission` | 禁用：内部术语、官方品牌与开发者界面 |
+| `preset-cordis` | 禁用：该预设挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够 |
 
 锁 overlay 重述 `permission` 行：三个带面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。
 
@@ -90,7 +91,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行：`library-skills` 行把随包出厂的技能加入技能目录，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行：`library-skills` 行把随包出厂的技能加入技能目录，禁用 `preset-cordis` 去掉了一个会话本可以运行在其下的预设，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 

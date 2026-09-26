@@ -61,6 +61,7 @@ import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-workspace'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
 } from './scaffold.ts'
@@ -866,6 +867,15 @@ describe('web e2e: the product-console sidebar', () => {
     await expect(scaffold.ctx.settings.update('permission' as SettingsNamespace, { defaultPreset: 'danger-full-access' }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
     await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
+  })
+
+  it('offers no `cordis` Agent preset, so no session can be created under it', async () => {
+    // `session.create` takes an `agentPreset` over RPC, which no page control
+    // gates; the preset is absent from the registry rather than hidden.
+    const ids = (await scaffold.ctx.agentPresets.list()).map(preset => preset.id)
+    expect(ids).toContain('standard')
+    expect(ids).not.toContain('cordis')
+    await expect(scaffold.ctx.agentPresets.resolve('cordis')).rejects.toThrow(/Unknown agent preset: cordis/)
   })
 
   it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
