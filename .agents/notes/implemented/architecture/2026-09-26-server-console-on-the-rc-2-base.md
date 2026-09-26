@@ -18,6 +18,8 @@ The 0.1.7-rc.2 base removed three seams the console line was built on. The setti
 
 **Vue 2's global JSX types stay out of the Client aggregate.** `vue/types/jsx.d.ts` adds Vue's `ref` to the global `JSX.IntrinsicAttributes`, which broke four upstream React `ref` props once the Vue packages' specs shared the aggregate. The specs that reach Vue 2 declarations (all of `component-kit` and `vue2-echarts-poc`, two of `component-surface`) typecheck in `tsconfig.vue2-tests.json`, a face-specific leaf referenced from `tsconfig.client.json`, which excludes them — the same shape as `tsconfig.desktop-keyboard-tests.json`.
 
+**The three content commands declare `engages: false`.** The base's Session list now clears `blank` on any `command/run` that does not declare `engages: false`, where the console line cleared it only on `turn/start`. `show-content-page`, `content-navigated`, and `show-content-view` arrange the content column and add no turn, so each declares `engages: false`: a workbench draft that has only shown pages or views stays blank, a second workbench click reuses it, and the temporary group does not list it.
+
 ## Alternatives considered
 
 **A product importer that copies the menu out of `settings.yaml` into its own store.** The settings service already imports each section into the entry of the same id; a second importer would own a file the base retired and a persistence path the settings README tells plugins not to own.

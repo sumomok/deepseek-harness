@@ -18,6 +18,8 @@ Status: implemented
 
 **Vue 2 的全局 JSX 类型不进入 Client 聚合程序。** `vue/types/jsx.d.ts` 给全局 `JSX.IntrinsicAttributes` 加上了 Vue 的 `ref`，Vue 包的 spec 与聚合程序共处之后，上游四处 React `ref` prop 因此报错。会触及 Vue 2 声明的 spec（`component-kit` 与 `vue2-echarts-poc` 的全部、`component-surface` 的两个）在 `tsconfig.vue2-tests.json` 里做类型检查；这是一个按编译面划分的叶子配置，由 `tsconfig.client.json` 引用，后者把这些 spec 排除在外——与 `tsconfig.desktop-keyboard-tests.json` 的形态相同。
 
+**三条内容命令声明 `engages: false`。** 基座的 Session 列表现在遇到任何未声明 `engages: false` 的 `command/run` 都会清掉 `blank`，而本线原来只在 `turn/start` 时清掉它。`show-content-page`、`content-navigated` 与 `show-content-view` 只安排内容栏、不增加回合，所以三者都声明 `engages: false`：只显示过页面或视图的工作台草稿仍是空白草稿，第二次点工作台会复用它，临时分组也不会列出它。
+
 ## Alternatives considered
 
 **由产品自带导入器把菜单从 `settings.yaml` 复制到自己的存储里。** settings 服务已经会把每个分区导入同名 id 的条目；第二个导入器将拥有一个基座已经退役的文件，以及一条 settings README 明确告诉插件不要自己拥有的持久化路径。

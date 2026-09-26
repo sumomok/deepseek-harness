@@ -100,6 +100,13 @@ describe('show-content-view command', () => {
     })
   })
 
+  it('declares that opening a view does not engage the session', async () => {
+    const { ctx, agent, session } = await bench()
+    await run(ctx, agent, ' alerts')
+    const started = session.snapshotEvents().find((event: SessionEvent) => event.type === 'command/run')
+    expect(started?.type === 'command/run' && started.data.engages).toBe(false)
+  })
+
   it('appends again for a second click on the view already on screen', async () => {
     // Same entry id, so the column keeps one row for it; the append is what
     // moves that row back to the front of the switcher instead of doing

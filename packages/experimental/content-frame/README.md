@@ -218,6 +218,8 @@ The wait's two outcomes both reach the model. A page that never settled is read 
 
 A user's page click is a command invocation, and every command leaves a `command/run`/`command/done` pair on the log — the durable record the sidebar menu and every replay rely on. Left alone, `dsh-client-ui-conversation`'s chat view renders that pair as an ordinary command row ("Now showing `<title>` in the content column."): informative for the agent's own commands, redundant for a click the user just made. The browser half registers an empty component into `conversation.chat.commandview`'s `show-content-page` key — the keyed slot every command row dispatches through — so the row's business content never appears.
 
+The pair still counts toward the Session list's `blank` flag only if the command engages the session. `show-content-page` and `content-navigated` both declare `engages: false`, so their `command/run` leaves `blank` set: a draft whose only activity is showing or moving pages stays out of the session list and stays reusable as the workbench's blank draft.
+
 An empty registrant still leaves a zero-height flex item in the chat column, and the column's `gap: 16px` reserves space for it regardless of height. The browser half also injects one CSS rule collapsing that specific empty row (`[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`), coupled to two DOM shapes this package does not own — `dsh-client-ui-conversation`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper — see Known Limitations.
 
 <a id="composition"></a>

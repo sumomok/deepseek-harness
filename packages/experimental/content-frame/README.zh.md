@@ -218,6 +218,8 @@ kind: "package-reference"
 
 用户点一次页面就是一次命令调用，每条命令都会在日志上留下一对 `command/run`/`command/done`——侧栏菜单和一切回放都依赖这条持久记录。放任不管的话，`dsh-client-ui-conversation` 的聊天视图会把这一对渲染成一条普通的命令行（"Now showing `<title>` in the content column."）：对 agent 自己发出的命令这条信息有意义，对用户刚点出来的这次点击却是多余的。browser 半边在 `conversation.chat.commandview` 这个每条命令行都要经过的 keyed 槽的 `show-content-page` 键位上注册一个空组件，让这一行的业务内容永不出现。
 
+这一对记录只有在命令算作参与会话（engages）时才会清掉 Session 列表的 `blank` 标记。`show-content-page` 和 `content-navigated` 都声明了 `engages: false`，所以它们的 `command/run` 不动 `blank`：一个草稿如果只是显示过或移动过页面，就仍然不进会话列表，也仍然可以作为工作台的空白草稿被复用。
+
 一个空组件仍然会在聊天列里留下一个零高度的 flex 项，而列的 `gap: 16px` 不管高度多少都会为它留一份间距。browser 半边因此还注入了一条 CSS 规则，把这一整行折叠掉（`[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`），它耦合了两个本包并不拥有的 DOM 结构——`dsh-client-ui-conversation` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装——见 Known Limitations。
 
 <a id="composition"></a>

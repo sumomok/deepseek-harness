@@ -60,6 +60,10 @@ export function showContentViewCommand(views: ViewIndex): CommandDefinition {
     // instruction they are meant to type.
     description: '点侧栏里的条目就会打开，内容出现在对话旁边；这一行不用手动输入。',
     input: { hint: '名称' },
+    // Opening a view arranges the column beside the conversation and adds no
+    // turn to it, so a draft that has only shown views stays reusable as the
+    // workbench's blank draft.
+    engages: false,
     handler: (invocation): CommandResult => {
       const view = views.get(invocation.rawInput.trim())
       if (view === undefined) return { kind: 'error', text: NO_SUCH_VIEW }

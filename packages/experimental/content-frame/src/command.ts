@@ -82,6 +82,10 @@ export function showContentPageCommand(pages: PageIndex): CommandDefinition {
     name: SHOW_CONTENT_PAGE_COMMAND,
     description: 'Show one of this deployment\'s content-column pages. Used by the sidebar\'s page-navigation menu; not meant to be typed by hand.',
     input: { hint: 'page id' },
+    // Opening a page arranges the column beside the conversation and adds no
+    // turn to it, so a draft that has only shown pages stays reusable as the
+    // workbench's blank draft.
+    engages: false,
     handler: (invocation) => {
       const id = invocation.rawInput.trim()
       if (id.length === 0) {
@@ -156,6 +160,8 @@ export function contentNavigatedCommand(pages: PageIndex): CommandDefinition {
     name: CONTENT_NAVIGATED_COMMAND,
     description: 'Record that the page in the content column moved to a different address inside itself. Used by the content column\'s own page seat; not meant to be typed by hand.',
     input: { hint: 'by page url title' },
+    // A page moving inside its own frame is column state, not conversation.
+    engages: false,
     handler: (invocation) => {
       const refuse = (text: string): CommandResult => ({ kind: 'error', text })
       const fields = splitNavigated(invocation.rawInput.trim())

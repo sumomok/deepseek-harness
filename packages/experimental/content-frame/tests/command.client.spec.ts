@@ -106,6 +106,12 @@ describe('show-content-page command', () => {
     expect(shown(session)).toEqual([{ page: 'reports', by: 'user' }])
   })
 
+  it('declares that opening a page does not engage the session', async () => {
+    const { ctx, agent, session } = await bench()
+    await run(ctx, agent, ' reports')
+    expect(recorded(session, 'command/run')).toMatchObject([{ name: SHOW_CONTENT_PAGE_COMMAND, engages: false }])
+  })
+
   it('tells the agent which page the user opened, and puts the record on the log first', async () => {
     const { ctx, agent, session, injected } = await bench()
     let atSeq = 0
@@ -187,6 +193,12 @@ describe('content-navigated command', () => {
       title: 'Fleet · devices',
       by: 'user',
     }])
+  })
+
+  it('declares that a page moving inside its frame does not engage the session', async () => {
+    const { ctx, agent, session } = await bench()
+    await runCommand(ctx, agent, CONTENT_NAVIGATED_COMMAND, ' user reports /content-app/reports/')
+    expect(recorded(session, 'command/run')).toMatchObject([{ name: CONTENT_NAVIGATED_COMMAND, engages: false }])
   })
 
   it('records an empty title for a document that has none', async () => {
