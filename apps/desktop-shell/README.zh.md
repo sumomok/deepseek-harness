@@ -362,6 +362,8 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
 
+**每次启动先删掉之前几次启动留下的浏览器会话 cookie。**服务出来的 UI 每登录一个服务器就留一条持久 cookie `dsh-auth-<主机加端口的哈希>`,而每次启动都换一个新端口,所以每次启动都会多出一条新名字的 cookie;浏览器按主机而不按端口发送 cookie,于是它们全部随每个发往 `127.0.0.1` 的请求一起发出。启动大约六十次之后,请求头超过 Node 的 16 KB 上限,服务器对插件包请求回 431,窗口报 `Failed to load plugins`。所以 `src/auth-cookies.ts` 在每个进程里只做一次:在清理遗留服务器之后、启动服务器之前,删掉 `127.0.0.1` 上全部 `dsh-auth-*` cookie,每条按它自己的路径删;这时主机上没有任何一条 cookie 可能属于这次启动。主机上别的 cookie 保留。重开窗口(从 Dock、托盘、通知或第二次启动)和把服务器换绑到新端口都不碰 cookie,所以一次换绑会多一条 cookie,下次启动时删掉。删除失败只往 `dsh-server.log` 写一行,启动照常继续。
+
 **启动页与安装提示窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:`~/.dsh/settings.yaml` 里的持久 `ui-theme.preference`,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
 
 ## Known Limitations and Deferred Work

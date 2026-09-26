@@ -23,8 +23,9 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, shell, type DownloadItem } from 'electron'
+import { app, BrowserWindow, dialog, Notification, session, shell, type DownloadItem } from 'electron'
 import { pinAppIdentity } from './app-identity.ts'
+import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
@@ -867,6 +868,9 @@ if (!locked) {
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)
+      // Once per process and before the spawn: every `dsh-auth-*` cookie on
+      // the host is an earlier launch's, so none of them can be this one's.
+      await clearStaleAuthCookies(session.defaultSession.cookies, sink)
       // Before the server reads the profile, not after: `initProfile` writes a
       // profile once and never revisits it, so a name added later would not
       // reach this launch's composition.
