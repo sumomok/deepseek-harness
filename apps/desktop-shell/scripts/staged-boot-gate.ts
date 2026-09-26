@@ -40,14 +40,31 @@ export const WITHHELD_PACKAGES = ['@deepseek-ai/dsh-experimental-auto-review'] a
 /** The row the desktop composition layer opens full-text search on, and the value it sets. */
 const DESKTOP_LAYER_PROBE = { id: 'session-query-sqlite', openAt: 'first-search' } as const
 
+/** One entry the activation warning names on the lines after it: `<id> (<package>): <reason>`. */
+const INACTIVE_ENTRY = /^\S+ \([^)]+\): /
+
 /**
  * The lines of a boot's stderr that report a bundle, row, or entry the boot
- * went on without.
+ * went on without. The activation warning states only a count, and names each
+ * entry and its reason on a line of its own after it; those lines are kept
+ * with it, so the build failure says which entries did not start.
  * @param stderr - everything the server wrote to stderr.
  * @returns the offending lines, in order; empty when the composition loaded whole.
  */
 export function loadFailureLines(stderr: string): string[] {
-  return stderr.split(/\r?\n/).filter(line => LOAD_FAILURE_MARKERS.some(marker => line.includes(marker)))
+  const lines = stderr.split(/\r?\n/)
+  const found: string[] = []
+  for (const [index, line] of lines.entries()) {
+    if (!LOAD_FAILURE_MARKERS.some(marker => line.includes(marker))) continue
+    found.push(line)
+    const count = /(\d+) entr(?:y|ies) did not activate/.exec(line)?.[1]
+    if (count === undefined) continue
+    for (const entry of lines.slice(index + 1, index + 1 + Number(count))) {
+      if (!INACTIVE_ENTRY.test(entry)) break
+      found.push(entry)
+    }
+  }
+  return found
 }
 
 /**

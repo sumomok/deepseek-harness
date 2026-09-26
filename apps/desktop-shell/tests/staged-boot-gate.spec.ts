@@ -28,9 +28,23 @@ describe('loadFailureLines', () => {
     expect(loadFailureLines(line)).toEqual([line])
   })
 
-  it('reports entries that did not activate', () => {
-    expect(loadFailureLines('dsh: warning: 2 entries did not activate\r\ntypert-loader: …')).toEqual([
+  it('reports entries that did not activate, with the entries the warning names after it', () => {
+    const stderr = [
       'dsh: warning: 2 entries did not activate',
+      'account-controller (@deepseek-ai/dsh-api-account-controller): failed to import',
+      'typert-loader (@deepseek-ai/dsh-typert-loader): activation failed',
+      'unrelated (@x/y): a later line',
+    ].join('\r\n')
+    expect(loadFailureLines(stderr)).toEqual([
+      'dsh: warning: 2 entries did not activate',
+      'account-controller (@deepseek-ai/dsh-api-account-controller): failed to import',
+      'typert-loader (@deepseek-ai/dsh-typert-loader): activation failed',
+    ])
+  })
+
+  it('stops at the first line after the warning that names no entry', () => {
+    expect(loadFailureLines('dsh: warning: 1 entry did not activate\ntypert-loader: …')).toEqual([
+      'dsh: warning: 1 entry did not activate',
     ])
   })
 })
