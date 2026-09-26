@@ -18,12 +18,22 @@
  * `require` resolution over the production platform seed, the SlotRegistry, the
  * locale runtime, the Typert registry, and the Client Remote service that owns
  * the namespace and method rules. What is stubbed is the Host across the wire:
- * the Connection carrier answers nothing, the settings transport is an
- * in-memory scope, and the Host-served `session` namespace is
+ * the Connection carrier rejects every request, the settings forms are
+ * in-memory, and the Host-served `session` namespace is
  * {@link HOST_SESSION_NAMESPACE}, mounted through the real registrar because
  * the generated contributions exist only in built `lib/` and this suite runs on
- * the source plane. Nothing here calls a Remote method, so the vendored halves
- * never depend on an answer.
+ * the source plane. Three halves do call a Remote method while applying —
+ * `@sumomok/dsh-balance`, `@haoran/dsh-plugin-updates` and
+ * `@haoran/dsh-desktop-update` each read their Host state once — and each
+ * catches the rejection and reports it with `console.error`, so this suite
+ * covers their apply up to that read and not what they register after an
+ * answer.
+ *
+ * The page declares the three settings slots the halves register into, because
+ * the SlotRegistry runs a `slots.inject` callback only once its slot is
+ * declared, and an undeclared slot would leave every settings registration
+ * unrun and unchecked. A registration runs inside a child fiber whose failure
+ * the fiber only logs, so every case also fails on an error-level log.
  *
  * The HTML `__ModuleLoader__` facade is rebuilt here as a plain object instead
  * of evaluating the injected script, which needs a built client-modules bundle;
@@ -216,10 +226,19 @@ const HOST_SESSION_NAMESPACE: TypertRemoteContribution = {
   }],
 }
 
+/** The settings slots the page declares, which the vendored halves register their pages and rows into. */
+const SETTINGS_SLOTS = {
+  'settings.section': { kind: 'list', scope: 'root' },
+  'settings.general.item': { kind: 'list', scope: 'root' },
+  'settings.plugins.tab': { kind: 'list', scope: 'root' },
+} as const
+
 /** One assembled page: the runtime plus the teardown that unwinds it. */
 interface Page {
   /** The slot runtime carrying the Cordis root. */
   readonly runtime: SlotTestRuntime
+  /** Every error-level message the page's logger received, formatted. */
+  readonly errors: readonly string[]
   /**
    * Mount one vendored half on the page's `remote`-isolated Context.
    * @param half - the plugin the half's module exports.
@@ -231,7 +250,7 @@ interface Page {
 
 /**
  * The Connection carrier with no Host behind it: the Client Remote service
- * needs a handle to construct, and nothing in this suite sends a request.
+ * needs a handle to construct, and every request sent through it is rejected.
  * @returns the carrier stub.
  */
 function connectionStub(): unknown {
@@ -260,14 +279,20 @@ function connectionStub(): unknown {
  */
 async function page(): Promise<Page> {
   const runtime = await SlotTestRuntime.create()
+  const errors: string[] = []
+  runtime.ctx.logger.exporter({
+    export: (message) => {
+      if (message.type === 'error') errors.push(`${message.name}: ${message.args.map(String).join(' ')}`)
+    },
+  })
+  await runtime.declare(SETTINGS_SLOTS)
   const ctx: Context = runtime.ctx.isolate('remote')
   ctx.provide('connection', connectionStub() as never)
   await ctx.plugin(typertRegistryClient).await()
   await ctx.plugin(gatewayClient).await()
   // The Host settings forms: the locale runtime reads one form during apply
   // and reads its snapshot, never the wire. `whileServed` treats every watched
-  // namespace as served, so a vendored half's settings-page registration runs
-  // and hands back its own disposer.
+  // namespace as served and hands back the registration's own disposer.
   ctx.provide('configForms', {
     get: () => stubConfigForm().scope,
     whileServed: (namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) =>
@@ -279,6 +304,7 @@ async function page(): Promise<Page> {
   const unmountSession = await ctx.remote.$mount(HOST_SESSION_NAMESPACE)
   return {
     runtime,
+    errors,
     mount: async (half) => {
       // A missing service would park the fiber instead of failing the case.
       const required = Object.keys(Inject.resolve((half as { inject?: Inject }).inject))
@@ -291,6 +317,16 @@ async function page(): Promise<Page> {
       await unmountSession()
     },
   }
+}
+
+/**
+ * The ids registered into one declared settings slot, sorted.
+ * @param mounted - the page the halves applied on.
+ * @param key - one of {@link SETTINGS_SLOTS}.
+ * @returns each registration's `id` option.
+ */
+function registered(mounted: Page, key: keyof typeof SETTINGS_SLOTS): string[] {
+  return mounted.runtime.slots.entries(key).map(entry => entry.options.id ?? '').sort()
 }
 
 describe('vendored built-in client halves', () => {
@@ -326,6 +362,8 @@ describe('vendored built-in client halves', () => {
     open = mounted
     mounted.runtime.ctx.provide('modules', modules as never)
     await mounted.mount(half as never)
+    await mounted.runtime.flush()
+    expect(mounted.errors).toEqual([])
   })
 
   it('applies the whole seeded set on one page', async () => {
@@ -336,5 +374,16 @@ describe('vendored built-in client halves', () => {
     for (const row of ROWS) {
       await mounted.mount(await modules.import(row.id) as never)
     }
+    await mounted.runtime.flush()
+    expect(mounted.errors).toEqual([])
+    // Settings pages from gateway, mcp-servers, balance, screenshot and
+    // vision-switch. `@haoran/dsh-desktop-update` registers its page, and
+    // `@haoran/dsh-plugin-updates` its Plugins tab, only after their first
+    // Host read answers, which this carrier rejects.
+    expect(registered(mounted, 'settings.section'))
+      .toEqual(['balance', 'llm-permission-gateway', 'mcp-servers', 'screenshot-logins', 'vision-switch'])
+    // `language` is the locale runtime's own row, which the page mounts.
+    expect(registered(mounted, 'settings.general.item')).toEqual(['auto-compact', 'language'])
+    expect(registered(mounted, 'settings.plugins.tab')).toEqual([])
   })
 })
