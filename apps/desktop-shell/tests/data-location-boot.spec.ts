@@ -6,7 +6,7 @@
  * @module
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -169,7 +169,7 @@ describe('promptView', () => {
   })
 
   it('offers only keep and quit when the new location cannot be used', () => {
-    for (const reason of ['not-a-folder', 'damaged-data'] as const) {
+    for (const reason of ['not-a-folder', 'damaged-data', 'cannot-create'] as const) {
       for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
         const view = promptView({ kind: 'confirm-env', reason, envPath: '/set', current: '/data' }, text)
         expect(view.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
@@ -195,7 +195,7 @@ describe('promptView', () => {
         expect(text.unavailable(reason, '/p')).not.toMatch(/DSH_HOME|pointer|指针/)
       }
       expect(text.unavailableSuggested('/p')).not.toMatch(/DSH_HOME|pointer|backup|指针|备份/)
-      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data'] as const) {
+      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'cannot-create'] as const) {
         expect(text.env(reason, '/a', '/b')).not.toMatch(/DSH_HOME|pointer|marker|指针|标记/)
       }
     }
@@ -446,6 +446,32 @@ describe('settleDataLocation with a pointer', () => {
     expect(recorded.asked[0]?.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
     expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.env('not-a-folder', dangling, data))
     expect(existsSync(join(root, 'Unplugged'))).toBe(false)
+  })
+
+  const writable = process.platform === 'win32' || process.getuid?.() === 0 ? it.skip : it
+
+  writable('asks again with keep and quit when the new location cannot be created, and never shows the error', async () => {
+    const data = dataDir('DSH-Data', ID)
+    writePointer(userData, pointerAt(data))
+    const locked = dataDir('locked')
+    const fresh = join(locked, 'Fresh')
+    chmodSync(locked, 0o555)
+    try {
+      for (const last of ['keep', 'quit'] as const) {
+        const recorded = recordingHost({ answers: ['use-new', last], persistent: { kind: 'set', value: fresh, source: 'login-shell' } })
+        const settled = await settleDataLocation(recorded.host, undefined)
+        expect(recorded.asked.map(view => view.buttons.map(button => button.answer))).toEqual([['keep', 'use-new'], ['keep', 'quit']])
+        expect(recorded.asked[1]?.detail).toBe(DATA_LOCATION_TEXT.zh.env('cannot-create', fresh, data))
+        expect(recorded.asked[1]?.detail).not.toMatch(/EACCES|Error|permission denied/i)
+        expect(recorded.log.join('')).toContain('EACCES')
+        expect(settled?.home).toBe(last === 'keep' ? data : undefined)
+        const read = readPointer(userData)
+        expect(read.kind === 'ok' && read.pointer.path).toBe(data)
+        expect(existsSync(fresh)).toBe(false)
+      }
+    } finally {
+      chmodSync(locked, 0o755)
+    }
   })
 
   it('starts a new location the person chose, leaving the old data where it is', async () => {

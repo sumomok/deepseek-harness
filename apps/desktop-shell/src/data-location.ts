@@ -267,10 +267,14 @@ export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable'
 /**
  * Why an explicit `DSH_HOME` that changed is not followed without asking.
  * `missing` and `not-harness-data` can be adopted as a new, empty location;
- * `not-a-folder` (a file, a dangling link, or a path that cannot be reached) and
- * `damaged-data` (an identity marker that cannot be read) cannot.
+ * `not-a-folder` (a file, a dangling link, or a path that cannot be reached),
+ * `damaged-data` (an identity marker that cannot be read), and
+ * `cannot-create` cannot. {@link resolveDataLocation} never returns
+ * `cannot-create`: the launch step asks with it after
+ * {@link adoptEnvLocation} failed, on a volume that is not mounted or a
+ * directory the person may not write, for example.
  */
-export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data'
+export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data' | 'cannot-create'
 
 /**
  * Whether the person may adopt an unverified `DSH_HOME` as a new location.
@@ -284,6 +288,7 @@ export function canAdoptEnv(reason: EnvUnverifiedReason): boolean {
       return true
     case 'not-a-folder':
     case 'damaged-data':
+    case 'cannot-create':
       return false
     default:
       return reason satisfies never

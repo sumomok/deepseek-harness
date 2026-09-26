@@ -14,7 +14,7 @@ import {
   adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, DATA_ID_FILENAME, ensureDataId, keepPointerOverEnv,
   looksLikeHarnessHome, normalizeDshHome, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION,
   readDataId, readPointer, resolveDataLocation, writePointer,
-  type DataId, type DataLocationPointer,
+  type DataId, type DataLocationPointer, type EnvUnverifiedReason,
 } from '../src/data-location.ts'
 
 let root: string
@@ -255,8 +255,8 @@ describe('resolveDataLocation with a pointer', () => {
           .toEqual({ kind: 'confirm-env', envPath: env, pointer, reason: 'missing' })
       }
     }
-    expect([canAdoptEnv('missing'), canAdoptEnv('not-harness-data'), canAdoptEnv('not-a-folder'), canAdoptEnv('damaged-data')])
-      .toEqual([true, true, false, false])
+    expect(['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'cannot-create'].map(reason => canAdoptEnv(reason as EnvUnverifiedReason)))
+      .toEqual([true, true, false, false, false])
   })
 })
 

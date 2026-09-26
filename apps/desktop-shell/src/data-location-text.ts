@@ -64,6 +64,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `系统或终端里把数据位置设成了「${envPath}」，但那里不是一个能存放数据的文件夹，所以不能改用它。\n现在的数据在「${current}」。`
         case 'damaged-data':
           return `系统或终端里把数据位置设成了「${envPath}」，但那里的 DSH 数据已经损坏，认不出是哪一份，所以不能改用它。\n现在的数据在「${current}」。`
+        case 'cannot-create':
+          return `这个位置无法使用：没能在「${envPath}」建立数据文件夹，可能是磁盘没有接上，或者没有权限在那里写入。\n现在的数据在「${current}」。`
         default:
           return reason satisfies never
       }
@@ -105,6 +107,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `The data location was set to "${envPath}" in the system or a terminal, but that is not a folder that can hold data, so it cannot be used.\nYour data is now in "${current}".`
         case 'damaged-data':
           return `The data location was set to "${envPath}" in the system or a terminal, but the DSH data there is damaged and cannot be recognized, so it cannot be used.\nYour data is now in "${current}".`
+        case 'cannot-create':
+          return `This location cannot be used: a data folder could not be created in "${envPath}". The drive may not be connected, or you may not have permission to write there.\nYour data is now in "${current}".`
         default:
           return reason satisfies never
       }

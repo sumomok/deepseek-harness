@@ -387,14 +387,29 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
       case 'confirm-env': {
         const current = resolution.pointer.path
         log(`[desktop] data location: ${describeExplicit(explicit)} changed to a folder that is ${resolution.reason}; asking\n`)
-        const answer = await host.ask(promptView({ kind: 'confirm-env', reason: resolution.reason, envPath: resolution.envPath, current }, text))
+        let reason: EnvUnverifiedReason = resolution.reason
+        let adopted: DataLocationPointer | undefined
+        let answer: LocationAnswer
+        // A new location that cannot be created is asked about again, with
+        // only keep and quit, instead of ending the launch.
+        for (;;) {
+          answer = await host.ask(promptView({ kind: 'confirm-env', reason, envPath: resolution.envPath, current }, text))
+          if (answer !== 'use-new') break
+          log(`[desktop] data location: the person chose the new location ${resolution.envPath}\n`)
+          try {
+            adopted = adoptEnvLocation(resolution.envPath, resolution.pointer)
+            break
+          } catch (error) {
+            log(`[desktop] data location: could not create ${resolution.envPath}: ${String(error)}; asking again\n`)
+            reason = 'cannot-create'
+          }
+        }
         if (answer === 'quit') {
           log('[desktop] data location: the person chose to quit\n')
           return undefined
         }
-        if (answer === 'use-new') {
-          log(`[desktop] data location: the person chose the new location ${resolution.envPath}\n`)
-          writePointer(host.userData, adoptEnvLocation(resolution.envPath, resolution.pointer))
+        if (adopted !== undefined) {
+          writePointer(host.userData, adopted)
         } else {
           log(`[desktop] data location: the person kept ${current} over ${resolution.envPath}\n`)
           const synced = await syncTerminal(host, keepPointerOverEnv(resolution.envPath, resolution.pointer), resolution.envPath)
