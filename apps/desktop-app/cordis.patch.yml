@@ -156,7 +156,7 @@
 #
 # `disabled: true` replaces dsh-base's `!!js "!ctx.get('profileContext')"` on
 # the Host row. The agent tool `@deepseek-ai/dsh-plugin-manager/tools` injects
-# `pluginManager`, so every preset row that enables it, the web app's `cordis`
+# `pluginManager`, so every preset row that enables it, the web app's cordis
 # preset included, waits for a service that never registers. That preset row
 # sits inside `preset-cordis`'s `config.plugins` rather than in a group, so no
 # id-targeted row here reaches it; an `id: tool-plugin-manager` row would patch
