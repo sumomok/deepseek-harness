@@ -78,34 +78,39 @@ function recordingHost(options: {
 } = {}): Recorded {
   const answers = [...options.answers ?? []]
   const folders = [...options.folders ?? []]
-  const recorded: Recorded = {
-    env: options.env ?? {}, asked: [], told: [], terminalWrites: [], persistentReads: 0, log: [],
-    host: undefined as unknown as DataLocationHost,
-  }
-  recorded.host = {
-    userData, defaultHome, osHome, platform: process.platform, env: recorded.env, text: DATA_LOCATION_TEXT.zh,
-    log: (line) => { recorded.log.push(line) },
+  const log: string[] = []
+  const asked: PromptView[] = []
+  const told: string[] = []
+  const terminalWrites: string[] = []
+  const env = options.env ?? {}
+  const counters = { persistentReads: 0 }
+  const host: DataLocationHost = {
+    userData, defaultHome, osHome, platform: process.platform, env, text: DATA_LOCATION_TEXT.zh,
+    log: (line) => { log.push(line) },
     readPersistentEnv: async () => {
-      recorded.persistentReads += 1
+      counters.persistentReads += 1
       return options.persistent ?? { kind: 'unset' }
     },
     writeTerminalEnv: async (value) => {
-      recorded.terminalWrites.push(value)
+      terminalWrites.push(value)
       const result = options.terminal?.(value) ?? { kind: 'user-environment' }
       if (result instanceof Error) throw result
       return result
     },
     ask: async (view) => {
-      recorded.asked.push(view)
+      asked.push(view)
       options.onAsk?.(view)
       const answer = answers.shift()
       if (answer === undefined) throw new Error(`unexpected prompt: ${view.message}`)
       return answer
     },
     chooseFolder: async () => folders.shift(),
-    tell: async (message) => { recorded.told.push(message) },
+    tell: async (message) => { told.push(message) },
   }
-  return recorded
+  return {
+    host, env, asked, told, terminalWrites, log,
+    get persistentReads() { return counters.persistentReads },
+  }
 }
 
 describe('exportPointerHome', () => {
@@ -136,6 +141,10 @@ describe('promptView', () => {
     expect(unavailable.detail).toContain('E:\\DSH-Data')
     const env = promptView({ kind: 'confirm-env', reason: 'missing', envPath: '/typo', current: '/data' }, DATA_LOCATION_TEXT.en)
     expect(env.buttons[env.cancelIndex]?.answer).toBe('keep')
+    // A macOS sheet dismissed by raising its parent answers with the first
+    // button, so the first button must change nothing.
+    expect(unavailable.buttons[0]?.answer).toBe('retry')
+    expect(env.buttons[0]?.answer).toBe('keep')
     expect(env.detail).toContain('/typo')
     expect(env.detail).toContain('/data')
   })

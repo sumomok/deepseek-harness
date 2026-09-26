@@ -6,14 +6,14 @@
  */
 
 import {
-  existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync, type Stats,
+  existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DATA_ID_FILENAME, type DataId } from '../src/data-location.ts'
-import { calibrateHomeLink, type LinkFs } from '../src/home-link.ts'
+import { calibrateHomeLink, type LinkFs, type LinkStats } from '../src/home-link.ts'
 
 let root: string
 let defaultHome: string
@@ -121,7 +121,7 @@ describe('calibrateHomeLink on Windows', () => {
   /** A stand-in file system holding one entry at `~/.dsh`, recording every call. */
   function windowsFs(entry: { kind: 'absent' } | { kind: 'junction'; target: string }): { fs: LinkFs; calls: string[] } {
     const calls: string[] = []
-    const linkStats = { isSymbolicLink: () => true, isDirectory: () => false } as unknown as Stats
+    const linkStats: LinkStats = { isSymbolicLink: () => true, isDirectory: () => false }
     const fs: LinkFs = {
       lstat: (path) => {
         calls.push(`lstat ${path}`)

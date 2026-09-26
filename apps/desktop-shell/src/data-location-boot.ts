@@ -42,7 +42,11 @@ export type LocationAnswer = 'retry' | 'choose' | 'quit' | 'use-new' | 'keep'
 export interface PromptView {
   message: string
   detail: string
-  /** Button labels in order, each with the answer it gives. */
+  /**
+   * Button labels in order, each with the answer it gives. The first is the
+   * default and changes nothing, because a macOS sheet that raising its
+   * parent window dismisses answers with the first button.
+   */
   buttons: Array<{ label: string; answer: LocationAnswer }>
   /** Index of the button that Esc and closing the box stand for. */
   cancelIndex: number
@@ -72,10 +76,10 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
         message: text.envTitle,
         detail: text.env(prompt.reason, prompt.envPath, prompt.current),
         buttons: [
-          { label: text.useNew, answer: 'use-new' },
           { label: text.keep, answer: 'keep' },
+          { label: text.useNew, answer: 'use-new' },
         ],
-        cancelIndex: 1,
+        cancelIndex: 0,
       }
     default:
       return prompt satisfies never

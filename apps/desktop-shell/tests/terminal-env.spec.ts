@@ -34,6 +34,8 @@ afterEach(async () => {
 
 const TRICKY = "/Volumes/外置 盘/it's DSH-Data"
 const posixOnly = process.platform === 'win32' ? it.skip : it
+const withZsh = existsSync('/bin/zsh') ? it : it.skip
+const withBash = existsSync('/bin/bash') ? it : it.skip
 
 /** Environment for a shell confined to the temporary home. */
 function shellEnv(): NodeJS.ProcessEnv {
@@ -50,19 +52,19 @@ describe('processDshHome', () => {
 })
 
 describe('readLoginShellDshHome', () => {
-  posixOnly('reads the value a zsh profile exports, discarding everything else the profile prints', async () => {
+  withZsh('reads the value a zsh profile exports, discarding everything else the profile prints', async () => {
     writeFileSync(join(home, '.zshrc'), `echo "welcome, $USER"\nprintf 'noise:set:/fake:noise'\nexport DSH_HOME=${shellQuote(TRICKY)}\n`)
     const read = await readLoginShellDshHome({ shell: '/bin/zsh', env: { ...shellEnv(), DSH_HOME: '/from-process' }, timeoutMs: 10_000 })
     expect(read).toEqual({ kind: 'set', value: TRICKY, source: 'login-shell' })
   })
 
-  posixOnly('reads a bash profile', async () => {
+  withBash('reads a bash profile', async () => {
     writeFileSync(join(home, '.bash_profile'), 'export DSH_HOME=/data/bash\n')
     expect(await readLoginShellDshHome({ shell: '/bin/bash', env: shellEnv(), timeoutMs: 10_000 }))
       .toEqual({ kind: 'set', value: '/data/bash', source: 'login-shell' })
   })
 
-  posixOnly('reports unset when the profile sets nothing or an empty value', async () => {
+  withZsh('reports unset when the profile sets nothing or an empty value', async () => {
     expect(await readLoginShellDshHome({ shell: '/bin/zsh', env: shellEnv(), timeoutMs: 10_000 })).toEqual({ kind: 'unset' })
     writeFileSync(join(home, '.zshrc'), 'export DSH_HOME=\n')
     expect(await readLoginShellDshHome({ shell: '/bin/zsh', env: shellEnv(), timeoutMs: 10_000 })).toEqual({ kind: 'unset' })
@@ -184,7 +186,7 @@ describe('updateShellProfile', () => {
     expect(readFileSync(join(dotfiles, 'zshrc'), 'utf8')).toContain("export DSH_HOME='/new'")
   })
 
-  posixOnly('writes a block the shell reads back exactly, spaces, CJK, and quotes included', () => {
+  withBash('writes a block the shell reads back exactly, spaces, CJK, and quotes included', () => {
     writeFileSync(join(home, '.bash_profile'), 'true\n')
     updateShellProfile({ home, shell: '/bin/bash', zdotdir: undefined }, TRICKY)
     const read = execFileSync('/bin/bash', ['-c', `. '${join(home, '.bash_profile')}'; printf %s "$DSH_HOME"`], { env: shellEnv(), encoding: 'utf8' })
@@ -262,7 +264,7 @@ describe('platform dispatch', () => {
       .toEqual({ kind: 'set', value: 'E:\\y', source: 'user-environment' })
   })
 
-  posixOnly('asks the login shell on macOS', async () => {
+  withZsh('asks the login shell on macOS', async () => {
     writeFileSync(join(home, '.zshrc'), 'export DSH_HOME=/z\n')
     expect(await readExplicitDshHome(host('darwin', { ...shellEnv(), SHELL: '/bin/zsh' })))
       .toEqual({ kind: 'set', value: '/z', source: 'login-shell' })

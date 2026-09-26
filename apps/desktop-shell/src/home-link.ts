@@ -21,9 +21,12 @@ import { dirname, resolve } from 'node:path'
 import { readDataId, type DataId } from './data-location.ts'
 import { sameLinkTarget } from './profile-seed.ts'
 
+/** What calibration reads from `lstat`. */
+export type LinkStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory'>
+
 /** The file-system calls calibration makes; replaced in tests to stand in for Windows. */
 export interface LinkFs {
-  lstat: (path: string) => Stats
+  lstat: (path: string) => LinkStats
   readlink: (path: string) => string
   symlink: (target: string, path: string, type: 'junction' | undefined) => void
   unlink: (path: string) => void
@@ -70,7 +73,7 @@ export function calibrateHomeLink(input: HomeLinkInput): HomeLinkOutcome {
   const fs = input.fs ?? NODE_LINK_FS
   if (resolve(defaultHome) === resolve(dataHome)) return { kind: 'not-needed' }
   const type = input.platform === 'win32' ? 'junction' : undefined
-  let existing: Stats | undefined
+  let existing: LinkStats | undefined
   try {
     existing = fs.lstat(defaultHome)
   } catch (error) {
