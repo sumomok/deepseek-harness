@@ -22,7 +22,7 @@ Status: implemented
 
 ## 用户失去了什么
 
-`dsh-better-sidebar` 0.18.0-alpha.0 是一整个工作台而不是一块面板，它们一并离开：懒加载的文件浏览器、能存回磁盘的 CodeMirror 编辑器、图片/PDF/Markdown 的内嵌预览（含 Mermaid 渲染）、跑在 `node-pty` 上的真终端标签页、Git 面板、内嵌浏览器、后台任务页，以及 Side Chat 旁路线程。它还发布了一个供别的插件注册侧栏页与文件查看器的服务；本载荷里没有别的东西消费它。它那八个 `terminal_*` 工具随之而去——它们只在用户打开 `agentTerminalTools`（默认关）时才注册——随之而去的还有随包分发的工具里唯一一族进程跑在壳未清洗的 `process.env` 而非 `scrubbedParentEnv()` 上的东西。
+`dsh-better-sidebar` 0.18.0-alpha.0 是一整个工作台而不是一块面板，它们一并离开：懒加载的文件浏览器、能存回磁盘的 CodeMirror 编辑器、图片/PDF/Markdown 的内嵌预览（含 Mermaid 渲染）、跑在 `node-pty` 上的真终端标签页、Git 面板、内嵌浏览器、后台任务页，以及 Side Chat 旁路线程。它还发布了一个供别的插件注册侧栏页与文件查看器的服务；本载荷里没有别的东西消费它。它那八个 `terminal_*` 工具随之而去——它们只在用户打开 `agentTerminalTools`（默认关）时才注册——随之而去的还有随包分发的工具里唯一一族进程跑在壳未清洗的 `process.env` 而非 `scrubbedParentEnv()` 上的东西。[审批详情改为按工具取值](../feature/2026-09-06-approval-detail-keyed-by-tool.zh.md)之后，`terminal_create` 也是随包工具里唯一一个审批卡片丢了详情行的：它声明了必填字符串 `command`，该卡片不再显示这个参数，也没有为它注册预览。
 
 ## 备选方案
 
