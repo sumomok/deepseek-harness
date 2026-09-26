@@ -50,7 +50,7 @@ process.getBuiltinModule('node:path').resolve(
 
 本包需要的登记都很普通：`tsconfig.base.json` 的路径别名、`tsconfig.host.json` 的 project reference 与测试 include、`apps/web/tsconfig.json` 的 exclude、实验组 README 的索引行，以及 `scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 条目。最后那个文件在本 fork 上已经带着一条已登记的行为补丁（`.claude/core-patches.md`，slug `workspace-gate-private-apps`）；本行属于数据登记而不是登记册素材，但下次上游同步要在同一个文件里一并对账两者。
 
-必须点名本包的部署流程写在 `packages/experimental/server-sidebar/README.md` 的 Composition 一节——customer overlay 需要能解析到的其他包已经列在那里。那是唯一的家：没有任何部署脚本枚举它们，overlay 的属主包也没把它们声明成 dependencies，所以在这里发明一条 manifest 边等于新造机制，而不是沿用既有的。
+控制台 bundle 包 `@deepseek-ai/dsh-experimental-console-profile` 在 `dependencies` 里声明了本包，因为 bundle 的行按 bundle 自己的依赖解析；所以把这个 bundle 装进 profile 就能解析到本包，部署流程写在 `packages/experimental/console-profile/README.md` 的安装一节。
 
 ## 片 0 实测到什么
 

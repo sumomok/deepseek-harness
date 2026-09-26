@@ -50,7 +50,7 @@ Per-user isolation is not part of this. A single-process console separates skill
 
 The registrations this package needs are ordinary: a `tsconfig.base.json` path alias, a `tsconfig.host.json` project reference and test include, an `apps/web/tsconfig.json` exclude, index rows in the experimental group README, and the `packageFileExtras` entry in `scripts/check-workspace-constraints.ts`. That last file already carries a ledgered behaviour patch on this fork (`.claude/core-patches.md`, slug `workspace-gate-private-apps`); this row is a data registration rather than ledger material, but the next upstream sync reconciles both in the one file.
 
-The deployment procedure that has to name the package is `packages/experimental/server-sidebar/README.md`'s Composition section, where the other packages the customer overlay needs resolvable are already listed. It is the only home: no deploy script enumerates them, and the overlay's owning package does not declare them as dependencies either, so inventing a manifest edge here would be a new mechanism rather than the existing one.
+The console bundle package `@deepseek-ai/dsh-experimental-console-profile` declares this package in its `dependencies`, because a bundle's rows resolve through the bundle's own dependencies; installing the bundle into a profile therefore makes it resolvable, and `packages/experimental/console-profile/README.md`'s install section is the deployment procedure.
 
 ## What slice 0 measured
 
