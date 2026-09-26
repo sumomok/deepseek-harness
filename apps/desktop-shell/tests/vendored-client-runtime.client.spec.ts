@@ -18,16 +18,17 @@
  * `require` resolution over the production platform seed, the SlotRegistry, the
  * locale runtime, the Typert registry, and the Client Remote service that owns
  * the namespace and method rules. What is stubbed is the Host across the wire:
- * the Connection carrier rejects every request, the settings forms are
- * in-memory, and the Host-served `session` namespace is
- * {@link HOST_SESSION_NAMESPACE}, mounted through the real registrar because
- * the generated contributions exist only in built `lib/` and this suite runs on
- * the source plane. Three halves do call a Remote method while applying —
- * `@sumomok/dsh-balance`, `@haoran/dsh-plugin-updates` and
- * `@haoran/dsh-desktop-update` each read their Host state once — and each
- * catches the rejection and reports it with `console.error`, so this suite
- * covers their apply up to that read and not what they register after an
- * answer.
+ * the Connection carrier answers the reads in {@link HOST_ANSWERS} and rejects
+ * every other request, the settings forms are in-memory, and the Host-served
+ * `session` namespace is {@link HOST_SESSION_NAMESPACE}, mounted through the
+ * real registrar because the generated contributions exist only in built `lib/`
+ * and this suite runs on the source plane. Three halves call a Remote method
+ * while applying. `@haoran/dsh-plugin-updates` and `@haoran/dsh-desktop-update`
+ * register their settings pages only after their first read of Host state
+ * answers `available: true`, so the carrier answers those reads with an empty,
+ * available state. `@sumomok/dsh-balance` does not wait on its reads: its store
+ * catches the rejection and reports it with `console.error`, and the half goes
+ * on to register its footer chip, its spend rows, and its settings page.
  *
  * The page declares the three settings slots the halves register into, because
  * the SlotRegistry runs a `slots.inject` callback only once its slot is
@@ -249,8 +250,21 @@ interface Page {
 }
 
 /**
+ * The Host reads this suite answers, by `<namespace>/<method>` endpoint: the
+ * smallest state each of `@haoran/dsh-plugin-updates` and
+ * `@haoran/dsh-desktop-update` accepts as available, with nothing to update and
+ * nothing to repair.
+ */
+const HOST_ANSWERS: Readonly<Record<string, unknown>> = {
+  'pluginUpdates/list': { available: true, rows: [], checkedAt: null, checking: false, checkFailed: false, rollback: null },
+  'pluginUpdates/repairs': { available: true, defective: [], removed: [] },
+  'desktopUpdate/state': { available: true, phase: 'idle', currentVersion: '0.1.0', poll: { activeMs: 60_000, idleMs: 600_000 } },
+}
+
+/**
  * The Connection carrier with no Host behind it: the Client Remote service
- * needs a handle to construct, and every request sent through it is rejected.
+ * needs a handle to construct, the reads in {@link HOST_ANSWERS} are answered,
+ * and every other request sent through it is rejected.
  * @returns the carrier stub.
  */
 function connectionStub(): unknown {
@@ -258,7 +272,9 @@ function connectionStub(): unknown {
     isLoopback: true,
     rpc: {
       open: () => { throw new Error('vendored client runtime: this gate serves no Host stream') },
-      call: () => Promise.reject(new Error('vendored client runtime: this gate serves no Host RPC')),
+      call: (_path: string, endpoint: string) => endpoint in HOST_ANSWERS
+        ? Promise.resolve({ ok: true, value: HOST_ANSWERS[endpoint] })
+        : Promise.reject(new Error(`vendored client runtime: this gate serves no Host RPC ${endpoint}`)),
     },
     generation: { getSnapshot: () => undefined },
     registerGenerationSource: () => () => {},
@@ -376,14 +392,15 @@ describe('vendored built-in client halves', () => {
     }
     await mounted.runtime.flush()
     expect(mounted.errors).toEqual([])
-    // Settings pages from gateway, mcp-servers, balance, screenshot and
-    // vision-switch. `@haoran/dsh-desktop-update` registers its page, and
-    // `@haoran/dsh-plugin-updates` its Plugins tab, only after their first
-    // Host read answers, which this carrier rejects.
-    expect(registered(mounted, 'settings.section'))
-      .toEqual(['balance', 'llm-permission-gateway', 'mcp-servers', 'screenshot-logins', 'vision-switch'])
+    // Settings pages from gateway, mcp-servers, balance, screenshot,
+    // vision-switch, and desktop-update, whose page follows its first Host
+    // read.
+    expect(registered(mounted, 'settings.section')).toEqual([
+      'balance', 'desktop-update', 'llm-permission-gateway', 'mcp-servers', 'screenshot-logins', 'vision-switch',
+    ])
     // `language` is the locale runtime's own row, which the page mounts.
     expect(registered(mounted, 'settings.general.item')).toEqual(['auto-compact', 'language'])
-    expect(registered(mounted, 'settings.plugins.tab')).toEqual([])
+    // The plugin-updates tab, which also follows its first Host read.
+    expect(registered(mounted, 'settings.plugins.tab')).toEqual(['updates'])
   })
 })
