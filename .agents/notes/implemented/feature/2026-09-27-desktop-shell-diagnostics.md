@@ -1,4 +1,4 @@
-# Agent Note: Desktop shell diagnostics: crash records, server logger records, and update leftovers
+# Agent Note: Desktop shell diagnostics: window loads, crash records, server logger records, and update leftovers
 
 Status: implemented
 
@@ -6,11 +6,15 @@ English | [中文](2026-09-27-desktop-shell-diagnostics.zh.md)
 
 ## Problem
 
-Field reports from 0.1.0-rc.32 and rc.33 arrived with a `dsh-server.log` that could not say what happened. A server that died on Windows with exit `3221226505` left the `server exited unexpectedly` line and a tail that ended before the lines explaining the death: the shell took that tail on the child's `exit` event, which can arrive while the child's last output is still in the pipes. A V8 fatal error, out of memory above all, left no report anywhere, because nothing asked Node to write one. Every record a plugin wrote through `ctx.logger` — the webserver's failed listen, `@haoran/dsh-auto-compact`'s named `ctx.logger('auto-compact')`, the settings import's per-section failures — reached only the logger's in-memory buffer: the product composition mounts no exporter, so those records were gone with the process.
+Field reports from 0.1.0-rc.32 and rc.33 arrived with a `dsh-server.log` that could not say what happened. One rc.32 window stayed on its loading page until a restart, and the log ended at `server ready` with nothing after it: the shell loaded the served UI with `void window.loadURL(url)`, dropping the rejection, and the app window had no `did-fail-load`, `did-finish-load`, `render-process-gone` or `unresponsive` listener, so a failed load, a crashed renderer and a page that loaded were all equally silent. A server that died on Windows with exit `3221226505` left the `server exited unexpectedly` line and a tail that ended before the lines explaining the death: the shell took that tail on the child's `exit` event, which can arrive while the child's last output is still in the pipes. A V8 fatal error, out of memory above all, left no report anywhere, because nothing asked Node to write one. Every record a plugin wrote through `ctx.logger` — the webserver's failed listen, `@haoran/dsh-auto-compact`'s named `ctx.logger('auto-compact')`, the settings import's per-section failures — reached only the logger's in-memory buffer: the product composition mounts no exporter, so those records were gone with the process.
 
 Two update-channel gaps were left from rc.32. 帮助 → 检查更新 answered a failure with 「无法检查更新」 and the error's raw message, so a screenshot from a user carried no code to match against the log. And electron-updater's `pending` directory kept the installed artifact — the whole zip on macOS, the whole NSIS installer on Windows — after the install had landed, because the library empties it only on a failed download or a cache record that stops matching the feed.
 
 ## Decision
+
+### Loading the served UI
+
+Every load of the served UI into an app window goes through the window's `AppLoader` from `src/window-load.ts`: the first load, a reopened window's, and the retarget after a server rebind. The loader logs `did-finish-load`, `did-fail-load`, `render-process-gone`, `unresponsive` and `responsive`, naming URLs by origin and path because the served UI's URL carries the launch token. A main-frame load of the served UI's origin that fails is retried once after 1 s with the same URL; a second failure calls the boot view's `fail`, which, once the served UI has replaced the boot page, loads the boot page again with the failure baked into it (`bootPage`'s `failure` argument, like the update receipt), phase 连接界面 marked failed. `ERR_ABORTED` is a load another navigation replaced and is not retried. A load that finished or a new target restores the retry. `did-fail-load` does not fire for an HTTP error status, and the field case above had no error line at all, so the `window loaded` line is what separates a frame that never loaded from a UI that loaded and then stalled.
 
 ### Crash records for the server process
 
@@ -32,6 +36,10 @@ The install click records the staged artifact's `fileName` and `sha512` from `pe
 
 ## Alternatives considered
 
+**Pushing the failure into the loaded page.** The boot view's push path runs a script in whatever document the window holds and drops the call when the page is not ready; after `showApp` that document is the served UI or an error page, neither of which has `window.__dsh`. Loading the boot page with the failure baked in shows it whatever the window held.
+
+**Reloading on `render-process-gone`.** A renderer that ran out of memory repeats the load that exhausted it, and a crash loop in the window is worse than a logged crash. The event is logged only.
+
 **`NODE_OPTIONS` for the report flags.** An environment variable reaches every process the server starts, so every Node program the agent runs for the user would write its reports into the desktop log directory, and a report without `--report-exclude-env` would carry that program's environment. The flags belong to the one server process.
 
 **Mounting `@deepseek-ai/cordis-plugin-logger-console`.** It prints through `console.log`, and the shell scans the server's stdout and stderr for the readiness line and copies both streams into `dsh-server.log`: a record printed there would be matched against the URL pattern. Writing the file from the exporter keeps the streams as they were and writes each record once.
@@ -42,4 +50,4 @@ The install click records the staged artifact's `fileName` and `sha512` from `pe
 
 ## Consequences
 
-A crash now leaves the lines the server wrote last, and a V8 fatal error leaves a report next to the log. Reports and `dsh-server.log` are never rotated, and the log now also receives every plugin's logger records at INFO and above. A warning logged during boot before `desktop-server-log` mounts — the settings import's section failures on the first boot after an upgrade from rc.33 among them — is still lost. A development launch needs `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts` before it, because the row imports that package's `lib/`. An install started by a build older than this change recorded nothing, so its artifact stays in `pending` until the next update's download clears it.
+A failed load of the served UI is retried once and otherwise ends on the boot page's failure state instead of a blank window, and every window load leaves a line. A UI that loads and then stalls still shows nothing on screen. A crash now leaves the lines the server wrote last, and a V8 fatal error leaves a report next to the log. Reports and `dsh-server.log` are never rotated, and the log now also receives every plugin's logger records at INFO and above. A warning logged during boot before `desktop-server-log` mounts — the settings import's section failures on the first boot after an upgrade from rc.33 among them — is still lost. A development launch needs `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts` before it, because the row imports that package's `lib/`. An install started by a build older than this change recorded nothing, so its artifact stays in `pending` until the next update's download clears it.

@@ -25,6 +25,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { pinAppIdentity } from './app-identity.ts'
+import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
@@ -46,13 +47,14 @@ import {
   runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
-import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
+import { PALETTES, resolveAppearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
 import { launchGate, setupUpdates, updateActions, type UpdateHost } from './updater.ts'
+import { superviseAppLoad, type AppLoader } from './window-load.ts'
 
 // First statement of the process: every directory below is derived from the
 // application name, and the state of an existing installation lives under the
@@ -201,9 +203,16 @@ async function stopServerBounded(): Promise<void> {
  */
 function retargetWindows(url: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isResizable() && !window.isDestroyed()) void window.loadURL(url)
+    if (window.isResizable() && !window.isDestroyed()) appLoaders.get(window)?.load(url)
   }
 }
+
+/**
+ * The served-UI loader of every app window, so a retarget after a rebind goes
+ * through the same logged, retried load as the window's first one. Every
+ * resizable window is created by [[createBootWindow]], which registers it.
+ */
+const appLoaders = new WeakMap<BrowserWindow, AppLoader>()
 
 /**
  * Tell the user an L0 rebind is under way, on both platforms — the window
@@ -407,152 +416,6 @@ async function startUpdateForServer(host: UpdateHost, log: (chunk: string) => vo
  */
 const APP_USER_MODEL_ID = 'dev.dsh.desktop'
 
-/**
- * The boot page: a self-contained `data:` document (no external resource, no
- * preload) that the main process drives through `window.__dsh`. It shows one
- * phase at a time — the one actually running — because a checklist of things
- * that have not happened yet is a list of ways to wonder what went wrong.
- * @param version - the app version shown at the bottom of the page.
- * @param appearance - which palette to paint.
- * @param receipt - one line confirming an update, when this launch is the first
- * of a new version. It is baked into the document rather than pushed into it,
- * because the push path tolerates a page that has not finished loading by
- * dropping what it carries, which is right for a phase and wrong for this.
- * @returns the `data:` URL to load.
- */
-function bootPage(version: string, appearance: Appearance, receipt: string | undefined): string {
-  const colors = PALETTES[appearance]
-  return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; height: 100vh; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-    background: ${colors.gradient};
-    color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
-  }
-  /* Dot grid and vignette, both purely decorative and both behind the column. */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    background-image: radial-gradient(circle, ${colors.grid} 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-  body::after {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    box-shadow: inset 0 0 180px 40px ${colors.vignette};
-  }
-  main { position: relative; width: 100%; max-width: 460px; padding: 0 32px; }
-  .glow {
-    position: absolute; left: 4px; top: -88px; width: 320px; height: 320px;
-    pointer-events: none; transform-origin: center;
-    background: radial-gradient(circle, ${colors.glow} 0%, transparent 68%);
-    animation: breathe 8s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%, 100% { transform: scale(1); opacity: .75; }
-    50% { transform: scale(1.12); opacity: 1; }
-  }
-  .enter { opacity: 0; animation: enter .32s ease-out forwards; }
-  @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .wordmark { position: relative; font-size: 40px; font-weight: 700; line-height: 1.15; animation-delay: 0ms; }
-  /* The Chinese glyphs take a real CJK face; only the caret stays monospace,
-     which is the one character a mono stack renders better than a text face. */
-  .wordmark .zh {
-    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-    color: ${colors.text}; letter-spacing: .02em;
-  }
-  .caret {
-    display: inline-block; margin-left: 8px; color: ${colors.accent};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    animation: blink 1.1s steps(2) infinite;
-  }
-  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-  /* Fixed height and stacked rows: one phase replaces another without the
-     column below it moving. */
-  .phases { position: relative; height: 30px; margin-top: 36px; }
-  .phase {
-    position: absolute; inset: 0; display: flex; align-items: baseline; gap: 10px;
-    font: 13px/2.1 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: ${colors.text}; opacity: 0; transition: opacity .28s ease;
-  }
-  .phase.showing { opacity: 1; }
-  .mark { flex: none; width: 1em; color: ${colors.accent}; animation: pulse 1.6s ease-in-out infinite; }
-  .phase.failed .mark { color: ${colors.danger}; animation: none; }
-  @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
-  .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
-  .elapsed { color: ${colors.muted}; }
-  .receipt { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.accent}; }
-  .hint { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.muted}; }
-  .failure { position: relative; margin-top: 16px; display: none; }
-  body.failed .failure { display: block; }
-  .summary {
-    font-size: 13px; color: ${colors.text}; word-break: break-all; user-select: text;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
-  }
-  .lead { margin-top: 12px; font-size: 13px; color: ${colors.muted}; }
-  footer {
-    position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-    font-size: 11px; color: ${colors.muted};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .glow, .caret, .mark, .enter { animation: none; }
-    .enter { opacity: 1; }
-  }
-</style></head><body>
-<main>
-  <div class="glow"></div>
-  <div class="wordmark enter"><span class="zh">从这里开始</span><span class="caret">▮</span></div>
-  <div class="phases" id="phases">
-    <div class="phase" data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></div>
-  </div>
-  ${receipt === undefined ? '' : `<div class="receipt">${receipt}</div>`}
-  <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
-  <div class="failure" id="failure">
-    <div class="summary" id="summary"></div>
-    <div class="lead">完整日志:菜单 帮助 → 查看日志</div>
-  </div>
-</main>
-<footer>v${version}</footer>
-<script>
-  const rows = [...document.querySelectorAll('.phase')]
-  let current = 0
-  setTimeout(() => { document.getElementById('hint').hidden = false }, 8000)
-  window.__dsh = {
-    phase(index) {
-      current = index
-      rows.forEach((row, position) => {
-        row.classList.toggle('showing', position === index)
-        if (position !== index) row.querySelector('.elapsed').textContent = ''
-      })
-    },
-    elapsed(seconds) {
-      const cell = rows[current]?.querySelector('.elapsed')
-      if (cell) cell.textContent = seconds < 3 ? '' : ' · ' + seconds + 's'
-    },
-    fail(message) {
-      const row = rows[current]
-      if (row) {
-        row.classList.add('failed')
-        row.querySelector('.mark').textContent = '✕'
-        row.querySelector('.elapsed').textContent = ''
-      }
-      document.getElementById('hint').hidden = true
-      document.getElementById('summary').textContent = message
-      document.body.classList.add('failed')
-    },
-    block(message) {
-      const hint = document.getElementById('hint')
-      hint.textContent = message
-      hint.hidden = false
-    },
-  }
-  window.__dsh.phase(0)
-</script></body></html>`)
-}
-
 /** One window whose boot page the main process can drive. */
 interface BootView {
   window: BrowserWindow
@@ -560,11 +423,15 @@ interface BootView {
   phase: (index: number) => void
   /** Update the seconds suffix on the running phase. */
   elapsed: (seconds: number) => void
-  /** Fail the running phase and show the error summary. */
+  /**
+   * Fail the running phase and show the error summary. Once the served UI has
+   * replaced the boot page, the boot page is loaded again with the failure
+   * shown on its last phase.
+   */
   fail: (message: string) => void
   /** Replace the hint line with why the app is holding at this phase. */
   block: (message: string) => void
-  /** Stop driving the boot page and load the served UI. */
+  /** Stop driving the boot page and load the served UI, through the window's [[AppLoader]]. */
   showApp: (url: string) => void
 }
 
@@ -681,6 +548,17 @@ function createBootWindow(receipt?: string): BootView {
   attachDownloadHandling(window)
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
+  const showFailure = (message: string): void => {
+    if (window.isDestroyed()) return
+    window.loadURL(bootPage(app.getVersion(), appearance, undefined, { phase: 2, message })).catch(() => {
+      // The failure page is a `data:` document with nothing to fetch; a
+      // rejection means the window was closed while it loaded.
+    })
+  }
+  // `logLine` is read at call time: the file sink replaces it after this
+  // window already exists.
+  const loader = superviseAppLoad(window.webContents, { log: (line) => { logLine(line) }, giveUp: (summary) => { view.fail(summary) } })
+  appLoaders.set(window, loader)
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
     window.webContents.executeJavaScript(script).catch(() => {
@@ -688,17 +566,21 @@ function createBootWindow(receipt?: string): BootView {
       // carried is also in the log file.
     })
   }
-  return {
+  const view: BootView = {
     window,
     phase: (index) => { push(`window.__dsh.phase(${String(index)})`) },
     elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
-    fail: (message) => { push(`window.__dsh.fail(${JSON.stringify(message)})`) },
+    fail: (message) => {
+      if (booting) push(`window.__dsh.fail(${JSON.stringify(message)})`)
+      else showFailure(message)
+    },
     block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
     showApp: (url) => {
       booting = false
-      if (!window.isDestroyed()) void window.loadURL(url)
+      loader.load(url)
     },
   }
+  return view
 }
 
 /** Open a plain window directly on the served UI (reopen path). */

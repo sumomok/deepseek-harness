@@ -1,4 +1,4 @@
-# Agent Note: Desktop shell diagnostics: crash records, server logger records, and update leftovers
+# Agent Note: Desktop shell diagnostics: window loads, crash records, server logger records, and update leftovers
 
 Status: implemented
 
@@ -6,11 +6,15 @@ Status: implemented
 
 ## Problem
 
-0.1.0-rc.32 与 rc.33 的现场报告带回来的 `dsh-server.log` 说不清发生了什么。Windows 上以退出码 `3221226505` 死掉的服务器留下了 `server exited unexpectedly` 一行,但尾部停在解释死因的那几行之前:壳在子进程的 `exit` 事件上取尾部,而这个事件可能在子进程最后的输出还在管道里时就到了。V8 致命错误(首先是内存耗尽)在哪里都不留报告,因为没有任何东西让 Node 写一份。插件经 `ctx.logger` 写的每条记录——webserver 监听失败、`@haoran/dsh-auto-compact` 的命名 logger `ctx.logger('auto-compact')`、设置导入逐段的失败——都只进 logger 的内存缓冲区:产品组合没有挂任何 exporter,这些记录随进程一起消失。
+0.1.0-rc.32 与 rc.33 的现场报告带回来的 `dsh-server.log` 说不清发生了什么。有一个 rc.32 的窗口一直停在加载界面,重启才好,日志停在 `server ready`,之后什么都没有:壳用 `void window.loadURL(url)` 加载服务出来的 UI,拒绝被丢掉,应用窗口也没有 `did-fail-load`、`did-finish-load`、`render-process-gone` 或 `unresponsive` 监听,所以加载失败、渲染进程崩溃和页面加载成功一样悄无声息。Windows 上以退出码 `3221226505` 死掉的服务器留下了 `server exited unexpectedly` 一行,但尾部停在解释死因的那几行之前:壳在子进程的 `exit` 事件上取尾部,而这个事件可能在子进程最后的输出还在管道里时就到了。V8 致命错误(首先是内存耗尽)在哪里都不留报告,因为没有任何东西让 Node 写一份。插件经 `ctx.logger` 写的每条记录——webserver 监听失败、`@haoran/dsh-auto-compact` 的命名 logger `ctx.logger('auto-compact')`、设置导入逐段的失败——都只进 logger 的内存缓冲区:产品组合没有挂任何 exporter,这些记录随进程一起消失。
 
 更新通道还留着 rc.32 的两个缺口。帮助 → 检查更新 对失败的回答是「无法检查更新」加错误的原始信息,所以用户发来的截图里没有能和日志对上的错误码。electron-updater 的 `pending` 目录在安装落地之后仍留着装好的安装包——macOS 上是整个 zip,Windows 上是整个 NSIS 安装程序——因为这个库只在下载失败或缓存记录与更新源对不上时才清空它。
 
 ## Decision
+
+### 加载服务出来的 UI
+
+服务出来的 UI 每一次载入应用窗口都经过这个窗口来自 `src/window-load.ts` 的 `AppLoader`:第一次加载、重开窗口的那次、服务器换绑后的重新指向。loader 记下 `did-finish-load`、`did-fail-load`、`render-process-gone`、`unresponsive` 与 `responsive`,URL 只记源与路径,因为服务出来的 UI 的 URL 带着启动令牌。对该 UI 所在源的主框架加载失败时,1 秒后用同一个 URL 重试一次;再失败就调用启动视图的 `fail`,它在服务出来的 UI 已替换掉启动页之后,会把失败烘焙进启动页(`bootPage` 的 `failure` 参数,和更新回执一样)重新加载,「连接界面」阶段标为失败。`ERR_ABORTED` 是被另一次导航替换掉的加载,不重试。加载成功过一次或换了新目标,都会恢复重试机会。`did-fail-load` 对 HTTP 错误状态码不触发,而上面那个现场案例一行错误都没有,所以能区分「框架从没加载出来」和「UI 加载出来之后卡住」的,是 `window loaded` 这一行。
 
 ### 服务器进程的崩溃记录
 
@@ -32,6 +36,10 @@ Status: implemented
 
 ## Alternatives considered
 
+**把失败推进已加载的页面。**启动视图的推送路径在窗口当前持有的文档里跑脚本,页面没准备好时就丢掉这次调用;`showApp` 之后那个文档是服务出来的 UI 或一张错误页,两者都没有 `window.__dsh`。把失败烘焙进启动页再加载,不管窗口原来持有什么都能显示出来。
+
+**`render-process-gone` 时重新加载。**内存耗尽的渲染进程会重演把它耗尽的那次加载,窗口里的崩溃循环比一行记下来的崩溃更糟。这个事件只记日志。
+
 **用 `NODE_OPTIONS` 传报告参数。**环境变量会传给服务器启动的每个进程,于是 agent 替用户跑的每个 Node 程序都会把报告写进桌面日志目录,而不带 `--report-exclude-env` 的报告还会带上那个程序的环境变量。这些参数只属于服务器这一个进程。
 
 **挂载 `@deepseek-ai/cordis-plugin-logger-console`。**它经 `console.log` 打印,而壳在服务器的 stdout 与 stderr 里找就绪行,并把两路输出都抄进 `dsh-server.log`:打印出来的记录会被拿去匹配 URL 模式。由 exporter 自己写文件,两路输出保持原样,每条记录只写一次。
@@ -42,4 +50,4 @@ Status: implemented
 
 ## Consequences
 
-崩溃现在会留下服务器最后写的那几行,V8 致命错误会在日志旁留下一份报告。报告与 `dsh-server.log` 都从不轮转,而日志现在还会收到每个插件 INFO 及以上的 logger 记录。`desktop-server-log` 挂载之前、启动期间记下的 warn 仍会丢失——从 rc.33 升级后首次启动时设置导入逐段的失败也在其中。开发启动之前需要先跑 `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts`,因为这一行导入的是那个包的 `lib/`。由早于这项改动的版本发起的安装没有留下记录,它的安装包会一直留在 `pending`,直到下一次更新下载时清掉。
+服务出来的 UI 加载失败会重试一次,否则停在启动页的失败状态,而不是一个空白窗口;每一次窗口加载都留下一行。UI 加载出来之后卡住,屏幕上仍然什么都不显示。崩溃现在会留下服务器最后写的那几行,V8 致命错误会在日志旁留下一份报告。报告与 `dsh-server.log` 都从不轮转,而日志现在还会收到每个插件 INFO 及以上的 logger 记录。`desktop-server-log` 挂载之前、启动期间记下的 warn 仍会丢失——从 rc.33 升级后首次启动时设置导入逐段的失败也在其中。开发启动之前需要先跑 `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts`,因为这一行导入的是那个包的 `lib/`。由早于这项改动的版本发起的安装没有留下记录,它的安装包会一直留在 `pending`,直到下一次更新下载时清掉。
