@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 `show_chart`: the agent hands over a complete ECharts option, the conversation transcript paints it as a live **Vue 2.7** chart where the call sits, and what the browser actually painted comes back into the tool result.
 
-The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and where there is a column to gain it takes the column and gives the conversation back its space.
-
 ## Table of Contents
 
 - [Composition](#composition)
@@ -29,6 +27,8 @@ The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), wh
 
 <a id="composition"></a>
 ## Composition
+
+The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and where there is a column to gain it takes the column and gives the conversation back its space.
 
 Two overlays, both over the shipped Web surface:
 

@@ -11,8 +11,6 @@ kind: "package-reference"
 
 服务形态 web 产品线的外壳框架：四条常驻栅格轨道——session 列表、content 内容区、chat 会话区、details 详情带——按固定的 24 份比例 3:16:5 切分。它在组合里**替换** [`dsh-client-ui-layout`](../../client/ui-layout/README.zh.md) 而不是与之并存，因为 `root` 是 single 槽，它的子槽也只能被声明一次。
 
-content 栏是这条产品线的立身之本，也是本包存在的理由：一块位于导航与会话之间的常驻工作面，而出厂三栏外壳没有这个座位。本版本交付的是这一栏本身，而不是它的内容——`content` 槽无人认领时，外壳渲染自己的空态。
-
 ## 目录
 
 - [替换出厂外壳](#replacing-the-shipped-shell)
@@ -26,6 +24,8 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 
 <a id="replacing-the-shipped-shell"></a>
 ## 替换出厂外壳
+
+content 栏是这条产品线的立身之本，也是本包存在的理由：一块位于导航与会话之间的常驻工作面，而出厂三栏外壳没有这个座位。本版本交付的是这一栏本身，而不是它的内容——`content` 槽无人认领时，外壳渲染自己的空态。
 
 只有把出厂外壳对外发布过的东西全部兑现，替换才算原位替换，因此本包复刻了 ui-layout 的三个对外面：
 

@@ -9,9 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-A deployment's own single sign-on, wired into a dsh browser session. The browser half sends a visitor without an access token to the deployment's login page and mirrors the one it comes back with into a cookie; the node half holds that token in memory and spends it on the MCP servers this deployment forwards to. Nothing here issues or verifies a token — this package carries one that already exists to the two places dsh needs it, and, where the deployment publishes a renewal endpoint, spends that token on it to keep the visitor signed in without a trip through the login page.
-
-It exists for one deployment shape: a reverse proxy in front of many dsh processes, one per signed-in person, choosing which process a request reaches by verifying the visitor's token itself. That proxy has already decided who is on the other end by the time a request arrives, which is why nothing inside the process checks a signature.
+A deployment's own single sign-on, wired into a dsh browser session. The browser half sends a visitor without an access token to the deployment's login page and mirrors the one it comes back with into a cookie; the node half holds that token in memory and spends it on the MCP servers this deployment forwards to.
 
 ## Table of Contents
 
@@ -28,6 +26,10 @@ It exists for one deployment shape: a reverse proxy in front of many dsh process
 
 <a id="what-the-gate-does-on-every-page-load"></a>
 ## What the gate does on every page load
+
+Nothing here issues or verifies a token — this package carries one that already exists to the two places dsh needs it, and, where the deployment publishes a renewal endpoint, spends that token on it to keep the visitor signed in without a trip through the login page.
+
+It exists for one deployment shape: a reverse proxy in front of many dsh processes, one per signed-in person, choosing which process a request reaches by verifying the visitor's token itself. That proxy has already decided who is on the other end by the time a request arrives, which is why nothing inside the process checks a signature.
 
 1. Read this plugin's browser-facing configuration from `/auth-gate/settings`. A browser half receives no cordis config — the boot manifest carries plugin names, not their `config` blocks — so an unreachable or unusable settings document fails the row rather than letting the gate run on a login address nobody chose.
 2. Read `localStorage.accessToken`, and drop a leading `Bearer ` from what it holds. Both halves of that are a contract with the deployment's login page rather than a choice this plugin makes: the key is the key that page writes, and the value is what that page's own HTTP client puts into the `Authorization` header verbatim, scheme included. Everything downstream of this one point — the mirror cookie a reverse proxy reads, the token route, the credential the node half's forward spends — carries the bare JWT, and the token route itself accepts nothing else.

@@ -11,8 +11,6 @@ kind: "package-reference"
 
 服务形态外壳只开出一栏 content，而想要它的包不止一个。本行把这个独占座位变成一个路由器：宿主插件注册 **extractor**，各自认领自己早已记入日志的事件，本行再把它们折叠成每会话一条按类型分列的 **entry** 流。把它们画出来是 [`content-column`](../content-column/README.zh.md) 的事——两半之所以是两个包，是因为一个 Cordis 服务与一个浏览器插件无法共用同一个 Typert face。
 
-这里几乎没有任何新事实。每条 entry 都派生自别的包已经写进会话日志的东西——页面来自 `content/shown`，图表来自一次 `show_chart` 调用——因此这一栏仅凭日志即可重建。本行唯一亲自拥有的例外是关闭 entry：关掉一个标签页不是任何其他包的日志已经记下的事实，因此本包自己追加 `content-surface/dismissed`（见下文「关闭一条 entry」）。
-
 ## 目录
 
 - [entry 流](#the-entry-stream)
@@ -28,6 +26,8 @@ kind: "package-reference"
 
 <a id="the-entry-stream"></a>
 ## entry 流
+
+这里几乎没有任何新事实。每条 entry 都派生自别的包已经写进会话日志的东西——页面来自 `content/shown`，图表来自一次 `show_chart` 调用——因此这一栏仅凭日志即可重建。本行唯一亲自拥有的例外是关闭 entry：关掉一个标签页不是任何其他包的日志已经记下的事实，因此本包自己追加 `content-surface/dismissed`（见下文「关闭一条 entry」）。
 
 一条 entry 是 `{ kind, entryId, seq, title, payload }`。`kind` 既指出产生它的 extractor，也指出画出它的客户端槽 key；`entryId` 是它**在该 kind 内**的身份，后来的记录若指名同一组合，就替换掉先前那条而不是再添一行。这正是「重绘的图表」和「重新展示的页面」各自只占一条 entry 的原因。发布出来的值把存活的 entry 按最新在前排列，并指出其中哪一条在 `front`，因此在用户另选之前，这一栏展示的就是 `entries[0]`（见下文「在前面的是哪一条」）。
 

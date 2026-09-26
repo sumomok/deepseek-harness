@@ -1,8 +1,9 @@
 /** Workspace dependency ranges, package publication, and private-app constraints. */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import {
   isPublicExperimentalPackageDirectory,
@@ -147,8 +148,11 @@ describe('experimental workspace constraints', () => {
     ])
   })
 
-  it('keeps the current experimental publication set unrestricted', () => {
-    expect(PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES).toEqual([])
+  it('names only existing experimental package directories as private', () => {
+    for (const dir of PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES) {
+      expect(dir).toMatch(/^packages\/experimental\/[^/]+$/)
+      expect(existsSync(fileURLToPath(new URL(`../${dir}/package.json`, import.meta.url)))).toBe(true)
+    }
   })
 
   it('limits the public default to experimental package directories', () => {

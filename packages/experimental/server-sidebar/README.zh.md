@@ -11,8 +11,6 @@ kind: "package-reference"
 
 一个固定宽度的产品外壳侧边栏：对出厂的 [`dsh-client-ui-sidebar`](../../client/ui-sidebar/README.zh.md) 的直接替换，彻底移除会话/工作区浏览，代之以四段结构——工作台（一个持久的默认对话）、导航（部署配置好的页面与视图）、我的工作流（用户自己命名的、返回「教过 agent 一些事」的对话的快捷方式，归在他们自己命名的分组下）、临时工作流（前面三段都没有展示的那些对话）。它在组合里替换 ui-sidebar，而不是与之并存，因为 `sidebar` 是单一槽，其子槽只能被声明一次。
 
-本包面向「客户表单」组合：终端客户在使用产品时，完全不需要知道一个对话是一个背后挂着工作区的、持久可续的对象。每一处会话/工作区管理动作（创建一个、重新连接一个、决定「当前是哪个」）都发生在本包自己的动作内部；这套词汇本身——会话/session、工作区/workspace——被本包所有字典里的每一条字符串禁止出现，组合层也禁用了本会泄漏这些词汇的出厂控件（见下文「去术语化」）。
-
 ## 目录
 
 - [替换出厂侧边栏](#replacing-the-shipped-sidebar)
@@ -33,6 +31,8 @@ kind: "package-reference"
 
 <a id="replacing-the-shipped-sidebar"></a>
 ## 替换出厂侧边栏
+
+本包面向「客户表单」组合：终端客户在使用产品时，完全不需要知道一个对话是一个背后挂着工作区的、持久可续的对象。每一处会话/工作区管理动作（创建一个、重新连接一个、决定「当前是哪个」）都发生在本包自己的动作内部；这套词汇本身——会话/session、工作区/workspace——被本包所有字典里的每一条字符串禁止出现，组合层也禁用了本会泄漏这些词汇的出厂控件（见下文「去术语化」）。
 
 - **四个子槽保留**——`sidebar.brand.mark`、`sidebar.brand.name`、`sidebar.settings`、`sidebar.footer.action` 保留 `dsh-client-ui-sidebar` 声明的 kind 与 scope，按类型导入复用而非重新写一遍，因此 ui-settings 既有的注册无需改动即可继续工作（填充这两个身份槽的品牌包在客户组合里被禁用——见下文「品牌与英雄区门面」）。`sidebar.workspaces` 被彻底移除：本外壳没有会话浏览区可供它落座。`ui-workspace` 的 `sidebar.workspaces` 注册走的是 `ctx.slots.inject`，这是声明门控的（它等一个声明出现，没有声明就永远不会触发——`SlotRegistry.inject` 自己的约定），而不是一个硬性要求，因此 `ui-workspace` 组合进来后这一半永久失效。它是被组合的，不是被禁用的：`dsh-client-ui-conversation` 需要它的 `uiWorkspace` 服务，禁用它会让整条对话列以及每一个依赖它的兄弟行都无法激活。因此它另一个注册——`conversation.hero.workspace`，一个 `dsh-client-ui-conversation` 始终会声明的槽——确实会落地，承载它的英雄区那一行改由 `terminology-guard.ts` 隐藏（见下文「品牌与英雄区门面」）。
 - **新会话按钮已移除。** 本外壳没有「开一个临时对话」的入口；每一个入口（工作台、一个导航页面、一条我的工作流记录）都在内部自行解析或创建自己的会话。

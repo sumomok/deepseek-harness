@@ -11,8 +11,6 @@ kind: "package-reference"
 
 告诉浏览器：够得着这个被服务出去的页面，是否意味着拥有它背后的宿主。客户端只凭页面的 authority 判断这件事，而任何不是回环的 authority 都被读成别人的宿主——那恰恰是本包为之存在的那种部署：一个发布在公网域名上、由前面的代理决定谁够得着它的控制台。
 
-它为一种拿不到独立域名的部署而存在：一个域名后面并列着若干产品，dsh 是其中之一，彼此靠路径区分。前缀本身不需要本包做任何事——被服务出去的 index 带着 `<base href="./">`，于是在剥离前缀的代理后面加载的页面，会把自己构造的每一个 URL 都留在那个挂载点之下——[代理那一半](#the-proxy-half)是配套的 nginx 样例。
-
 ## 目录
 
 - [它注入什么](#what-it-injects)
@@ -28,6 +26,8 @@ kind: "package-reference"
 
 <a id="what-it-injects"></a>
 ## 它注入什么
+
+它为一种拿不到独立域名的部署而存在：一个域名后面并列着若干产品，dsh 是其中之一，彼此靠路径区分。前缀本身不需要本包做任何事——被服务出去的 index 带着 `<base href="./">`，于是在剥离前缀的代理后面加载的页面，会把自己构造的每一个 URL 都留在那个挂载点之下——[代理那一半](#the-proxy-half)是配套的 nginx 样例。
 
 在 `webserver/index-inject` 上注入一行，且仅当 `ownsHost` 被设上时才有：`<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`。`__DSH_TRANSPORT__` 是 `client-connection` 在自己插件启动时只读一次的那个载体，被服务出去的页面通常不设它；真会设它的是那种自带物理传输的外壳——worker 预览，它的宿主就跑在它自己派生的 worker 里——所以这一行用 `??=` 赋值，而不是盖过去。这一行放进去的载体根本不是传输：它的 `fetch` 就是页面自己的 `fetch`，与那个插件在全局量缺席时所用的调用方完全相同；它既不声明 `openStream` 也不声明 `loadBundle`，于是 RPC 照旧走 HTTP 请求与 Gateway WebSocket，插件 bundle 也照旧走 HTTP 加载。`ownsHost` 是它携带的唯一一项事实。
 

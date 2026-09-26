@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 `ctx.bizBackend`: three reads of a deployment's own data backend, performed with the access token of the person using that deployment. A deployment that issues tokens usually also serves its own data — a person opening a resource list in its web console sends one request for the model's attribute names, one for the columns that list opens with, and one for a page of its rows, all three carrying that person's token — and this package makes those same three requests from inside the harness process.
 
-Host-only, and it holds no credential of its own. Whoever installs the service passes the token in by reference, so the token stays in that package's closure and is never named on the context.
-
 ## Table of Contents
 
 - [Installing the service](#installing-the-service)
@@ -27,6 +25,8 @@ Host-only, and it holds no credential of its own. Whoever installs the service p
 
 <a id="installing-the-service"></a>
 ## Installing the service
+
+Host-only, and it holds no credential of its own. Whoever installs the service passes the token in by reference, so the token stays in that package's closure and is never named on the context.
 
 The service is constructed rather than composed: there is no plugin row, because the row that has the visitor's token is the only one that may create it.
 

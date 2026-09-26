@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 Tells the browser whether reaching the served page means owning the Host behind it. The client decides that from the page authority alone, and every authority that is not loopback reads as somebody else's Host — which is the deployment this package exists for: a console published on a public name, behind a proxy that decides who reaches it.
 
-It exists for the deployment that cannot have a hostname of its own: several products behind one domain, dsh among them, separated by path. The prefix itself needs nothing from this package — the served index carries `<base href="./">`, so a page loaded under a prefix-stripping proxy keeps every URL it builds under that mount — and [the proxy half](#the-proxy-half) is the matching nginx sample.
-
 ## Table of Contents
 
 - [What it injects](#what-it-injects)
@@ -28,6 +26,8 @@ It exists for the deployment that cannot have a hostname of its own: several pro
 
 <a id="what-it-injects"></a>
 ## What it injects
+
+It exists for the deployment that cannot have a hostname of its own: several products behind one domain, dsh among them, separated by path. The prefix itself needs nothing from this package — the served index carries `<base href="./">`, so a page loaded under a prefix-stripping proxy keeps every URL it builds under that mount — and [the proxy half](#the-proxy-half) is the matching nginx sample.
 
 One row on `webserver/index-inject`, and only where `ownsHost` is set: `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`. `__DSH_TRANSPORT__` is the carrier `client-connection` reads once, at its own plugin boot, and the served page normally leaves unset; the shell that does set one — the worker preview, whose Host runs in a worker it spawned — assembles a physical transport there, which is why the row assigns with `??=` rather than over it. This row's carrier is not a transport at all: its `fetch` is the page's own, the same caller that plugin uses when the global is absent, and it declares no `openStream` and no `loadBundle`, so the RPC keeps its HTTP requests and its Gateway WebSocket and the plugin bundles keep loading over HTTP. `ownsHost` is the one fact it carries.
 

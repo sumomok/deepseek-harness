@@ -11,14 +11,6 @@ English | [中文](README.zh.md)
 
 `show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number, the deployment's own full data page for a table — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
 
-The package is both halves. The host half offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: the renderers come from [`component-kit`](../component-kit/README.md), which knows no layout, and this package is what puts one of its blocks in a column.
-
-What the user then does inside a block comes back the other way, through one command this row owns: `/component-action`.
-
-The same column also takes blocks nobody asked the model for: a deployment writes views of its own, the shell's sidebar lists them, and a click puts one there, without the model being asked anything.
-
-Nothing the agent does appends a session event. A call's record is the `tool/call` the loop already writes and an action's is the `command/run` the command registry already writes, so both directions replay from the log the agent actually wrote. The one event this package writes is the user's own: the click that opens a configured view.
-
 ## Table of Contents
 
 - [Composition](#composition)
@@ -42,6 +34,14 @@ Nothing the agent does appends a session event. A call's record is the `tool/cal
 
 <a id="composition"></a>
 ## Composition
+
+The package is both halves. The host half offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: the renderers come from [`component-kit`](../component-kit/README.md), which knows no layout, and this package is what puts one of its blocks in a column.
+
+What the user then does inside a block comes back the other way, through one command this row owns: `/component-action`.
+
+The same column also takes blocks nobody asked the model for: a deployment writes views of its own, the shell's sidebar lists them, and a click puts one there, without the model being asked anything.
+
+Nothing the agent does appends a session event. A call's record is the `tool/call` the loop already writes and an action's is the `command/run` the command registry already writes, so both directions replay from the log the agent actually wrote. The one event this package writes is the user's own: the click that opens a configured view.
 
 [`overlay/component-surface.patch.yml`](overlay/component-surface.patch.yml) inserts this row and the component row over the service-line console composition, which already carries the content surface and the content column. The overlay's own comments carry the launch line.
 

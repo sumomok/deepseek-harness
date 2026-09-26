@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 The shell frame for the service-line web product: four resident grid tracks — the session list, a content column, the chat column, and the details band — split on a fixed 24-unit ratio of 3:16:5. It replaces [`dsh-client-ui-layout`](../../client/ui-layout/README.md) in a composition rather than sitting beside it, because `root` is a single slot and its child slots may be declared only once.
 
-The content column is what this product line is built around and the reason the package exists: a resident work surface between navigation and conversation, which the shipped three-column shell has no seat for. This version ships the column, not its contents — an unclaimed `content` slot renders the shell's own empty-state body.
-
 ## Table of Contents
 
 - [Replacing the shipped shell](#replacing-the-shipped-shell)
@@ -26,6 +24,8 @@ The content column is what this product line is built around and the reason the 
 
 <a id="replacing-the-shipped-shell"></a>
 ## Replacing the shipped shell
+
+The content column is what this product line is built around and the reason the package exists: a resident work surface between navigation and conversation, which the shipped three-column shell has no seat for. This version ships the column, not its contents — an unclaimed `content` slot renders the shell's own empty-state body.
 
 A shell replacement is only a drop-in if it honors everything the shipped one published, so this package reproduces all three of ui-layout's outward surfaces:
 

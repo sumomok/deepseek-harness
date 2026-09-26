@@ -13,8 +13,6 @@ The component row behind the content panel's `component` kind. It ships React re
 
 The node half serves one route. It carries the single value the browser half cannot compute for itself — `bizBasePath`, the path prefix under which the `toy.crud` data page requests its table — and the row's `cordis.yml` entry is also what makes the browser bundle discoverable through `dsh.client`.
 
-Two kinds of component live here. One is written in this repository as ordinary React and depends on nothing else. The other is a Vue 2 component compiled outside it, drawn through a bridge onto a Vue runtime another row owns. **How the originals get here**, below, records the whole of what that costs. One of those originals also requests its own data, and **The data page** records the whole of what *that* costs.
-
 ## Table of Contents
 
 - [The renderer table](#the-renderer-table)
@@ -32,6 +30,8 @@ Two kinds of component live here. One is written in this repository as ordinary 
 
 <a id="the-renderer-table"></a>
 ## The renderer table
+
+Two kinds of component live here. One is written in this repository as ordinary React and depends on nothing else. The other is a Vue 2 component compiled outside it, drawn through a bridge onto a Vue runtime another row owns. **How the originals get here**, below, records the whole of what that costs. One of those originals also requests its own data, and **The data page** records the whole of what *that* costs.
 
 `COMPONENT_RENDERERS` maps a catalog id to the component that draws it. The keys are literal ids, so a placement package whose catalog derives a union of its own ids pins the table against that union with one `satisfies Record<CatalogId, ComponentRenderer>`, and a catalog entry this row has no renderer for becomes a compile error there rather than a blank block at runtime. The pin holds only where that union is derived from the catalog itself; a union restated by hand beside the catalog pins nothing. `ComponentSurface.tsx` in `component-surface` is the pin as written, over the `CatalogId` its `COMPONENT_CATALOG` derives.
 

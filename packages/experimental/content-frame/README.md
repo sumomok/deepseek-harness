@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 The `page` kind of the service-line shell's content column, and the two ways to control it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it through the `content_show` tool, and a user choosing directly through the sidebar's page-navigation menu (`@deepseek-ai/dsh-experimental-server-sidebar`), which executes the `show-content-page` command. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
 
-Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure, three markup reads let it read that page as it was written, and — where an attachment store is mounted — `content_read_image` answers with one element's own rendered pixels.
-
 ## Table of Contents
 
 - [Trust boundary](#trust-boundary)
@@ -38,6 +36,8 @@ Seven pieces, one decision each. The node half serves the configured directory u
 
 <a id="trust-boundary"></a>
 ## Trust boundary
+
+Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure, three markup reads let it read that page as it was written, and — where an attachment store is mounted — `content_read_image` answers with one element's own rendered pixels.
 
 **The hosted pages run with the shell's own authority.** They are served from the dsh origin and the iframe carries no `sandbox` attribute, which makes each document same-origin with the shell: it can call the dsh HTTP API — sessions, tools, settings, everything the browser can reach — without any further permission. `root` must therefore name a directory whose contents are trusted exactly as much as the harness itself.
 

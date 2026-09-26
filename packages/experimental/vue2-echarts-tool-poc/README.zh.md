@@ -11,8 +11,6 @@ kind: "package-reference"
 
 `show_chart`：agent 交出一份完整的 ECharts option，会话记录就在这次调用所在的位置把它画成一张活的 **Vue 2.7** 图表，浏览器究竟画出了什么再回到工具结果里。
 
-组件来自 [`vue2-echarts-poc`](../vue2-echarts-poc/README.zh.md)，那个包不认识任何布局。本包同样不认识——它认领两个 keyed 槽位而不认领任何一栏：会话记录 `tool.call.toolview` 槽位上的 `show_chart` key（那个槽位属于已发布的会话区），以及 [content surface](../content-surface/README.zh.md) 那一栏的 `chart` kind（只有当某个组合开出这一栏时它才存在）。因此同一行在已发布外壳和服务线外壳下都渲染；有栏可占时它占上那一栏，并把会话里的位置还回去。
-
 ## 目录
 
 - [组合方式](#composition)
@@ -29,6 +27,8 @@ kind: "package-reference"
 
 <a id="composition"></a>
 ## 组合方式
+
+组件来自 [`vue2-echarts-poc`](../vue2-echarts-poc/README.zh.md)，那个包不认识任何布局。本包同样不认识——它认领两个 keyed 槽位而不认领任何一栏：会话记录 `tool.call.toolview` 槽位上的 `show_chart` key（那个槽位属于已发布的会话区），以及 [content surface](../content-surface/README.zh.md) 那一栏的 `chart` kind（只有当某个组合开出这一栏时它才存在）。因此同一行在已发布外壳和服务线外壳下都渲染；有栏可占时它占上那一栏，并把会话里的位置还回去。
 
 两份 overlay，都叠在已发布的 Web 表面之上：
 

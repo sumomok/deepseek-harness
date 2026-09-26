@@ -11,8 +11,6 @@ kind: "package-reference"
 
 服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构，另有三件原文读取让它按页面实际写法来读同一个页面；挂了附件仓库的部署里，`content_read_image` 还能答出某一个元素自己画出来的像素。
-
 ## 目录
 
 - [信任边界](#trust-boundary)
@@ -38,6 +36,8 @@ kind: "package-reference"
 
 <a id="trust-boundary"></a>
 ## 信任边界
+
+七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构，另有三件原文读取让它按页面实际写法来读同一个页面；挂了附件仓库的部署里，`content_read_image` 还能答出某一个元素自己画出来的像素。
 
 **被托管的页面拥有与外壳相同的权限。** 它们由 dsh 同源提供，且 iframe 不带 `sandbox` 属性，这使每个文档都与外壳同源：它可以直接调用 dsh HTTP API——会话、工具、设置，浏览器能触及的一切——无需任何额外授权。因此 `root` 必须指向一个「与 harness 本身同等可信」的目录。
 

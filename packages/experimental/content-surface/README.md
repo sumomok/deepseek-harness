@@ -11,8 +11,6 @@ English | [中文](README.zh.md)
 
 The service-line shell opens one content column, and more than one package wants it. This row turns that single seat into a router: host plugins register **extractors** that recognize their own already-logged events, and this row folds them into one per-session stream of typed **entries**. Drawing them is [`content-column`](../content-column/README.md)'s job — the two halves are separate packages because a Cordis service and a browser plugin cannot share one Typert face.
 
-Almost nothing here is a new fact. Every entry is derived from something another package already writes to the session log — `content/shown` for a page, a `show_chart` call for a chart — so the column is reconstructable from the log alone. The one exception this row owns directly is dismissal: closing an entry's tab is not a fact any other package's log carries, so this package appends `content-surface/dismissed` itself (see "Dismissing an entry" below).
-
 ## Table of Contents
 
 - [The entry stream](#the-entry-stream)
@@ -28,6 +26,8 @@ Almost nothing here is a new fact. Every entry is derived from something another
 
 <a id="the-entry-stream"></a>
 ## The entry stream
+
+Almost nothing here is a new fact. Every entry is derived from something another package already writes to the session log — `content/shown` for a page, a `show_chart` call for a chart — so the column is reconstructable from the log alone. The one exception this row owns directly is dismissal: closing an entry's tab is not a fact any other package's log carries, so this package appends `content-surface/dismissed` itself (see "Dismissing an entry" below).
 
 An entry is `{ kind, entryId, seq, title, payload }`. `kind` names the extractor that produced it and the client slot key that draws it; `entryId` is its identity **within** that kind, and a later record naming the same pair replaces the earlier one rather than adding a second row. That is what makes a redrawn chart and a re-shown page one entry each. The published value lists the live entries newest first and names which one is in `front`, so `entries[0]` is what the column shows until the user picks something else (see "Which entry is in front" below).
 
