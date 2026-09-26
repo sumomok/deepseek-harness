@@ -170,6 +170,17 @@
 - id: ui-plugin-manager
   disabled: true
 
+# No Office preview. The `office-to-pdf` Host row starts LibreOffice converters
+# for the right Sidebar's document tab, and the payload carries no LibreOffice
+# engine for them to run: `platformDirRules` in
+# `apps/desktop-shell/scripts/platform-dir-rules.ts` drops every
+# `@deepseek-ai/libreoffice-kit-*` engine from both targets. With the row off,
+# nothing creates a converter, so nothing resolves an engine; the kit's entry
+# package stays in the payload because `@deepseek-ai/dsh-office-to-pdf` imports
+# it.
+- id: office-to-pdf
+  disabled: true
+
 # Work details start compact: a process group's header names its categories
 # only, where `standard`, the form's own default, adds the live task detail,
 # commands and paths included. `transcriptView` is a volatile field of the

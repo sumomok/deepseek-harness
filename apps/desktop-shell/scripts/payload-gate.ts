@@ -2,8 +2,9 @@
  * Build-time gate on what the desktop payload's two pruning mechanisms delete.
  *
  * The payload is cut from ~35000 files to a few thousand by two independent
- * passes: the `PLATFORM_DIR_RULES` + suffix filter in `package.ts`, and the
- * reachability convergence in `bundle-closure.ts`. Both decide by static
+ * passes: the copy filter in `package.ts`, which applies the platform rules of
+ * `platform-dir-rules.ts` and a suffix list, and the reachability convergence
+ * in `bundle-closure.ts`. Both decide by static
  * evidence — a rule's predicate, or a specifier following `from`/`require`/
  * `import` — so both delete packages that exist only because something builds
  * their name at run time, and neither reports having done so. Three such
@@ -49,6 +50,13 @@ export interface PayloadSnapshot {
   variants: string[]
 }
 
+/**
+ * Why the payload native to an Office engine leaves it out: the desktop ships
+ * no Office preview, its composition layer disables the `office-to-pdf` row that
+ * would start a converter, and each engine is a whole LibreOffice build.
+ */
+const OFFICE_ENGINE_WITHHELD = 'the desktop ships no Office preview; the office-to-pdf row is disabled and no payload carries a LibreOffice engine'
+
 /** The checks this gate runs; an exemption names the one it silences. */
 type GateCheck = 'dead-rule' | 'unexplained-removal' | 'platform-variant' | 'runtime-resolved'
 
@@ -62,12 +70,20 @@ type GateCheck = 'dead-rule' | 'unexplained-removal' | 'platform-variant' | 'run
  * entry is printed at the start of each build, so an exemption whose reason has
  * expired stays visible rather than becoming the gate's resting state.
  *
- * All four tables are empty: the shipped pipeline trips no check.
+ * A `platform-variant` exemption names a directory, not a direction: it passes
+ * that directory missing from the payload it is native to and riding into the
+ * payload it is foreign to alike. The Office engines below are therefore held
+ * out of every finished payload by a separate check in `package.ts`, which this
+ * table does not silence.
  */
 const EXEMPTIONS: Record<GateCheck, Record<string, string>> = {
   'dead-rule': {},
   'unexplained-removal': {},
-  'platform-variant': {},
+  'platform-variant': {
+    '@deepseek-ai/libreoffice-kit-darwin-arm64': OFFICE_ENGINE_WITHHELD,
+    '@deepseek-ai/libreoffice-kit-darwin-x64': OFFICE_ENGINE_WITHHELD,
+    '@deepseek-ai/libreoffice-kit-win32-x64': OFFICE_ENGINE_WITHHELD,
+  },
   'runtime-resolved': {},
 }
 
@@ -281,7 +297,7 @@ export async function verifyPrunedPayload(input: PrunedPayloadInput): Promise<vo
         ? `  dropped by the PLATFORM_DIR_RULES copy filter, whose ${target} list rejects the platform it is built for`
         : '  dropped by bundle-closure.ts: nothing imports it by a static specifier, because its name is built at run time',
       byRules
-        ? `  fix: correct the ${target} rule in PLATFORM_DIR_RULES (package.ts) so this directory is kept`
+        ? `  fix: correct the ${target} rule in platformDirRules (platform-dir-rules.ts) so this directory is kept`
         : `  fix: add '${variant}' to NATIVE in bundle-closure.ts, keeping both platforms' variants named`,
     ].join('\n'))
   }
@@ -292,7 +308,7 @@ export async function verifyPrunedPayload(input: PrunedPayloadInput): Promise<vo
     findings.push([
       `[platform-variant] ${variant} names ${declared.platform}-${declared.arch} and rode into the ${target} payload.`,
       '  no PLATFORM_DIR_RULES rule covers it, so the payload carries binaries it cannot run',
-      `  fix: add a ${target} rule in PLATFORM_DIR_RULES (package.ts) addressed at '${variant.slice(0, variant.lastIndexOf('/')) || '.'}'`,
+      `  fix: add a ${target} rule in platformDirRules (platform-dir-rules.ts) addressed at '${variant.slice(0, variant.lastIndexOf('/')) || '.'}'`,
     ].join('\n'))
   }
 
@@ -305,7 +321,7 @@ export async function verifyPrunedPayload(input: PrunedPayloadInput): Promise<vo
       `  ${[...sites].slice(0, 3).join('\n  ')}`,
       survivedCopy.has(name)
         ? `  fix: bundle-closure.ts dropped it as unreachable — teach 'specifierFor' this call form, or add '${name}' to NATIVE`
-        : `  fix: the PLATFORM_DIR_RULES copy filter dropped it — correct the ${target} rule in package.ts`,
+        : `  fix: the PLATFORM_DIR_RULES copy filter dropped it — correct the ${target} rule in platform-dir-rules.ts`,
     ].join('\n'))
   }
 

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-桌面外壳从同一份暂存树派生出各平台的服务端载荷，途中丢掉承载别的平台二进制的目录。`apps/desktop-shell/scripts/package.ts` 里的 `PLATFORM_DIR_RULES` 按目标逐条点名这些目录，而当成品载荷仍带着一个以它跑不了的平台命名的变体目录时，`verifyPrunedPayload` 让构建失败。
+桌面外壳从同一份暂存树派生出各平台的服务端载荷，途中丢掉承载别的平台二进制的目录。`apps/desktop-shell/scripts/platform-dir-rules.ts` 里的 `platformDirRules` 按目标逐条点名这些目录，而当成品载荷仍带着一个以它跑不了的平台命名的变体目录时，`verifyPrunedPayload` 让构建失败。
 
 上游把原生家族 `node-addon-landlock-run` 改名为 `@deepseek-ai/node-addon-system`，并新增了预编译的 POSIX `flock` 绑定，家族由此有了 darwin 变体。Landlock 只有 Linux 有，所以在此之前 macOS 构建主机根本不会装下该家族的任何成员，Windows 载荷也就无物可带。有了 flock，主机装出 `@deepseek-ai/node-addon-system-darwin-arm64`；没有任何规则指向 `@deepseek-ai` 这个 scope，该目录于是搭上 Windows 载荷，在这个基座上第一次打 Windows 就停在闸门上：
 
@@ -38,4 +38,4 @@ Windows 载荷不再携带 macOS 的 flock 绑定，Windows 打包得以越过�
 
 这条规则假定构建主机是 POSIX。在 Windows 主机上该家族一个成员也装不下，scope 里只剩入口包，这条规则本身就会变成死规则。这种情况今天不会出现——fork 的两个平台都在 macOS 上打包——而且届时的表现是闸门大声报出死规则，而不是产出一份坏载荷。
 
-`PLATFORM_DIR_RULES` 没有单元测试：`package.ts` 在导入时就跑 `main()`，这张表因此不可导入，而覆盖率闸门的 `packages/*/*/src` 范围也够不到 `apps/`。它的证据是构建本身——`verifyPruneRules` 证明每条规则在暂存树上都确有所丢，`verifyPrunedPayload` 证明每份成品载荷只带自己平台的变体。
+这张表单独成模块，因为 `package.ts` 在导入时就跑 `main()`；`apps/desktop-shell/tests/platform-dir-rules.spec.ts` 钉住 `@deepseek-ai` 的规则，包括 win 规则保留入口包、丢掉家族成员。覆盖率闸门的 `packages/*/*/src` 范围够不到 `apps/`，其余证据是构建本身——`verifyPruneRules` 证明每条规则在暂存树上都确有所丢，`verifyPrunedPayload` 证明每份成品载荷只带自己平台的变体。

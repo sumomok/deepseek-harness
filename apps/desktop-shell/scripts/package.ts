@@ -40,8 +40,9 @@ import { findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
-  type PayloadPlatform, type PayloadSnapshot, type PlatformDirRule,
+  type PayloadPlatform, type PayloadSnapshot,
 } from './payload-gate.ts'
+import { isOfficeEngine, officeEnginePackages, platformDirRules, type PayloadTarget } from './platform-dir-rules.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = resolve(APP_DIR, '..', '..')
@@ -263,8 +264,10 @@ async function prunePlatformBuilds(): Promise<void> {
 /**
  * Report every staged native artifact and fetch the win32-x64 members of
  * platform-split optional-dependency families the macOS install skipped
- * (`node-addon-require-builtin-*` style). Nothing is silently dropped: every
- * fetch and every remaining platform-specific artifact is printed.
+ * (`node-addon-require-builtin-*` style), except the Office engines no payload
+ * carries ([[isOfficeEngine]]). Nothing is silently dropped: every fetch, every
+ * engine left unfetched, and every remaining platform-specific artifact is
+ * printed.
  */
 async function stageWindowsVariants(): Promise<void> {
   const nodeModules = join(SERVER_STAGING, 'node_modules')
@@ -290,6 +293,10 @@ async function stageWindowsVariants(): Promise<void> {
       const isWin = dependency.includes('win32-x64')
       if (!isWin) continue
       if (existsSync(join(nodeModules, dependency))) continue
+      if (isOfficeEngine(dependency)) {
+        console.log(`package: not staging Windows variant ${dependency}@${version}: no payload carries an Office engine`)
+        continue
+      }
       wanted.set(dependency, version)
     }
   }
@@ -638,8 +645,7 @@ async function verifyClientModules(root: string, base: string, index: string, co
 }
 
 /** Per-target pruned payloads staged beside the full server tree. */
-const SERVER_PAYLOADS = { darwin: join(STAGING, 'server-mac'), win: join(STAGING, 'server-win') } as const
-type PayloadTarget = keyof typeof SERVER_PAYLOADS
+const SERVER_PAYLOADS: Record<PayloadTarget, string> = { darwin: join(STAGING, 'server-mac'), win: join(STAGING, 'server-win') }
 
 /**
  * The machine each payload runs on. Windows packages are x64 whichever host
@@ -677,49 +683,8 @@ const DOC_MARKDOWN =
  */
 const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
 
-/**
- * Platform-split artifact directories, relative to node_modules: keep only the
- * target's. Both lists must name the same parents wherever a family has members
- * built for both: a parent listed for one target only leaves the other payload
- * carrying binaries it cannot run.
- *
- * `@vscode` is the scope, not `@vscode/ripgrep`. The binaries live in sibling
- * packages (`@vscode/ripgrep-<platform>-<arch>`) that `lib/index.js` resolves at
- * call time; `@vscode/ripgrep` itself publishes no `bin/`, so a rule addressed
- * at it matches nothing and both payloads kept both platforms' `rg`.
- *
- * `@deepseek-ai` is listed for `win` alone. The `node-addon-system` family
- * publishes no win32 member, and on Windows the entry package never resolves
- * one: `flock` throws `ERR_FLOCK_UNSUPPORTED_PLATFORM` ahead of resolution, and
- * `launcherPath` returns a path that does not exist, which `probe` reports as
- * unusable exactly as an unenforcing kernel does. The win rule therefore drops
- * every `node-addon-system-` directory; the trailing `-` keeps the entry
- * package `@deepseek-ai/node-addon-system` itself, which is the plain
- * JavaScript both call sites live in. A darwin counterpart would have nothing
- * to drop — a macOS host installs only `node-addon-system-darwin-<arch>`, which
- * is the one variant the macOS payload must carry — and `verifyPruneRules`
- * fails a rule that drops nothing.
- *
- * `verifyPruneRules` fails the build for a rule that drops nothing, which is
- * what a rule addressed at the wrong directory looks like from the outside.
- */
-const PLATFORM_DIR_RULES: Record<PayloadTarget, PlatformDirRule[]> = {
-  win: [
-    { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
-    { parent: '@deepseek-ai', keep: name => !name.startsWith('node-addon-system-') },
-    { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
-    { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
-    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === 'ripgrep-win32-x64' },
-    { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
-  ],
-  darwin: [
-    { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${process.arch}` },
-    { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
-    { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${process.arch}` },
-    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === `ripgrep-darwin-${process.arch}` },
-    { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name.startsWith(`node-addon-require-builtin-darwin-${process.arch}`) },
-  ],
-}
+/** Each target's platform-split directory rules, for this host's macOS architecture. */
+const PLATFORM_DIR_RULES = platformDirRules(process.arch)
 
 /**
  * Derive one target's pruned server payload from the verified full staging:
@@ -788,6 +753,14 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
     payload: destination,
     droppedByRules: skippedDirs,
   })
+  // The gate exempts the engine directory a payload leaves out, and an
+  // exemption names a directory rather than a direction, so the same entry
+  // would also pass that engine riding into the other target's payload. This
+  // check is what fails a payload still holding one.
+  const engines = await findWithheldDirectories(destination, await officeEnginePackages(SERVER_STAGING))
+  if (engines.length > 0) {
+    throw new Error(`package: ${target} payload carries Office engine directories:\n  ${engines.join('\n  ')}`)
+  }
   const counted = await countFiles(destination)
   console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
   let longest = ''

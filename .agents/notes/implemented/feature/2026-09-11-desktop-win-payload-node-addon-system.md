@@ -6,7 +6,7 @@ English | [中文](2026-09-11-desktop-win-payload-node-addon-system.zh.md)
 
 ## Problem
 
-The desktop shell derives each platform's server payload from one staged tree, dropping the directories that hold another platform's binaries. `PLATFORM_DIR_RULES` in `apps/desktop-shell/scripts/package.ts` names those directories per target, and `verifyPrunedPayload` fails the build when a finished payload still carries a variant directory named for a platform it cannot run.
+The desktop shell derives each platform's server payload from one staged tree, dropping the directories that hold another platform's binaries. `platformDirRules` in `apps/desktop-shell/scripts/platform-dir-rules.ts` names those directories per target, and `verifyPrunedPayload` fails the build when a finished payload still carries a variant directory named for a platform it cannot run.
 
 Upstream renamed the native family `node-addon-landlock-run` to `@deepseek-ai/node-addon-system` and added a prebuilt POSIX `flock` binding, which gave the family darwin variants. Landlock is Linux-only, so before that change a macOS build host installed no member of the family and the Windows payload had nothing of it to carry. With flock the host installs `@deepseek-ai/node-addon-system-darwin-arm64`; no rule was addressed at the `@deepseek-ai` scope, so the directory rode into the Windows payload and the first Windows package built on that base stopped at the gate:
 
@@ -38,4 +38,4 @@ The Windows payload no longer carries the macOS flock binding, and Windows packa
 
 The rule assumes a POSIX build host. On a Windows host no member of the family installs, the scope holds only the entry package, and this rule would itself become a dead rule. That case does not arise today — the fork packages both platforms from macOS — and the failure would be the gate's loud dead-rule finding rather than a bad payload.
 
-`PLATFORM_DIR_RULES` has no unit test: `package.ts` runs `main()` at import, so the table is not importable, and the coverage gate's `packages/*/*/src` scope does not reach `apps/`. Its evidence is the build itself — `verifyPruneRules` proves every rule drops something in the staged tree, and `verifyPrunedPayload` proves each finished payload carries only its own platform's variants.
+The table lives in its own module because `package.ts` runs `main()` at import; `apps/desktop-shell/tests/platform-dir-rules.spec.ts` pins the `@deepseek-ai` rules, including that the win rule keeps the entry package and drops the family's members. The coverage gate's `packages/*/*/src` scope does not reach `apps/`, and the rest of the evidence is the build itself — `verifyPruneRules` proves every rule drops something in the staged tree, and `verifyPrunedPayload` proves each finished payload carries only its own platform's variants.

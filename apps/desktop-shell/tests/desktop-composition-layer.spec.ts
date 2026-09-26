@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries seven. `session-query-sqlite` opts into full-text search:
+ * The layer carries eight. `session-query-sqlite` opts into full-text search:
  * dsh-base and dsh-web-app both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
@@ -13,7 +13,8 @@
  * and `llm-permission-gateway` names the review model's own route, which the
  * gate otherwise takes from the pair its own layer ships. `plugin-manager` and
  * `ui-plugin-manager` turn upstream's plugin installer off, leaving plugin
- * updates to `@haoran/dsh-plugin-updates`, and `ui-chat` starts work details
+ * updates to `@haoran/dsh-plugin-updates`, `office-to-pdf` is off because the
+ * payload carries no LibreOffice engine, and `ui-chat` starts work details
  * compact.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
@@ -251,6 +252,18 @@ describe('the composed plugin-manager rows', () => {
   })
 })
 
+describe('the composed office-to-pdf row', () => {
+  it('starts LibreOffice converters through the layers below', () => {
+    expect(entry(below, 'office-to-pdf').disabled).toBeUndefined()
+  })
+
+  // The payload rules drop every engine package, so a converter this row
+  // started would fail on its first conversion.
+  it('is off once the desktop layer applies', () => {
+    expect(entry(desktop, 'office-to-pdf').disabled).toBe(true)
+  })
+})
+
 describe('the composed ui-chat row', () => {
   it('takes the form\'s default through the layers below', () => {
     expect(entry(below, 'ui-chat').config).toBeUndefined()
@@ -279,7 +292,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly six rows and nothing else', () => {
+  it('changes exactly seven rows and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -289,7 +302,7 @@ describe('the desktop composition layer as a whole', () => {
     // `llm-permission-gateway` row restates the route the gate's own layer
     // ships, so it composes unchanged and is absent here.
     expect(changed.map(row => row.id).sort())
-      .toEqual(['llm-deepseek', 'plugin-manager', 'session-query-sqlite', 'ui-chat', 'ui-plugin-manager', 'vision-switch'])
+      .toEqual(['llm-deepseek', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite', 'ui-chat', 'ui-plugin-manager', 'vision-switch'])
   })
 
   // The invariant the catalog restatement broke once: this layer replaces
