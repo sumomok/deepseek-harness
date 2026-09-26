@@ -561,13 +561,14 @@
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
 - **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
-## agent-team-css-face-in-client-aggregate — Client 聚合加载 Agent Teams 的 CSS 模块声明
+## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
 
-- **改了什么**：`tsconfig.client.json` 的 `include` 加 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 一行。
+- **改了什么**：`tsconfig.client.json` 的 `include` 加 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 与 `packages/experimental/client-ui-voice-input/src/css-modules.d.ts` 两行。
 - **为什么**：上游自己的缺口：`client-ui-agent-team` 只在聚合里加了 project 引用，没有把 CSS 模块声明写进 `include`；上游 `scripts/client-tsconfig.spec.ts` 只查 `client` 与 `extensions` 两组，看不到它，本线把检查扩到 `experimental` 后照出来。
 - **要达到的效果**：`experimental` 组的 client 包在同一条规则下受检，不为过门禁豁免上游包。
-- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`。
+- **退役条件**：上游自己把这两行写进 `tsconfig.client.json`。
 - **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.1.7-rc.2` 的该段 `include` 仍只有 `ui-cordis` 一行。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：上游新增的 `client-ui-voice-input` 同样只有 project 引用、没有 CSS 模块声明的 `include` 行，`scripts/client-tsconfig.spec.ts` 照出后补上第二行。
 - **路径**：`tsconfig.client.json`
 
 ## vue2-jsx-trajectory-cell-wrapper — trajectory 单元格测试包装改用 createElement
