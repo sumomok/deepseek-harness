@@ -1,6 +1,7 @@
 # Agent Note: llm seam 请求上的 JSON 应答格式
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-17-llm-response-format.md) | 中文
 
