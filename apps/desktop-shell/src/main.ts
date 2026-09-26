@@ -27,6 +27,8 @@ import { app, BrowserWindow, dialog, Notification, session, shell, systemPrefere
 import { pinAppIdentity } from './app-identity.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
+import { exportPointerHome, settleDataLocation } from './data-location-boot.ts'
+import { appDataLocationHost } from './data-location-window.ts'
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
@@ -58,6 +60,8 @@ import { launchGate, setupUpdates, updateActions, type UpdateHost } from './upda
 // application name, and the state of an existing installation lives under the
 // name this package no longer carries.
 pinAppIdentity(app)
+// Before anything reads the Harness home, the boot window's theme included.
+const launchDshHome = exportPointerHome(app.getPath('userData'), process.env)
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded
@@ -818,6 +822,13 @@ if (!locked) {
     // already in by the time the UI would be shown and it costs nothing.
     const gate = launchGate(host, (message) => { view.block(message) })
     try {
+      // First, because every step below reads the Harness home it exports.
+      const location = await settleDataLocation(appDataLocationHost(view.window, view.block, sink), launchDshHome)
+      if (location === undefined) {
+        clearInterval(ticker)
+        app.quit()
+        return
+      }
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)

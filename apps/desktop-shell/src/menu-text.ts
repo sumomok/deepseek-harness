@@ -3,9 +3,10 @@
  * Windows tray menu. Electron's `role` menus carry English labels and are not
  * localized for us, so each item names itself here.
  *
- * Only menus are covered: dialogs and notifications stay Chinese, which is a
- * deliberate stopping point rather than a half-done translation of the whole
- * surface.
+ * Only menus are covered here: dialogs and notifications stay Chinese, which
+ * is a deliberate stopping point rather than a half-done translation of the
+ * whole surface. The data-location prompts are the one exception and carry
+ * their own two sets in [[@deepseek-ai/dsh-desktop-shell/data-location-text]].
  * @module @deepseek-ai/dsh-desktop-shell/menu-text
  */
 
