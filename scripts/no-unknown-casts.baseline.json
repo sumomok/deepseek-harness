@@ -87,6 +87,20 @@
     "56cede35ce34488cdae4b19aec217c9c939377eb891fe68827fbd64cd019170c": 1,
     "fda84896a47e7f9d046fcd7e10e9096c8b002bc5f1ea0c7753e57abe87528dea": 1
   },
+  "apps/web/tests/component-surface-crud.e2e.ts": {
+    "326597b335539db945b2e3b7c86638d40849d2077c0a5670d064e45486f4e407": 1
+  },
+  "apps/web/tests/content-perception.e2e.ts": {
+    "3b7c22330822c33183c58fa7a221f2e6663f8c129ceab352627b8beac93786a6": 1,
+    "a7d8cc8d42e37ad5cc4882241492ac572ed8163c7fb8663180e893c7178e906f": 1
+  },
+  "apps/web/tests/content-show.e2e.ts": {
+    "41aaf797898ca7e18ee60e1484c6f2667b99c0be88ee9caafb44b84af11136d4": 1
+  },
+  "apps/web/tests/content-surface.e2e.ts": {
+    "41aaf797898ca7e18ee60e1484c6f2667b99c0be88ee9caafb44b84af11136d4": 1,
+    "4f8bdbfdcd87ea0bd49737ed0ff8b14126733f631e2e77457e509cbd9b2e95d3": 1
+  },
   "apps/web/tests/onboarding-deepseek-config.e2e.ts": {
     "326597b335539db945b2e3b7c86638d40849d2077c0a5670d064e45486f4e407": 2
   },
@@ -98,6 +112,13 @@
     "4611e600a6d670bb7bcaa2a3a35df64dc75d92a200118a8d14224fcff2204bf3": 1,
     "5a8270cf9b1e554ae0cff6eaf7086e44c22f61a08e5f91dc7e1397eccaa726a5": 1,
     "d0d869812e25f9b60a88de7207566804dc7d1f38c74e0c1d67a7b25fee5af3e9": 1
+  },
+  "apps/web/tests/server-layout.e2e.ts": {
+    "4f8bdbfdcd87ea0bd49737ed0ff8b14126733f631e2e77457e509cbd9b2e95d3": 1
+  },
+  "apps/web/tests/server-sidebar.e2e.ts": {
+    "326597b335539db945b2e3b7c86638d40849d2077c0a5670d064e45486f4e407": 2,
+    "a7d8cc8d42e37ad5cc4882241492ac572ed8163c7fb8663180e893c7178e906f": 1
   },
   "apps/web/tests/shipped-composition.e2e.ts": {
     "5bb6193769cfbb9fc09abd705fed714917784de269546fde14ac1171fb00644b": 1,
@@ -1092,8 +1113,29 @@
     "3ae979a4364fe22772c89133e79ea216cdb4f3163c7cb02c47eb1a5d4788e661": 4,
     "ae5776af8c1e9965a4eca94bcbc07b65da8d2e9e24e4570d2141b34d60b4f90f": 3
   },
+  "packages/experimental/auth-gate/src/client/browser.ts": {
+    "65091cc990f8ab1dd7d7044075b7c435f60a2e36414ce25bc15973f0bf1c7ba0": 1
+  },
+  "packages/experimental/auth-gate/src/client/gate.ts": {
+    "2e2604d4d8059018bbf76cbfdea12ffc08f5ccba3aa056f797f6ffe2a39affc1": 1
+  },
+  "packages/experimental/auth-gate/src/client/renewal.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/experimental/auth-gate/src/http.ts": {
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
+  },
+  "packages/experimental/auth-gate/tests/auth-gate-routes.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1
+  },
+  "packages/experimental/auth-gate/tests/browser-plugin.client.spec.ts": {
+    "2e78263d16d54ccfd8d322bcdf1bf738bd8134e15c24063ece9a1d1b52f4ebd9": 2
+  },
   "packages/experimental/auto-review/tests/auto-review.spec.ts": {
     "5bb6193769cfbb9fc09abd705fed714917784de269546fde14ac1171fb00644b": 1
+  },
+  "packages/experimental/biz-backend/src/index.ts": {
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
   },
   "packages/experimental/browser-use-runtime/src/index.ts": {
     "04bc8a44533574365dfedf563e2356458bcf95f990a00906938c977c1d683356": 1
@@ -1111,6 +1153,84 @@
     "019c354b579e6d5cfa63e106e3b3047817fe5a37eee532abd7ab4aa80d28676a": 1,
     "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 1
   },
+  "packages/experimental/component-kit/src/client/vue2-bridge.tsx": {
+    "e53828c4fd83674d3a4c2c52d417daca003f0212b8912aa29ab0be8b48604ead": 1
+  },
+  "packages/experimental/component-kit/tests/tu-query-cond-adv-renderer.client.spec.tsx": {
+    "df4e19cae6b9a9f4d7cee5d0725e3ecfe683e23a058932fe0e905234a736a7cd": 1
+  },
+  "packages/experimental/component-kit/tests/vue2-bridge.client.spec.tsx": {
+    "bc9c288dbb8d5ace2c179bb8adb69ca031de0a2c7c5a2e016bc17fee5ce82935": 1
+  },
+  "packages/experimental/component-surface/src/command.ts": {
+    "dc4a7c280d5e9803579a19bceb7f1c89fe34b61cb2be4e10b3ad1432c96b4094": 1
+  },
+  "packages/experimental/component-surface/tests/action.client.spec.ts": {
+    "0e1c5019cf78662d69190c43af321e1fe2c316bbff59aa738e2095d1fb409ba2": 1,
+    "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 1
+  },
+  "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts": {
+    "dfa6697e9fc768aee76d36fd21f534f057422181b1a244ad50dbf88537193d33": 3
+  },
+  "packages/experimental/component-surface/tests/component-action-composition.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "d7d6d71cb58084eafa8eb6076ab20f119f4a7dcbdf2dad4008ddee487c9cd403": 1
+  },
+  "packages/experimental/component-surface/tests/component-action.client.spec.ts": {
+    "8a85032b5375862dec3d665118f69fc0ffaa85b2f61cdfbf876853cef292ca47": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/component-surface/tests/component-extractor.client.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/component-surface/tests/component-surface-composition.client.spec.tsx": {
+    "f19d31022dfc9c66c44d3d526f63323fca7993bee071c4330bdde0889d9d8bf4": 1
+  },
+  "packages/experimental/component-surface/tests/component-surface-mismatch.client.spec.tsx": {
+    "6019b70ac52e680e319333c116a4e659a165d81e5e79f686aca2afd0ff2ef605": 1
+  },
+  "packages/experimental/component-surface/tests/component-surface.client.spec.tsx": {
+    "db07ba482cf1688f13f1e86aaef05d0a00a1ef304d999d6dcb4b1770b7a9ab9f": 1
+  },
+  "packages/experimental/component-surface/tests/composition.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/component-surface/tests/crud.client.spec.ts": {
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 5,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "ec9329e0032e640f6ae1d10a1ecd8b5a658936d460f7b539790906a3dfab1d70": 1
+  },
+  "packages/experimental/component-surface/tests/data-source-composition.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
+  },
+  "packages/experimental/component-surface/tests/data-source.client.spec.ts": {
+    "0917a977cafef7e054ce0ad1fe04aecd241ca47a99f05a9d7cce8329c0cc367a": 1,
+    "0e2a7ab648734b324845bfe1765b84ebe8fcdb2644bfa6fe8c4ac58438a0c28a": 1,
+    "32c443b73d25feddb1e9355b746da40fecdffe206284abc16294e000b214ead8": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "cf291b74f0a5aa460ec0b9701a77080936a2f12ed4d8c856c1e07444d28d42c9": 8
+  },
+  "packages/experimental/component-surface/tests/invariant.client.spec.ts": {
+    "0279428fb66a34aee573c2c5630e651fc24347643ffbe65b8481d23204d6be53": 3,
+    "2be92323e5e0e24f3ab3f37b81457f3624a3b120bc5aedaaf2f9450d8797847c": 1,
+    "5c21c6a9c072e7a7524f45bffa36e036c9a83560fa15b9f18f9470cf5c0d3a2e": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 2,
+    "ee49d888d5ef2060772eea13265c0aa779aa07607bbddb30b8028b4d8071abf7": 3
+  },
+  "packages/experimental/component-surface/tests/view-command.client.spec.ts": {
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
+  },
+  "packages/experimental/component-surface/tests/view-composition.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
+  },
   "packages/experimental/computer-use-cua-driver-mcp/tests/composition.spec.ts": {
     "154da39139a0074bad3d13a624e5fa62d1f7ce19dc8b9c28a73af3263cd7f10e": 1
   },
@@ -1119,6 +1239,131 @@
   },
   "packages/experimental/computer-use-cua-driver-native/tests/loader-composition.spec.ts": {
     "2bacab667d9b30188705724df1ae681fd51fb4ebc2668d8e062bfd37d6eb54f1": 1
+  },
+  "packages/experimental/content-column/tests/browser-plugin.client.spec.ts": {
+    "dfa6697e9fc768aee76d36fd21f534f057422181b1a244ad50dbf88537193d33": 2
+  },
+  "packages/experimental/content-column/tests/content-surface.client.spec.tsx": {
+    "2d5dde94d24e022abf8c8d568b1f7db930155038ae671e80e5a73d5515d5e055": 1
+  },
+  "packages/experimental/content-column/tests/dismiss.client.spec.ts": {
+    "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 1
+  },
+  "packages/experimental/content-column/tests/select.client.spec.ts": {
+    "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 1
+  },
+  "packages/experimental/content-frame/src/access/http.ts": {
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
+  },
+  "packages/experimental/content-frame/src/access/requests-projection.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/experimental/content-frame/tests/command.client.spec.ts": {
+    "c0f1b24ceb89ba66b652f5bcdbb38225d83b4bafd6d6c34d141c58bc92018f7c": 1,
+    "cbd9a1286e09b1ce4f30d98931b35e8e2cdc5e1502a036a3ac3df893aff7deaa": 1
+  },
+  "packages/experimental/content-frame/tests/content-act-tool.client.spec.ts": {
+    "69375182f74de1a53918d709e0c95d1ede29e1199205623f80b62bbdbd1c4e18": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "e696422578a399bbb6adbd5878fab3d3a24af7be0b72d1116efbefe1f50be553": 1
+  },
+  "packages/experimental/content-frame/tests/content-app-route.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "a7ad4a3ba7e0f0e5089e282f4dc96a3b0ad5c7af98d1162c9e170d37951a4b26": 1
+  },
+  "packages/experimental/content-frame/tests/content-cross-session.client.spec.tsx": {
+    "327bc7fc02cb95fdaa766c21ac858e0e013b7b9b7ef530c3f4e2a16f1968b41e": 1
+  },
+  "packages/experimental/content-frame/tests/content-frame.client.spec.tsx": {
+    "8aaaa730f675fbb5ba1a07843474b49b88e480f933e8bc7b0a0696977e4e98e9": 1
+  },
+  "packages/experimental/content-frame/tests/content-image-report.client.spec.ts": {
+    "6bdd3b3e88d1ad8e9851f7559d245433fc8ceb723c0d14cefe8f3b34470182a6": 1,
+    "6dfed6cceb4f2993d13846d5f6cabbcba10beb56820f803e21d50d68076ae115": 1,
+    "81bd030ed2defdfb6226fba050667bba279f461f58b4f3886df93c56a46845a5": 1,
+    "833f5de928d5a35bcf0512ef348733287eba2016e1bd8ac443fa18be7393379f": 1
+  },
+  "packages/experimental/content-frame/tests/content-markup-tool.client.spec.ts": {
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
+  },
+  "packages/experimental/content-frame/tests/content-model-switch.client.spec.ts": {
+    "8b24757e2a23dfd1f31d28d391b8839931be6b069d31f806492ea60222c6fec0": 1,
+    "d022f3c83ccd16c130388e4cfb5b50bddd40f3ebfe42ee6371a8a21c4cbaad8d": 1,
+    "e20b1e9b0a2eeb63f4ec6fa13c861c444b459bcf0a90f7813691532303062941": 1
+  },
+  "packages/experimental/content-frame/tests/content-projection.client.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/content-frame/tests/content-read-body.client.spec.ts": {
+    "7893e856b13d76477048bbf77bdee52d87c73f0d8d8c537ca7e2bcf538c8f7cb": 1,
+    "d0743015fc12990460417a67d03d911892f638938996a41c075fc9a8cd2f0566": 2
+  },
+  "packages/experimental/content-frame/tests/content-read-image-tool.client.spec.ts": {
+    "76df3a581eb322482e607f89c5908d0f3d38d8477dc89e48f0a7c02effcd7055": 1,
+    "aa56e9e93142e57fce7169f787708bb19b7da743f2ce5830713399f6535d1430": 1
+  },
+  "packages/experimental/content-frame/tests/content-read-projection.client.spec.ts": {
+    "a13ced4186d4e7e2d6ba4a118ff0cbbc7bf3610ee8eb5e91f490b647bfe14fe5": 1
+  },
+  "packages/experimental/content-frame/tests/content-read-routes.client.spec.ts": {
+    "026e43a49244b4848e5a6ebded202445e9fe06af45c847589c4802aff10c59f5": 1,
+    "0870446b8592e49d355a1112317ce7ffb797b307daba944574bce5bc3d4dbfb7": 1,
+    "16137ef889a349cc6f7985a860f2c12fbccec812f249a0835d27d74ba6f63dc7": 8,
+    "2c41cf067c8c57321e94b058d29533148e94117dd68c849028a91b39419c3848": 1,
+    "3e74f3074e30ac55f9e0b2f4b6c28315d30f5fe185b353be2c0c39d3304d2bd3": 1,
+    "593e1d3f2d2589026027e072a2dcde69a1799691f940e5a61595e67ba349e306": 1,
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "59f008c4759752c49618a326a0846c00c80f738e39a70ade5fe457628826bc28": 1,
+    "7893e856b13d76477048bbf77bdee52d87c73f0d8d8c537ca7e2bcf538c8f7cb": 3,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "ac316db86bacc028d795641b519a30ff889011dbedf9d286e7d96ff44cfc0ea3": 1,
+    "c9da2bbd63d402c70f1ef8ac2bc892a22ad9fda0222c548916ee3399b2642ba4": 1,
+    "d0743015fc12990460417a67d03d911892f638938996a41c075fc9a8cd2f0566": 5,
+    "e1e9137f33e4ce7677f868a7324e442b88d57d6e3efd9197a84b98ee8a606d6f": 1,
+    "fca63164e3c04ece3e1ba7199beb18915ec3fdb0f0c8a1040657bbc8f45d0036": 1
+  },
+  "packages/experimental/content-frame/tests/content-read-row.client.spec.tsx": {
+    "ef97305145930b5797392a6320069f779255daa2ee18db1a2859bd8d99433aef": 1
+  },
+  "packages/experimental/content-frame/tests/content-read-tool.client.spec.ts": {
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "b1c5e738c93553a018d9a83a58bb6a51264471214831be6c957dce3056892cf3": 1
+  },
+  "packages/experimental/content-frame/tests/content-show-tool.client.spec.ts": {
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
+  },
+  "packages/experimental/content-frame/tests/invariant.client.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/content-frame/tests/navigated.client.spec.ts": {
+    "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 1
+  },
+  "packages/experimental/content-frame/tests/navigation.client.spec.ts": {
+    "46f699f327150160065294adf7bf56f494b08933db1917461eb7b1cc55d49dfd": 1,
+    "64ccecefd10c2584e1ad02a7e64a583edf6fdb6deab8ae84c204af565f8a251b": 1,
+    "917a0f51f7a29214867c6b9084836c826667d7bdb964fc94599e455dd8cce972": 1,
+    "c7e71bfc58ff7a0deeba453ba66968eacbf7d9b17a9f3dcf876c61503f4e76ae": 1
+  },
+  "packages/experimental/content-surface/tests/command-child.spec.ts": {
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
+    "cbd9a1286e09b1ce4f30d98931b35e8e2cdc5e1502a036a3ac3df893aff7deaa": 1
+  },
+  "packages/experimental/content-surface/tests/command.spec.ts": {
+    "2daf460eafa7853ecc9fccd98a0bd7573205434dff10b4eb8b79fc5059150f0c": 1,
+    "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 2
+  },
+  "packages/experimental/content-surface/tests/invariant.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
+  },
+  "packages/experimental/content-surface/tests/projection.spec.ts": {
+    "8f81800caca860836842106d989373bcfd47199a8825f07ad7cea5ff07c66ee7": 1,
+    "dd3128c0f89c83ea3c20d65f5c6c45b4a9611ea36e6580b49cb580a75b7dfc09": 1
+  },
+  "packages/experimental/content-surface/tests/registry.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1,
+    "e1afcf3bd21c4348c25c31b75c3d96e12710fc3bb3165da6a77a48731cb7e737": 1
   },
   "packages/experimental/inspector/src/client/cdp/console.ts": {
     "8e933eb759fc1e8a1eacb9cf2c152713d00eb46d47ca7d3b1f2d072c49527ca8": 1
@@ -1193,6 +1438,86 @@
   },
   "packages/experimental/ptc-runtime-python/src/index.ts": {
     "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
+  },
+  "packages/experimental/server-base/tests/server-base.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1
+  },
+  "packages/experimental/server-layout/tests/shell-frame.client.spec.tsx": {
+    "478242f30bc3e0daa0af779a9e6f58b5a4349a9fc0709ecda23eae4bc0f23a7a": 1,
+    "642e921394e1895db60b8dc52faef3b308c33616f75fb4d4085b1427cc528b1d": 1
+  },
+  "packages/experimental/server-sidebar/src/client/identity.ts": {
+    "2e2604d4d8059018bbf76cbfdea12ffc08f5ccba3aa056f797f6ffe2a39affc1": 1
+  },
+  "packages/experimental/server-sidebar/src/client/workflow-store.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/experimental/server-sidebar/src/index.ts": {
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
+  },
+  "packages/experimental/server-sidebar/src/nav-snapshot-migration.ts": {
+    "466c40b3c9b6e54e35994005aba29481d569859cfe4168f6f184dd693e2cce45": 1,
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
+  },
+  "packages/experimental/server-sidebar/tests/browser-plugin.client.spec.ts": {
+    "eee35b4d8641824c6eaacfe03ed60d353d81d5257d1111132f34d46a7b13ef35": 2
+  },
+  "packages/experimental/server-sidebar/tests/identity-route.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1
+  },
+  "packages/experimental/server-sidebar/tests/open-nav.client.spec.ts": {
+    "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 6,
+    "4a69161eddf765c85d1a70ba8347e87244f1efc81324acacc982bdc73914d0ba": 1
+  },
+  "packages/experimental/server-sidebar/tests/pointer-scrollbars.client.spec.tsx": {
+    "2f552c5cf40e61215204a39e3fe1a48ecebd9f900f4999a7c1cb907d44de0b5f": 1,
+    "475df76aab474a498fd6b75884ced3189ba876f1da6a6f7f0a56055dee2fcf77": 1
+  },
+  "packages/experimental/server-sidebar/tests/save-workflow-action.client.spec.tsx": {
+    "1252d5b56843d9d14b963c501bf39b8a0348718d762852d133135cdb6d131bce": 1
+  },
+  "packages/experimental/server-sidebar/tests/server-sidebar-root.client.spec.tsx": {
+    "79144065a037b7fe78fc55362a82098fee5029c6e478d8aad95b7b723132f30d": 1,
+    "fa10ed29fd5ed6ea29dcc443a28aa72f414f88d98a2c7ffe1b7267c929bd7eb4": 1
+  },
+  "packages/experimental/server-sidebar/tests/session-resolution.client.spec.ts": {
+    "790e2a8617eb0c1ecc86f435f70031af2ccda1e80dad70dfb511d5f6c5e23e10": 1
+  },
+  "packages/experimental/server-sidebar/tests/sign-out.client.spec.ts": {
+    "2e78263d16d54ccfd8d322bcdf1bf738bd8134e15c24063ece9a1d1b52f4ebd9": 1,
+    "405dd9b9e53267c5cf3ce5ea8c48d019fb09555de659e19d62b94e0ee760ed5e": 1,
+    "99861abd27d0fc0bced93aed53a76db4bc66a7d1c92ddeeec3c5ee0966831071": 2
+  },
+  "packages/experimental/server-sidebar/tests/workflow-actions.client.spec.ts": {
+    "0d40745a7cf548cdb4efd55ca1d0c73c6246e3801be8579c4e66a3c968696c54": 1,
+    "549cbd277061f7001540c934000f058cb17999288bc85460a5d6fc9424197588": 1,
+    "576c39663015c9c9e9eb3da22187ef21a92ef2005ea6184fc1ed2cc3cbd4e10e": 1,
+    "f832040f8fe5f9fc215fd8081cc2e5857ae900169c4abde719805bd4474e71be": 1
+  },
+  "packages/experimental/server-sidebar/tests/workflow-store.client.spec.ts": {
+    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 3
+  },
+  "packages/experimental/vue-ui-poc/tests/vue-probe-action.client.spec.tsx": {
+    "2e51cded0652697e3f60b2c9179fd045489be167dc7ec59cd269f6efa7eb7442": 1
+  },
+  "packages/experimental/vue2-echarts-poc/tests/echarts-option.client.spec.tsx": {
+    "fdf919c0abd55aafe45443aa3a5af9f55d1dd870125dc9f1a8055b7081603a75": 1
+  },
+  "packages/experimental/vue2-echarts-tool-poc/src/index.ts": {
+    "3731644758b2a2bcc522000c131faf6cb3654e9f19e01c27e29dd7a033f2849e": 1
+  },
+  "packages/experimental/vue2-echarts-tool-poc/tests/chart-surface.client.spec.tsx": {
+    "5d895707d9e07cf05262b57c3049dc151b0e434b041d846f2e4f6724695dddf5": 1
+  },
+  "packages/experimental/vue2-echarts-tool-poc/tests/show-chart-routes.client.spec.ts": {
+    "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1,
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 2
+  },
+  "packages/experimental/vue2-echarts-tool-poc/tests/show-chart-row.client.spec.tsx": {
+    "587208788ac57e03e8e52b8894602df33486fdef16eedcf6478d3bb4df47bc9c": 1
+  },
+  "packages/experimental/vue2-echarts-tool-poc/tests/show-charts-projection.client.spec.ts": {
+    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
   },
   "packages/experimental/webworker-packer/src/preview.ts": {
     "cdd46c8ceda6d5707bc2abfba329351ba06bcc030b314a3c799d72a4971bd5a4": 1
