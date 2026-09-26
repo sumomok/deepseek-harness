@@ -383,6 +383,13 @@ describe('WITHDRAWN_WEB_BUNDLES', () => {
   it('names at least one bundle, so the cases below run against a real one', () => {
     expect(WITHDRAWN_WEB_BUNDLES.length).toBeGreaterThan(0)
   })
+
+  // 0.1.0-rc.33 seeded it into every desktop profile; plugin management is
+  // upstream's from 0.1.0-rc.34.
+  it('takes back @haoran/dsh-plugin-updates, which an rc.33 build seeded', () => {
+    expect(WITHDRAWN_WEB_BUNDLES).toContain('@haoran/dsh-plugin-updates')
+    expect(BUILTIN_WEB_BUNDLES).not.toContain('@haoran/dsh-plugin-updates')
+  })
 })
 
 describe.each(WITHDRAWN_WEB_BUNDLES)('seedBuiltinBundles on the withdrawn built-in %s', (gone) => {

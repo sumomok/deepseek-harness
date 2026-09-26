@@ -33,10 +33,10 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
-import { PNPM_LAUNCHERS } from '../src/pnpm-launcher.ts'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import { findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD_PACKAGES } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
@@ -61,7 +61,7 @@ const CACHE_DIR = join(APP_DIR, '.cache')
 const PNPM_STAGING = join(STAGING, 'pnpm')
 /** The staged package manager's entry, which the launcher scripts run under the bundled Node. */
 const PNPM_ENTRY = join('bin', 'pnpm.mjs')
-/** The staged launcher scripts ([[PNPM_LAUNCHERS]]), one per platform, copied into `resources/runtime` by scripts/after-pack.cjs. */
+/** The staged pnpm launcher scripts, one per platform, copied into `resources/runtime` by scripts/after-pack.cjs. */
 const PNPM_LAUNCHER_STAGING = join(STAGING, 'pnpm-launchers')
 
 interface Cli {
@@ -354,7 +354,7 @@ async function pnpmVersion(): Promise<string> {
  *
  * The customers this product is for have no pnpm on PATH, so upstream's plugin
  * manager runs this copy under the bundled Node instead, through the launcher
- * script [[stagePnpmLaunchers]] stages beside it. pnpm publishes as a
+ * script `scripts/pnpm-launcher-staging.ts` stages. pnpm publishes as a
  * self-contained directory — `bin/pnpm.mjs` beside the `dist/` siblings it
  * loads at runtime, natives included — so the whole extracted package is what
  * ships, not the entry alone.
@@ -381,25 +381,6 @@ async function stagePnpm(): Promise<void> {
   await mkdir(PNPM_STAGING, { recursive: true })
   await run(`extract ${tarball}`, 'tar', ['-xzf', join(packDir, tarball), '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
   if (!existsSync(join(PNPM_STAGING, PNPM_ENTRY))) throw new Error(`package: the staged ${spec} has no ${PNPM_ENTRY}.`)
-}
-
-/**
- * Stage both platforms' pnpm launcher scripts ([[PNPM_LAUNCHERS]]), which
- * scripts/after-pack.cjs copies into `resources/runtime` beside the bundled Node
- * and the staged pnpm.
- *
- * They are text this repository owns, so they are written on every run,
- * `--skip-deploy` included, and [[verifyStaging]] finds them whatever else the
- * run skipped.
- */
-async function stagePnpmLaunchers(): Promise<void> {
-  await rm(PNPM_LAUNCHER_STAGING, { recursive: true, force: true })
-  await mkdir(PNPM_LAUNCHER_STAGING, { recursive: true })
-  for (const launcher of Object.values(PNPM_LAUNCHERS)) {
-    const path = join(PNPM_LAUNCHER_STAGING, launcher.file)
-    await writeFile(path, launcher.content)
-    if (launcher.executable) await chmod(path, 0o755)
-  }
 }
 
 /** Stage the bundled Node runtime, and the pnpm that runs on it, for one platform. */
@@ -449,12 +430,9 @@ async function verifyStaging(): Promise<void> {
   if (!existsSync(pty)) throw new Error('package: staged node-pty has no prebuilds directory.')
   console.log(`package: staged prebuild platforms: ${(await readdir(pty)).sort().join(', ')}`)
   await verifyStagedPatches(SERVER_STAGING, 'package')
-  for (const launcher of Object.values(PNPM_LAUNCHERS)) {
-    const path = join(PNPM_LAUNCHER_STAGING, launcher.file)
-    if (!existsSync(path)) throw new Error(`package: the pnpm launcher ${launcher.file} is not staged at ${path}.`)
-    if (launcher.executable && ((await stat(path)).mode & 0o111) === 0) {
-      throw new Error(`package: the staged pnpm launcher ${path} is not executable.`)
-    }
+  const launcherProblems = await pnpmLauncherProblems(PNPM_LAUNCHER_STAGING)
+  if (launcherProblems.length > 0) {
+    throw new Error(`package: the staged pnpm launchers are not what the payload ships:\n  ${launcherProblems.join('\n  ')}`)
   }
   // Found at any depth rather than at the path `withholdPackages` removes: a
   // copy hoisting nests under another package would otherwise ship unnoticed.
@@ -916,7 +894,9 @@ async function main(buildHome: string): Promise<void> {
     // from resolves nothing at run time.
     await rm(join(SERVER_STAGING, 'vendor'), { recursive: true, force: true })
   }
-  await stagePnpmLaunchers()
+  // Written on every run, `--skip-deploy` included: they are text this
+  // repository owns, and verifyStaging checks them whatever else was skipped.
+  await stagePnpmLaunchers(PNPM_LAUNCHER_STAGING)
   await verifyStaging()
   // Every target's rules, whichever targets this run builds: whether a rule
   // matches is a property of the rule table and the staged tree.
