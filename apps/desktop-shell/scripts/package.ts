@@ -5,9 +5,10 @@
  * materialize every symlink), stages a real Node runtime per platform, then
  * runs electron-builder for the requested targets.
  *
- * The repository build embeds the desktop's own browser title and release
- * version ([[runDesktopRepositoryBuild]]), and a run whose client artifacts lack
- * either value stops before staging, `--skip-repo-build` included.
+ * The repository build embeds the desktop's browser title, and a run whose
+ * client artifacts lack it stops before staging, `--skip-repo-build` included;
+ * the desktop-app browser half is then bundled from the recorded client values
+ * ([[desktopAppBundleEnvironment]]).
  *
  * Products land in apps/desktop-shell/dist-app/. Each platform's build runs on its
  * own host and on any other: NSIS needs no wine, so Windows packages cross-build
@@ -40,7 +41,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
-import { desktopVersion, runDesktopRepositoryBuild, verifyDesktopClientBuild } from './client-build.ts'
+import { DESKTOP_APP_BUNDLE_ARGS, desktopAppBundleEnvironment, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
@@ -921,12 +922,8 @@ async function main(buildHome: string): Promise<void> {
   // produces is written after this point.
   const startedAt = Date.now()
   const cli = parseCli(process.argv.slice(2))
-  const version = desktopVersion(APP_DIR)
-  if (!cli.skipRepoBuild) {
-    await runDesktopRepositoryBuild(ROOT, process.env, version, (label, command, args, environment) =>
-      run(label, command, args, ROOT, environment))
-  }
-  verifyDesktopClientBuild(ROOT, version)
+  if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
+  await run('desktop-app bundle', 'pnpm', [...DESKTOP_APP_BUNDLE_ARGS], ROOT, desktopAppBundleEnvironment(ROOT, process.env))
   await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
 
