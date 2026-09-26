@@ -22,6 +22,7 @@ const REQUIREMENT: EngineRequirement = {
   name: '@deepseek-ai/libreoffice-kit-darwin-arm64',
   version: '0.1.1',
   downloadBytes: 66_711_287,
+  integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
 }
 
 const made: string[] = []
@@ -312,9 +313,8 @@ describe('confirmDialogOptions', () => {
 })
 
 describe('confirmRequest', () => {
-  it('quotes the download size in whole megabytes, and leaves it out when unknown', () => {
+  it('quotes the download size in whole MiB, rounded', () => {
     expect(confirmRequest(REQUIREMENT).detail).toBe('约 64 MB，下载后保存在这台电脑上，之后在应用里打开这类文件会直接显示内容。')
-    const { downloadBytes: _omitted, ...unknown } = REQUIREMENT
-    expect(confirmRequest(unknown).detail).toBe('下载后保存在这台电脑上，之后在应用里打开这类文件会直接显示内容。')
+    expect(confirmRequest({ ...REQUIREMENT, downloadBytes: 71_367_891 }).detail).toMatch(/^约 68 MB，/)
   })
 })

@@ -17,7 +17,7 @@ import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ENGINE_DOWNLOAD_BYTES, ENGINE_MODULES_ENV, engineInstalled, engineModulesDir, engineServerEnv, installEngine,
+  ENGINE_DOWNLOADS, ENGINE_MODULES_ENV, engineInstalled, engineModulesDir, engineServerEnv, installEngine,
   officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine,
   type EngineRequirement, type InstallProgress,
 } from '../src/office-engine.ts'
@@ -30,6 +30,7 @@ const REQUIREMENT: EngineRequirement = {
   name: '@deepseek-ai/libreoffice-kit-darwin-arm64',
   version: '0.1.1',
   downloadBytes: 66_711_287,
+  integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
 }
 
 const made: string[] = []
@@ -75,16 +76,16 @@ describe('officeEngineTarget', () => {
 })
 
 describe('readEngineRequirement', () => {
-  it('reads the engine name and exact version from the kit, and the size the table knows', () => {
+  it('reads the engine name and exact version from the kit, and the size and integrity the table records', () => {
     const modules = serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.1.1', '@deepseek-ai/libreoffice-kit-wasm': '0.1.1' })
     expect(readEngineRequirement(modules, 'darwin', 'arm64')).toEqual({ ok: true, requirement: REQUIREMENT })
   })
 
-  it('follows the kit to a version the size table does not know, and quotes no size', () => {
+  it('offers no version the table does not record', () => {
     const modules = serverTree({ '@deepseek-ai/libreoffice-kit-win32-x64': '0.2.0' })
     expect(readEngineRequirement(modules, 'win32', 'x64')).toEqual({
-      ok: true,
-      requirement: { target: 'win32-x64', name: '@deepseek-ai/libreoffice-kit-win32-x64', version: '0.2.0' },
+      ok: false,
+      reason: 'this version of the preview component is not registered yet (@deepseek-ai/libreoffice-kit-win32-x64@0.2.0)',
     })
   })
 
@@ -109,14 +110,22 @@ describe('readEngineRequirement', () => {
     expect(!found.ok && found.reason).toMatch(/^the LibreOffice kit could not be read: /)
   })
 
-  // The table is what the download prompt quotes; a kit upgrade that moves
-  // either desktop target's engine to a version the table lacks fails here.
-  it('knows the download size of both desktop engines the shipped kit declares', () => {
+  // A kit upgrade that moves either desktop target's engine to a version the
+  // table lacks fails here. The values are the registry's `dist.integrity`.
+  it('records both desktop engines the shipped kit declares, with their published integrity', () => {
     for (const [platform, arch] of [['darwin', 'arm64'], ['win32', 'x64']] as const) {
-      const found = readEngineRequirement(SERVER_MODULES, platform, arch)
-      expect(found.ok && found.requirement.downloadBytes).toBeGreaterThan(0)
+      expect(readEngineRequirement(SERVER_MODULES, platform, arch).ok).toBe(true)
     }
-    expect(Object.keys(ENGINE_DOWNLOAD_BYTES).length).toBe(2)
+    expect(ENGINE_DOWNLOADS).toEqual({
+      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
+        bytes: 66_711_287,
+        integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
+      },
+      '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': {
+        bytes: 71_367_891,
+        integrity: 'sha512-03CUYg9j2qJ7Q6K27xFCvTLa7FgawOZ1DtE6NlEYttF6TxGuyHEv358vBGc3cwlR1yG1Vfj+pa4e5MdPGpy8mA==',
+      },
+    })
   })
 })
 
@@ -180,7 +189,7 @@ describe('readProgressLine', () => {
 const FAKE_PNPM = `
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-const [mode, ...args] = process.argv.slice(2)
+const [mode, integrity, ...args] = process.argv.slice(2)
 writeFileSync(join(process.cwd(), 'fake-args.json'), JSON.stringify(args))
 const spec = args[1]
 const at = spec.lastIndexOf('@')
@@ -189,6 +198,11 @@ const version = mode === 'wrong-version' ? '9.9.9' : spec.slice(at + 1)
 const store = args.find(arg => arg.startsWith('--store-dir='))?.slice('--store-dir='.length)
 const say = record => { process.stdout.write(JSON.stringify(record) + '\\n') }
 const id = name + '@' + version
+if (mode !== 'no-lockfile') {
+  // JSON is YAML; the record is keyed by the spec asked for, as pnpm keys it.
+  const recorded = mode === 'bad-integrity' ? 'sha512-' + 'A'.repeat(86) + '==' : integrity
+  writeFileSync(join(process.cwd(), 'pnpm-lock.yaml'), JSON.stringify({ lockfileVersion: '9.0', packages: { [spec]: { resolution: { integrity: recorded } } } }))
+}
 if (mode === 'fail') {
   process.stderr.write(JSON.stringify({ level: 'error', name: 'pnpm', err: { message: 'GET https://registry.example/x.tgz: Not Found - 404' } }) + '\\n')
   process.exit(1)
@@ -224,7 +238,7 @@ async function install(mode: string, options: { root?: string; signal?: AbortSig
   const outcome = await installEngine({
     root,
     requirement: REQUIREMENT,
-    pnpm: { command: process.execPath, prefixArgs: [script, mode] },
+    pnpm: { command: process.execPath, prefixArgs: [script, mode, REQUIREMENT.integrity] },
     signal: options.signal ?? new AbortController().signal,
     timeoutMs: options.timeoutMs ?? 30_000,
     onProgress: (report) => { progress.push(report) },
@@ -241,7 +255,7 @@ describe('installEngine', () => {
     const args = JSON.parse(readFileSync(join(root, '0.1.1', 'fake-args.json'), 'utf8')) as string[]
     expect(args.slice(0, 2)).toEqual(['add', '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1'])
     expect(args).toEqual(expect.arrayContaining([
-      '--ignore-workspace', '--ignore-scripts', '--reporter=ndjson', '--config.node-linker=hoisted',
+      '--ignore-workspace', '--ignore-scripts', '--reporter=ndjson', '--config.node-linker=hoisted', '--config.lockfile=true',
     ]))
     // The run's own package store is gone before the rename.
     const store = args.find(arg => arg.startsWith('--store-dir='))?.slice('--store-dir='.length) ?? ''
@@ -278,6 +292,26 @@ describe('installEngine', () => {
   it('quotes plain output when the package manager wrote no record', async () => {
     const { outcome } = await install('crash')
     expect(outcome).toEqual({ ok: false, cancelled: false, reason: 'the package manager exited with 3: segfault-ish line' })
+  })
+
+  it('refuses a tarball whose recorded integrity is not the published one, and leaves nothing behind', async () => {
+    const { outcome, root } = await install('bad-integrity')
+    expect(outcome).toEqual({
+      ok: false,
+      cancelled: false,
+      reason: `the downloaded @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1 is not the published one: its integrity is sha512-${'A'.repeat(86)}==, and ${REQUIREMENT.integrity} was expected`,
+    })
+    expect(readdirSync(root)).toEqual([])
+  })
+
+  it('refuses a run that left no lockfile to compare, and leaves nothing behind', async () => {
+    const { outcome, root } = await install('no-lockfile')
+    expect(outcome).toEqual({
+      ok: false,
+      cancelled: false,
+      reason: 'the package manager finished, but recorded no integrity for @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1',
+    })
+    expect(readdirSync(root)).toEqual([])
   })
 
   it('refuses an engine missing its manifest, or of another version, and leaves nothing behind', async () => {

@@ -28,11 +28,14 @@
  * - **How it arrives.** {@link installEngine} runs the package manager this
  *   shell ships into a staging directory beside the version directory and
  *   renames it into place only once the engine on disk is the one asked for.
- *   The package manager verifies the tarball's integrity, filters by `os` and
- *   `cpu`, keeps the executable bits the kit checks for, and reads the user's
- *   own `.npmrc`, so a registry mirror or proxy configured there applies. The
- *   download never goes through Electron's session, which would mark every
- *   file it writes with macOS's quarantine attribute.
+ *   The package manager checks the tarball against the integrity the registry
+ *   metadata lists, filters by `os` and `cpu`, keeps the executable bits the
+ *   kit checks for, and reads the user's own `.npmrc`, so a registry mirror or
+ *   proxy configured there applies. Before the rename the shell compares the
+ *   integrity the run recorded in its lockfile with the sha512 in
+ *   {@link ENGINE_DOWNLOADS}, so metadata that names another tarball is
+ *   refused. The download never goes through Electron's session, which would
+ *   mark every file it writes with macOS's quarantine attribute.
  * @module @deepseek-ai/dsh-desktop-shell/office-engine
  */
 
@@ -40,6 +43,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { delimiter, dirname, join } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 import type { PnpmInvocation } from './pnpm-launcher.ts'
 import { augmentedEnv } from './server.ts'
 
@@ -77,17 +81,32 @@ const STAGING_PREFIX = '.staging-'
 /** Directory name, inside a staging directory, of the package store that install uses and then removes. */
 const STAGING_STORE = '.pnpm-store'
 
+/** One published engine tarball. */
+export interface EngineDownload {
+  /** Its size in bytes, as the registry reports it (`content-range` of the tarball URL). */
+  bytes: number
+  /** Its `dist.integrity`, as `npm view <package>@<version> dist.integrity` reports it. */
+  integrity: string
+}
+
 /**
- * The published tarball size of each engine this desktop offers, by
- * `<package>@<version>`, in bytes, as the registry reports it
- * (`content-range` of the tarball URL). The download prompt quotes it before
- * anything is fetched, and the progress bar uses it when the registry sends no
- * length. `tests/office-engine.spec.ts` fails when the shipped kit names an
- * engine for either desktop target that this table does not carry.
+ * Every engine this desktop offers, by `<package>@<version>`. A version the
+ * kit declares that this table lacks is not offered. The download prompt
+ * quotes `bytes` before anything is fetched, the progress bar uses it when the
+ * registry sends no length, and an install whose lockfile records another
+ * integrity than `integrity` is refused. `tests/office-engine.spec.ts` fails
+ * when the shipped kit names an engine for either desktop target that this
+ * table does not carry.
  */
-export const ENGINE_DOWNLOAD_BYTES: Readonly<Record<string, number>> = {
-  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': 66_711_287,
-  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': 71_367_891,
+export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
+  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
+    bytes: 66_711_287,
+    integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
+  },
+  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': {
+    bytes: 71_367_891,
+    integrity: 'sha512-03CUYg9j2qJ7Q6K27xFCvTLa7FgawOZ1DtE6NlEYttF6TxGuyHEv358vBGc3cwlR1yG1Vfj+pa4e5MdPGpy8mA==',
+  },
 }
 
 /** The engine this launch's kit requires. */
@@ -98,8 +117,10 @@ export interface EngineRequirement {
   name: string
   /** The exact version the kit declares for it. */
   version: string
-  /** The published tarball size, when {@link ENGINE_DOWNLOAD_BYTES} knows it. */
-  downloadBytes?: number
+  /** The published tarball size, from {@link ENGINE_DOWNLOADS}. */
+  downloadBytes: number
+  /** The published tarball's sha512 integrity, from {@link ENGINE_DOWNLOADS}. */
+  integrity: string
 }
 
 /** The outcome of reading the requirement: the engine, or why this launch can offer none. */
@@ -153,8 +174,9 @@ export function readEngineRequirement(serverModules: string, platform: NodeJS.Pl
   if (typeof version !== 'string' || !EXACT_VERSION.test(version)) {
     return { ok: false, reason: `the LibreOffice kit declares no exact version of ${name}` }
   }
-  const downloadBytes = ENGINE_DOWNLOAD_BYTES[`${name}@${version}`]
-  return { ok: true, requirement: { target, name, version, ...downloadBytes === undefined ? {} : { downloadBytes } } }
+  const download = ENGINE_DOWNLOADS[`${name}@${version}`]
+  if (download === undefined) return { ok: false, reason: `this version of the preview component is not registered yet (${name}@${version})` }
+  return { ok: true, requirement: { target, name, version, downloadBytes: download.bytes, integrity: download.integrity } }
 }
 
 /**
@@ -265,7 +287,7 @@ export function pruneEngineRoot(root: string, keep: string | undefined): PruneRe
 export interface InstallProgress {
   /** Bytes of the engine tarball received so far. */
   transferredBytes: number
-  /** The tarball's size, when the registry or {@link ENGINE_DOWNLOAD_BYTES} says. */
+  /** The tarball's size, as the registry or {@link ENGINE_DOWNLOADS} says. */
   totalBytes?: number
 }
 
@@ -343,6 +365,29 @@ function errorMessage(line: string): string | undefined {
   return typeof fields.message === 'string' ? fields.message : undefined
 }
 
+/** The lockfile a package-manager run writes in the directory it runs in. */
+const LOCKFILE = 'pnpm-lock.yaml'
+
+/**
+ * The integrity a package-manager run recorded for the engine.
+ * @param staging - the directory the run ran in.
+ * @param requirement - the engine it installed.
+ * @returns `packages["<name>@<version>"].resolution.integrity` of its lockfile, or undefined when the file or the record is missing.
+ */
+function lockedIntegrity(staging: string, requirement: EngineRequirement): string | undefined {
+  let lock: unknown
+  try {
+    lock = parseYaml(readFileSync(join(staging, LOCKFILE), 'utf8'))
+  } catch {
+    // A missing or unreadable lockfile records nothing; the caller refuses the
+    // install for it the same way as for a record naming another integrity.
+    return undefined
+  }
+  const packages = (lock as { packages?: Record<string, { resolution?: { integrity?: unknown } } | undefined> } | null)?.packages
+  const integrity = packages?.[`${requirement.name}@${requirement.version}`]?.resolution?.integrity
+  return typeof integrity === 'string' ? integrity : undefined
+}
+
 /**
  * Rename, retrying a Windows `EPERM`/`EBUSY`: an on-access scanner holds files
  * it has just seen being written, and a rename fails while it does.
@@ -372,8 +417,11 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
  * package store inside that staging directory and removes it before the
  * rename, so the engine is on disk once rather than once more in the user's
  * global store. `--ignore-workspace` keeps a `pnpm-workspace.yaml` above the
- * data directory from turning the install into someone else's workspace, and
- * `--ignore-scripts` means nothing the package declares runs.
+ * data directory from turning the install into someone else's workspace,
+ * `--ignore-scripts` means nothing the package declares runs, and
+ * `--config.lockfile=true` keeps a user's `.npmrc` from suppressing the
+ * lockfile whose recorded integrity is compared with
+ * `requirement.integrity` before anything is moved into place.
  * @param spec - where, what, how, and the abort and progress hooks.
  * @returns how it ended; it never throws.
  */
@@ -399,6 +447,17 @@ export async function installEngine(spec: InstallSpec): Promise<InstallOutcome> 
   if (!run.ok) {
     discard()
     return run
+  }
+  const locked = lockedIntegrity(staging, requirement)
+  if (locked !== requirement.integrity) {
+    discard()
+    return {
+      ok: false,
+      cancelled: false,
+      reason: locked === undefined
+        ? `the package manager finished, but recorded no integrity for ${requirement.name}@${requirement.version}`
+        : `the downloaded ${requirement.name}@${requirement.version} is not the published one: its integrity is ${locked}, and ${requirement.integrity} was expected`,
+    }
   }
   const modules = join(staging, 'node_modules')
   if (!holdsEngine(modules, requirement)) {
@@ -429,7 +488,7 @@ async function runPnpm(spec: InstallSpec, staging: string): Promise<InstallOutco
     ...pnpm.prefixArgs,
     'add', `${requirement.name}@${requirement.version}`,
     '--ignore-workspace', '--ignore-scripts', '--reporter=ndjson',
-    '--config.node-linker=hoisted', `--store-dir=${join(staging, STAGING_STORE)}`,
+    '--config.node-linker=hoisted', '--config.lockfile=true', `--store-dir=${join(staging, STAGING_STORE)}`,
   ]
   const env = augmentedEnv(process.env)
   if (pnpm.pathPrefix !== undefined) env.PATH = [pnpm.pathPrefix, env.PATH ?? ''].filter(part => part !== '').join(delimiter)
@@ -461,7 +520,7 @@ async function runPnpm(spec: InstallSpec, staging: string): Promise<InstallOutco
         totalBytes = progress.size
         spec.onProgress({ transferredBytes: 0, totalBytes })
       } else if (progress?.downloaded !== undefined) {
-        spec.onProgress({ transferredBytes: progress.downloaded, ...totalBytes === undefined ? {} : { totalBytes } })
+        spec.onProgress({ transferredBytes: progress.downloaded, totalBytes })
       }
       const message = errorMessage(line)
       if (message !== undefined) {

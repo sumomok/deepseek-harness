@@ -106,7 +106,7 @@ export interface EngineSnapshot {
   phase: EnginePhase
   /** The engine version this launch requires, when there is one. */
   version?: string
-  /** The published download size in bytes, when the shell knows it. */
+  /** The published download size in bytes, whenever there is a version. */
   downloadBytes?: number
   /** Bytes received so far, while `installing`. */
   transferredBytes?: number
@@ -165,11 +165,12 @@ export interface OfficeEngineSpec {
  * @returns the dialog's fields.
  */
 export function confirmRequest(requirement: EngineRequirement): EngineConfirmRequest {
-  const size = requirement.downloadBytes === undefined ? '' : `约 ${String(Math.round(requirement.downloadBytes / (1024 * 1024)))} MB，`
+  // Whole MiB, rounded: the unit the plugin's offer quotes the same size in.
+  const size = String(Math.round(requirement.downloadBytes / (1024 * 1024)))
   return {
     title: '下载预览组件',
     message: '下载预览 Word 和 PPT 文件需要的组件？',
-    detail: `${size}下载后保存在这台电脑上，之后在应用里打开这类文件会直接显示内容。`,
+    detail: `约 ${size} MB，下载后保存在这台电脑上，之后在应用里打开这类文件会直接显示内容。`,
     confirmLabel: '下载',
     cancelLabel: '取消',
   }
@@ -243,10 +244,7 @@ export class OfficeEngineManager {
     const found = this.spec.requirement
     if (!found.ok) return { phase: 'unsupported', reason: found.reason }
     const { requirement } = found
-    const base = {
-      version: requirement.version,
-      ...requirement.downloadBytes === undefined ? {} : { downloadBytes: requirement.downloadBytes },
-    }
+    const base = { version: requirement.version, downloadBytes: requirement.downloadBytes }
     if (this.phase === 'confirming') return { phase: 'confirming', ...base }
     if (this.phase === 'installing') {
       return {
@@ -325,9 +323,7 @@ export class OfficeEngineManager {
     }
     this.phase = 'installing'
     this.failure = undefined
-    this.progress = requirement.downloadBytes === undefined
-      ? { transferredBytes: 0 }
-      : { transferredBytes: 0, totalBytes: requirement.downloadBytes }
+    this.progress = { transferredBytes: 0, totalBytes: requirement.downloadBytes }
     const controller = new AbortController()
     this.controller = controller
     this.spec.log(`[desktop] office engine: installing ${requirement.name}@${requirement.version} into ${this.spec.root}\n`)
