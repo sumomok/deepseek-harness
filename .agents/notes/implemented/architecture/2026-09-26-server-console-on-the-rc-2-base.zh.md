@@ -22,8 +22,7 @@ Status: implemented
 
 **三条内容命令声明 `engages: false`。** 基座的 Session 列表现在遇到任何未声明 `engages: false` 的 `command/run` 都会清掉 `blank`，而本线原来只在 `turn/start` 时清掉它。`show-content-page`、`content-navigated` 与 `show-content-view` 只安排内容栏、不增加回合，所以三者都声明 `engages: false`：只显示过页面或视图的工作台草稿仍是空白草稿，第二次点工作台会复用它，临时分组也不会列出它。
 
-**控制台 bundle 声明自己的 `console` Agent 预设，由锁把它定为默认。** 在更早的基座上，控制台跑的是 `dsh-agent-presets` 从 `$DSH_HOME/.agent-presets` 读入的 `console` 预设；0.1.7-rc.2 删掉了那个包，预设改为 `@deepseek-ai/dsh-agent-preset` 行，控制台于是悄悄退回出厂 `standard` 预设，带着 shell、搜索、后台任务、目标、计划、委派与 web 工具。现在 bundle 层插入 `preset-console`，行与旧预设相同——persona（它的 `text` 即 rc.2 的 `prefix`）、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`——锁 overlay 带上 `agent-preset-registry` 行，`default: console`。registry 行放在锁里而不是 bundle 层，理由与 `permission` 相同：`selectedDefault` 是任何被放行的浏览器都能写的 volatile Config，而指向控制台未声明预设的值会让每个新会话以 `agent-preset/not-found` 失败。
-
+**控制台 bundle 声明自己的 `console` Agent 预设，由锁把它定为默认。** 在更早的基座上，控制台跑的是 `dsh-agent-presets` 从 `$DSH_HOME/.agent-presets` 读入的 `console` 预设；0.1.7-rc.2 删掉了那个包，预设改为 `@deepseek-ai/dsh-agent-preset` 行，控制台于是悄悄退回出厂 `standard` 预设，带着 shell、搜索、后台任务、目标、计划、委派与 web 工具。现在 bundle 层插入 `preset-console`，行与旧预设相同——persona（它的 `text` 即 rc.2 的 `prefix`）、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`——锁 overlay 带上 `agent-preset-registry` 行，`default: console`。registry 行放在锁里而不是 bundle 层，理由与 `permission` 相同：`selectedDefault` 是任何被放行的浏览器都能写的 volatile Config，而指向控制台未声明预设的值会让每个新会话以 `agent-preset/not-found` 失败。bundle 层还禁用 `preset-standard`、`preset-ptc`、`preset-minimal` 与 `preset-cordis`：控制台没有预设选择器，但 `session.create` 经 RPC 接受 `agentPreset`，所以 registry 列出的预设只有 `console`。
 
 ## Alternatives considered
 

@@ -907,13 +907,15 @@ describe('web e2e: the product-console sidebar', () => {
     }
   })
 
-  it('offers no `cordis` Agent preset, so no session can be created under it', async () => {
+  it('offers exactly the `console` Agent preset, so no session can be created under a shipped one', async () => {
     // `session.create` takes an `agentPreset` over RPC, which no page control
-    // gates; the preset is absent from the registry rather than hidden.
-    const ids = (await scaffold.ctx.agentPresets.list()).map(preset => preset.id)
-    expect(ids).toContain('standard')
-    expect(ids).not.toContain('cordis')
-    await expect(scaffold.ctx.agentPresets.resolve('cordis')).rejects.toThrow(/Unknown agent preset: cordis/)
+    // gates; each shipped preset is absent from the registry rather than hidden.
+    const presets = await scaffold.ctx.agentPresets.list()
+    expect(presets.map(preset => preset.id)).toEqual(['console'])
+    expect(presets[0]?.broken).toBeUndefined()
+    for (const shipped of ['standard', 'ptc', 'minimal', 'cordis']) {
+      await expect(scaffold.ctx.agentPresets.resolve(shipped)).rejects.toThrow(`Unknown agent preset: ${shipped}`)
+    }
   })
 
   it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {

@@ -209,10 +209,21 @@
             config:
               allowParallelInProgress: true
 
-# The Agent preset named cordis mounts `tool-cordis` and the skill catalog whose
-# `cordis-composition-reference` skill lists every workspace package. The
-# console offers no preset picker (`ui-agent-preset` is disabled above), but
-# `session.create` accepts an `agentPreset` over RPC, so the preset is disabled
-# rather than merely unreachable from the page.
+# `console` is the only Agent preset the console declares. The console offers
+# no preset picker (`ui-agent-preset` is disabled above), but `session.create`
+# accepts an `agentPreset` over RPC, so every shipped preset is disabled rather
+# than merely unreachable from the page: `standard`, `ptc`, and `minimal` carry
+# the shell and the other developer rows `console` leaves out, and `cordis`
+# also mounts `tool-cordis` and the skill catalog whose
+# `cordis-composition-reference` skill lists every workspace package.
+- id: preset-standard
+  disabled: true
+
+- id: preset-ptc
+  disabled: true
+
+- id: preset-minimal
+  disabled: true
+
 - id: preset-cordis
   disabled: true
