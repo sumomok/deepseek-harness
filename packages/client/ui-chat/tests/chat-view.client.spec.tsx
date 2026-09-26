@@ -794,12 +794,12 @@ describe('ChatView', () => {
     const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
     const turn = fixture.timeline.turns.get(1)
     if (turn === undefined) throw new Error('expected an open Turn')
-    const running = (visibility: 'visible' | 'hidden'): ChatNode<'compaction-running'> => ({
+    const running: ChatNode<'compaction-running'> = {
       key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction-running',
-      anchorSeq: 4, location: { kind: 'turn', turn }, visibility, data: null,
-    })
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible', data: null,
+    }
     const landed: ChatNode<'compaction'> = {
-      key: 'fixture:compaction:6', id: '6', target: 'chat', kind: 'compaction',
+      key: 'fixture:compaction-running:4', id: '4', target: 'chat', kind: 'compaction',
       anchorSeq: 6, location: { kind: 'turn', turn }, visibility: 'visible',
       data: compaction({ seq: 6, summaryEventSeq: 5 }),
     }
@@ -807,7 +807,7 @@ describe('ChatView', () => {
     const groups = new ConversationGroupStore<ProcessGroupData>()
     const state = new ProcessState()
     const project = (nodes: readonly ChatNode[]) => installGroupedSnapshot(builder, state, groups, fixture, nodes)
-    const h = makeHarness({ chat: project([running('visible')]) }, { running: true })
+    const h = makeHarness({ chat: project([running]) }, { running: true })
     h.setGrouped(groups)
     const view = render(<h.ChatView {...h.props} />)
     const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
@@ -817,7 +817,7 @@ describe('ChatView', () => {
     expect(row.closest('[hidden]')).toBeNull()
     expect(within(row).getByRole('button').textContent).toBe('正在压缩…')
 
-    act(() => { h.set({ chat: project([running('hidden'), landed]) }) })
+    act(() => { h.set({ chat: project([landed]) }) })
     expect(view.container.querySelector('[data-chat-flow-kind="compaction-running"]')).toBeNull()
     const marker = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
     expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
