@@ -162,8 +162,6 @@ describe('promptView', () => {
     expect(unavailable.detail).toContain('E:\\DSH-Data')
     const env = promptView({ kind: 'confirm-env', reason: 'missing', envPath: '/typo', current: '/data' }, DATA_LOCATION_TEXT.en)
     expect(env.buttons[env.cancelIndex]?.answer).toBe('keep')
-    // A macOS sheet dismissed by raising its parent answers with the first
-    // button, so the first button must change nothing.
     expect(unavailable.buttons[0]?.answer).toBe('retry')
     expect(env.buttons[0]?.answer).toBe('keep')
     expect(env.detail).toContain('/typo')

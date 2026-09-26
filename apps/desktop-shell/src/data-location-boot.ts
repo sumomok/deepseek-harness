@@ -44,8 +44,7 @@ export interface PromptView {
   detail: string
   /**
    * Button labels in order, each with the answer it gives. The first is the
-   * default and changes nothing, because a macOS sheet that raising its
-   * parent window dismisses answers with the first button.
+   * default and changes nothing on disk, so it is the safe choice to fall on.
    */
   buttons: Array<{ label: string; answer: LocationAnswer }>
   /** Index of the button that Esc and closing the box stand for. */
