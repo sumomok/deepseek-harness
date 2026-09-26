@@ -264,8 +264,9 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
   const child = spawn(spec.nodeBin, [spec.entry, '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: spec.cwd,
     // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch
-    // (apps/cli/src/profile-boot.ts's resolveTelemetryPatch): this product
-    // sends no session telemetry, on top of the base bundle's own
+    // (packages/boot/app-boot/src/profile-context.ts's
+    // resolveTelemetryPatch): this product sends no session telemetry, on
+    // top of the base bundle's own
     // session-telemetry-otel row already shipping disabled. `spec.env` still
     // wins if a caller (a test) sets its own value.
     env: { ...augmentedEnv(process.env), DSH_TELEMETRY_DISABLED: '1', ...spec.env },
