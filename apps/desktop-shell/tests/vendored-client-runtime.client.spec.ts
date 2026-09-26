@@ -113,13 +113,22 @@ function clientBundlePath(manifestPath: string, pkg: BuiltinPackage): string {
 }
 
 /**
- * Read every seeded built-in that carries a browser half, in the order the
- * shell seeds them.
+ * Seeded built-in built from this repository rather than vendored as a
+ * tarball: `desktop-app`, the desktop's own composition layer. Its browser half
+ * exists only after its own bundle step, so its suite,
+ * `apps/desktop-app/tests/brand.client.spec.tsx`, applies the source instead.
+ */
+const IN_REPOSITORY = ['@deepseek-ai/dsh-desktop-app']
+
+/**
+ * Read every vendored seeded built-in that carries a browser half, in the order
+ * the shell seeds them.
  * @returns one row per built-in declaring `dsh.client`.
  */
 function builtinRows(): readonly BuiltinRow[] {
   const rows: BuiltinRow[] = []
   for (const name of BUILTIN_WEB_BUNDLES) {
+    if (IN_REPOSITORY.includes(name)) continue
     const manifestPath = fromServer.resolve(`${name}/package.json`)
     const pkg = JSON.parse(readFileSync(manifestPath, 'utf8')) as BuiltinPackage
     const declaration = pkg.dsh?.client
@@ -142,12 +151,8 @@ function builtinRows(): readonly BuiltinRow[] {
 
 const ROWS = builtinRows()
 
-/**
- * Seeded built-ins with no browser half: `default-model` composes Host rows
- * only, and `desktop-app` is this repository's own composition layer. Neither
- * gives this gate anything to apply.
- */
-const WITHOUT_CLIENT_HALF = ['@haoran/dsh-default-model', '@deepseek-ai/dsh-desktop-app']
+/** Seeded built-in with no browser half: `default-model` composes Host rows only. */
+const WITHOUT_CLIENT_HALF = ['@haoran/dsh-default-model']
 
 /**
  * Compose the boot graph for one selection of rows, ordered the way the Host
@@ -373,7 +378,7 @@ describe('vendored built-in client halves', () => {
   it('covers every seeded built-in that carries a browser half', () => {
     // A seeded package that grows a `dsh.client` declaration joins the rows
     // automatically and leaves this list stale, which is what says so aloud.
-    expect([...ROWS.map(row => row.id), ...WITHOUT_CLIENT_HALF].sort())
+    expect([...ROWS.map(row => row.id), ...WITHOUT_CLIENT_HALF, ...IN_REPOSITORY].sort())
       .toStrictEqual([...BUILTIN_WEB_BUNDLES].sort())
     const manifest = JSON.parse(readFileSync(serverManifest, 'utf8')) as { dependencies?: Record<string, string> }
     for (const row of ROWS) {
