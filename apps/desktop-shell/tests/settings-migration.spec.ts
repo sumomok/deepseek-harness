@@ -481,7 +481,7 @@ describe('migrateLegacySettings after another profile imported the file first (S
       const report = migrateLegacySettings(home, profileDir)
       expect(existsSync(join(home, 'settings.yaml'))).toBe(false)
       expect(report.lines).toContainEqual(
-        expect.stringMatching(/^settings-migration\.json cannot be read \(.+\); only a settings\.yaml still in place is migrated/),
+        expect.stringMatching(/^settings-migration\.json cannot be read \(.+\); nothing is restored from settings\.yaml\.imported/),
       )
       expect(markerNow().restoredImported).toBeUndefined()
     }
@@ -526,6 +526,40 @@ describe('migrateLegacySettings after a run that stopped partway', () => {
     expect(markerNow().restoredImported).toBeUndefined()
     expect(rowOf('ui-theme')).toEqual({ id: 'ui-theme', config: { preference: 'dark', fontSize: 15 } })
     expect(report.lines).toContain('the last run stopped before it finished; writing the migrated copy from settings.yaml.pre-rc34')
+  })
+
+  it('writes the migrated copy from the moved original under a marker it cannot read, when no finished run could have left that state', () => {
+    // A finished run leaves the migrated settings.yaml, or the server's
+    // settings.yaml.imported once it has imported it; with neither, the run
+    // that moved the original stopped before it wrote the copy.
+    writeSettings(RC33_SETTINGS)
+    migrateLegacySettings(home, profileDir)
+    const migrated = readFileSync(join(home, 'settings.yaml'), 'utf8')
+    for (const damaged of ['{ "state": "pe', '{ "state": "pending" }\n']) {
+      rmSync(join(home, 'settings.yaml'))
+      writeFileSync(join(profileDir, 'cordis.patch.yml'), PATCH_TEMPLATE)
+      writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), damaged)
+      const report = migrateLegacySettings(home, profileDir)
+      expect(readFileSync(join(home, 'settings.yaml'), 'utf8')).toBe(migrated)
+      expect(readFileSync(join(home, 'settings.yaml.pre-rc34'), 'utf8')).toBe(RC33_SETTINGS)
+      expect(markerNow().state).toBe('done')
+      expect(rowOf('ui-theme')).toEqual({ id: 'ui-theme', config: { preference: 'dark', fontSize: 15 } })
+      expect(report.lines).toContain(
+        'settings.yaml.pre-rc34 is here without settings.yaml or settings.yaml.imported, so the last run stopped before it finished; writing the migrated copy from settings.yaml.pre-rc34',
+      )
+    }
+  })
+
+  it('leaves the moved original alone under a marker it cannot read once the server has imported the migrated copy', () => {
+    writeSettings(RC33_SETTINGS)
+    migrateLegacySettings(home, profileDir)
+    writeFileSync(join(home, 'settings.yaml.imported'), readFileSync(join(home, 'settings.yaml')))
+    rmSync(join(home, 'settings.yaml'))
+    writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), '{ "state": "do')
+    const report = migrateLegacySettings(home, profileDir)
+    expect(existsSync(join(home, 'settings.yaml'))).toBe(false)
+    expect(markerNow()).toEqual({ state: 'done', rows: [], dropped: [], skipped: [] })
+    expect(report.lines.some(line => line.includes('writing the migrated copy'))).toBe(false)
   })
 
   it('migrates the imported file when a pending run left no original', () => {

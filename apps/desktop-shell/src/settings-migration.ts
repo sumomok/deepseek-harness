@@ -59,8 +59,16 @@
  * its own, copies that file to `settings.yaml.pre-rc34` and migrates it.
  * {@link SETTINGS_MIGRATION_MARKER} records every decision and makes the whole
  * run happen once: it is written `pending` after the move and `done` after the
- * last change. A marker that exists and cannot be read restores nothing: it
- * may stand for a finished run, whose import already happened.
+ * last change. A marker that exists and cannot be read may stand for a
+ * finished run, whose import already happened, so nothing is copied back from
+ * `settings.yaml.imported`. `settings.yaml.pre-rc34` is migrated under such a
+ * marker only when neither `settings.yaml` nor `settings.yaml.imported` is
+ * there: a finished run whose original parsed as a mapping leaves the migrated
+ * `settings.yaml`, which the server's import renames `.imported`, so that state
+ * is a run that stopped after the move. A finished run whose original did not
+ * parse leaves neither, and running it again records the same skip. A marker
+ * path that is a directory reads as unreadable, and the marker write then
+ * throws, so every launch stops at that write until the directory is removed.
  * @module @deepseek-ai/dsh-desktop-shell/settings-migration
  */
 
@@ -401,7 +409,7 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
 
   const marker: SettingsMigrationMarker = { state: 'pending', rows: [], dropped: [], skipped: [] }
   if (read.kind === 'corrupt') {
-    report.lines.push(`${SETTINGS_MIGRATION_MARKER} cannot be read (${read.detail}); only a ${SETTINGS_FILENAME} still in place is migrated, and nothing is restored from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} or ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
+    report.lines.push(`${SETTINGS_MIGRATION_MARKER} cannot be read (${read.detail}); nothing is restored from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX}, and ${SETTINGS_FILENAME}${BACKUP_SUFFIX} is migrated only when neither ${SETTINGS_FILENAME} nor ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} is there`)
   }
   const pending = previous?.state === 'pending'
   // The first step, before anything else that can fail: from here on this
@@ -411,9 +419,12 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
   if (inPlace && !(pending && existsSync(backupPath))) {
     renameSync(settingsPath, backupPath)
     chmodSync(backupPath, PRIVATE_FILE_MODE)
-  } else if (!inPlace && read.kind !== 'corrupt' && existsSync(backupPath)) {
+  } else if (!inPlace && existsSync(backupPath) && (read.kind !== 'corrupt' || !existsSync(importedPath))) {
+    // Under an unreadable marker, a finished run would have left settings.yaml or its `.imported` rename.
     hasSettings = true
-    report.lines.push(`the last run stopped before it finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
+    report.lines.push(read.kind === 'corrupt'
+      ? `${SETTINGS_FILENAME}${BACKUP_SUFFIX} is here without ${SETTINGS_FILENAME} or ${SETTINGS_FILENAME}${IMPORTED_SUFFIX}, so the last run stopped before it finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`
+      : `the last run stopped before it finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
   } else if (!inPlace && existsSync(importedPath) && (read.kind === 'absent' || pending)) {
     // S5: the only original is the file another profile's import renamed.
     hasSettings = true
