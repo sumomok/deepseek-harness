@@ -4,8 +4,13 @@
  * @module
  */
 
-import { describe, expect, it } from 'vitest'
-import { loadFailureLines, verifyDesktopLayer } from '../scripts/staged-boot-gate.ts'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD_PACKAGES,
+} from '../scripts/staged-boot-gate.ts'
 
 describe('loadFailureLines', () => {
   it('accepts a boot whose stderr carries no load report', () => {
@@ -74,5 +79,55 @@ describe('verifyDesktopLayer', () => {
 
   it('refuses output that is not an entry list', () => {
     expect(() => { verifyDesktopLayer('') }).toThrow('printed no entry list')
+  })
+})
+
+describe('findWithheldDirectories', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * A staged tree holding the given directories and files.
+   * @param dirs - directories to create, relative to the root.
+   * @param files - files to create, relative to the root.
+   * @returns the tree's root.
+   */
+  function tree(dirs: readonly string[], files: readonly string[] = []): string {
+    const root = mkdtempSync(join(tmpdir(), 'staged-boot-gate-'))
+    roots.push(root)
+    for (const dir of dirs) mkdirSync(join(root, dir), { recursive: true })
+    for (const file of files) writeFileSync(join(root, file), '')
+    return root
+  }
+
+  it('withholds the upstream auto-review bundle', () => {
+    expect(WITHHELD_PACKAGES).toContain('@deepseek-ai/dsh-experimental-auto-review')
+  })
+
+  it('finds nothing in a tree without the package', async () => {
+    const root = tree(['node_modules/@deepseek-ai/dsh-base'])
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+
+  it('finds the package where the hoisted deploy puts it', async () => {
+    const root = tree(['node_modules/@deepseek-ai/dsh-experimental-auto-review/lib'])
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES))
+      .toEqual(['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
+  })
+
+  it('finds a copy nested under another package', async () => {
+    const root = tree([
+      'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-auto-review',
+      'node_modules/@deepseek-ai/dsh-base',
+    ])
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES))
+      .toEqual(['node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-experimental-auto-review'])
+  })
+
+  it('ignores a file of that name', async () => {
+    const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
   })
 })

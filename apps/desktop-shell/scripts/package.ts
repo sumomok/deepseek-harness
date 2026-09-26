@@ -36,7 +36,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
-import { loadFailureLines, verifyDesktopLayer } from './staged-boot-gate.ts'
+import { findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD_PACKAGES } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
@@ -419,10 +419,31 @@ async function verifyStaging(): Promise<void> {
   if (!existsSync(pty)) throw new Error('package: staged node-pty has no prebuilds directory.')
   console.log(`package: staged prebuild platforms: ${(await readdir(pty)).sort().join(', ')}`)
   await verifyStagedPatches(SERVER_STAGING, 'package')
+  // Found at any depth rather than at the path `withholdPackages` removes: a
+  // copy hoisting nests under another package would otherwise ship unnoticed.
+  const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES)
+  if (withheld.length > 0) {
+    throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
+  }
   // Resolution smoke on the staged tree: `--version` imports the launcher
   // graph, so a package the deployer dropped (a link: override the manifest
   // forgot to list directly) fails the build here instead of on first launch.
   await run('staged launcher smoke', process.execPath, [join(SERVER_STAGING, SERVER_ENTRY), '--version'], SERVER_STAGING)
+}
+
+/**
+ * Remove the packages the payload withholds ([[WITHHELD_PACKAGES]]) from the
+ * staged tree's top-level `node_modules`, where the hoisted deploy places
+ * every package of the closure. Runs before the payload inventory is taken, so
+ * the payload gate never sees them as removed.
+ */
+async function withholdPackages(): Promise<void> {
+  for (const name of WITHHELD_PACKAGES) {
+    const dir = join(SERVER_STAGING, 'node_modules', name)
+    if (!existsSync(dir)) continue
+    await rm(dir, { recursive: true, force: true })
+    console.log(`package: withheld ${name} from the staged server`)
+  }
 }
 
 /**
@@ -883,6 +904,7 @@ async function main(buildHome: string): Promise<void> {
     await materializeStagedLinks()
     await prunePlatformBuilds()
     await stageWindowsVariants()
+    await withholdPackages()
     await Promise.all(['README.md', 'README.zh.md', 'README.i18n.yaml'].map(name =>
       rm(join(SERVER_STAGING, name), { force: true })))
     // The deployer copies the manifest's own directory, which carries the

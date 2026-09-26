@@ -1,6 +1,6 @@
 /**
- * Checks the packaging pipeline runs on what a boot of the staged server
- * printed and on the profile composition it resolved.
+ * Checks the packaging pipeline runs on the staged server tree, on what a
+ * boot of it printed, and on the profile composition it resolved.
  *
  * A server that prints its URL line has not proved its profile composed: a
  * `dsh.profile.bundles` name the Loader cannot resolve, or whose DSH peers the
@@ -8,10 +8,13 @@
  * that bundle's layer. A refused plugin row is disabled the same way, and an
  * entry that fails to start is reported in a warning while its siblings keep
  * running. These functions turn those lines, and the composed tree
- * `--dump-config` prints, into build failures.
+ * `--dump-config` prints, into build failures. The tree check finds packages
+ * the payload withholds wherever a hoisting change put them.
  * @module
  */
 
+import { readdir } from 'node:fs/promises'
+import { join, relative, sep } from 'node:path'
 import yaml from 'js-yaml'
 
 /**
@@ -22,6 +25,15 @@ import yaml from 'js-yaml'
  * (`<bin>: warning: <n> entries did not activate`).
  */
 export const LOAD_FAILURE_MARKERS = ['skipping profile bundle', 'disabling profile plugin', 'did not activate'] as const
+
+/**
+ * Packages the desktop payload leaves out although the server closure brings
+ * them in. `@deepseek-ai/dsh-experimental-auto-review` is a runtime dependency
+ * of `@deepseek-ai/dsh` so that upstream's plugin page can offer it; its review
+ * runs beside this deployment's own permission gateway rather than in place of
+ * it, and nothing in the desktop profile names it.
+ */
+export const WITHHELD_PACKAGES = ['@deepseek-ai/dsh-experimental-auto-review'] as const
 
 /** The row the desktop composition layer opens full-text search on, and the value it sets. */
 const DESKTOP_LAYER_PROBE = { id: 'session-query-sqlite', openAt: 'first-search' } as const
@@ -34,6 +46,32 @@ const DESKTOP_LAYER_PROBE = { id: 'session-query-sqlite', openAt: 'first-search'
  */
 export function loadFailureLines(stderr: string): string[] {
   return stderr.split(/\r?\n/).filter(line => LOAD_FAILURE_MARKERS.some(marker => line.includes(marker)))
+}
+
+/**
+ * The directories under `root` that carry a withheld package, at any depth.
+ *
+ * A directory counts when its name is the package's unscoped name, wherever it
+ * sits: a hoisting change can nest a copy under another package's own
+ * `node_modules`, where a removal addressed at the top-level path misses it.
+ * Files of that name do not count, and symbolic links are not followed.
+ * @param root - the staged tree to search.
+ * @param names - the package names to look for, scoped or not.
+ * @returns each matching directory relative to `root`, with `/` separators, sorted.
+ */
+export async function findWithheldDirectories(root: string, names: readonly string[]): Promise<string[]> {
+  const wanted = new Set(names.map(name => name.slice(name.lastIndexOf('/') + 1)))
+  const found: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const path = join(dir, entry.name)
+      if (wanted.has(entry.name)) found.push(relative(root, path).split(sep).join('/'))
+      await walk(path)
+    }
+  }
+  await walk(root)
+  return found.sort()
 }
 
 /** The `!!js` dialect a config dump prints, read back as an opaque expression. */
