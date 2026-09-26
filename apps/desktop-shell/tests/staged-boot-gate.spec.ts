@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findWithheldDirectories, loadFailureLines, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES,
+  findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
 
 describe('loadFailureLines', () => {
@@ -162,5 +162,63 @@ describe('stagedBootEnv', () => {
 
   it('keeps names that only contain the prefixes', () => {
     expect(stagedBootEnv({ MY_NODE_PATH: 'x', XNPM_TOKEN: 'y' })).toEqual({ MY_NODE_PATH: 'x', XNPM_TOKEN: 'y' })
+  })
+})
+
+describe('missingProductionDependencies', () => {
+  const trees: string[] = []
+  afterEach(() => {
+    for (const tree of trees.splice(0)) rmSync(tree, { recursive: true, force: true })
+  })
+
+  /**
+   * A tree of packages, each with its own production dependencies.
+   * @param packages - `node_modules`-relative directory against the dependencies its manifest declares.
+   * @returns the tree root.
+   */
+  function tree(packages: Record<string, { dependencies?: string[]; optional?: string[] }>): string {
+    const root = mkdtempSync(join(tmpdir(), 'staged-closure-'))
+    trees.push(root)
+    for (const [dir, { dependencies = [], optional = [] }] of Object.entries(packages)) {
+      mkdirSync(join(root, 'node_modules', dir), { recursive: true })
+      writeFileSync(join(root, 'node_modules', dir, 'package.json'), JSON.stringify({
+        name: dir.split('/node_modules/').at(-1),
+        dependencies: Object.fromEntries(dependencies.map(name => [name, '*'])),
+        optionalDependencies: Object.fromEntries(optional.map(name => [name, '*'])),
+      }))
+    }
+    return root
+  }
+
+  const whole = {
+    '@deepseek-ai/dsh': { dependencies: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-experimental-auto-review', 'yaml'], optional: ['some-darwin-arm64'] },
+    '@deepseek-ai/dsh-base': { dependencies: ['@deepseek-ai/dsh-settings'] },
+    '@deepseek-ai/dsh-settings': { dependencies: ['yaml', 'nested-only'] },
+    '@deepseek-ai/dsh-settings/node_modules/nested-only': {},
+    'yaml': {},
+  }
+
+  it('accepts a tree holding the whole closure, nested and withheld packages included', async () => {
+    expect(await missingProductionDependencies(tree(whole), WITHHELD_PACKAGES)).toEqual([])
+  })
+
+  it('names a missing dependency found only through another dependency', async () => {
+    const { '@deepseek-ai/dsh-base': _base, ...withoutBase } = whole
+    expect(await missingProductionDependencies(tree(withoutBase), WITHHELD_PACKAGES)).toEqual(['@deepseek-ai/dsh -> @deepseek-ai/dsh-base'])
+    const { '@deepseek-ai/dsh-settings/node_modules/nested-only': _nested, ...withoutNested } = whole
+    expect(await missingProductionDependencies(tree(withoutNested), WITHHELD_PACKAGES))
+      .toEqual(['@deepseek-ai/dsh-settings -> nested-only'])
+  })
+
+  it('follows only the names it is given', async () => {
+    const { yaml: _yaml, ...withoutYaml } = whole
+    expect(await missingProductionDependencies(tree(withoutYaml), WITHHELD_PACKAGES, name => name.startsWith('@deepseek-ai/'))).toEqual([])
+    expect(await missingProductionDependencies(tree(withoutYaml), WITHHELD_PACKAGES)).toEqual([
+      '@deepseek-ai/dsh -> yaml', '@deepseek-ai/dsh-settings -> yaml',
+    ])
+  })
+
+  it('reports a tree without the installation package', async () => {
+    expect(await missingProductionDependencies(tree({ yaml: {} }), WITHHELD_PACKAGES)).toEqual(['(tree) -> @deepseek-ai/dsh'])
   })
 })

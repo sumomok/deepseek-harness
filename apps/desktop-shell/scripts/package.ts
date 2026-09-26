@@ -37,7 +37,10 @@ import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
-import { findWithheldDirectories, loadFailureLines, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES } from './staged-boot-gate.ts'
+import {
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer,
+  WITHHELD_PACKAGES,
+} from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
@@ -447,6 +450,13 @@ async function verifyStaging(): Promise<void> {
   if (withheld.length > 0) {
     throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
   }
+  // A dependency the deployer left outside the staging tree resolves nowhere
+  // once the payload is installed; the resolution smoke below cannot see it
+  // when it is only reached through a profile bundle at boot.
+  const unstaged = await missingProductionDependencies(SERVER_STAGING, WITHHELD_PACKAGES)
+  if (unstaged.length > 0) {
+    throw new Error(`package: staged server lacks production dependencies of ${INSTALLATION_PACKAGE}:\n  ${unstaged.join('\n  ')}`)
+  }
   // Resolution smoke on the staged tree: `--version` imports the launcher
   // graph, so a package the deployer dropped (a link: override the manifest
   // forgot to list directly) fails the build here instead of on first launch.
@@ -774,6 +784,12 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
     payload: destination,
     droppedByRules: skippedDirs,
   })
+  // bundle-closure.ts inlines third-party packages into ours and deletes them,
+  // so the finished payload is checked for the scope it keeps whole.
+  const unshipped = await missingProductionDependencies(destination, WITHHELD_PACKAGES, name => name.startsWith('@deepseek-ai/'))
+  if (unshipped.length > 0) {
+    throw new Error(`package: ${target} payload lacks production dependencies of ${INSTALLATION_PACKAGE}:\n  ${unshipped.join('\n  ')}`)
+  }
   // The gate exempts the engine directory a payload leaves out, and an
   // exemption names a directory rather than a direction, so the same entry
   // would also pass that engine riding into the other target's payload. This

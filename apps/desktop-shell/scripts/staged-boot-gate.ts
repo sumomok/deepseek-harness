@@ -13,8 +13,9 @@
  * @module
  */
 
-import { readdir } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { existsSync } from 'node:fs'
+import { readdir, readFile } from 'node:fs/promises'
+import { dirname, join, relative, sep } from 'node:path'
 import yaml from 'js-yaml'
 
 /**
@@ -84,6 +85,60 @@ const PACKAGE_MANAGER_ENV = /^(?:NODE_PATH|npm_.*|PNPM_.*)$/i
  */
 export function stagedBootEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([name]) => !PACKAGE_MANAGER_ENV.test(name)))
+}
+
+/** The installation package whose production closure a payload must carry. */
+export const INSTALLATION_PACKAGE = '@deepseek-ai/dsh'
+
+/**
+ * The directory Node would load a dependency from, searching the dependent's
+ * own `node_modules` and each ancestor's up to the tree root.
+ * @param root - the tree root, whose `node_modules` is searched last.
+ * @param from - the dependent package's directory.
+ * @param name - the dependency's package name.
+ * @returns the dependency's directory, or undefined when no `package.json` is found for it.
+ */
+function dependencyDir(root: string, from: string, name: string): string | undefined {
+  for (let dir = from; dir.startsWith(root); dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name)
+    if (existsSync(join(candidate, 'package.json'))) return candidate
+    if (dir === root) break
+  }
+  return undefined
+}
+
+/**
+ * The production dependencies of the installation package that a tree lacks,
+ * followed through each found dependency's own production dependencies.
+ *
+ * Only `dependencies` count: an optional dependency is a platform member a
+ * target may leave out, and a peer is supplied by whatever depends on it. A
+ * withheld package is neither required nor followed.
+ * @param root - a staged server tree or a finished payload.
+ * @param withheld - package names the payload leaves out on purpose.
+ * @param follows - which dependency names count; the finished payload inlines third-party packages, so its check follows one scope.
+ * @returns `<dependent> -> <dependency>` for every dependency no `package.json` answers, sorted.
+ */
+export async function missingProductionDependencies(
+  root: string, withheld: readonly string[], follows: (name: string) => boolean = () => true,
+): Promise<string[]> {
+  const missing = new Set<string>()
+  const start = join(root, 'node_modules', INSTALLATION_PACKAGE)
+  if (!existsSync(join(start, 'package.json'))) return [`(tree) -> ${INSTALLATION_PACKAGE}`]
+  const visited = new Set<string>()
+  const queue: { name: string; dir: string }[] = [{ name: INSTALLATION_PACKAGE, dir: start }]
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (visited.has(next.dir)) continue
+    visited.add(next.dir)
+    const manifest = JSON.parse(await readFile(join(next.dir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+    for (const name of Object.keys(manifest.dependencies ?? {})) {
+      if (withheld.includes(name) || !follows(name)) continue
+      const dir = dependencyDir(root, next.dir, name)
+      if (dir === undefined) missing.add(`${next.name} -> ${name}`)
+      else queue.push({ name, dir })
+    }
+  }
+  return [...missing].sort()
 }
 
 /**
