@@ -183,7 +183,7 @@ describe('the console layer over the shipped Web bundles', () => {
     }
   })
 
-  it('disables the `cordis` Agent preset, leaving `standard` the default', () => {
+  it('disables the cordis Agent preset row, leaving `standard` the default', () => {
     expect(byId.get('preset-cordis')?.disabled).toBe(true)
     expect(byId.get('preset-standard')?.disabled).not.toBe(true)
   })

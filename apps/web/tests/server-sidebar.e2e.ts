@@ -864,7 +864,7 @@ describe('web e2e: the product-console sidebar', () => {
     // pinned preset holds only because the lock composes above the profile
     // patch. The sidebar row sits in the bundle layer below it, which is what
     // lets the same service save the menu (`beforeAll` wrote it).
-    await expect(scaffold.ctx.settings.update('permission' as SettingsNamespace, { defaultPreset: 'danger-full-access' }))
+    await expect(scaffold.ctx.settings.update('permission', { defaultPreset: 'danger-full-access' }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
     await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
   })

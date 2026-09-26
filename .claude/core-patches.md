@@ -648,6 +648,15 @@
 - **状态**：在役（`product/server-console`）。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
 - **路径**：`scripts/no-unknown-casts.baseline.json`
 
+## console-cordis-preset-rescope-skip — rescope 门禁放行本线 e2e 里的 cordis 预设 id
+
+- **改了什么**：`scripts/rescope-vendor.ts` 的 `GENERIC_SKIPS` 加一条 `apps/web/tests/server-sidebar.e2e.ts`（`upstream: ['cordis']`），与上游为 `agent-preset-authoring.e2e.ts` 等文件登记的条目同形。
+- **为什么**：该 e2e 断言控制台组合的预设注册表里没有名为 `cordis` 的预设，必须写出带引号的预设 id；rescope 门禁把任何带引号的裸 `cordis` 当成未改名的包名，报 residue。上游对「`cordis` 也是预设 id」的文件用的就是这张表。
+- **要达到的效果**：rescope 门禁照常覆盖该文件里的其余包名，只对 `cordis` 这一个名字放行。
+- **退役条件**：该用例不再写出这个预设 id，或上游门禁改为区分预设 id 与包名。
+- **状态**：在役（`product/server-console`）。
+- **路径**：`scripts/rescope-vendor.ts`
+
 ## 历史轮次
 
 本线由 `core-patches-v1` 起逐轮变基而来，到 `core-patches-v11` 为止；此后改为合并上游发布。变基那些轮次的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
