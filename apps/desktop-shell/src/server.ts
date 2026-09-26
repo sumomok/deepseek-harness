@@ -9,6 +9,14 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
 
+/**
+ * The environment variable naming the desktop log file to the server child.
+ * `@deepseek-ai/dsh-desktop-app`'s `desktop-server-log` row reads it: set, the
+ * server appends its own logger records to that file; unset, the row stays
+ * off.
+ */
+export const SERVER_LOG_ENV = 'DSH_DESKTOP_SERVER_LOG'
+
 /** The web-app readiness line; capture group 1 is the authenticated URL carrying the launch token. */
 const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/
 

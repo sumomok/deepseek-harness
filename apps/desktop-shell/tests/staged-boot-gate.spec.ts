@@ -9,8 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES,
+  findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv, verifyDesktopLayer,
+  WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
+import { SERVER_LOG_ENV } from '../src/server.ts'
 
 describe('loadFailureLines', () => {
   it('accepts a boot whose stderr carries no load report', () => {
@@ -143,6 +145,15 @@ describe('findWithheldDirectories', () => {
   it('ignores a file of that name', async () => {
     const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+})
+
+describe('stagedServerEnv', () => {
+  // Named, the desktop layer's server-log row mounts in the staged boot and
+  // its module has to resolve from the payload, as it does under the shell.
+  it('names the log file the server-log row mounts on, over the package-manager-free environment', () => {
+    expect(stagedServerEnv({ NODE_PATH: '/repo/node_modules', PATH: '/usr/bin' }, '/tmp/build/dsh-server.log'))
+      .toEqual({ PATH: '/usr/bin', [SERVER_LOG_ENV]: '/tmp/build/dsh-server.log' })
   })
 })
 

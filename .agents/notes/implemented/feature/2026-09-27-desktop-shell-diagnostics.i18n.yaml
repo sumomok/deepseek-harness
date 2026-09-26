@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-shell-diagnostics.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-shell-diagnostics.md
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers:
+  en: fe0693000a77af80
+  zh: 688428723b198428
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/problem:
+  en: 67c588eeaaf0e7d7
+  zh: 4babe55b048d0de6
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/decision/crash-records-for-the-server-process:
+  en: 278d584174b419c7
+  zh: 76ccfd68c4e2bb10
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/decision/server-logger-records-in-dsh-server-log:
+  en: a670dc47168aa57d
+  zh: 01332181fefce38d
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/decision/the-detail:
+  en: a90b31beb962f240
+  zh: 9bd315be7f8fb7a6
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/decision/emptying-pending-after-an-install:
+  en: 0209ca3808830fc1
+  zh: 91d12ea345e48b5d
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/alternatives-considered:
+  en: d166e9c26f470386
+  zh: 4d2ff8880fd7544b
+/agent-note-desktop-shell-diagnostics-crash-records-server-logger-records-and-update-leftovers/consequences:
+  en: 5402206aa27876de
+  zh: 5a45efc62765fe74

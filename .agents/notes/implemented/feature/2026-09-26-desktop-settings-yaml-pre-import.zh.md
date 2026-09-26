@@ -8,7 +8,7 @@ Status: implemented
 
 到 0.1.0-rc.33 为止,桌面把所有实时设置存在 `$DSH_HOME/settings.yaml` 里,每个命名空间一段。0.1.7 基座去掉了这个文件:服务端首次启动时,`SettingsForms.importLegacyDocument` 把它改名为 `settings.yaml.imported`,再通过设置页用的同一个配置编辑器,把每一段写进 id 与段名相同的 profile 条目。之后没有任何东西再读改名后的文件。
 
-这次导入有两条硬规则。没有同 id 条目的段导入失败。段里只要有一个键不是该条目声明的 volatile 字段,整段失败,包括该条目的 `Config` 里已经根本不存在的键。失败的段只在 `ctx.logger` 上留一条 warn,而桌面组合里没有任何 exporter 把它写到用户或壳看得到的地方,数据则留在一个没人再读的文件里。
+这次导入有两条硬规则。没有同 id 条目的段导入失败。段里只要有一个键不是该条目声明的 volatile 字段,整段失败,包括该条目的 `Config` 里已经根本不存在的键。失败的段只在 `ctx.logger` 上留一条 warn,数据则留在一个没人再读的文件里。桌面层的 `desktop-server-log` 一行会把 logger 记录追加进 `dsh-server.log`,但导入发生在首次启动期间、这一行挂载之前,而这一行挂载时重放的 logger 缓冲区按 INFO 收记录,所以这条 warn 仍然到不了用户或壳看得到的地方。
 
 rc.33 客户端的文件在好几处撞上这两条规则。`agent-presets` 没有这个 id 的条目;注册表叫 `agent-preset-registry`,选择存在 `selectedDefault`,`code` 预设改叫 `ptc`,rc.2 还删掉了 `modeSelectionEnabled`。`at-file` 属于这一版撤下的插件。四个插件段带着早期插件版本写过、后来的版本不再声明的键,首先是审查网关的 `mode`;手改还可能留下插件 schema 拒绝的值。`llm-deepseek.baseURL` 存的是 Messages 适配器用不了的 chat completions 地址。另外,闪屏在任何服务端存在之前就从 `settings.yaml` 读 `ui-theme`,文件改名之后就会退回跟随系统。
 

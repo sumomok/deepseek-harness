@@ -1,20 +1,40 @@
 {
   "name": "@deepseek-ai/dsh-desktop-app",
-  "description": "The desktop application's own composition layer: a patch-only bundle carrying the deployment rows the shipped dsh-base and dsh-web-app layers leave to whoever deploys them.",
+  "description": "The desktop application's own composition layer: a bundle carrying the deployment rows the shipped dsh-base and dsh-web-app layers leave to whoever deploys them, and the server-log exporter one of those rows mounts.",
   "version": "0.1.0-rc.7",
   "private": true,
   "type": "module",
   "exports": {
+    "./server-log": {
+      "types": "./lib/server-log.d.ts",
+      "default": "./lib/server-log.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "lib"
   ],
+  "scripts": {
+    "build:ts": "tsc -b"
+  },
   "license": "MIT",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3"
   }
 }

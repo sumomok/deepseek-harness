@@ -17,6 +17,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import yaml from 'js-yaml'
+import { SERVER_LOG_ENV } from '../src/server.ts'
 
 /**
  * The stderr fragments a profile boot writes when it leaves part of the
@@ -85,6 +86,21 @@ const PACKAGE_MANAGER_ENV = /^(?:NODE_PATH|npm_.*|PNPM_.*)$/i
  */
 export function stagedBootEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([name]) => !PACKAGE_MANAGER_ENV.test(name)))
+}
+
+/**
+ * The environment the staged server boots with: [[stagedBootEnv]] plus the
+ * log file the shell names to its server. With the file named, the desktop
+ * layer's `desktop-server-log` row mounts and imports
+ * `@deepseek-ai/dsh-desktop-app/server-log` from the payload, as it does under
+ * the shell; without it the row stays off, and a payload missing that module
+ * would boot clean here and fail to mount the row on the user's machine.
+ * @param env - the build process's environment.
+ * @param logFile - where the staged server appends its logger records.
+ * @returns [[stagedBootEnv]]'s copy with the log file named.
+ */
+export function stagedServerEnv(env: NodeJS.ProcessEnv, logFile: string): NodeJS.ProcessEnv {
+  return { ...stagedBootEnv(env), [SERVER_LOG_ENV]: logFile }
 }
 
 /** The installation package whose production closure a payload must carry. */

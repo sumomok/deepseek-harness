@@ -202,3 +202,20 @@
 - id: ui-chat
   config:
     transcriptView: compact
+
+# The server's own log records in the desktop log file. Plugins log through
+# `ctx.logger`, and no row in the shipped bundles registers an exporter for it,
+# so without this row those records live only in the logger's in-memory buffer.
+# The shell names its log file in `DSH_DESKTOP_SERVER_LOG` for the server child
+# alone; a boot without it — `dsh --profile desktop-shell` started by hand, or
+# the packaging run's staged boot — leaves the row off. `level: 2` is the
+# threshold cordis compares against its own order, ERROR 0 < INFO 1 < WARN 2
+# < DEBUG 3, so it keeps warnings — the level the webserver reports a failed
+# listen at — and drops debug.
+- insert:
+    - id: desktop-server-log
+      name: '@deepseek-ai/dsh-desktop-app/server-log'
+      disabled: !!js "!process.env.DSH_DESKTOP_SERVER_LOG"
+      config:
+        file: !!js process.env.DSH_DESKTOP_SERVER_LOG
+        level: 2

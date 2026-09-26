@@ -39,7 +39,8 @@ import { bundleClosure } from './bundle-closure.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
-  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer,
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv,
+  verifyDesktopLayer,
   WITHHELD_PACKAGES,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
@@ -522,7 +523,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   // developer's browser, and the shell declines the same handoff for its own.
   const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: root,
-    env: stagedBootEnv(process.env),
+    env: stagedServerEnv(process.env, join(buildHome, 'dsh-server.log')),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let collected = ''
@@ -912,6 +913,8 @@ async function main(buildHome: string): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'])
   await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'])
+  // Before the deploy, which copies the package's `lib` into the payload.
+  await run('desktop-app tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-app', 'run', 'build:ts'])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
 
   if (!cli.skipDeploy) {

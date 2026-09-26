@@ -45,7 +45,7 @@ import {
   classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
   runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
 } from './server-supervision.ts'
-import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
@@ -853,7 +853,9 @@ if (!locked) {
       sink(launcher === undefined
         ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
         : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv } }
+      // The server appends its own logger records to the same file, as one
+      // write per record, rather than printing them into the streams above.
+      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, [SERVER_LOG_ENV]: logFile } }
       server = await startServerWithQuarantine(
         activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
       )
