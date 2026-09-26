@@ -648,6 +648,7 @@
 - **要达到的效果**：新写的 `as unknown` 在本线同样被拒，既有的这批按上游机制计数冻结，改掉一处就能用 `--prune` 收紧。
 - **退役条件**：本线把这些断言改成类型化取值或收窄后 `pnpm run verify-no-unknown-casts --prune` 删净本线条目，或这些文件移出本仓。
 - **状态**：在役（`product/server-console`）。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
+- **本轮适配（`dsh-v0.1.7-rc.2` 第八轮）**：`packages/experimental/server-layout/tests/shell-frame.client.spec.tsx` 的会话列表桩改为类型化的 `SessionListState`，用 `--prune` 删去它原来那条断言的指纹，本线条目剩 200 处。
 - **路径**：`scripts/no-unknown-casts.baseline.json`
 
 ## console-cordis-preset-rescope-skip — rescope 门禁放行本线 e2e 里的 cordis 预设 id

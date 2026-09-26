@@ -19,7 +19,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ShellFrame, type ShellFrameProps } from '../src/client/ShellFrame.tsx'
 import { createPanelStore } from '../src/client/stores.ts'
@@ -70,9 +70,9 @@ type ContentFixture = number | 'no-session' | 'no-projection' | { surface: unkno
  * then one main-view session whose `contentSurface.entries` carries
  * `contentEntries` items — see {@link ContentFixture} for the other cases
  * (all collapsed readings; see `ShellFrame.tsx`'s own `currentContentEmpty`).
- * `contentSurface` is not a type this package depends on (soft-coupled read,
- * see the module doc), so the state is built loosely and cast through
- * `unknown` rather than satisfying `SessionListState` structurally.
+ * `contentSurface` is not a key of this package's `SessionProjectionMap`
+ * (soft-coupled read, see the module doc), so each row's projection values are
+ * widened to `object` before they take the row's declared field type.
  */
 function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSessions'] {
   const noSession = contentEntries === 'no-session'
@@ -80,33 +80,34 @@ function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSe
   const surface = typeof contentEntries === 'object'
     ? contentEntries.surface
     : { entries: Array.from({ length: typeof contentEntries === 'number' ? contentEntries : 0 }, () => ({})) }
-  const background = {
+  const projected = (contentSurface: unknown): Pick<SessionSummary, 'projectionValues'> => {
+    const values: object = { contentSurface }
+    return { projectionValues: values }
+  }
+  const background: SessionSummary = {
     id: BACKGROUND_SESSION_ID,
     displayTitle: 'Background',
     running: false,
     blank: false,
     updatedAt: 1,
     retainedBy: {},
-    projectionValues: { contentSurface: { entries: [{}] } },
+    ...projected({ entries: [{}] }),
   }
-  const state = {
+  const main: SessionSummary = {
+    id: TEST_SESSION_ID,
+    displayTitle: 'Test',
+    running: false,
+    blank: false,
+    updatedAt: 1,
+    retainedBy: { mainView: 1 },
+    ...noProjection ? {} : projected(surface),
+  }
+  const state: SessionListState = {
     ids: noSession ? [BACKGROUND_SESSION_ID] : [BACKGROUND_SESSION_ID, TEST_SESSION_ID],
-    byId: noSession ? { [BACKGROUND_SESSION_ID]: background } : {
-      [BACKGROUND_SESSION_ID]: background,
-      [TEST_SESSION_ID]: {
-        id: TEST_SESSION_ID,
-        displayTitle: 'Test',
-        running: false,
-        blank: false,
-        updatedAt: 1,
-        retainedBy: { mainView: 1 },
-        ...noProjection ? {} : {
-          projectionValues: { contentSurface: surface },
-        },
-      },
-    },
+    byId: noSession ? { [BACKGROUND_SESSION_ID]: background } : { [BACKGROUND_SESSION_ID]: background, [TEST_SESSION_ID]: main },
     phase: 'ready',
-  } as unknown as SessionListState
+    projectionsBySession: {},
+  }
   return ((select: (s: SessionListState) => unknown) => select(state)) as never
 }
 

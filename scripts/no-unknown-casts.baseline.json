@@ -1443,8 +1443,7 @@
     "59c63f734e8bba862325f776e3fcbebd78a84cfb4161f8df41c216950d9bf351": 1
   },
   "packages/experimental/server-layout/tests/shell-frame.client.spec.tsx": {
-    "478242f30bc3e0daa0af779a9e6f58b5a4349a9fc0709ecda23eae4bc0f23a7a": 1,
-    "642e921394e1895db60b8dc52faef3b308c33616f75fb4d4085b1427cc528b1d": 1
+    "478242f30bc3e0daa0af779a9e6f58b5a4349a9fc0709ecda23eae4bc0f23a7a": 1
   },
   "packages/experimental/server-sidebar/src/client/identity.ts": {
     "2e2604d4d8059018bbf76cbfdea12ffc08f5ccba3aa056f797f6ffe2a39affc1": 1
