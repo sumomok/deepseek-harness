@@ -366,7 +366,9 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
           writePointer(host.userData, adoptEnvLocation(resolution.envPath, resolution.pointer))
         } else {
           log(`[desktop] data location: the person kept ${current} over ${resolution.envPath}\n`)
-          writePointer(host.userData, keepPointerOverEnv(resolution.envPath, resolution.pointer))
+          const synced = await syncTerminal(host, keepPointerOverEnv(resolution.envPath, resolution.pointer), resolution.envPath)
+          terminal = synced.sync
+          writePointer(host.userData, synced.pointer)
         }
         decided = true
         continue
