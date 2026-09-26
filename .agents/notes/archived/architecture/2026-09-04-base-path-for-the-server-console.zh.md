@@ -1,6 +1,7 @@
 # Agent Note: 把控制台挂到部署路径前缀下，而这个前缀只有浏览器知道
 
 Status: implemented
+Archived: 2026-09-27
 
 [English](2026-09-04-base-path-for-the-server-console.md) | 中文
 

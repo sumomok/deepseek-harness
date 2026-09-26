@@ -46,12 +46,12 @@ Status: implemented
 - 访客手打 `/permission` 得不到任何菜单行，也得不到拒绝——这一行作为文本抵达模型（见上文的残留，以及包 README 的「已知限制」）。
 - 升级之前存下的 `permission.defaultPreset` 仍然盖过 overlay 的值，而且已经没有任何界面能改动它；优先级链与部署清掉它的办法见上文 Decision。`remote.settings` 也依然是一条浏览器够得到的写入路径——那是一台不带应用内鉴权运行的控制台的固有属性，不是这里的退化。
 - `DSH_PERMISSION_MODE` 不再改变控制台的默认预设。它仍然改变组合出的沙箱与审批旋钮，因此把它设成 `workspace-write` 以外的值的部署，组合出的会是一个由被钉住的预设按会话覆盖掉的错配，而不是一个悄悄不同的默认值。没有任何控制台设置它。
-- `apps/web/tests/` 下那三份控制台 overlay 是出厂行的副本而不是 include（`extraOverlayPath` 只接受一条路径），因此它们之间可能漂移；`packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts` 会把每一份副本与出厂行比对。
+- `apps/web/tests/` 下那三份控制台 overlay 在自己的部署行旁组合控制台 bundle，而不是复制它的行；`packages/experimental/console-profile/tests/profile.spec.ts` 断言其中没有一份重述控制台包持有的行。
 - 模型可见的东西没有任何变化：`commands.list` 是一个抵达不了模型的 Remote 方法，运行时上下文消息报告的仍是 `workspace-write` + `ask`。
 
 ## Testing
 
-`packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts` 用 `js-yaml` 与 loader 的 entry schema 解析出厂 overlay（沿用 `packages/experimental/content-frame/tests/permission-gateway-overlay.client.spec.ts` 立下的做法），钉住原先由 e2e 守着的那个闭集：表序下的三个预设 id、它们面向客户的名字、`isolate.commands === true`、一个点名其中之一的 `defaultPreset`，以及 `ui-permission` 禁用行——然后断言 `apps/web/tests/` 下那三份 overlay 携带的这两行完全一致。它是一个 YAML 文本钉，对 loader 一无所知：`isolate` 的语义在一次 `vendor/` 同步中变了，或者 `permission-presets` 把注册挪到它的 `static inject` 上，它都会照样是绿的。那个机制唯一的覆盖是下面那条浏览器泳道，而 `pnpm run test` 不跑它。
+`packages/experimental/console-profile/tests/profile.spec.ts` 用 `js-yaml` 与 loader 的 entry schema 解析出厂 patch（沿用 `packages/experimental/content-frame/tests/permission-gateway-overlay.client.spec.ts` 立下的做法），钉住原先由 e2e 守着的那个闭集：表序下的三个预设 id、它们面向客户的名字、`isolate.commands === true`、一个点名其中之一的 `defaultPreset`（均在 `packages/experimental/console-profile/permission-lock.patch.yml` 的 `permission` 行上），以及 bundle 自身 `cordis.patch.yml` 里的 `ui-permission` 禁用行——然后断言 `apps/web/tests/` 下那三份 overlay 没有一份重述控制台包持有的行。它是一个 YAML 文本钉，对 loader 一无所知：`isolate` 的语义在一次 `vendor/` 同步中变了，或者 `permission-presets` 把注册挪到它的 `static inject` 上，它都会照样是绿的。那个机制唯一的覆盖是下面那条浏览器泳道，而 `pnpm run test` 不跑它。
 
 `apps/web/tests/server-sidebar.e2e.ts` 的预设场景已经够不着，替换为一个在装配好的浏览器里读这三个入口的场景：输入框里一个裸 `/` 会列出控制台的整个命令集（`compact`、`content-navigated`、`dismiss-content-entry`、`feedback`、`goal`、`plan`、`select-content-entry`、`show-content-page`），因此这份组合新增一条命令时同样会失败；Settings → General 渲染出它自己的一条出厂行且没有权限行；chip 则通过既有的 `expectGuardHides` 助手断言「存在且不可见」，并停在被钉住的那个预设名字上。这个场景对着一个故意改坏的构建验过：把 `isolate` 键从 e2e overlay 里去掉后，菜单列出九行，用例在多出来的 `permission` 上失败。
 

@@ -25,7 +25,7 @@ No console tab is showing this session's content column (waited 3s).
 
 ### 前缀那轮工作为什么没抓到
 
-[base-path 决策](../architecture/2026-09-04-base-path-for-the-server-console.zh.md)清点过页面在运行时构造的东西——三份 `resolveBase()` 副本、两条 WebSocket 下行、HMR 的 `EventSource`、「本仓库自己四个插件 fetch 的 settings 路由」——而[合并前推那篇](../process/2026-09-06-console-merge-forward.zh.md)又把合并后的树审了一遍，点名了它决定留下的两处以根开头的地址（combo source map 的 `sources[]`，以及 PWA manifest）。
+[base-path 决策](../../archived/architecture/2026-09-04-base-path-for-the-server-console.md)清点过页面在运行时构造的东西——三份 `resolveBase()` 副本、两条 WebSocket 下行、HMR 的 `EventSource`、「本仓库自己四个插件 fetch 的 settings 路由」——而[合并前推那篇](../process/2026-09-06-console-merge-forward.zh.md)又把合并后的树审了一遍，点名了它决定留下的两处以根开头的地址（combo source map 的 `sources[]`，以及 PWA manifest）。
 
 两次审查找的都是「路由常量站在请求点上」这个形状：`*_ROUTE` 挨着 `fetch(`、`new WebSocket(`、`new EventSource(`。而在这个文件里，常量和请求隔着七十行，中间还夹着一个本地的 `post()` 帮手——`post()` 把 `route` 当成一个不透明的字符串参数收下，所以 `fetch(` 那一处根本没提任何路由，三处调用点也根本没提 `fetch`。两次审查的搜索形状在这里都没有命中，于是各自都因为这个包唯一那处看得见的路由 fetch（settings 那条）是对的，而判定整个包已被覆盖。
 
@@ -54,7 +54,7 @@ No console tab is showing this session's content column (waited 3s).
 
 **把常量写成相对路径，交给 `<base href>` 去解析。** 出于同样的理由否决，还多一条更糟的：相对路径是相对文档的 base 解析的，而那个 base 是 server-base 行和 dist server 两边写的，于是读取通道的地址会取决于一个本包两个半边都不设置的值。`clientUrl` 读的是同一个 base，但只取它的路径、并且始终把它落在页面 origin 上——这正是「一个指向别的 origin 的 `<base>` 改不了认领去向」的原因。
 
-**让进程知道自己的前缀，把路由注册在前缀下。** 全仓库早已否决；[base-path 决策](../architecture/2026-09-04-base-path-for-the-server-console.zh.md)持有理由（四处各自独立匹配路径的地方，改不全就会产生症状指向路由而非指向前缀的 404）。
+**让进程知道自己的前缀，把路由注册在前缀下。** 全仓库早已否决；[base-path 决策](../../archived/architecture/2026-09-04-base-path-for-the-server-console.md)记录了理由（四处各自独立匹配路径的地方，改不全就会产生症状指向路由而非指向前缀的 404）。
 
 ## Consequences
 

@@ -25,7 +25,7 @@ The settings route in the same package was already correct (`src/client/index.ts
 
 ### Why the prefix work did not catch it
 
-[The base-path decision](../architecture/2026-09-04-base-path-for-the-server-console.md) enumerated what the page builds at run time — three copies of `resolveBase()`, the two WebSocket downlinks, the HMR `EventSource`, "the settings routes four of this repository's own plugins fetch" — and [the merge-forward note](../process/2026-09-06-console-merge-forward.md) audited the merged tree again and named the two root-absolute addresses it was leaving in place (the combo source map's `sources[]`, and the PWA manifest).
+[The base-path decision](../../archived/architecture/2026-09-04-base-path-for-the-server-console.md) enumerated what the page builds at run time — three copies of `resolveBase()`, the two WebSocket downlinks, the HMR `EventSource`, "the settings routes four of this repository's own plugins fetch" — and [the merge-forward note](../process/2026-09-06-console-merge-forward.md) audited the merged tree again and named the two root-absolute addresses it was leaving in place (the combo source map's `sources[]`, and the PWA manifest).
 
 Both audits looked for a route constant standing at a request site: a `*_ROUTE` next to a `fetch(`, a `new WebSocket(`, a `new EventSource(`. In this file the constant and the request are seventy lines apart with a local `post()` helper between them — `post()` takes `route` as an opaque string parameter, so the `fetch(` call site names no route at all and the three call sites name no `fetch`. Neither audit's search shape had a hit here, and each concluded the package was covered because its one visible route fetch, the settings one, was.
 
@@ -54,7 +54,7 @@ Every browser half under `packages/experimental/` was inventoried for the same c
 
 **Spell the constants relative and let `<base href>` resolve them.** Rejected for the same reason, plus a worse one: a relative path resolves against the document's base, which the server-base row and the dist server both write, so the read channel's address would depend on a value neither half of this package sets. `clientUrl` reads the same base but takes only its path and always puts it on the page origin, which is what keeps a `<base>` naming another origin from redirecting a claim.
 
-**Let the process learn its prefix and register the routes under it.** Rejected repo-wide already; [the base-path decision](../architecture/2026-09-04-base-path-for-the-server-console.md) owns why (four independent path matchers, and a partial change produces 404s whose symptom points at routing).
+**Let the process learn its prefix and register the routes under it.** Rejected repo-wide already; [the base-path decision](../../archived/architecture/2026-09-04-base-path-for-the-server-console.md) records why (four independent path matchers, and a partial change produces 404s whose symptom points at routing).
 
 ## Consequences
 

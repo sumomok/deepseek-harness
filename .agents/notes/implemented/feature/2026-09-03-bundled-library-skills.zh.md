@@ -18,7 +18,7 @@ Status: implemented
 
 `bundledSkillDir` 把根挂在 `BUNDLED_SKILL_RANK`（600），低于所有用户可写的根，且读取走 Node 而不走 `ctx.fs`。因此用户的同名技能赢两次：一次靠层，因为这一行落在注册表的全局层，而本地发现属于 agent 的 preset 层；万一某个部署把两者放进同一层，再靠 rank 赢一次。`customSkillDirs` 会把这个关系倒过来——rank 300 赢过用户自己的 400——所以它不能用来挂出厂知识。
 
-这一行出现在五个组合文件里：本包自己的 `cordis.patch.yml`，由 `dsh plugin --profile <name> add` 安装激活；生产服务线 overlay `packages/experimental/server-sidebar/overlay/customer.patch.yml`；镜像它的两份 e2e overlay；以及只组合这一行的 `apps/web/tests/library-skills.overlay.yml`。`apps/web/tests/library-skills.e2e.ts` 断言这五处携带完全相同的一行，因此不论走哪条组合路径，出厂的知识都一致。
+这一行出现在三个组合文件里：本包自己的 `cordis.patch.yml`，由 `dsh plugin --profile <name> add` 安装激活；控制台 bundle 层 `packages/experimental/console-profile/cordis.patch.yml`；以及只组合这一行的 `apps/web/tests/library-skills.overlay.yml`。`apps/web/tests/library-skills.e2e.ts` 断言这三处携带完全相同的一行，因此不论走哪条组合路径，出厂的知识都一致。
 
 本包每一份技能都带 `user-invocable: false`。该键默认为真，而组合本包的那些控制台同时挂着 `ui-skill`，因此漏写的技能会变成终端用户 `/` 命令菜单里的一项——把维护者的词汇摆到面向客户的界面上。出厂库知识是面向模型的：模型通过目录找到它，想要一条斜杠命令的人则在用户根里写自己的技能，那份本来也会赢下同名。
 

@@ -1,6 +1,7 @@
 # Agent Note: serving the console under a deployment path prefix, with the prefix known only to the browser
 
 Status: implemented
+Archived: 2026-09-27
 
 English | [中文](2026-09-04-base-path-for-the-server-console.zh.md)
 
