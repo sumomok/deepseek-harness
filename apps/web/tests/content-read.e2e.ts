@@ -12,9 +12,10 @@
  * assertions read is therefore the browser's own answer about a document the
  * browser itself rendered.
  *
- * This scenario owns the corpus's `web-content` header class: the four content
- * scenarios boot one composition, and the tool schemas and system prompt its
- * pin holds are the ones all four requests carry.
+ * This scenario owns the corpus's `web-content` header class: the content
+ * scenarios composed from the `standard` preset boot one composition, and the
+ * tool schemas and system prompt its pin holds are the ones their requests
+ * carry. `content-read-dom` composes the console preset and owns its own class.
  */
 
 import { join } from 'node:path'

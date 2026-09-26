@@ -55,6 +55,52 @@ export const CONTENT_COLUMN_PRESET: PresetDefinition = {
   }],
 }
 
+/**
+ * The customer console's own Agent preset, restated from the `preset-console`
+ * row of `packages/experimental/console-profile/cordis.patch.yml`: its persona,
+ * the file tools, the skill catalog and loader, compaction, the question tool
+ * and the todo list — no shell, no file search, no web tool, and no working
+ * directory in the persona.
+ *
+ * A scenario about reading markup the console's model is expected to answer
+ * from the column composes this, because the `standard` preset hands the model
+ * a shell, a file search and a web fetch, and with those it read the fixture
+ * application's source off disk and fetched the hosted page over HTTP instead.
+ */
+export const CONSOLE_PRESET: PresetDefinition = {
+  id: 'console',
+  name: 'Console',
+  description: 'The customer console\'s tool set.',
+  order: 90,
+  plugins: [
+    {
+      id: 'persona',
+      name: '@deepseek-ai/dsh-persona',
+      config: { prefix: '你是数据控制台助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。' },
+    },
+    { id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' },
+    { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
+    { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
+    {
+      id: 'compaction',
+      name: 'cordis:group',
+      group: true,
+      isolate: { compaction: true, toolResultPruner: true },
+      config: [
+        { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' },
+        { id: 'command-compact', name: '@deepseek-ai/dsh-command-compact' },
+        {
+          id: 'tool-result-pruner',
+          name: '@deepseek-ai/dsh-compaction-tool-result-pruner',
+          config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 },
+        },
+      ],
+    },
+    { id: 'tool-ask-user', name: '@deepseek-ai/dsh-tool-ask-user' },
+    { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true } },
+  ],
+}
+
 /** The package these scenarios exercise. */
 export const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 

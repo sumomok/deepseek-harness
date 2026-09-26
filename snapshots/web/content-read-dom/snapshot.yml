@@ -4,4 +4,5 @@ profile: web
 composition: web-content
 recording: live
 header:
-  class: web-content
+  class: web-content-console
+  pin: true
