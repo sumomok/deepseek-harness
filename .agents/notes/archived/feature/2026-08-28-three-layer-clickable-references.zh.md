@@ -1,6 +1,7 @@
 # Agent Note：可点引用三层架构（提名 → 验证 → 打开）
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-08-28-three-layer-clickable-references.md) | 中文
 

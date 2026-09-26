@@ -1,6 +1,7 @@
 # Agent Note: the three-layer clickable-reference architecture (nominate → verify → open)
 
 Status: implemented
+Archived: 2026-09-26
 
 English | [中文](2026-08-28-three-layer-clickable-references.zh.md)
 
