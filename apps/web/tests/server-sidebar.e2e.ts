@@ -958,14 +958,25 @@ describe('web e2e: the product-console sidebar', () => {
     }
   })
 
-  it('offers exactly the `console` Agent preset, so no session can be created under a shipped one', async () => {
+  it('offers `console` and a `standard` with console\'s tools, so no session can run under a shipped preset', async () => {
     // `session.create` takes an `agentPreset` over RPC, which no page control
     // gates; each shipped preset is absent from the registry rather than hidden.
+    // `standard` stays resolvable so sessions created under it before `console`
+    // existed can resume, and it resolves to the customer tool set.
     const presets = await scaffold.ctx.agentPresets.list()
-    expect(presets.map(preset => preset.id)).toEqual(['console'])
-    expect(presets[0]?.broken).toBeUndefined()
-    for (const shipped of ['standard', 'ptc', 'minimal', 'cordis']) {
+    expect(presets.map(preset => preset.id).sort()).toEqual(['console', 'standard'])
+    expect(presets.every(preset => preset.broken === undefined)).toBe(true)
+    for (const shipped of ['ptc', 'minimal', 'cordis']) {
       await expect(scaffold.ctx.agentPresets.resolve(shipped)).rejects.toThrow(`Unknown agent preset: ${shipped}`)
+    }
+    const handle = await scaffold.ctx.agents.create({
+      sessionId: SessionId('server-sidebar-standard-preset'),
+      setup: agentCtx => scaffold.ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    try {
+      expect(scaffold.ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()).toEqual(CONSOLE_TOOLS)
+    } finally {
+      await handle.dispose()
     }
   })
 

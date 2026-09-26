@@ -243,8 +243,8 @@
 #
 # The registry's default is set by the lock (`permission-lock.patch.yml`), not
 # here: the default's volatile `selectedDefault` field is writable through
-# `remote.settings`, and with this preset the only one declared, any other value
-# would make every new session fail.
+# `remote.settings`, and with this preset and its `standard` twin below the only
+# ones declared, any other value would make every new session fail.
 - insert:
     - id: preset-console
       name: '@deepseek-ai/dsh-agent-preset'
@@ -285,13 +285,60 @@
             config:
               allowParallelInProgress: true
 
-# `console` is the only Agent preset the console declares. The console offers
-# no preset picker (`ui-agent-preset` is disabled above), but `session.create`
-# accepts an `agentPreset` over RPC, so every shipped preset is disabled rather
-# than merely unreachable from the page: `standard`, `ptc`, and `minimal` carry
-# the shell and the other developer rows `console` leaves out, and the cordis
-# preset also mounts `tool-cordis` and the skill catalog whose
-# `cordis-composition-reference` skill lists every workspace package.
+# A session records the id of the preset it was created under and resumes under
+# that id. Sessions a console deployment created before `console` existed carry
+# `standard`, and with no `standard` declared they could not resume: no message,
+# no navigation. This row declares `standard` with exactly `console`'s plugins
+# (`tests/profile.spec.ts` asserts the two lists are equal), so those sessions
+# resume with the customer tool set and a caller naming `standard` over RPC gets
+# nothing `console` does not already offer.
+- insert:
+    - id: preset-standard-as-console
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: standard
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: 你是数据控制台助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+
+# The console offers no preset picker (`ui-agent-preset` is disabled above), but
+# `session.create` accepts an `agentPreset` over RPC, so every shipped preset is
+# disabled rather than merely unreachable from the page: `standard`, `ptc`, and
+# `minimal` carry the shell and the other developer rows `console` leaves out,
+# and the cordis preset also mounts `tool-cordis` and the skill catalog whose
+# `cordis-composition-reference` skill lists every workspace package. The
+# shipped `standard` row is replaced by the one above, not merely disabled.
 - id: preset-standard
   disabled: true
 

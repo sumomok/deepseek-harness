@@ -205,13 +205,21 @@ describe('the console layer over the shipped Web bundles', () => {
     }
   })
 
-  it('leaves `console` the only Agent preset row it does not disable', () => {
+  it('leaves `console` and its `standard` twin the only Agent preset rows it does not disable', () => {
     const presets = entries.filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset')
     // Every shipped declaration is present to be disabled; a renamed one would
-    // surface as a warning above and as a fifth id here.
-    expect(presets.map(entry => entry.id).sort())
-      .toEqual(['preset-console', 'preset-cordis', 'preset-minimal', 'preset-ptc', 'preset-standard'])
-    expect(presets.filter(entry => entry.disabled !== true).map(entry => entry.id)).toEqual(['preset-console'])
+    // surface as a warning above and as a sixth id here.
+    expect(presets.map(entry => entry.id).sort()).toEqual([
+      'preset-console', 'preset-cordis', 'preset-minimal', 'preset-ptc', 'preset-standard', 'preset-standard-as-console',
+    ])
+    expect(presets.filter(entry => entry.disabled !== true).map(entry => entry.id).sort())
+      .toEqual(['preset-console', 'preset-standard-as-console'])
+  })
+
+  it('declares `standard` with exactly `console`\'s plugins, so a session created under `standard` resumes with the customer tool set', () => {
+    const twin = byId.get('preset-standard-as-console')
+    expect(twin).toMatchObject({ name: '@deepseek-ai/dsh-agent-preset', config: { id: 'standard' } })
+    expect((twin?.config as { plugins?: unknown }).plugins).toEqual((byId.get('preset-console')?.config as { plugins?: unknown }).plugins)
   })
 
   it('declares the `console` Agent preset with the customer assistant\'s rows and no developer row', () => {
