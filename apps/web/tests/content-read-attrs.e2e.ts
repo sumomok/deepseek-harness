@@ -17,17 +17,15 @@
  * The fixture pins what the MODEL said; every read executes for real.
  */
 
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+  recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+  COMPOSER, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -44,7 +42,7 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
  * go red for a scenario nobody has recorded yet. Once the fixture is in the
  * tree this is always true.
  */
-const RECORDED = existsSync(FIXTURE)
+const RECORDED = isRecorded(FIXTURE)
 
 /** What the user asks: about the page, never about the tools. */
 const PROMPT = '内容区表格第一行右边那两个小方块，光看样子看不出是干什么的。'
@@ -70,7 +68,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads one el
   it('answers from the attributes a real browser holds, which no listing prints', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-attrs'))
     if (MODE !== 'record') {
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      expect(await recordedUserPrompts(FIXTURE)).toEqual([PROMPT])
     }
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
@@ -94,7 +92,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads one el
     const answer = lastAnswerText(sessionEvents)
     expect(answer.toLowerCase()).toContain('edit')
     expect(answer.toLowerCase()).toContain('delete')
-    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 300_000)
 
   it.skipIf(MODE === 'record')('leaves the console clean', () => {

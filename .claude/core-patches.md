@@ -604,11 +604,12 @@
 
 ## web-test-scaffold-console — web 测试脚手架的增补
 
-- **改了什么**：`apps/web/tests/scaffold.ts`：`recordFixture` 新增 `afterSeed` 选项与 `withoutSeededHistory`／`afterSeededHistory`，录制时剪掉场景预置的历史；回放模型目录旁一段注释说明视觉路由为什么要发布。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口、语言与时区。
-- **为什么**：本线的内容栏 e2e 要在同时预置历史又驱动一轮的场景里录可回放夹具（回放按首次调用顺序绑定脚本，预置轮会错配给第一次调用）；登录门场景要在同一 context 里开第二个同源标签页。
+- **改了什么**：`apps/web/tests/scaffold.ts`：`LaunchOptions.commandLinePatchPath`（见第四轮适配）。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口、语言与时区。
+- **为什么**：登录门场景要在同一 context 里开第二个同源标签页；控制台锁要以 `--patch` 的形式组合。
 - **要达到的效果**：本线浏览器场景复用上游的起壳、录制与回放机制，不分叉脚手架。
 - **退役条件**：上游提供等价能力，或本线场景移出本仓。
-- **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；只剩本线那段注释。本轮 `stableSessionFixture` 以上游的世代感知录制为底，把 `afterSeed` 的剪裁作为 `keep` 参数接进 `prepareSessionSnapshotFixtureForComparison` 之前；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。
+- **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。
+- **本轮退役（`dsh-v0.1.7-rc.2` 第七轮）**：`recordFixture` 的 `afterSeed` 选项、`withoutSeededHistory`／`afterSeededHistory`、`stableSessionFixture` 的 `keep` 参数、`assertReplaySession` 里按种子边界剪日志的 `drivenLog`，以及回放模型目录旁那段本线注释，全部回到 `dsh-v0.1.7-rc.2` 的文本。机械依据：V4 日志里被驱动那一轮的 `system/message` 以 `surfaceOp.replace` 和 `sourceEventSeqs` 引用种子轮的序号，剪掉种子轮后的日志过不了 V4 的引用校验（`sourceEventSeqs ranges must contain unique earlier seqs`）。本线内容栏场景（`apps/web/tests/content-column.ts`）改为只种一个不含模型调用的轮次（`turn/start`、`content/shown`、`turn/end`），整段会话照上游方式录制与回放；图片场景的回放目录由 `content-column.ts` 经上游已有的 `replayProviders` 传入。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第四轮）**：`LaunchOptions` 新增 `commandLinePatchPath`：把一个补丁文件原样追加到 profile context 的 `overlays`，即启动器 `--patch` 所在的位置（`apps/cli/src/profile-boot.ts` 的 `overlays`），不经过 `extraOverlayPath` 那条把 `permission`、`agent-preset-registry` 等行的 config 挪进可编辑默认层的映射。用途：`server-sidebar.e2e.ts` 的「无工作区」describe 以 `--patch` 形式组合控制台锁，证明该形式同样拒绝 `defaultPreset` 写入（去掉该选项后同一用例失败：`promise resolved "undefined" instead of rejecting`）。
 - **路径**：`apps/web/tests/scaffold.ts` `apps/web/tests/support.ts`
 

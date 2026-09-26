@@ -9,6 +9,7 @@
  * further scenario is a spec that imports this and says what it is for.
  */
 
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -16,8 +17,12 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { expect } from 'vitest'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import type { ReplayProviderConfig } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
+import {
+  fixtureUserPrompts, launchWebScaffold, seedSession, selectedSessionFixture, watchConsole, webSnapshotMode,
+  type WebScaffold,
+} from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT } from './support.ts'
 
 /**
@@ -68,19 +73,87 @@ const ROWS = [
 export const COMPOSER = '[data-composer-input]'
 
 /**
- * The recorded round every one of these scenarios seeds before it drives its
- * own: a session has to exist for the sidebar to open one, and this is the
- * corpus's smallest complete round.
+ * What every one of these scenarios seeds before it drives its own turn: a
+ * closed turn whose only event puts the hosted page in the column. A session
+ * has to exist for the sidebar to open one, and the page has to be showing
+ * before a turn starts. The turn holds no model call, so the scenario's
+ * recording is the whole session and replays from its first model call.
  */
-const SEED = join(REPO_ROOT, 'snapshots/web/fresh-round-trip/session.v4.jsonl')
+const SEED = [
+  { type: 'session', version: 4, id: '{{session:1}}', createdAt: 0, cwd: '{{cwd}}', isSeeded: false, delegationDepth: 0 },
+  { type: 'turn/start', data: { turn: 1 } },
+  { type: 'content/shown', data: { page: 'home' } },
+  { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+].map(record => JSON.stringify(record)).join('\n')
+
+/**
+ * The output cap and thinking efforts the `llm-deepseek` adapter publishes for
+ * every catalog route (`packages/llm/llm-deepseek/src/defaults.ts`, `model-info.ts`).
+ */
+const ADAPTER_DEFAULTS = {
+  defaultMaxTokens: 256_000,
+  reasoningEfforts: ['off', 'low', 'high', 'max'],
+  defaultReasoningEffort: 'high',
+}
+
+/**
+ * The routes a content-column session is offered in replay, restating the
+ * shipped `llm-deepseek` default catalog (`packages/llm/llm-deepseek/src/models.ts`)
+ * that a recording runs against, so a replayed request writes the same request
+ * header the recorded one did.
+ */
+export const CONTENT_COLUMN_REPLAY_PROVIDERS: ReplayProviderConfig[] = [{
+  id: 'deepseek-official',
+  name: 'DeepSeek',
+  models: [
+    {
+      id: 'deepseek-flash',
+      name: 'DeepSeek-V41-Flash',
+      contextWindow: 1_000_000,
+      inputModalities: ['text', 'image'],
+      systemPromptUpdate: 'in-history',
+      toolUpdate: 'addition-only',
+      ...ADAPTER_DEFAULTS,
+    },
+    {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek-V4-Pro',
+      description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+      contextWindow: 1_000_000,
+      ...ADAPTER_DEFAULTS,
+    },
+  ],
+}]
+
+/** The route a content-column session runs on unless its scenario names another. */
+const DEFAULT_ROUTE = { provider: 'deepseek-official', model: 'deepseek-flash' } as const
 
 /**
  * Where one scenario's own recording lives, which the corpus fixes.
  * @param scenario - the scenario's name.
- * @returns the path to its `session.jsonl`.
+ * @returns the path to its `session.jsonl` role, whose highest generation replay selects.
  */
 export function fixtureFor(scenario: string): string {
   return join(REPO_ROOT, 'snapshots/web', scenario, 'session.jsonl')
+}
+
+/**
+ * Whether any generation of a scenario's recording is on disk.
+ * @param fixture - the scenario's fixture role path, from {@link fixtureFor}.
+ * @returns true when its directory holds a `session[.vN].jsonl`.
+ */
+export function isRecorded(fixture: string): boolean {
+  const dir = dirname(fixture)
+  return existsSync(dir) && readdirSync(dir).some(name => /^session(?:\.v\d+)?\.jsonl$/u.test(name))
+}
+
+/**
+ * The user prompts of the recording generation replay selects.
+ * @param fixture - the scenario's fixture role path, from {@link fixtureFor}.
+ * @returns the recorded user prompt texts, in order.
+ */
+export async function recordedUserPrompts(fixture: string): Promise<string[]> {
+  return fixtureUserPrompts(await readFile(await selectedSessionFixture(fixture), 'utf8'))
 }
 
 /**
@@ -100,23 +173,6 @@ async function harnessHomeWithRowLinks(prefix: string): Promise<string> {
     await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
   }
   return home
-}
-
-/**
- * Splice one `content/shown` event into a recorded session, before its closing turn.
- * @param fixtureText - the committed seed fixture.
- * @param shown - the page id the agent showed.
- * @returns the fixture text to seed.
- */
-function withShownPage(fixtureText: string, shown: string): string {
-  const lines = fixtureText.split('\n')
-  const closing = lines.findIndex(line => line.includes('"type":"turn/end"'))
-  if (closing === -1) throw new Error('seed fixture has no turn/end to splice before')
-  return [
-    ...lines.slice(0, closing),
-    JSON.stringify({ type: 'content/shown', data: { page: shown } }),
-    ...lines.slice(closing),
-  ].join('\n')
 }
 
 /**
@@ -195,15 +251,13 @@ export interface ContentColumnScenario {
    */
   preset?: PresetDefinition
   /**
-   * The route this scenario's session must run on, selected on the seeded
-   * session the way the composer's model picker selects one.
+   * The route this scenario's session runs on, `deepseek-flash` when omitted,
+   * selected on the seeded session the way the composer's model picker selects
+   * one.
    *
-   * A composition's `agent-default-model` row is not enough and cannot be: a
-   * session that already logged a request header keeps deriving its route from
-   * its own log, and the default applies only to a session that logged none
-   * (`packages/api/session-controller/src/agent.ts`, `selectionFor`). The seed
-   * every scenario here replays logged one, so a scenario that needs another
-   * route has to select it.
+   * The composition's `agent-default-model` row is not what routes it: the
+   * scaffold overrides that row in replay only, so a session left to the
+   * default would run on different routes in record and in replay.
    */
   model?: { provider: string; model: string }
 }
@@ -250,22 +304,17 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
     ...(scenario.preset === undefined
       ? {}
       : { agentPresets: { default: 'standard', definitions: [scenario.preset] } }),
-    ...(mode === 'record' ? {} : { replayFixture: fixture, paceMs: 15 }),
+    ...(mode === 'record'
+      ? {}
+      : { replayFixture: fixture, replayProviders: CONTENT_COLUMN_REPLAY_PROVIDERS, paceMs: 15 }),
   })
   scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { scenario.events.push(event) })
-  const sessionId = await seedSession(
-    scaffold,
-    withShownPage(await readFile(SEED, 'utf8'), 'home'),
-    `${scenario.scenario}-web-e2e`,
-    scenario.preset?.id,
-  )
-  if (scenario.model !== undefined) {
-    // The same call the composer's picker makes, on the same session, before
-    // anything drives a turn: it appends `model/selection`, which is the one
-    // tier that outranks the route the seed logged.
-    const selected = await scaffold.ctx.sessionController.selectModel({ sessionId, ...scenario.model })
-    expect(selected.selected, `${scenario.scenario}: selected route`).toMatchObject(scenario.model)
-  }
+  const sessionId = await seedSession(scaffold, SEED, `${scenario.scenario}-web-e2e`, scenario.preset?.id)
+  // The same call the composer's picker makes, on the same session, before
+  // anything drives a turn: it appends `model/selection`.
+  const route = scenario.model ?? DEFAULT_ROUTE
+  const selected = await scaffold.ctx.sessionController.selectModel({ sessionId, ...route })
+  expect(selected.selected, `${scenario.scenario}: selected route`).toMatchObject(route)
 
   const browser: Browser = await chromium.launch()
   const page = await newEnglishPage(browser)

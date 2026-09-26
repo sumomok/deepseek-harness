@@ -4,10 +4,9 @@
  *
  * The composition, the hosted application and the preset are [the picture
  * scenario](./content-read-image.e2e.ts)'s. One thing differs, and it is the
- * whole scenario: no route is selected on the seeded session, so the session
- * keeps the `deepseek-v4-flash` its seed logged — a text-only route in the
- * replay catalogue. The picture read therefore reaches its route gate with
- * nothing to work with, and the gate puts a card in the console instead of
+ * whole scenario: the session starts on `deepseek-v4-pro`, a text-only route
+ * in the shipped catalogue. The picture read therefore reaches its route gate
+ * with nothing to work with, and the gate puts a card in the console instead of
  * refusing.
  *
  * The click is the TEST's own action in every mode, the way the approval
@@ -16,11 +15,9 @@
  * surface of the content column a person rather than a model reads.
  *
  * The route this scenario is about is asserted while the card stands rather
- * than before the prompt. A session nothing has opened is not live host-side —
- * the other content scenarios are live only because selecting their route
- * resolved their agent — and the card is a stable waiting state where the
- * request that raised it has already been logged. Asserting there says more
- * than asserting up front: the request that reached the gate really ran on the
+ * than before the prompt: the card is a stable waiting state where the request
+ * that raised it has already been logged, so asserting there says more than
+ * asserting up front — the request that reached the gate really ran on the
  * text-only route.
  *
  * What the fixture then pins is that the change really happened and really
@@ -30,19 +27,17 @@
  * request, and the model would have had nothing to describe.
  */
 
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
-  captureStableAria, compareOrRefreshGolden, fixtureUserPrompts, recordFixture, watchConsole,
+  captureStableAria, compareOrRefreshGolden, recordFixture, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -61,19 +56,19 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
 
 /**
  * The picture scenario's patch layer, unchanged. Its `agent-default-model` row
- * names the vision route, which decides where a NEW session starts and nothing
- * about this one: the seeded session derives its route from its own log.
+ * decides where a NEW session starts and nothing about this one, which selects
+ * its starting route before the prompt.
  */
 const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import.meta.url))
 
-/** The route the seeded session is on, which takes no pictures. */
-const SEEDED_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash' } as const
+/** The route the session starts on, which takes no pictures. */
+const START_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-pro' } as const
 
 /** The route the card offers and the user chooses. */
-const VISION_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' } as const
+const VISION_ROUTE = { provider: 'deepseek-official', model: 'deepseek-flash' } as const
 
 /** The option label that route is offered under: the provider's name and the model's. */
-const VISION_OPTION = 'DeepSeek：DeepSeek-V4-Flash-Vision-Exp'
+const VISION_OPTION = 'DeepSeek：DeepSeek-V41-Flash'
 
 /** Every tool the session may be offered, which is the whole content column and nothing else. */
 const OFFERED = [
@@ -92,7 +87,7 @@ const OFFERED = [
  * its fixture can land in different commits, and a lane with no key must not
  * go red for a scenario nobody has recorded yet.
  */
-const RECORDED = existsSync(FIXTURE)
+const RECORDED = isRecorded(FIXTURE)
 
 /**
  * Every request header this run has recorded, in log order.
@@ -123,6 +118,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
       appRoot: APP_ROOT,
       events: sessionEvents,
       overlay: OVERLAY,
+      model: START_ROUTE,
       preset: CONTENT_COLUMN_PRESET,
     }))
   }, 180_000)
@@ -134,16 +130,15 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
   it('asks whether to change the model, then answers from the pixels on the new route', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-image-switch'))
     if (MODE !== 'record') {
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      expect(await recordedUserPrompts(FIXTURE)).toEqual([PROMPT])
     }
     // Before anything is driven: what the two routes declare. A composition
     // whose text route accepted pictures would raise no card, and one whose
     // vision route did not would leave the card with nothing to offer — either
     // way every assertion below would pass for the wrong reason.
     // Read as the gate reads it: a route whose modalities are unknown declares
-    // no picture input either, which is what the keyless replay's catalogue says
-    // of the text route.
-    expect((await scaffold.ctx.llm.resolveModelInfo(SEEDED_ROUTE.provider, SEEDED_ROUTE.model)).inputModalities
+    // no picture input either.
+    expect((await scaffold.ctx.llm.resolveModelInfo(START_ROUTE.provider, START_ROUTE.model)).inputModalities
       ?.includes('image')).not.toBe(true)
     expect((await scaffold.ctx.llm.resolveModelInfo(VISION_ROUTE.provider, VISION_ROUTE.model)).inputModalities)
       .toContain('image')
@@ -167,15 +162,15 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     await composer.waitFor({ timeout: MODE === 'record' ? 180_000 : 60_000 })
 
     // The card stands, so the request that reached the gate is logged and the
-    // session is live: it ran on the route the seed logged, and no selection
-    // has been made yet.
+    // session is live: it ran on the starting route, and the card has changed
+    // nothing yet.
     const asked = requestHeaders(sessionEvents)
     expect(asked.length).toBeGreaterThanOrEqual(1)
-    expect(asked.at(-1)?.model).toBe(SEEDED_ROUTE.model)
+    expect(asked.at(-1)?.model).toBe(START_ROUTE.model)
     const session = scaffold.ctx.sessions.get(seeded)
     if (session === undefined) throw new Error(`seeded session "${seeded}" is not live while its card stands`)
     expect(scaffold.ctx.sessionProjections.snapshot(session).values.modelSelection?.next)
-      .toMatchObject(SEEDED_ROUTE)
+      .toMatchObject(START_ROUTE)
 
     // And what the session may reach for: the content column's own tools and
     // nothing else, so the picture is the only way to answer the prompt.
@@ -194,10 +189,10 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     await composer.getByRole('button', { name: 'Submit' }).click()
     const sessionId = await settled
 
-    // The change is in the log twice: as the selection the console made, and as
-    // the request header that consumed it.
+    // The change is in the log twice: as the selection the console made after
+    // the starting one, and as the request header that consumed it.
     const selections = sessionEvents.filter(event => event.type === 'model/selection')
-    expect(selections.map(event => event.data)).toMatchObject([VISION_ROUTE])
+    expect(selections.map(event => event.data)).toMatchObject([START_ROUTE, VISION_ROUTE])
     const changed = requestHeaders(sessionEvents).filter(header => header.reason === 'change')
     expect(changed.length).toBeGreaterThanOrEqual(1)
     expect(changed.map(header => header.model)).toEqual(changed.map(() => VISION_ROUTE.model))
@@ -223,7 +218,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     // The picture reached the model rather than a placeholder: a change that had
     // not taken effect would have left the model nothing to describe.
     expect(lastAnswerText(sessionEvents)).toMatch(/二维码|qr|matrix code|barcode|条码/iu)
-    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 300_000)
 
   it.skipIf(MODE === 'record')('leaves the console clean', () => {

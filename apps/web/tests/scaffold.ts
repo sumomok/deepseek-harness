@@ -208,10 +208,6 @@ const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 // catch-all would leave resolveModelInfo unroutable and compaction-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
-// The vision route is published beside the text one because a scenario that
-// reads a picture has to be routed to a model declaring image input: the tools
-// that answer with an image refuse a route that declares none, and a replayed
-// route resolves its modalities from this catalog alone.
 const REPLAY_PROVIDERS = [{
   id: 'deepseek-official',
   name: 'DeepSeek',
@@ -1033,66 +1029,6 @@ function rawSessionLog(session: Session): string {
   ].join('\n')
 }
 
-/** What a recording keeps of the session it harvested. */
-export interface RecordFixtureOptions {
-  /**
-   * Keep only what the driven turn appended, dropping the history a scenario
-   * seeded before it. Required of a scenario that both seeds and drives, and
-   * refused where nothing was seeded — see {@link withoutSeededHistory}.
-   */
-  afterSeed?: boolean
-}
-
-/**
- * Drop a recording's seeded history, keeping the session header and every
- * event the driven turn appended.
- *
- * A replay fixture may not carry a seeded round. The replay engine derives one
- * model-call script per recorded session from its `assistant/chunk` events and
- * binds a live session to it by first-call order, so a seeded round at the head
- * of the script answers the live run's first call with a reply from a turn that
- * run never made. The seeded prompts reach {@link fixtureUserPrompts} as well,
- * which is what ties a spec's drive steps to the recording.
- * @param fixtureText - the harvested fixture, session header first.
- * @returns that fixture cut where {@link afterSeededHistory} cuts, which is
- * the seed boundary under the conditions stated there.
- * @throws {Error} when no `session/end-seed` boundary follows the header —
- * either nothing was seeded and the caller asked for the wrong thing, or the
- * harvest is not a session log at all.
- */
-function withoutSeededHistory(fixtureText: string): string {
-  const kept = afterSeededHistory(fixtureText)
-  if (kept === undefined) {
-    throw new Error('record harvest: afterSeed was asked for, but no session/end-seed boundary follows the header')
-  }
-  return kept
-}
-
-/**
- * Cut a session log at its FIRST `session/end-seed` line, keeping the session
- * header and every event after it.
- *
- * That first marker is the seed boundary for a session seeded once and never
- * re-constructed from its stored log, which is all a Web scenario produces:
- * {@link seedSession} seeds it and the browser opens it once. Constructing a
- * session again over an already driven log appends a second marker, which is why
- * {@link Session.firstLiveSeq} names the LAST one as the boundary a consumer
- * of stored history must locate. Recording and replay both cut here, so the
- * two cuts land on the same line whatever the log carries.
- *
- * The trim is by line rather than through {@link parseSeedFixture}, so the
- * packed chunk runs a harvest wrote survive it byte for byte.
- * @param log - a raw session log, session header first.
- * @returns the log without its seeded round, or undefined when it carries none.
- */
-function afterSeededHistory(log: string): string | undefined {
-  const lines = log.split('\n')
-  const boundary = lines.findIndex(
-    line => line.trim().length > 0 && (JSON.parse(line) as { type?: unknown }).type === 'session/end-seed',
-  )
-  return boundary <= 0 ? undefined : [...lines.slice(0, 1), ...lines.slice(boundary + 1)].join('\n')
-}
-
 function mapJsonStringValues(value: unknown, map: (value: string) => string): unknown {
   if (typeof value === 'string') return map(value)
   if (Array.isArray(value)) return value.map(item => mapJsonStringValues(item, map))
@@ -1224,11 +1160,10 @@ function stableSessionFixture(
   existing: string,
   workspaceCwd: string,
   harnessHome: string,
-  keep: (fixtureText: string) => string = fixtureText => fixtureText,
 ): string {
-  const prepared = keep(prepareSessionSnapshotFixtureForComparison(
+  const prepared = prepareSessionSnapshotFixtureForComparison(
     normalizeWebSessionVolatiles(rawSessionLog(session), workspaceCwd),
-  ))
+  )
   const stabilized = existing === ''
     ? prepared
     : stabilizeRefreshLog(prepared, existing, [], {
@@ -1256,23 +1191,22 @@ async function assertReplaySession(
   const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
   let expectedPath = fixturePath
   const userPrompts = fixtureUserPrompts(expected)
-  // A scenario that seeds a round into the session it then drives records only
-  // what the turn appended, so the live log is cut at the same boundary before
-  // it is matched against the fixture, compared with it, or read for the header
-  // pin — see {@link RecordFixtureOptions.afterSeed}.
-  const drivenLog = (candidate: Session): string => {
-    const log = rawSessionLog(candidate)
-    return afterSeededHistory(log) ?? log
-  }
-  const candidates = sessions.filter(candidate => candidate.header.parentSession === undefined
-    && JSON.stringify(fixtureUserPrompts(drivenLog(candidate))) === JSON.stringify(userPrompts))
+  const candidates = sessions.filter((session) => {
+    if (session.header.parentSession !== undefined) return false
+    const actual = session.snapshotEvents().flatMap((event) => {
+      if (event.type !== 'user/message' || event.data.source.kind !== 'user') return []
+      const text = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+      return text.length === 0 ? [] : [text]
+    })
+    return JSON.stringify(actual) === JSON.stringify(userPrompts)
+  })
   expect(candidates, `Web replay fixture ${fixturePath} must match one live root session`).toHaveLength(1)
   const session = candidates[0] as Session
   const sessionCwd = session.header.cwd
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
-  const actual = drivenLog(session)
+  const actual = rawSessionLog(session)
   if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
-    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome, log => afterSeededHistory(log) ?? log)
+    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
     expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
@@ -1316,15 +1250,9 @@ async function assertReplaySession(
  * A manifest-retained historical generation makes the write-back a no-op.
  * @param scaffold - the record-mode scaffold.
  * @param sessionId - the driven session.
- * @param fixturePath - the committed session.jsonl / seed.jsonl target.
- * @param options - what the recording keeps; the whole session by default.
+ * @param fixturePath - the committed session.jsonl target.
  */
-export async function recordFixture(
-  scaffold: WebScaffold,
-  sessionId: SessionId,
-  fixturePath: string,
-  options: RecordFixtureOptions = {},
-): Promise<void> {
+export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
   const agent = scaffold.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
   const manifestPath = join(dirname(fixturePath), 'snapshot.yml')
@@ -1338,7 +1266,6 @@ export async function recordFixture(
     existing,
     scaffold.workspaceCwd,
     scaffold.harnessHome,
-    options.afterSeed === true ? withoutSeededHistory : undefined,
   ))
 }
 

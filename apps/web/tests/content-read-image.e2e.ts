@@ -10,12 +10,9 @@
  * What the model is shown is a real image block referencing a real object.
  *
  * The session is routed to a model that declares image input, because the read
- * refuses a route that does not before it exports anything. That takes two
- * things, and the second is the one that does the work: the patch layer names
- * the route this composition's sessions start on, and the spec then selects it
- * on the seeded session itself, because a session that already logged a request
- * header derives its route from its own log and never from the composition's
- * default.
+ * refuses a route that does not before it exports anything. The spec selects
+ * that route on the seeded session before the prompt, the way the composer's
+ * picker does.
  *
  * The session is composed from a preset that mounts no tools at all, so the
  * only tools it is offered are the content column's. That is what makes the
@@ -44,18 +41,16 @@
  * for real.
  */
 
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
-  fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+  recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -69,13 +64,8 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
 /** This scenario's own patch layer: the content column, on a route that takes pictures. */
 const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import.meta.url))
 
-/**
- * The route this scenario's session runs on, selected on the seeded session
- * itself. The overlay's `agent-default-model` row alone would not put the
- * session here: a session that already logged a request header derives its
- * route from its own log, and the seed logged one.
- */
-const ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' } as const
+/** The route this scenario's session runs on, which declares image input. */
+const ROUTE = { provider: 'deepseek-official', model: 'deepseek-flash' } as const
 
 /** Every tool the session may be offered, which is the whole content column and nothing else. */
 const OFFERED = [
@@ -95,7 +85,7 @@ const OFFERED = [
  * go red for a scenario nobody has recorded yet. Once the fixture is in the
  * tree this is always true.
  */
-const RECORDED = existsSync(FIXTURE)
+const RECORDED = isRecorded(FIXTURE)
 
 /** What the user asks: about the page, never about the tools. */
 const PROMPT = '内容区那个页面表格下面有一张小方图，看不出是什么。'
@@ -127,7 +117,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
   it('answers from the pixels a real browser exported, which no reading of the page prints', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-image'))
     if (MODE !== 'record') {
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      expect(await recordedUserPrompts(FIXTURE)).toEqual([PROMPT])
     }
     // Before anything is driven: this read refuses a route that declares no
     // image input, so a session sitting on the wrong route answers refusals
@@ -202,7 +192,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     // for what it is and declining to invent its payload, so what is asserted
     // is that it said what the picture is — in either language.
     expect(lastAnswerText(sessionEvents)).toMatch(/二维码|qr|matrix code|barcode|条码/iu)
-    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 300_000)
 
   it.skipIf(MODE === 'record')('leaves the console clean', () => {

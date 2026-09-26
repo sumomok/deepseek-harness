@@ -24,16 +24,16 @@
  * and a click has to change something for the last assertion to mean anything.
  */
 
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+  recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { COMPOSER, FRAME_DIR, fixtureFor, openContentColumn, toolResults } from './content-column.ts'
+import {
+  COMPOSER, FRAME_DIR, fixtureFor, isRecorded, openContentColumn, recordedUserPrompts, toolResults,
+} from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
@@ -49,7 +49,7 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/act-app')
  * go red for a scenario nobody has recorded yet. Once the fixture is in the
  * tree this is always true.
  */
-const RECORDED = existsSync(FIXTURE)
+const RECORDED = isRecorded(FIXTURE)
 
 /** What the user asks. Deliberately about the page, never about the tool. */
 const PROMPT = '把内容区那个表单里的机器名改成 mill-09，然后点添加；再点一下页面上那个没有名字的红色小图标'
@@ -94,7 +94,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
   it('runs the steps a user approved, and answers with what the page became', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-act'))
     if (MODE !== 'record') {
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      expect(await recordedUserPrompts(FIXTURE)).toEqual([PROMPT])
     }
     const frame = page.frameLocator('iframe[data-content-frame][data-content-active]')
     const input = page.locator(COMPOSER).first()
@@ -195,7 +195,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     expect(last).toContain('Machines added: 1')
     expect(last).toContain(TRIMMED)
 
-    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 300_000)
 
   it.skipIf(MODE === 'record')('leaves the console clean', () => {
