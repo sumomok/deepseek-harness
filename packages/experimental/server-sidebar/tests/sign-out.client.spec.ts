@@ -11,8 +11,7 @@
  * including when the sign-out route never answers at all and when the stop
  * the sequence opens with never answers either.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { INTERNAL_BASE } from '@deepseek-ai/dsh-client-connection/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookieLine as authGateClearCookieLine } from '@deepseek-ai/dsh-experimental-auth-gate/src/client/browser.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import {
@@ -21,9 +20,9 @@ import {
 
 const SETTINGS = { loginUrl: '/toy-login/#/', cookieName: 'accessToken' }
 
-/** Both routes as this carrier resolves them: no page globals, so the base is {@link INTERNAL_BASE}. */
-const LOGOUT_URL = new URL('/auth-gate/logout', INTERNAL_BASE)
-const SETTINGS_URL = new URL('/auth-gate/settings', INTERNAL_BASE)
+/** Both routes as this carrier resolves them, against the stand-in base every case stubs. */
+const LOGOUT_URL = new URL('auth-gate/logout', 'https://harness.example/')
+const SETTINGS_URL = new URL('auth-gate/settings', 'https://harness.example/')
 
 /** Keys the login page owns, in the order the module removes them. */
 const OWNED_KEYS = [
@@ -66,6 +65,11 @@ function stubFetch(answer: { ok?: boolean; reject?: boolean } = {}): ReturnType<
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve()
 }
+
+// A node carrier has no document; the routes resolve against this stand-in base.
+beforeEach(() => {
+  vi.stubGlobal('document', { baseURI: 'https://harness.example/' })
+})
 
 afterEach(() => {
   vi.useRealTimers()
@@ -351,7 +355,7 @@ describe('windowSignOutBrowser', () => {
     const written: string[] = []
     const navigations: string[] = []
     vi.stubGlobal('localStorage', { removeItem: (key: string) => removed.push(key) })
-    vi.stubGlobal('document', { set cookie(value: string) { written.push(value) } })
+    vi.stubGlobal('document', { baseURI: 'https://console.example/', set cookie(value: string) { written.push(value) } })
     vi.stubGlobal('location', { href: 'https://console.example/app/' })
     // `location.href = url` writes the stub's own property; record it instead.
     const target = globalThis as unknown as { location: { href: string } }
@@ -382,8 +386,7 @@ describe('windowSignOutBrowser', () => {
     // literal, so a change on either side fails here rather than in a
     // deployment.
     const written: string[] = []
-    vi.stubGlobal('__DSH_BASE__', '/console/')
-    vi.stubGlobal('document', { set cookie(value: string) { written.push(value) } })
+    vi.stubGlobal('document', { baseURI: 'https://console.example/console/', set cookie(value: string) { written.push(value) } })
     const ctx = {
       sessions: { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined }) } },
     } as unknown as ClientContext

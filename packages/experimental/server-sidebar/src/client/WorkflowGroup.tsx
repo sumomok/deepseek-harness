@@ -43,8 +43,8 @@
 import { useState } from 'react'
 import type { DragEvent } from 'react'
 import {
-  IconChevronDownOutline14, IconChevronUpOutline14, IconEditOutline16, IconFolderOpenOutline16,
-  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, Tooltip,
+  IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconEditOutlineRegular, IconFolderOpenOutlineRegular,
+  IconPlusOutlineRegular, IconTrashOutlineRegular, IconTriangleRightFillRegular, Menu, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MAX_GROUP_NAME_LENGTH } from '../menu-constants.ts'
@@ -337,7 +337,7 @@ export function WorkflowGroup({
                     aria-haspopup="menu"
                     onClick={() => { setMoveMenuFor(workflow.id) }}
                   >
-                    <IconFolderOpenOutline16 size={12} />
+                    <IconFolderOpenOutlineRegular size={12} />
                   </button>
                 </Tooltip>
               )}
@@ -350,7 +350,7 @@ export function WorkflowGroup({
               aria-label={t('workflows.rename')}
               onClick={() => { setEdit({ mode: 'renamingWorkflow', id: workflow.id }) }}
             >
-              <IconEditOutline16 size={12} />
+              <IconEditOutlineRegular size={12} />
             </button>
           </Tooltip>
           <Tooltip label={t('workflows.remove')} side="bottom" delayMs={500}>
@@ -362,7 +362,7 @@ export function WorkflowGroup({
                 void onSaveMenu({ workflows: workflows.filter(candidate => candidate.id !== workflow.id) })
               }}
             >
-              <IconTrashOutline16 size={12} />
+              <IconTrashOutlineRegular size={12} />
             </button>
           </Tooltip>
         </div>
@@ -389,7 +389,7 @@ export function WorkflowGroup({
         aria-controls={folded || lane.items.length === 0 ? undefined : laneListId(group.id)}
         onClick={() => { onSetCollapsed(group.id, !folded) }}
       >
-        <IconTriangleRightFill14 size={10} />
+        <IconTriangleRightFillRegular size={10} />
       </button>
       {edit.mode === 'renamingGroup' && edit.id === group.id ? (
         <input
@@ -418,7 +418,7 @@ export function WorkflowGroup({
             aria-label={t('groups.rename')}
             onClick={() => { setEdit({ mode: 'renamingGroup', id: group.id }) }}
           >
-            <IconEditOutline16 size={12} />
+            <IconEditOutlineRegular size={12} />
           </button>
         </Tooltip>
         <Tooltip label={group.pinned ? t('groups.unpin') : t('groups.pin')} side="bottom" delayMs={500}>
@@ -428,7 +428,7 @@ export function WorkflowGroup({
             aria-label={group.pinned ? t('groups.unpin') : t('groups.pin')}
             onClick={() => { void onSaveMenu({ groups: pinGroup(groups, group.id, !group.pinned) }) }}
           >
-            {group.pinned ? <IconChevronDownOutline14 size={12} /> : <IconChevronUpOutline14 size={12} />}
+            {group.pinned ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronUpOutlineRegular size={12} />}
           </button>
         </Tooltip>
         <Tooltip label={t('groups.remove')} side="bottom" delayMs={500}>
@@ -438,7 +438,7 @@ export function WorkflowGroup({
             aria-label={t('groups.remove')}
             onClick={() => { void onSaveMenu(deleteGroup(groups, workflows, group.id)) }}
           >
-            <IconTrashOutline16 size={12} />
+            <IconTrashOutlineRegular size={12} />
           </button>
         </Tooltip>
       </div>
@@ -493,7 +493,7 @@ export function WorkflowGroup({
             aria-label={t('groups.new')}
             onClick={() => { setEdit({ mode: 'creatingGroup' }) }}
           >
-            <IconPlusOutline16 size={12} />
+            <IconPlusOutlineRegular size={12} />
           </button>
         </Tooltip>
       </div>

@@ -15,9 +15,40 @@ import { dirname, join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { expect } from 'vitest'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT } from './support.ts'
+
+/**
+ * The preset a content-column scenario that must not reach past the column is
+ * composed from: a persona, and no tools at all.
+ *
+ * Every model tool in the Web profile comes from a preset —
+ * `packages/bundle/web-app/cordis.patch.yml` disables all of its `tool-*` rows
+ * and the `standard` preset mounts them again behind the preset realm — so a
+ * profile patch layer cannot take `bash` or `read_image` away from a scenario;
+ * naming a preset that never mounts them is what does. What the session is
+ * left with is the host plane's own contributions, which for this composition
+ * is the content column: `content_show` and the reads and steps the
+ * `content-frame` row registers. A scenario about what a page draws must not be
+ * able to answer by shelling out, and a recording that installs packages over
+ * the network is not a recording anything can replay.
+ */
+export const CONTENT_COLUMN_PRESET: PresetDefinition = {
+  id: 'content-column',
+  name: 'Content column only',
+  description: 'A session whose only tools are the content column\'s.',
+  order: 90,
+  plugins: [{
+    id: 'persona',
+    name: '@deepseek-ai/dsh-persona',
+    config: {
+      text: 'You are an assistant powered by the {{model}} model, working with the user in a console.'
+        + ' Your working directory is {{cwd}}.',
+    },
+  }],
+}
 
 /** The package these scenarios exercise. */
 export const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
@@ -113,7 +144,7 @@ export function toolResults(events: readonly SessionEvent[], tool: string): stri
   return events.flatMap((event) => {
     if (event.type !== 'tool/result') return []
     if (!calls.has(String(event.data.message.source.callId))) return []
-    return event.data.message.content[0].content.flatMap(
+    return event.data.message.content.flatMap(
       block => (block.type === 'text' ? [block.text] : []),
     )
   })
@@ -153,8 +184,8 @@ export interface ContentColumnScenario {
    */
   overlay?: string
   /**
-   * The preset this scenario's session is composed from, as a roster root to
-   * scan and the id inside it.
+   * The preset this scenario's session is composed from, declared to the
+   * preset registry beside the shipped ones.
    *
    * Every model tool the Web profile offers comes from a preset — the profile
    * disables all of its `tool-*` rows (`packages/bundle/web-app/cordis.patch.yml`)
@@ -162,7 +193,7 @@ export interface ContentColumnScenario {
    * shell out cannot take `bash` away in a patch layer and names a preset that
    * never mounts it instead.
    */
-  preset?: { root: string; id: string }
+  preset?: PresetDefinition
   /**
    * The route this scenario's session must run on, selected on the seeded
    * session the way the composer's model picker selects one.
@@ -218,7 +249,7 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
     extraOverlayPath: scenario.overlay ?? OVERLAY,
     ...(scenario.preset === undefined
       ? {}
-      : { agentPresets: { roots: [{ path: scenario.preset.root, trust: 'user' as const }], default: 'standard' } }),
+      : { agentPresets: { default: 'standard', definitions: [scenario.preset] } }),
     ...(mode === 'record' ? {} : { replayFixture: fixture, paceMs: 15 }),
   })
   scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { scenario.events.push(event) })

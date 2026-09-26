@@ -123,11 +123,14 @@ function logged(scaffold: WebScaffold, sessionId: string, type: string): unknown
 /** The shape a `user/message` carries, as this scenario reads it. */
 interface LoggedMessage {
   content: { type: string; text?: string }[]
-  source: { kind: string; plugin?: string; form?: string }
+  source: { kind: string; form?: string }
 }
 
+/** The producer kinds of the content column's own notices. */
+const CONTENT_NOTICE_KINDS: ReadonlySet<string> = new Set(['content-frame', 'content-surface'])
+
 /**
- * Every plugin-injected notice on one session's log, as plain text.
+ * Every notice the content column injected into one session's log, as plain text.
  *
  * `agent.inject` queues the message for the next pre-step rather than
  * appending it, and the splice that queues it is itself a session event — so
@@ -143,7 +146,7 @@ function injectedNotices(scaffold: WebScaffold, sessionId: string): string[] {
     .filter(splice => splice.target === 'next-step')
     .flatMap(splice => splice.inserted)
   return [...queued, ...logged(scaffold, sessionId, 'user/message') as LoggedMessage[]]
-    .filter(message => message.source.kind === 'plugin' && message.source.form === 'notice')
+    .filter(message => CONTENT_NOTICE_KINDS.has(message.source.kind) && message.source.form === 'notice')
     .map(message => message.content.map(block => block.text ?? '').join(''))
 }
 

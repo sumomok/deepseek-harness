@@ -28,7 +28,6 @@
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/nav-catalog
  */
 
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { NavSnapshotItem, NavSnapshotKind } from '../workflows.ts'
 
 /**
@@ -138,14 +137,14 @@ function validateHome(
  */
 async function readCatalog(source: CatalogSource): Promise<NavCatalog> {
   try {
-    const response = await fetch(clientUrl(source.route), { cache: 'no-store' })
+    const response = await fetch(new URL(source.route.slice(1), document.baseURI), { cache: 'no-store' })
     if (!response.ok) return { items: [] }
-    const document = await response.json() as Record<string, unknown>
-    const listed = document[source.listField]
+    const answer = await response.json() as Record<string, unknown>
+    const listed = answer[source.listField]
     const items = Array.isArray(listed)
       ? listed.filter(isListing).map(({ id, title }): NavItem => ({ kind: source.kind, entryId: id, title }))
       : []
-    const home = validateHome(document[source.homeField], items, source)
+    const home = validateHome(answer[source.homeField], items, source)
     return { items, ...home === undefined ? {} : { home } }
   } catch {
     return { items: [] }

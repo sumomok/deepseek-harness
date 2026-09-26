@@ -24,10 +24,10 @@
       "path": "../../client/connection/tsconfig.client.json"
     },
     {
-      "path": "../../client/locale"
+      "path": "../../client/locale/tsconfig.client.json"
     },
     {
-      "path": "../../client/ui-chat"
+      "path": "../../client/ui-chat/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-renderer"

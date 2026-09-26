@@ -15,15 +15,15 @@
  *
  * The node half registers its routes at the server root; a reverse proxy
  * serving this shell under a path prefix strips that prefix before the request
- * arrives, so every route this file requests goes through `clientUrl` to get
- * the prefix back. Each diagnostic names the resolved URL rather than the route
- * constant, which is what tells a misconfigured deployment prefix apart from an
- * unreachable route.
+ * arrives, so every route this file requests is resolved document-relative,
+ * against the `<base href="./">` the served index carries, and keeps the
+ * prefix the page was loaded under. Each diagnostic names the resolved URL
+ * rather than the route constant, which is what tells a misconfigured
+ * deployment prefix apart from an unreachable route.
  * @module @deepseek-ai/dsh-experimental-auth-gate/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import {
   AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_SETTINGS_ROUTE,
@@ -43,7 +43,7 @@ import { runGate } from './run.ts'
  * document the gate cannot run on.
  */
 async function readSettings(): Promise<AuthGateSettings> {
-  const url = clientUrl(AUTH_GATE_SETTINGS_ROUTE)
+  const url = new URL(AUTH_GATE_SETTINGS_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
@@ -109,7 +109,7 @@ function readRenewal(url: URL, served: unknown): AuthGateRenewalSettings | undef
  * message.
  */
 async function postToken(token: string): Promise<void> {
-  const url = clientUrl(AUTH_GATE_TOKEN_ROUTE)
+  const url = new URL(AUTH_GATE_TOKEN_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -132,7 +132,7 @@ async function postLogout(): Promise<void> {
   // The request declares `application/json` and carries no body, and the route
   // reads none either. The declaration is there to withdraw the route from the
   // CORS-simple set, so a cross-origin page cannot post it without a preflight.
-  const url = clientUrl(AUTH_GATE_LOGOUT_ROUTE)
+  const url = new URL(AUTH_GATE_LOGOUT_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

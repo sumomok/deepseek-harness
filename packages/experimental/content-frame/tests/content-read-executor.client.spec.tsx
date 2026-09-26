@@ -10,7 +10,7 @@
  * really navigates, a real second document — belongs to the browser lane.
  */
 import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   isVisible, TAB_ID, useContentRead, type ContentReadSeat, type SeatSession,
@@ -1568,7 +1568,9 @@ describe('the addresses the seat posts to', () => {
   }
 
   it('resolves all three read routes against the prefix the deployment publishes the page under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const base = document.head.appendChild(document.createElement('base'))
+    base.href = '/console/'
+    onTestFinished(() => { base.remove() })
     // The node half registers these root-absolute and the deployment's reverse
     // proxy strips the prefix again, so a route posted as written addresses the
     // origin root — which that deployment routes nowhere near this process. The

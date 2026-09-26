@@ -6,7 +6,7 @@
  * full registration; this file covers the failure, filtering and merge paths
  * that path never exercises.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTENT_SETTINGS_ROUTE } from '@deepseek-ai/dsh-experimental-content-frame/src/route.ts'
 import { COMPONENT_VIEWS_ROUTE } from '@deepseek-ai/dsh-experimental-component-surface/src/route.ts'
 import { mergeNavCatalogs, readContentPages, readContentViews } from '../src/client/nav-catalog.ts'
@@ -17,6 +17,11 @@ const VIEWS_ROUTE = '/component-surface/views'
 function stubFetch(impl: (input: URL) => Promise<{ ok: boolean; json: () => Promise<unknown> }>): void {
   vi.stubGlobal('fetch', vi.fn(impl))
 }
+
+// A node carrier has no document; the routes resolve against this stand-in base.
+beforeEach(() => {
+  vi.stubGlobal('document', { baseURI: 'https://harness.example/' })
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -35,7 +40,7 @@ describe('the copied route paths', () => {
 
 describe('readContentPages', () => {
   it('requests its route through the deployment prefix the shell is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    vi.stubGlobal('document', { baseURI: 'https://harness.example/console/' })
     const requested: string[] = []
     stubFetch(async (input) => {
       requested.push(input.pathname)

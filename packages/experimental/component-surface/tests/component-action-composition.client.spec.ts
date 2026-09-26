@@ -122,6 +122,8 @@ async function loadComposition(): Promise<Context> {
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of ctx.loader.entries()) await entry.fiber?.await()
   return ctx
 }
 
@@ -168,8 +170,7 @@ describe('a press on the composed console', () => {
     const message = followup.mock.calls[0]?.[0] as UserMessage
     expect(message.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
     expect(message.source).toEqual({
-      kind: 'plugin',
-      plugin: COMPONENT_ACTION_PLUGIN,
+      kind: COMPONENT_ACTION_PLUGIN,
       form: 'notice',
       summary: '用户在「确认删除」里点了「删除」',
     })

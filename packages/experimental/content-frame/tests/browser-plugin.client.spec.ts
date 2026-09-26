@@ -10,10 +10,11 @@
  * ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
@@ -80,7 +81,7 @@ async function bench(settings: unknown = SETTINGS): Promise<{
   const execute = vi.fn(() => Promise.resolve({ ok: true, value: undefined }))
   ctx.provide('remote', { commands: { execute }, $on: () => () => {} } as never)
   ctx.provide('remote.commands', { execute } as never)
-  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   // These specs assert the shipped Chinese copy. This lane runs under jsdom
   // (the hiding stylesheet below needs a `document`), whose default
@@ -221,7 +222,9 @@ describe('content-frame browser half', () => {
   })
 
   it('reads the settings route through the deployment prefix the page is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const base = document.head.appendChild(document.createElement('base'))
+    base.href = '/console/'
+    onTestFinished(() => { base.remove() })
     const asked = serveSettings(SETTINGS)
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()

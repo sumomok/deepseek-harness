@@ -61,7 +61,6 @@
     "tests/show-chart.e2e.ts",
     "tests/auth-gate.e2e.ts",
     "tests/base-path.e2e.ts",
-    "tests/prefix-proxy.spec.ts",
     "tests/server-sidebar.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/library-skills.e2e.ts",

@@ -178,19 +178,31 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-experimental-agent-team` | yes | Implicit-root Agent Teams roster, durable peer mailbox, and shared task DAG |
 | `@deepseek-ai/dsh-experimental-api-speech-to-text` | yes | Authenticated experimental speech transcription for browser clients |
+| `@deepseek-ai/dsh-experimental-auth-gate` | yes | Wires a deployment's own single sign-on into a dsh browser session: the browser half sends an unauthenticated visitor to the login page and mirrors the access token it comes back with into a cookie, and the node half holds that token in memory and injects it into the MCP requests it forwards upstream |
 | `@deepseek-ai/dsh-experimental-auto-review` | no | Per-tool LLM authorization review for the DeepSeek Harness Auto permission preset |
 | `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` | yes | Experimental per-Session Chromium browser tools through chrome-devtools-mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp` | yes | Experimental per-Session Chromium browser tools through @playwright/mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | yes | Experimental Stagehand browser tools with separately configured native models |
 | `@deepseek-ai/dsh-experimental-client-ui-agent-team` | no | Web Agent Teams roster, task board, and teammate navigation |
 | `@deepseek-ai/dsh-experimental-client-ui-voice-input` | no | Record speech and insert editable text into the conversation draft |
+| `@deepseek-ai/dsh-experimental-component-kit` | yes | The component row behind the content panel's component kind: the React renderers a placement package draws a validated block with, and nothing about where they are drawn |
+| `@deepseek-ai/dsh-experimental-component-surface` | yes | The show_component tool: the agent places blocks from a fixed component catalog in the content column, validated against their declared properties before anything is drawn |
 | `@deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp` | yes | Experimental computer use through an installed Cua Driver MCP executable |
 | `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` | no | Experimental computer-use provider embedding the Cua Driver native npm SDK |
+| `@deepseek-ai/dsh-experimental-content-column` | no | Browser half of the content surface: claims the service-line shell's content column, lists the session's entries in a switcher strip, and dispatches the selected one to a keyed per-kind slot |
+| `@deepseek-ai/dsh-experimental-content-frame` | yes | Gives the agent the service-line shell's content column: a named webserver route over one directory, the content_show tool over its configured pages, the session projection that records what each column shows, and the browser half that keeps one live frame per session |
+| `@deepseek-ai/dsh-experimental-content-surface` | no | Host half of the content surface: extractors turn logged session events into one per-session stream of typed content entries, published as the contentSurface projection |
 | `@deepseek-ai/dsh-experimental-inspector` | yes | Experimental cross-realm CDP hub for Host debugging and Client Runtime inspection |
 | `@deepseek-ai/dsh-experimental-ptc-runtime-python` | yes | CPython subprocess implementation of the DeepSeek Harness PTC execution seam |
+| `@deepseek-ai/dsh-experimental-server-base` | yes | Tells the browser whether reaching a served dsh page means owning the Host behind it: injects a __DSH_TRANSPORT__ carrier declaring ownsHost into the served index |
+| `@deepseek-ai/dsh-experimental-server-layout` | no | Service-line shell: a permanent four-track AppFrame (session | content | chat | details) that replaces ui-layout through a patch overlay |
+| `@deepseek-ai/dsh-experimental-server-sidebar` | yes | Product console sidebar: replaces ui-sidebar through a patch overlay with a fixed workbench/navigation/workflows console, plus a session-header "save as workflow" action |
 | `@deepseek-ai/dsh-experimental-speech-to-text` | yes | Experimental speech recognition with independently selectable providers |
 | `@deepseek-ai/dsh-experimental-speech-to-text-sensevoice` | yes | Local SenseVoice ONNX transcription with a managed sherpa-onnx process |
 | `@deepseek-ai/dsh-experimental-tool-agent-team` | yes | Scoped model-facing Agent Teams tools over ctx.agentTeams |
+| `@deepseek-ai/dsh-experimental-vue-ui-poc` | no | Proof of concept: a Vue 3 component rendered inside the React slot system through a thin React bridge |
+| `@deepseek-ai/dsh-experimental-vue2-echarts-poc` | no | Proof of concept: a Vue 2.7 ECharts component rendered inside the React slot system through a thin React bridge |
+| `@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc` | yes | The show_chart tool: the agent hands over an ECharts option, the conversation transcript paints it as a Vue 2.7 chart, and the browser's render verdict comes back into the tool result |
 
 ## extensions
 

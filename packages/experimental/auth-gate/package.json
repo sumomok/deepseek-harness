@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-auth-gate",
   "description": "Wires a deployment's own single sign-on into a dsh browser session: the browser half sends an unauthenticated visitor to the login page and mirrors the access token it comes back with into a cookie, and the node half holds that token in memory and injects it into the MCP requests it forwards upstream",
-  "version": "0.1.2-rc.1",
+  "version": "0.1.7-rc.2",
   "private": true,
   "repository": {
     "type": "git",
@@ -25,9 +25,6 @@
   },
   "dsh": {
     "client": {
-      "external": [
-        "@deepseek-ai/dsh-client-connection/client"
-      ],
       "immediately": true,
       "platform": "web"
     }
@@ -38,23 +35,23 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/schemastery": "workspace:~"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-invariants": "workspace:*"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:^",
-    "@deepseek-ai/cordis-plugin-include": "workspace:^",
-    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
-    "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:~",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-invariants": "workspace:*"
   },
   "files": [
     "lib/index.js",

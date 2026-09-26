@@ -140,6 +140,8 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
   } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of ctx.loader.entries()) await entry.fiber?.await()
   return ctx
 }
 

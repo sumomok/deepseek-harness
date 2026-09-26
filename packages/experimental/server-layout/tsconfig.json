@@ -12,7 +12,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../client/locale"
+      "path": "../../client/locale/tsconfig.client.json"
     },
     {
       "path": "../../client/store"
@@ -30,7 +30,7 @@
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../../client/ui-theme"
+      "path": "../../client/ui-theme/tsconfig.client.json"
     }
   ]
 }

@@ -12,7 +12,7 @@
  * out never starts reading for it.
  *
  * Two log shapes carry a call and both count: a top-level `tool/call`, whose
- * `arguments` is raw JSON, and a Code Mode `tool/code-dispatch-start`, whose
+ * `arguments` is raw JSON, and a PTC mode `tool/ptc-dispatch-start`, whose
  * arguments are already decoded and whose call id is the `subCallId`. A model
  * reaching the tool through `run_code` logs only the second, so a fold reading
  * one shape would leave those reads unclaimable.
@@ -218,7 +218,7 @@ export function readContentAccessCall(event: SessionEvent): ContentAccessRequest
     const decoded = decodeArgs(event.data.arguments)
     return decoded === undefined ? undefined : requestFor(event.data.name, decoded.value, event.data.callId)
   }
-  if (event.type === 'tool/code-dispatch-start') {
+  if (event.type === 'tool/ptc-dispatch-start') {
     return requestFor(event.data.name, event.data.arguments, event.data.subCallId)
   }
   return undefined
@@ -234,7 +234,7 @@ export function readContentAccessCall(event: SessionEvent): ContentAccessRequest
  */
 function settledCallId(event: SessionEvent): string | undefined {
   if (event.type === 'tool/result') return event.data.message.source.callId
-  if (event.type === 'tool/code-dispatch') return event.data.subCallId
+  if (event.type === 'tool/ptc-dispatch') return event.data.subCallId
   return undefined
 }
 

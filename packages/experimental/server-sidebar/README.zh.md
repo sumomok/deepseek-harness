@@ -143,12 +143,12 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 1. **停掉正在进行的工作**——当前打开的那个对话，以及会话列表中每一个 `running` 为真的对话，都走出厂停止按钮所用的同一条按会话作用域取到的 `conversation.cancel()`。当前打开的那个不看这一位也照停；对空闲会话的停止是宿主直接应答的空操作。这一步最多等三秒：宿主始终不应答的一次取消，只能花掉访客这三秒，而不能把真正丢掉令牌的后四步一并拖住。
 2. **`POST /auth-gate/logout`**，让进程不再花用它持有的那枚令牌。请求带 `keepalive`，否则第 5 步的跳转会把这个由文档持有的请求取消掉——这也正是这条请求只发出、不等待的原因：一条被代理挂到自己读超时才断的路由，否则就会把访客扣在一个工作已经停下、令牌下一步就要被丢弃的页面上。
 3. **按名字逐个删除登录页自己的存储键**——绝不用 `localStorage.clear()`，那会把外壳自己的私有键、以及同源上其它应用的键一并带走。
-4. **清掉镜像 cookie**，用 auth-gate 写入它时逐字一致的 `Path`、`Secure` 与 `SameSite`——其中 `Path` 就是本外壳被服务在其下的部署前缀，两个包用同一种方式解析它（`resolveClientBase`）。
+4. **清掉镜像 cookie**，用 auth-gate 写入它时逐字一致的 `Path`、`Secure` 与 `SameSite`——其中 `Path` 就是本外壳被服务在其下的部署前缀，两个包用同一种方式解析它（`document.baseURI` 所在的目录）。
 5. **跳转到登录页**，带上 `?redirect=` 与回跳地址：就是当前地址，只把登录页自己的凭证参数（`token`、`token4a`）从查询串与 hash 两处一并剔掉，其余参数逐字节保留它们到达时的样子，hash 里的路由也原样带回——这些页面是 hash 路由的，hash 就是地址。
 
 任何一步失败都只记一条 `console.warn`：访客反正要离开，一步跑不通不构成把其余几步一起放弃的理由。
 
-**逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/nav-catalog.ts` 复制那两条目录路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步，连同它们各自的寻址方式：两条路由都经 `clientUrl` 请求，那枚 cookie 也在 auth-gate 写入它时所用的同一个部署前缀下清除。
+**逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/nav-catalog.ts` 复制那两条目录路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步，连同它们各自的寻址方式：两条路由都按文档相对写法请求，那枚 cookie 也在 auth-gate 写入它时所用的同一个部署前缀下清除。
 
 -----
 

@@ -17,7 +17,6 @@
  * the loud failure; the console also carries the reason.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/crud-settings
  */
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { setBizBasePath } from '@sumomok/toy-crud-kit'
 import { COMPONENT_KIT_SETTINGS_ROUTE, readComponentKitSettings } from '../route.ts'
 
@@ -31,7 +30,7 @@ let settled: Promise<string> | undefined
  * @throws {Error} when the route is unreachable, answers non-200, or answers a document without a usable base path.
  */
 async function readAndApply(): Promise<string> {
-  const url = clientUrl(COMPONENT_KIT_SETTINGS_ROUTE)
+  const url = new URL(COMPONENT_KIT_SETTINGS_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`component-kit: ${url.href} answered ${response.status}`)

@@ -2,11 +2,11 @@
  * Web e2e scenario: the whole shell published under a deployment path prefix,
  * behind a proxy that strips it — the shape the server line is deployed in.
  *
- * The composition is the shipped Web surface plus two rows: `server-base`,
- * which puts the prefix into the served index, and `auth-gate`, whose mirror
- * cookie is scoped to that prefix. In front of them stands the lane's
+ * The composition is the shipped Web surface plus the `auth-gate` row, whose
+ * mirror cookie is scoped to the prefix. In front of it stands the lane's
  * prefix-stripping proxy, so the harness keeps serving the root-absolute routes
- * it registers while the browser only ever sees prefixed ones.
+ * it registers while the browser only ever sees prefixed ones; the served
+ * index's `<base href="./">` is all that keeps the page's URLs on the prefix.
  *
  * A prefix is the one deployment shape where a root-absolute URL and a
  * prefix-relative one stop being the same address, and every URL the page
@@ -25,7 +25,7 @@
  * mechanically observable rule rather than a note in a deployment guide.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
- * links the loader resolves both rows through are created here rather than by
+ * link the loader resolves the gate row through is created here rather than by
  * `healProfilesModuleFallback`.
  */
 
@@ -41,8 +41,6 @@ import { startPrefixProxy, type PrefixProxy } from './prefix-proxy.ts'
 import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
-const BASE_DIR = join(REPO_ROOT, 'packages/experimental/server-base')
-const BASE_PACKAGE = '@deepseek-ai/dsh-experimental-server-base'
 const GATE_DIR = join(REPO_ROOT, 'packages/experimental/auth-gate')
 const GATE_PACKAGE = '@deepseek-ai/dsh-experimental-auth-gate'
 
@@ -94,17 +92,15 @@ function loginPage(signIn: boolean): string {
 }
 
 /**
- * Prepare a harness home whose profile fallback resolves both experimental
- * rows, and write the overlay that composes them.
+ * Prepare a harness home whose profile fallback resolves the gate row, and
+ * write the overlay that composes it.
  * @returns the harness home and the overlay path to launch with.
  */
 async function stageComposition(): Promise<{ harnessHome: string; overlayPath: string }> {
   const harnessHome = await mkdtemp(join(tmpdir(), 'dsh-base-path-'))
   const scope = join(harnessHome, 'profiles', 'node_modules', '@deepseek-ai')
   await mkdir(scope, { recursive: true })
-  for (const [dir, name] of [[BASE_DIR, BASE_PACKAGE], [GATE_DIR, GATE_PACKAGE]] as const) {
-    await symlink(dir, join(scope, name.slice('@deepseek-ai/'.length)), 'dir')
-  }
+  await symlink(GATE_DIR, join(scope, GATE_PACKAGE.slice('@deepseek-ai/'.length)), 'dir')
   const overlayPath = join(harnessHome, 'base-path.e2e.patch.yml')
   // The gate's loginUrl carries the prefix itself: the browser assigns it to
   // location.href as written, and a root-absolute assignment ignores the
@@ -112,10 +108,6 @@ async function stageComposition(): Promise<{ harnessHome: string; overlayPath: s
   // urls, not a route the page resolves.
   await writeFile(overlayPath, [
     '- insert:',
-    '    - id: server-base',
-    `      name: '${BASE_PACKAGE}'`,
-    '      config:',
-    `        basePath: '${PREFIX}'`,
     '    - id: auth-gate',
     `      name: '${GATE_PACKAGE}'`,
     '      config:',
@@ -163,6 +155,10 @@ async function probeUpgrade(origin: string, path: string, cookie: string): Promi
 describe.skipIf(MODE === 'record')('web e2e: the shell published under a deployment prefix', () => {
   let scaffold: WebScaffold
   let proxy: PrefixProxy
+  /** The proxy's own scheme and authority, which is the tab's origin. */
+  let proxyOrigin = ''
+  /** The address the shell is published at: the proxy origin plus the prefix. */
+  let proxyBase = ''
   let browser: Browser
   // Own context, not the default one a bare `browser.newPage()` opens: the
   // sign-out case removes the token from a second tab, which has to share this
@@ -183,10 +179,10 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     const staged = await stageComposition()
     harnessHome = staged.harnessHome
     scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: staged.overlayPath })
-    proxy = await startPrefixProxy({
-      targetPort: Number(new URL(scaffold.baseUrl).port),
-      prefix: PREFIX,
-    })
+    proxy = await startPrefixProxy({ prefix: PREFIX })
+    proxy.setTarget(Number(new URL(scaffold.baseUrl).port))
+    proxyOrigin = `http://127.0.0.1:${String(proxy.port)}`
+    proxyBase = `${proxyOrigin}${PREFIX}`
 
     browser = await chromium.launch()
     context = await newEnglishContext(browser)
@@ -202,7 +198,7 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     // authenticated. Its 303 is not followed: that answer names the origin
     // root, which is off the prefix this deployment publishes.
     const exchange = await context.request.get(
-      `${proxy.baseUrl}${new URL(scaffold.authenticatedUrl).search}`,
+      `${proxyBase}${new URL(scaffold.authenticatedUrl).search}`,
       { maxRedirects: 0 },
     )
     const minted = exchange.headers()['set-cookie']
@@ -225,20 +221,20 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
   function shellPaths(): string[] {
     return requested
       .map(request => new URL(request.url()))
-      .filter(url => url.origin === proxy.origin)
+      .filter(url => url.origin === proxyOrigin)
       .map(url => url.pathname)
   }
 
   it('sends a visitor with no token to the login page, carrying the prefixed return address', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-base-path-redirect'))
-    await page.goto(proxy.baseUrl, { waitUntil: 'load' })
+    await page.goto(proxyBase, { waitUntil: 'load' })
     // The gate leaves during boot, so the settled URL is the assertion. This
     // stub stays put, so nothing races the read.
     await expect.poll(() => new URL(page.url()).pathname, { timeout: 30_000 }).toBe(LOGIN_PATH)
     // The address the visitor is sent back to is the prefixed one they were on,
     // not the origin root the shell would have assumed before.
-    expect(page.url()).toBe(`${proxy.origin}${LOGIN_PATH}#/?redirect=${encodeURIComponent(proxy.baseUrl)}`)
-    expect(await page.locator('#stub-login').getAttribute('data-redirect')).toBe(proxy.baseUrl)
+    expect(page.url()).toBe(`${proxyOrigin}${LOGIN_PATH}#/?redirect=${encodeURIComponent(proxyBase)}`)
+    expect(await page.locator('#stub-login').getAttribute('data-redirect')).toBe(proxyBase)
   }, 120_000)
 
   it('boots the whole shell under the prefix and asks for nothing off it', async () => {
@@ -248,7 +244,7 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     statuses.clear()
     sockets.length = 0
 
-    await page.goto(proxy.baseUrl, { waitUntil: 'load' })
+    await page.goto(proxyBase, { waitUntil: 'load' })
     await page.getByRole('textbox', { name: WORKSPACE_PICKER }).waitFor({ timeout: 30_000 })
 
     // Nothing addressed the origin root. Each of these three prefixes belongs
@@ -324,7 +320,7 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     const other = await context.newPage()
     await other.route(url => url.pathname === SCRATCH_PATH, route =>
       route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>scratch</title>' }))
-    await other.goto(`${proxy.origin}${SCRATCH_PATH}`, { waitUntil: 'load' })
+    await other.goto(`${proxyOrigin}${SCRATCH_PATH}`, { waitUntil: 'load' })
     await other.evaluate(() => { localStorage.removeItem('accessToken') })
 
     // The prefix-scoped cookie is cleared by a line that has to name the same
@@ -334,21 +330,20 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
       timeout: 30_000,
     }).toBe(false)
     await expect.poll(() => new URL(page.url()).pathname, { timeout: 30_000 }).toBe(LOGIN_PATH)
-    expect(page.url().startsWith(`${proxy.origin}${PREFIX}`)).toBe(true)
+    expect(page.url().startsWith(`${proxyOrigin}${PREFIX}`)).toBe(true)
     await other.close()
   }, 120_000)
 
   it('cannot be reached at all through a proxy that forwards the prefix instead of stripping it', async () => {
     // The same harness, fronted by an identity proxy: the prefix arrives intact
     // at a process whose routes are all registered at the root.
-    const passthrough = await startPrefixProxy({
-      targetPort: Number(new URL(scaffold.baseUrl).port),
-      prefix: '/',
-    })
+    const passthrough = await startPrefixProxy({ prefix: '/' })
+    passthrough.setTarget(Number(new URL(scaffold.baseUrl).port))
+    const passthroughOrigin = `http://127.0.0.1:${String(passthrough.port)}`
     try {
       // The shell itself: frontend-static renders the index for `/` and
       // `/index.html` only, so a prefixed document request is simply missing.
-      const shell = await fetch(`${passthrough.origin}${PREFIX}`)
+      const shell = await fetch(`${passthroughOrigin}${PREFIX}`)
       await shell.arrayBuffer()
       expect(shell.status).toBe(404)
 
@@ -362,9 +357,9 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'client-request', rpcId: 'probe', payload: {} }),
       }
-      const unstripped = await fetch(`${passthrough.origin}${PREFIX}api/session/list`, rpcBody)
+      const unstripped = await fetch(`${passthroughOrigin}${PREFIX}api/session/list`, rpcBody)
       await unstripped.arrayBuffer()
-      const stripped = await fetch(`${proxy.origin}${PREFIX}api/session/list`, {
+      const stripped = await fetch(`${proxyOrigin}${PREFIX}api/session/list`, {
         ...rpcBody,
         headers: { ...rpcBody.headers, cookie: session },
       })
@@ -375,8 +370,8 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
       // The downlinks are matched by exact pathname and there is no status code
       // to read: an unmatched upgrade is a destroyed socket. The same probe
       // against the stripping proxy is what proves it is the prefix that did it.
-      expect(await probeUpgrade(passthrough.origin, `${PREFIX}api/remote.mux`, session)).toBe('refused')
-      expect(await probeUpgrade(proxy.origin, `${PREFIX}api/remote.mux`, session)).toBe('upgraded')
+      expect(await probeUpgrade(passthroughOrigin, `${PREFIX}api/remote.mux`, session)).toBe('refused')
+      expect(await probeUpgrade(proxyOrigin, `${PREFIX}api/remote.mux`, session)).toBe('upgraded')
     } finally {
       await passthrough.close()
     }

@@ -28,9 +28,9 @@ function toolCall(callId: string, args: unknown): SessionEvent {
   return event('tool/call', { turn: 1, step: 1, callId, name: 'show_chart', arguments: JSON.stringify(args) })
 }
 
-/** A Code Mode dispatch of the same tool, whose arguments are already decoded. */
-function codeDispatch(subCallId: string, args: unknown): SessionEvent {
-  return event('tool/code-dispatch-start', { turn: 1, step: 1, subCallId, name: 'show_chart', arguments: args })
+/** A PTC mode dispatch of the same tool, whose arguments are already decoded. */
+function ptcDispatch(subCallId: string, args: unknown): SessionEvent {
+  return event('tool/ptc-dispatch-start', { turn: 1, step: 1, subCallId, name: 'show_chart', arguments: args })
 }
 
 describe('chart extractor', () => {
@@ -43,8 +43,8 @@ describe('chart extractor', () => {
       .toEqual({ entryId: 'sales', data: { title: 'Revenue', option: OPTION } })
   })
 
-  it('reads a Code Mode call the same way, under its sub-call id', () => {
-    expect(extractor.read(codeDispatch('sub_1', { id: 'sales', title: 'Revenue', option: OPTION })))
+  it('reads a PTC mode call the same way, under its sub-call id', () => {
+    expect(extractor.read(ptcDispatch('sub_1', { id: 'sales', title: 'Revenue', option: OPTION })))
       .toEqual({ entryId: 'sales', data: { title: 'Revenue', option: OPTION } })
   })
 

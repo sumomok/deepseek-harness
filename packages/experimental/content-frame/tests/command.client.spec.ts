@@ -122,8 +122,7 @@ describe('show-content-page command', () => {
     // The same sentence the package composes, so a wording change moves both.
     expect(injected[0]!.content[0]).toMatchObject({ text: openedPageNotice('Weekly reports') })
     expect(injected[0]!.source).toEqual({
-      kind: 'plugin',
-      plugin: 'content-frame',
+      kind: 'content-frame',
       form: 'notice',
       summary: 'The user opened the page "Weekly reports" in the content column (内容区); it is in front now.',
     })

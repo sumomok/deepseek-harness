@@ -59,7 +59,7 @@ kind: "package-reference"
 
 第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的配置值提供给它：`cacheSize`、整份 `pages` 清单，以及部署方配置了页面读取时，读取器的预算与它工作所在的两道截止时间。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。页面清单也走这同一条路由而不是新开一条——侧边栏的页面导航菜单是这条路由的第二个读取方，它按约定（写死路由路径与 JSON 形状）而非导入本包来匹配这份数据，因为跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式。
 
-本包注册的每一条路由都注册在服务器根上，而**浏览器对其中任何一条发出的请求，在发出前都要先以页面自己的 base 解析一次**——用 `@deepseek-ai/dsh-client-connection/client` 的 `clientUrl`，本包把它声明为 `dsh.client.external`。发布在某个路径前缀下的部署之所以不用改任何一条路由就能跑，靠的就是这一点：反向代理在进来的方向把前缀剥掉，页面在出去的方向把它装回去，于是 `/content-frame/settings` 和下面那条通道跑的三条读取路由，实际被请求为 `/console/content-frame/settings`、`/console/content-frame/claim`，依此类推。按常量字面写法直接发出的路由则会打到 origin 根上——那个地址部署方的代理压根不会转给本进程——读取通道于是在用户眼前摆着控制台的情况下彻底哑掉。唯一不这么解析的浏览器地址是页面配置里的 `url`，frame 按原样请求它；[agent 可展示的页面](#pages-the-agent-may-show)讲了为什么，以及带前缀的部署为什么要自己把前缀写进那个值里。
+本包注册的每一条路由都注册在服务器根上，而**浏览器对其中任何一条发出的请求，在发出前都要先以页面自己的 base 解析一次**——请求的是路由的文档相对写法，由被服务出去的 index 里的 `<base href="./">` 按页面被加载时所在的目录解析。发布在某个路径前缀下的部署之所以不用改任何一条路由就能跑，靠的就是这一点：反向代理在进来的方向把前缀剥掉，页面在出去的方向把它装回去，于是 `/content-frame/settings` 和下面那条通道跑的三条读取路由，实际被请求为 `/console/content-frame/settings`、`/console/content-frame/claim`，依此类推。按常量字面写法直接发出的路由则会打到 origin 根上——那个地址部署方的代理压根不会转给本进程——读取通道于是在用户眼前摆着控制台的情况下彻底哑掉。唯一不这么解析的浏览器地址是页面配置里的 `url`，frame 按原样请求它；[agent 可展示的页面](#pages-the-agent-may-show)讲了为什么，以及带前缀的部署为什么要自己把前缀写进那个值里。
 
 <a id="who-put-a-page-on-display"></a>
 ## 谁把页面放上台面

@@ -5,7 +5,7 @@
  * registration and the real HTTP route respectively; this file covers the
  * client-side failure and filtering paths those never exercise.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readServerMenu, saveServerMenu } from '../src/client/workflow-api.ts'
 import type { ServerMenuGroup, ServerMenuWorkflow } from '../src/workflows.ts'
 
@@ -17,6 +17,11 @@ const WORKFLOW: ServerMenuWorkflow = {
 const GROUP: ServerMenuGroup = { id: 'g1', name: '每日', pinned: true, order: 0 }
 /** The empty document, spelled out where a read answers one. */
 const EMPTY = { workflows: [], groups: [], workbenchSessionId: undefined }
+
+// A node carrier has no document; the routes resolve against this stand-in base.
+beforeEach(() => {
+  vi.stubGlobal('document', { baseURI: 'https://harness.example/' })
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -98,7 +103,7 @@ describe('readServerMenu', () => {
 
 describe('server-menu requests under a deployment prefix', () => {
   it('sends both the read and the write through the prefix the shell is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    vi.stubGlobal('document', { baseURI: 'https://harness.example/console/' })
     const requested: string[] = []
     vi.stubGlobal('fetch', vi.fn((input: URL) => {
       requested.push(input.pathname)

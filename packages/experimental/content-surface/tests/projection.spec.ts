@@ -102,7 +102,7 @@ describe('contentSurface projection', () => {
     const unit = contentSurfaceProjection([alphaRecognizing])
     const afterDismissal = unit.apply(STATE, dismissal('alpha', 'one', 9))
     expect(unit.wire.view(afterDismissal).entries).toEqual([])
-    const resurrected = unit.apply(afterDismissal, { type: ALPHA_SHOWN, seq: 10, time: 0, data: { id: 'again' } } as SessionEvent)
+    const resurrected = unit.apply(afterDismissal, { type: ALPHA_SHOWN, seq: 10, time: 0, data: { id: 'again' } } as unknown as SessionEvent)
     expect(unit.wire.view(resurrected).entries).toEqual([{ kind: 'alpha', entryId: 'one', seq: 10, title: 'alpha:again', payload: 'again' }])
   })
 
@@ -142,7 +142,7 @@ describe('contentSurface front', () => {
     const chosen = unit.apply(STATE, selection('alpha', 'one', 9))
     // The agent showing something is a later record than the click, so the
     // click gives way — the same comparison the selection won above.
-    const shown = unit.apply(chosen, { type: ALPHA_SHOWN, seq: 12, time: 0, data: { id: 'again' } } as SessionEvent)
+    const shown = unit.apply(chosen, { type: ALPHA_SHOWN, seq: 12, time: 0, data: { id: 'again' } } as unknown as SessionEvent)
     expect(contentSurfaceProjection([alphaRecognizing, beta]).wire.view(shown).front)
       .toEqual({ kind: 'alpha', entryId: 'one' })
     expect(unit.wire.view({ ...STATE, selected: { kind: 'alpha', entryId: 'one', seq: 4 } }).front)

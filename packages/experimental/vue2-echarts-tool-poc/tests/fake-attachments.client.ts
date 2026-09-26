@@ -5,12 +5,10 @@
  */
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
-  FileAttachmentLimits,
   FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
-  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 
@@ -64,34 +62,11 @@ export class FakeAttachments extends AttachmentStore {
     throw new Error('unused by these specs')
   }
 
-  /** The text-file half of the store: unused by these specs, which only save images. */
-  readonly fileLimits: FileAttachmentLimits = {
-    maxFilesPerMessage: 4,
-    maxMessageFileBytes: 4 * 1024 * 1024,
-    maxFileBytes: 1024 * 1024,
-  }
-
   /**
    * Unused: no spec submits a text file.
    * @throws always.
    */
-  validateFile(): Promise<void> {
-    throw new Error('unused by these specs')
-  }
-
-  /**
-   * Unused: no spec submits a text file.
-   * @throws always.
-   */
-  saveFile(): Promise<FileAttachmentRef> {
-    throw new Error('unused by these specs')
-  }
-
-  /**
-   * Unused: no spec reads a stored text file back.
-   * @throws always.
-   */
-  readFile(): Promise<StoredFileAttachment> {
+  override saveFile(): Promise<FileAttachmentRef> {
     throw new Error('unused by these specs')
   }
 }

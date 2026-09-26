@@ -36,7 +36,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { CONTENT_SETTINGS_ROUTE, type ContentFrameAccessSettings } from '../route.ts'
 import { ContentFrame, type ContentFrameFace } from './ContentFrame.tsx'
 import { ContentReadRow } from './access/ContentReadRow.tsx'
@@ -127,7 +126,7 @@ async function readSettings(onNavigated: ContentFrameFace['onNavigated']): Promi
   // resolves it against its deployment base, which a reverse proxy strips
   // again. The diagnostics name the resolved URL, which is what separates a
   // misconfigured prefix from an unreachable route.
-  const url = clientUrl(CONTENT_SETTINGS_ROUTE)
+  const url = new URL(CONTENT_SETTINGS_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`content-frame: ${url.href} answered ${response.status}`)

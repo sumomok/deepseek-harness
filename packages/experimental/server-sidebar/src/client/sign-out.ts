@@ -30,10 +30,11 @@
  * export-discipline section), and the sidebar must also work in a composition
  * that does not compose auth-gate — where the settings read fails, the button
  * reports that and stays put. The copies must keep step with that package; see
- * this package's README. Both routes are requested through `clientUrl` and the
- * mirror cookie is cleared at the deployment prefix this shell is served
- * under: auth-gate writes that cookie under the same prefix, and a removal
- * line differing in the path removes nothing.
+ * this package's README. Both routes are requested document-relative, and the
+ * mirror cookie is cleared at the document's base directory, which is the
+ * deployment prefix this shell is served under: auth-gate writes that cookie
+ * under the same prefix, and a removal line differing in the path removes
+ * nothing.
  *
  * Nothing here is model-visible: no session event carries it, and a model
  * request can reach none of it. Cancelling a turn is the one step a model
@@ -41,7 +42,6 @@
  * person presses stop.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/sign-out
  */
-import { clientUrl, resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls dsh-client-ui-conversation's `ctx.conversation` Context
@@ -216,7 +216,7 @@ function returnAddress(currentHref: string): string {
  * a composition without auth-gate looks like from here.
  */
 export async function readAuthGateSettings(): Promise<AuthGateBrowserSettings> {
-  const url = clientUrl(AUTH_GATE_SETTINGS_ROUTE)
+  const url = new URL(AUTH_GATE_SETTINGS_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`server-sidebar: ${url.href} answered ${String(response.status)}`)
@@ -295,7 +295,7 @@ export async function stopRunningTurns(ctx: ClientContext): Promise<void> {
  * @returns nothing, once the route has answered or failed.
  */
 async function postLogout(): Promise<void> {
-  const url = clientUrl(AUTH_GATE_LOGOUT_ROUTE)
+  const url = new URL(AUTH_GATE_LOGOUT_ROUTE.slice(1), document.baseURI)
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -388,7 +388,7 @@ export function windowSignOutBrowser(ctx: ClientContext): SignOutBrowser {
   // The deployment prefix this shell is served under, resolved the way
   // auth-gate's own browser resolves it: the only path at which a removal line
   // matches the mirror that package wrote.
-  const cookiePath = new URL(resolveClientBase()).pathname
+  const cookiePath = new URL('.', document.baseURI).pathname
   return {
     stopTurns: () => stopRunningTurns(ctx),
     removeStoredKey: (key) => { localStorage.removeItem(key) },

@@ -29,12 +29,14 @@ async function bench(): Promise<Context> {
 }
 
 describe('content surface prompt section', () => {
-  it('contributes the on-display rule verbatim, last of the assembled sections', async () => {
+  it('contributes the on-display rule verbatim, last of the non-empty assembled sections', async () => {
     const ctx = await bench()
     const assembly = await ctx.systemPrompt.assemble()
     // No extractor is registered here: the rule is about what the user points
-    // at, so an empty table is not a reason to withhold it.
-    expect(assembly.sections.at(-1)).toEqual({ name: 'content:on-display', text: RULE })
+    // at, so an empty table is not a reason to withhold it. Only the
+    // deployment's persona suffix, empty unless configured, orders after it.
+    expect(assembly.sections.filter(section => section.text.length > 0).at(-1))
+      .toEqual({ name: 'content:on-display', text: RULE })
     // Nothing renders after it, which is where the rule was measured.
     expect(renderPrompt(assembly).endsWith(RULE)).toBe(true)
   })

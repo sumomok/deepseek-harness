@@ -42,6 +42,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandResult } from '@deepseek-ai/dsh-commands'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /**
+     * The notice this package injects when the user acts on a drawn component. Readers preserve the content without this producer.
+     * @persistenceAttribution
+     */
+    'content-component': { kind: 'content-component' } & ContextFormed
+  }
+}
 import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections, which the entry is read through.
@@ -300,8 +311,7 @@ export function deliverAction(
   const message = createUserMessage({
     content: [{ type: 'text', text: resolved.notice.text }],
     source: {
-      kind: 'plugin',
-      plugin: COMPONENT_ACTION_PLUGIN,
+      kind: COMPONENT_ACTION_PLUGIN,
       form: 'notice',
       summary: boundContextSummary(resolved.notice.summary),
     },

@@ -4,7 +4,7 @@
  * and what a second record on one id does to the stream the column reads.
  *
  * Three log shapes carry a block and all three count — a top-level `tool/call`,
- * a Code Mode `tool/code-dispatch-start`, and the `content-component/shown` a
+ * a PTC mode `tool/ptc-dispatch-start`, and the `content-component/shown` a
  * user's click on a configured view writes — so the cases run each of them
  * through the same assertions. A reader recognizing fewer would leave a whole
  * class of block out of the column with nothing saying why.
@@ -39,7 +39,7 @@ interface Bench {
   session: Session
   /** Append one top-level call, the shape a model calling the tool directly logs. */
   call: (callId: string, args: unknown, name?: string) => void
-  /** Append one Code Mode sub-dispatch, the shape a model calling through `run_code` logs. */
+  /** Append one PTC mode sub-dispatch, the shape a model calling through `run_code` logs. */
   dispatch: (subCallId: string, args: unknown, name?: string) => void
   /** Append one view click, the shape the `show-content-view` command logs. */
   shown: (id: string, title: string, spec: unknown) => void
@@ -67,7 +67,7 @@ async function bench(): Promise<Bench> {
       })
     },
     dispatch: (subCallId, args, name = 'show_component') => {
-      session.append('tool/code-dispatch-start', {
+      session.append('tool/ptc-dispatch-start', {
         rootCallId: ToolCallId('root'),
         parentCallId: ToolCallId('root'),
         subCallId: ToolCallId(subCallId),
@@ -119,7 +119,7 @@ describe('the component kind', () => {
     }])
   })
 
-  it('records a Code Mode dispatch of the same tool the same way', async () => {
+  it('records a PTC mode dispatch of the same tool the same way', async () => {
     // A model reaching the tool through `run_code` logs only this shape; a
     // reader recognizing one shape would find no components at all there.
     const { dispatch, entries } = await bench()

@@ -3,41 +3,41 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/server-base/README.md
 /:
-  en: df13651b3b4ad5ed
-  zh: 1cb6cdb3b7f92279
+  en: 8f3b6187c937c51b
+  zh: 266bdfb33facabc5
 /deepseek-ai-dsh-experimental-server-base:
   en: 5af8931ea64b0d15
   zh: d56465acb10ad6ed
 /deepseek-ai-dsh-experimental-server-base/summary:
-  en: db2cee10962986ad
-  zh: 2c69b371984a6ac2
+  en: e7393ddf9d16dd44
+  zh: f6cbf1731cc8e5f2
 /deepseek-ai-dsh-experimental-server-base/table-of-contents:
   en: 434eb6e8ec44a8c0
   zh: ff6001b9f14d416c
 /deepseek-ai-dsh-experimental-server-base/what-it-injects:
-  en: 546826cd084aa394
-  zh: 9ee654a7eee576eb
+  en: c65ef96fb7ef6b7a
+  zh: d9d701fd5e181d87
 /deepseek-ai-dsh-experimental-server-base/configuration:
-  en: a20a093a9ed2effc
-  zh: e41c0064b6d717b4
+  en: 52c235af2eab7829
+  zh: 9135f4e204fc34ca
 /deepseek-ai-dsh-experimental-server-base/claiming-the-host:
   en: 81e71c460b9ba3d9
   zh: 280f4ee5df86132b
 /deepseek-ai-dsh-experimental-server-base/composition:
-  en: 151450e0538b12ee
-  zh: dde625d6694e884a
+  en: e046c7f91ddb8f1e
+  zh: e51424dcaf363b81
 /deepseek-ai-dsh-experimental-server-base/the-proxy-half:
-  en: 8d9443bf942f5bda
-  zh: 13169886bc16be38
+  en: 49a29a4ca1bc36c7
+  zh: 589edd36580f003b
 /deepseek-ai-dsh-experimental-server-base/model-experience:
-  en: 952d798545f4ff33
-  zh: 952d798545f4ff33
+  en: 86184d50340294a4
+  zh: 86184d50340294a4
 /deepseek-ai-dsh-experimental-server-base/model-experience/kv-cache-effect:
   en: e921a9b9b9eb6c92
   zh: e921a9b9b9eb6c92
 /deepseek-ai-dsh-experimental-server-base/known-limitations-and-deferred-work:
-  en: 20e9b70b396cf74e
-  zh: 8c33f8d0bc4f825d
+  en: 719888a56dbd1fb4
+  zh: c3993c649538beb9
 /deepseek-ai-dsh-experimental-server-base/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

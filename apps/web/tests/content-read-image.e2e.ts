@@ -55,7 +55,7 @@ import {
   fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -76,12 +76,6 @@ const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import
  * route from its own log, and the seed logged one.
  */
 const ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' } as const
-
-/**
- * The preset this scenario's session is composed from: a persona and no tools
- * at all, so the only tools left are the content column's own.
- */
-const PRESET = { root: fileURLToPath(new URL('./fixtures/presets', import.meta.url)), id: 'content-column' }
 
 /** Every tool the session may be offered, which is the whole content column and nothing else. */
 const OFFERED = [
@@ -122,7 +116,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
       events: sessionEvents,
       overlay: OVERLAY,
       model: ROUTE,
-      preset: PRESET,
+      preset: CONTENT_COLUMN_PRESET,
     }))
   }, 180_000)
 
@@ -198,7 +192,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     // about what the page drew.
     const blocks = sessionEvents.flatMap((event) => {
       if (event.type !== 'tool/result') return []
-      return event.data.message.content.flatMap(result => result.content.filter(block => block.type === 'image'))
+      return event.data.message.content.filter(block => block.type === 'image')
     })
     expect(blocks.length).toBeGreaterThanOrEqual(1)
     expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 348, height: 348 } })

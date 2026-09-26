@@ -397,7 +397,7 @@ describe('reading one bound property', () => {
 })
 
 describe('reading one call argument value', () => {
-  it('reads a decoded argument record, the form Code Mode logs', () => {
+  it('reads a decoded argument record, the form PTC mode logs', () => {
     expect(readComponentCall({ id: 'budget', title: '预算', spec: { nodes: [] } }))
       .toEqual({ id: 'budget', title: '预算', spec: { nodes: [] } })
   })

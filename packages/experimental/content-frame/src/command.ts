@@ -28,6 +28,17 @@
  */
 
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /**
+     * The notice this package injects when the user opens a page in the content column. Readers preserve the content without this producer.
+     * @persistenceAttribution
+     */
+    'content-frame': { kind: 'content-frame' } & ContextFormed
+  }
+}
 import type { CommandDefinition, CommandResult } from '@deepseek-ai/dsh-commands'
 import { isPrintable, MAX_HEADER_CHARS, MAX_URL_CHARS } from './access/wire.ts'
 import { openedPageNotice } from './perception/text.ts'
@@ -88,7 +99,7 @@ export function showContentPageCommand(pages: PageIndex): CommandDefinition {
       const text = openedPageNotice(page.title)
       invocation.agent.inject(createUserMessage({
         content: [{ type: 'text', text }],
-        source: { kind: 'plugin', plugin: PLUGIN_NAME, form: 'notice', summary: boundContextSummary(text) },
+        source: { kind: PLUGIN_NAME, form: 'notice', summary: boundContextSummary(text) },
       }))
       return { kind: 'success', text: `Now showing ${page.title} in the content column.` }
     },

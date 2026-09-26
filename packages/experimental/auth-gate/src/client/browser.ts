@@ -6,7 +6,6 @@
  * @module @deepseek-ai/dsh-experimental-auth-gate/src/client/browser
  */
 
-import { resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
 import { ACCESS_TOKEN_STORAGE_KEY, MAX_TIMER_DELAY_MS } from '../route.ts'
 import { REQUEST_ID_LENGTH, requestIdFrom } from './renewal.ts'
 
@@ -163,7 +162,7 @@ export function windowGateBrowser(): GateBrowser {
   // The deployment prefix this shell is served under: the widest path every
   // request from this page still carries, and the narrowest one the mirror may
   // be scoped to.
-  const cookiePath = new URL(resolveClientBase()).pathname
+  const cookiePath = new URL('.', document.baseURI).pathname
   return {
     now: () => Date.now(),
     currentHref: () => location.href,

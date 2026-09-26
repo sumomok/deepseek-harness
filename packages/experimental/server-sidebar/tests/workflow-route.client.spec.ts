@@ -97,6 +97,8 @@ async function loadComposition(existingWorld?: string): Promise<Context> {
     config: { path: pathToFileURL(configPath).href },
   })
   await context.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of context.loader.entries()) await entry.fiber?.await()
   return context
 }
 
@@ -330,6 +332,8 @@ describe('server-sidebar without the settings capability', () => {
     } as unknown as NonNullable<typeof context.loader.internal>
     await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
     await context.loader.await()
+    // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+    for (const entry of context.loader.entries()) await entry.fiber?.await()
     const unloaded = [...context.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
     expect(unloaded).toEqual([])
     const answer = await fetch(`http://127.0.0.1:${String(context.webServer.port)}${SERVER_MENU_ROUTE}`)

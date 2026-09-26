@@ -5,8 +5,8 @@
  * The fold keeps only what the log said; the `latest` view is derived in
  * `view`, so the ownership rule lives in one place and the stored state stays
  * the minimum that replays. Two log shapes carry a chart call and both count:
- * a top-level `tool/call`, whose `arguments` is raw JSON, and a Code Mode
- * `tool/code-dispatch-start`, whose `arguments` is already decoded and whose
+ * a top-level `tool/call`, whose `arguments` is raw JSON, and a PTC mode
+ * `tool/ptc-dispatch-start`, whose `arguments` is already decoded and whose
  * call id is the `subCallId`. A model reaching the tool through `run_code`
  * logs only the second, so a fold reading one shape would see no charts at all
  * for that session.
@@ -81,7 +81,7 @@ export function readChartEvent(event: SessionEvent): RecordedChartCall | undefin
     const call = parseChartCall(event.data.arguments)
     return call === undefined ? undefined : { call, callId: event.data.callId }
   }
-  if (event.type === 'tool/code-dispatch-start') {
+  if (event.type === 'tool/ptc-dispatch-start') {
     if (event.data.name !== SHOW_CHART_TOOL_NAME) return undefined
     const call = readChartCall(event.data.arguments)
     return call === undefined ? undefined : { call, callId: event.data.subCallId }

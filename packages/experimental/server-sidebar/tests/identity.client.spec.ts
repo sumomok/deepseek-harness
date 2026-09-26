@@ -8,8 +8,7 @@
  * `@deepseek-ai/dsh-experimental-auth-gate`'s own browser spec uses), so each
  * assertion states exactly what storage held and what the page was told.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { INTERNAL_BASE } from '@deepseek-ai/dsh-client-connection/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createDisplayNameSource,
   decodeJwtPayload,
@@ -36,6 +35,11 @@ function stubPage(stored: string | null): { listeners: Map<string, (event: Stora
   vi.stubGlobal('removeEventListener', (type: string) => { listeners.delete(type) })
   return { listeners }
 }
+
+// A node carrier has no document; the routes resolve against this stand-in base.
+beforeEach(() => {
+  vi.stubGlobal('document', { baseURI: 'https://harness.example/' })
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -104,11 +108,11 @@ describe('readIdentitySettings', () => {
   it('reads the configured claim, uncached', async () => {
     const fetcher = stubRoute({ body: { displayNameClaim: 'login_uname' } })
     await expect(readIdentitySettings()).resolves.toEqual({ displayNameClaim: 'login_uname' })
-    expect(fetcher).toHaveBeenCalledWith(new URL(SERVER_IDENTITY_ROUTE, INTERNAL_BASE), { cache: 'no-store' })
+    expect(fetcher).toHaveBeenCalledWith(new URL(SERVER_IDENTITY_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
   })
 
   it('requests it through the deployment prefix the shell is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    vi.stubGlobal('document', { baseURI: 'https://harness.example/console/' })
     const requested: string[] = []
     vi.stubGlobal('fetch', vi.fn((input: URL) => {
       requested.push(input.pathname)

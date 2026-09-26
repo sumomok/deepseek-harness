@@ -33,7 +33,6 @@
  * host ignores whatever slips past it anyway.
  */
 import { useMemo, useRef, useState } from 'react'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -57,14 +56,15 @@ export interface ShowChartFace {
 /** Composed props: the toolview runtime share, the injected face, and this package's locale seat. */
 export type ShowChartRowProps = ToolCallViewProps & ShowChartFace & PropsLocale<'showChart'>
 
-/** The raw argument JSON of a call in either lifecycle form. */
+/** The raw argument JSON of a dispatched or settled call; a call still preparing has none yet. */
 function argumentsOf(block: ToolCallBlock): string | undefined {
-  return 'kind' in block ? block.call?.argsRaw : block.argsRaw
+  if ('kind' in block) return block.call?.argsRaw
+  return block.phase === 'start' ? block.argsRaw : undefined
 }
 
 /** Post one verdict to the node half; a lost report is the tool's own deadline to answer. */
 function postReport(report: ShowChartReport): void {
-  void fetch(clientUrl(SHOW_CHART_REPORT_ROUTE), {
+  void fetch(new URL(SHOW_CHART_REPORT_ROUTE.slice(1), document.baseURI), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(report),

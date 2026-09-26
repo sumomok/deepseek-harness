@@ -42,7 +42,7 @@ import {
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+  COMPOSER, CONTENT_COLUMN_PRESET, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -74,9 +74,6 @@ const VISION_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-
 
 /** The option label that route is offered under: the provider's name and the model's. */
 const VISION_OPTION = 'DeepSeek：DeepSeek-V4-Flash-Vision-Exp'
-
-/** The preset this scenario's session is composed from: a persona and no tools at all. */
-const PRESET = { root: fileURLToPath(new URL('./fixtures/presets', import.meta.url)), id: 'content-column' }
 
 /** Every tool the session may be offered, which is the whole content column and nothing else. */
 const OFFERED = [
@@ -126,7 +123,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
       appRoot: APP_ROOT,
       events: sessionEvents,
       overlay: OVERLAY,
-      preset: PRESET,
+      preset: CONTENT_COLUMN_PRESET,
     }))
   }, 180_000)
 
@@ -218,7 +215,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
 
     const blocks = sessionEvents.flatMap((event) => {
       if (event.type !== 'tool/result') return []
-      return event.data.message.content.flatMap(result => result.content.filter(block => block.type === 'image'))
+      return event.data.message.content.filter(block => block.type === 'image')
     })
     expect(blocks.length).toBeGreaterThanOrEqual(1)
     expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 348, height: 348 } })

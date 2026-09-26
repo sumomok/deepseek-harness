@@ -34,7 +34,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
-  FileAttachmentLimits, ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment,
+  ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import * as ContentFrame from '../src/index.ts'
 import {
@@ -104,13 +104,6 @@ class StubAttachments extends AttachmentStore {
     mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
   }
 
-  override readonly fileLimits: FileAttachmentLimits = {
-    maxFileBytes: 1024,
-    maxFilesPerMessage: 1,
-    maxMessageFileBytes: 1024,
-    mediaTypes: [],
-  } as unknown as FileAttachmentLimits
-
   override validateImage(): Promise<void> {
     return Promise.resolve()
   }
@@ -131,15 +124,7 @@ class StubAttachments extends AttachmentStore {
     throw new Error('this store is written for the route, not for reading back')
   }
 
-  override validateFile(): Promise<void> {
-    return Promise.resolve()
-  }
-
   override saveFile(): never {
-    throw new Error('this store keeps images only')
-  }
-
-  override readFile(): never {
     throw new Error('this store keeps images only')
   }
 }
@@ -253,6 +238,8 @@ async function loadComposition(
     config: { path: pathToFileURL(configPath).href },
   })
   await context.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of context.loader.entries()) await entry.fiber?.await()
   return context
 }
 

@@ -45,7 +45,7 @@ export function chartIdOf(value: unknown): string | undefined {
 
 /**
  * Read one call's chart arguments from the decoded argument value — the form
- * `tool/code-dispatch-start` records.
+ * `tool/ptc-dispatch-start` records.
  * @param value - the decoded arguments, however malformed.
  * @returns the call, or `undefined` when the value carries no chart to draw.
  */

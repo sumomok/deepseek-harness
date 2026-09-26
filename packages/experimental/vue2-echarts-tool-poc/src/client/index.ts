@@ -9,11 +9,10 @@
  * the shipped one on `develop`, the service-line one on this branch. That is
  * why the placement is here rather than in a layout-aware package.
  *
- * `EChartsOption` and `clientUrl` are value imports across packages, which the
- * client bundle purity gate allows only for a declared module request: the
- * manifest's `dsh.client.external` names the component row's `/client`
- * specifier and the connection package's, and the loader answers each require
- * from the same materialized bundle. The modules node half orders the component
+ * `EChartsOption` is a value import across packages, which the client bundle
+ * purity gate allows only for a declared module request: the manifest's
+ * `dsh.client.external` names the component row's `/client` specifier, and the
+ * loader answers the require from the same materialized bundle. The modules node half orders the component
  * row ahead of this one, which is also what keeps one Vue runtime in the graph.
  *
  * Whether a painted chart is captured is host configuration, and a browser half
@@ -22,12 +21,12 @@
  * before claiming the key. A failed read fails the row: a transcript that
  * silently captured nothing would be indistinguishable from one honoring the
  * setting. That route, like the report route the row posts to, is registered
- * root-absolute and requested through `clientUrl`, which puts back the path
- * prefix a reverse proxy stripped before the request arrived.
+ * root-absolute and requested document-relative, against the served index's
+ * `<base href="./">`, which keeps the path prefix a reverse proxy stripped
+ * before the request arrived.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -62,7 +61,7 @@ export const inject = ['slots', 'locale']
  * document without a usable capture switch.
  */
 async function readSettings(): Promise<ShowChartSettings> {
-  const url = clientUrl(SHOW_CHART_SETTINGS_ROUTE)
+  const url = new URL(SHOW_CHART_SETTINGS_ROUTE.slice(1), document.baseURI)
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`show-chart: ${url.href} answered ${response.status}`)

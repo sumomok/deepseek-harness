@@ -11,7 +11,6 @@
  * survives a read, an edit of some other field, and the write back.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-api
  */
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { SERVER_MENU_ROUTE } from '../route.ts'
 import type { NavSnapshotItem, ServerMenuGroup, ServerMenuWorkflow } from '../workflows.ts'
 
@@ -111,7 +110,7 @@ function readState(body: { workflows?: unknown; groups?: unknown; workbenchSessi
  */
 export async function readServerMenu(): Promise<ServerMenuState> {
   try {
-    const response = await fetch(clientUrl(SERVER_MENU_ROUTE), { cache: 'no-store' })
+    const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
     if (!response.ok) return EMPTY_STATE
     return readState(await response.json() as { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown })
   } catch {
@@ -131,7 +130,7 @@ export async function readServerMenu(): Promise<ServerMenuState> {
  * server's own refusal text when one was given.
  */
 export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenuState> {
-  const response = await fetch(clientUrl(SERVER_MENU_ROUTE), {
+  const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),

@@ -11,7 +11,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { emitAgentEvent, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { createQueueInbox } from './queue-inbox.client.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime, { CommandId } from '@deepseek-ai/dsh-commands'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
@@ -139,11 +140,10 @@ function newSession(ctx: Context): Session {
 }
 
 /**
- * A fake agent over a real session and a real {@link Inbox}: the command
+ * A fake agent over a real session and an in-memory inbox: the command
  * registry needs an agent, what this suite asserts is which delivery method the
- * handler reached for, and the one thing it must not fake is the inbox — a
- * superseded notice is replaced only while the inbox still holds it, which is
- * `Inbox.replace`'s answer and nothing this file could stand in for.
+ * handler reached for, and a superseded notice is replaced only while the inbox
+ * still holds it, which is `Inbox.replace`'s answer.
  *
  * Both delivery methods route through that inbox exactly as the live agent's
  * do, so a spy handed here counts the deliveries that appended a notice and not
@@ -159,7 +159,7 @@ function fakeAgent(
   } = {},
 ): Agent {
   const scopeFiber = ctx.plugin(() => {})
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+  const inbox = createQueueInbox()
   const agent = {
     id: session.id,
     ctx: scopeFiber.ctx,
@@ -270,8 +270,7 @@ describe('delivering one resolved action', () => {
     const message = inject.mock.calls[0]?.[0] as UserMessage
     expect(message.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
     expect(message.source).toEqual({
-      kind: 'plugin',
-      plugin: COMPONENT_ACTION_PLUGIN,
+      kind: COMPONENT_ACTION_PLUGIN,
       form: 'notice',
       summary: PRESS_SUMMARY,
     })
@@ -349,8 +348,7 @@ describe('the /component-action command', () => {
     const message = followup.mock.calls[0]?.[0] as UserMessage
     expect(message.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
     expect(message.source).toEqual({
-      kind: 'plugin',
-      plugin: COMPONENT_ACTION_PLUGIN,
+      kind: COMPONENT_ACTION_PLUGIN,
       form: 'notice',
       summary: PRESS_SUMMARY,
     })
@@ -501,10 +499,11 @@ describe('a table reporting back', () => {
       .toEqual({ kind: 'success' })
     expect(agent.inbox.nextStep).toHaveLength(2)
 
-    // Claiming is what the model reading a notice looks like from here — the
-    // loop's own step-boundary read. A notice the model has already been given
-    // is not something a later tick may rewrite, so the tick after it appends.
-    const claimed = agent.inbox.claim('next-step', 1)
+    // Taking the pending notices out is what the model reading them looks like
+    // from here — the loop's step-boundary claim removes them from the inbox. A
+    // notice the model has already been given is not something a later tick
+    // may rewrite, so the tick after it appends.
+    const claimed = agent.inbox.splice('next-step', 0, Infinity, [])
     expect(claimed).toHaveLength(2)
     expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes: [1] }))))
       .toEqual({ kind: 'success' })
@@ -662,7 +661,7 @@ describe('the wake budget', () => {
     emitAgentEvent(ctx, agent, 'agent/inbox/claimed', {
       message: createUserMessage({
         content: [{ type: 'text', text: PRESS_TEXT }],
-        source: { kind: 'plugin', plugin: COMPONENT_ACTION_PLUGIN, form: 'notice', summary: PRESS_SUMMARY },
+        source: { kind: COMPONENT_ACTION_PLUGIN, form: 'notice', summary: PRESS_SUMMARY },
       }),
       turn: 1,
     })

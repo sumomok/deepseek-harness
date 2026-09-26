@@ -100,6 +100,8 @@ async function loadComposition(screenshot = false): Promise<Context> {
     config: { path: pathToFileURL(configPath).href },
   })
   await context.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of context.loader.entries()) await entry.fiber?.await()
   return context
 }
 

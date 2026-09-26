@@ -183,25 +183,25 @@ describe('publint package runner', () => {
 describe('the vendored-tarball exemption', () => {
   const VENDORED = { '@sumomok/probe-kit': 'file:./vendor/sumomok-probe-kit-0.1.0.tgz' }
 
-  it('accepts a tarball dependency in the tier that is never published', () => {
-    const result = run(fixture({ area: 'packages/experimental', dependencies: VENDORED }))
-    expect(result.status, result.stderr).toBe(0)
+  it('accepts a tarball dependency in the tier that is never published', async ({ signal }) => {
+    const result = await run(fixture({ area: 'packages/experimental', dependencies: VENDORED }), signal)
+    expect(result.exitCode, result.stderr).toBe(0)
     expect(result.stdout).toContain('All good!')
   })
 
-  it('still rejects a tarball dependency anywhere a package is published from', () => {
-    const result = run(fixture({ dependencies: VENDORED }))
-    expect(result.status).toBe(1)
+  it('still rejects a tarball dependency anywhere a package is published from', async ({ signal }) => {
+    const result = await run(fixture({ dependencies: VENDORED }), signal)
+    expect(result.exitCode).toBe(1)
     expect(result.stdout).toContain('@sumomok/probe-kit')
   })
 
-  it('still reports every other publint error in the exempt tier', () => {
-    const result = run(fixture({
+  it('still reports every other publint error in the exempt tier', async ({ signal }) => {
+    const result = await run(fixture({
       area: 'packages/experimental',
       dependencies: VENDORED,
       exportPath: './unpublished.js',
-    }))
-    expect(result.status).toBe(1)
+    }), signal)
+    expect(result.exitCode).toBe(1)
     expect(result.stdout).toContain('unpublished.js')
   })
 })

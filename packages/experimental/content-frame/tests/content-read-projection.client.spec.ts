@@ -4,7 +4,7 @@
  *
  * The events come from a real `Session` rather than hand-built envelopes, so
  * the fold is exercised against the log shapes the harness actually writes —
- * including the Code Mode pair, which is the only shape a model reaching the
+ * including the PTC mode pair, which is the only shape a model reaching the
  * tool through `run_code` leaves behind.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
@@ -47,9 +47,9 @@ function call(target: Session, callId: string, args: string, name = 'content_rea
   target.append('tool/call', { turn: 1, step: 1, callId: callId as LoggedCallId, name, arguments: args })
 }
 
-/** Record one Code Mode dispatch, whose arguments are already decoded. */
+/** Record one PTC mode dispatch, whose arguments are already decoded. */
 function dispatch(target: Session, subCallId: string, args: unknown, name = 'content_read'): void {
-  target.append('tool/code-dispatch-start', {
+  target.append('tool/ptc-dispatch-start', {
     rootCallId: 'call_root' as LoggedCallId,
     parentCallId: 'call_root' as LoggedCallId,
     subCallId: subCallId as LoggedCallId,
@@ -72,9 +72,9 @@ function result(target: Session, callId: string): void {
   } as unknown as SessionEventMap['tool/result'], { surfaceOp: 'append' })
 }
 
-/** Record one Code Mode dispatch settling. */
+/** Record one PTC mode dispatch settling. */
 function dispatched(target: Session, subCallId: string): void {
-  target.append('tool/code-dispatch', {
+  target.append('tool/ptc-dispatch', {
     rootCallId: 'call_root' as LoggedCallId,
     parentCallId: 'call_root' as LoggedCallId,
     subCallId: subCallId as LoggedCallId,
@@ -120,7 +120,7 @@ describe('the pending-read projection', () => {
     })
   })
 
-  it('counts a Code Mode dispatch by its own call id', () => {
+  it('counts a PTC mode dispatch by its own call id', () => {
     const target = session()
     dispatch(target, 'call_sub', { find: 'Ada' })
     expect(fold(target)).toEqual([{ callId: 'call_sub', tool: 'content_read', args: { find: 'Ada' } }])

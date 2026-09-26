@@ -26,7 +26,7 @@
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/TemporaryGroup
  */
 import { useEffect, useState } from 'react'
-import { IconCloseOutline16, IconTriangleRightFill14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutlineRegular, IconTriangleRightFillRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ServerSidebarKey } from './locales.ts'
 import { collapsedRows } from './workflow-actions.ts'
 import css from './SidebarGroups.module.css'
@@ -139,7 +139,7 @@ export function TemporaryGroup({
             onSetCollapsed(!collapsed)
           }}
         >
-          <IconTriangleRightFill14 size={10} />
+          <IconTriangleRightFillRegular size={10} />
         </button>
         <h3 className={css.groupTitle}>{t('temporary.title')}</h3>
       </div>
@@ -181,7 +181,7 @@ export function TemporaryGroup({
                         aria-label={t('temporary.dismissCancel')}
                         onClick={() => { setConfirming(null) }}
                       >
-                        <IconCloseOutline16 size={12} />
+                        <IconCloseOutlineRegular size={12} />
                       </button>
                     </Tooltip>
                   </>
@@ -193,7 +193,7 @@ export function TemporaryGroup({
                       aria-label={t('temporary.dismiss')}
                       onClick={() => { setConfirming(row.id) }}
                     >
-                      <IconCloseOutline16 size={12} />
+                      <IconCloseOutlineRegular size={12} />
                     </button>
                   </Tooltip>
                 )}

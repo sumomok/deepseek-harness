@@ -50,7 +50,6 @@
     "apps/web/tests/show-chart.e2e.ts",
     "apps/web/tests/auth-gate.e2e.ts",
     "apps/web/tests/base-path.e2e.ts",
-    "apps/web/tests/prefix-proxy.spec.ts",
     "apps/web/tests/server-sidebar.e2e.ts",
     "apps/web/tests/default-model.e2e.ts",
     "apps/web/tests/github-ready-review.e2e.ts",

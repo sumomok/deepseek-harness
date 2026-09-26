@@ -1503,19 +1503,11 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-server-base`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/server-base/src/index.ts:56`](../packages/experimental/server-base/src/index.ts)
+- `source`: [`packages/experimental/server-base/src/index.ts:36`](../packages/experimental/server-base/src/index.ts)
 
 ```ts config-catalog
-/** Plugin config: the deployment facts the served page is given. */
+/** Plugin config: the deployment fact the served page is given. */
 export interface Config {
-  /**
-   * Deployment prefix as the browser addresses it, leading and trailing slash
-   * included — `/console/` for a process behind `location /console/`, `/` for
-   * one served at the origin root. It must carry no query string, no fragment,
-   * and no empty segment, because every browser-side URL is resolved against
-   * it.
-   */
-  basePath: string
   /**
    * Declare that whoever reaches the served page is this Host's operator. The
    * page then carries a `__DSH_TRANSPORT__` carrier whose `ownsHost` makes

@@ -376,6 +376,7 @@ function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
       content: [{ type: 'text', text: 'Done.' }],
       source: { kind: 'model', provider: 'fixture', model: 'fixture' },
     }),
+    stream: [],
   }, { surfaceOp: 'append' })
   agent.session.append('step/end', { turn: 1, step: 1 })
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })

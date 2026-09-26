@@ -27,7 +27,6 @@
 import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
@@ -274,15 +273,17 @@ type Posted<T> =
  * because the two halves need different ones: the node half registers these
  * routes at the server root, and a deployment publishing the console under a
  * path prefix has a reverse proxy strip that prefix before the request arrives.
- * The browser is therefore the half that has to put it back, and `clientUrl`
- * is where that decision lives.
+ * The browser is therefore the half that has to put it back, which it does by
+ * posting the document-relative form of the route: the served index's
+ * `<base href="./">` resolves it under whatever prefix the page was loaded
+ * from.
  * @param route - the route to post to, as the node half registers it.
  * @param body - the document, already serialized.
  * @returns what the post ended as.
  */
 async function post<T>(route: string, body: string): Promise<Posted<T>> {
   try {
-    const response = await fetch(clientUrl(route), {
+    const response = await fetch(new URL(route.slice(1), document.baseURI), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body,

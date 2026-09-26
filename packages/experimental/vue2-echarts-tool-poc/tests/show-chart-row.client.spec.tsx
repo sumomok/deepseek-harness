@@ -9,10 +9,10 @@
  * trip — the props it hands over and what it does with each verdict. The live
  * engine is the web e2e's business. `fetch` is stubbed to record the report.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { StartedToolCall, ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ShowChartRow, type ShowChartRowProps } from '../src/client/ShowChartRow.tsx'
 import css from '../src/client/show-chart.module.css'
@@ -69,8 +69,9 @@ const OPTION = { series: [{ type: 'bar', data: [1, 2, 3] }] }
 const PAINTED = { ok: true, seriesCount: 1, pointCount: 3 } as const
 
 /** A running call slice carrying one chart's arguments. */
-function running(args: unknown, callId = CALL_ID): ToolCallBlock {
+function running(args: unknown, callId = CALL_ID): StartedToolCall {
   return {
+    phase: 'start',
     callId,
     name: 'show_chart',
     argsRaw: JSON.stringify(args),
@@ -206,7 +207,9 @@ describe('ShowChartRow', () => {
   })
 
   it('posts through the deployment prefix the shell is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const base = document.head.appendChild(document.createElement('base'))
+    base.href = '/console/'
+    onTestFinished(() => { base.remove() })
     mount(running({ option: OPTION }))
     await paint()
     expect(requested).toEqual(['/console/show-chart/report'])
@@ -226,7 +229,7 @@ describe('ShowChartRow', () => {
   })
 
   it('shows the unreadable row for a call whose arguments are not JSON', () => {
-    mount({ ...(running('x') as Extract<ToolCallBlock, { name: string }>), argsRaw: 'not json' })
+    mount({ ...running('x'), argsRaw: 'not json' })
     expect(screen.getByText(en['row.unreadable'])).toBeDefined()
     expect(bridge.renders).toHaveLength(0)
   })
@@ -384,7 +387,7 @@ describe('ShowChartRow beside a content column', () => {
   })
 
   it('shows the unreadable row for arguments no column could route either', () => {
-    mount({ ...(running('x') as Extract<ToolCallBlock, { name: string }>), argsRaw: 'not json' }, false, {
+    mount({ ...running('x'), argsRaw: 'not json' }, false, {
       surface: COLUMN,
     })
     expect(screen.getByText(en['row.unreadable'])).toBeDefined()

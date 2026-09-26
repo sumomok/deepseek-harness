@@ -8,7 +8,8 @@
  * The value is the path the node half registers, which is root-absolute
  * because a reverse proxy serving this shell under a path prefix strips that
  * prefix before the request arrives. The browser half puts the prefix back by
- * resolving this constant with `clientUrl`, and never requests it as it stands.
+ * resolving this constant document-relative, against the served index's
+ * `<base href="./">`, and never requests it as it stands.
  *
  * Other wire agreements live outside this file, by design: the browser half
  * also reads the two navigation catalogs

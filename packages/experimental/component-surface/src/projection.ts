@@ -4,8 +4,8 @@
  * This package registers no projection unit for its entries: they live in the
  * content surface's `contentSurface` fold, and what it owns there is this
  * reader. Four log shapes carry one, and all four count — a top-level
- * `tool/call`, whose `arguments` is raw JSON; a Code Mode
- * `tool/code-dispatch-start`, whose `arguments` is already decoded; the
+ * `tool/call`, whose `arguments` is raw JSON; a PTC mode
+ * `tool/ptc-dispatch-start`, whose `arguments` is already decoded; the
  * `content-component/shown` a user's click on a configured view writes; and the
  * `content-component/resolved` the tool writes for a call whose rows it read
  * from the deployment's data backend. A model reaching the tool through
@@ -46,7 +46,7 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
     if (event.data.name !== SHOW_COMPONENT_TOOL_NAME) return undefined
     return parseComponentCall(event.data.arguments)
   }
-  if (event.type === 'tool/code-dispatch-start') {
+  if (event.type === 'tool/ptc-dispatch-start') {
     if (event.data.name !== SHOW_COMPONENT_TOOL_NAME) return undefined
     return readComponentCall(event.data.arguments)
   }
@@ -82,6 +82,6 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
  * @returns true when the event records the entry; false when a later record does.
  */
 export function recordsEntry(event: SessionEvent, spec: ComponentSpec): boolean {
-  const isCall = event.type === 'tool/call' || event.type === 'tool/code-dispatch-start'
+  const isCall = event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start'
   return !(isCall && crudNodes(spec).length > 0)
 }

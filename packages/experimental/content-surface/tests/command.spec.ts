@@ -131,8 +131,7 @@ describe('dismiss-content-entry command', () => {
     // The same sentence the package composes, so a wording change moves both.
     expect(notice.message.content[0]).toMatchObject({ text: closedEntryNotice('page', 'Weekly reports') })
     expect(notice.message.source).toEqual({
-      kind: 'plugin',
-      plugin: 'content-surface',
+      kind: 'content-surface',
       form: 'notice',
       summary: 'The user closed the page "Weekly reports" in the content column.',
     })

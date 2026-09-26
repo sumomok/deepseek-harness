@@ -28,6 +28,17 @@
  */
 
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /**
+     * The notice this package injects when the user closes a content-column tab. Readers preserve the content without this producer.
+     * @persistenceAttribution
+     */
+    'content-surface': { kind: 'content-surface' } & ContextFormed
+  }
+}
 import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ContentSurfaceEntry } from './types.ts'
@@ -136,7 +147,7 @@ export function dismissContentEntryCommand(lookup?: ContentEntryLookup): Command
         const text = closedEntryNotice(pair.kind, title)
         invocation.agent.inject(createUserMessage({
           content: [{ type: 'text', text }],
-          source: { kind: 'plugin', plugin: PLUGIN_NAME, form: 'notice', summary: boundContextSummary(text) },
+          source: { kind: PLUGIN_NAME, form: 'notice', summary: boundContextSummary(text) },
         }))
       }
       return { kind: 'success' }

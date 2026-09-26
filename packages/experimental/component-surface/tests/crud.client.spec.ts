@@ -13,7 +13,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { createQueueInbox } from './queue-inbox.client.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
@@ -454,7 +455,7 @@ async function composed(crudLoadTimeoutMs: number): Promise<{ ctx: Context; aske
 /** A fake agent over a real session and a real inbox, counting what reached it. */
 function fakeAgent(ctx: Context, session: Session, inject: (message: UserMessage) => void): Agent {
   const scopeFiber = ctx.plugin(() => {})
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+  const inbox = createQueueInbox()
   const agent = {
     id: session.id,
     ctx: scopeFiber.ctx,

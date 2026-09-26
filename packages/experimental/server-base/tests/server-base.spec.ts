@@ -2,15 +2,14 @@
  * REAL-composition coverage for this package: a test-only cordis.yml booted
  * through the vendored Loader mounts the web server, the static dist server,
  * and the server-base row, and every assertion reads the index the composition
- * actually serves — the `<base>` element and its position ahead of the
- * document's own asset references and of a competing injector's rows, the
- * `__DSH_BASE__` global, the prefix-free index a composition without the row
- * serves, the Host-ownership carrier a deployment that claims the Host adds,
- * and the release of the rows on fiber disposal.
+ * actually serves — the Host-ownership carrier a deployment that claims the
+ * Host adds and its position ahead of the document's own scripts and of a
+ * competing injector's rows, the dist server's own `<base href="./">` left as
+ * the document's only base element, the index a deployment that claims nothing
+ * is served, and the release of the row on fiber disposal.
  *
- * The configuration cases call `requireBasePath` and the `Config` schema
- * directly: a rejected prefix never reaches a served index, so there is nothing
- * for HTTP to observe.
+ * The configuration cases call the `Config` schema directly: a rejected claim
+ * never reaches a served index, so there is nothing for HTTP to observe.
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -28,13 +27,7 @@ import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import * as ServerBase from '../src/index.ts'
 
-const BASE_PATH = '/console/'
-
-/**
- * A dist index in the shape the shell build emits under `base: './'`: the
- * asset references are relative, so they are exactly what a `<base>` element
- * ahead of them has to govern.
- */
+/** A dist index in the shape the shell build emits under `base: './'`. */
 const DIST_INDEX = [
   '<!doctype html>',
   '<html lang="en">',
@@ -71,16 +64,15 @@ afterEach(async () => {
 /**
  * Write a dist and a cordis.yml over it, then boot the composition through the
  * real Loader.
- * @param basePath - prefix for the server-base row, or null to compose
- * without that row at all.
+ * @param row - `null` to compose without the server-base row at all, `claims`
+ * for a row carrying `ownsHost: true`, and `silent` for a row whose config
+ * leaves the field out, which is the deployment that states no ownership claim.
  * @param earlierRow - a row contributed by a listener registered before the
  * server-base row is created, standing in for a plugin that activates first.
- * @param ownsHost - written into the row when true; left out of the yaml when
- * false, which is the deployment that states no ownership claim at all.
  * @returns the booted root context.
  */
 async function loadComposition(
-  basePath: string | null = BASE_PATH, earlierRow?: IndexInjection, ownsHost = false,
+  row: 'claims' | 'silent' | null = 'claims', earlierRow?: IndexInjection,
 ): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-server-base-'))
   const dist = join(world, 'dist')
@@ -104,14 +96,9 @@ async function loadComposition(
     '  config:',
     `    distIndex: ${JSON.stringify(distIndex)}`,
   ]
-  if (basePath !== null) {
-    rows.push(
-      '- id: server-base',
-      "  name: '@deepseek-ai/dsh-experimental-server-base'",
-      '  config:',
-      `    basePath: ${JSON.stringify(basePath)}`,
-    )
-    if (ownsHost) rows.push('    ownsHost: true')
+  if (row !== null) {
+    rows.push('- id: server-base', "  name: '@deepseek-ai/dsh-experimental-server-base'")
+    if (row === 'claims') rows.push('  config:', '    ownsHost: true')
   }
   await writeFile(configPath, `${rows.join('\n')}\n`)
 
@@ -141,6 +128,8 @@ async function loadComposition(
     config: { path: pathToFileURL(configPath).href },
   })
   await context.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of context.loader.entries()) await entry.fiber?.await()
   return context
 }
 
@@ -161,132 +150,64 @@ async function fetchIndex(ctx: Context): Promise<string> {
   return await response.text()
 }
 
-describe('server-base index rows', () => {
-  it('serves the configured prefix as the document\'s only base element', async () => {
-    const html = await fetchIndex(await loadComposition())
-    const headAt = html.indexOf('<head>')
-    const baseAt = html.indexOf(`<base href="${BASE_PATH}">`)
-    expect(baseAt).toBeGreaterThan(headAt)
-    // The dist server prepends its own `<base href="/">` after `<head>`, ahead
-    // of the injected rows, so a revert of its stand-aside guard leaves two
-    // base elements and the parser honors the root one — while every ordering
-    // case below still passes, because both precede the assets. The count is
-    // the only assertion that fails.
-    expect(html.match(/<base\b/gi)).toHaveLength(1)
-  })
-
-  it('places the base element ahead of every asset reference it has to govern', async () => {
-    const html = await fetchIndex(await loadComposition())
-    const baseAt = html.indexOf(`<base href="${BASE_PATH}">`)
-    // A `<base>` governs only what follows it, so a link or script rendered
-    // first would keep resolving against the document URL — the whole prefix
-    // would apply to some URLs and not others.
-    expect(baseAt).toBeGreaterThan(-1)
-    expect(baseAt).toBeLessThan(html.indexOf('<link'))
-    expect(baseAt).toBeLessThan(html.indexOf('<script type="module"'))
-  })
-
-  it('places the base element ahead of rows contributed by an earlier injector', async () => {
-    // The client module system contributes parser-blocking bundle tags from a
-    // listener of its own; its rows must resolve against the prefix too, and
-    // nothing orders plugin activation. Registering the competing listener
-    // before the row is created is the case that ordering has to survive.
-    const bundleTag: IndexInjection = { kind: 'script-src', placement: 'head', src: 'plugins/x/client.js' }
-    const html = await fetchIndex(await loadComposition(BASE_PATH, bundleTag))
-    const bundleAt = html.indexOf('<script src="plugins/x/client.js">')
-    expect(bundleAt).toBeGreaterThan(-1)
-    expect(html.indexOf(`<base href="${BASE_PATH}">`)).toBeLessThan(bundleAt)
-  })
-
-  it('serves the same prefix as a global readable before any document script', async () => {
-    const html = await fetchIndex(await loadComposition())
-    expect(html).toContain(`<script>globalThis["${ServerBase.DSH_BASE_GLOBAL}"] = "${BASE_PATH}"</script>`)
-  })
-
-  it('serves no ownership carrier for a deployment that claims nothing', async () => {
-    const html = await fetchIndex(await loadComposition())
-    // The default is the deployment whose page is reached by whoever the
-    // network lets through, and the client reads such a page as somebody
-    // else's Host from the authority alone.
-    expect(html).not.toContain('__DSH_TRANSPORT__')
-  })
-
-  it('serves the ownership carrier behind the base element when the deployment claims the Host', async () => {
-    const html = await fetchIndex(await loadComposition(BASE_PATH, undefined, true))
-    const baseAt = html.indexOf(`<base href="${BASE_PATH}">`)
+describe('server-base index row', () => {
+  it('serves the ownership carrier ahead of the shell\'s entry module when the deployment claims the Host', async () => {
+    const html = await fetchIndex(await loadComposition('claims'))
     const carrierAt = html.indexOf(OWNS_HOST_MARKUP)
-    expect(baseAt).toBeGreaterThan(-1)
-    expect(carrierAt).toBeGreaterThan(baseAt)
+    expect(carrierAt).toBeGreaterThan(html.indexOf('<head>'))
     // `client-connection` reads the global once, at its own plugin boot, so
     // the carrier has to be in the document ahead of the shell's entry module.
     expect(carrierAt).toBeLessThan(html.indexOf('<script type="module"'))
   })
 
-  it('serves the root prefix a process at the origin root is configured with', async () => {
-    const html = await fetchIndex(await loadComposition('/'))
-    expect(html).toContain('<base href="/">')
-    expect(html).toContain(`<script>globalThis["${ServerBase.DSH_BASE_GLOBAL}"] = "/"</script>`)
+  it('places the carrier ahead of rows contributed by an earlier injector', async () => {
+    // The client module system contributes parser-blocking bundle tags from a
+    // listener of its own, and nothing orders plugin activation. Registering
+    // the competing listener before the row is created is the case the
+    // prepend has to survive.
+    const bundleTag: IndexInjection = { kind: 'script-src', placement: 'head', src: 'plugins/x/client.js' }
+    const html = await fetchIndex(await loadComposition('claims', bundleTag))
+    const bundleAt = html.indexOf('<script src="plugins/x/client.js">')
+    expect(bundleAt).toBeGreaterThan(-1)
+    expect(html.indexOf(OWNS_HOST_MARKUP)).toBeLessThan(bundleAt)
   })
 
-  it('leaves the index on the dist server\'s own site-root anchor when the row is not composed', async () => {
-    const html = await fetchIndex(await loadComposition(null))
-    // The dist server anchors a prefix-less deployment at the site root itself,
-    // and stands aside for the row above when one is composed; what this row's
-    // absence must leave behind is that anchor and no prefix global.
-    expect(html).toContain('<base href="/">')
-    expect(html).not.toContain(ServerBase.DSH_BASE_GLOBAL)
+  it('leaves the dist server\'s document base as the only base element', async () => {
+    const html = await fetchIndex(await loadComposition('claims'))
+    // The deployment prefix is the dist server's `<base href="./">`, which
+    // resolves every page URL under the mount the page was loaded from; a
+    // second base element from this row would override it.
+    expect(html.match(/<base\b/gi)).toHaveLength(1)
+    expect(html).toContain('<base href="./">')
   })
 
-  it('releases both rows when the fiber disposes (HMR safety)', async () => {
-    const ctx = await loadComposition()
+  it('serves no ownership carrier for a deployment that claims nothing', async () => {
+    // The default is the deployment whose page is reached by whoever the
+    // network lets through, and the client reads such a page as somebody
+    // else's Host from the authority alone.
+    expect(await fetchIndex(await loadComposition('silent'))).not.toContain('__DSH_TRANSPORT__')
+    expect(await fetchIndex(await loadComposition(null))).not.toContain('__DSH_TRANSPORT__')
+  })
+
+  it('releases the carrier when the fiber disposes (HMR safety)', async () => {
+    const ctx = await loadComposition('claims')
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'server-base')
     await row?.fiber?.dispose()
-    const html = await fetchIndex(ctx)
-    // Back to the dist server's own site-root anchor, which is what a
-    // composition without this row serves.
-    expect(html).toContain('<base href="/">')
-    expect(html).not.toContain(`<base href="${BASE_PATH}">`)
-    expect(html).not.toContain(ServerBase.DSH_BASE_GLOBAL)
+    expect(await fetchIndex(ctx)).not.toContain('__DSH_TRANSPORT__')
   })
 })
 
 describe('server-base configuration', () => {
-  it('takes an absolute, slash-terminated path', () => {
-    for (const basePath of ['/', '/console/', '/a/b/', '/team~1/x.y/']) {
-      expect(ServerBase.requireBasePath(basePath)).toBe(basePath)
-    }
-  })
-
-  it('rejects a prefix the browser could not resolve its URLs against', () => {
-    for (const [basePath, message] of [
-      ['console/', 'server-base: basePath must start with "/", received "console/"'],
-      ['/console', 'server-base: basePath must end with "/", received "/console"'],
-      ['/console/?a=1/', 'server-base: basePath must carry no query string, received "/console/?a=1/"'],
-      ['/console/#x/', 'server-base: basePath must carry no fragment, received "/console/#x/"'],
-      ['/console//', 'server-base: basePath must carry no empty path segment, received "/console//"'],
-      ['/con sole/', 'server-base: basePath must be a plain URL path, received "/con sole/"'],
-      // Refusing the characters is what keeps the value safe to place in the
-      // element's quoted attribute without an escaping step in between.
-      ['/"><script>x</script>/', 'server-base: basePath must be a plain URL path, received "/"><script>x</script>/"'],
-      // `&` is a legal path sub-delimiter, refused for the same reason: inside
-      // an attribute value it begins a character reference, so the served
-      // prefix would not read back as the configured one.
-      ['/a&b/', 'server-base: basePath must be a plain URL path, received "/a&b/"'],
-    ] as const) {
-      expect(() => ServerBase.requireBasePath(basePath)).toThrow(message)
-    }
-  })
-
   it('leaves a deployment that says nothing about ownership claiming nothing', () => {
-    expect(ServerBase.Config({ basePath: BASE_PATH }).ownsHost).toBe(false)
-    expect(ServerBase.Config({ basePath: BASE_PATH, ownsHost: true }).ownsHost).toBe(true)
+    expect(ServerBase.Config({}).ownsHost).toBe(false)
+    expect(ServerBase.Config({ ownsHost: true }).ownsHost).toBe(true)
   })
 
   it('rejects an ownership claim that is not a boolean', () => {
     // The claim decides which surface the client offers every admitted
     // visitor, so a value that is not a boolean fails the row instead of being
     // read for its truthiness.
-    expect(() => ServerBase.Config({ basePath: BASE_PATH, ownsHost: 'yes' } as never))
+    expect(() => ServerBase.Config({ ownsHost: 'yes' } as never))
       .toThrow('$.ownsHost expected boolean but got yes')
   })
 

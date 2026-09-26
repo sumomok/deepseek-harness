@@ -32,7 +32,7 @@ interface Bench {
   session: Session
   /** Append one top-level call, the shape a model calling the tool directly logs. */
   call: (callId: string, args: unknown, name?: string) => void
-  /** Append one Code Mode sub-dispatch, the shape a model calling through `run_code` logs. */
+  /** Append one PTC mode sub-dispatch, the shape a model calling through `run_code` logs. */
   dispatch: (subCallId: string, args: unknown, name?: string) => void
   /** The whole current value the browser would receive. */
   value: () => ShowChartsView | undefined
@@ -62,7 +62,7 @@ async function bench(): Promise<Bench> {
       })
     },
     dispatch: (subCallId, args, name = 'show_chart') => {
-      session.append('tool/code-dispatch-start', {
+      session.append('tool/ptc-dispatch-start', {
         rootCallId: ToolCallId('root'),
         parentCallId: ToolCallId('root'),
         subCallId: ToolCallId(subCallId),
@@ -100,7 +100,7 @@ describe('showCharts projection', () => {
     })
   })
 
-  it('records a Code Mode sub-dispatch under its sub-call id', async () => {
+  it('records a PTC mode sub-dispatch under its sub-call id', async () => {
     const { dispatch, value } = await bench()
     // A model reaching the tool through `run_code` logs only this shape; a fold
     // reading `tool/call` alone would see no charts at all for that session.

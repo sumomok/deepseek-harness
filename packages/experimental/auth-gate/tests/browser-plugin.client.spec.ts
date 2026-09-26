@@ -13,7 +13,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 import {
   clearCookieLine,
@@ -47,6 +47,11 @@ const RENEWING: AuthGateSettings = {
 }
 const ORIGIN = 'https://harness.example'
 const HREF = `${ORIGIN}/chat`
+/**
+ * The document base the stubbed page resolves its routes against: the origin
+ * root unless a case publishes the shell under a prefix.
+ */
+let pageBase = `${ORIGIN}/`
 const LOGIN = `/toy-login/#/?redirect=${encodeURIComponent(HREF)}`
 
 /** Base64url-encode one JSON value the way a JWT carries a segment. */
@@ -787,6 +792,11 @@ describe('auth-gate stored token', () => {
 })
 
 describe('auth-gate window browser', () => {
+  beforeEach(() => {
+    pageBase = `${ORIGIN}/`
+    vi.stubGlobal('document', { baseURI: pageBase })
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
     vi.useRealTimers()
@@ -808,6 +818,7 @@ describe('auth-gate window browser', () => {
     const stored = new Map<string, string>()
     if (token !== null) stored.set(ACCESS_TOKEN_STORAGE_KEY, token)
     vi.stubGlobal('document', {
+      baseURI: pageBase,
       get cookie() { return cookie },
       set cookie(value: string) { written.push(value) },
     })
@@ -871,8 +882,8 @@ describe('auth-gate window browser', () => {
   })
 
   it('scopes the mirror to the deployment prefix the shell is served under', () => {
+    pageBase = `${ORIGIN}/console/`
     const page = stubPage('', null)
-    vi.stubGlobal('__DSH_BASE__', '/console/')
     const browser = windowGateBrowser()
     browser.writeCookie('accessToken', 'a.b.c')
     browser.clearCookie('accessToken')
@@ -989,6 +1000,11 @@ describe('auth-gate window browser', () => {
 })
 
 describe('auth-gate browser plugin', () => {
+  beforeEach(() => {
+    pageBase = `${ORIGIN}/`
+    vi.stubGlobal('document', { baseURI: pageBase })
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -1029,7 +1045,7 @@ describe('auth-gate browser plugin', () => {
    */
   function stubSignedInPage(): string {
     const token = `${segment({ alg: 'none' })}.${segment({ sub: 'u-1', exp: Date.now() / 1000 + 3600 })}.c2ln`
-    vi.stubGlobal('document', { get cookie() { return `accessToken=${token}` }, set cookie(_value: string) {} })
+    vi.stubGlobal('document', { baseURI: pageBase, get cookie() { return `accessToken=${token}` }, set cookie(_value: string) {} })
     vi.stubGlobal('localStorage', { getItem: () => token })
     vi.stubGlobal('location', { href: HREF, origin: ORIGIN, reload: () => {} })
     vi.stubGlobal('addEventListener', () => {})
@@ -1045,7 +1061,7 @@ describe('auth-gate browser plugin', () => {
   function stubSignedOutPage(): { navigations: string[]; cookieWrites: string[] } {
     const navigations: string[] = []
     const cookieWrites: string[] = []
-    vi.stubGlobal('document', { get cookie() { return '' }, set cookie(value: string) { cookieWrites.push(value) } })
+    vi.stubGlobal('document', { baseURI: pageBase, get cookie() { return '' }, set cookie(value: string) { cookieWrites.push(value) } })
     vi.stubGlobal('localStorage', { getItem: () => null })
     vi.stubGlobal('location', { href: HREF, origin: ORIGIN, reload: () => {} })
     vi.stubGlobal('addEventListener', () => {})
@@ -1112,7 +1128,7 @@ describe('auth-gate browser plugin', () => {
   })
 
   it('asks the node half through the deployment prefix the shell is served under', async () => {
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+    pageBase = `${ORIGIN}/console/`
     const ctx = new Context()
 
     const signedIn = serve(SETTINGS)

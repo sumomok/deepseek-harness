@@ -30,7 +30,7 @@ export const SHOW_COMPONENT_TOOL_NAME = 'show_component'
 export const COMPONENT_ACTION_COMMAND = 'component-action'
 
 /**
- * `source.plugin` of every notice an action produces.
+ * `source.kind` of every notice an action produces.
  *
  * Names the seam the user is looking at — a component in the content column —
  * rather than this package's Cordis plugin name, because it is the id the chat
@@ -2402,7 +2402,7 @@ export interface ComponentCallArguments {
 
 /**
  * Read one call's arguments from the decoded argument value — the form
- * `tool/code-dispatch-start` records.
+ * `tool/ptc-dispatch-start` records.
  * @param value - the decoded arguments, however malformed.
  * @returns the arguments, or `undefined` when the value is not an argument record at all.
  */

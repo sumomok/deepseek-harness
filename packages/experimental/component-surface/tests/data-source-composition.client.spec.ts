@@ -171,6 +171,8 @@ async function loadComposition(composition: Composition = {}): Promise<Context> 
   } as unknown as NonNullable<typeof context.loader.internal>
   await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await context.loader.await()
+  // Loader settlement does not reject a failed plugin; each fiber's own await rethrows it.
+  for (const entry of context.loader.entries()) await entry.fiber?.await()
   return context
 }
 

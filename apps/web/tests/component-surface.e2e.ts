@@ -151,8 +151,11 @@ const MODEL_REPLY = `${APPROVE_LABEL} it is — I will submit the revised budget
 /** What the agent is told the press was, verbatim, and what the user reads on the collapsed row. */
 const PRESS_TEXT = `The user pressed "${APPROVE_LABEL}" in content panel entry "${BUDGET_ID}" ("${BUDGET_TITLE}"), on the 确认条 block "ask".`
 const PRESS_SUMMARY = `用户在「${BUDGET_TITLE}」里点了「${APPROVE_LABEL}」`
-/** The plugin id the notice declares, which is also what the collapsed row prints as its producer. */
-const NOTICE_PLUGIN = 'content-component'
+/**
+ * The source kind the notice declares. Typed `string`: this program does not
+ * load the package's `MessageSourceMap` declaration of that kind.
+ */
+const NOTICE_PLUGIN: string = 'content-component'
 /**
  * What the pressed bar itself says, in the English this lane's browser asks
  * for. The line is `component-kit`'s `confirmBar.sent`, restated here because
@@ -631,14 +634,13 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // What the agent was given, and the turn it was given it in. The press
     // opened turn 2 — the seeded log closed turn 1 — and the notice is a plugin
     // message, never a forged user one.
-    // By plugin, not by kind: the runtime-context row posts a plugin message of
+    // By the producer's own kind: the runtime-context row posts a message of
     // its own ahead of this one.
     const notice = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin' && event.data.source.plugin === NOTICE_PLUGIN)
+      && event.data.source.kind === NOTICE_PLUGIN)
     expect(notice?.type === 'user/message' && notice.data.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
     expect(notice?.type === 'user/message' && notice.data.source).toEqual({
-      kind: 'plugin',
-      plugin: NOTICE_PLUGIN,
+      kind: NOTICE_PLUGIN,
       form: 'notice',
       summary: PRESS_SUMMARY,
     })
@@ -841,7 +843,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     await page.keyboard.press('Enter')
     await settled
     const claimed = liveEvents(scaffold).find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
+      && event.data.source.kind === NOTICE_PLUGIN
       && event.data.content.some(part => part.type === 'text' && part.text.includes('selected 2 rows')))
     expect(claimed?.type === 'user/message' && claimed.data.content).toEqual([{
       type: 'text',
@@ -905,7 +907,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // The attribute names and the strategy wording come from the spec the model
     // wrote; the values are the user's own text, quoted as the data they are.
     const notice = liveEvents(scaffold).find(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
+      && event.data.source.kind === NOTICE_PLUGIN
       && event.data.content.some(part => part.type === 'text' && part.text.includes('submitted a filter')))
     expect(notice?.type === 'user/message' && notice.data.content).toEqual([{
       type: 'text',

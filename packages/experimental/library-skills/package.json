@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-library-skills",
   "description": "Private bundle whose skills/ directory ships component-library conventions as bundled SKILLs, mounted by one isolated skill-filesystem row at the lowest skill rank",
-  "version": "0.1.2-rc.1",
+  "version": "0.1.7-rc.2",
   "private": true,
   "repository": {
     "type": "git",
@@ -33,12 +33,12 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-skill-filesystem": "workspace:^"
+    "@deepseek-ai/dsh-skill-filesystem": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:~"
   }
 }
