@@ -51,11 +51,12 @@ export interface PayloadSnapshot {
 }
 
 /**
- * Why the payload native to an Office engine leaves it out: the desktop ships
- * no Office preview, its composition layer disables the `office-to-pdf` row that
- * would start a converter, and each engine is a whole LibreOffice build.
+ * Why the payload native to an Office engine leaves it out: each engine is a
+ * whole LibreOffice build, and the shell downloads the one the shipped kit
+ * declares into the data directory when the person asks for it
+ * (`src/office-engine.ts`).
  */
-const OFFICE_ENGINE_WITHHELD = 'the desktop ships no Office preview; the office-to-pdf row is disabled and no payload carries a LibreOffice engine'
+const OFFICE_ENGINE_WITHHELD = 'no payload carries a LibreOffice engine; the shell downloads the one the shipped kit declares into the data directory on request'
 
 /** The checks this gate runs; an exemption names the one it silences. */
 type GateCheck = 'dead-rule' | 'unexplained-removal' | 'platform-variant' | 'runtime-resolved'
