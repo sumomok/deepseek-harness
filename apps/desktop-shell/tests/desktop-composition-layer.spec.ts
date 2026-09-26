@@ -11,7 +11,7 @@
  * `vision-switch` names where an image sent on a text-only model moves the
  * session, which the plugin otherwise takes from a constant compiled into it,
  * and `llm-permission-gateway` names the review model's own route, which the
- * gate otherwise takes from a factory pair naming a retired model.
+ * gate otherwise takes from the pair its own layer ships.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -155,10 +155,10 @@ describe('the composed vision-switch row', () => {
     expect(entry(below, 'vision-switch').config?.['target']).toBeUndefined()
   })
 
-  // The plugin's DEFAULT_TARGET is `deepseek-v4-flash-vision-exp`, picked when
-  // that was this deployment's starting model too. Comparing against the
-  // composed default is what keeps the two moving together, rather than
-  // restating a model id here that a later default change would leave behind.
+  // The plugin's DEFAULT_TARGET is `deepseek-flash`, the same model the
+  // composed default starts on. Comparing against the composed default is what
+  // keeps the two moving together, rather than restating a model id here that a
+  // later default change would leave behind.
   it('moves a session onto the model it already starts on', () => {
     expect(entry(desktop, 'vision-switch').config?.['target'])
       .toEqual(entry(desktop, 'agent-default-model').config)
@@ -174,9 +174,8 @@ describe('the composed llm-permission-gateway row', () => {
     expect(entry(below, 'llm-permission-gateway').config?.['model']).toBe('deepseek-flash')
   })
 
-  // The judge runs on the same model the product runs on, rather than on a
-  // retired name DeepSeek only redirects. Comparing against the composed
-  // default keeps the two moving together.
+  // The judge runs on the same model the product runs on. Comparing against
+  // the composed default keeps the two moving together.
   it('reviews on the model sessions start on', () => {
     expect(entry(desktop, 'llm-permission-gateway').config?.['model'])
       .toBe(entry(desktop, 'agent-default-model').config?.['model'])
@@ -244,23 +243,22 @@ describe('the desktop composition layer as a whole', () => {
   // comparison against the adapter version its devDependencies pin — not the
   // one this payload carries, and whose test suite no gate here runs — so the
   // shipped row is pinned against the shipped adapter here instead.
-  it('restates the adapter\'s own deepseek-flash row, naming only the label and the image caps', () => {
+  it('restates the adapter\'s own deepseek-flash row, naming only the label', () => {
     const factory = DeepSeekConfig({})
     const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
     expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
     const shipped = factory.models.get().find(row => row.id === 'deepseek-flash')
     if (shipped === undefined) throw new Error('the shipped adapter carries no deepseek-flash row')
-    // `description` and the two image caps are the keys the row adds;
-    // everything else the adapter declares must be present, and `name` is the
-    // only one allowed to differ.
-    const added = ['description', 'imagePixelBudget', 'imageMaxBytes']
+    // `description` is the one key the row adds; everything else the adapter
+    // declares must be present with the adapter's value, and `name` is the only
+    // one allowed to differ.
     expect(Object.keys(composed[0] ?? {}).sort())
-      .toEqual([...new Set([...Object.keys(shipped), ...added])].sort())
+      .toEqual([...new Set([...Object.keys(shipped), 'description'])].sort())
     const restated = Object.fromEntries(
       Object.entries(shipped).filter(([key]) => key !== 'name'),
     )
     expect(Object.fromEntries(
-      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && !added.includes(key)),
+      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && key !== 'description'),
     )).toEqual(restated)
     // The label keys this deployment owns: a dotted product name and the line
     // the picker shows under it.
@@ -272,14 +270,9 @@ describe('the desktop composition layer as a whole', () => {
     // Without this a tool that joins mid-session changes the declarations
     // ahead of the cached history instead of arriving as an addition.
     expect(composed[0]?.toolUpdate).toBe('addition-only')
-    // The capacities the row states. The comparison above ties the context
-    // window to the shipped adapter, and the two image caps are this
-    // deployment's own; these literals are what fails when a capacity moves.
-    expect({
-      contextWindow: composed[0]?.contextWindow,
-      imagePixelBudget: composed[0]?.imagePixelBudget,
-      imageMaxBytes: composed[0]?.imageMaxBytes,
-    }).toEqual({ contextWindow: 1_000_000, imagePixelBudget: 640_000, imageMaxBytes: 1_048_576 })
+    // The capacity the row states. The comparison above ties it to the shipped
+    // adapter; this literal is what fails when the context window moves.
+    expect(composed[0]?.contextWindow).toBe(1_000_000)
     expect(factory.defaultContextWindow.get()).toBe(1_000_000)
     expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
   })

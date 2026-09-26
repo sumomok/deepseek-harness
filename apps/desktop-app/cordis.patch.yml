@@ -61,11 +61,12 @@
 # a whole-table replacement — `resolveModels` reads `config.models ??
 # DEFAULT_MODELS` and never merges the two — so every field the adapter's row
 # declares has to be repeated here or it is dropped. Every field below is the
-# adapter's own value except four this deployment owns: `name` and
+# adapter's own value except two this deployment owns, `name` and
 # `description`, because the picker reads a version with the dot and a Chinese
-# line under it, and `imagePixelBudget` and `imageMaxBytes`, which hold a
-# request image to 640,000 pixels and 1 MiB where the adapter's row sets
-# neither and falls back to the published token grid and 2 MiB.
+# line under it. The row sets no image budget, as the adapter's own row sets
+# none: a request image is sent at its own size when its token grid fits the
+# provider's limit, scaled onto that grid otherwise, and encoded toward the
+# adapter's 2 MiB target.
 # `systemPromptUpdate: in-history` is a field that costs something when it
 # goes missing — without it `agent.ts` sets `inHistory: false`, and a
 # mid-session system-prompt change rewrites system node 0 instead of appending
@@ -89,19 +90,17 @@
         description: V4.1 Flash · 文本与图片
         contextWindow: 1000000
         inputModalities: [text, image]
-        imagePixelBudget: 640000
-        imageMaxBytes: 1048576
         systemPromptUpdate: in-history
         toolUpdate: addition-only
 
 # Where an image sent on a model without vision moves the session to.
 # Absent a `target`, @haoran/dsh-vision-switch falls back to a DEFAULT_TARGET
-# compiled into it (`deepseek-official` / `deepseek-v4-flash-vision-exp`),
-# chosen when that was also this deployment's starting model. It is not any
-# more: `agent-default-model` above starts on `deepseek-flash`, and an
-# auto-switch that moves a session off its own default onto a different vision
-# model is a switch the user did not ask for. Naming the target here settles it
-# from composition rather than from the plugin's compiled-in constant, and
+# compiled into it (`deepseek-official` / `deepseek-flash`), which is also the
+# model `agent-default-model` starts every session on. An auto-switch that
+# moves a session off its own default onto a different vision model is a
+# switch the user did not ask for, so the two have to stay one model. Naming
+# the target here settles it from composition rather than from the plugin's
+# compiled-in constant, and
 # `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds the two to the
 # same model.
 #
@@ -115,18 +114,31 @@
       provider: deepseek-official
       model: deepseek-flash
 
-# The review model's own route, which is not the agent's. The gate ships
-# `deepseek-v4-flash` as its factory pair, and that model is retired: DeepSeek
-# still accepts the name and serves it with V4.1 Flash, so the judge would keep
-# working, but the deployment should name what it actually runs on rather than
-# a redirect. A stored choice from the gate's settings page still wins over
-# this pair.
+# The review model's own route, which is not the agent's. The gate's own layer
+# ships `deepseek-official` / `deepseek-flash`, the pair restated here, so this
+# row composes unchanged today; it is here so the deployment names the model
+# its judge runs on rather than inheriting whatever a later gate release ships.
+# A judge choice stored from the gate's settings page still wins over this
+# pair.
 #
 # `provider` and `model` are the gate's only required fields, and its own patch
-# layer sets exactly those two; every other field carries a schema default. So
-# this whole-config replacement drops nothing — confirmed against
-# `dsh --profile <name> --dump-config`, where the composed row before and after
-# carries these two keys and no others.
+# layer sets exactly those two; every other field carries a schema default, so
+# this whole-config replacement drops nothing.
+# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds both
+# layers to exactly these two keys. `walledReview` and the three judge fields
+# stay out of this row on purpose: they are volatile fields the settings page
+# writes, and a value written here would become the form's base, so "use the
+# installed setting" would clear a field back to this row's value instead of to
+# the schema default.
+#
+# This row stops reaching a machine once that machine writes the gate's row
+# itself. The first save from the gate's settings page or `/review`, and the
+# one-time import of an older `settings.yaml` section, write the row's whole
+# composed config, `provider` and `model` included, into
+# `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`, which applies after
+# every bundle layer. From then on a change to the two values below reaches
+# only fresh installs and machines that never saved or imported a gate
+# setting.
 - id: llm-permission-gateway
   config:
     provider: deepseek-official
