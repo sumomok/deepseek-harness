@@ -101,9 +101,9 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
-        'content': { kind: 'single', scope: 'root' },
         'main': { kind: 'keyed', scope: 'root' },
         'rightbar': { kind: 'single', scope: 'root' },
+        'content': { kind: 'single', scope: 'root' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'shell.leading': { kind: 'single', scope: 'root' },
       },

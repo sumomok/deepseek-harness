@@ -88,9 +88,8 @@ export function createPanelStore(): EngineStoreHandle<PanelState, PanelStoreActi
         d.panelInfo.activePanelId = panelId
       },
       retainMainPanels: (d, panelIds: readonly string[]) => {
-        if (d.panelInfo.activePanelId !== null && !panelIds.includes(d.panelInfo.activePanelId)) {
-          d.panelInfo.activePanelId = null
-        }
+        const active = d.panelInfo.activePanelId
+        if (active !== null && !panelIds.includes(active)) d.panelInfo.activePanelId = null
       },
       toggleSidebar: (d) => {
         if (d.narrow) d.drawerOpen = !d.drawerOpen

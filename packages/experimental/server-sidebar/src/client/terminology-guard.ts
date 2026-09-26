@@ -42,7 +42,8 @@
  *   affordance; hiding it removes both.
  * - `previewBadge` (`HeroShell.module.css`) hides the "PREVIEW" pill: a
  *   product-internal status marker with no customer-facing meaning.
- * - `headlineText` (`HeroShell.module.css`) is collapsed to `font-size: 0`
+ * - the headline text, the first child of `titleGroup` (`HeroShell.module.css`;
+ *   the badge is its sibling), is collapsed to `font-size: 0`
  *   and given a `::after` pseudo-element carrying this package's own brand
  *   copy at the headline's original size — swapping the rendered glyphs
  *   without touching the DOM text node itself, which stays in the
@@ -109,8 +110,8 @@ const STYLE = `
 [data-composer-card] + * { display: none !important; }
 [data-phase='hero'] [class*="fishHitbox"] { display: none !important; }
 [data-phase='hero'] [class*="previewBadge"] { display: none !important; }
-[data-phase='hero'] [class*="headlineText"] { font-size: 0 !important; }
-[data-phase='hero'] [class*="headlineText"]::after {
+[data-phase='hero'] [class*="titleGroup"] > :first-child { font-size: 0 !important; }
+[data-phase='hero'] [class*="titleGroup"] > :first-child::after {
   content: '工作台小助手';
   font-size: 26px;
   line-height: 32px;

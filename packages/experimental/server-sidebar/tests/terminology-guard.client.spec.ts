@@ -26,8 +26,8 @@ describe('installTerminologyGuard', () => {
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
     expect(css).toContain('[data-phase=\'hero\'] [class*="fishHitbox"]')
     expect(css).toContain('[data-phase=\'hero\'] [class*="previewBadge"]')
-    expect(css).toContain('[data-phase=\'hero\'] [class*="headlineText"] { font-size: 0 !important; }')
-    expect(css).toContain('[data-phase=\'hero\'] [class*="headlineText"]::after')
+    expect(css).toContain('[data-phase=\'hero\'] [class*="titleGroup"] > :first-child { font-size: 0 !important; }')
+    expect(css).toContain('[data-phase=\'hero\'] [class*="titleGroup"] > :first-child::after')
     expect(css).toContain('工作台小助手')
     expect(css).toContain('[class*="heroWorkspaceRow"]')
   })
