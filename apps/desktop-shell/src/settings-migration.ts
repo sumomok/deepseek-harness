@@ -40,27 +40,29 @@
  * rows an older build copied into the patch layer (`permissionPatch` in
  * `web-migration.json`): both steps are one-time, and a seeded gateway row
  * rewritten or completed first would no longer be the copy the retirement
- * recognizes. The rest of the run goes ahead, because without it the server
- * imports `settings.yaml` as an rc.33 client left it; the gateway step waits,
- * marked `gatewayDeferred`, for the first launch whose seeding has recorded
- * that retirement.
+ * recognizes. A profile without `web-migration.json` never received those
+ * rows, and the seeding earlier in the same launch has already looked for
+ * them, so its gateway step runs at once. The rest of the run goes ahead
+ * either way; the gateway step waits, marked `gatewayDeferred`, for the first
+ * launch whose seeding has recorded that retirement.
  *
+ * The run's first step moves `settings.yaml` to `settings.yaml.pre-rc34`, the
+ * untouched original, before anything else that can fail; the migrated copy
+ * is written back as `settings.yaml` last. A launch whose run stops in
+ * between starts its server with no `settings.yaml`, so that server imports
+ * nothing and runs on the profile's rows; it can never import the file as an
+ * rc.33 client left it. The next launch finds the original moved and writes
+ * the migrated copy from it. A run that finds no `settings.yaml` but a
+ * `settings.yaml.imported` another profile's import left, and no marker of
+ * its own, copies that file to `settings.yaml.pre-rc34` and migrates it.
  * {@link SETTINGS_MIGRATION_MARKER} records every decision and makes the whole
- * run happen once. It is written `pending` before the first change and `done`
- * after the last; a run that finds `pending` starts over from
- * `settings.yaml.pre-rc34`, the untouched copy the first run made. A run cut
- * short leaves the server free to import `settings.yaml` as it stood; the next
- * run finds the file renamed, and writes the migrated copy from
- * `settings.yaml.pre-rc34`, or from `settings.yaml.imported` when it stopped
- * before making that copy, for the server to import again. That import merges
- * each section into its row, so a value the first import wrote and the
- * migration drops stays in the row. A marker that exists and cannot be read
- * restores nothing: it may stand for a finished run, whose import already
- * happened.
+ * run happen once: it is written `pending` after the move and `done` after the
+ * last change. A marker that exists and cannot be read restores nothing: it
+ * may stand for a finished run, whose import already happened.
  * @module @deepseek-ai/dsh-desktop-shell/settings-migration
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { Document, isMap, isSeq, parseDocument, YAMLMap } from 'yaml'
 import { MIGRATION_MARKER_FILENAME, readMigrationMarker, writeAtomic } from './profile-seed.ts'
@@ -74,7 +76,7 @@ const SETTINGS_FILENAME = 'settings.yaml'
 /** What the server's import renames {@link SETTINGS_FILENAME} to. */
 const IMPORTED_SUFFIX = '.imported'
 
-/** The untouched copy this migration keeps; the only original once the import has run. */
+/** Where the run moves the untouched original before any other change; the only original from then on. */
 const BACKUP_SUFFIX = '.pre-rc34'
 
 /** The profile's own patch layer, inside the profile directory. */
@@ -100,13 +102,9 @@ export interface DroppedSetting {
 
 /** The contents of {@link SETTINGS_MIGRATION_MARKER}. */
 export interface SettingsMigrationMarker {
-  /** `pending` from the first change until the last; `done` makes every later launch skip the run. */
+  /** `pending` from the move of `settings.yaml` until the last change; `done` makes every later launch skip the run. */
   state: 'pending' | 'done'
-  /**
-   * True when `settings.yaml` was copied back from `settings.yaml.imported`:
-   * another profile's import left it, or this profile's server imported the
-   * file after a run stopped before copying it to `settings.yaml.pre-rc34`.
-   */
+  /** True when the original was copied from the `settings.yaml.imported` another profile's import left. */
   restoredImported?: boolean
   /** True while the gateway step waits for the seeding to record its permission-row retirement. */
   gatewayDeferred?: boolean
@@ -387,7 +385,7 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
   const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
   if (previous?.state === 'done') {
     report.notices.push(...(previous.notices ?? []))
-    if (previous.gatewayDeferred !== true || !permissionRowsSettled(profileDir, patchPath)) return
+    if (previous.gatewayDeferred !== true || !permissionRowsSettled(profileDir)) return
     try {
       finishDeferredGatewayStep(markerPath, previous, patchPath, report)
     } catch (error) {
@@ -404,36 +402,40 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
     report.lines.push(`${SETTINGS_MIGRATION_MARKER} cannot be read (${read.detail}); only a ${SETTINGS_FILENAME} still in place is migrated, and nothing is restored from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} or ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
   }
   const pending = previous?.state === 'pending'
-  // S5, and a run cut short before its backup: the only original is the file an import renamed.
-  if (!existsSync(settingsPath) && existsSync(importedPath) && (read.kind === 'absent' || (pending && !existsSync(backupPath)))) {
-    writeAtomic(settingsPath, readFileSync(importedPath), PRIVATE_FILE_MODE)
+  // The first step, before anything else that can fail: from here on this
+  // launch's server finds no settings.yaml it could import as rc.33 left it.
+  const inPlace = existsSync(settingsPath)
+  let hasSettings = inPlace
+  if (inPlace && !(pending && existsSync(backupPath))) {
+    renameSync(settingsPath, backupPath)
+    chmodSync(backupPath, PRIVATE_FILE_MODE)
+  } else if (!inPlace && read.kind !== 'corrupt' && existsSync(backupPath)) {
+    hasSettings = true
+    report.lines.push(`the last run stopped before it finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
+  } else if (!inPlace && existsSync(importedPath) && (read.kind === 'absent' || pending)) {
+    // S5: the only original is the file another profile's import renamed.
+    hasSettings = true
+    writeAtomic(backupPath, readFileSync(importedPath), PRIVATE_FILE_MODE)
     marker.restoredImported = true
-    report.lines.push(`restored ${SETTINGS_FILENAME} from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} for this profile's import`)
-  } else if (previous?.restoredImported === true) marker.restoredImported = true
-  // A run cut short after its backup, whose file the server has since imported and renamed.
-  const resumed = pending && !existsSync(settingsPath) && existsSync(backupPath)
-  if (resumed) {
-    report.lines.push(`the server imported ${SETTINGS_FILENAME} before the last run finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX} for it to import again`)
+    report.lines.push(`copied ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} to ${SETTINGS_FILENAME}${BACKUP_SUFFIX} for this profile's import`)
   }
+  if (previous?.restoredImported === true) marker.restoredImported = true
 
-  const gatewayReady = permissionRowsSettled(profileDir, patchPath)
+  const gatewayReady = permissionRowsSettled(profileDir)
   if (gatewayReady) planGatewayStep(patchPath, previous, marker)
   else {
     marker.gatewayDeferred = true
     report.lines.push(`left the llm-permission-gateway rows in ${PROFILE_PATCH_FILENAME} for a launch whose seeding has retired the copied permission rows`)
   }
   writeMarker(markerPath, marker)
-
-  const hasSettings = resumed || existsSync(settingsPath)
-  if (existsSync(settingsPath) && !existsSync(backupPath)) writeAtomic(backupPath, readFileSync(settingsPath), PRIVATE_FILE_MODE)
   if (gatewayReady) applyGatewayStep(patchPath, marker, report)
 
   if (hasSettings) {
     const document = parseDocument(readFileSync(backupPath, 'utf8'))
     if (document.errors[0] !== undefined) {
-      marker.skipped.push(`${SETTINGS_FILENAME}: not readable YAML, left for the server's import (${document.errors[0].message})`)
+      marker.skipped.push(`${SETTINGS_FILENAME}: not readable YAML, kept only in ${SETTINGS_FILENAME}${BACKUP_SUFFIX} (${document.errors[0].message})`)
     } else if (!isRecord(document.toJS())) {
-      marker.skipped.push(`${SETTINGS_FILENAME}: not a mapping of sections, left for the server's import`)
+      marker.skipped.push(`${SETTINGS_FILENAME}: not a mapping of sections, kept only in ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
     } else {
       migratePresets(document, marker)
       migrateTheme(document, patchPath, marker)
@@ -456,14 +458,18 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
 
 /**
  * Whether the seeding's permission-row retirement, which the gateway step
- * must follow, has run for this profile: it has recorded `permissionPatch`,
- * or there is no patch layer for either step to change.
+ * must follow, has run for this profile.
+ *
+ * Only the web sync that writes `web-migration.json` copies those rows, and
+ * the seeding retires them on every launch that finds no such file, earlier in
+ * this same launch. So a profile without the file is settled, and one whose
+ * file holds no `permissionPatch`, readable or not, is still waiting.
  * @param profileDir - the desktop profile directory.
- * @param patchPath - the profile's `cordis.patch.yml`.
  * @returns true when the gateway step may change the patch layer.
  */
-function permissionRowsSettled(profileDir: string, patchPath: string): boolean {
-  return !existsSync(patchPath) || readMigrationMarker(join(profileDir, MIGRATION_MARKER_FILENAME))?.permissionPatch !== undefined
+function permissionRowsSettled(profileDir: string): boolean {
+  const seeded = readMigrationMarker(join(profileDir, MIGRATION_MARKER_FILENAME))
+  return seeded === undefined || seeded.permissionPatch !== undefined
 }
 
 /**

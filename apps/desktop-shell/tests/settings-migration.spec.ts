@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
-import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME } from '../src/profile-seed.ts'
+import { AUTO_REVIEW_GUARD_TEXT, DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME } from '../src/profile-seed.ts'
 import {
   acknowledgeSettingsMigrationNotices, DEFAULT_EXCLUDED_DIRECTORIES, GATEWAY_ALWAYS_ASK, migrateLegacySettings,
   readSettingsMigrationMarker, SETTINGS_MIGRATION_MARKER,
@@ -489,27 +489,46 @@ describe('migrateLegacySettings after another profile imported the file first (S
 })
 
 describe('migrateLegacySettings after a run that stopped partway', () => {
-  it('writes the migrated copy from the backup when the server has imported the file since', () => {
+  it('leaves this launch\'s server no settings.yaml to import when a step after the move fails', () => {
+    const raw = 'llm-deepseek:\n  baseURL: https://api.deepseek.com\nui-theme:\n  preference: dark\n'
+    writeSettings(raw)
+    // A patch layer that cannot be read makes the step after the move throw EISDIR.
+    rmSync(join(profileDir, 'cordis.patch.yml'))
+    mkdirSync(join(profileDir, 'cordis.patch.yml'))
+    const failed = migrateLegacySettings(home, profileDir)
+    expect(failed.lines).toEqual([expect.stringMatching(/^settings migration stopped and will run again next launch: .*EISDIR/)])
+    expect(failed.notices).toEqual([])
+    expect(existsSync(join(home, 'settings.yaml'))).toBe(false)
+    expect(readFileSync(join(home, 'settings.yaml.pre-rc34'), 'utf8')).toBe(raw)
+
+    rmSync(join(profileDir, 'cordis.patch.yml'), { recursive: true })
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), PATCH_TEMPLATE)
+    const report = migrateLegacySettings(home, profileDir)
+    expect(settingsNow()).toEqual({})
+    expect(rowOf('ui-theme')).toEqual({ id: 'ui-theme', config: { preference: 'dark' } })
+    expect(markerNow()).toMatchObject({ state: 'done', baseURL: { value: 'https://api.deepseek.com', kept: false } })
+    expect(report.lines).toContain('the last run stopped before it finished; writing the migrated copy from settings.yaml.pre-rc34')
+  })
+
+  it('writes the migrated copy from the moved original when the run stopped after moving it', () => {
     writeSettings(RC33_SETTINGS)
     migrateLegacySettings(home, profileDir)
     const migrated = readFileSync(join(home, 'settings.yaml'), 'utf8')
     rmSync(join(home, 'settings.yaml'))
 
-    // The state a run leaves when it throws after its backup, and the server
-    // then imports and renames the untouched file.
+    // The state a run leaves when it stops after the move and its `pending` marker.
     writeFileSync(join(profileDir, 'cordis.patch.yml'), PATCH_TEMPLATE)
     writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), '{ "state": "pending", "rows": [], "dropped": [], "skipped": [] }\n')
-    writeFileSync(join(home, 'settings.yaml.imported'), RC33_SETTINGS)
     const report = migrateLegacySettings(home, profileDir)
 
     expect(readFileSync(join(home, 'settings.yaml'), 'utf8')).toBe(migrated)
     expect(markerNow().state).toBe('done')
     expect(markerNow().restoredImported).toBeUndefined()
     expect(rowOf('ui-theme')).toEqual({ id: 'ui-theme', config: { preference: 'dark', fontSize: 15 } })
-    expect(report.lines).toContain('the server imported settings.yaml before the last run finished; writing the migrated copy from settings.yaml.pre-rc34 for it to import again')
+    expect(report.lines).toContain('the last run stopped before it finished; writing the migrated copy from settings.yaml.pre-rc34')
   })
 
-  it('migrates the imported file when the run stopped before its backup', () => {
+  it('migrates the imported file when a pending run left no original', () => {
     writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), '{ "state": "pending", "rows": [], "dropped": [], "skipped": [] }\n')
     writeFileSync(join(home, 'settings.yaml.imported'), RC33_SETTINGS)
     migrateLegacySettings(home, profileDir)
@@ -530,7 +549,7 @@ describe('migrateLegacySettings before the seeding has retired the copied permis
 `
 
   it('leaves the gateway rows for a later launch and migrates the settings file now', () => {
-    rmSync(join(profileDir, MIGRATION_MARKER_FILENAME))
+    writeFileSync(join(profileDir, MIGRATION_MARKER_FILENAME), '{ "from": "web", "migrated": [] }\n')
     writeFileSync(join(profileDir, 'cordis.patch.yml'), SEEDED_GATEWAY_ROW)
     writeSettings('ui-theme:\n  preference: dark\n')
     const report = migrateLegacySettings(home, profileDir)
@@ -561,6 +580,19 @@ describe('migrateLegacySettings before the seeding has retired the copied permis
     expect(marker.alwaysAskAdded).toBe(1)
     expect(report.lines).toContain('rewrote the duplicate llm-permission-gateway insert row in cordis.patch.yml as an id-targeted row')
     expect(migrateLegacySettings(home, profileDir)).toEqual({ lines: [], notices: [] })
+  })
+
+  it('runs the gateway step at once on a profile the web sync never reached', () => {
+    // A fresh profile: no web-migration.json, the guard row the seeding writes, and a gateway row its owner added.
+    rmSync(join(profileDir, MIGRATION_MARKER_FILENAME))
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), `${AUTO_REVIEW_GUARD_TEXT}- id: llm-permission-gateway\n  config:\n    provider: my-proxy\n    model: my-model\n`)
+    const report = migrateLegacySettings(home, profileDir)
+    expect(report.lines).toContain('added the desktop alwaysAsk map to 1 llm-permission-gateway row(s) in cordis.patch.yml')
+    expect(rowOf('llm-permission-gateway')).toEqual({
+      id: 'llm-permission-gateway', config: { provider: 'my-proxy', model: 'my-model', alwaysAsk: GATEWAY_ALWAYS_ASK },
+    })
+    expect(markerNow().gatewayDeferred).toBeUndefined()
+    expect(markerNow().alwaysAskAdded).toBe(1)
   })
 })
 
