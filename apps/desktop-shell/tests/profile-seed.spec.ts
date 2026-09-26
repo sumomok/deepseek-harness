@@ -19,7 +19,8 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, ensureLink,
+  AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_COMPOSITION_BUNDLE, DESKTOP_PROFILE, describeSeed,
+  ensureLink,
   MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
   readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
@@ -291,6 +292,57 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen, ...report.seeded])
     // The patch layer is the user's own file; a new built-in never edits it.
     expect(withoutGuard(readFileSync(patch, 'utf8'))).toBe(written)
+  })
+
+  it('puts a built-in the Plugins page disabled back before the composition layer, not after it', () => {
+    // Upstream's Plugins page disables a bundle by taking its name out of the
+    // list. Appended at the end on the next launch, the gateway would follow
+    // dsh-desktop-app, whose gateway row would then patch nothing.
+    seedBuiltinBundles({ home, serverModules })
+    const gateway = '@haoran/dsh-llm-permission-gateway'
+    const installed = 'dsh-installed-from-the-plugins-page'
+    const manifestPath = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const manifest = readProfile() as { dsh: { profile: { bundles: string[] } } }
+    manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles.filter(name => name !== gateway), installed]
+    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2))
+
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.seeded).toEqual([gateway])
+    expect(report.reordered).toBeUndefined()
+    const plugins = BUILTIN_WEB_BUNDLES.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE && name !== gateway)
+    expect(bundlesNow()).toEqual([...webTemplate, ...plugins, gateway, DESKTOP_COMPOSITION_BUNDLE, installed])
+  })
+
+  it('moves the composition layer after a built-in plugin an earlier launch appended behind it', () => {
+    const gateway = '@haoran/dsh-llm-permission-gateway'
+    const others = BUILTIN_WEB_BUNDLES.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE && name !== gateway)
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop-shell',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: [...webTemplate, ...others, DESKTOP_COMPOSITION_BUNDLE, gateway, userPlugin] } },
+    }, undefined, 2))
+
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.seeded).toEqual([])
+    expect(report.reordered).toBe(gateway)
+    expect(bundlesNow()).toEqual([...webTemplate, ...others, gateway, DESKTOP_COMPOSITION_BUNDLE, userPlugin])
+    expect(describeSeed(report)).toContain(`moved ${DESKTOP_COMPOSITION_BUNDLE} after ${gateway}`)
+  })
+
+  it('adds a missing composition layer after the last built-in plugin', () => {
+    const plugins = BUILTIN_WEB_BUNDLES.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop-shell',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: [...webTemplate, ...plugins] } },
+    }, undefined, 2))
+
+    expect(seedBuiltinBundles({ home, serverModules }).seeded).toEqual([DESKTOP_COMPOSITION_BUNDLE])
+    expect(bundlesNow()).toEqual([...webTemplate, ...plugins, DESKTOP_COMPOSITION_BUNDLE])
   })
 
   it('carries dependencies and unknown fields through untouched', () => {

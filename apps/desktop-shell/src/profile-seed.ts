@@ -131,20 +131,26 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { FAILSAFE_SCHEMA, load } from 'js-yaml'
 
+/** This product's composition layer: the one {@link BUILTIN_WEB_BUNDLES} member that is no plugin. */
+export const DESKTOP_COMPOSITION_BUNDLE = '@deepseek-ai/dsh-desktop-app'
+
 /**
  * Bundle packages the desktop installer ships and mounts, in the order they
  * join the bundle stack. They are appended after the template's own bundles,
  * so the in-box web app composes first and these patch over it.
  *
- * All but the last are plugins. `@deepseek-ai/dsh-desktop-app` is this
+ * All but the last are plugins. {@link DESKTOP_COMPOSITION_BUNDLE} is this
  * product's own composition layer — no code, one `cordis.patch.yml` — and it
- * comes last on purpose: a name absent from an existing profile is appended to
- * `dsh.profile.bundles`, so last here is the only position a fresh profile and
- * an upgraded one both give it, and it puts this layer's deployment defaults
- * over every bundle layer this list carries.
+ * comes after every other name here on purpose: its rows target rows these
+ * plugins insert, which a patch layer can only reach after the layer that
+ * inserted them, and it puts this layer's deployment defaults over every bundle
+ * layer this list carries. A fresh profile lists these in this order; in an
+ * existing profile {@link seedExistingManifest} inserts a missing plugin before
+ * the composition layer rather than at the end, and moves the layer after the
+ * last of these plugins when one is listed after it.
  *
- * Last here is not last in `dsh.profile.bundles` for good: {@link
- * syncWebBundles} appends what it migrates from the `web` profile after these,
+ * The composition layer is not last in `dsh.profile.bundles` for good: {@link
+ * syncWebBundles} appends what it migrates from the `web` profile after it,
  * and so does upstream's plugin manager for a package it installs. The user
  * layers apply later still —
  * the profile's own `cordis.patch.yml`, then `$DSH_HOME/cordis.patch.yml`,
@@ -167,7 +173,7 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
-  '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@deepseek-ai/dsh-desktop-app',
+  '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', DESKTOP_COMPOSITION_BUNDLE,
 ]
 
 /**
@@ -272,8 +278,10 @@ export interface SeedSpec {
 
 /** What one seeding run changed, and what it declined to do. */
 export interface SeedReport {
-  /** Bundle names appended to `dsh.profile.bundles` this run. */
+  /** Bundle names added to `dsh.profile.bundles` this run. */
   seeded: string[]
+  /** The built-in plugin {@link DESKTOP_COMPOSITION_BUNDLE} was moved after this run, when it was moved. */
+  reordered?: string
   /** Flat-fallback links created or re-pointed this run. */
   linked: string[]
   /** Withdrawn built-ins whose name this run removed from `dsh.profile.bundles`. */
@@ -1953,11 +1961,17 @@ function reportShadowing(spec: SeedSpec, profileDir: string, name: string, repor
 }
 
 /**
- * Append the missing names to an existing manifest's bundle list. A manifest
+ * Add the missing built-in names to an existing manifest's bundle list, keeping
+ * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin. A manifest
  * that does not parse, or that declares no bundle list at all, is left exactly
  * as it is: the first is something the server reports with the diagnostic it
- * owns, and the second is a composition written by hand, where appending the
+ * owns, and the second is a composition written by hand, where adding the
  * built-in names would produce a profile that mounts them and nothing else.
+ *
+ * A built-in plugin goes missing from a profile this shell seeded when a build
+ * adds one, or when upstream's Plugins page disables one, which removes its
+ * name from the list. Appended at the end, it would follow the composition
+ * layer, and that layer's rows for the ids it inserts would match nothing.
  */
 function seedExistingManifest(manifestPath: string, available: readonly string[], report: SeedReport): void {
   let manifest: ProfileManifest
@@ -1972,14 +1986,46 @@ function seedExistingManifest(manifestPath: string, available: readonly string[]
     report.skipped.push(`${manifestPath}: declares no dsh.profile.bundles list; not rewriting a hand-composed profile`)
     return
   }
-  const missing = available.filter(name => !bundles.includes(name))
-  if (missing.length === 0) return
+  const placed = placeBuiltins(bundles, available)
+  if (placed.bundles.length === bundles.length && placed.bundles.every((name, index) => name === bundles[index])) return
   const updated: ProfileManifest = {
     ...manifest,
-    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: [...bundles, ...missing] } },
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: placed.bundles } },
   }
   writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
-  report.seeded.push(...missing)
+  report.seeded.push(...available.filter(name => !bundles.includes(name)))
+  if (placed.after !== undefined) report.reordered = placed.after
+}
+
+/**
+ * The bundle list with every available built-in in it and
+ * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin.
+ *
+ * A missing plugin is inserted just before the composition layer, in
+ * {@link BUILTIN_WEB_BUNDLES} order; a missing composition layer goes after
+ * the last built-in plugin. Everything else keeps its position, so a name the
+ * `web` sync or the Plugins page put after the layer stays after it. Where the
+ * payload does not carry the composition layer, missing names are appended.
+ * @param bundles - the profile's `dsh.profile.bundles` as read.
+ * @param available - the built-ins the shipped closure carries, in bundle order.
+ * @returns the new list, and the built-in plugin the layer was moved after when a listed one followed it.
+ */
+function placeBuiltins(bundles: readonly string[], available: readonly string[]): { bundles: string[]; after?: string } {
+  const plugins = available.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+  const missing = plugins.filter(name => !bundles.includes(name))
+  const result = [...bundles]
+  if (!available.includes(DESKTOP_COMPOSITION_BUNDLE)) return { bundles: [...result, ...missing] }
+  const layerAt = result.indexOf(DESKTOP_COMPOSITION_BUNDLE)
+  if (layerAt < 0) return { bundles: [...result, ...missing, DESKTOP_COMPOSITION_BUNDLE] }
+  result.splice(layerAt, 0, ...missing)
+  const at = result.indexOf(DESKTOP_COMPOSITION_BUNDLE)
+  const last = plugins.reduce<string | undefined>(
+    (found, name) => (found === undefined || result.indexOf(name) > result.indexOf(found) ? name : found), undefined,
+  )
+  if (last === undefined || result.indexOf(last) < at) return { bundles: result }
+  result.splice(at, 1)
+  result.splice(result.indexOf(last) + 1, 0, DESKTOP_COMPOSITION_BUNDLE)
+  return { bundles: result, after: last }
 }
 
 /**
@@ -1994,6 +2040,7 @@ export function describeSeed(report: SeedReport): string | undefined {
   if (report.seeded.length > 0) {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
   }
+  if (report.reordered !== undefined) parts.push(`moved ${DESKTOP_COMPOSITION_BUNDLE} after ${report.reordered}`)
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
   if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)
   if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
