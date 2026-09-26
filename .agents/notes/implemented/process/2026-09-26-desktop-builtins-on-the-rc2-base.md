@@ -26,7 +26,7 @@ Each of those thirteen had to be rebuilt against rc.2 anyway, and two of the tar
 
 **Keep `dsh-at-file` and wait for its author to move to volatile `Config`.** Rejected: the plugin lives in a third-party repository with its own release cadence, and until it changes, the shipped archive's host half fails on every launch of an rc.2 build. A composer offering an `@` menu whose mentions never reach the model is worse than no menu.
 
-**Leave the peers undeclared and let pnpm install them.** Rejected: the payload would carry two copies of each such package, the workspace build the server runs and an npm build at whatever version the registry resolved, and which one a plugin's import reaches depends on the directory layout rather than on the installation it runs in.
+**Leave the peers undeclared and let pnpm install them.** Rejected: the payload would carry two copies of each such package, the workspace build the server runs and an npm build at whatever version the registry resolved.
 
 **Repack only the packages whose source changed.** Rejected: two of the replaced archives could not be rebuilt from any commit, and packing all thirteen in one pass under one toolchain is what makes the reproducibility check cover the whole vendored set.
 
