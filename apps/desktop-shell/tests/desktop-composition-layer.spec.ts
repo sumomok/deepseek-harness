@@ -244,32 +244,37 @@ describe('the desktop composition layer as a whole', () => {
   // comparison against the adapter version its devDependencies pin — not the
   // one this payload carries, and whose test suite no gate here runs — so the
   // shipped row is pinned against the shipped adapter here instead.
-  it('restates the adapter\'s own deepseek-flash row, naming only the label', () => {
+  it('restates the adapter\'s own deepseek-flash row, naming only the label and the image caps', () => {
     const factory = DeepSeekConfig({})
     const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
     expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
     const shipped = factory.models.get().find(row => row.id === 'deepseek-flash')
     if (shipped === undefined) throw new Error('the shipped adapter carries no deepseek-flash row')
-    // `description` is the one key the row adds; everything else the adapter
-    // declares must be present, and `name` is the only one allowed to differ.
+    // `description` and the two image caps are the keys the row adds;
+    // everything else the adapter declares must be present, and `name` is the
+    // only one allowed to differ.
+    const added = ['description', 'imagePixelBudget', 'imageMaxBytes']
     expect(Object.keys(composed[0] ?? {}).sort())
-      .toEqual([...new Set([...Object.keys(shipped), 'description'])].sort())
+      .toEqual([...new Set([...Object.keys(shipped), ...added])].sort())
     const restated = Object.fromEntries(
       Object.entries(shipped).filter(([key]) => key !== 'name'),
     )
     expect(Object.fromEntries(
-      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && key !== 'description'),
+      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && !added.includes(key)),
     )).toEqual(restated)
-    // The two keys this deployment owns: a dotted product name and the line
+    // The label keys this deployment owns: a dotted product name and the line
     // the picker shows under it.
     expect(composed[0]?.name).toBe('DeepSeek-V4.1-Flash')
     expect(composed[0]?.description).toBe('V4.1 Flash · 文本与图片')
     // Without this the loop rewrites system node 0 on a mid-session prompt
     // change instead of appending after the cached history.
     expect(composed[0]?.systemPromptUpdate).toBe('in-history')
-    // The capacities the row now restates. The comparison above ties them to
-    // the shipped adapter; these literals are what fails when a capacity moves
-    // on both sides at once.
+    // Without this a tool that joins mid-session changes the declarations
+    // ahead of the cached history instead of arriving as an addition.
+    expect(composed[0]?.toolUpdate).toBe('addition-only')
+    // The capacities the row states. The comparison above ties the context
+    // window to the shipped adapter, and the two image caps are this
+    // deployment's own; these literals are what fails when a capacity moves.
     expect({
       contextWindow: composed[0]?.contextWindow,
       imagePixelBudget: composed[0]?.imagePixelBudget,
