@@ -155,10 +155,31 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
 
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
-    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)
+    let turnOver = false
+    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000).then(
+      (id) => { turnOver = true; return id },
+      (error: unknown) => { turnOver = true; throw error },
+    )
     await input.fill(PROMPT)
     await input.press('Enter')
-    const sessionId = await settled
+
+    // Having read the picture, this model asks to act on the page to decode it,
+    // and that call waits on the user's approval. The user here only asked what
+    // the picture is, so every approval is the TEST's rejection, in every mode:
+    // the fixture pins what the model said after it, and the answer has to come
+    // from what the read showed.
+    const rejectApprovals = async (): Promise<void> => {
+      while (!turnOver) {
+        const panel = page.locator('[data-approval-key]').first()
+        const shown = await panel.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true, () => false)
+        if (!shown) continue
+        await panel.getByRole('button', { name: 'Reject', exact: true }).click()
+        await panel.waitFor({ state: 'detached', timeout: 30_000 }).then(() => undefined, () => undefined)
+      }
+    }
+    const [, sessionId] = await Promise.all([rejectApprovals(), settled])
+    // A rejected step never ran, so the page still draws the one picture.
+    expect(await frame.locator('img, canvas, svg').count()).toBe(1)
 
     // How the model reaches the element is its own to choose — a listing then a
     // markup read, or a markup read straight from the page. What is pinned is
