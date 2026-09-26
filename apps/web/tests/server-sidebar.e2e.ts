@@ -49,7 +49,7 @@
  * below that patch; a `--patch` overlay composes above it.
  */
 
-import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -74,10 +74,12 @@ import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from '
  */
 const CONSOLE_BUNDLE = join(REPO_ROOT, 'packages/experimental/console-profile')
 /**
- * The console's `permission` row, which a deployment composes above the
- * profile patch. The scaffold moves an `extraOverlayPath` row's `permission`
- * config into a bundle layer (its editable form defaults), so these scenarios
- * compose the lock as the home patch, the other layer above the profile patch.
+ * The console's lock rows, which a deployment composes above the profile patch
+ * either as the home patch or with `--patch`. The scaffold moves an
+ * `extraOverlayPath` row's config into a bundle layer (its editable form
+ * defaults), so these scenarios compose the lock in one of the two deployed
+ * forms: the home patch, or the scaffold's `commandLinePatchPath`, which
+ * appends it to the command-line overlays verbatim.
  */
 const PERMISSION_LOCK = join(CONSOLE_BUNDLE, 'permission-lock.patch.yml')
 /** The deployment layer installed beside {@link CONSOLE_BUNDLE}: the content column's page catalog. */
@@ -222,24 +224,31 @@ async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string]
 /**
  * Launch the scaffold over a profile carrying the console bundle and one
  * deployment layer, both enabled in `dsh.profile.bundles` after the shipped
- * Web bundles, with {@link PERMISSION_LOCK} as the home patch. The deployment
- * layer is a generated package whose one patch is `deployment`, the same form
- * a deployment's own rows take.
+ * Web bundles, with {@link PERMISSION_LOCK} composed above the profile patch.
+ * The deployment layer is a generated package whose one patch is `deployment`,
+ * the same form a deployment's own rows take.
  * @param harnessHome - the harness home from {@link harnessHomeWithRowLinks}.
  * @param deployment - the deployment layer's patch file.
+ * @param lockForm - `home` copies the lock to the home patch; `command-line`
+ *   passes it where the launcher's `--patch` goes and leaves no home patch.
  * @returns the launched scaffold.
  */
-async function launchConsole(harnessHome: string, deployment: string): Promise<WebScaffold> {
+async function launchConsole(
+  harnessHome: string,
+  deployment: string,
+  lockForm: 'home' | 'command-line' = 'home',
+): Promise<WebScaffold> {
   const dir = join(harnessHome, 'console-e2e-deployment')
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'package.json'), JSON.stringify({
     name: 'console-e2e-deployment', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } },
   }))
   await copyFile(deployment, join(dir, 'cordis.patch.yml'))
-  await copyFile(PERMISSION_LOCK, join(harnessHome, 'cordis.patch.yml'))
+  if (lockForm === 'home') await copyFile(PERMISSION_LOCK, join(harnessHome, 'cordis.patch.yml'))
   return await launchWebScaffold({
     harnessHome,
     profile: { packages: [{ dir: CONSOLE_BUNDLE, enabled: true }, { dir, enabled: true }] },
+    ...lockForm === 'command-line' ? { commandLinePatchPath: PERMISSION_LOCK } : {},
   })
 }
 
@@ -1353,7 +1362,8 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchConsole(harnessHome, OVERLAY)
+    // This describe composes the lock the `--patch` way; the others use the home patch.
+    scaffold = await launchConsole(harnessHome, OVERLAY, 'command-line')
     // Deliberately no `workspaceRegistry.create`: this is the fresh-install
     // state the other two describes set up past.
     browser = await chromium.launch()
@@ -1369,6 +1379,15 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
     await rm(harnessHome, { recursive: true, force: true })
     if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it('refuses a settings write to the pinned preset with the lock passed as `--patch`', async () => {
+    // Only the composition tells the two lock forms apart: config-editor's
+    // refusal names both. No home patch exists, so the refusal comes from the
+    // command-line overlay alone.
+    await expect(access(join(harnessHome, 'cordis.patch.yml'))).rejects.toThrow(/ENOENT/)
+    await expect(scaffold.ctx.settings.update('permission', { defaultPreset: 'danger-full-access' }))
+      .rejects.toThrow(/overridden by a home patch or command-line overlay/)
   })
 
   it('keeps the sidebar free of Workspace vocabulary with none connected', async () => {

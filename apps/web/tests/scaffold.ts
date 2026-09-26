@@ -322,6 +322,14 @@ export interface LaunchOptions {
    */
   extraOverlayPath?: string | readonly string[]
   /**
+   * Patch files composed exactly where the launcher's `--patch` puts them:
+   * appended verbatim to the profile context's command-line overlays, above the
+   * profile patch and the home patch. Unlike {@link extraOverlayPath}, no row's
+   * config moves into the editable form-defaults layer, so a row these files
+   * configure outranks a settings write the way a deployed `--patch` does.
+   */
+  commandLinePatchPath?: string
+  /**
    * Additional package manifests whose dependency closures supply experimental
    * profile layers named by {@link extraOverlayPath}.
    */
@@ -701,6 +709,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     Reflect.deleteProperty(ordinary, 'config')
     return ordinary
   })
+  if (options.commandLinePatchPath !== undefined) {
+    processOverlays.push(...loadOverlayPatches('web e2e scaffold', options.commandLinePatchPath))
+  }
 
   // Sessions inherit the gateway's process.cwd() default; run the boot from
   // the temp workspace so tool cwd, session cwd, and fixtures agree.

@@ -609,6 +609,7 @@
 - **要达到的效果**：本线浏览器场景复用上游的起壳、录制与回放机制，不分叉脚手架。
 - **退役条件**：上游提供等价能力，或本线场景移出本仓。
 - **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；只剩本线那段注释。本轮 `stableSessionFixture` 以上游的世代感知录制为底，把 `afterSeed` 的剪裁作为 `keep` 参数接进 `prepareSessionSnapshotFixtureForComparison` 之前；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。
+- **本轮适配（`dsh-v0.1.7-rc.2` 第四轮）**：`LaunchOptions` 新增 `commandLinePatchPath`：把一个补丁文件原样追加到 profile context 的 `overlays`，即启动器 `--patch` 所在的位置（`apps/cli/src/profile-boot.ts` 的 `overlays`），不经过 `extraOverlayPath` 那条把 `permission`、`agent-preset-registry` 等行的 config 挪进可编辑默认层的映射。用途：`server-sidebar.e2e.ts` 的「无工作区」describe 以 `--patch` 形式组合控制台锁，证明该形式同样拒绝 `defaultPreset` 写入（去掉该选项后同一用例失败：`promise resolved "undefined" instead of rejecting`）。
 - **路径**：`apps/web/tests/scaffold.ts` `apps/web/tests/support.ts`
 
 ## doc-budget-dead-examples-target — 删掉字数预算里不存在的 examples/AGENTS.md
