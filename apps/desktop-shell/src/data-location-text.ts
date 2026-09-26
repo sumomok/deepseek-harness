@@ -12,6 +12,9 @@ import type { EnvUnverifiedReason, UnavailableReason } from './data-location.ts'
 export interface DataLocationText {
   unavailableTitle: string
   unavailable: (reason: UnavailableReason, path: string | undefined) => string
+  /** The unreadable-record sentence when an earlier record still names a place. */
+  unavailableSuggested: (path: string) => string
+  useSuggested: string
   retry: string
   choose: string
   quit: string
@@ -41,6 +44,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return reason satisfies never
       }
     },
+    unavailableSuggested: path => `记录数据位置的文件读不出来了。上一次记下的位置是「${path}」，但它可能已经不是现在的位置。如果数据就在那里，请点「使用这个位置」；否则请选择数据所在的文件夹。`,
+    useSuggested: '使用这个位置',
     retry: '重试',
     choose: '选择数据所在的文件夹…',
     quit: '退出',
@@ -80,6 +85,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return reason satisfies never
       }
     },
+    unavailableSuggested: path => `The record of where your data is stored cannot be read. An earlier record names "${path}", which may no longer be where your data is. If your data is there, click Use This Location; otherwise choose the folder that holds your data.`,
+    useSuggested: 'Use This Location',
     retry: 'Retry',
     choose: 'Choose the Folder with My Data…',
     quit: 'Quit',

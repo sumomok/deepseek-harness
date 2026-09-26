@@ -32,11 +32,11 @@ import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite
 
 /** A question the boot window puts to the person. */
 export type LocationPrompt =
-  | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined }
+  | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined; suggestion?: string }
   | { kind: 'confirm-env'; reason: EnvUnverifiedReason; envPath: string; current: string }
 
 /** The answers a {@link LocationPrompt} offers. */
-export type LocationAnswer = 'retry' | 'choose' | 'quit' | 'use-new' | 'keep'
+export type LocationAnswer = 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep'
 
 /** A prompt rendered for a message box. */
 export interface PromptView {
@@ -60,17 +60,24 @@ export interface PromptView {
  */
 export function promptView(prompt: LocationPrompt, text: DataLocationText): PromptView {
   switch (prompt.kind) {
-    case 'unavailable':
-      return {
-        message: text.unavailableTitle,
-        detail: text.unavailable(prompt.reason, prompt.path),
-        buttons: [
+    case 'unavailable': {
+      const buttons: PromptView['buttons'] = prompt.suggestion === undefined
+        ? [{ label: text.retry, answer: 'retry' }, { label: text.choose, answer: 'choose' }, { label: text.quit, answer: 'quit' }]
+        : [
           { label: text.retry, answer: 'retry' },
+          { label: text.useSuggested, answer: 'use-suggested' },
           { label: text.choose, answer: 'choose' },
           { label: text.quit, answer: 'quit' },
-        ],
-        cancelIndex: 2,
+        ]
+      return {
+        message: text.unavailableTitle,
+        detail: prompt.suggestion === undefined
+          ? text.unavailable(prompt.reason, prompt.path)
+          : text.unavailableSuggested(prompt.suggestion),
+        buttons,
+        cancelIndex: buttons.length - 1,
       }
+    }
     case 'confirm-env':
       return {
         message: text.envTitle,
@@ -334,16 +341,21 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
       }
       case 'unavailable': {
         const path = resolution.pointer?.path
-        log(`[desktop] data location: unavailable (${resolution.reason}) ${path ?? resolution.detail ?? ''}; asking\n`)
-        const answer = await host.ask(promptView({ kind: 'unavailable', reason: resolution.reason, path }, text))
+        const suggestion = resolution.suggestion
+        log(`[desktop] data location: unavailable (${resolution.reason}) ${path ?? resolution.detail ?? ''}${suggestion === undefined ? '' : `; the backup names ${suggestion.path}`}; asking\n`)
+        const answer = await host.ask(promptView({
+          kind: 'unavailable', reason: resolution.reason, path, ...suggestion === undefined ? {} : { suggestion: suggestion.path },
+        }, text))
         if (answer === 'quit') {
           log('[desktop] data location: the person chose to quit\n')
           return undefined
         }
-        if (answer !== 'choose') continue
-        const chosen = await host.chooseFolder(text.chooseTitle)
+        let chosen: string | undefined
+        if (answer === 'use-suggested' && suggestion !== undefined) chosen = suggestion.path
+        else if (answer === 'choose') chosen = await host.chooseFolder(text.chooseTitle)
         if (chosen === undefined) continue
-        const checked = checkChosenFolder(chosen, resolution.pointer, envPath)
+        // A confirmed backup location must still carry the identity the backup recorded.
+        const checked = checkChosenFolder(chosen, answer === 'use-suggested' ? suggestion : resolution.pointer, envPath)
         if (checked.kind === 'rejected') {
           log(`[desktop] data location: refused ${chosen} (${checked.reason})\n`)
           await host.tell(checked.reason === 'no-data' ? text.refusedNoData(chosen) : text.refusedOtherData(chosen))

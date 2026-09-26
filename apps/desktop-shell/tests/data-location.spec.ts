@@ -68,21 +68,25 @@ describe('pointer file', () => {
   it('round-trips a pointer and keeps the previous one as the backup', () => {
     const first = pointerAt('/data/one', { lastSeenEnv: '/env/one' })
     writePointer(userData, first)
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: first, from: 'main' })
+    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: first })
     expect(existsSync(join(userData, POINTER_BACKUP_FILENAME))).toBe(false)
     const second = pointerAt('/data/two')
     writePointer(userData, second)
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: second, from: 'main' })
+    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: second })
     expect(JSON.parse(readFileSync(join(userData, POINTER_BACKUP_FILENAME), 'utf8'))).toEqual(first)
     expect(existsSync(join(userData, `${POINTER_FILENAME}.${String(process.pid)}.tmp`))).toBe(false)
   })
 
-  it('falls back to the backup when the main file is corrupt', () => {
+  it('reports a corrupt main file as corrupt, carrying the backup only as a suggestion', () => {
     const good = pointerAt('/data/one')
     writePointer(userData, good)
     writePointer(userData, pointerAt('/data/two'))
     writeFileSync(join(userData, POINTER_FILENAME), '{ not json')
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: good, from: 'backup' })
+    const read = readPointer(userData)
+    expect(read).toMatchObject({ kind: 'corrupt', backup: good })
+    expect(read.kind === 'corrupt' && read.detail).toContain('is not JSON')
+    expect(resolveDataLocation({ read, env: undefined, defaultHome }))
+      .toMatchObject({ kind: 'unavailable', reason: 'pointer-unreadable', suggestion: good })
   })
 
   it('reports corrupt with the reason when neither file is usable', () => {
@@ -105,10 +109,12 @@ describe('pointer file', () => {
     expect(read.kind === 'corrupt' && read.detail).toContain(reason)
   })
 
-  it('reads a backup left without a main file', () => {
+  it('reports a backup left without a main file as corrupt, carrying the backup', () => {
     const good = pointerAt('/data/one')
     writeFileSync(join(userData, POINTER_BACKUP_FILENAME), JSON.stringify(good))
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: good, from: 'backup' })
+    const read = readPointer(userData)
+    expect(read).toMatchObject({ kind: 'corrupt', backup: good })
+    expect(read.kind === 'corrupt' && read.detail).toContain('is missing')
   })
 
   it('reports an unreadable main file as corrupt', () => {
@@ -163,29 +169,23 @@ describe('resolveDataLocation without a pointer', () => {
 describe('resolveDataLocation with a pointer', () => {
   it('uses the pointer when its directory carries the same identity', () => {
     const dir = dataDir('DSH-Data', { id: ID_A })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir), from: 'main' }, env: undefined, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir) }, env: undefined, defaultHome }))
       .toEqual({ kind: 'ready', home: dir, via: 'pointer' })
-  })
-
-  it('rewrites the main file when the pointer came from the backup', () => {
-    const dir = dataDir('DSH-Data', { id: ID_A })
-    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir), from: 'backup' }, env: undefined, defaultHome })
-    expect(resolution).toEqual({ kind: 'ready', home: dir, via: 'pointer', pointer: pointerAt(dir) })
   })
 
   it('is unavailable when the directory is missing, never the default home', () => {
     const pointer = pointerAt(join(root, 'unplugged', 'DSH-Data'))
     mkdirSync(defaultHome, { recursive: true })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: undefined, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: undefined, defaultHome }))
       .toEqual({ kind: 'unavailable', reason: 'missing', pointer })
   })
 
   it('is unavailable when the directory carries another identity or none', () => {
     const other = pointerAt(dataDir('other', { id: ID_B }))
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer: other, from: 'main' }, env: undefined, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer: other }, env: undefined, defaultHome }))
       .toEqual({ kind: 'unavailable', reason: 'id-mismatch', pointer: other })
     const none = pointerAt(dataDir('none', { structure: true }))
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer: none, from: 'main' }, env: undefined, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer: none }, env: undefined, defaultHome }))
       .toEqual({ kind: 'unavailable', reason: 'id-mismatch', pointer: none })
   })
 
@@ -193,20 +193,20 @@ describe('resolveDataLocation with a pointer', () => {
     const dir = dataDir('DSH-Data', { id: ID_A })
     const env = dataDir('old', { id: ID_B })
     const pointer = pointerAt(dir, { lastSeenEnv: env })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env, defaultHome }))
       .toEqual({ kind: 'ready', home: dir, via: 'pointer' })
   })
 
   it('records a new DSH_HOME equal to the pointer as seen without moving', () => {
     const dir = dataDir('DSH-Data', { id: ID_A })
-    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir), from: 'main' }, env: dir, defaultHome })
+    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir) }, env: dir, defaultHome })
     expect(resolution).toEqual({ kind: 'ready', home: dir, via: 'pointer', pointer: pointerAt(dir, { lastSeenEnv: dir }) })
   })
 
   it('follows a new DSH_HOME whose directory carries an identity, adopting it', () => {
     const dir = dataDir('DSH-Data', { id: ID_A })
     const env = dataDir('elsewhere', { id: ID_B })
-    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir), from: 'main' }, env, defaultHome })
+    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir) }, env, defaultHome })
     expect(resolution.kind === 'ready' && resolution.via).toBe('followed-env')
     expect(resolution.kind === 'ready' && resolution.home).toBe(env)
     expect(resolution.kind === 'ready' && resolution.pointer).toMatchObject({ path: env, dataId: ID_B, lastSeenEnv: env })
@@ -216,17 +216,17 @@ describe('resolveDataLocation with a pointer', () => {
   it('follows a new DSH_HOME that is a Harness home without a marker, asking for one', () => {
     const dir = dataDir('DSH-Data', { id: ID_A })
     const env = dataDir('legacy', { structure: true })
-    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir), from: 'main' }, env, defaultHome })
+    const resolution = resolveDataLocation({ read: { kind: 'ok', pointer: pointerAt(dir) }, env, defaultHome })
     expect(resolution).toMatchObject({ kind: 'ready', home: env, via: 'followed-env', adoptId: true })
   })
 
   it('asks before following a new DSH_HOME that is missing or holds no Harness data', () => {
     const pointer = pointerAt(dataDir('DSH-Data', { id: ID_A }))
     const missing = join(root, 'typo')
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: missing, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: missing, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: missing, pointer, reason: 'missing' })
     const empty = dataDir('empty')
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: empty, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: empty, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: empty, pointer, reason: 'not-harness-data' })
   })
 
@@ -234,12 +234,12 @@ describe('resolveDataLocation with a pointer', () => {
     const pointer = pointerAt(dataDir('DSH-Data', { id: ID_A }))
     const file = join(root, 'a-file')
     writeFileSync(file, 'x')
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: file, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: file, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: file, pointer, reason: 'not-a-folder' })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: join(file, 'below'), defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: join(file, 'below'), defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: join(file, 'below'), pointer, reason: 'not-a-folder' })
     const badMarker = dataDir('bad', { id: 'garbage', structure: true })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: badMarker, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: badMarker, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: badMarker, pointer, reason: 'damaged-data' })
     expect([canAdoptEnv('missing'), canAdoptEnv('not-harness-data'), canAdoptEnv('not-a-folder'), canAdoptEnv('damaged-data')])
       .toEqual([true, true, false, false])
@@ -255,7 +255,7 @@ describe('committing and the person\'s choices', () => {
     const id = readDataId(env)
     expect(id.kind).toBe('ok')
     expect(committed?.dataId).toBe(id.kind === 'ok' ? id.id : undefined)
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: committed, from: 'main' })
+    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: committed })
   })
 
   it('gives an existing default home a marker without writing a pointer', () => {
@@ -299,7 +299,7 @@ describe('committing and the person\'s choices', () => {
     const declined = join(root, 'typo')
     const kept = keepPointerOverEnv(declined, pointerAt(dir))
     expect(kept).toEqual(pointerAt(dir, { lastSeenEnv: declined }))
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer: kept, from: 'main' }, env: declined, defaultHome }))
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer: kept }, env: declined, defaultHome }))
       .toEqual({ kind: 'ready', home: dir, via: 'pointer' })
   })
 })

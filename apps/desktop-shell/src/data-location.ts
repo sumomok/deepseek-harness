@@ -64,11 +64,15 @@ export interface DataLocationPointer {
   movedAt?: string
 }
 
-/** Outcome of reading the pointer. */
+/**
+ * Outcome of reading the pointer. `corrupt` carries the backup when it is
+ * readable: it names where the data was one write earlier, which may no
+ * longer be where it is, so it is only ever offered to the person.
+ */
 export type PointerRead =
   | { kind: 'absent' }
-  | { kind: 'ok'; pointer: DataLocationPointer; from: 'main' | 'backup' }
-  | { kind: 'corrupt'; detail: string }
+  | { kind: 'ok'; pointer: DataLocationPointer }
+  | { kind: 'corrupt'; detail: string; backup?: DataLocationPointer }
 
 /** Outcome of reading a directory's identity marker. */
 export type DataIdRead =
@@ -150,20 +154,23 @@ function readPointerFile(file: string): DataLocationPointer | 'absent' | { detai
 }
 
 /**
- * Read the pointer, falling back to the backup when the main file is missing
- * or unusable. A backup without a main file is still read, because a write
- * stopped between its two renames leaves exactly that.
+ * Read the pointer. Only the main file decides the location. When it is
+ * missing or unusable while the backup exists, the read is `corrupt`, with
+ * the backup attached when it is readable; {@link writePointer} replaces the
+ * main file by rename, so a backup without a usable main file means the main
+ * file was damaged or removed, not that a write stopped halfway.
  * @param userData - Electron's user-data directory.
- * @returns what the pointer says, `absent` when neither file exists, or `corrupt` when neither is usable.
+ * @returns what the pointer says, `absent` when neither file exists, or `corrupt` when the main file is not usable.
  */
 export function readPointer(userData: string): PointerRead {
   const main = readPointerFile(join(userData, POINTER_FILENAME))
-  if (typeof main === 'object' && !('detail' in main)) return { kind: 'ok', pointer: main, from: 'main' }
+  if (typeof main === 'object' && !('detail' in main)) return { kind: 'ok', pointer: main }
   const backup = readPointerFile(join(userData, POINTER_BACKUP_FILENAME))
-  if (typeof backup === 'object' && !('detail' in backup)) return { kind: 'ok', pointer: backup, from: 'backup' }
   if (main === 'absent' && backup === 'absent') return { kind: 'absent' }
-  const details = [main, backup].filter((read): read is { detail: string } => typeof read === 'object')
-  return { kind: 'corrupt', detail: details.map(read => read.detail).join('; ') }
+  const mainDetail = main === 'absent' ? `${join(userData, POINTER_FILENAME)} is missing` : main.detail
+  if (typeof backup === 'object' && !('detail' in backup)) return { kind: 'corrupt', detail: mainDetail, backup }
+  const details = [mainDetail, ...typeof backup === 'object' ? [backup.detail] : []]
+  return { kind: 'corrupt', detail: details.join('; ') }
 }
 
 /**
@@ -325,8 +332,10 @@ function pathKind(path: string): 'directory' | 'absent' | 'other' {
  * - `ready`: use `home`. `pointer` is the pointer to write before the server
  *   starts, when it changed; `adoptId` asks for an identity marker to be
  *   written into `home` first.
- * - `unavailable`: the pointer names a directory that cannot be used; the
- *   person must retry, pick the folder, or quit.
+ * - `unavailable`: the pointer names a directory that cannot be used, or
+ *   cannot be read; the person must retry, pick the folder, or quit.
+ *   `suggestion` is the backup of an unreadable pointer, which the person
+ *   may confirm.
  * - `confirm-env`: an explicit `DSH_HOME` changed to a directory that holds no
  *   Harness data; the person decides between it and the pointer.
  */
@@ -338,7 +347,7 @@ export type Resolution =
     pointer?: DataLocationPointer
     adoptId?: boolean
   }
-  | { kind: 'unavailable'; reason: UnavailableReason; pointer?: DataLocationPointer; detail?: string }
+  | { kind: 'unavailable'; reason: UnavailableReason; pointer?: DataLocationPointer; suggestion?: DataLocationPointer; detail?: string }
   | { kind: 'confirm-env'; envPath: string; pointer: DataLocationPointer; reason: EnvUnverifiedReason }
 
 /** Inputs of {@link resolveDataLocation}. */
@@ -366,7 +375,11 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
   if (read.kind === 'absent') {
     return env === undefined ? { kind: 'ready', home: defaultHome, via: 'default' } : { kind: 'ready', home: env, via: 'env' }
   }
-  if (read.kind === 'corrupt') return { kind: 'unavailable', reason: 'pointer-unreadable', detail: read.detail }
+  if (read.kind === 'corrupt') {
+    return read.backup === undefined
+      ? { kind: 'unavailable', reason: 'pointer-unreadable', detail: read.detail }
+      : { kind: 'unavailable', reason: 'pointer-unreadable', suggestion: read.backup, detail: read.detail }
+  }
   const pointer = read.pointer
   if (env !== undefined && env !== pointer.lastSeenEnv) {
     const seen: DataLocationPointer = { ...pointer, lastSeenEnv: env }
@@ -381,7 +394,7 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
     if (looksLikeHarnessHome(env)) return { kind: 'ready', home: env, via: 'followed-env', pointer: followed, adoptId: true }
     return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-harness-data' }
   }
-  return verifyPointer(pointer, read.from === 'backup')
+  return verifyPointer(pointer, false)
 }
 
 /**

@@ -133,6 +133,15 @@ describe('exportPointerHome', () => {
     expect(env).toEqual({ DSH_HOME: '/Volumes/Ext/DSH-Data', [POINTER_HOME_ENV]: '/Volumes/Ext/DSH-Data' })
   })
 
+  it('exports nothing when only the backup of the pointer is readable', () => {
+    writePointer(userData, pointerAt('/old'))
+    writePointer(userData, pointerAt('/new'))
+    writeFileSync(join(userData, 'data-location.json'), '{')
+    const env: NodeJS.ProcessEnv = {}
+    expect(exportPointerHome(userData, env)).toBeUndefined()
+    expect(env).toEqual({})
+  })
+
   it('leaves the environment alone without a pointer', () => {
     const env: NodeJS.ProcessEnv = {}
     expect(exportPointerHome(userData, env)).toBeUndefined()
@@ -187,6 +196,7 @@ describe('promptView', () => {
       for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable'] as const) {
         expect(text.unavailable(reason, '/p')).not.toMatch(/DSH_HOME|pointer|指针/)
       }
+      expect(text.unavailableSuggested('/p')).not.toMatch(/DSH_HOME|pointer|backup|指针|备份/)
       for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data'] as const) {
         expect(text.env(reason, '/a', '/b')).not.toMatch(/DSH_HOME|pointer|marker|指针|标记/)
       }
@@ -390,7 +400,7 @@ describe('settleDataLocation with a pointer', () => {
     expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
     expect(recorded.asked[0]?.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
     expect(recorded.terminalWrites).toEqual([])
-    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: pointerAt(data), from: 'main' })
+    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: pointerAt(data) })
   })
 
   it('starts a new location the person chose, leaving the old data where it is', async () => {
@@ -403,6 +413,40 @@ describe('settleDataLocation with a pointer', () => {
     const id = readDataId(fresh)
     expect(id.kind === 'ok' && id.id).not.toBe(ID)
     expect(readDataId(data)).toEqual({ kind: 'ok', id: ID })
+  })
+
+  it('offers the backup\'s location for confirmation instead of using it', async () => {
+    const old = dataDir('Old', ID)
+    const current = dataDir('Current', ID)
+    writePointer(userData, pointerAt(old))
+    writePointer(userData, pointerAt(current))
+    writeFileSync(join(userData, 'data-location.json'), '{"trunc')
+    const recorded = recordingHost({ answers: ['choose'], folders: [current] })
+    expect((await settleDataLocation(recorded.host, undefined))?.home).toBe(current)
+    const view = recorded.asked[0]
+    expect(view?.buttons.map(button => button.answer)).toEqual(['retry', 'use-suggested', 'choose', 'quit'])
+    expect(view?.buttons[view.cancelIndex]?.answer).toBe('quit')
+    expect(view?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailableSuggested(old))
+    const read = readPointer(userData)
+    expect(read.kind === 'ok' && read.pointer.path).toBe(current)
+  })
+
+  it('uses the backup\'s location once the person confirms it, if it still carries the recorded identity', async () => {
+    const old = dataDir('Old', ID)
+    writeFileSync(join(userData, 'data-location.json.bak'), JSON.stringify(pointerAt(old)))
+    writeFileSync(join(userData, 'data-location.json'), '{"trunc')
+    const recorded = recordingHost({ answers: ['use-suggested'] })
+    const settled = await settleDataLocation(recorded.host, undefined)
+    expect(settled?.home).toBe(old)
+    expect(recorded.terminalWrites).toEqual([old])
+    const read = readPointer(userData)
+    expect(read.kind === 'ok' && read.pointer).toMatchObject({ path: old, dataId: ID })
+    const other = dataDir('Other', OTHER)
+    writeFileSync(join(userData, 'data-location.json.bak'), JSON.stringify(pointerAt(other)))
+    writeFileSync(join(userData, 'data-location.json'), '{"trunc')
+    const refused = recordingHost({ answers: ['use-suggested', 'quit'] })
+    expect(await settleDataLocation(refused.host, undefined)).toBeUndefined()
+    expect(refused.told).toEqual([DATA_LOCATION_TEXT.zh.refusedOtherData(other)])
   })
 
   it('asks for a folder when the pointer is unreadable, accepting any marked folder', async () => {
