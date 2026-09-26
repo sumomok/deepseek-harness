@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { describeUrl, ERR_ABORTED, RETRY_DELAY_MS, superviseAppLoad, type WindowContents } from '../src/window-load.ts'
+import { describeUrl, ERR_ABORTED, RETRY_DELAY_MS, superviseAppLoad } from '../src/window-load.ts'
 
 /** The launch token every served-UI URL here carries, which no log line may repeat. */
 const TOKEN = 'launch-token-4f1c9e'
@@ -66,7 +66,7 @@ let failures: string[]
 
 /** Supervise [[contents]], recording into [[lines]] and [[failures]]. */
 function supervise(): ReturnType<typeof superviseAppLoad> {
-  return superviseAppLoad(contents as unknown as WindowContents, {
+  return superviseAppLoad(contents, {
     log: (line) => { lines.push(line) },
     giveUp: (summary) => { failures.push(summary) },
   })
