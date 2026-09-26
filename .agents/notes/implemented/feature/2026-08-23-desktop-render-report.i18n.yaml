@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-desktop-render-report.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-desktop-render-report.md
-2026-08-23-desktop-render-report.md: e92e28ca46ba1d42d3a46db056c46bd8dd75b913
-2026-08-23-desktop-render-report.zh.md: 49b7f1d451f3a7bbcf317d2e8979ba9df708d8c7
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels:
+  en: d0e4b2c1ff393022
+  zh: 0a1287e09dec49a7
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/problem:
+  en: 111d34ce59097628
+  zh: 08ccec88a90b2bfa
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/decision:
+  en: 6ebed884a732faf5
+  zh: a2cbd05067e5de80
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/wire-contract:
+  en: b66812f3eebe0638
+  zh: 1fc4ba17792fed58
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/alternatives-considered:
+  en: 261aa801fe095101
+  zh: 07b9276f653568f2
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/consequences:
+  en: 3f51829e286ed2b6
+  zh: b238b13c575807b1
+/agent-note-every-render-answers-with-a-report-and-a-deadline-can-answer-with-pixels/testing:
+  en: b77cd1da0deac48d
+  zh: 64b7e94643293b5e

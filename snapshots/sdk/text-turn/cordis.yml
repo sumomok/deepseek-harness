@@ -8,7 +8,7 @@
     includeDefaultRoots: false
 
 - id: llm-deepseek
-  name: '@deepseek-ai/dsh-llm-deepseek'
+  name: '@deepseek-ai/dsh-llm-deepseek-api-key'
   config:
     thinking: enabled
     reasoningEffort: max
@@ -28,6 +28,9 @@
     enableRunInBackground: false
     maxDepth: 1
 
+# This composition is the corpus's coverage of the DeepSeek upload path, so it
+# declares the policy its fixture records instead of inheriting whatever the
+# plugin's schema defaults to.
 - id: session-log-deepseek
   name: '@deepseek-ai/dsh-session-log-deepseek'
   config:

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-render-timeout-diagnostics.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-22-render-timeout-diagnostics.md
-2026-08-22-render-timeout-diagnostics.md: 6fb9ec8283241259e605e0b2b1e100431b1d0c4d
-2026-08-22-render-timeout-diagnostics.zh.md: 6e8bdf0f7d344a6766ee859ffaa913090fe2aa1f
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for:
+  en: c6269462153010b6
+  zh: 14f663d6ef2f9953
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for/problem:
+  en: 2819d5054f7d31ff
+  zh: ce5e42147de7138c
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for/decision:
+  en: a7016aac4c20ba8e
+  zh: 7030c0e67ab80bb2
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for/alternatives-considered:
+  en: 6cf942b910247c6f
+  zh: 1a38c80d57eb4e39
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for/consequences:
+  en: 9030992f53436233
+  zh: 88f1e94aa287de05
+/agent-note-a-timed-out-render-says-what-the-page-was-waiting-for/testing:
+  en: c553ccf954224942
+  zh: 1e21f13906db78e6

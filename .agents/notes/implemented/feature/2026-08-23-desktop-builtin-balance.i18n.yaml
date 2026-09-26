@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-desktop-builtin-balance.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-desktop-builtin-balance.md
-2026-08-23-desktop-builtin-balance.md: 0327423755d1e8982ea8cf55c54709a71481342c
-2026-08-23-desktop-builtin-balance.zh.md: 71956646eb550022c14a452f7ebfc3cff2c99f74
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent:
+  en: 6d3917c140758cee
+  zh: 97db3411226ae4ea
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/problem:
+  en: 864a6bd0331a1b67
+  zh: 731ed02485fbf689
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/why-not-the-community-plugin:
+  en: 7d72f12f7b4d07b3
+  zh: 015f2dc989cedf1a
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/decision:
+  en: 1826574fba6cb6e4
+  zh: e4eaf2f9e4093873
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/security-posture:
+  en: 1ab1b52c30d3e710
+  zh: 22163af76a18acda
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/what-an-existing-installation-sees:
+  en: ac9b33486fc3669e
+  zh: 476aab766299ea83
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/alternatives-considered:
+  en: 5c8130fc43b93f46
+  zh: a6d869b41d2e8347
+/agent-note-the-desktop-ships-the-account-balance-and-what-it-spent/consequences:
+  en: e728afae8018232b
+  zh: 72fc3f35522163e9

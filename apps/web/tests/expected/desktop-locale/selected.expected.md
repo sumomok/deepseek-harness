@@ -1,0 +1,40 @@
+- dialog "Settings":
+  - navigation:
+    - text: Settings
+    - group "General":
+      - text: General
+      - button "General settings"
+    - group "Models":
+      - text: Models
+      - button "Providers & models"
+    - group "Agent":
+      - text: Agent
+      - button "Agent presets"
+    - group "Extensions":
+      - text: Extensions
+      - button "Built-in plugins"
+  - button "Open configuration file"
+  - button "Close"
+  - text: Permission Choose the default permission mode for new sessions
+  - button "Workspace Write"
+  - text: Language
+  - button "English"
+  - text: Appearance
+  - button "Light"
+  - button "Dark"
+  - button "System" [pressed]
+  - text: Font size Only affects conversation content 14
+  - button "Increase font size"
+  - button "Decrease font size"
+  - text: px Work details Choose how much detail to show for tool calls
+  - button "Standard"
+  - text: Performance & usage Choose how much performance and usage information to show
+  - button "Detailed"
+  - text: Coding Tools Shows trajectory, code diffs, and Agent preset switching in new chats
+  - switch "Coding Tools" [checked]
+  - text: Keyboard shortcuts
+  - paragraph: View and edit available shortcuts and input actions
+  - button "Edit shortcuts"
+  - text: Send behavior while busy What Enter and the Send button do while the agent is running; Cmd/Ctrl+Enter uses the other behavior
+  - button "Queue"
+  - text: "Current version: {{version}}"

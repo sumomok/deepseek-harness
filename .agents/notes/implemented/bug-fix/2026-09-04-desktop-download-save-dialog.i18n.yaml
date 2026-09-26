@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-desktop-download-save-dialog.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-desktop-download-save-dialog.md
-2026-09-04-desktop-download-save-dialog.md: cafa5891cc619c73346c5b11c5ba340803075efe
-2026-09-04-desktop-download-save-dialog.zh.md: 38cde26101d7e37245eb1e5a11b1c01dd96df302
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving:
+  en: 182659373edff65b
+  zh: 4b37e75c3cb793de
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving/problem:
+  en: e8e98c8c9df52c50
+  zh: f2547eb6e0f6dc22
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving/decision:
+  en: ef80413ad65cfab3
+  zh: 8516cd4d0e61cae2
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving/testing:
+  en: b5756d8aa23777d3
+  zh: a18ed29effd40ac5
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving/alternatives-considered:
+  en: b08198706ddb5d1d
+  zh: b660d74bbd69e2c6
+/agent-note-ask-where-an-exported-session-log-goes-and-show-it-arriving/consequences:
+  en: 429d2b58c7eb10ff
+  zh: e2d9d6eb626ad5b7

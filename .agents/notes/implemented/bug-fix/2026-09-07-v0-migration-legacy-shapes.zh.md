@@ -14,7 +14,7 @@ Status: implemented
 
 `permission/preset N data has unexpected member "origin"` —— 备份库 11 份，`~/.dsh` 2 份，后者的 v0 日志正是 rc.31 构建尚未迁移过的那些。2026-08 中旬的一个构建在 preset 名旁边记下了这个名字的来处：`{"type":"permission/preset","seq":0,"time":1787322888043,"data":{"preset":"workspace-write","origin":"default"}}` 与 `{"type":"permission/preset","seq":4,"time":1787322901591,"data":{"preset":"yolo-access","origin":"selection"}}`。落盘的取值只有这两个，而 `@deepseek-ai/dsh-permission-presets` 现在只追加 `{ preset }`。
 
-`subagent/descriptor N uses unsupported descriptor version 2` —— 备份库 4 份，例如 `{"type":"subagent/descriptor","seq":0,"time":1787709640297,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"调研黄金类资产与矿股PE","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash-vision-exp"}}`。上游在 2026-08-24 的 `f76a225a7d` 把 `SUBAGENT_DESCRIPTOR_VERSION` 从 2 提到 3；payload 校验器只接受版本 3。
+`subagent/descriptor N uses unsupported descriptor version 2` —— 备份库 4 份，例如 `{"type":"subagent/descriptor","seq":0,"time":1787709640297,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"调研黄金类资产与矿股PE","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash-vision-exp"}}`。上游在 PR #2663 把 `SUBAGENT_DESCRIPTOR_VERSION` 从 2 提到 3；payload 校验器只接受版本 3。
 
 `format v0 contains unknown historical event type "content/shown"` —— 备份库 6 份，例如 `{"type":"content/shown","seq":209,"time":1788074166009,"data":{"page":"reports","by":"user"}}`。它由本 fork `product/server-console` 线的内容面写下，当时桌面构建挂载着那个控制台。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 [`migration.ts`](../../../../packages/session/session-format-v0-to-v1/src/migration.ts) 在每个 v0 事件本就要走一遍、且先于 payload 校验的规范化链上新增两个规范化器。`normalizeLegacyPermissionPreset` 移除 `origin` 成员，别的一概不动。`normalizeLegacySubagentDescriptor` 把 `version: 2` 改写为 `version: 3`，不碰任何其它成员。[`dispositions.ts`](../../../../packages/session/session-format-v0-to-v1/src/dispositions.ts) 在 `LEGACY_UNINTERPRETED_EVENT_TYPES` 里点名 `product/server-console` 线写下的全部六种内容事件——`content/shown`、`content/navigated`、`content-surface/selected`、`content-surface/dismissed`、`content-component/shown`、`content-component/resolved`——它们因此被原样携带，到达 v2 时带上 `ignorable: true` 供安装态还原器识别。`session-format-v1-to-v2` 读的是同一个集合，所以点名一次即覆盖两条边。
 
-descriptor 选择改写版本号而不是原样放行，因为这次升格是完全的。`f76a225a7d` 的差异只给 continuable descriptor 加了一个可选成员 `agentReasoningEffort`，别的一律未改，所以版本 2 的 payload 恰好等于一份不声明子 Agent 推理力度的版本 3 payload——不需要猜任何字段，也不丢任何字段。像 `assertReleasedEventPayload` 的 v1 分支那样把版本 2 原样带过去，会话根本打不开：`session-format-v1-to-v2` 没有这条豁免，它的 v2 目标校验走到 `subagentDescriptorValue` 并以 `subagent/descriptor N version must be one of 3` 拒绝。改写版本号是让会话得以迁移的那一步，同时也把 payload 留在 `@deepseek-ai/dsh-subagent` 的 `parseSubagentDescriptor` 唯一能识别的那一代。
+descriptor 选择改写版本号而不是原样放行，因为这次升格是完全的。上游 PR #2663 只给 continuable descriptor 加了一个可选成员 `agentReasoningEffort`，别的一律未改，所以版本 2 的 payload 恰好等于一份不声明子 Agent 推理力度的版本 3 payload——不需要猜任何字段，也不丢任何字段。像 `assertReleasedEventPayload` 的 v1 分支那样把版本 2 原样带过去，会话根本打不开：`session-format-v1-to-v2` 没有这条豁免，它的 v2 目标校验走到 `subagentDescriptorValue` 并以 `subagent/descriptor N version must be one of 3` 拒绝。改写版本号是让会话得以迁移的那一步，同时也把 payload 留在 `@deepseek-ai/dsh-subagent` 的 `parseSubagentDescriptor` 唯一能识别的那一代。
 
 `origin` 成员选择移除而不是纳入清单。`RELEASED_V0_EVENT_DISPOSITIONS` 声明它列出的每个成员都由恒等迁移边保留，而 `session-format-v1-to-v2` 的 v2 清单又派生自它，所以把一个会被丢弃的成员列进去，在一个包里是假话，并且会把这个成员放进两个后续世代——那里没有任何写入方会写它。在规范化器里移除，正是迁移边对已停用的 `request/header.header.messagePrefix` 的既有做法。
 

@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-desktop-withdraw-better-sidebar.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-14-desktop-withdraw-better-sidebar.md
-2026-09-14-desktop-withdraw-better-sidebar.md: f0268fc8649853fc17c4c817c2ea802432b1cb38
-2026-09-14-desktop-withdraw-better-sidebar.zh.md: 79ba76f4142643c5b5f50a41010dc16d76bedad5
+/agent-note-withdrawing-the-vendored-right-sidebar:
+  en: a15a82aa672dd6f1
+  zh: 19ef34afd1b85b71
+/agent-note-withdrawing-the-vendored-right-sidebar/problem:
+  en: 964301a1409232dc
+  zh: 50abf1c07d974b6d
+/agent-note-withdrawing-the-vendored-right-sidebar/decision:
+  en: 5139ef52fd17ca44
+  zh: 7d22599d2181859f
+/agent-note-withdrawing-the-vendored-right-sidebar/why-the-upstream-sidebar-cannot-be-the-one-that-goes:
+  en: 8de9b51f8c6cad2a
+  zh: 87df9cdb81c76bca
+/agent-note-withdrawing-the-vendored-right-sidebar/what-the-desktop-gives-up:
+  en: eed44e603cba1bef
+  zh: 46acccf3296b1d6f
+/agent-note-withdrawing-the-vendored-right-sidebar/alternatives-considered:
+  en: bd46cbb0e454118e
+  zh: ac8e21f752cf14e4
+/agent-note-withdrawing-the-vendored-right-sidebar/consequences:
+  en: bc8f3b46e41e64f3
+  zh: be94f6b13986d126
+/agent-note-withdrawing-the-vendored-right-sidebar/related:
+  en: cea18084321bbd73
+  zh: f13e255d1acc2f4f

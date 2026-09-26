@@ -3,8 +3,15 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { SlotTestRuntime, TestRemote, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import { EMPTY_CHAT_SNAPSHOT } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type {
+  ChatConversationViewNode, ChatNode, ChatNodeKind, ChatSnapshot,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { StartedToolCall } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
@@ -24,36 +31,43 @@ function listStore(cwd: string | undefined) {
     ids: [SID],
     byId: {
       [SID]: {
-        id: SID, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0,
+        id: SID, title: 'r', displayTitle: 'r', running: false, retainedBy: {}, blank: false, updatedAt: 0,
         ...(cwd === undefined ? {} : { cwd }),
       },
     },
-    current: undefined,
     phase: 'ready',
-    subagentsByParent: {}, jobsBySession: {},
-    currentAddress: undefined,
+    projectionsBySession: {},
   })
 }
 
-function props(nodes: readonly unknown[], cwd: string | null = CWD, callId = 'call-1'): PreviewProps {
-  const snapshot = { nodes: { values: () => nodes } }
+function props(nodes: readonly ChatConversationViewNode[], cwd: string | null = CWD, callId = 'call-1'): PreviewProps {
+  const snapshot: ChatSnapshot = { ...EMPTY_CHAT_SNAPSHOT, nodes: { ...EMPTY_CHAT_SNAPSHOT.nodes, values: () => nodes } }
+  const hostInfo: RemoteHostFacts = { home: HOME, isLoopback: true }
   return {
-    callId,
+    callId: ToolCallId(callId),
     sessionId: SID,
-    useChat: (selector: (value: unknown) => unknown) => selector(snapshot),
+    useChat: bindSnapshotSelector(createSnapshotStore(snapshot)),
     useSessions: bindSnapshotSelector(listStore(cwd ?? undefined)),
-    useHostInfo: (selector: (value: unknown) => unknown) => selector({ home: HOME, isLoopback: true }),
+    useHostInfo: bindSnapshotSelector(createSnapshotStore(hostInfo)),
     t,
-  } as unknown as PreviewProps
+  }
 }
 
-/** One running root Tool call as the Chat snapshot carries it. */
-function running(name: string, args: unknown, callId = 'call-1') {
-  return { kind: 'tool-call', data: { root: { callId, name, argsRaw: JSON.stringify(args) } } }
+/** One Chat Node of `kind` carrying `data`, placed at the session level. */
+function node<Kind extends ChatNodeKind>(kind: Kind, data: ChatNode<Kind>['data'], key: string = kind): ChatNode<Kind> {
+  return { key, id: key, target: 'chat', anchorSeq: 0, location: { kind: 'session' }, visibility: 'visible', kind, data }
+}
+
+/** One dispatched root Tool call awaiting its result, as the Chat snapshot carries it. */
+function running(name: string, args: unknown, callId = 'call-1'): ChatNode<'tool-call'> {
+  const root: StartedToolCall = {
+    phase: 'start', callId, name, argsRaw: JSON.stringify(args), turn: 1, step: 1, time: 0, subCalls: [],
+  }
+  return node('tool-call', { root }, `tool-${callId}`)
 }
 
 function lines(container: HTMLElement): string[] {
-  return [...container.querySelectorAll('[data-diff] > div > div')].map(row => row.textContent ?? '')
+  return [...container.querySelectorAll('[data-diff] [class*="_line_"]')].map(row => row.textContent ?? '')
 }
 
 /** File content of exactly `count` lines. */
@@ -64,7 +78,7 @@ function body(count: number): string {
 describe('ApprovalDiffPreview', () => {
   it('previews a pending write as the whole file it will contain', () => {
     const { container } = render(<ApprovalDiffPreview {...props([
-      { kind: 'assistant-step', data: {} },
+      node('compaction-running', null),
       running('write', { file_path: `${CWD}/notes.txt`, content: 'alpha\nbeta\n' }),
     ])} />)
 
@@ -133,20 +147,19 @@ describe('ApprovalDiffPreview', () => {
     expect(fold?.textContent).toBe('… 其余 6 行')
   })
 
-  it('renders nothing for an absent, uncorrelated, or settled call', () => {
+  it('renders nothing for an absent, uncorrelated, preparing, or settled call', () => {
     const { container } = render(<ApprovalDiffPreview {...props([
-      { kind: 'assistant-step', data: {} },
-      { kind: 'tool-call', data: { root: undefined } },
+      node('compaction-running', null),
       running('write', { file_path: `${CWD}/other.txt`, content: 'x' }, 'call-2'),
-      {
-        kind: 'tool-call',
-        data: {
-          root: {
-            kind: 'tool-result', callId: 'call-1',
-            call: { name: 'write', argsRaw: '{"file_path":"/w/project/a.txt","content":"x"}' },
-          },
+      node('tool-call', {
+        root: { phase: 'preparing', callId: 'call-1', name: 'write', turn: 1, step: 1, time: 0, subCalls: [] },
+      }, 'tool-preparing'),
+      node('tool-call', {
+        root: {
+          kind: 'tool-result', seq: 3, time: 0, callId: 'call-1', callTime: 0, content: [], isError: false, subCalls: [],
+          call: { name: 'write', argsRaw: '{"file_path":"/w/project/a.txt","content":"x"}' },
         },
-      },
+      }, 'tool-settled'),
     ])} />)
 
     expect(container.textContent).toBe('')
@@ -163,8 +176,9 @@ describe('ApprovalDiffPreview', () => {
 
 describe('approvalDiffPreview registration', () => {
   it('claims one approval-detail key per previewable file-mutation tool', async () => {
+    // SlotTestRuntime now provides `remote` itself; a second TestRemote on the
+    // same context is refused by the service registry.
     const runtime = await SlotTestRuntime.create()
-    new TestRemote(runtime.ctx)
     await runtime.root.declare(
       { 'conversation.approval.detail': { kind: 'keyed', scope: 'session' } },
       () => null,

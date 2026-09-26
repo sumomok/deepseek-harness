@@ -23,15 +23,15 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { applySessionListMetadata } from '../src/list.ts'
 import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
 
-async function harness(): Promise<{ ctx: Context; remote: TestSessionRemote; attach: (session: Session) => void }> {
+async function harness(): Promise<{ ctx: Context; remote: TestSessionRemote; attach: (session: Session) => Promise<void> }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   return {
     ctx,
     remote: createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }),
-    attach: (session) => {
-      ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+    attach: async (session) => {
+      await ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
     },
   }
 }
@@ -73,7 +73,7 @@ describe('summary blank = nothing to show', () => {
   it('configuration events (plan/mode, title, permission knobs) keep the session blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
-    attach(session)
+    await attach(session)
     expect(await listBlank(remote, session.id)).toBe(true)
     appendConfiguration(session)
     expect(await listBlank(remote, session.id)).toBe(true)
@@ -82,7 +82,7 @@ describe('summary blank = nothing to show', () => {
   it('a command that declared it configures the session keeps it blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
-    attach(session)
+    await attach(session)
     appendConfiguration(session)
     appendConfigurationCommand(session)
     expect(await listBlank(remote, session.id)).toBe(true)
@@ -91,7 +91,7 @@ describe('summary blank = nothing to show', () => {
   it('an engaging command run clears blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
-    attach(session)
+    await attach(session)
     appendConfiguration(session)
     appendConfigurationCommand(session)
     expect(await listBlank(remote, session.id)).toBe(true)
@@ -102,7 +102,7 @@ describe('summary blank = nothing to show', () => {
   it('the first turn clears blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
-    attach(session)
+    await attach(session)
     appendConfiguration(session)
     session.append('turn/start', { turn: 0 })
     expect(await listBlank(remote, session.id)).toBe(false)

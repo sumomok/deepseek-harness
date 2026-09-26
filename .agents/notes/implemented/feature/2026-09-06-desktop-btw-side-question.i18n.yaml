@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-desktop-btw-side-question.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-btw-side-question.md
-2026-09-06-desktop-btw-side-question.md: 451fb0b4b9defa6c9c7c12ca472df75fa90a3f9d
-2026-09-06-desktop-btw-side-question.zh.md: 968edff763516b73a6256ab9d09ae674f7427710
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was:
+  en: 71c8b999db3290e3
+  zh: 0adfb9834142dc74
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was/problem:
+  en: 9e0f8221025ec4bb
+  zh: 6d5dadb29d55a4de
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was/decision:
+  en: eb4cb7575bbb9e7b
+  zh: dd7aeb7116541950
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was/alternatives-considered:
+  en: 35e1e050e8f6b2e5
+  zh: 2fe840cb9d823150
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was/consequences:
+  en: e0c2e6b1ef43abb8
+  zh: 0d5690591179ca05
+/agent-note-a-side-question-that-leaves-the-conversation-as-it-was/related:
+  en: ff58813264792a02
+  zh: ac364fb143be1b18

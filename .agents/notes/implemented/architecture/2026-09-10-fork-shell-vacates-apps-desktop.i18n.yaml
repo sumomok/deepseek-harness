@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-fork-shell-vacates-apps-desktop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-fork-shell-vacates-apps-desktop.md
-2026-09-10-fork-shell-vacates-apps-desktop.md: 83c504325d73ac5d9e33bc0ac80ed04c132cb760
-2026-09-10-fork-shell-vacates-apps-desktop.zh.md: 9ce3a6cf3865f38ff5216369c49c03c64c38cdf8
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop:
+  en: aab6ce1d5e53e9a7
+  zh: 22ba1238f7fb666d
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/problem:
+  en: 04cd3aee56c2d16a
+  zh: 2a5d9cdbe6df3161
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/decision:
+  en: d9d36b9178333719
+  zh: cfc917ae6b593eda
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/what-the-move-does-not-change:
+  en: a79fe632a46a341d
+  zh: 41d2e4d0e77a0f7e
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/alternatives-considered:
+  en: 591771c2cd982523
+  zh: c12c4b78c36a3e83
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/consequences:
+  en: de2916342fac73fc
+  zh: 446c843797564343
+/agent-note-the-fork-s-desktop-shell-vacates-apps-desktop/testing:
+  en: 138c12fa7880b2b6
+  zh: 54d7d82d60864aac

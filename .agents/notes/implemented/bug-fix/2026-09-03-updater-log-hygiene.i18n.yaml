@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-updater-log-hygiene.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-updater-log-hygiene.md
-2026-09-03-updater-log-hygiene.md: 3424626eaa1cc77a7d19de25e7ce486ebbeb2acd
-2026-09-03-updater-log-hygiene.zh.md: 50d8bb582f7a14c1d3e60677ac10d9f59d25584a
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log:
+  en: 49839ea082e20a14
+  zh: 3f61a0f82cd876a3
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log/problem:
+  en: 1ba855633c4016e7
+  zh: d31252be56b1ba43
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log/decision:
+  en: 76cb74aa6c286930
+  zh: 8dde96a213d44ae9
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log/testing:
+  en: 8149208470d44624
+  zh: 84009015d654a100
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log/alternatives-considered:
+  en: 9d895a1108e908df
+  zh: d98fdebbb38c1231
+/agent-note-keep-electron-updater-s-debug-channel-out-of-dsh-server-log/consequences:
+  en: 185eb08589d00802
+  zh: c7861d4819331b04

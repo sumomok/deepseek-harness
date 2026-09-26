@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-export-ansi-parser.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-export-ansi-parser.md
-2026-08-27-export-ansi-parser.md: b6a6e4764593a7e85f858ea5ec803237131d680b
-2026-08-27-export-ansi-parser.zh.md: c10f60e22465de18ce3ee8521f52f4ca0867e3a5
+/agent-note-export-the-ansi-line-parser:
+  en: 122227d7c23069ab
+  zh: 0266c7ff9b7427a9
+/agent-note-export-the-ansi-line-parser/problem:
+  en: df33322ed7e19307
+  zh: 153d99c1eff94747
+/agent-note-export-the-ansi-line-parser/decision:
+  en: 0944a9db2a351946
+  zh: 6b37898b37d0d18f
+/agent-note-export-the-ansi-line-parser/alternatives-considered:
+  en: 7b3f6741db9761b9
+  zh: 40a5cf53ba71b782
+/agent-note-export-the-ansi-line-parser/consequences:
+  en: 559a8d671b1a2624
+  zh: b0eb233a16659d7b

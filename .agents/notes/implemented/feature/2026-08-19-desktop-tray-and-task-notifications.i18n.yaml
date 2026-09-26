@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-desktop-tray-and-task-notifications.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-desktop-tray-and-task-notifications.md
-2026-08-19-desktop-tray-and-task-notifications.md: 12756b88f4c226a23b84f7516ca735a1b492610b
-2026-08-19-desktop-tray-and-task-notifications.zh.md: d575c4400eb2c0abcd71d2aa2c1f7f2158490e76
+/agent-note-desktop-tray-residency-and-task-notifications:
+  en: 0e7791a8c390d0a5
+  zh: e25c89a30f2908ca
+/agent-note-desktop-tray-residency-and-task-notifications/problem:
+  en: e04ea9e1a1c66e47
+  zh: 99eb274d3d767a7f
+/agent-note-desktop-tray-residency-and-task-notifications/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-desktop-tray-residency-and-task-notifications/decision/closing-the-window-asks-once-and-remembers:
+  en: 2eafeff42279a099
+  zh: 0209598c23004e09
+/agent-note-desktop-tray-residency-and-task-notifications/decision/the-state-file-grew-one-field:
+  en: 45c0317834976bb8
+  zh: 51732bb234592114
+/agent-note-desktop-tray-residency-and-task-notifications/decision/the-shell-subscribes-to-the-server-it-already-started:
+  en: 3052df03f8b456de
+  zh: 428a19e2b27c5e8b
+/agent-note-desktop-tray-residency-and-task-notifications/decision/the-two-platforms-are-told-differently:
+  en: 2c773129ffad18dc
+  zh: 02a577e882d7d796
+/agent-note-desktop-tray-residency-and-task-notifications/decision/a-notification-cannot-open-the-session-it-is-about:
+  en: 9f94ada1d962b92c
+  zh: c22d4201341cd827
+/agent-note-desktop-tray-residency-and-task-notifications/alternatives-considered:
+  en: bbbe18184638c248
+  zh: f4b7fcd482a163a6
+/agent-note-desktop-tray-residency-and-task-notifications/consequences:
+  en: 218b4b7943d37a00
+  zh: d1696fcc8da9905e
+/agent-note-desktop-tray-residency-and-task-notifications/testing:
+  en: e071fbcc74e0bb40
+  zh: b6d829a74d4f217b

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-gateway-review-switch.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-gateway-review-switch.md
-2026-09-06-gateway-review-switch.md: 807343b61ff23ee546be0823be66d00a49e8de02
-2026-09-06-gateway-review-switch.zh.md: f8a61871bc5007070e1a4ddcffd0494198305456
+/agent-note-the-review-switch-leaves-the-preset-table:
+  en: 544608909798faa7
+  zh: f9bde2d41512aea6
+/agent-note-the-review-switch-leaves-the-preset-table/problem:
+  en: e08822dcbc3172fb
+  zh: 0463b16ba65f57f7
+/agent-note-the-review-switch-leaves-the-preset-table/decision:
+  en: e3af91e16957f4d3
+  zh: e9e2fef5460cda18
+/agent-note-the-review-switch-leaves-the-preset-table/decision/upgrade-compatibility-on-an-existing-installation:
+  en: 977ab6c7973c18dc
+  zh: 21c35d7aa3bbfd31
+/agent-note-the-review-switch-leaves-the-preset-table/alternatives-considered:
+  en: 02657d79b1365d7b
+  zh: 1111ae4ab6909249
+/agent-note-the-review-switch-leaves-the-preset-table/consequences:
+  en: 3161b953ec4d5e99
+  zh: 8507bd39cedfdf38
+/agent-note-the-review-switch-leaves-the-preset-table/related:
+  en: a32651809dbbe6c2
+  zh: 2f1cf74efa2b28e6

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-desktop-mailto-navigation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-desktop-mailto-navigation.md
-2026-08-27-desktop-mailto-navigation.md: ed98b6b0b52e953ee46c72d548149d748efd27fe
-2026-08-27-desktop-mailto-navigation.zh.md: 2dfbc89e187dd0f8345ca9d96af040b19a40366d
+/agent-note-forward-mailto-navigation-to-the-os-on-desktop:
+  en: b1bbb50e4285724a
+  zh: bea26d226187816b
+/agent-note-forward-mailto-navigation-to-the-os-on-desktop/problem:
+  en: 46918f2dc3530e67
+  zh: 23d58cbdad871142
+/agent-note-forward-mailto-navigation-to-the-os-on-desktop/decision:
+  en: 34ca360c8a3c29c4
+  zh: 06ec856e16b66d0d
+/agent-note-forward-mailto-navigation-to-the-os-on-desktop/alternatives-considered:
+  en: d2b698162ff33802
+  zh: 3fc0d8b6ae12f28c
+/agent-note-forward-mailto-navigation-to-the-os-on-desktop/consequences:
+  en: 0bed111bdb96190b
+  zh: 84879cb5d5713847

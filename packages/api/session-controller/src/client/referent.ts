@@ -44,7 +44,7 @@ export interface ReferentRef {
   /** Free-form label naming the dispatch site (e.g. `'chat-view.openFile'`), for listener filtering and diagnostics. */
   source: string
   /** How this reference entered the transcript. */
-  provenance: 'structured' | 'model-text' | 'tool-output' | 'user-text'
+  enteredAs: 'structured' | 'model-text' | 'tool-output' | 'user-text'
 }
 
 declare module '@deepseek-ai/cordis' {

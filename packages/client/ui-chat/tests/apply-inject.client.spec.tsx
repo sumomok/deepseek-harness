@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 /** Chat inject factories exercised over independently mounted Conversation and Chat plugins. */
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISession, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  RemoteError, SlotTestRuntime, TestRemote, stubSettingsScope, usePinnedBrowserLanguages,
+  RemoteError, SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   apply as applyConversation, inject as injectConversation, type ComposerBarInjected,
+  type GroupKey,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   apply as applyChat, inject as injectChat, type ChatViewInjected,
@@ -18,6 +20,8 @@ import {
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { createChatStore } from '../src/client/stores.ts'
+import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
+import type { LinkOpeningRowInjected } from '../src/client/settings/LinkOpeningRow.tsx'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -45,63 +49,139 @@ function sessionFakeFor() {
   } satisfies SessionBehaviorOverrides
 }
 
-async function bench() {
+async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true, withProcessGroups = true) {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('connection', {
     generation: { getSnapshot: () => ({ host: { home: '/home/fixture' } }), subscribe: () => () => {} },
   } as never)
-  runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  const chatSettings = stubConfigForm<ChatSettings>()
+  if (initialSettings !== undefined) chatSettings.publish({ value: initialSettings })
+  runtime.ctx.provide('configForms', {
+    developerTools: { enabled: createSnapshotStore(true) },
+    get: (id: string) => id === CHAT_SETTINGS_NAMESPACE ? chatSettings.scope : stubConfigForm().scope,
+  } as never)
   const layout = { closeRightbar: vi.fn(), openRightbar: vi.fn() }
   runtime.ctx.provide('layout', layout as never)
-  const sidebarRight = { openResource: vi.fn<(address: string) => void>() }
+  const sidebarRight = {
+    openResource: vi.fn<(address: string) => void>(),
+    openTab: vi.fn<(kind: string, options?: unknown) => void>(),
+  }
   runtime.ctx.provide('sidebarRight', sidebarRight as never)
+  const browserAvailable = createSnapshotStore(true)
+  const sidebarRightTabs = {
+    get: vi.fn<(kind: string) => object | undefined>(() => browserAvailable.getSnapshot() ? {} : undefined),
+    subscribe: (listener: () => void) => browserAvailable.subscribe(listener),
+    register: vi.fn(() => () => {}),
+  }
+  if (withBrowserRegistry) runtime.ctx.provide('sidebarRightTabs', sidebarRightTabs as never)
+  runtime.ctx.provide('resources', { register: vi.fn(() => () => {}) } as never)
   const openWorkspacePath = vi.fn<ClientRemote['session']['openWorkspacePath']>(
     () => Promise.resolve({ ok: true, value: { opened: true } }),
   )
-  new TestRemote(runtime.ctx, { session: { openWorkspacePath } })
+  runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {
       beforeOpen(ROOT)
-      runtime.sessions.open(ROOT)
+      openSession(ROOT)
     }),
-    openSession: (id: SessionId) => { runtime.sessions.open(id) },
+    openSession,
   } as never)
   const session = sessionFakeFor()
   await runtime.sessions.add({
     id: ROOT,
     summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
     session,
-  }, { current: false })
+  })
+  const rootReference = runtime.sessions.retain(ROOT)
+  await rootReference.ready
   const locale = new LocaleRuntime(runtime.ctx)
   runtime.ctx.provide('locale', locale)
   runtime.slots.installLocale(locale)
   await runtime.root.declare({
     'main': { kind: 'keyed', scope: 'root' },
+    'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_props: { renderSlot?: unknown }) => null)
   await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
-  await runtime.mount({ inject: [...injectChat], apply: applyChat })
+  const registerGroups = withProcessGroups ? undefined
+    : vi.spyOn(runtime.ctx.uiConversation.groups, 'register').mockImplementation(() => () => {})
+  const chat = await runtime.mount({ inject: [...injectChat], apply: applyChat })
+  registerGroups?.mockRestore()
   runtime.renderRoot()
 
-  const chatViewApi = (id: SessionId) => {
+  const chatViewApi = (reference: SessionReference) => {
+    const id = reference.sessionId
     const entry = runtime.slots.entries('conversation.view')[0]!
-    const instance = runtime.storeOf('conversation.view', id) as ChatInstance
+    const instance = runtime.storeOf('conversation.view', reference) as ChatInstance
     const injected = (entry.inject as unknown as (
       sessionId: SessionId,
       actions: ChatActions,
     ) => ChatViewInjected)(id, instance.actions)
     return { instance, injected }
   }
-  const composerApi = (id: SessionId | undefined) => {
-    const entry = runtime.slots.entries('conversation.composer.bar')[0]!
-    return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
+  const composerApi = (id: SessionId | undefined): ComposerBarInjected => {
+    const factory: unknown = runtime.slots.entries('conversation.composer.bar')[0]!.inject
+    if (!isComposerBarInject(factory)) throw new Error('the composer bar registered no inject factory')
+    return factory(id)
   }
-  return { runtime, layout, openWorkspacePath, sidebarRight, session, chatViewApi, composerApi }
+  return {
+    get linkPreference() {
+      const row = runtime.slots.entries('settings.general.item').find(entry => entry.options.id === 'link-opening')!
+      const preference: object = row.inject!()
+      return preference as LinkOpeningRowInjected
+    },
+    runtime, chat, chatSettings, browserAvailable,
+    layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, rootReference, openSession,
+    composerApi,
+  }
+}
+
+/**
+ * Narrow the composer bar entry's inject factory, which the slot ledger types
+ * for every entry alike, to the Session-scoped form the Conversation bar registers.
+ * @param value - the entry's `inject` member.
+ * @returns whether it is a callable factory.
+ */
+function isComposerBarInject(value: unknown): value is (sessionId: SessionId | undefined) => ComposerBarInjected {
+  return typeof value === 'function'
 }
 
 describe('Chat inject API', () => {
+  it('resolves keyed Group sources across registration, activation, and removal', async () => {
+    const b = await bench(undefined, true, false)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      const key = 'injected-group' as GroupKey
+      expect(injected.keyedHooks.chatGroup(key)).toBeUndefined()
+      const conversation = b.runtime.ctx.uiConversation
+      const remove = conversation.groups.register({
+        kind: 'test-group', target: 'chat',
+        create: () => null,
+        update: () => null,
+        buildGroups: () => ({
+          entries: [{ kind: 'group', key }],
+          groups: { kind: 'replace', snapshots: [{
+            key, data: { turn: 1, closed: true, summary: { counts: [], running: undefined, runningDetail: '' } }, members: [],
+          }] },
+        }),
+      })
+      await Promise.resolve()
+      conversation.binding(b.rootReference.binding).activate('chat')
+      const source = injected.keyedHooks.chatGroup(key)
+      expect(source?.getSnapshot()?.data.turn).toBe(1)
+      expect(injected.keyedHooks.chatGroup(key)).toBe(source)
+      remove()
+      await Promise.resolve()
+      expect(source?.getSnapshot()).toBeUndefined()
+      expect(injected.keyedHooks.chatGroup(key)).toBeUndefined()
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
   it('loads older history and forks through the Session Controller', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.loadOlder()
     expect(b.session.loadOlder).toHaveBeenCalledOnce()
 
@@ -110,7 +190,7 @@ describe('Chat inject API', () => {
 
     injected.forkAt(17)
     await vi.waitFor(() => {
-      expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
+      expect(b.openSession).toHaveBeenCalledWith(ROOT)
     })
     expect(b.runtime.sessions.calls).toContainEqual({
       method: 'fork', args: [{ sessionId: ROOT, atSeq: 17, increaseTitle: true }],
@@ -126,7 +206,7 @@ describe('Chat inject API', () => {
 
   it('addresses file paths under the Session\'s scope and opens them in the right Sidebar', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     await injected.openFile('src/a.ts')
     // Files stay in the product: a relative path is handed to the Sidebar as an
     // address under this session's scope, not to a desktop opener.
@@ -147,9 +227,136 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('opens message HTTP(S) links in Sidebar Browser tabs', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    injected.openExternalLink('http://example.test/path')
+    injected.openExternalLink('https://example.test/path')
+    expect(b.sidebarRight.openTab.mock.calls).toEqual([
+      ['browser', { params: { url: 'http://example.test/path' } }],
+      ['browser', { params: { url: 'https://example.test/path' } }],
+    ])
+    await b.runtime.dispose()
+  })
+
+  it('opens message HTTP(S) links in the system browser when no Sidebar Browser is registered', async () => {
+    const b = await bench()
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      b.sidebarRightTabs.get.mockReturnValue(undefined)
+      const { injected } = b.chatViewApi(b.rootReference)
+      injected.openExternalLink('https://example.test/path')
+      expect(b.sidebarRight.openTab).not.toHaveBeenCalled()
+      expect(open).toHaveBeenCalledWith('https://example.test/path', '_blank', 'noopener,noreferrer')
+    } finally {
+      open.mockRestore()
+      await b.runtime.dispose()
+    }
+  })
+
+  it('applies restored and live link destinations without remounting the Chat view', async () => {
+    const settings: ChatSettings = { transcriptView: 'compact', performanceUsage: 'detailed', linkOpening: 'new-tab' }
+    const b = await bench(settings)
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      const source = b.linkPreference.hooks.linkOpening
+      expect(source.getSnapshot()).toBe('new-tab')
+      injected.openExternalLink('https://example.test/restored')
+      expect(open).toHaveBeenLastCalledWith('https://example.test/restored', '_blank', 'noopener,noreferrer')
+      expect(b.sidebarRight.openTab).not.toHaveBeenCalled()
+
+      b.chatSettings.publish({ value: { ...settings, linkOpening: 'sidebar' } })
+      expect(source.getSnapshot()).toBe('sidebar')
+      injected.openExternalLink('http://example.test/live')
+      expect(b.sidebarRight.openTab).toHaveBeenLastCalledWith('browser', { params: { url: 'http://example.test/live' } })
+
+      b.linkPreference.setLinkOpening('new-tab')
+      expect(b.chatSettings.set).toHaveBeenCalledWith('linkOpening', 'new-tab')
+      injected.openExternalLink('http://example.test/selected')
+      expect(open).toHaveBeenLastCalledWith('http://example.test/selected', '_blank', 'noopener,noreferrer')
+
+      await b.chat.dispose()
+      expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(false)
+      b.chatSettings.publish({ value: { ...settings, linkOpening: 'sidebar' } })
+      expect(source.getSnapshot()).toBe('new-tab')
+    } finally {
+      open.mockRestore()
+      await b.runtime.dispose()
+    }
+  })
+
+  it('follows browser registration and routes absent browsers externally', async () => {
+    const b = await bench()
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const available = b.linkPreference.hooks.browserAvailable
+    const changed = vi.fn()
+    const unsubscribe = available.subscribe(changed)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      expect(available.getSnapshot()).toBe(true)
+      b.browserAvailable.set(false)
+      expect(available.getSnapshot()).toBe(false)
+      expect(changed).toHaveBeenCalledOnce()
+      injected.openExternalLink('https://example.test/disabled')
+      expect(open).toHaveBeenCalledWith('https://example.test/disabled', '_blank', 'noopener,noreferrer')
+      b.browserAvailable.set(true)
+      injected.openExternalLink('https://example.test/enabled')
+      expect(b.sidebarRight.openTab).toHaveBeenCalledWith('browser', { params: { url: 'https://example.test/enabled' } })
+      expect(b.linkPreference.hooks.linkOpening.getSnapshot()).toBe('sidebar')
+    } finally {
+      unsubscribe()
+      open.mockRestore()
+      await b.runtime.dispose()
+    }
+  })
+
+  it('keeps Chat available while the optional tab registry appears and leaves', async () => {
+    const b = await bench(undefined, false)
+    try {
+      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(1)
+      expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(false)
+      const registry = await b.runtime.mount({
+        apply(ctx) { ctx.provide('sidebarRightTabs', b.sidebarRightTabs as never) },
+      })
+      await vi.waitFor(() => {
+        expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(true)
+      })
+      await registry.dispose()
+      expect(b.runtime.slots.entries('settings.general.item').some(row => row.options.id === 'link-opening')).toBe(false)
+      expect(b.runtime.slots.entries('conversation.view')).toHaveLength(1)
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('keeps local link choices usable when settings cannot persist', async () => {
+    const b = await bench()
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      b.chatSettings.publish({ mode: 'memory', status: 'unavailable' })
+      b.chatSettings.set.mockResolvedValueOnce(false)
+      b.linkPreference.setLinkOpening('new-tab')
+      b.chatSettings.publish({ value: undefined })
+      injected.openExternalLink('https://example.test/local')
+      expect(open).toHaveBeenCalledWith('https://example.test/local', '_blank', 'noopener,noreferrer')
+      expect(b.sidebarRight.openTab).not.toHaveBeenCalled()
+
+      b.chatSettings.set.mockRejectedValueOnce(new Error('settings unavailable'))
+      b.linkPreference.setLinkOpening('sidebar')
+      await Promise.resolve()
+      injected.openExternalLink('https://example.test/local-sidebar')
+      expect(b.sidebarRight.openTab).toHaveBeenCalledWith('browser', { params: { url: 'https://example.test/local-sidebar' } })
+    } finally {
+      open.mockRestore()
+      await b.runtime.dispose()
+    }
+  })
+
   it('routes sent skill previews through the viewed Session source and tolerates an absent provider', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.openSkill('review')
     const openReference = vi.fn(() => true)
     const sessionOf = vi.fn(() => ({ openReference }))
@@ -170,8 +377,9 @@ describe('Chat inject API', () => {
       id: NO_CWD,
       summary: { title: 'N', displayTitle: 'N' },
       session: sessionFakeFor(),
-    }, { current: false })
-    const { injected } = b.chatViewApi(NO_CWD)
+    })
+    using reference = b.runtime.sessions.retain(NO_CWD)
+    const { injected } = b.chatViewApi(reference)
     // The Host resolves the relative path against the root it holds for the
     // Session; the Client need not know it.
     await injected.openFile('src/a.ts')
@@ -196,8 +404,11 @@ describe('Chat inject API', () => {
 
   it('owns image loading, scroll memory, and optional closing-file mentions', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     const owner = {} as never
+
+    expect(injected.keyedHooks.chatNode('missing')).toBeDefined()
+    expect(injected.keyedHooks.chatNodeProcess('missing')).toBeDefined()
 
     expect(injected.fileMentions(owner)).toBeUndefined()
     const mentions = { resolve: vi.fn() } as never
@@ -222,7 +433,7 @@ describe('Chat inject API', () => {
 
   it('referents (chat view face) is undefined with no proseReferents provider composed in', async () => {
     const b = await bench()
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents).toBeUndefined()
     await b.runtime.dispose()
   })
@@ -231,7 +442,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
     b.runtime.ctx.provide('proseReferents', { scan })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents).toBeDefined()
     injected.referents!.scan('see /proj/src/a.ts', true)
     expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
@@ -241,7 +452,7 @@ describe('Chat inject API', () => {
   it('referents.resolveLink is undefined when the provider declares no resolveLink', async () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.resolveLink).toBeUndefined()
     await b.runtime.dispose()
@@ -252,7 +463,7 @@ describe('Chat inject API', () => {
     const span = { start: 0, end: 9, kind: 'file' as const, target: '/proj/report.md', raw: '/proj/report.md' }
     const resolveLink = vi.fn(() => span)
     b.runtime.ctx.provide('proseReferents', { scan: () => [], resolveLink })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     expect(injected.referents!.resolveLink!('/proj/report.md', 'report.md')).toBe(span)
     expect(resolveLink).toHaveBeenCalledWith('/proj/report.md', 'report.md', { cwd: '/proj', home: '/home/fixture' })
     await b.runtime.dispose()
@@ -261,7 +472,7 @@ describe('Chat inject API', () => {
   it('referents.subscribe is undefined when the provider declares no subscribe', async () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.subscribe).toBeUndefined()
     await b.runtime.dispose()
@@ -272,7 +483,7 @@ describe('Chat inject API', () => {
     const unsubscribe = vi.fn()
     const subscribe = vi.fn(() => unsubscribe)
     b.runtime.ctx.provide('proseReferents', { scan: () => [], subscribe })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     const listener = (): void => {}
     const returned = injected.referents!.subscribe!(listener)
     expect(subscribe).toHaveBeenCalledWith(listener)
@@ -281,19 +492,19 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('referents.open dispatches referent/open carrying chat-prose provenance, distinct from openFile', async () => {
+  it('referents.open dispatches referent/open entered as chat-prose model text, distinct from openFile', async () => {
     const b = await bench()
     const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
     let captured: unknown
     // Claims (never calls next): the default open action never runs.
     b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(injected.referents!.scan('src/a.ts', true)[0]!)
     await vi.waitFor(() => { expect(captured).toBeDefined() })
     expect(captured).toEqual({
       kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts', sessionId: ROOT,
-      source: 'chat-prose', provenance: 'model-text',
+      source: 'chat-prose', enteredAs: 'model-text',
     })
     await b.runtime.dispose()
   })
@@ -302,7 +513,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
@@ -310,18 +521,27 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('referents.open falls through to window.open for an unclaimed url span', async () => {
+  it('referents.open sends an unclaimed url span through the link-opening preference', async () => {
     const b = await bench()
     const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    const { injected } = b.chatViewApi(ROOT)
-    injected.referents!.open(span)
-    await vi.waitFor(() => {
-      expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
-    })
-    openSpy.mockRestore()
-    await b.runtime.dispose()
+    try {
+      const { injected } = b.chatViewApi(b.rootReference)
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(b.sidebarRight.openTab).toHaveBeenCalledWith('browser', { params: { url: 'https://example.com/' } })
+      })
+      expect(openSpy).not.toHaveBeenCalled()
+      b.linkPreference.setLinkOpening('new-tab')
+      injected.referents!.open(span)
+      await vi.waitFor(() => {
+        expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
+      })
+    } finally {
+      openSpy.mockRestore()
+      await b.runtime.dispose()
+    }
   })
 
   it('referents.open degrades a not-found race to the session\'s own composer notice, same as the terminal card\'s inline notice — a span verified earlier can still name a path deleted before this click', async () => {
@@ -332,7 +552,7 @@ describe('Chat inject API', () => {
       ok: false,
       error: new RemoteError('session/path-not-found', 'path does not exist: /proj/deleted.md', { path: '/proj/deleted.md' }),
     })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
@@ -345,7 +565,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     const opened: unknown[] = []
     b.runtime.ctx.on('referent/open', (ref: unknown) => { opened.push(ref); return Promise.resolve() })
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     // ProducedFiles opens the workspace root as '.'; no richer file/dir signal
     // reaches this closure, so the two cases are the whole vocabulary.
     await injected.openFile('.')
@@ -367,7 +587,7 @@ describe('Chat inject API', () => {
       return { ok: false, error: new RemoteError('session/path-not-found', 'gone', { path: '/proj/deleted.md' }) }
     })
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => { expect(settle).toBeDefined() })
     // The session closes while the open is still in flight: its composer, and
@@ -390,7 +610,7 @@ describe('Chat inject API', () => {
       error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
     })
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { injected } = b.chatViewApi(ROOT)
+    const { injected } = b.chatViewApi(b.rootReference)
     injected.referents!.open(span)
     await vi.waitFor(() => {
       expect(errorSpy).toHaveBeenCalledWith('ui-chat: chat-prose referent open failed', expect.any(Error))

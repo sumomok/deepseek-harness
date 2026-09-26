@@ -14,7 +14,7 @@ Which row that is cannot be decided in the client. The preset table is host conf
 
 `PresetSpec` gains `tone`, a closed set whose one member is `danger`, alongside the existing `glyph`. The host names the meaning, the client owns the color: `danger` marks an entry the deployment treats as destructive, and a preset naming none renders in the plain label color. Both fields are validated in the schemastery table schema, so an unnamed tone fails at plugin load.
 
-The two surfaces read two different host faces, so the tone travels two ways. The composer chip reads the `permissions` session projection, where `tone` joins `glyph` on `PresetOption` and its zod wire schema. The settings row reads the `permission` settings section, whose `defaultPreset` value is a bare preset name — per-choice presentation there rides each union member's own schemastery metadata, where `description` already carries the label, so `tone` rides the free-form `extra` slot beside it.
+Both surfaces read the process-level permission catalog, so the tone travels one way: `tone` joins `glyph` on the typed `PresetOption` that `optionOf` builds. The composer chip reads the catalog's options, and the settings row reads its default options and carries each option's tone onto its row.
 
 Painting is the `ui-primitives` `Menu` primitive's existing `danger` row: error-colored text and icon over `--dsw-alias-state-error-primary`, with the danger hover fill. A toned preset sets `danger` on its `MenuItem` and nothing else changes — no new CSS, no new token, and the selected and hovered states are the ones every other destructive menu row in the app already has.
 
@@ -32,8 +32,6 @@ The fork lands the tone in two places, not one. `packages/bundle/base/cordis.pat
 
 **Give the `permission` settings section a second field.** Rejected: a settings field is user-writable and lands in `settings.yaml`; the tone is the host's statement about its own table, not a preference.
 
-**Carry the tone through schemastery's `role`.** Rejected: `role` names which widget renders a node. The tone is metadata about one union member, which is what `extra` is for.
-
 ## Consequences
 
 A deployment marks one row of its preset table, and both access-mode menus paint it destructive. The fork's base bundle and the gateway bundle each mark `danger-full-access`; everything else in the table, including the gateway's reviewed full-access row, stays plain.
@@ -42,4 +40,4 @@ The settings row and the composer chip now agree about a presentation fact that 
 
 **Retirement.** This is a fork overlay on upstream host and client packages. If upstream gives preset rows a semantic color or danger marker in any form, the overlay retires and the fork adapts to upstream's form. Until then it is re-ported and re-verified on every rolling sync, because it lands in files upstream edits.
 
-Coverage lives in five specs of this change: `permission-presets.spec.ts`, `projection.spec.ts`, `settings-store.client.spec.ts`, `permission-presets-row.client.spec.tsx`, and `input-bar.client.spec.tsx`.
+Coverage lives in four specs: `permission-presets.spec.ts`, `settings-store.client.spec.ts`, `permission-presets-row.client.spec.tsx`, and `permission-select.client.spec.tsx`.

@@ -166,6 +166,7 @@ describe('StatsPills', () => {
     seats: Record<string, ReactNode> = {},
   ): StatsPillsProps {
     return {
+      usePerformanceUsage: selector => selector('detailed'),
       useChat: bindSnapshotSelector(source),
       useProjection: projections(values),
       t: tEn,
@@ -184,12 +185,30 @@ describe('StatsPills', () => {
     timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
   })
 
+  it('compact keeps only speed and cache hit, with no interactive statistics', () => {
+    const { source } = makeSource({ nodes: [timedStep()] })
+    const view = render(<StatsPills {...props(source)} usePerformanceUsage={selector => selector('compact')} />)
+    expect(view.container.textContent).toBe('20 tok/sCache hit 90%')
+    expect(view.queryByRole('button')).toBeNull()
+    fireEvent.mouseOver(view.getByText('20 tok/s'))
+    expect(view.queryByRole('dialog')).toBeNull()
+    view.rerender(<StatsPills {...props(source)} />)
+    expect(view.getAllByRole('button')).toHaveLength(2)
+    fireEvent.click(view.getAllByRole('button')[0]!)
+    expect(view.getByRole('dialog')).toBeTruthy()
+    view.rerender(<StatsPills {...props(source)} usePerformanceUsage={selector => selector('compact')} />)
+    expect(view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('compact omits unavailable metrics instead of showing counts', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsPills {...props(source, {})} usePerformanceUsage={selector => selector('compact')} />)
+    expect(view.container.textContent).toBe('')
+  })
+
   it('renders the counts reading and usage pill and hides a brand-new empty session', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsPills {...props(source)} />)
-    // InputBar's `.root:has([data-composer-stats])` bottom-clearance rule keys
-    // off this attribute: present exactly while the row renders.
-    expect(view.container.querySelector('[data-composer-stats]')).toBeTruthy()
     // No timing on the fixture: the speed segment drops out and the dialog
     // would have no rows, so the counts reading stays a static pill (no button).
     expect(view.getByText('1 turns 1 steps').closest('button')).toBeNull()
@@ -210,7 +229,6 @@ describe('StatsPills', () => {
       contextPressure: {},
     })} />)
     expect(emptyView.container.textContent).toBe('')
-    expect(emptyView.container.querySelector('[data-composer-stats]')).toBeNull()
   })
 
   it.each([

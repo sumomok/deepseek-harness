@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-desktop-builtin-default-model.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-desktop-builtin-default-model.md
-2026-08-23-desktop-builtin-default-model.md: a5e6dad65228a0739df970837e0b41a316d67a32
-2026-08-23-desktop-builtin-default-model.zh.md: c5925c9175ee8c821a70a091fe84f212087da839
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model:
+  en: 47191a1feda18e12
+  zh: 50da20203c7dc006
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model/problem:
+  en: a01e95fc68e28892
+  zh: 23b254b0b3a3ed06
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model/decision:
+  en: 7a59f99478cb4822
+  zh: 1f62b24cd47a9ea8
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model/what-an-existing-installation-sees:
+  en: 5f29ec2cc94adcfc
+  zh: b2d327a82e0b23a8
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model/alternatives-considered:
+  en: c804dee2aa5ce591
+  zh: 9ffe9012cf1badfb
+/agent-note-the-desktop-installer-ships-its-own-factory-default-model/consequences:
+  en: 1cb9247d4c0563dc
+  zh: 5055e8a9a557ebf3

@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-macos-in-app-update-self-signed.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-macos-in-app-update-self-signed.md
-2026-08-19-macos-in-app-update-self-signed.md: b8765846a0fc6d5cc5ad7cfc34df8fb1022b9474
-2026-08-19-macos-in-app-update-self-signed.zh.md: e48972b19e80c87def018ac23401b1968540b7a5
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts:
+  en: c16365647bbb12e2
+  zh: 4ab2a30476d1517f
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/problem:
+  en: bda2482eccd30d96
+  zh: f494a3121f73ae1b
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision:
+  en: 4dcb059b6d973abe
+  zh: 613f38cc73b8a99d
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision/signing-runs-from-the-afterpack-hook-not-from-electron-builder:
+  en: 9d1218d1e4c11138
+  zh: 45d317a8cb599b92
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision/three-tiers-chosen-by-one-existssync:
+  en: 6edc3771bd6512da
+  zh: 0154eb6f0379bc13
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision/the-dialogs-stop-being-sheets-on-macos:
+  en: f30853054297648d
+  zh: d4d86b40b561994e
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision/what-the-click-costs-and-where-it-goes:
+  en: fc3a286141233ca8
+  zh: a1b84a6c044aac7b
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/decision/the-rest:
+  en: e3466d8e165f851a
+  zh: 5464f3c2dfc35c98
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/alternatives-considered:
+  en: 2a64f99622b5e690
+  zh: 56880625397dcc1b
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/consequences:
+  en: 2d540c1919476335
+  zh: db1afd1295b80e92
+/agent-note-macos-updates-itself-signed-by-a-certificate-nobody-trusts/testing:
+  en: 47dc6b685b6bcfef
+  zh: 1389f1057ed38cb6

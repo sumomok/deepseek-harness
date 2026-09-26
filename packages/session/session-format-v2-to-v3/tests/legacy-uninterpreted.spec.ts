@@ -41,9 +41,9 @@ describe('named uninterpreted historical events at the v2-to-v3 edge', () => {
       content: [{ type: 'text', text: '<workspace-reference path="test/1.txt" kind="file" />' }],
       source: { kind: 'at-file-mention', relative: 'test/1.txt' },
     }
-    const mention = {
+    const mention: SessionFormatEvent = {
       type: 'user/message', seq: 0, time: 1, surfaceOp: 'append', data: message,
-    } as unknown as SessionFormatEvent
+    }
 
     const migrated = migrate([...opening, mention])
 

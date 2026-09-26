@@ -80,7 +80,7 @@ describe('SessionLogDownloadController', () => {
   it('streams the host ZIP, reports rising progress, and saves the assembled archive', async () => {
     const archive = heldArchive({ headers: EXTENT_HEADERS })
     const fetcher = vi.fn(async () => archive.response)
-    const save = vi.fn()
+    const save = vi.fn<(archive: Blob, filename: string) => void>()
     const controller = new SessionLogDownloadController(fetcher, save)
 
     const run = controller.download(SID)
@@ -96,10 +96,8 @@ describe('SessionLogDownloadController', () => {
     archive.close()
     await run
 
-    const [url, init] = fetcher.mock.calls[0] as unknown as [URL, RequestInit]
-    expect(url.pathname).toBe('/api/session.export')
-    expect(url.searchParams.get('sessionId')).toBe(SID)
-    expect(url.searchParams.get('includeDescendants')).toBe('true')
+    const [route, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
+    expect(route).toBe(`api/session.export?sessionId=${SID}&includeDescendants=true`)
     expect(init.method).toBe('GET')
     expect(init.signal).toBeInstanceOf(AbortSignal)
 
@@ -110,7 +108,7 @@ describe('SessionLogDownloadController', () => {
     expect(reported[3]).toBe(0.99)
 
     expect(save).toHaveBeenCalledOnce()
-    const [saved, filename] = save.mock.calls[0] as unknown as [Blob, string]
+    const [saved, filename] = save.mock.calls[0]!
     expect(saved.size).toBe(60)
     expect(saved.type).toBe('application/zip')
     expect(filename).toBe('dsh-session-fixture.zip')
@@ -198,7 +196,7 @@ describe('SessionLogDownloadController', () => {
     expect(emptyDetail.store.getSnapshot().bySession[SID]?.error).toBe('HTTP 503')
 
     const bodyless = new SessionLogDownloadController(
-      async () => ({ ok: true, status: 200, body: null, headers: new Headers() }) as unknown as Response,
+      async () => new Response(null, { status: 200 }),
       vi.fn(),
     )
     await bodyless.download(SID)
@@ -288,8 +286,7 @@ describe('SessionLogDownloadController', () => {
     await controller.dispose()
   })
 
-  it('uses the null-origin fallback and the default browser save', async () => {
-    vi.stubGlobal('location', { origin: 'null' })
+  it('requests the document-relative route through the default carrier', async () => {
     const fetcher = vi.fn(
       async (_input: string | URL, _init?: RequestInit) => archiveResponse([entryChunk()], { headers: EXTENT_HEADERS }),
     )
@@ -301,7 +298,7 @@ describe('SessionLogDownloadController', () => {
 
     await controller.download(SID)
 
-    expect((fetcher.mock.calls[0]?.[0] as URL).origin).toBe('http://dsh.internal')
+    expect(fetcher.mock.calls[0]?.[0]).toBe(`api/session.export?sessionId=${SID}&includeDescendants=true`)
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'GET' })
     expect(click).toHaveBeenCalledOnce()
     expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('dsh-session-fixture.zip')

@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-vendored-client-runtime-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-11-vendored-client-runtime-gate.md
-2026-09-11-vendored-client-runtime-gate.md: ceb88524624053baada20efeeb0448975da7af2e
-2026-09-11-vendored-client-runtime-gate.zh.md: 7ec36547705d7bac99f1b7a94a70905572fb919a
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime:
+  en: 62a0b2fbc1d5aad0
+  zh: a4721c20bd736bf9
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/problem:
+  en: 3bbab370491df49f
+  zh: 233c9afd26da842c
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/decision:
+  en: d97bfa1e0b508de1
+  zh: 440bb55589f7197c
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/what-this-gate-does-not-see:
+  en: fddd40ec353ebbc9
+  zh: 1ed5e84efa155c9b
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/compiler-faces:
+  en: a185fef3b969dd55
+  zh: 8dcc9e2378a3d41b
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/alternatives-considered:
+  en: b2a5fba21287a55e
+  zh: dfc970cec6a643ed
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/consequences:
+  en: 7e9a376dcf654500
+  zh: 5c4bdd8def6742a8
+/agent-note-vendored-client-halves-apply-in-the-real-client-runtime/verification:
+  en: 99509500cfbf9ae2
+  zh: 1319dcb80553dbfe

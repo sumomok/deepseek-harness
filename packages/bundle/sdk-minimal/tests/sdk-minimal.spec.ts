@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { Config as SessionLogConfig } from '@deepseek-ai/dsh-session-log-deepseek'
 
 function packageName(specifier: string): string {
   return specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!
@@ -31,7 +32,7 @@ describe('dsh-sdk-minimal bundle', () => {
       ['deepseek-llm-api-extensions', '@deepseek-ai/dsh-deepseek-llm-api-extensions'],
       ['session-log-deepseek', '@deepseek-ai/dsh-session-log-deepseek'],
       ['plugin-package-inventory-deepseek', '@deepseek-ai/dsh-plugin-package-inventory-deepseek'],
-      ['llm-deepseek', '@deepseek-ai/dsh-llm-deepseek'],
+      ['llm-deepseek', '@deepseek-ai/dsh-llm-deepseek-api-key'],
       ['sandbox', '@deepseek-ai/dsh-sandbox-local'],
       ['session-projection', '@deepseek-ai/dsh-session-projection'],
       ['sandbox-policy', '@deepseek-ai/dsh-sandbox-policy'],
@@ -45,6 +46,7 @@ describe('dsh-sdk-minimal bundle', () => {
       ['session-title', '@deepseek-ai/dsh-session-title'],
       ['system-prompt', '@deepseek-ai/dsh-system-prompt'],
       ['tools', '@deepseek-ai/dsh-tools'],
+      ['mcp-resources', '@deepseek-ai/dsh-mcp-resources'],
       ['agent', '@deepseek-ai/dsh-agent'],
       ['llm-retry', '@deepseek-ai/dsh-llm-retry'],
       ['jobs', '@deepseek-ai/dsh-jobs-local'],
@@ -80,6 +82,14 @@ describe('dsh-sdk-minimal bundle', () => {
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
     })
+    // This bundle deliberately does not layer over dsh-base, so its own row is
+    // the only thing holding the DeepSeek session-log contribution shut. The
+    // plugin's schema defaults `enabled` to true, so pin both the row's literal
+    // config and the value that schema resolves it to.
+    expect(SessionLogConfig({}).enabled).toBe(true)
+    const sessionLog = rows.find(row => row.id === 'session-log-deepseek')
+    expect(sessionLog?.config).toEqual({ enabled: false })
+    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
     expect(rows.find(row => row.id === 'terminal-bash')).toMatchObject({
       disabled: { __jsExpr: "process.platform === 'win32'" },
     })

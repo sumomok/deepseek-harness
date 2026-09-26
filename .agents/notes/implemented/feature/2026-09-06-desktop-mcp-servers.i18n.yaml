@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-desktop-mcp-servers.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-mcp-servers.md
-2026-09-06-desktop-mcp-servers.md: 80726cd42faeba26405d2f0fe6d31a3aafe59128
-2026-09-06-desktop-mcp-servers.zh.md: 80f5dc182360628b718d1af06a6bfb0a720a5307
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page:
+  en: 7d703c679e62c3d1
+  zh: 6ec398a18a63dfb1
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/problem:
+  en: 638147ef829ca197
+  zh: a055931c570dc8ba
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/decision:
+  en: 5d01d71ff1b6f397
+  zh: 8abeaae54cbf7c95
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/decision/why-deepseek-ai-dsh-mcp-client-joins-the-desktop-server-manifest:
+  en: 0bf5bf3ab929a5e5
+  zh: 4d73799854d23f69
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/decision/position-in-the-bundle-stack:
+  en: 5b6f4a2f10ed1aef
+  zh: cead3588f0bd3bd0
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/decision/what-the-desktop-gives-up-by-mounting-it:
+  en: f23e2381fbad90c5
+  zh: ef5acfbb37d7cec2
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/alternatives-considered:
+  en: cbd16dbe25a22c1e
+  zh: 2138006294225756
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/consequences:
+  en: acfc599e022b7b4e
+  zh: 14558ba9e5ef5d7d
+/agent-note-mcp-servers-are-added-from-the-desktop-s-settings-page/related:
+  en: 77a8c8b47c66d67a
+  zh: d22bb89dab9355c8

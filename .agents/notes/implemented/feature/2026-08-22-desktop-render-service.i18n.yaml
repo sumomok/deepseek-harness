@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-desktop-render-service.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-22-desktop-render-service.md
-2026-08-22-desktop-render-service.md: 80e0b5e8564eb3e400032a8bea59abcd9be537bb
-2026-08-22-desktop-render-service.zh.md: 1340c60b569a73ab98202883266e7a14f184aa09
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to:
+  en: a89fab47ab1f666a
+  zh: c1a94f58edd77bc8
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to/problem:
+  en: 4dcab1b681b124da
+  zh: 236ecffcc7a2ef7e
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to/decision:
+  en: 1c73e379f7e88478
+  zh: 52125258c4278dae
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to/alternatives-considered:
+  en: 091421bccb59f37f
+  zh: cfe7eb25b09ab8da
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to/consequences:
+  en: 6c9e4f72f1a81175
+  zh: 45c85632529e5d62
+/agent-note-the-desktop-shell-renders-pages-for-its-own-server-and-ships-the-screenshot-plugin-that-asks-it-to/related:
+  en: 1c558537da38bd63
+  zh: 62204063f93654d0

@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-desktop-update-channel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-desktop-update-channel.md
-2026-08-18-desktop-update-channel.md: 5a19ae54105ea252df46b97d496e5fe5960fe3e9
-2026-08-18-desktop-update-channel.zh.md: b35b3b88d126a60605493f5d2838cb67fa54a39f
+/agent-note-desktop-update-channel-over-a-static-feed:
+  en: f6a41cf533600433
+  zh: 688b3f8019bc6901
+/agent-note-desktop-update-channel-over-a-static-feed/problem:
+  en: 7cad1b33f25c9907
+  zh: 8b1f95b196a4f2a9
+/agent-note-desktop-update-channel-over-a-static-feed/decision:
+  en: bc3bc06d29de4880
+  zh: d27065e8bc956b62
+/agent-note-desktop-update-channel-over-a-static-feed/decision/the-feed:
+  en: 02e5e054324b1b34
+  zh: 0733ce00ede39060
+/agent-note-desktop-update-channel-over-a-static-feed/decision/windows-three-stages-and-installing-is-never-silent:
+  en: 2f1029ecebeb2886
+  zh: b244d9a27df03312
+/agent-note-desktop-update-channel-over-a-static-feed/decision/staying-installable-process-lifecycle-and-elevation:
+  en: a38971684fe267ac
+  zh: 683626bd1cd0de47
+/agent-note-desktop-update-channel-over-a-static-feed/decision/the-new-build-confirms-itself:
+  en: 824701d993ad8dd1
+  zh: 6ab2ac09f1b53da1
+/agent-note-desktop-update-channel-over-a-static-feed/decision/macos-detect-and-hand-off:
+  en: 4f2d3ba03d10614d
+  zh: 129f73aa62989064
+/agent-note-desktop-update-channel-over-a-static-feed/decision/the-mandatory-layer:
+  en: ab57bd0daea9999b
+  zh: a7a9a8d4c3f48f11
+/agent-note-desktop-update-channel-over-a-static-feed/decision/publishing-is-an-ordered-upload:
+  en: fa9ac727e0f11daa
+  zh: a821fb3b8de8719e
+/agent-note-desktop-update-channel-over-a-static-feed/decision/where-the-feed-lives:
+  en: b37ca2a73775bba9
+  zh: 01afdbfdf09fcd8f
+/agent-note-desktop-update-channel-over-a-static-feed/decision/the-boot-page-shows-phases-not-output:
+  en: b15a8b8f7e64f9b0
+  zh: 300db778f2e9ae9f
+/agent-note-desktop-update-channel-over-a-static-feed/verification:
+  en: 33fa8de929298c8f
+  zh: f5c2213bd7726222
+/agent-note-desktop-update-channel-over-a-static-feed/alternatives-considered:
+  en: bba136896102ae05
+  zh: 9d2993bd24595de6
+/agent-note-desktop-update-channel-over-a-static-feed/consequences:
+  en: eee52bef93f2cb66
+  zh: 5c6e65ee72658f5b

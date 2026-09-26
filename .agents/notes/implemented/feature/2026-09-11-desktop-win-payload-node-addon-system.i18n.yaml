@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-win-payload-node-addon-system.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-desktop-win-payload-node-addon-system.md
-2026-09-11-desktop-win-payload-node-addon-system.md: 9b5cff075c87c435bacdf307850069a46e018203
-2026-09-11-desktop-win-payload-node-addon-system.zh.md: 4c07b37dc7d24c9385711d692b033690e19abcfc
+/agent-note-keeping-node-addon-system-s-host-variant-out-of-the-windows-payload:
+  en: 68ab5a634d3b41b7
+  zh: 5199a247791c1e2b
+/agent-note-keeping-node-addon-system-s-host-variant-out-of-the-windows-payload/problem:
+  en: 2deda87567de7281
+  zh: 825c35c71aa9c7ac
+/agent-note-keeping-node-addon-system-s-host-variant-out-of-the-windows-payload/decision:
+  en: ff232613c5fd475a
+  zh: 4dc6485a9ed64d59
+/agent-note-keeping-node-addon-system-s-host-variant-out-of-the-windows-payload/alternatives-considered:
+  en: 67320169c84ecd58
+  zh: bce428073e21ce32
+/agent-note-keeping-node-addon-system-s-host-variant-out-of-the-windows-payload/consequences:
+  en: affd9dfbc04ccd73
+  zh: a37b3395a8dd8774

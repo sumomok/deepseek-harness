@@ -18,5 +18,5 @@ Root `CLAUDE.md` is upstream's `AGENTS.md` (budgeted, never edited here); this f
 
 ## Tools and plugins
 
-- A new tool parameter ships with four things together: the parameter, a rewritten description, failure text that names the remedy, and — only when an Agent Note justifies the context cost — a system-prompt line ([cookbook](../docs/cookbook/adding-a-tool.md#how-your-tool-reaches-the-model)).
+- A new tool parameter ships with four things together: the parameter, a rewritten description, failure text that names the remedy, and — only when an Agent Note justifies the context cost — a system-prompt line ([tool copy rules](tool-copy-rules.md)).
 - Out-of-repo plugins (`dsh-plugins` workspace) reach the desktop only as `pnpm pack` tarballs vendored in `apps/desktop-server/vendor/`; never `link:` — a second cordis breaks service identity. Third-party plugins declare no approval gates by default: audit egress, raw `node:fs`/`child_process`, routes, and custom session events (`ignorable: true` or they brick session logs on uninstall) before vendoring.

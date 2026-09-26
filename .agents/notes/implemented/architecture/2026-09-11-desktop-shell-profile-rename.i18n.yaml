@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-shell-profile-rename.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md
-2026-09-11-desktop-shell-profile-rename.md: 1fa7b79ea8c1bd8c9cb6335c5fad9e9cdfb6e74d
-2026-09-11-desktop-shell-profile-rename.zh.md: be2f465f3b139ac38af1d1b509d70fe14da32e7b
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved:
+  en: 81423afaccb43b6e
+  zh: bf02d829d3b982a8
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved/problem:
+  en: 2901fcc9439e5ff7
+  zh: 6e933212b2af9700
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved/decision:
+  en: 3419d8ee1d9df2c4
+  zh: 74d049c04b500569
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved/alternatives-considered:
+  en: c3361eef98eb4d30
+  zh: 4d414d7bc0b0e76b
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved/consequences:
+  en: bcc4480309550459
+  zh: ff2b79679e3fc81e
+/agent-note-the-shell-s-profile-moves-off-the-name-upstream-reserved/testing:
+  en: 65578fc5f207b71d
+  zh: afe5321c8d256f5d

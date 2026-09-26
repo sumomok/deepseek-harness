@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-25-desktop-plugin-admin-service.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-desktop-plugin-admin-service.md
-2026-08-25-desktop-plugin-admin-service.md: 0b571b246443ce409337bd12d9513283a8171f42
-2026-08-25-desktop-plugin-admin-service.zh.md: 24d91b77e5cebfa0fa309e38f5faa42420cabc6a
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal:
+  en: 49cd37927575a06a
+  zh: 5cd7b84f8837a7e3
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/problem:
+  en: cb58aa0fa90f749d
+  zh: 1d8869717a5f7b79
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/decision:
+  en: 302aeea3c92a3e65
+  zh: bb08960d19157afd
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/the-reachable-surface:
+  en: e91fca21fbd967c0
+  zh: f9701864626318d4
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/alternatives-considered:
+  en: 1d489195216b1793
+  zh: 6dd355db73e6c7ec
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/consequences:
+  en: c931f5d1713e598a
+  zh: 234aa6266adda53d
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/testing:
+  en: f95289acaf93d4d7
+  zh: 8a3c0bf0e7288b27
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/related:
+  en: 28b00fa81978a817
+  zh: 914063d48d0f3fd1

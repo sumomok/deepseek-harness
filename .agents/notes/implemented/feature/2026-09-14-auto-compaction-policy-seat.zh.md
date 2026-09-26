@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-09-14-auto-compaction-policy-seat.md) | 中文
 
-Related：[投影 token 用量与请求上下文](../architecture/2026-07-29-projected-token-usage-and-request-context.zh.md)（部分取代——其「nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead」一句在用量锚定分支上已不成立）·[路由模型上下文与压缩策略](../architecture/2026-07-20-routed-model-context-and-compaction-policy.zh.md)（部分取代——压力解析仍读路由适配器的容量，但它比较的分子不再在所有状态下都是 `measure()` 的总量）·[自动压缩挪到一轮结束之后](../bug-fix/2026-09-17-auto-compaction-at-turn-end.zh.md)（对随附桌面组合部分取代本文：那里这个位子答 `false`，本文描述的压力路径整条不进入。下文凡是讲压缩**什么时候**发生的句子——「在设置里改完，下一步就按新值走」「下一步会重新评估压力并再试一次」、每步叠一张卡、以及尚未计费的对话按引擎自有口径触发——说的都是没挂提供方时这个位子的行为，那仍然逐字等于上游）。
+Related：[投影 token 用量与请求上下文](../architecture/2026-07-29-projected-token-usage-and-request-context.zh.md)（部分取代——其「nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead」一句在用量锚定分支上已不成立）·[路由模型上下文与压缩策略](../architecture/2026-07-20-routed-model-context-and-compaction-policy.zh.md)（部分取代——压力解析仍读路由适配器的容量，但它比较的分子不再在所有状态下都是 `measure()` 的总量）·自动压缩挪到一轮结束之后，fork 桌面产品线上的一份 Agent Note（对随附桌面组合部分取代本文：那里这个位子答 `false`，本文描述的压力路径整条不进入。下文凡是讲压缩**什么时候**发生的句子——「在设置里改完，下一步就按新值走」「下一步会重新评估压力并再试一次」、每步叠一张卡、以及尚未计费的对话按引擎自有口径触发——说的都是没挂提供方时这个位子的行为，那仍然逐字等于上游）。
 
 ## Problem
 

@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 
 Use this package when the Web bundle should let users export a session log. It requires Connection, the command registry, Session query and persistence, and attachments. Mount the plugin, then choose `Download session log` from the Session Header's more-actions menu or type `/export`; the browser downloads `dsh-session-<id>.zip`.
 
+When `ui-message-feedback` is mounted, the same menu also offers `Feedback`, which opens its existing Session feedback dialog. Opening or dismissing that form does not export the Session or submit feedback. The feedback row follows the feedback plugin's availability; export remains available independently.
+
 ### When to choose it
 
 Choose it for a Web deployment that needs user-facing session export with a visible download dialog. Avoid it when a programmatic or Host-side export is needed: this package produces a browser download, not a Host path write. The logs are serialized from persistence read handles, so any mounted backend is supported.
@@ -50,7 +52,7 @@ The Web bundle mounts the package with Connection, `dsh-commands`, `dsh-client-u
 
 | Input | Result |
 |---|---|
-| `/export` | Records a human-command lifecycle; the submitting browser downloads `GET /api/session.export?sessionId=<id>&includeDescendants=true` |
+| `/export` | Records a human-command lifecycle; the submitting browser downloads the document-relative `api/session.export?sessionId=<id>&includeDescendants=true` (Host route `/api/session.export`) |
 | `/export <path>` | An error; browser downloads choose their destination through the browser's ordinary download behavior |
 
 ### Route response fields
@@ -69,6 +71,8 @@ The wire estimate is the uncompressed total when `compressionLevel` is `0`, beca
 ### What to expect
 
 The panel reports three phases: exporting, complete, or failed. While it exports it shows a progress bar over the bytes received. The bar is determinate whenever the route announced the archive's extent, including for the single-entry archive a session with no sub-sessions and no attachments produces; it is indeterminate only when the route announced none. `Cancel` abandons the transfer and saves nothing; closing the panel leaves the transfer running and still saves the archive, and the panel does not reopen when that operation later settles. One session admits one active download at a time; repeated gestures share that operation. The export includes the live session's newest events: the host endpoint flushes a live root session before reading, so a slash-triggered ZIP includes the `command/run` and `command/done` pair that started the download; cold persisted sessions need no flush. Each logical log uses the current generation's canonical filename inside the archive (`session.jsonl` for v0, otherwise `session.vN.jsonl`), including beneath each sub-session directory. Images use `media/<attachmentId>.<ext>`, and generic files use `files/<digest-prefix>/<digest>/<name>`. Generic-file bytes are read and compressed as bounded chunks, so exporting a large upload does not buffer it in full.
+
+Attachment collection reads declared content fields of built-in Session events and completed assistant stream blocks, including flat V4 tool-role messages. Unknown event payloads and unrelated fields remain unchanged in the exported log but do not cause attachment reads.
 
 ### Failures
 
@@ -90,9 +94,11 @@ This section explains how the package wires the export control and points at the
 
 The package has two halves. The Host half ([`src/index.ts`](src/index.ts)) registers the `/export` command and contributes the exact `GET`/`HEAD /api/session.export` Fetch route to Connection; [`src/archive.ts`](src/archive.ts) builds the bounded ZIP stream. The browser half ([`src/client/index.ts`](src/client/index.ts)) provides the shared download controller and UI, and observes `command/executed` so only the submitting browser starts a download.
 
+The Header’s More action uses the shared compact Button, with a 28px square target and the same radius and hover fill as the right-sidebar expand control.
+
 ### Download flow
 
-Both entry paths `GET /api/session.export?...` through `fetch` and read the response body chunk by chunk. [`src/client/progress.ts`](src/client/progress.ts) turns the received bytes and the ZIP local file header signatures inside them into one fraction — the larger of two lower bounds, held below 1 until the stream ends. Received bytes are scaled by the announced wire estimate, which is what carries a single-entry archive; the entry count raises that off its floor for an archive that compresses harder than the calibration, and an entry counts as finished only once the next entry's header arrives, because a header precedes its own data. Progress reaches the panel once per animation frame rather than once per chunk. The controller then assembles the chunks into a `Blob` and clicks a detached download anchor at its object URL. One controller owns one in-flight download per session, collapses concurrent gestures into that operation, and aborts the transfer on cancellation and on plugin disposal. Panel state lives in a snapshot store keyed by session, so the button and the command share one panel per session.
+Both entry paths `GET` the document-relative `api/session.export?...` through `fetch` and read the response body chunk by chunk. [`src/client/progress.ts`](src/client/progress.ts) turns the received bytes and the ZIP local file header signatures inside them into one fraction — the larger of two lower bounds, held below 1 until the stream ends. Received bytes are scaled by the announced wire estimate, which is what carries a single-entry archive; the entry count raises that off its floor for an archive that compresses harder than the calibration, and an entry counts as finished only once the next entry's header arrives, because a header precedes its own data. Progress reaches the panel once per animation frame rather than once per chunk. The controller then assembles the chunks into a `Blob` and clicks a detached download anchor at its object URL. One controller owns one in-flight download per session, collapses concurrent gestures into that operation, and aborts the transfer on cancellation and on plugin disposal. Panel state lives in a snapshot store keyed by session, so the button and the command share one panel per session.
 
 Before the first archive byte, the Host walks the export once to count its entries and sum their uncompressed sizes — log sizes from the text the stream will push, media sizes from each reference's recorded byte length, which is also what an image the stream turns out to be unable to read is counted at — and answers with those totals. The measuring pass and the streaming pass run the same traversal at two different moments, so measuring re-reads each descendant log (it never re-reads a stored image) and a live sub-session that appends events between them makes the announced totals read low. A measurement failure only drops the three extent fields, because the streaming pass reaches that same failure and owns the outcome.
 

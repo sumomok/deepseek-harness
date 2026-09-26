@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-llm-response-format.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-17-llm-response-format.md
-2026-09-17-llm-response-format.md: 31edc0b7383dbc11c93ba92a7a0ed9aae41d8194
-2026-09-17-llm-response-format.zh.md: 1b34641494cb1a0a6119df3e008d7de63c6f84e9
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request:
+  en: 206b4656425c1204
+  zh: 27890abad85e0bb0
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request/problem:
+  en: a8579223716153da
+  zh: 30888f55d6e453a8
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request/decision:
+  en: a837fce5c94677c2
+  zh: 56385884d59e0b24
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request/decision/adapters-in-this-tree:
+  en: 034b9458a2309d1b
+  zh: 1e39c1801d152270
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request/alternatives-considered:
+  en: c84bd9680f5fed9f
+  zh: ce7e864a5f84b4d5
+/agent-note-a-json-answer-format-on-the-llm-seam-s-request/consequences:
+  en: 9a6e736eb5420b2e
+  zh: a9a10a0165e78a9b

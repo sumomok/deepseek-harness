@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop-shell/README.md
-README.md: 1352e8919f8a956c7e8d5153c3363593af8eee9c
-README.zh.md: 495619ab4f4d7f35655b7bbdcaf519b60d2824b2
+/deepseek-ai-dsh-desktop-shell:
+  en: 42aa4c3ae6be24e6
+  zh: 91cc497eebac63e7
+/deepseek-ai-dsh-desktop-shell/building-installable-packages:
+  en: e426493eb53f4fd2
+  zh: cc1741bb846a6d6b
+/deepseek-ai-dsh-desktop-shell/closing-the-window-and-being-called-back:
+  en: 3357218ba9365336
+  zh: bfb691b819523cff
+/deepseek-ai-dsh-desktop-shell/updates:
+  en: c9ec39f1d6c63ddc
+  zh: 8eab18301f2d94ac
+/deepseek-ai-dsh-desktop-shell/updates/mandatory-updates:
+  en: 2edad4c10a1c5767
+  zh: 8a0d32ad15147668
+/deepseek-ai-dsh-desktop-shell/updates/publishing:
+  en: 45e8b733583459f3
+  zh: 3abb346125e0e3fb
+/deepseek-ai-dsh-desktop-shell/trust-and-signing:
+  en: bf0d89ec83c8d2ed
+  zh: 286cc07d7dc846f6
+/deepseek-ai-dsh-desktop-shell/built-in-plugins:
+  en: 639c26c087b825cd
+  zh: 3f28cfb0ee5979ba
+/deepseek-ai-dsh-desktop-shell/the-render-service:
+  en: a3bbc320b10aefcb
+  zh: 4588a6649a680ed1
+/deepseek-ai-dsh-desktop-shell/the-plugin-admin-service:
+  en: 5f2a07acacb1fe7e
+  zh: 22c7d0bb6232162c
+/deepseek-ai-dsh-desktop-shell/update-service:
+  en: 1f884a2a5b82be89
+  zh: 52222ca2c6335a57
+/deepseek-ai-dsh-desktop-shell/server-environment:
+  en: 0291bebbcf0d6474
+  zh: 21c38215d6aed583
+/deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
+  en: 59ee613103d18b9c
+  zh: 916229ccb182206d

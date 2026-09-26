@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-v2-to-v3-legacy-source-kind.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md
-2026-09-10-v2-to-v3-legacy-source-kind.md: 90ca5025aaeb614d102cea860a4345afdfc96115
-2026-09-10-v2-to-v3-legacy-source-kind.zh.md: a0657f157223eef572d34c569effe97cfd881287
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind:
+  en: 932d680fdb849719
+  zh: f9d61901a1d69d1a
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/problem:
+  en: 8d899ddcb14828b7
+  zh: 45d9df04377cf2f4
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/decision:
+  en: 368e244fa8ddb023
+  zh: c7458611c8e5b5d9
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/what-the-two-libraries-say-now:
+  en: 5446d946b4da244e
+  zh: 6e35e7b16e37e8a3
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/alternatives-considered:
+  en: 85974d5576da0155
+  zh: f08c9f5358067688
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/consequences:
+  en: f1907606df970a5a
+  zh: 6b2233c276b528c5
+/agent-note-the-v2-to-v3-edge-carries-one-historical-message-source-kind/testing:
+  en: dd3069aa782b25e5
+  zh: 218c3cebb747b7f8

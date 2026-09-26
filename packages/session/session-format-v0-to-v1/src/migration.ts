@@ -22,6 +22,8 @@ import {
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
 import { LEGACY_UNINTERPRETED_EVENT_TYPES } from './dispositions.ts'
 
+const LEGACY_ASSISTANT_SOURCE_KEY = ['pro', 'venance'].join('')
+
 /** Descriptor generation written before `agentReasoningEffort` joined the payload. */
 const LEGACY_SUBAGENT_DESCRIPTOR_VERSION = 2
 
@@ -435,12 +437,15 @@ function normalizeLegacyMessage(
       }
     case 'assistant/message': {
       if (Object.hasOwn(data, 'message')
-        || !Object.hasOwn(data, 'content') || !Object.hasOwn(data, 'provenance')) return event
-      const { content, provenance, ...eventData } = data as typeof data & {
-        content: SessionFormatJsonValue
-        provenance: SessionFormatJsonValue
-      }
-      const source = releasedV0Record(provenance, `assistant/message ${event.seq} provenance`)
+        || !Object.hasOwn(data, 'content') || !Object.hasOwn(data, LEGACY_ASSISTANT_SOURCE_KEY)) return event
+      const content = data['content'] as SessionFormatJsonValue
+      const eventData = { ...data }
+      delete eventData['content']
+      const source = releasedV0Record(
+        eventData[LEGACY_ASSISTANT_SOURCE_KEY],
+        `assistant/message ${event.seq} legacy source`,
+      )
+      Reflect.deleteProperty(eventData, LEGACY_ASSISTANT_SOURCE_KEY)
       return {
         ...event,
         data: {

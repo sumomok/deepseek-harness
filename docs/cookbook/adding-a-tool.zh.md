@@ -52,7 +52,7 @@ export function apply(ctx: Context) {
 
 通过 producer 配置控制 `run_in_background`，然后使用 `ctx.jobs.start({ kind, label, owner: exec.agent, run })` 注册任务。注册表会在进入 producer 主体前将已预先中止的调用判为失败；运行时会在 `run()` 启动工作前校验 owner 和任务控制器是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。成功的后台分支会返回类型化的规范句柄，如 `{ kind: 'background', jobId }`；其 Native 渲染器可以保留 `started background job bash-1` 这类供人阅读的自然语言，但 PTC mode 绝不能通过解析该文本取得 id。
 
-producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.jobs.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `job_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整约定见[后台任务运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.zh.md)与 `dsh-tool-bash`。
+spec 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及由注册表泵入 job 输出环的拉取式 `output` 源或经 starter 收到的 `JobHandle` 推送的追加；模型的消费式读取由 `dsh-tool-jobs` 从该环渲染。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.jobs.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `job_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整约定见[后台任务运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.zh.md)与 `dsh-tool-bash`。
 
 <a id="execution-policy-and-observation"></a>
 
@@ -65,14 +65,6 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 在 [PTC mode](../../packages/core/tools/README.zh.md) 中，每个可见的已注册工具都可通过 `await tools.<name>(args)` 调用，无需额外集成。生成的 `ToolArgsMap` 和 `ToolOutputMap` 会根据同一组 schema 分别派生精确的参数类型与规范返回类型，调用则重新进入正常的执行流水线。成功调用会解析为策略处理后的最终规范 JSON 值，而不是渲染后的 Native 内容。失败调用会以真正的 `ToolCallError` reject；程序只能检查其 `name`、`toolName` 和可供人阅读的 `message`，无法取得内部错误代码或失败联合。
 
 请把 `output.schema` 设计为实用的程序化 API：直接返回句柄与字段；当标量、数组或 null 确实就是结果时，允许采用相应的根类型；将面向人类的解释放入 `output.render`。中间值只存在于执行期间，不会被持久化或按提示词上限截断，也不设字节上限，因此生产方如实声明的采集边界和进程内存仍然重要。只有外层 `run_code` 日志／结果会受到可配置输出上限和面向模型的 spill 流水线约束。
-
-## 你的工具如何触达模型
-
-模型能否用上一个工具，只取决于它读到的那段关于该工具的文字；而模型一旦认定某个工具的用途，就不会再读一遍：两次放弃 `screenshot` 的会话都已经调用过它一次，完整 schema 就摆在眼前，随后各自花了约一小时自建浏览器。**新增参数却不同时改描述，等于没有新增**——参数存在，却不会有任何一次调用带上它。描述与参数在同一个提交中一起改。
-
-- **描述为决策而写，而不是复述 schema。** 说明这个工具擅长什么、何时该用它；参数列表本就在模型眼前，在描述里重复一遍并不能说明它什么时候值得调用。框定得越窄，用途就越窄：`screenshot` 的描述曾把它定位成对照参考图检查视觉工作，于是被读成对 agent 自己写的页面做 CSS 检查，从未被指向线上站点。
-- **在失败信息里点名那个能解决问题的参数。** 失败信息是模型在决定下一步时唯一会读的工具文字，因此它是补回描述遗漏能力的最省成本的位置。落在登录页上的渲染回答 `pass cookies or headers to capture it with a session`，而不是只报告该页面不是所请求的那一个；被超出的上限、未被使用的模式、不允许写入的路径同理。
-- **提示词 section 是第三处，也是最贵的一处。** `ctx.systemPrompt.section({ name, order, text })` 贡献一条——[`dsh-system-prompt`](../../packages/core/system-prompt/README.zh.md) 拥有该注册表，工具指引使用 `100–199` 的 order 区间——harness 自带工具的那些 `Use the X tool` 行正是这样来的；不注册 section 的工具在组装出的系统提示词里不会被提及，只能靠读 schema 才能找到。这段文字在每一轮的每次请求中都占用上下文，因此注册它需要一条记录在 Agent Note 中的理由。[screenshot Agent Note](../../.agents/notes/implemented/feature/2026-08-22-screenshot-session-and-output.zh.md) 就是范例：为一个在两个平台上被两个会话各调用一次、随后用代理和文件搜刮脚本重建的工具加一行；这是实测到的失败，而不是假设出来的失败。
 
 ## 工具在 UI 中的渲染方式
 
@@ -102,7 +94,7 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 ## Web Client 展示
 
-内置 Web Client 不消费 `presentCall` 或 `presentResult`。Session `page` 与 `follow` 运输原始 `tool/call` 和 `tool/result` 事件，包括持久化的 `result.meta`。Client 插件在 keyed slot `tool.call.toolview` 中注册自己的 wire 工具名称，并从 `ToolCallBlock` 的参数、内容、错误、metadata、现有 Code Dispatch `parentCallId` 与 Session 路径事实派生组件 props。插件在本地校验这些 wire 值，并让格式错误或不受支持的输入回退到 generic 行。
+内置 Web Client 不消费 `presentCall` 或 `presentResult`。Session `page` 与 `follow` 运输原始 `tool/call` 和 `tool/result` 事件，包括持久化的 `result.meta`。Client 插件在 keyed slot `tool.call.toolview` 中注册自己的 wire 工具名称，并从 `ToolCallBlock` 的参数、内容、错误、metadata、现有 PTC dispatch `parentCallId` 与 Session 路径事实派生组件 props。插件在本地校验这些 wire 值，并让格式错误或不受支持的输入回退到 generic 行。
 
 现有 Web 卡片需要模型可见内容无法无损保存的有界结构化结果事实时，使用 `output.presentationMeta(args, value)`。不要在 metadata 中保存 React props 或预选卡片，不要把 Host 工具实现导入浏览器 bundle，也不要建立另一套 Client presenter registry。只定义 Host 展示方法不会增加专用 Web 卡片。[Client 派生展示 Agent Note](../../.agents/notes/implemented/architecture/2026-08-23-client-derived-tool-presentation.zh.md)规定 owner、fallback 与对等要求。
 

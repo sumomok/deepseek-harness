@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-quiet-resumable-updates.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-desktop-quiet-resumable-updates.md
-2026-09-11-desktop-quiet-resumable-updates.md: 3749d7a011a2428f38fe70829aec855514b14bac
-2026-09-11-desktop-quiet-resumable-updates.zh.md: bf39aa81323bf6f86cb6f18a1b356c3a2308701d
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click:
+  en: 0b092a453f67a087
+  zh: 77733fb7361dd539
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/problem:
+  en: 347d6328048a040a
+  zh: 5554289ea9a3657a
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/decision:
+  en: 6496f1dce9857887
+  zh: 437ca2889f9d8d0c
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/decision/nothing-about-a-download-reaches-the-screen:
+  en: 554fd7317168945d
+  zh: 50aa510dcb6a703b
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/decision/the-state-is-a-machine-and-the-settings-window-is-where-it-is-shown:
+  en: 34d59382262a08e6
+  zh: 92ba847c1dbbe408
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/decision/the-transfer-runs-in-two-halves-in-that-order:
+  en: b5077d47b2c618e7
+  zh: 153b8b5ac68737c0
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/decision/the-mandatory-red-line-is-untouched:
+  en: 0f794f2c47479b79
+  zh: df002faea59369d1
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/alternatives-considered:
+  en: f9a4b5f9ff1d0e9f
+  zh: 666df9c9082735d0
+/agent-note-the-desktop-update-is-quiet-resumable-and-installed-only-on-a-click/consequences:
+  en: 48cc65ab1ad058e3
+  zh: f7f43ecda32aebbf

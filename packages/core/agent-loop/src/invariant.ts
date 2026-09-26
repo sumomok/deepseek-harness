@@ -43,13 +43,13 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     }
 
     // The system prompt travels inside `messages` as surface node 0, never as `system`.
-    // `responseFormat` has no header field, so a loop request that carries one
-    // would change the answer with nothing in the log to reconstruct it from.
+    // The header has no tool-choice member, so a loop request carrying one
+    // could not be reconstructed from the log.
     const headerMatches = options.model === header.config.model
       && options.system === undefined
       && options.temperature === header.config.temperature
       && options.maxTokens === header.config.maxTokens
-      && options.responseFormat === undefined
+      && options.toolChoice === undefined
       && JSON.stringify(options.stop) === JSON.stringify(header.config.stop)
       && JSON.stringify(options.tools ?? []) === JSON.stringify(header.tools ?? [])
     if (!headerMatches) {

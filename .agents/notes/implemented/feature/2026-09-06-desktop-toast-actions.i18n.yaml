@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-desktop-toast-actions.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-toast-actions.md
-2026-09-06-desktop-toast-actions.md: 3560eafa6ba8eb533f28e4c01505aff53975a02f
-2026-09-06-desktop-toast-actions.zh.md: 6aaf152c343da94eb041e8ab5691dc31620088bb
+/agent-note-answering-an-approval-from-the-windows-toast:
+  en: a9a4d9a075ad9753
+  zh: c835e23f2fc25b47
+/agent-note-answering-an-approval-from-the-windows-toast/problem:
+  en: a0c0b67d362ef901
+  zh: 02ff071c38c94c1d
+/agent-note-answering-an-approval-from-the-windows-toast/decision:
+  en: 0aa272ddb0b8f2ae
+  zh: 8cc89bf493cd9bda
+/agent-note-answering-an-approval-from-the-windows-toast/testing:
+  en: 3a51f08668fd3b25
+  zh: 9fc1a6a92dc739e4
+/agent-note-answering-an-approval-from-the-windows-toast/alternatives-considered:
+  en: ddf7821a56efcb10
+  zh: 7a2f40b6e0ba6f1b
+/agent-note-answering-an-approval-from-the-windows-toast/consequences:
+  en: e9b5f1f29a7dd691
+  zh: adc594c97902d085

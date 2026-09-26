@@ -12,11 +12,11 @@ Status: implemented
 
 ## 决策
 
-**一个 ROOT 作用域的 cordis waterfall 事件 `referent/open` 是所有引用点击共同经过的唯一拦截点。** 它声明在 `packages/api/session-controller/src/client/referent.ts`，并从该包的 `client` 出口导出。派发点先跑这条 waterfall，再回落到自己既有的打开动作，因此树中任何位置的监听者都能拦下一次点击而可点元素本身无须知道监听者存在，之后新增的可点元素只要派发就自动可拦截，不必再造自己的缝隙。当前两处派发点都在 `ui-chat` 的 `apply.ts`——`openFile` 闭包（`source: 'chat-view.openFile'`，`provenance: 'structured'`）与[chat 正文 referents 缝隙](2026-09-01-chat-prose-referents-seam-port.zh.md)的 span 打开器（`source: 'chat-prose'`，`provenance: 'model-text'`）——`ui-chat` 在其 `apply.ts` 的 `inject` 列表里声明了 `'referent'`。
+**一个 ROOT 作用域的 cordis waterfall 事件 `referent/open` 是所有引用点击共同经过的唯一拦截点。** 它声明在 `packages/api/session-controller/src/client/referent.ts`，并从该包的 `client` 出口导出。派发点先跑这条 waterfall，再回落到自己既有的打开动作，因此树中任何位置的监听者都能拦下一次点击而可点元素本身无须知道监听者存在，之后新增的可点元素只要派发就自动可拦截，不必再造自己的缝隙。当前两处派发点都在 `ui-chat` 的 `apply.ts`——`openFile` 闭包（`source: 'chat-view.openFile'`，`enteredAs: 'structured'`）与[chat 正文 referents 缝隙](2026-09-01-chat-prose-referents-seam-port.zh.md)的 span 打开器（`source: 'chat-prose'`，`enteredAs: 'model-text'`）——`ui-chat` 在其 `apply.ts` 的 `inject` 列表里声明了 `'referent'`。
 
 **`ReferentKindMap` 经声明合并可扩展，预置 `file`、`dir`、`url` 三种。** 要打开新类型目标的包通过声明合并往这张表里加键，而不是去加宽 `referent.ts`，与 `ContentBlockMap` 的词表增长方式一致。因此监听者对 `kind` 做 switch 时必须带一个有文档说明的 `default` 分支，绝不用 `assertNever`：这个联合类型是跨包边界增长的，对着比运行时构建更窄的 `ReferentKindMap` 编译出来的监听者会收到叫不出名字的 kind，此时经 `next()` 转交这次点击才是正确答案。
 
-**`ReferentRef` 只携带身份，绝不携带内容。** 它的字段是 `kind`、解析后的 `target`（`file`／`dir` 是绝对路径，`url` 是 URL 字符串）、引用出处原样的 `raw` 文本、可选的 `sessionId`、点名派发点的自由格式 `source`，以及 `provenance`（`'structured' | 'model-text' | 'tool-output' | 'user-text'`）。需要被引用字节的监听者自己从目标读取，与默认打开动作的做法相同。大多数监听者对大多数点击都会放行，携带内容的载荷等于为一个几乎总被丢弃的值给每次点击都付一次读取代价。
+**`ReferentRef` 只携带身份，绝不携带内容。** 它的字段是 `kind`、解析后的 `target`（`file`／`dir` 是绝对路径，`url` 是 URL 字符串）、引用出处原样的 `raw` 文本、可选的 `sessionId`、点名派发点的自由格式 `source`，以及 `enteredAs`（`'structured' | 'model-text' | 'tool-output' | 'user-text'`）。需要被引用字节的监听者自己从目标读取，与默认打开动作的做法相同。大多数监听者对大多数点击都会放行，携带内容的载荷等于为一个几乎总被丢弃的值给每次点击都付一次读取代价。
 
 **监听者不调用 `next()` 直接返回即认领该次点击；所有失败路径仍会落到某个打开动作上。** 调用 `next()` 会转交给下一个已注册的监听者，最终转交给派发点自己的默认动作，即这条 waterfall 的终点。抛出异常或返回的 promise 被拒绝的监听者会被捕获、记入 `console.error`，并按放行处理，因为这次点击来自用户，无论第三方监听者处于什么状态都必须可预期地落地。`dispatchReferentOpen` 会记忆默认动作的 promise，因此在转交*之后*才抛出的监听者既不会让默认动作重跑，也不会掩盖它的真实失败：默认动作一旦跑过，它自己的结果——成功，或既有打开动作抛出的真实错误——就是本次调用的结果，调用方看到的与这条缝隙包裹该动作之前完全一致。只有在从未转交之前就失败的监听者，才会走到那条首次执行默认动作的补救路径。
 

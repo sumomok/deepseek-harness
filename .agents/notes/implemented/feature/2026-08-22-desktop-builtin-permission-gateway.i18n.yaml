@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-desktop-builtin-permission-gateway.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-22-desktop-builtin-permission-gateway.md
-2026-08-22-desktop-builtin-permission-gateway.md: 0979441a7955d97fe0a8e44b5e297b1ce1f7c9dc
-2026-08-22-desktop-builtin-permission-gateway.zh.md: 17bdd728481fb8ec3bad53e86cd3a63c944d9ad2
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin:
+  en: 4fea28697c640f5b
+  zh: 716dc3573051e91d
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/problem:
+  en: dbe94309fcd12ae7
+  zh: 63e17087c925bb3e
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/decision:
+  en: 84da85b573f97973
+  zh: 95fb40b4d6a8e77e
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/why-not-a-preset-registry:
+  en: bce0f743fb9f07a5
+  zh: 73fd4be87501425d
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/alternatives-considered:
+  en: 08b4f80719c099fa
+  zh: a0914b360c17ebfe
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/consequences:
+  en: af2046d116044de6
+  zh: 51433a95c8d73dee
+/agent-note-the-desktop-ships-the-permission-gateway-and-the-preset-travels-inside-the-plugin/related:
+  en: 8a426347367ea8b9
+  zh: b372e3e26086edd8

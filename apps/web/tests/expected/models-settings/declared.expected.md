@@ -2,27 +2,21 @@
   - navigation:
     - text: 设置
     - group "通用":
-      - img
       - text: 通用
       - button "通用设置"
     - group "模型":
-      - img
       - text: 模型
       - button "提供方与模型"
     - group "智能体":
-      - img
       - text: 智能体
       - button "Agent 预设"
     - group "扩展":
-      - img
       - text: 扩展
-      - button "插件"
+      - button "内置插件"
   - button "打开配置文件"
-  - button "关闭":
-    - img
-    - text: 关闭
+  - button "关闭"
   - heading "模型" [level=2]
-  - paragraph: 填入各提供方的 API 密钥即可使用其模型。
+  - paragraph: 填入各提供商的 API 密钥即可使用其模型。
   - list:
     - listitem:
       - text: minimax-cn
@@ -33,9 +27,4 @@
       - text: Acme Gateway 自定义
       - button "编辑 Acme Gateway (acme-gateway)": 编辑
       - button "删除 Acme Gateway (acme-gateway)": 删除
-  - button "添加提供方":
-    - img
-    - text: 添加提供方
-  - button "添加自定义提供方":
-    - img
-    - text: 添加自定义提供方
+  - button "添加模型提供商"

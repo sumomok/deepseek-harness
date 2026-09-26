@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-host-open-target-not-found.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-host-open-target-not-found.md
-2026-08-27-host-open-target-not-found.md: 7dc5ecf1e12b0a4e908a67329343a72ae5d2f5b1
-2026-08-27-host-open-target-not-found.zh.md: 7fe07e02797f2e030401e75cf0505a6633ceec5c
+/agent-note-a-distinguishable-not-found-error-from-the-path-opener:
+  en: cc43e6fd5003bf05
+  zh: 45ecdd4df48ec9db
+/agent-note-a-distinguishable-not-found-error-from-the-path-opener/problem:
+  en: e2e3b0c15ffca0cb
+  zh: 02ba426376f0cea7
+/agent-note-a-distinguishable-not-found-error-from-the-path-opener/decision:
+  en: b50520b408911245
+  zh: e91a73539f828e56
+/agent-note-a-distinguishable-not-found-error-from-the-path-opener/alternatives-considered:
+  en: fd2f3b761e3bd07e
+  zh: 763343b9e0b4bd65
+/agent-note-a-distinguishable-not-found-error-from-the-path-opener/consequences:
+  en: 90342f3735d6063b
+  zh: ccabc0ee80efbaa4

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-desktop-tests-join-host-aggregate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-02-desktop-tests-join-host-aggregate.md
-2026-09-02-desktop-tests-join-host-aggregate.md: 9fe281ddce1878aef9c6b1ce6988d4896a73a144
-2026-09-02-desktop-tests-join-host-aggregate.zh.md: e808f12998c89f733734a606bf7b6e8f219d6984
+/agent-note-apps-desktop-shell-tests-and-packaging-scripts-join-the-host-aggregate:
+  en: 2518a558340bfb9b
+  zh: ec21aac63cec2f38
+/agent-note-apps-desktop-shell-tests-and-packaging-scripts-join-the-host-aggregate/problem:
+  en: bf7ad504aa03a06f
+  zh: 63e3d9a4d9d9cc9d
+/agent-note-apps-desktop-shell-tests-and-packaging-scripts-join-the-host-aggregate/decision:
+  en: da24f7c28ef7bda8
+  zh: d169f1fcd2f31345
+/agent-note-apps-desktop-shell-tests-and-packaging-scripts-join-the-host-aggregate/alternatives-considered:
+  en: af6153f805729dc4
+  zh: 1e8f52bbf882c8e8
+/agent-note-apps-desktop-shell-tests-and-packaging-scripts-join-the-host-aggregate/consequences:
+  en: 86c406e7f925edd7
+  zh: c705070c1a2a2c7b

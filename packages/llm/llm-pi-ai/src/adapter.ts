@@ -26,7 +26,6 @@
  * @module dsh-llm-pi-ai/adapter
  */
 
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   AuthContext,
@@ -60,6 +59,7 @@ import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attac
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -334,8 +334,11 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    if (options.responseFormat !== undefined) {
-      throw new LlmError('llm-pi-ai does not support GenerateOptions.responseFormat', 'UNSUPPORTED_OPTION')
+    // pi-ai owns the provider request body, and its common stream options
+    // choose only `auto` or `none`; writing each API's own forced-tool field
+    // into the body would take that ownership away from pi-ai.
+    if (options.toolChoice !== undefined) {
+      throw new LlmError('llm-pi-ai does not support GenerateOptions.toolChoice', 'UNSUPPORTED_OPTION')
     }
     // One capture per stream call, taken before any await: the profile, the
     // model descriptor, and the collection all come from the same immutable

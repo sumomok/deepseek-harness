@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-gateway-four-access-modes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-17-gateway-four-access-modes.md
-2026-09-17-gateway-four-access-modes.md: 80679f337ed0b90df5e77c5d04c10ad8d1b3544d
-2026-09-17-gateway-four-access-modes.zh.md: cd95776a979f54d732332c9bb6bf66f2822dec48
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy:
+  en: 44089eecc0e8e6c3
+  zh: 60fdeab6231b7714
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/problem:
+  en: 4d9b29ada651151b
+  zh: 0ef6f44bd089540e
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/decision:
+  en: 6e47d958591b222e
+  zh: 53dba758525fa784
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/decision/retirement:
+  en: 09ca685d2e225eab
+  zh: b6ab3a6202ec2ee9
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/alternatives-considered:
+  en: cc6c7d1dd82bddd6
+  zh: f3bfebad281402db
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/consequences:
+  en: 8751b1fa0a3802b1
+  zh: f88de52b7fdb1c64
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/deferred:
+  en: b5abdf9ebe972b48
+  zh: 16ee2484e1ebe8bd
+/agent-note-four-access-modes-folded-from-the-wall-and-the-approval-policy/related:
+  en: 255b843e7fc4fc44
+  zh: 905ce77f1cd10e4c

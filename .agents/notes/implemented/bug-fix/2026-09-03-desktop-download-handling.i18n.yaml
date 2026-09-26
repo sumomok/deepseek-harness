@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-desktop-download-handling.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-desktop-download-handling.md
-2026-09-03-desktop-download-handling.md: 47f72600073774b4174b58948109b4a1a0dce495
-2026-09-03-desktop-download-handling.zh.md: 641d8338daf4a947df65236763e4fe00808545e7
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking:
+  en: 27dccbdc64c9a156
+  zh: 8ce24ab85ace55d4
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking/problem:
+  en: 0eab05c16be05482
+  zh: 6fd0f27bf1941c85
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking/decision:
+  en: d8671d3141d09f32
+  zh: 2f936496d65a0a9c
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking/testing:
+  en: 674db155ce6ef8e5
+  zh: 53bf3159ad965c3d
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking/alternatives-considered:
+  en: cc26eecd5ba7825a
+  zh: e58e9b9d3cb8f235
+/agent-note-place-the-served-ui-s-downloads-instead-of-asking/consequences:
+  en: d61d3048ef56c847
+  zh: 923cdbf316ef8f47

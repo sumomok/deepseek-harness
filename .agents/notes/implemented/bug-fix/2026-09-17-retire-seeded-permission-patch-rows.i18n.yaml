@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-retire-seeded-permission-patch-rows.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-retire-seeded-permission-patch-rows.md
-2026-09-17-retire-seeded-permission-patch-rows.md: b0a81a0fe48291a0ba6b0452fda64380caf562a0
-2026-09-17-retire-seeded-permission-patch-rows.zh.md: 38cdca7df9d8869bf909f85c28cb13535919db9e
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired:
+  en: c08e2f9ee054c1b4
+  zh: 7510195482d1af9b
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired/problem:
+  en: 1f26e32b35a49b20
+  zh: 291b468b9ad1065c
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired/decision:
+  en: 4cbcbd186cc911f7
+  zh: c3d5f12e29feb6c3
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired/alternatives-considered:
+  en: fe440c38d2ead60e
+  zh: 5f8a54a9f7ed2625
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired/consequences:
+  en: 9f7eec8eb29a3cd9
+  zh: 5237899fd9908546
+/agent-note-the-permission-rows-an-old-shell-copied-into-the-desktop-profile-are-retired/testing:
+  en: 315165575a4f75c6
+  zh: 38abce14c9618abf

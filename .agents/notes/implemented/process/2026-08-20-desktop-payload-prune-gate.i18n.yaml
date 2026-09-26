@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-20-desktop-payload-prune-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-20-desktop-payload-prune-gate.md
-2026-08-20-desktop-payload-prune-gate.md: 198cb8078224cf1db45721e25caef4f43c28c83a
-2026-08-20-desktop-payload-prune-gate.zh.md: 613fe02a7a908156316f3cabe4ab9b8271776959
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete:
+  en: 3f0028deb1bb6c58
+  zh: 14774707adb43c03
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/problem:
+  en: 024e509ad38d0327
+  zh: 0b1cd262b8b56b15
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/decision:
+  en: eeb56c10a4b432c4
+  zh: 06af83315e8bd1f1
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/decision/the-walk-reads-resolution-calls-and-keeps-no-list-for-them:
+  en: 711b057f3ceb7739
+  zh: 32ef03df03fd32e1
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/verification:
+  en: 0d5e9e249ad8744f
+  zh: b571e1223267c6de
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/alternatives-considered:
+  en: 2cf3f695ff25aaf8
+  zh: 3af44d41b6fb2454
+/agent-note-what-the-desktop-payload-prune-is-allowed-to-delete/consequences:
+  en: 72093a4579382143
+  zh: dcd944bbeb2969b2

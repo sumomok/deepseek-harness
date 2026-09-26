@@ -14,7 +14,7 @@ Status: implemented
 
 `PresetSpec` 在既有的 `glyph` 旁新增 `tone`：一个封闭取值集，当前唯一成员是 `danger`。宿主命名含义，客户端拥有颜色——`danger` 标记的是部署视为破坏性的表项，未声明的预设按普通标签色渲染。两个字段都由预设表的 schemastery schema 校验，写了集合外的色调会在插件加载时失败。
 
-两个界面读的是宿主的两张不同面，因此色调走两条通路。输入框旁的芯片读会话的 `permissions` 投影，`tone` 在 `PresetOption` 及其 zod wire schema 上与 `glyph` 并列。设置行读 `permission` 设置分节，其 `defaultPreset` 的值是一个裸预设名——那里的逐项呈现信息本来就挂在每个 union 成员自己的 schemastery 元数据上，`description` 已经承载 label，`tone` 就挂在它旁边的自由形式 `extra` 槽里。
+两个界面都读进程级的权限目录，因此色调只走一条通路：`tone` 在 `optionOf` 构造的类型化 `PresetOption` 上与 `glyph` 并列。输入框旁的芯片读目录的选项，设置行读目录的默认选项，并把每个选项的色调带到自己那一行。
 
 上色用的是 `ui-primitives` 的 `Menu` 原件已有的 `danger` 行：文字与图标走 `--dsw-alias-state-error-primary` 的错误色，悬停用危险底色。带色调的预设只是给自己的 `MenuItem` 置上 `danger`，其余一概不动——没有新增 CSS，没有新增 token，选中态与悬停态就是这个应用里其他破坏性菜单行一直在用的那套。
 
@@ -32,8 +32,6 @@ fork 侧的落点是两处，不是一处。`packages/bundle/base/cordis.patch.y
 
 **给 `permission` 设置分节加第二个字段。** 否决：设置字段是用户可写的、会落进 `settings.yaml`；色调是宿主对自己那张表的陈述，不是偏好。
 
-**用 schemastery 的 `role` 承载色调。** 否决：`role` 指明某个节点由哪个控件渲染。色调是某个 union 成员的元数据，那正是 `extra` 的用途。
-
 ## 影响
 
 部署给自己预设表里的一行打上标记，两个访问模式菜单就把它画成破坏性行。本 fork 的 base bundle 与网关 bundle 各标一次 `danger-full-access`；表里其余各行，包括网关那行会审查的完全权限，一律保持普通色。
@@ -42,4 +40,4 @@ fork 侧的落点是两处，不是一处。`packages/bundle/base/cordis.patch.y
 
 **退役条件。** 这是打在上游 host 与 client 包上的 fork overlay。上游一旦以任何形式给预设行提供语义色或危险标记，本 overlay 即退役，由 fork 适配上游的形式。在那之前，每轮滚动同步都要重新移植并复核，因为它落在上游会改的文件里。
 
-覆盖面见本次改动的五个 spec：`permission-presets.spec.ts`、`projection.spec.ts`、`settings-store.client.spec.ts`、`permission-presets-row.client.spec.tsx` 与 `input-bar.client.spec.tsx`。
+覆盖面见四个 spec：`permission-presets.spec.ts`、`settings-store.client.spec.ts`、`permission-presets-row.client.spec.tsx` 与 `permission-select.client.spec.tsx`。

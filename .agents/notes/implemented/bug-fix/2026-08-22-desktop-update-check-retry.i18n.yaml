@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-desktop-update-check-retry.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-22-desktop-update-check-retry.md
-2026-08-22-desktop-update-check-retry.md: ff2755d35c018c4711d067aeb19a5ad3c6026723
-2026-08-22-desktop-update-check-retry.zh.md: 5a95b28ca007f26b34f7f5c2e6c56cb5679f9c75
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier:
+  en: ae1b49dd56fb3045
+  zh: 3292f0650e88e7b3
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/problem:
+  en: aa85ee9f23aa1524
+  zh: e24c5118c8971e88
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/decision:
+  en: a7b6f3fb6b18aa1b
+  zh: 63ed8ea41e1ed89c
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/decision/the-retry-runner-is-shared-the-plan-is-not:
+  en: 7165ad3a2305049d
+  zh: f37cff5dd86d504f
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/decision/one-place-asks-the-feed-and-holds-the-check-open-while-it-retries:
+  en: a69d1b6cf1193950
+  zh: 1f4ef5affc9fac86
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/decision/demoting-is-classified-at-both-remaining-sites:
+  en: 0039f3f43dc19539
+  zh: ac4cfa0100f4b2d3
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/alternatives-considered:
+  en: b4fd63bc0b3ac350
+  zh: 8ad401ce5b21d672
+/agent-note-a-check-the-network-interrupted-is-retried-and-stops-costing-the-in-place-tier/consequences:
+  en: b2fdeae22b861a38
+  zh: 5e0125dc86d04d22

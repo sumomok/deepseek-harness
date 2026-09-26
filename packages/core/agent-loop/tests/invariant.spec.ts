@@ -4,6 +4,13 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { createUserMessage, markAgentLoopRequest, type GenerateOptions  } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'x': { kind: 'x' } & ContextFormed
+  }
+}
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
@@ -45,7 +52,7 @@ describe('request-reconstruction invariant', () => {
   it('includes context appended inside the open step before dispatch', async () => {
     const { ctx, session } = await requestSetup()
     session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: '[step context]' }], source: { kind: 'plugin', plugin: 'x' },
+      content: [{ type: 'text', text: '[step context]' }], source: { kind: 'x' },
     }), { surfaceOp: 'append' })
     const options = loopRequest({
       model: 'm',
@@ -76,18 +83,9 @@ describe('request-reconstruction invariant', () => {
     // The system prompt is surface node 0 inside `messages`; a `system` field is an unlogged prefix.
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', system: 'unlogged', messages: Object.freeze(boundary), sessionId: session.id })) })
       .toThrow(/diverges from the folded request header/)
-  })
-
-  it('rejects a loop request carrying an answer format the header cannot hold', async () => {
-    const { ctx, session, boundary } = await requestSetup()
-    expect(() => {
-      dispatch(ctx, loopRequest({
-        model: 'm',
-        messages: Object.freeze(boundary),
-        responseFormat: { type: 'json_object' },
-        sessionId: session.id,
-      }))
-    }).toThrow(/diverges from the folded request header/)
+    // The header has no tool-choice member, so a forced tool choice is an unlogged request field.
+    expect(() => { dispatch(ctx, loopRequest({ model: 'm', toolChoice: { type: 'any' }, messages: Object.freeze(boundary), sessionId: session.id })) })
+      .toThrow(/diverges from the folded request header/)
   })
 
   it('rejects loop requests with no boundary or header', async () => {

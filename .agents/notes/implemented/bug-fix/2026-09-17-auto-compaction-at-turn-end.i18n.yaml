@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-auto-compaction-at-turn-end.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-auto-compaction-at-turn-end.md
-2026-09-17-auto-compaction-at-turn-end.md: 276b4fdfe4b53492c99a0027b12f1855e976ceed
-2026-09-17-auto-compaction-at-turn-end.zh.md: 2cb5a0eaa419160f0accce996fcda3804eb8d35a
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply:
+  en: 57616fbd9aa62839
+  zh: 1338706d00ac4e8a
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/problem:
+  en: bf1c059021a6fc90
+  zh: ba86b0432cd3f49f
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/decision:
+  en: 159005e91c1b5ac0
+  zh: 72e2a3a4b3a1e25e
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/which-plane-the-engine-is-on:
+  en: 76e602cb2ddd1732
+  zh: 91b961bcc76e3ca2
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/which-endings-are-skipped:
+  en: 01fc0cd12621847e
+  zh: cfc3b44935c40973
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/what-the-shipped-behavior-gives-up:
+  en: eb095a3c274860b3
+  zh: 1383e5f54af7e68f
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/deferred-on-cost-the-busy-compact-queue:
+  en: 272f8144b3a4b1ba
+  zh: 7eaa02b1fea886ae
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/alternatives-considered:
+  en: b33a0e396f8f8dda
+  zh: ce3b93f9a3470ce0
+/agent-note-automatic-compaction-moves-to-the-end-of-the-reply/consequences:
+  en: 61a4791bd4759ed1
+  zh: fe5d2d96533a1e78

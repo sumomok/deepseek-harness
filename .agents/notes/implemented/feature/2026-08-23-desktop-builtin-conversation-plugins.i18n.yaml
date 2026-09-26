@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-desktop-builtin-conversation-plugins.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-desktop-builtin-conversation-plugins.md
-2026-08-23-desktop-builtin-conversation-plugins.md: 10a15b31e680b8f389d75e1830b1d7bc3f0b3f1b
-2026-08-23-desktop-builtin-conversation-plugins.zh.md: ecc81b57837d14c70b071c1561d956ba4d00ff25
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun:
+  en: 52e40551b3b51c03
+  zh: 033e05e89f9b47d7
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/problem:
+  en: 841dcc5a04040341
+  zh: 91d25f98c0440d4e
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/why-not-an-existing-plugin:
+  en: 41a8ae1a75a02561
+  zh: de85cf9c30c8b985
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/decision:
+  en: a5c09a322e575e3a
+  zh: dbfaab31facaf535
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/what-an-existing-installation-sees:
+  en: bb767ed409a90ce6
+  zh: 60196144c61f7009
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/alternatives-considered:
+  en: a333afd08e8ed59f
+  zh: ce84136b1a5097a9
+/agent-note-the-desktop-ships-quoting-and-edit-and-rerun/consequences:
+  en: 8a9f27c194534938
+  zh: 38714387fba66abc

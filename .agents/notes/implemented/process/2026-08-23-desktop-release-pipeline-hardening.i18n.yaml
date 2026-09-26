@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-desktop-release-pipeline-hardening.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-23-desktop-release-pipeline-hardening.md
-2026-08-23-desktop-release-pipeline-hardening.md: c746267a58ea5935791d6c9997c58994f5949682
-2026-08-23-desktop-release-pipeline-hardening.zh.md: 44108a1085411bbf9d39d9f1b1449f103fb26e6f
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built:
+  en: 73efc93681f83a14
+  zh: 4fc878b7a2de3c79
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/problem:
+  en: 3f6454f0e980ca27
+  zh: 4b5371ba6648d4ce
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/decision/tagging-is-a-step-of-the-publish-decided-before-the-upload-and-executed-after-it:
+  en: b0811776a911ded3
+  zh: e2c839de86879c4a
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/decision/a-packaging-run-names-its-platforms-and-proves-it-produced-them:
+  en: 69d324caa2f817ff
+  zh: 63ad0129043e54b7
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/alternatives-considered:
+  en: 0ebe7493e3538c06
+  zh: 0a8d795d3badda1e
+/agent-note-a-desktop-release-tags-its-own-commit-and-checks-what-it-built/consequences:
+  en: ea140bc322fed1cb
+  zh: 8ba5cfa3d21f0c36
