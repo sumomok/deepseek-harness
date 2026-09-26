@@ -37,7 +37,10 @@ import {
   startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
   type ConfirmRequest, type PluginAdminHandle,
 } from './plugin-admin-service.ts'
-import { describeSeed, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
+import {
+  DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
+} from './profile-seed.ts'
+import { migrateLegacySettings } from './settings-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
@@ -879,6 +882,13 @@ if (!locked) {
         serverModules: spec.builtinModules,
       }))
       if (seeded !== undefined) sink(seeded)
+      // After the seeding, whose permission-row retirement decides which
+      // gateway row is left to rewrite, and before the server whose settings
+      // import this prepares.
+      const settingsMigration = migrateLegacySettings(
+        resolveHarnessHome(), profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE),
+      )
+      for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
       // Before the spawn, because the address and token reach the server as
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
@@ -905,6 +915,12 @@ if (!locked) {
       setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
       attachSupervision()
       view.showApp(server.authenticatedUrl)
+      // Over the loaded app rather than the boot page, so the message sits on
+      // the window it is about; the migration that produced it never repeats.
+      for (const notice of settingsMigration.notices) {
+        if (view.window.isDestroyed()) break
+        void dialog.showMessageBox(view.window, { type: 'info', message: notice, buttons: ['知道了'] })
+      }
     } catch (error) {
       clearInterval(ticker)
       const message = error instanceof Error ? error.message : String(error)

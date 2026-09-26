@@ -4,20 +4,9 @@
  * @module @deepseek-ai/dsh-desktop-shell/theme
  */
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { nativeTheme } from 'electron'
-import { load } from 'js-yaml'
-
-/**
- * The DeepSeek Harness home and its override, copied from
- * `@deepseek-ai/dsh-home-paths` rather than imported: the packaged app ships
- * only `apps/desktop-shell/lib`, so it carries no workspace dependencies. These two
- * names are the contract that package defines.
- */
-const DSH_HOME_DIR_NAME = '.dsh'
-const DSH_HOME_ENV = 'DSH_HOME'
+import { resolveHarnessHome } from './profile-seed.ts'
+import { storedThemePreference } from './theme-preference.ts'
 
 /**
  * Boot-page palettes, taken from the web UI's token sheet
@@ -73,21 +62,13 @@ export type Appearance = keyof typeof PALETTES
  * Resolve the appearance the app itself will use, so the window opens in the
  * colors the UI is about to paint instead of flashing the other theme.
  *
- * The web UI keeps a durable `light`/`dark`/`system` preference in the shared
- * settings file, and its default is `system`. Reading it here is what makes an
- * explicit choice survive the splash; anything else — no file, unreadable file,
- * or `system` — falls back to what the OS reports.
+ * The web UI keeps a durable `light`/`dark`/`system` preference in the
+ * profile's `ui-theme` row, and its default is `system`. Reading it here is
+ * what makes an explicit choice survive the splash; anything else — no row,
+ * an unreadable file, or `system` — falls back to what the OS reports, which
+ * is also what the web UI does for `system`.
  * @returns the palette key for this launch.
  */
 export function resolveAppearance(): Appearance {
-  const home = process.env[DSH_HOME_ENV] ?? join(homedir(), DSH_HOME_DIR_NAME)
-  try {
-    const settings = load(readFileSync(join(home, 'settings.yaml'), 'utf8'))
-    const preference = (settings as { 'ui-theme'?: { preference?: unknown } } | null)?.['ui-theme']?.preference
-    if (preference === 'light' || preference === 'dark') return preference
-  } catch {
-    // No settings file yet, or nothing readable in it: the OS decides, which is
-    // also what the web UI does for its default `system` preference.
-  }
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+  return storedThemePreference(resolveHarnessHome()) ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
 }

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-26-desktop-settings-yaml-pre-import.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-desktop-settings-yaml-pre-import.md
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import:
+  en: 6d3c873a654c8267
+  zh: 3e986faed20e2d18
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import/problem:
+  en: 7e65d9f3ce1ec79a
+  zh: 18cddad4e2ca71cb
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import/decision:
+  en: 9a5d6ae5189f9853
+  zh: 81f3bced8b7f0d56
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import/alternatives-considered:
+  en: 8eb8e96d7ca1b295
+  zh: b7dbf13b8f69f2e1
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import/consequences:
+  en: dca21f12d21f9712
+  zh: 2738145e88fe1b19
+/agent-note-the-desktop-shell-prepares-settings-yaml-for-the-server-s-one-time-import/related:
+  en: fe1a560b34903b9e
+  zh: b48c114690cb3bd3

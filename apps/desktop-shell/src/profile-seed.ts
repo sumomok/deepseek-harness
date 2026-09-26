@@ -94,6 +94,10 @@
  * was copied, leaves an edited one alone with the reason in the log, and
  * records the decision so no later launch reads the file again.
  *
+ * **The legacy `settings.yaml` is prepared for the server's one-time import
+ * right after this module runs**, by `settings-migration.ts`, which the launch
+ * calls next: a gateway row the retirement keeps is one it rewrites.
+ *
  * **Peer versions are not this module's problem.** A package installed under an
  * older host suits it or it does not: its unmet peers fall through to
  * `$DSH_HOME/profiles/node_modules`, which the running installation heals, so
@@ -422,13 +426,16 @@ autoInstallPeers: false
 /**
  * Replace a file's contents in one step: write a sibling temporary file, then
  * rename it over the target. A launch interrupted mid-write then leaves the
- * previous manifest intact rather than a truncated one the server cannot parse.
+ * previous contents intact rather than a truncated file the server cannot
+ * parse.
  * @param path - the file to replace.
  * @param content - its new contents; bytes rather than text for a file copied verbatim.
+ * @param mode - the permission bits the new file is created with; the process
+ * umask applies when omitted. The rename carries them onto `path`.
  */
-function writeAtomic(path: string, content: string | Uint8Array): void {
+export function writeAtomic(path: string, content: string | Uint8Array, mode?: number): void {
   const temporary = `${path}.${String(process.pid)}.tmp`
-  writeFileSync(temporary, content)
+  writeFileSync(temporary, content, mode === undefined ? undefined : { mode })
   try {
     renameSync(temporary, path)
   } catch (error) {
