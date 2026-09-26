@@ -18,16 +18,6 @@ overrides:
   'extract-zip>yauzl': '3.4.0'
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
-  # dsh-better-sidebar declares `node-pty: ^1.1.0` and documents that it must
-  # resolve to the SAME physical package as the harness core, which pins
-  # 1.2.0-beta.15 (patched by patches/node-pty@1.2.0-beta.15.patch). That
-  # prerelease is outside the plugin's range, so without this override the
-  # desktop payload carries two node-pty copies, and the nested one is out of
-  # reach of both the `node-pty/prebuilds` platform prune rules and the
-  # spawn-helper chmod in apps/desktop/scripts/package.ts. The versions are
-  # API-compatible: `resize` gained an optional third argument and `useConpty`
-  # became a no-op.
-  'dsh-better-sidebar>node-pty': '1.2.0-beta.15'
 
 peerDependencyRules:
   allowedVersions:
@@ -51,9 +41,6 @@ packageExtensions:
 allowBuilds:
   esbuild: true
   lefthook: true
-  # apps/desktop: Electron's postinstall downloads its platform binary; without
-  # it the desktop client cannot launch or package.
-  electron: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
@@ -76,6 +63,7 @@ allowBuilds:
   # element-ui@2 (the component row's UI library) pulls core-js@2 through
   # async-validator; its postinstall only prints a funding banner.
   core-js: false
+  electron: set this to true or false
 
 minimumReleaseAgeExclude:
   # Office engines and their API are qualified and released together by the kit repository.
@@ -126,28 +114,5 @@ patchedDependencies:
   '@fortune-sheet/core@1.0.4': patches/@fortune-sheet__core@1.0.4.patch
   '@fortune-sheet/react@1.0.4': patches/@fortune-sheet__react@1.0.4.patch
   '@yao-pkg/pkg@6.21.0': patches/@yao-pkg__pkg@6.21.0.patch
-  # electron-builder commit 5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9 (PR #10021),
-  # verbatim: the multipart range branch of the differential download attaches
-  # `response.on("error", reject)` like the single-range branch beside it, so an
-  # interrupted multipart response rejects instead of raising an unhandled
-  # 'error' event, which in the Electron main process is an uncaught exception.
-  # Retire this entry and patches/electron-updater@6.8.9.patch at the first
-  # electron-updater release that carries that commit; 6.8.9 is the latest
-  # published version and predates it. pnpm raises that question by itself:
-  # with neither allowUnusedPatches nor ignorePatchFailures set, a bump that
-  # leaves this exact-version patch unused or unapplicable fails the install
-  # (ERR_PNPM_UNUSED_PATCH / ERR_PNPM_PATCH_FAILED) instead of dropping it.
-  # That is the root install only. Every filtered `pnpm deploy` of a closure
-  # that lacks a patched package passes --config.allow-unused-patches=true —
-  # today the desktop server closure and the Python runtime closure, neither of
-  # which contains electron-updater — because pnpm applies these patches to a
-  # deploy too and would end it in ERR_PNPM_UNUSED_PATCH before staging
-  # anything. That flag is one boolean for the whole deploy and masks every
-  # patch it leaves unused, which is why the root install stays strict
-  # (scripts/filtered-deploy.ts). Because pnpm then says nothing, that module's
-  # verifyStagedPatches reads the staged tree for the text each applied patch
-  # adds: a closure that stops containing a STAGED_PATCHES package fails it on
-  # purpose, and the table there is where an intended change is recorded.
-  electron-updater@6.8.9: patches/electron-updater@6.8.9.patch
   exceljs@4.4.0: patches/exceljs@4.4.0.patch
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
