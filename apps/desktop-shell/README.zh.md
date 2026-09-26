@@ -356,13 +356,23 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **`/install` 的 token,服务端里跑的每个插件都够得着。**它注入的是服务端子进程的环境,所以那个进程里的任何代码——包括第三方插件,而它们自己不声明任何审批闸——都能调这条路由。它买到的东西是有上限的:退出应用,并装上一个 sha512 已被 electron-updater 逐字节对着更新源清单核对过的更新(`DownloadedUpdateHelper.getValidCachedUpdateFile`),macOS 上还必须满足运行中那个 bundle 的 designated requirement。它不是一条执行任意代码的路;最坏的代价是一次没人要求的重启。它不弹原生确认,因为它只装更新源发布的那一个产物,从不装调用方指名的包。所以审计一个第三方插件时,要一并看它有没有读 `DSH_DESKTOP_UPDATE_TOKEN`。
 
+## 数据放在哪里
+
+**Harness 主目录在搬走之前是 `~/.dsh`,搬走之后由一个指针指明。**应用用户数据目录里的 `data-location.json` 记下数据目录、它的身份,以及应用上一次看到的 `DSH_HOME` 值;数据目录里的 `.dsh-data-id` 存着同一个身份,两边一致才认定这个目录就是数据。`src/data-location-boot.ts` 在启动页上、任何启动步骤读主目录之前把它定下来,并以 `DSH_HOME` 导出,服务端子进程继承这个值。没有指针时什么都不变:应用自身环境里有 `DSH_HOME` 就用它,否则用 `~/.dsh`,唯一的写入是给已有的主目录补一个身份标记。数据本身的搬迁——复制、校验、删除旧目录及其进度窗口——不在这个版本里。
+
+**数据目录不见了就停下启动,绝不回退到 `~/.dsh`。**指针指的目录打不开,或者身份对不上时,启动窗口会问:重试 再检查一次,选择数据所在的文件夹… 只接受标记与指针一致的文件夹,退出 就退出。指针读不出来、它的 `data-location.json.bak` 副本也读不出来时,只问文件夹,接受任何带标记的文件夹。这样选中的文件夹也会写进终端的 `DSH_HOME`,见下文。这些提示按 `app.getLocale()` 在中英之间选择。
+
+**更新的 `DSH_HOME` 覆盖指针。**有指针时,每次启动都读一次 `DSH_HOME`:从终端启动的应用读自身环境,否则 macOS 问登录 shell(`$SHELL -ilc`,最多五秒,只取这一个变量),Windows 读用户环境变量(`HKCU\Environment`,经 PowerShell)。与上次看到的值不同,就是在应用之外改过:文件夹带标记或本身是 Harness 主目录时,指针跟过去;否则启动窗口会问是用这个新位置(从空白开始)还是保持原位置。两种回答都会记下,同一个值不会再问;读不到的值什么都不改。`src/terminal-env.ts` 负责反方向的写入:Windows 写用户环境变量,改动会广播给正在运行的程序;macOS 在 `~/.zshrc`(或 `$ZDOTDIR/.zshrc`)或 `~/.bash_profile` 里维护 `# >>> DSH data location >>>` 与 `# <<< DSH data location <<<` 之间的一段,先备份到 `<文件>.dsh-backup`,再原子写入。你自己在这段之外写的赋值永远不改,而且会让这次写入作罢,日志记下它的文件与行号;fish 与其他 shell 不写。不用 `launchctl setenv`,因为它的值会比这段配置活得久,直到下次重启。
+
+**`~/.dsh` 变成指向数据目录的链接,终端里的 `dsh` 于是看到同一份数据。**指针指向别处时,每次启动都会在 `~/.dsh` 不存在或是指向别处的链接时,把它做成指向数据目录的符号链接(Windows 上是目录联接);旧链接只删链接本身,从不跟随。`~/.dsh` 是真实目录或文件时原样保留并记进日志,因为替换它就等于删掉它。数据在没接上的磁盘上时,链接悬空,终端里的 `dsh` 在主目录下第一次写入时以 `ENOENT` 失败,什么都不创建。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
 
 **每次启动先删掉之前几次启动留下的浏览器会话 cookie。**服务出来的 UI 每登录一个服务器就留一条持久 cookie `dsh-auth-<主机加端口的哈希>`,而每次启动都换一个新端口,所以每次启动都会多出一条新名字的 cookie;浏览器按主机而不按端口发送 cookie,于是它们全部随每个发往 `127.0.0.1` 的请求一起发出。启动大约六十次之后,请求头超过 Node 的 16 KB 上限,服务器对插件包请求回 431,窗口报 `Failed to load plugins`。所以 `src/auth-cookies.ts` 在每个进程里只做一次:在清理遗留服务器之后、启动服务器之前,删掉 `127.0.0.1` 上全部 `dsh-auth-*` cookie,每条按它自己的路径删;这时主机上没有任何一条 cookie 可能属于这次启动。主机上别的 cookie 保留。重开窗口(从 Dock、托盘、通知或第二次启动)和把服务器换绑到新端口都不碰 cookie,所以一次换绑会多一条 cookie,下次启动时删掉。删除失败只往 `dsh-server.log` 写一行,启动照常继续。
 
-**启动页与安装提示窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:持久的 `ui-theme` 偏好,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。这个偏好是 `~/.dsh/profiles/desktop-shell/cordis.patch.yml` 里的 `ui-theme` 条目;还没有这个条目的 profile(从 0.1.0-rc.33 升级后的第一次启动,设置迁移还没跑)改读 `~/.dsh/settings.yaml` 里的 `ui-theme.preference`。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
+**启动页与安装提示窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:持久的 `ui-theme` 偏好,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。这个偏好是 `~/.dsh/profiles/desktop-shell/cordis.patch.yml` 里的 `ui-theme` 条目;还没有这个条目的 profile(从 0.1.0-rc.33 升级后的第一次启动,设置迁移还没跑)改读 `~/.dsh/settings.yaml` 里的 `ui-theme.preference`。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案与数据位置的提示按 `app.getLocale()` 在中英之间选择;其余对话框保持中文。
 
 ## Known Limitations and Deferred Work
 
@@ -383,3 +393,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 在插件页停用内置插件,只到下一次启动为止:下一次启动会把它的名字播种回来;按「内置插件」一节关掉它那一行,才会一直生效。
 - Windows 的语音输入运行时只打了包、核对了在不在。`sherpa-onnx.node` 能不能在 `sherpa-onnx-win-x64` 里找到它的 DLL,要在真实 Windows 机器上录一次音才知道。
 - 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。
+- 数据位置的提示是盖在启动页上的消息框,因为启动页收不了输入。设置页里的位置入口,以及数据的搬迁,不在这个版本里;在那之前只有启动窗口里的选择会写 `data-location.json`。
+- 位置改变之前就导出了 `DSH_HOME` 的终端会一直带着旧值,直到重新打开;从这样的终端启动的应用会把这个值当成更新的值。
+- 写配置文件时只有应用自身环境里有 `$ZDOTDIR` 才认它;从访达打开的应用看不到 `~/.zshenv` 里设的值,会写 `~/.zshrc`。
+- `~/.dsh` 悬空时,终端里的 `dsh` 报出的是一段原始的 `ENOENT` 调用栈,而不是一句说明磁盘没接上的话。

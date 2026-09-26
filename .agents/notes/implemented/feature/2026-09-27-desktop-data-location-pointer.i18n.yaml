@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-data-location-pointer.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-data-location-pointer.md
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link:
+  en: cc12112c1dfa27c1
+  zh: bc225e17f181614d
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link/problem:
+  en: 098ffb77b7b50328
+  zh: 4420d17384bf154a
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link/decision:
+  en: 440f4a2821b38312
+  zh: 78a1b7949454ac26
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link/alternatives-considered:
+  en: 8fc42f286416daa6
+  zh: 70683e45f5b7a4b4
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link/consequences:
+  en: 68b0743d8b7adafb
+  zh: cecf55bf54a097e7
+/agent-note-the-desktop-names-its-data-directory-with-a-pointer-a-marker-and-a-link/related:
+  en: 27533536606d6abe
+  zh: 0352ea5c5deb54cf
