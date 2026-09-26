@@ -13,6 +13,26 @@ import { closeSync, copyFileSync, fsyncSync, openSync, renameSync, rmSync, write
 import { dirname } from 'node:path'
 
 /**
+ * Replace `file` with what `produce` writes to a temporary sibling. The
+ * temporary file is removed when `produce` or the rename fails, so a failed
+ * write leaves nothing behind; only a crash can.
+ * @param file - the destination.
+ * @param produce - writes and flushes the full content at the temporary path it is given.
+ * @throws what `produce` or the rename threw.
+ */
+export function replaceDurably(file: string, produce: (temporary: string) => void): void {
+  const temporary = `${file}.${String(process.pid)}.tmp`
+  try {
+    produce(temporary)
+    renameSync(temporary, file)
+  } catch (error) {
+    rmSync(temporary, { force: true })
+    throw error
+  }
+  fsyncDirectory(dirname(file))
+}
+
+/**
  * Replace `file` with `content` through a flushed temporary sibling.
  * @param file - the destination.
  * @param content - the full new content.
@@ -20,15 +40,15 @@ import { dirname } from 'node:path'
  * @throws when the temporary file cannot be written or renamed.
  */
 export function writeDurably(file: string, content: Buffer, mode?: number): void {
-  const temporary = temporaryFor(file)
-  const fd = openSync(temporary, 'w', mode)
-  try {
-    writeSync(fd, content)
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  renameOver(temporary, file)
+  replaceDurably(file, (temporary) => {
+    const fd = openSync(temporary, 'w', mode)
+    try {
+      writeSync(fd, content)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  })
 }
 
 /**
@@ -39,40 +59,15 @@ export function writeDurably(file: string, content: Buffer, mode?: number): void
  * @throws when the copy or the rename fails.
  */
 export function copyDurably(source: string, file: string): void {
-  const temporary = temporaryFor(file)
-  copyFileSync(source, temporary)
-  const fd = openSync(temporary, 'r+')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-  renameOver(temporary, file)
-}
-
-/**
- * The temporary sibling a write to `file` goes through.
- * @param file - the destination.
- * @returns `<file>.<pid>.tmp`.
- */
-function temporaryFor(file: string): string {
-  return `${file}.${String(process.pid)}.tmp`
-}
-
-/**
- * Rename a temporary file over its destination and flush the directory,
- * removing the temporary file when the rename fails.
- * @param temporary - the temporary file.
- * @param file - the destination.
- */
-function renameOver(temporary: string, file: string): void {
-  try {
-    renameSync(temporary, file)
-  } catch (error) {
-    rmSync(temporary, { force: true })
-    throw error
-  }
-  fsyncDirectory(dirname(file))
+  replaceDurably(file, (temporary) => {
+    copyFileSync(source, temporary)
+    const fd = openSync(temporary, 'r+')
+    try {
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  })
 }
 
 /** Codes a file system returns when it does not flush directories; the rename then stands as the system left it. */

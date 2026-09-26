@@ -9,7 +9,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { copyDurably, writeDurably } from '../src/durable-file.ts'
+import { copyDurably, replaceDurably, writeDurably } from '../src/durable-file.ts'
 
 let root: string
 const posixOnly = process.platform === 'win32' ? it.skip : it
@@ -41,6 +41,36 @@ describe('durable file writes', () => {
     expect(readFileSync(join(root, 'copy')).equals(readFileSync(source))).toBe(true)
     expect(statSync(join(root, 'copy')).mode & 0o777).toBe(0o640)
     expect(readdirSync(root).sort()).toEqual(['copy', 's'])
+  })
+
+  it('removes the temporary file when writing it fails partway, and leaves the destination as it was', () => {
+    const file = join(root, 'f')
+    writeFileSync(file, 'old')
+    expect(() => {
+      replaceDurably(file, (temporary) => {
+        writeFileSync(temporary, 'half')
+        throw new Error('ENOSPC: no space left on device, write')
+      })
+    }).toThrow('ENOSPC')
+    expect(readdirSync(root)).toEqual(['f'])
+    expect(readFileSync(file, 'utf8')).toBe('old')
+  })
+
+  const writable = process.platform === 'win32' || process.getuid?.() === 0 ? it.skip : it
+
+  writable('leaves nothing in a directory it may not write', () => {
+    const source = join(root, 's')
+    writeFileSync(source, 'x')
+    const locked = join(root, 'locked')
+    mkdirSync(locked)
+    chmodSync(locked, 0o555)
+    try {
+      expect(() => { copyDurably(source, join(locked, 'copy')) }).toThrow(/EACCES/)
+      expect(() => { writeDurably(join(locked, 'f'), Buffer.from('x')) }).toThrow(/EACCES/)
+      expect(readdirSync(locked)).toEqual([])
+    } finally {
+      chmodSync(locked, 0o755)
+    }
   })
 
   it('removes the temporary file when the rename fails', () => {
