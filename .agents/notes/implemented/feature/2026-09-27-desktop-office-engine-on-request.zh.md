@@ -16,8 +16,8 @@ rc.34 把每个 `@deepseek-ai/libreoffice-kit-*` 引擎都从两个桌面载荷�
 - **位置是数据目录的函数。** `officeEngineRoot(dataDir)` 是 `<dataDir>/engines/office`,每个版本一个目录。`main.ts` 传入 `resolveHarnessHome()`;rc.35 的数据目录搬迁在这里传它自己的目录。
 - **`NODE_PATH` 从启动起就设好。** `engineServerEnv` 把 `<root>/<version>/node_modules` 放在服务端子进程 `NODE_PATH` 的第一位,排在继承来的值前面,不管它存不存在。Node 把 `NODE_PATH` 读进全局路径只读一次,只缓存解析成功的结果;`rc34-work/office-scope/probe/t.mjs` 证实启动之后才建好的包目录在同一进程里能解析到,`t2.mjs` 证实启动之后删掉 `process.env.NODE_PATH`,本进程照样解析,子进程则看不到它。桌面层去掉了自己的 `office-to-pdf` 行,出厂那一行从启动起就开着,下载完之后的第一次转换不用重启就能成功。
 - **这一项单独点名。** `DSH_DESKTOP_OFFICE_ENGINE_MODULES` 带着同一个路径;提示插件的宿主那一半在 apply 时从 `process.env.NODE_PATH` 里删掉恰好这一项。`@deepseek-ai/dsh-subprocess` 的 `scrubbedParentEnv` 在 spawn 时复制 `process.env`,并且已经去掉所有 `DSH_*` 名字,所以 endpoint、token 与 modules 这几个变量从不进工具的子进程;需要删的只有 `NODE_PATH`。
-- **用随包的 pnpm 安装,先暂存再改名。** `installEngine` 建 `<root>/.staging-*`,用随包的 Node 跑 `pnpm.mjs`,参数是 `add <engine>@<version> --ignore-workspace --ignore-scripts --reporter=ndjson --config.node-linker=hoisted --store-dir=<staging>/.pnpm-store`,核对引擎的版本与 `prebuilds.json`,删掉这次运行自己的仓库,再把暂存目录改名成 `<root>/<version>`,遇到 `EPERM`/`EBUSY`/`EACCES` 重试五秒。完整性、`os`/`cpu` 过滤、可执行位与用户的 `.npmrc` 都归 pnpm 管。进度条由 `pnpm:fetching-progress` 记录驱动(`started` 带 `size`,`in_progress` 带 `downloaded`);字段名取自一次抓下来的 pnpm 11.7.0 运行。
-- **一条带原生确认的本机服务。** `office-engine-service.ts` 在它自己的 token 后面提供 `GET /state`、`POST /install`、`POST /cancel`。`/install` 立刻答 `202 confirming`,弹出一个挂在主窗口上的原生对话框;只有点了确认按钮才开始下载。调用方什么都不指定。`close()` 中止正在跑的下载,不等还开着的对话框,之后才到的回答什么都不启动。
+- **用随包的 pnpm 安装,先暂存再改名。** `installEngine` 建 `<root>/.staging-*`,用随包的 Node 跑 `pnpm.mjs`,参数是 `add <engine>@<version> --ignore-workspace --ignore-scripts --reporter=ndjson --config.node-linker=hoisted --config.lockfile=true --store-dir=<staging>/.pnpm-store`,拿这次运行的 `pnpm-lock.yaml` 给引擎记下的完整性值去比 `ENGINE_DOWNLOADS` 固定的 sha512(即 registry 的 `dist.integrity`),核对引擎的版本、`prebuilds.json` 与可执行文件,删掉这次运行自己的仓库,再把暂存目录改名成 `<root>/<version>`,遇到 `EPERM`/`EBUSY`/`EACCES` 每隔 500 毫秒重试,共九次,约 4.5 秒。pnpm 按 registry 元数据校验压缩包,并管 `os`/`cpu` 过滤、可执行位与用户的 `.npmrc`;固定值挡住的是指向别的压缩包的元数据。表里没有的 kit 版本不提供下载。进度条由 `pnpm:fetching-progress` 记录驱动(`started` 带 `size`,`in_progress` 带 `downloaded`);字段名取自一次抓下来的 pnpm 11.7.0 运行。
+- **一条带原生确认的本机服务。** `office-engine-service.ts` 在它自己的 token 后面提供 `GET /state`、`POST /install`、`POST /cancel`。`/install` 立刻答 `202 confirming`,弹出一个挂在主窗口上的原生对话框;只有点了确认按钮才开始下载,默认按钮是取消。用户取消后 30 秒内,`/install` 直接答 `409 declined-recently`,不再弹框。每个 `409` 的响应体都是 `{ code, message }`,插件据此告诉用户是哪一种拒绝。调用方什么都不指定。`close()` 中止正在跑的下载,不等还开着的对话框,之后才到的回答什么都不启动。
 - **只按名字形状清理。** 服务端启动之前、以及一次安装之后,root 下凡是当前版本以外的精确版本名、或以 `.staging-` 开头的条目都被删掉;别的名字保留。
 - **载荷不变。** `platformDirRules`、闸门的 `platform-variant` 豁免、打包步骤的缺席检查照样把每个引擎挡在外面;它们写明的理由现在说的是下载。
 
@@ -35,6 +35,7 @@ rc.34 把每个 `@deepseek-ai/libreoffice-kit-*` 引擎都从两个桌面载荷�
 - macOS arm64 上的端到端实跑(`rc34-work/rc35-office/e2e/run.mts`)经 `installEngine` 把真实的 `darwin-arm64@0.1.1` 引擎装进一个 `mkdtemp` 数据目录,用时 7 秒:13 次进度报告直到 66,711,287 字节,盘上 147 MB,可执行文件权限 755,没有 `com.apple.quarantine`,没留下仓库。一个去掉了引擎兄弟包的 kit 在没有 `NODE_PATH` 时拒绝转换,有了它就把一份生成的中文 `.docx` 转成了 PDF,`pdftotext` 读回的文字原样不变。
 - 提示插件没加载时,服务端的子进程会继承引擎的 `NODE_PATH` 一项。
 - 随包 vendor 的提示插件在 rc.35 的 vendor 步骤之前停在 0.1.0,所以这棵树打出来的包不提供下载。
+- 从「lend the server a loopback service that downloads the Office engine」到「document the on-request Office engine, with an Agent Note」这三个提交单独检出时测试或 hygiene 不全绿,「read the engine service's JSON answer without an unknown assertion」修好了它。历史只追加,所以 bisect 时 `git bisect skip` 这三个。
 - Windows 还没在真机上验证:改名时 Defender 扫描解压后的引擎、`win32-x64@0.1.1` 引擎能否转换、hoisted 布局下的路径长度。
 
 ## Related

@@ -348,23 +348,23 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 ## Office 引擎服务
 
-**载荷里不带 LibreOffice 引擎;用户要的时候,壳去下载随包 kit 声明的那一个。** `@deepseek-ai/dsh-office-to-pdf` 借 `@deepseek-ai/libreoffice-kit` 把 Word 与 PowerPoint 文件转换给右侧边栏的文档标签页看,而 `platformDirRules` 把 kit 的每一个引擎都从两个载荷里剔掉:`@deepseek-ai/libreoffice-kit-darwin-arm64` 下载 64 MB、解压 145 MB,`-win32-x64` 是 68 MB 与 182 MB。`src/office-engine.ts` 从随包 kit 自己的 `optionalDependencies` 里读出引擎的名字与精确版本,路径是 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → kit,所以 kit 一升级,要下载的东西也跟着变。`ENGINE_DOWNLOAD_BYTES` 记着两个桌面目标已发布压缩包的大小,确认框里报的就是它;随包 kit 一旦声明了表里没有的引擎版本,就有一条测试失败。
+**载荷里不带 LibreOffice 引擎;用户要的时候,壳去下载随包 kit 声明的那一个。** `@deepseek-ai/dsh-office-to-pdf` 借 `@deepseek-ai/libreoffice-kit` 把 Word 与 PowerPoint 文件转换给右侧边栏的文档标签页看,而 `platformDirRules` 把 kit 的每一个引擎都从两个载荷里剔掉:`@deepseek-ai/libreoffice-kit-darwin-arm64` 下载 64 MB、解压 145 MB,`-win32-x64` 是 68 MB 与 182 MB。`src/office-engine.ts` 从随包 kit 自己的 `optionalDependencies` 里读出引擎的名字与精确版本,路径是 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → kit,所以 kit 一升级,要下载的东西也跟着变。`ENGINE_DOWNLOADS` 记着两个桌面目标已发布压缩包的大小(确认框按整 MiB 报它)和 sha512 完整性值(即 registry 的 `dist.integrity`)。表里没有的版本不提供下载:`/state` 读作 `unsupported`,日志里说这个版本还没有登记。随包 kit 一旦声明了表里没有的引擎版本,就有一条测试失败。
 
 **引擎放在哪。** 数据目录下的 `engines/office/`,每个版本一个目录。数据目录眼下是 `$DSH_HOME`(默认 `~/.dsh`);由 `main.ts` 把它交给 `officeEngineRoot`,而不是模块自己去读,所以数据目录搬走时引擎跟着走。kit 从它自己所在的目录解析引擎,不从配置读任何路径,所以壳从启动起就把 `<root>/<version>/node_modules` 放在服务端子进程 `NODE_PATH` 的第一位,不管引擎装没装。Node 只在启动时读一次 `NODE_PATH`,只缓存解析成功的结果,`office-to-pdf` 又会丢掉创建失败的转换器,所以下载完之后的第一次转换就能找到引擎,不用重启。同一个路径也放进 `DSH_DESKTOP_OFFICE_ENGINE_MODULES`;`@haoran/dsh-office-preview-notice` 的宿主那一半在 apply 时把这一项从 `process.env.NODE_PATH` 里删掉,于是服务端启动的进程不再继承它,服务端自己照样经它解析。每次启动、在服务端起来之前,壳删掉 root 下其它每个版本目录,以及中断的下载留下的每个暂存目录;root 下别的东西一概不碰。
 
-**它怎么来。** 壳在 root 里新建的暂存目录中运行随包的 pnpm:`runtime/node runtime/pnpm/bin/pnpm.mjs add <engine>@<version> --ignore-workspace --ignore-scripts --reporter=ndjson --config.node-linker=hoisted --store-dir=<staging>/.pnpm-store`,`runtime/` 放在 `PATH` 最前;开发启动用 `PATH` 上的 `pnpm`。它用随包的 Node 直接跑 `pnpm.mjs`,不经过 `dsh-pnpm.cmd`——Windows 上 Node 不借 shell 就起不了 `.cmd`——所以取消停下的就是 pnpm 本身。pnpm 校验压缩包完整性、按 `os` 与 `cpu` 过滤、保留 kit 要检查的可执行位,并且读用户自己的 `.npmrc`,那里配的镜像或代理照样生效。下载从不经过 Electron 的 session,否则 macOS 会给它写下的每个文件打上隔离属性。之后壳核对引擎的版本和它的 `prebuilds.json`,删掉这次运行自己的包仓库,让引擎在盘上只有一份,再把暂存目录改名到位。改名不跨卷,所以版本目录要么不存在,要么装着完整的引擎;被实时扫描占着的改名(`EPERM`、`EBUSY`、`EACCES`)最多重试五秒。进度来自 pnpm 的 `pnpm:fetching-progress` 记录。一次下载最多跑 30 分钟。
+**它怎么来。** 壳在 root 里新建的暂存目录中运行随包的 pnpm:`runtime/node runtime/pnpm/bin/pnpm.mjs add <engine>@<version> --ignore-workspace --ignore-scripts --reporter=ndjson --config.node-linker=hoisted --store-dir=<staging>/.pnpm-store`,`runtime/` 放在 `PATH` 最前;开发启动用 `PATH` 上的 `pnpm`。它用随包的 Node 直接跑 `pnpm.mjs`,不经过 `dsh-pnpm.cmd`——Windows 上 Node 不借 shell 就起不了 `.cmd`——所以取消停下的就是 pnpm 本身。pnpm 按 registry 元数据列出的完整性值校验压缩包、按 `os` 与 `cpu` 过滤、保留 kit 要检查的可执行位,并且读用户自己的 `.npmrc`,那里配的镜像或代理照样生效;`--config.lockfile=true` 让那份文件关不掉锁文件。下载从不经过 Electron 的 session,否则 macOS 会给它写下的每个文件打上隔离属性。之后壳拿这次运行的 `pnpm-lock.yaml` 给引擎记下的完整性值,去比 `ENGINE_DOWNLOADS` 固定的那个;记录缺失或不一致就拒绝安装并删掉暂存目录,所以元数据指向别的压缩包时装不进来。壳再核对引擎的版本、它的 `prebuilds.json`,以及这份清单点名的可执行文件(必须是文件,Windows 以外还要有执行位),删掉这次运行自己的包仓库,让引擎在盘上只有一份,再把暂存目录改名到位。改名不跨卷,所以版本目录要么不存在,要么装着完整的引擎;被实时扫描占着的改名(`EPERM`、`EBUSY`、`EACCES`)每隔 500 毫秒重试,共九次,约 4.5 秒。进度来自 pnpm 的 `pnpm:fetching-progress` 记录。一次下载最多跑 30 分钟。
 
 **这条本机服务是渲染服务、更新服务之外的第三个监听**,打开与传递的方式一样,token 是它自己的:`DSH_DESKTOP_OFFICE_ENGINE_ENDPOINT` 与 `DSH_DESKTOP_OFFICE_ENGINE_TOKEN` 只进服务端那一个子进程的环境。没有哪条路由读请求体。
 
 | 路由 | 回答 |
 |---|---|
 | `GET /state` | `200 application/json` —— 下面那份快照 |
-| `POST /install` | `202 application/json` —— 快照,此时是 `confirming`。一个挂在主窗口上的原生确认框弹出来,只有点了它的 **下载** 才开始下载。本机没有可提供的引擎、引擎已装好、或已有确认或下载在进行时答 `409` |
-| `POST /cancel` | `202 application/json` —— 快照;pnpm 被停下,暂存目录被删掉。没有下载在跑时答 `409` |
+| `POST /install` | `202 application/json` —— 快照,此时是 `confirming`。一个挂在主窗口上的原生确认框弹出来,只有点了它的 **下载** 才开始下载;默认按钮是 **取消**,按 Esc 也是取消。`409` 的 `code` 是 `unsupported`、`installed`、`confirming`、`installing` 或 `declined-recently`——用户取消后 30 秒内(`DECLINE_COOLDOWN_MS`)直接这样答,不再弹框 |
+| `POST /cancel` | `202 application/json` —— 快照;pnpm 被停下,暂存目录被删掉。没有下载在跑时答 `409`,`code` 为 `not-running` |
 | 其它任何路径或方法 | `404`,在看 token 之前就判定 |
 | 缺少或写错 token | `401` |
 
-快照总带 `phase`,`version`、`downloadBytes`、`transferredBytes`、`totalBytes` 与 `reason` 在适用时才带。`phase` 是 `unsupported`(kit 没给这台主机构建原生引擎,或一个都没声明;`reason` 说是哪种)、`absent`、`confirming`、`installing`、`installed`(每次请求都从盘上读)或 `failed`(`reason` 是壳自己的话;可以再要一次下载)。取消的下载读作 `absent`。调用方什么都不指定:包和版本都是 kit 的,所以任何请求都装不了别的东西,没有确认也什么都装不了。退出会中止正在跑的下载,它留下的暂存目录由下一次启动删掉。
+`409` 的响应体是 `application/json` 的 `{ code, message }`:调用方按 `code` 分支,`message` 是给日志看的一句话。快照总带 `phase`,`version`、`downloadBytes`、`transferredBytes`、`totalBytes` 与 `reason` 在适用时才带。`phase` 是 `unsupported`(kit 没给这台主机构建原生引擎、一个都没声明,或声明的版本还没登记;`reason` 说是哪种)、`absent`、`confirming`、`installing`、`installed`(每次请求都从盘上读;可执行文件没了或不可执行的引擎读作 `absent`)或 `failed`(`reason` 是壳自己的话;可以再要一次下载)。取消的下载读作 `absent`。调用方什么都不指定:包和版本都是 kit 的,所以任何请求都装不了别的东西,没有确认也什么都装不了。退出会中止正在跑的下载,它留下的暂存目录由下一次启动删掉。
 
 ## 服务器环境
 
