@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-explorer-visible-window.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-27-explorer-visible-window.md
+/agent-note-explorer-starts-with-a-visible-window:
+  en: bc390243828ecbec
+  zh: a0f9b0a457b51342
+/agent-note-explorer-starts-with-a-visible-window/problem:
+  en: 32b2b55ecd802e4d
+  zh: a30a207ab464ac2a
+/agent-note-explorer-starts-with-a-visible-window/decision:
+  en: 949151b4393ab2c0
+  zh: 12d1198c223b6ba4
+/agent-note-explorer-starts-with-a-visible-window/alternatives-considered:
+  en: c6a5c1704f9e2e3b
+  zh: 860225c6d41febcf
+/agent-note-explorer-starts-with-a-visible-window/testing:
+  en: 4c764dd70f9816bd
+  zh: 5c3dc10cc4c56298
+/agent-note-explorer-starts-with-a-visible-window/consequences:
+  en: c09896295e61a2e8
+  zh: 8a6fc2cbb4eeadca
