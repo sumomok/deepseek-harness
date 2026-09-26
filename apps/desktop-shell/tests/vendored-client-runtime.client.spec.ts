@@ -265,8 +265,14 @@ async function page(): Promise<Page> {
   await ctx.plugin(typertRegistryClient).await()
   await ctx.plugin(gatewayClient).await()
   // The Host settings forms: the locale runtime reads one form during apply
-  // and reads its snapshot, never the wire.
-  ctx.provide('configForms', { get: () => stubConfigForm().scope } as never)
+  // and reads its snapshot, never the wire. `whileServed` treats every watched
+  // namespace as served, so a vendored half's settings-page registration runs
+  // and hands back its own disposer.
+  ctx.provide('configForms', {
+    get: () => stubConfigForm().scope,
+    whileServed: (namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) =>
+      register(new Set(namespaces)),
+  } as never)
   await ctx.plugin(localeClient).await()
   await ctx.plugin(inputTriggerClient).await()
   new UiConversation(ctx, runtime.sessions)

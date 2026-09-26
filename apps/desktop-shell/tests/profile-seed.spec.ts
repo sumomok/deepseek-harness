@@ -73,8 +73,8 @@ function readProfile(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, 'package.json'), 'utf8')) as Record<string, unknown>
 }
 
-/** Every built-in but `dsh-at-file`, which several cases pre-list or block on its own. */
-const withoutAtFile = BUILTIN_WEB_BUNDLES.filter(name => name !== 'dsh-at-file')
+/** Every built-in but `@sumomok/dsh-quote-message`, which several cases pre-list or block on its own. */
+const withoutQuote = BUILTIN_WEB_BUNDLES.filter(name => name !== '@sumomok/dsh-quote-message')
 
 /** The bundle list the profile manifest now declares. */
 function bundlesNow(): unknown {
@@ -238,13 +238,13 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     writeProfile(JSON.stringify({
       name: 'dsh-profile-desktop-shell',
       private: true,
-      dependencies: { 'dsh-at-file': '0.6.5' },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file'] } },
+      dependencies: { '@sumomok/dsh-quote-message': '0.3.1' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@sumomok/dsh-quote-message'] } },
     }, undefined, 2))
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.created).toBe(false)
-    expect(report.seeded).toEqual(withoutAtFile)
-    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file', ...withoutAtFile])
+    expect(report.seeded).toEqual(withoutQuote)
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@sumomok/dsh-quote-message', ...withoutQuote])
   })
 
   it('gives a profile from an earlier build the bundle that build did not ship', () => {
@@ -252,7 +252,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     // installed it is in: the manifest names built-ins that build shipped and
     // this one ships too, and its patch layer is whatever its owner has
     // written there since.
-    const shippedThen = ['dsh-at-file', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway']
+    const shippedThen = ['@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway', '@sumomok/dsh-quote-message']
     writeProfile(JSON.stringify({
       name: 'dsh-profile-desktop-shell',
       private: true,
@@ -297,13 +297,13 @@ describe('seedBuiltinBundles on an initialized profile', () => {
   })
 
   it('re-points a link left behind by a moved installation', () => {
-    const link = join(home, 'profiles', 'node_modules', 'dsh-at-file')
-    mkdirSync(join(home, 'profiles', 'node_modules'), { recursive: true })
+    const link = join(home, 'profiles', 'node_modules', '@sumomok', 'dsh-quote-message')
+    mkdirSync(join(home, 'profiles', 'node_modules', '@sumomok'), { recursive: true })
     writeFileSync(join(root, 'stale'), '')
     symlinkSync(join(root, 'stale'), link, 'junction')
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.linked).toContain('dsh-at-file')
-    expect(readlinkSync(link)).toBe(join(serverModules, 'dsh-at-file'))
+    expect(report.linked).toContain('@sumomok/dsh-quote-message')
+    expect(readlinkSync(link)).toBe(join(serverModules, '@sumomok', 'dsh-quote-message'))
   })
 
   it('reports a correct link as unchanged on the second run', () => {
@@ -331,9 +331,9 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
   })
 
   it('reports a real directory sitting where a link belongs, and keeps the other links', () => {
-    mkdirSync(join(home, 'profiles', 'node_modules', 'dsh-at-file'), { recursive: true })
+    mkdirSync(join(home, 'profiles', 'node_modules', '@sumomok', 'dsh-quote-message'), { recursive: true })
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.linked).toEqual(withoutAtFile)
+    expect(report.linked).toEqual(withoutQuote)
     expect(report.skipped.join('\n')).toContain('is not a symlink')
   })
 
@@ -521,12 +521,12 @@ describe('seedBuiltinBundles migrating the web profile', () => {
   })
 
   it('passes over the names this build already composes, each with its reason', () => {
-    writeWebProfile(['dsh-at-file', ...WITHDRAWN_WEB_BUNDLES, userPlugin])
+    writeWebProfile(['@sumomok/dsh-quote-message', ...WITHDRAWN_WEB_BUNDLES, userPlugin])
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.migrated).toEqual([userPlugin])
     expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-base')
     expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-web-app')
-    expect(report.skipped).toContain('dsh-at-file: covered by built-in')
+    expect(report.skipped).toContain('@sumomok/dsh-quote-message: covered by built-in')
     for (const withdrawn of WITHDRAWN_WEB_BUNDLES) {
       expect(report.skipped).toContain(`${withdrawn}: withdrawn, not migrated`)
       expect(bundlesNow()).not.toContain(withdrawn)
@@ -1592,12 +1592,12 @@ describe('sameLinkTarget', () => {
 
 describe('seedBuiltinBundles version reporting', () => {
   it('warns when the profile installed another version of a built-in', () => {
-    installIntoProfile('dsh-at-file', '0.6.3')
+    installIntoProfile('@sumomok/dsh-quote-message', '0.3.1')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.shadowed).toEqual([
-      'profile copy dsh-at-file@0.6.3 shadows the shipped 1.0.0 module; patch layer comes from the shipped copy',
+      'profile copy @sumomok/dsh-quote-message@0.3.1 shadows the shipped 1.0.0 module; patch layer comes from the shipped copy',
     ])
-    expect(describeSeed(report)).toContain('warning: profile copy dsh-at-file@0.6.3 shadows the shipped 1.0.0')
+    expect(describeSeed(report)).toContain('warning: profile copy @sumomok/dsh-quote-message@0.3.1 shadows the shipped 1.0.0')
   })
 
   it('stays quiet when the profile installed the shipped version', () => {
@@ -1606,15 +1606,15 @@ describe('seedBuiltinBundles version reporting', () => {
   })
 
   it('changes nothing about the profile copy it reports', () => {
-    installIntoProfile('dsh-at-file', '0.6.3')
-    const installed = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', 'dsh-at-file', 'package.json')
+    installIntoProfile('@sumomok/dsh-quote-message', '0.3.1')
+    const installed = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', '@sumomok', 'dsh-quote-message', 'package.json')
     const before = readFileSync(installed, 'utf8')
     seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(installed, 'utf8')).toBe(before)
   })
 
   it('says nothing when the profile copy has no readable manifest', () => {
-    const dir = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', 'dsh-at-file')
+    const dir = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', '@sumomok', 'dsh-quote-message')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), '{ oops')
     expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])

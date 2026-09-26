@@ -171,7 +171,7 @@ describe('the composed vision-switch row', () => {
 
 describe('the composed llm-permission-gateway row', () => {
   it('takes the gate\'s own factory route through the layers below', () => {
-    expect(entry(below, 'llm-permission-gateway').config?.['model']).toBe('deepseek-v4-flash')
+    expect(entry(below, 'llm-permission-gateway').config?.['model']).toBe('deepseek-flash')
   })
 
   // The judge runs on the same model the product runs on, rather than on a
@@ -210,15 +210,17 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly the four rows it owns and nothing else', () => {
+  it('changes exactly three rows and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
     })
     // Sorted, because the order these come back in is the order dsh-base
-    // happens to list them and carries nothing about this layer.
+    // happens to list them and carries nothing about this layer. The layer's
+    // `llm-permission-gateway` row restates the route the gate's own layer
+    // ships, so it composes unchanged and is absent here.
     expect(changed.map(row => row.id).sort())
-      .toEqual(['llm-deepseek', 'llm-permission-gateway', 'session-query-sqlite', 'vision-switch'])
+      .toEqual(['llm-deepseek', 'session-query-sqlite', 'vision-switch'])
   })
 
   // The invariant the catalog restatement broke once: this layer replaces
