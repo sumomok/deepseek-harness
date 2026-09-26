@@ -247,6 +247,19 @@ describe('settleDataLocation with a pointer', () => {
     expect(recorded.persistentReads).toBe(1)
   })
 
+  it('does not reopen the question with the value it just answered', async () => {
+    const seen = dataDir('seen', OTHER)
+    writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data'), { lastSeenEnv: seen }))
+    const right = dataDir('moved', ID)
+    const recorded = recordingHost({
+      answers: ['choose'], folders: [right], persistent: { kind: 'set', value: seen, source: 'login-shell' },
+    })
+    expect((await settleDataLocation(recorded.host, undefined))?.home).toBe(right)
+    expect(recorded.asked).toHaveLength(1)
+    const read = readPointer(userData)
+    expect(read.kind === 'ok' && read.pointer.lastSeenEnv).toBe(right)
+  })
+
   it('keeps the pointer when the terminal write throws', async () => {
     writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data')))
     const right = dataDir('moved', ID)
