@@ -76,9 +76,11 @@ interface LaunchSpec extends Omit<ServerSpec, 'env'> {
  * exec electron lib/main.js`) uses the checkout's built CLI on the
  * development Node found in PATH, with the built-in plugins coming from the
  * same `apps/desktop-server` closure the packaged payload is deployed from.
+ * @param logDir - the desktop log directory, which also receives the server's
+ * diagnostic reports.
  * @returns the launch spec.
  */
-function resolveSpec(): LaunchSpec {
+function resolveSpec(logDir: string): LaunchSpec {
   const home = app.getPath('home')
   if (app.isPackaged) {
     const modules = join(process.resourcesPath, 'server', 'node_modules')
@@ -87,6 +89,7 @@ function resolveSpec(): LaunchSpec {
       entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
       builtinModules: modules,
       cwd: home,
+      reportDirectory: logDir,
     }
   }
   const apps = join(app.getAppPath(), '..')
@@ -95,6 +98,7 @@ function resolveSpec(): LaunchSpec {
     entry: join(apps, 'cli', 'lib', 'bin.js'),
     builtinModules: join(apps, 'desktop-server', 'node_modules'),
     cwd: home,
+    reportDirectory: logDir,
   }
 }
 
@@ -789,11 +793,12 @@ if (!locked) {
     const ticker = setInterval(() => {
       view.elapsed(Math.round((Date.now() - startedAt) / 1000))
     }, 1000)
-    const spec = resolveSpec()
+    const spec = resolveSpec(logDir)
     sink(`[desktop] ${new Date().toISOString()} version=${app.getVersion()} packaged=${String(app.isPackaged)} platform=${process.platform} arch=${process.arch}\n`)
     sink(`[desktop] node runtime: ${spec.nodeBin} (exists: ${String(existsSync(spec.nodeBin) || spec.nodeBin === 'node')})\n`)
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
+    sink(`[desktop] server diagnostic reports: ${spec.reportDirectory}\n`)
     if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
     if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
     view.phase(1)

@@ -5,7 +5,7 @@
  * @module
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,9 +15,20 @@ import {
   DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, quarantineLoadFailureFromOutput, readMigrationMarker, WEB_PROFILE, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 import {
-  type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer, startServerWithQuarantine,
-  type ServerHandle,
+  diagnosticReportFlags, type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer,
+  startServerWithQuarantine, type ServerHandle, type ServerSpec,
 } from '../src/server.ts'
+
+/**
+ * A launch of `entry` on this process's own Node, in the case's root, with its
+ * diagnostic reports in the root as well.
+ * @param entry - the scripted entry to run.
+ * @param overrides - fields a case sets for itself.
+ * @returns the spec.
+ */
+function specFor(entry: string, overrides: Partial<ServerSpec> = {}): ServerSpec {
+  return { nodeBin: process.execPath, entry, cwd: root, reportDirectory: root, env: {}, ...overrides }
+}
 
 /** Wait for `handle`'s `onExit` to fire, however it fires. */
 function waitForExit(handle: ServerHandle): Promise<ServerExitInfo> {
@@ -132,7 +143,7 @@ function argvReportingEntry(): { entry: string; argvFile: string } {
 describe('startServer', () => {
   it('resolves with the URL line and a working stop', async () => {
     const { entry } = scriptedEntry(['success'])
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const handle = await startServer(specFor(entry), () => {})
     expect(handle.url).toBe('http://127.0.0.1:54321')
     await handle.stop()
   })
@@ -141,7 +152,7 @@ describe('startServer', () => {
     const { entry } = scriptedEntry(['loader'])
     let caught: unknown
     try {
-      await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+      await startServer(specFor(entry), () => {})
     } catch (error) {
       caught = error
     }
@@ -155,7 +166,7 @@ describe('startServer', () => {
 
   it('spawns a profile the launcher accepts', async () => {
     const { entry, argvFile } = argvReportingEntry()
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const handle = await startServer(specFor(entry), () => {})
     const { readFile } = await import('node:fs/promises')
     const argv = JSON.parse(await readFile(argvFile, 'utf8')) as string[]
     expect(argv).toEqual(['--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'])
@@ -172,7 +183,7 @@ describe('startServer', () => {
 
   it('always sets DSH_TELEMETRY_DISABLED on the spawned server, unconditionally', async () => {
     const { entry, envFile } = envReportingEntry('DSH_TELEMETRY_DISABLED')
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const handle = await startServer(specFor(entry), () => {})
     const { readFile } = await import('node:fs/promises')
     expect(await readFile(envFile, 'utf8')).toBe('1')
     await handle.stop()
@@ -181,7 +192,7 @@ describe('startServer', () => {
   it('lets a caller-supplied env override the telemetry disable, for a test that wants it on', async () => {
     const { entry, envFile } = envReportingEntry('DSH_TELEMETRY_DISABLED')
     const handle = await startServer(
-      { nodeBin: process.execPath, entry, cwd: root, env: { DSH_TELEMETRY_DISABLED: '' } }, () => {},
+      specFor(entry, { env: { DSH_TELEMETRY_DISABLED: '' } }), () => {},
     )
     const { readFile } = await import('node:fs/promises')
     expect(await readFile(envFile, 'utf8')).toBe('')
@@ -189,10 +200,106 @@ describe('startServer', () => {
   })
 })
 
+/**
+ * Write a scripted entry from its body and return its path.
+ * @param name - the file name inside the case's root.
+ * @param body - the CommonJS source.
+ * @returns the entry path.
+ */
+function entryScript(name: string, body: string): string {
+  const entry = join(root, name)
+  writeFileSync(entry, body)
+  return entry
+}
+
+/**
+ * CommonJS source that leaves the last line to a process sharing the server's
+ * output pipes: it writes that line 300 ms after it starts, so the line
+ * arrives after the server itself has exited and before the pipes close —
+ * the same order as a server whose final output is still in the pipe when
+ * the process is gone, made certain rather than left to a race.
+ */
+const LATE_LAST_LINE = `
+  const late = "setTimeout(() => process.stderr.write('the last line says why\\\\n'), 300)"
+  require('node:child_process').spawn(process.execPath, ['-e', late], { stdio: 'inherit' })
+`
+
+describe('diagnostic reports', () => {
+  it('puts the report flags before the entry script, where Node reads them as its own', async () => {
+    const execArgvFile = join(root, 'execargv.json')
+    const entry = entryScript('execargv-entry.cjs', `
+      require('node:fs').writeFileSync(${JSON.stringify(execArgvFile)}, JSON.stringify(process.execArgv))
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      setInterval(() => {}, 1000)
+    `)
+    const reports = join(root, 'reports')
+    const handle = await startServer(specFor(entry, { reportDirectory: reports }), () => {})
+    expect(JSON.parse(readFileSync(execArgvFile, 'utf8'))).toEqual(diagnosticReportFlags(reports))
+    await handle.stop()
+  })
+
+  it('writes a report without the environment into the report directory when the server dies of an uncaught exception', async () => {
+    const entry = entryScript('throwing-entry.cjs', 'throw new Error(\'boot blew up\')\n')
+    const reports = join(root, 'reports')
+    mkdirSync(reports)
+    await expect(startServer(
+      specFor(entry, { reportDirectory: reports, env: { DSH_REPORT_SENTINEL: 'sk-sentinel-value' } }),
+      () => {},
+    )).rejects.toBeInstanceOf(ServerExitedBeforeUrl)
+    const written = readdirSync(reports).filter(name => name.startsWith('report.') && name.endsWith('.json'))
+    expect(written).toHaveLength(1)
+    const text = readFileSync(join(reports, written[0] as string), 'utf8')
+    const report = JSON.parse(text) as { header: { trigger: string }; environmentVariables?: unknown; javascriptStack: { message: string } }
+    expect(report.header.trigger).toBe('Exception')
+    expect(report.javascriptStack.message).toContain('boot blew up')
+    expect(report.environmentVariables).toBeUndefined()
+    expect(text).not.toContain('sk-sentinel-value')
+  })
+})
+
 describe('ServerHandle.onExit', () => {
+  it('carries the last line the server wrote before it exited, however much came before it', async () => {
+    const entry = entryScript('draining-entry.cjs', `
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      setTimeout(() => {
+        ${LATE_LAST_LINE}
+        process.exit(9)
+      }, 20)
+    `)
+    const handle = await startServer(specFor(entry), () => {})
+    const info = await waitForExit(handle)
+    expect(info.code).toBe(9)
+    expect(info.tail).toContain('the last line says why')
+  })
+
+  it('does not wait past its bound for a pipe that a process the server started still holds open', async () => {
+    const pidFile = join(root, 'grandchild.pid')
+    const entry = entryScript('orphaning-entry.cjs', `
+      const { spawn } = require('node:child_process')
+      const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'inherit', detached: true })
+      require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid))
+      grandchild.unref()
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      setTimeout(() => { process.exitCode = 3 }, 20)
+    `)
+    const handle = await startServer(specFor(entry), () => {})
+    try {
+      const startedWaiting = Date.now()
+      const info = await waitForExit(handle)
+      expect(info.code).toBe(3)
+      expect(Date.now() - startedWaiting).toBeLessThan(6_000)
+    } finally {
+      try {
+        process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL')
+      } catch {
+        // ESRCH: the grandchild already exited, which is what this cleanup wants.
+      }
+    }
+  }, 10_000)
+
   it('marks a stop() teardown as expected', async () => {
     const { entry } = scriptedEntry(['success'])
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const handle = await startServer(specFor(entry), () => {})
     const exit = waitForExit(handle)
     await handle.stop()
     expect(await exit).toMatchObject({ expected: true })
@@ -201,7 +308,7 @@ describe('ServerHandle.onExit', () => {
   it('marks the server dying on its own, after startup succeeded, as unexpected, and carries a bounded output tail', async () => {
     const { entry } = scriptedEntry(['crash-after-start'])
     const lines: string[] = []
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, (chunk) => { lines.push(chunk) })
+    const handle = await startServer(specFor(entry), (chunk) => { lines.push(chunk) })
     const info = await waitForExit(handle)
     expect(info.expected).toBe(false)
     expect(info.code).toBe(7)
@@ -215,10 +322,23 @@ describe('ServerHandle.onExit', () => {
 
   it('delivers the exit synchronously to a listener registered after the child already exited', async () => {
     const { entry } = scriptedEntry(['crash-after-start'])
-    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const handle = await startServer(specFor(entry), () => {})
     await waitForExit(handle)
     const late = await waitForExit(handle)
     expect(late.expected).toBe(false)
+  })
+})
+
+describe('an exit before the URL line', () => {
+  it('rejects with the whole output, including what the server wrote last', async () => {
+    const entry = entryScript('draining-boot-entry.cjs', `
+      ${LATE_LAST_LINE}
+      process.exit(1)
+    `)
+    const failure = await startServer(specFor(entry), () => {})
+      .then(() => undefined, (error: unknown) => error)
+    expect(failure).toBeInstanceOf(ServerExitedBeforeUrl)
+    expect((failure as ServerExitedBeforeUrl).output).toContain('the last line says why')
   })
 })
 
@@ -232,7 +352,7 @@ describe('startServerWithQuarantine', () => {
     const { entry, attemptsFile } = scriptedEntry(['loader', 'success'])
     const lines: string[] = []
     const handle: ServerHandle = await startServerWithQuarantine(
-      { nodeBin: process.execPath, entry, cwd: root, env: {} }, (chunk) => { lines.push(chunk) }, alwaysQuarantines, root,
+      specFor(entry), (chunk) => { lines.push(chunk) }, alwaysQuarantines, root,
     )
     expect(handle.url).toBe('http://127.0.0.1:54321')
     expect(lines.join('')).toContain('disabled migrated @yuxianglin/dsh-bridge-browser after it failed to load; retrying startup')
@@ -243,7 +363,7 @@ describe('startServerWithQuarantine', () => {
   it('does not retry, and rejects with the original error, when quarantine finds nothing to blame', async () => {
     const { entry, attemptsFile } = scriptedEntry(['loader', 'success'])
     await expect(
-      startServerWithQuarantine({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {}, neverQuarantines, root),
+      startServerWithQuarantine(specFor(entry), () => {}, neverQuarantines, root),
     ).rejects.toBeInstanceOf(ServerExitedBeforeUrl)
     expect(await attemptCount(attemptsFile)).toBe(1)
   })
@@ -255,7 +375,7 @@ describe('startServerWithQuarantine', () => {
     const { entry, attemptsFile } = scriptedEntry(['plain'])
     const bogusNodeBin = join(root, 'no-such-node-binary')
     await expect(
-      startServerWithQuarantine({ nodeBin: bogusNodeBin, entry, cwd: root, env: {} }, () => {}, alwaysQuarantines, root),
+      startServerWithQuarantine(specFor(entry, { nodeBin: bogusNodeBin }), () => {}, alwaysQuarantines, root),
     ).rejects.toThrow(/failed to spawn/)
     expect(await attemptCount(attemptsFile)).toBe(0)
   })
@@ -279,7 +399,7 @@ describe('startServerWithQuarantine', () => {
     `)
     const lines: string[] = []
     const handle = await startServerWithQuarantine(
-      { nodeBin: process.execPath, entry, cwd: root, env: {} }, (chunk) => { lines.push(chunk) }, quarantineLoadFailureFromOutput, root,
+      specFor(entry), (chunk) => { lines.push(chunk) }, quarantineLoadFailureFromOutput, root,
     )
     await vi.waitFor(() => { expect(readMigrationMarker(markerPath)?.defective.map(item => item.name)).toEqual([plugin]) })
     expect(lines.join('')).toContain(`disabled migrated ${plugin} after it failed to load (failed to import); it stays off from the next launch`)
@@ -292,7 +412,7 @@ describe('startServerWithQuarantine', () => {
   it('propagates the retry\'s own failure when it fails again', async () => {
     const { entry, attemptsFile } = scriptedEntry(['loader', 'loader'])
     await expect(
-      startServerWithQuarantine({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {}, alwaysQuarantines, root),
+      startServerWithQuarantine(specFor(entry), () => {}, alwaysQuarantines, root),
     ).rejects.toBeInstanceOf(ServerExitedBeforeUrl)
     expect(await attemptCount(attemptsFile)).toBe(2)
   })
