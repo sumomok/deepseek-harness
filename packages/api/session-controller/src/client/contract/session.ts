@@ -13,19 +13,18 @@ import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PromptContentPart, QueueAction, SessionRequestId } from '../../types.ts'
-import type { PendingSubmissionFile, PendingSubmissionImage, SessionSnapshot } from './snapshot.ts'
+import type { PendingSubmissionAttachment, SessionSnapshot } from './snapshot.ts'
 
 /**
  * Why a local submission echo left the snapshot: `observed` when its durable
  * `user/message` event or host queue occurrence arrived (with the admitted
- * image and file references in prompt order), `failed` when the prompt was
- * rejected, threw, or was aborted before acceptance.
+ * attachment references in prompt order), `failed` when the prompt was rejected,
+ * threw, or was aborted before acceptance.
  */
 export type PendingSubmissionRetirement =
   | {
     readonly reason: 'observed'
-    readonly images: readonly ImageAttachmentRef[]
-    readonly files: readonly FileAttachmentRef[]
+    readonly attachments: readonly (ImageAttachmentRef | FileAttachmentRef)[]
   }
   | { readonly reason: 'failed' }
 
@@ -35,10 +34,8 @@ export interface BeginSubmissionInput {
   readonly mode: 'queue' | 'steer'
   /** Prompt text exactly as the upcoming prompt will send it. */
   readonly text: string
-  /** Ordered image previews matching the upcoming prompt's image parts. */
-  readonly images: readonly PendingSubmissionImage[]
-  /** Ordered file previews matching the upcoming prompt's file parts. */
-  readonly files: readonly PendingSubmissionFile[]
+  /** Ordered image previews and durable file metadata matching the upcoming prompt attachments. */
+  readonly attachments: readonly PendingSubmissionAttachment[]
   /** Settlement callback fired exactly once when the echo retires. */
   readonly onRetire?: (retirement: PendingSubmissionRetirement) => void
 }
@@ -71,9 +68,10 @@ export interface ISession {
   /**
    * Register one local submission echo in `snapshot.pendingSubmissions`,
    * synchronously, before the caller serializes and sends the prompt. The
-   * echo retires when a durable `user/message` event or queue occurrence
-   * carrying the returned identity arrives, or when the identified prompt
-   * call fails.
+   * Chat echoes persist until durable admission; transcript identities also
+   * wait for the Inbox claim watermark so stale queue rows stay suppressed.
+   * Queued echoes retire on queue acceptance. Identified failures retire
+   * submissions that have not already reached durable admission.
    * @param input - echo content and the optional settlement callback.
    * @returns the minted identity for {@link prompt} plus the pre-prompt abandon path.
    */
@@ -101,16 +99,7 @@ export interface ISession {
     attachmentId: AttachmentIdType,
   ): Promise<RemoteResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
   /**
-   * Resolve one durable text file referenced by this session. Plain UTF-8
-   * text, not base64: a file has no binary transport ambiguity to canonicalize.
-   * @param attachmentId - opaque id found in the folded session log.
-   * @returns the authenticated reference and decoded text.
-   */
-  readFile(
-    attachmentId: AttachmentIdType,
-  ): Promise<RemoteResult<{ attachment: FileAttachmentRef; text: string }>>
-  /**
-   * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
+   * Apply one edit, remove, or Steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
    * @param action - requested queue operation.
    * @returns acceptance, or a business/transport error.
@@ -130,7 +119,9 @@ export interface ISession {
    */
   rename(title: string): Promise<RemoteResult<{ title: string; seq: SessionSeq }>>
   /**
-   * Extend the history window backwards (older messages pagination).
+   * Extend history by at least 50 messages and two Turn starts, including a
+   * partial Turn at the window's beginning. Stop at 500 messages or history
+   * exhaustion even when those minima cannot be met. Publish one prepend.
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
   loadOlder(): Promise<void>
@@ -139,6 +130,10 @@ export interface ISession {
    * turn-jump loader. Repeated calls while a jump is paging lower its shared
    * target and return the in-flight completion; `snapshot.loadingOlder` is
    * the busy signal for the whole jump.
+   * Each page uses the same Turn alignment as loadOlder, with a 200-message
+   * minimum. The 500-message limit applies per page, not to the whole jump.
+   * Older pages publish together at completion, including successful pages
+   * before a later failure; live events remain independently visible.
    * @param seq - durable event seq the window must reach (a turn's `turn/start` seq).
    * @returns completion once covered, exhausted, superseded, or failed soft.
    */

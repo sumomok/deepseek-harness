@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-content-read-page-channel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-content-read-page-channel.md
-2026-09-01-content-read-page-channel.md: 3bc07873dc1291a89cf1a2c541ec9c6f165db6a7
-2026-09-01-content-read-page-channel.zh.md: a04b1e3ca257df9c042feb9f4602568e6ee06f93
+/agent-note-content-read-and-the-browser-channel-behind-it:
+  en: 069290d0c26876c8
+  zh: 51fc938a8ff11005
+/agent-note-content-read-and-the-browser-channel-behind-it/problem:
+  en: 3355f197a8a3e234
+  zh: 6184f64b6e39058a
+/agent-note-content-read-and-the-browser-channel-behind-it/decision:
+  en: 2c084ca608328432
+  zh: abc1fff2173821ad
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/two-phases-not-one:
+  en: 007840244ef84b76
+  zh: 62e6c6c50ce86f09
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/one-session-s-reads-stick-to-one-tab:
+  en: c15ada23ebcd1211
+  zh: 652c58c37d430997
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/the-call-id-is-the-capability:
+  en: 89538ae8b9c9629a
+  zh: 77dcacb75f5d5ca7
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/a-refused-body-is-not-a-body-read:
+  en: 868153b049885689
+  zh: e7f55a6f482f3b06
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/the-byte-bound-is-computed-from-the-wire-s-own-field-bounds:
+  en: 83d2828095db97c9
+  zh: b1d154a9f78d0c04
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/a-refused-report-is-not-posted-again:
+  en: da18f6688e2278b3
+  zh: 7e72ac836c18f2c5
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/every-ending-is-a-sentence-and-every-failure-throws:
+  en: 898d33be3adcf31d
+  zh: 28e20d85a8f3c158
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/an-unclaimed-read-says-something-different-when-the-column-is-not-empty:
+  en: 9ead148aaece5ca9
+  zh: 355988bf94659512
+/agent-note-content-read-and-the-browser-channel-behind-it/decision/the-reader-lives-in-the-page-seat:
+  en: 3e078855fb0e25fe
+  zh: 70e6431b7c406c51
+/agent-note-content-read-and-the-browser-channel-behind-it/alternatives-considered:
+  en: 423a2f5afe2a40fa
+  zh: 10d9182614cefb31
+/agent-note-content-read-and-the-browser-channel-behind-it/consequences:
+  en: 0eb6853445b457f9
+  zh: aab7cbefac62f137
+/agent-note-content-read-and-the-browser-channel-behind-it/follow-ups:
+  en: 5bc88e687b7c70dc
+  zh: c384b15ac6bedf86

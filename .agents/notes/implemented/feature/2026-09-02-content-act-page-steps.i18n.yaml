@@ -1,6 +1,58 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-content-act-page-steps.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-02-content-act-page-steps.md
-2026-09-02-content-act-page-steps.md: e8650ac9b360b5a5bd020bd01125ca8fb4481155
-2026-09-02-content-act-page-steps.zh.md: 35185e224e8fd601ce9d74f681c532adb4560d73
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column:
+  en: a3e5f9f9f57f3eed
+  zh: 79c6a7fc7f1827e2
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/problem:
+  en: 046567523f96a0c8
+  zh: b38bfbfb86236cb6
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision:
+  en: ad9a9f4a630892a5
+  zh: e5e28a1ffe36ebd4
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/one-call-is-one-approval-request-composed-from-the-arguments-alone:
+  en: d624891415f0501e
+  zh: cba573dc4b978edd
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/what-was-approved-was-steps-on-the-entry-that-was-in-front:
+  en: 2dd2f89e8d4eb0c8
+  zh: ab5af6c22842656b
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-page-s-own-confirmation-is-a-separate-agreement:
+  en: 32b93936213ed2b3
+  zh: 06dcbfe856e558ad
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-label-is-checked-against-the-page-before-anything-is-dispatched:
+  en: d2a4d22fea8ac8f1
+  zh: ed8db3d02b024c55
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-scope-is-the-reader-s-not-the-frame-s:
+  en: b3915919d9429838
+  zh: 7f1d0f001e3d112a
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/not-on-a-page-asking-the-user-to-sign-in:
+  en: 5e8f64c53891416b
+  zh: 2518c3872699ae2b
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-events-are-the-ones-a-user-produces:
+  en: 99c4c1b0b2b3eba6
+  zh: a761646b5fd07f01
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-deadline-bounds-the-run-and-the-run-is-checked-against-it:
+  en: a9e0f8e14ed54eea
+  zh: dd88f87d8709a560
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/what-the-browser-did-on-the-page-s-own-account-comes-back-with-the-answer:
+  en: ffe872eff575d876
+  zh: 20e695922e8a3439
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/three-sections-every-time-in-the-same-order:
+  en: 0cd9bd83f11e4524
+  zh: b62854165f514d12
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/the-call-card-is-display-and-display-may-not-throw:
+  en: 8da8ff08e0c9ed01
+  zh: b5814f0b1bfaf907
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/decision/no-new-session-events-and-no-new-bytes:
+  en: 7c272c3aedb4c693
+  zh: 4a3f1ef524cd88a2
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/alternatives-considered:
+  en: 852c3840aabc756d
+  zh: 41f194f3ff0864c3
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/consequences:
+  en: 749106f76d1bdc1c
+  zh: ef849ad64410465a
+/agent-note-content-act-the-agent-s-hands-on-the-page-in-the-column/follow-ups:
+  en: f4401e990c672dfe
+  zh: c9e2f09c0cd77624

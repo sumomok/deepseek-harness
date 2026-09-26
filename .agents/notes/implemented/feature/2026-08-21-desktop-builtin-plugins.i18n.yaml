@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-21-desktop-builtin-plugins.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-desktop-builtin-plugins.md
-2026-08-21-desktop-builtin-plugins.md: 727f8bef1ed1d882755575a285fd94b02d15b363
-2026-08-21-desktop-builtin-plugins.zh.md: 37bcd28a059d99343c509676a5a2509689130d16
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own:
+  en: aa8dbb32a2a6ae90
+  zh: 7f47c055298c4186
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/problem:
+  en: 2f2e2930983ef3f0
+  zh: 05f778ccadddc6fd
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/decision:
+  en: a58d5aea5c0beff2
+  zh: a92549f9f853c27a
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/why-the-desktop-owns-its-profile:
+  en: 05f7a888623d1423
+  zh: 141ef238e7844e6c
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/what-the-profile-normalizers-do-to-a-seeded-list:
+  en: 882b36e31ca5cd68
+  zh: 242bad261103054e
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/one-node-pty-not-two:
+  en: 834d4b414215a3af
+  zh: 4cdc89155300b1c4
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/the-build-stops-editing-the-developer-s-harness-home:
+  en: eaa29cc41efa1ab7
+  zh: 112a5e2e0c12b3d1
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/keeping-the-payload-s-bundler-from-deleting-them:
+  en: dba5b5317fc6f738
+  zh: d5d47c32e86bb41f
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/alternatives-considered:
+  en: d84b1eb5512446e6
+  zh: db055dc6f254bf87
+/agent-note-the-desktop-installer-ships-plugins-and-seeds-them-into-a-profile-of-its-own/consequences:
+  en: cc2e66badaa56f21
+  zh: d49efa516e331f41

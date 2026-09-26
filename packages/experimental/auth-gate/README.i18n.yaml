@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/auth-gate/README.md
-README.md: ace3465f5e92b4a62b6ccff5e95e7883a5a8b68e
-README.zh.md: fffbfb84c343e02a8dfc55712abbb1d514403cff
+/:
+  en: b6aed5b7130d61b0
+  zh: 123aa115aaf57b19
+/deepseek-ai-dsh-experimental-auth-gate:
+  en: ee7944b76363d55c
+  zh: 773b351c4c567f33
+/deepseek-ai-dsh-experimental-auth-gate/summary:
+  en: 7510daad9e4460ea
+  zh: d5457543c81c92b9
+/deepseek-ai-dsh-experimental-auth-gate/table-of-contents:
+  en: 1f05e9634bcb6fef
+  zh: 56a558f090e1f234
+/deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load:
+  en: 337c878e491f8bfd
+  zh: 40ed140d6bbf8cd0
+/deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load/the-mirror-never-loops:
+  en: 08dca740259a6206
+  zh: ee160254e307edfa
+/deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load/why-the-mirror-cookie-is-not-httponly:
+  en: d00cdb0551b2b843
+  zh: 46aeceeea8620f6f
+/deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load/expiry-and-renewal:
+  en: 5ab37093b3054440
+  zh: 63a58fc546f039c4
+/deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load/giving-the-token-up:
+  en: 244d7c5aec6c4004
+  zh: 531c337ef7fb34dc
+/deepseek-ai-dsh-experimental-auth-gate/routes:
+  en: 5b83491d7ec2066a
+  zh: 8066a4b202fd9593
+/deepseek-ai-dsh-experimental-auth-gate/forwarding-mcp-requests-with-the-token:
+  en: ef5101f2a0da5385
+  zh: 297105af90c4e89c
+/deepseek-ai-dsh-experimental-auth-gate/reading-the-deployment-s-data-backend:
+  en: 6f6a1eeeee69f0d3
+  zh: d5e190838978bd66
+/deepseek-ai-dsh-experimental-auth-gate/composition:
+  en: a9a11c4f1392e49d
+  zh: 6e45d455748ca4b3
+/deepseek-ai-dsh-experimental-auth-gate/model-experience:
+  en: 25e94b6a273584cb
+  zh: 25e94b6a273584cb
+/deepseek-ai-dsh-experimental-auth-gate/model-experience/kv-cache-effect:
+  en: dfcef6725d05d467
+  zh: dfcef6725d05d467
+/deepseek-ai-dsh-experimental-auth-gate/known-limitations-and-deferred-work:
+  en: b7786e22d78c9ae0
+  zh: 31d2e298a11b828d
+/deepseek-ai-dsh-experimental-auth-gate/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.md
-2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.md: 9ee77c8571841b427625ce4cb658b047a3b37317
-2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.zh.md: fdaab000a2ced08a1adc0be6c4852d444aa303b5
+/agent-note-auth-gate-one-place-to-drop-the-login-page-s-bearer-scheme-and-a-sign-out-that-reaches-the-mirror-cookie-and-the-held-token:
+  en: 4240b8a0b13a595b
+  zh: 081686ed40961acd
+/agent-note-auth-gate-one-place-to-drop-the-login-page-s-bearer-scheme-and-a-sign-out-that-reaches-the-mirror-cookie-and-the-held-token/problem:
+  en: c46f860321f91d9c
+  zh: 3fbde0318c203df8
+/agent-note-auth-gate-one-place-to-drop-the-login-page-s-bearer-scheme-and-a-sign-out-that-reaches-the-mirror-cookie-and-the-held-token/decision:
+  en: d625da22baf4f736
+  zh: 9e5190e4d9ff21d1
+/agent-note-auth-gate-one-place-to-drop-the-login-page-s-bearer-scheme-and-a-sign-out-that-reaches-the-mirror-cookie-and-the-held-token/alternatives-considered:
+  en: 0b898c8f64698bf4
+  zh: 69de8604a304036e
+/agent-note-auth-gate-one-place-to-drop-the-login-page-s-bearer-scheme-and-a-sign-out-that-reaches-the-mirror-cookie-and-the-held-token/consequences:
+  en: 5645e3d51ca95521
+  zh: 70fb1f2974e12c45

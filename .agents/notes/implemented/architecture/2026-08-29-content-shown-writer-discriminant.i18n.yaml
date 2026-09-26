@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-29-content-shown-writer-discriminant.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-29-content-shown-writer-discriminant.md
-2026-08-29-content-shown-writer-discriminant.md: 08cd7f51fbdcf6ced04ff0d35b3856ddee5a5c2f
-2026-08-29-content-shown-writer-discriminant.zh.md: 00f5671dbf3794456b145a2c3c8081f8d2715ca3
+/agent-note-content-shown-gets-a-by-writer-discriminant-instead-of-a-second-event-or-kind:
+  en: c5f45e8053a93d6e
+  zh: f423ce17b6009171
+/agent-note-content-shown-gets-a-by-writer-discriminant-instead-of-a-second-event-or-kind/problem:
+  en: 189b96b29821a79b
+  zh: ecf05bd1b03b7f37
+/agent-note-content-shown-gets-a-by-writer-discriminant-instead-of-a-second-event-or-kind/decision:
+  en: b72eb370106afa28
+  zh: a7439db69ca7956b
+/agent-note-content-shown-gets-a-by-writer-discriminant-instead-of-a-second-event-or-kind/alternatives-considered:
+  en: 03850104aff884c3
+  zh: 2285a1e27dad436a
+/agent-note-content-shown-gets-a-by-writer-discriminant-instead-of-a-second-event-or-kind/consequences:
+  en: 0322dd3204ecc890
+  zh: eb9c534cd0214dde

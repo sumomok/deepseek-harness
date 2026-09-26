@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-console-process-shown-again.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-10-console-process-shown-again.md
-2026-09-10-console-process-shown-again.md: af9b21f9cafbc8e86e324975ef5903d12cbd75c1
-2026-09-10-console-process-shown-again.zh.md: 28d4a7225d1664ffcf96518ff9a78781b63b9877
+/agent-note-the-console-s-conversation-column-shows-the-process-again:
+  en: 02fe5b6d2b798ad3
+  zh: 479306db56612c83
+/agent-note-the-console-s-conversation-column-shows-the-process-again/problem:
+  en: fc17272f920ee574
+  zh: 08d840269933f746
+/agent-note-the-console-s-conversation-column-shows-the-process-again/decision:
+  en: ed3919fbe32caae3
+  zh: 7c483d0d79c6a390
+/agent-note-the-console-s-conversation-column-shows-the-process-again/alternatives-considered:
+  en: 05d0117b544bcbb0
+  zh: aa161305a99a5428
+/agent-note-the-console-s-conversation-column-shows-the-process-again/consequences:
+  en: 743ec9df6b2ffc29
+  zh: 2d42e9537b79b566

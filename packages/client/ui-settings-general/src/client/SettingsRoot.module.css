@@ -1,10 +1,23 @@
 .triggerRow {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   width: calc(100% + 4px);
   margin: 4px -2px;
+  border-radius: var(--dsw-radius-md);
+}
+
+/* Wide row: the whole row is the hover surface, so the trigger and whatever
+   the action seat holds light up as one control instead of two. The rail row
+   is excluded — there the 36px trigger circle is its own surface. */
+.triggerRow:not(.railRow):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.triggerRow:not(.railRow) .trigger:hover {
+  background: transparent;
 }
 
 .triggerRow.railRow {
@@ -24,7 +37,7 @@
   padding: 0 10px 0 8px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   cursor: pointer;
   overflow: hidden;
@@ -38,7 +51,8 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Rail trigger: the same 36x36 circle box as the other rail controls. */
+/* Rail trigger: the same 36x36 box and 12px rounding as the other rail
+   controls. */
 .trigger.rail {
   flex: none;
   width: 36px;
@@ -47,13 +61,26 @@
   justify-content: center;
   gap: 0;
   padding: 0;
-  border-radius: 50%;
-  corner-shape: round;
 }
 
 .triggerLabel {
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* Same-row action seat. This wrapper and the slot anchor inside it are both
+   boxless, so an empty seat contributes neither a flex item nor a row gap;
+   occupants become flex children of the row after the flex:1 trigger, which
+   pins them to its right edge. In the wide row `.triggerRow` owns the hover
+   surface, so an occupant draws neither a border nor a background of its own
+   and only has to be the right-aligned part of the row. */
+.triggerActions {
+  display: contents;
+}
+
+/* The 36px rail row holds the trigger circle and nothing else. */
+.triggerRow.railRow .triggerActions {
+  display: none;
 }
 
 /* Full-viewport layer (figma Mask 501:29946 #000@24%): mask tokens match the
@@ -74,20 +101,22 @@
   backdrop-filter: var(--dsw-mask-blur);
 }
 
-/* Panel (figma Settings 501:29947): r24, white; the figma lv3 effects are
-   superseded by the shared elevation treatment; figma's 1080x700 is shrunk to 800 wide.
-   One height for every section, taken from the viewport rather than the
-   content: sections differ by hundreds of pixels (a settings list against the
-   composition editor), and a content-sized panel would resize under the
-   pointer on every nav click. Whatever does not fit scrolls in `.options`. */
+/* Settings uses a shared 800×800 panel; longer sections scroll
+   inside the options column; the navigation scrolls independently. One height for
+   every section, taken from the viewport rather than the content, because a
+   content-sized panel would resize under the pointer on every nav click.
+   The viewport height leaves 24px of air above and below, widened to the
+   frame's published top clearance (the macOS window strip, where clicks drag
+   the window) on both sides, so the panel sits centered and clear of the
+   strip. */
 .panel {
   position: relative;
   z-index: 1;
   display: flex;
   width: 800px;
-  height: min(800px, calc(100vh - 48px));
+  height: min(800px, calc(100vh - 2 * max(24px, var(--dsh-frame-top-clearance, 24px))));
   max-width: calc(100vw - 48px);
-  border-radius: 32px;
+  border-radius: var(--dsw-radius-panel);
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);
@@ -100,6 +129,10 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+.panel:focus {
+  outline: none;
+}
+
 /* Nav rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0),
    gap 18, no own fill — the panel white shows through. */
 .nav {
@@ -108,6 +141,7 @@
   flex-direction: column;
   gap: 18px;
   width: 188px;
+  min-height: 0;
   padding: 22px 12px 0;
   box-sizing: border-box;
 }
@@ -121,11 +155,46 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Cell stack (figma 501:29961): gap 4. */
+/* Group stack: gap 12 between groups, the figma cell stack's gap 4 inside
+   one. The rail scrolls rather than clips — the panel takes its height from
+   the viewport while the section ledger is open-ended, so the list shrinks to
+   the leftover column height and scrolls whatever does not fit (without
+   min-height:0 a flex item refuses to shrink below its content and the
+   overflow disappears under the panel's own `overflow: hidden`). */
 .navList {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* One top-level group: its title row above its member cells. */
+.navGroup {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Group title: not a control — it names the group for a reader and for the
+   `role="group"` it labels. Smaller and dimmer than a cell label so the two
+   levels read apart at a glance. */
+.navGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.navGroupLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
@@ -138,7 +207,7 @@
   padding: 9px 16px 9px 12px;
   box-sizing: border-box;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--dsw-radius-md);
   background: transparent;
   cursor: pointer;
   font-family: inherit;
@@ -147,6 +216,13 @@
   font-weight: 400;
   color: var(--dsw-alias-label-primary);
   text-align: left;
+}
+
+/* Member cells carry no glyph of their own; the 36px inset puts their labels
+   in the same column as the group label above them (12 padding + 16 glyph +
+   8 gap). */
+.navGroup .navCell {
+  padding-left: 36px;
 }
 
 .navCell:hover {
@@ -198,7 +274,7 @@
   margin-left: auto;
 }
 
-/* Close button (figma .Icon_container 501:29982): 28x28, r28, 14px glyph. */
+/* Compact close control. */
 .close {
   display: inline-flex;
   align-items: center;
@@ -207,7 +283,7 @@
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 28px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-primary);
@@ -234,3 +310,8 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* No app-region rule here: the overlay portals beside #root (SettingsRoot), so
+   ui-web base.css's `body > :not(#root)` subtraction covers it wherever it
+   overlaps a chrome row's drag — including above every column, which an in-root
+   overlay could not promise once a chrome row declares drag itself. */

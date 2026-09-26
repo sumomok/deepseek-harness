@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-04-export-records-unreadable-media.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.md
+/agent-note-an-unreadable-attachment-is-recorded-in-the-export-archive:
+  en: 69a22d391e529ead
+  zh: dfaac44878a2ff93
+/agent-note-an-unreadable-attachment-is-recorded-in-the-export-archive/problem:
+  en: 5f005d61add56a20
+  zh: 19112976e8d48609
+/agent-note-an-unreadable-attachment-is-recorded-in-the-export-archive/decision:
+  en: 80ac84957cd56645
+  zh: 3ed07a1e53919ecd
+/agent-note-an-unreadable-attachment-is-recorded-in-the-export-archive/alternatives-considered:
+  en: 525f836699790846
+  zh: 90e38854ede4e6bb
+/agent-note-an-unreadable-attachment-is-recorded-in-the-export-archive/consequences:
+  en: 23612e5bdc702c4f
+  zh: d3c67fc03d04d2b2

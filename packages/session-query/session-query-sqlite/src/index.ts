@@ -5,11 +5,11 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { SessionSeq } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { DatabaseSync } from 'node:sqlite'
 import { Context, Service, type Fiber } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import type { Session, SessionEvent, SessionHeader, SessionId , SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type {
   SessionPersistenceRevision,
@@ -61,6 +61,7 @@ import {
 
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
+  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
   type JournalMode,
 } from './schema.ts'
@@ -662,8 +663,6 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       offset,
     ]
     assertPortableBindingCount(bindings.length)
-    // The browser fixture mirrors these rank keys in
-    // `packages/client/connection/src/client/fixture.ts`; update both together.
     return this._requireDb().prepare(`
       ${selected.sql},
       filtered AS (
@@ -871,6 +870,7 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
 }
 
 function observeLive(session: Session): ObservedSession {
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   return observeSession(session.header, session.inheritedEventCount, session.snapshotEvents())
 }
 
@@ -937,8 +937,7 @@ function sameSessionIds(
 }
 
 function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
-  return a.version === b.version
-    && a.id === b.id
+  return a.id === b.id
     && a.createdAt === b.createdAt
     && a.cwd === b.cwd
     && a.parentSession === b.parentSession
@@ -949,7 +948,7 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
 
 function rowHeader(row: SessionHeaderRow): SessionHeader {
   return {
-    version: row.version,
+    version: SESSION_FORMAT_VERSION,
     id: row.session_id as SessionId,
     createdAt: row.created_at,
     ...row.cwd === null ? {} : { cwd: row.cwd },

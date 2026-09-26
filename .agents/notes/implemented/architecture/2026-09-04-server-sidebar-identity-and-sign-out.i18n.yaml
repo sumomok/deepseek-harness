@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-server-sidebar-identity-and-sign-out.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-server-sidebar-identity-and-sign-out.md
-2026-09-04-server-sidebar-identity-and-sign-out.md: 9b23479f5c8a8941d0dc9ae12d47ba3a85198e1f
-2026-09-04-server-sidebar-identity-and-sign-out.zh.md: 77445b2d81b18375105ada04799e7daad38f0f34
+/agent-note-server-sidebar-naming-the-signed-in-person-in-the-footer-and-the-one-control-that-undoes-it:
+  en: 47f44e8addb4b619
+  zh: 6b1be74cde01e2d4
+/agent-note-server-sidebar-naming-the-signed-in-person-in-the-footer-and-the-one-control-that-undoes-it/problem:
+  en: 8053b4d0f4ccf3e6
+  zh: e8d2e47c1a9c2899
+/agent-note-server-sidebar-naming-the-signed-in-person-in-the-footer-and-the-one-control-that-undoes-it/decision:
+  en: 9267505fd6b7615f
+  zh: 9a9d413e76fca0f5
+/agent-note-server-sidebar-naming-the-signed-in-person-in-the-footer-and-the-one-control-that-undoes-it/alternatives-considered:
+  en: a93d70ebf9363048
+  zh: c2ca5289d4811d6c
+/agent-note-server-sidebar-naming-the-signed-in-person-in-the-footer-and-the-one-control-that-undoes-it/consequences:
+  en: cbd54497e8d1d9b0
+  zh: 98f4910e9265259c

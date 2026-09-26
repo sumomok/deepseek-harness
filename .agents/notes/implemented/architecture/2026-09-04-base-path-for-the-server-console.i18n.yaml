@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-base-path-for-the-server-console.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-base-path-for-the-server-console.md
-2026-09-04-base-path-for-the-server-console.md: fb2e9fbc94eb37ed1834fc191534296584c065ab
-2026-09-04-base-path-for-the-server-console.zh.md: d8b320c7b5c86111ad385f40822a942bce792104
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser:
+  en: 86c5fb442e2cb23e
+  zh: 15bb9b9b57cffae2
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/problem:
+  en: df6ce2e20831c3c1
+  zh: cdc4d559902549aa
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/decision:
+  en: 4a22ac81ce6847bd
+  zh: 730449fd6098b2af
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/alternatives-considered:
+  en: 0f9b62f5ccbb35cb
+  zh: c12055538520c592
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/site-level-authentication-an-auth-request-gate-against-the-deployment-s-own-service:
+  en: 0288587af51caa15
+  zh: d7625192721ebbeb
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/site-level-authentication-an-auth-request-gate-against-the-deployment-s-own-service/alternatives-to-the-gate:
+  en: b3cea12a14f4e041
+  zh: 39075e7e2269d1d9
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/site-level-authentication-an-auth-request-gate-against-the-deployment-s-own-service/known-limitations-of-the-gate:
+  en: 2ef86b71cc3c1981
+  zh: bb1ce498897081c1
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/consequences:
+  en: 9fe4d09eb8b2a1b7
+  zh: 0611bbafded6b7f1
+/agent-note-serving-the-console-under-a-deployment-path-prefix-with-the-prefix-known-only-to-the-browser/consequences/known-limitations:
+  en: 948a476b6e94f3fe
+  zh: 35ff7422f8f4547f

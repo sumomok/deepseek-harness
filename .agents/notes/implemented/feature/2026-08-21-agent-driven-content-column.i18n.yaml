@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-21-agent-driven-content-column.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-agent-driven-content-column.md
-2026-08-21-agent-driven-content-column.md: 4232efe8ae3e27fbba31246b5ff27e0e4ed0122d
-2026-08-21-agent-driven-content-column.zh.md: f590193d7623d09b2e8547a1782056f71999ce2c
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches:
+  en: bad19f2ad83f0733
+  zh: bb2f71765d8dc2b1
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/problem:
+  en: 072f45b541ba8611
+  zh: 2ed9f0a0228636b6
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/decision:
+  en: 7f8908013fbb0edb
+  zh: 1722c22fe4d52003
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/decision/one-tool-one-event-one-projection:
+  en: 680370050d9efb6a
+  zh: b7b0f20ad838bf48
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/decision/a-browser-half-receives-no-cordis-config:
+  en: 88f3cbc93470de21
+  zh: 2de68fccec35138c
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/decision/two-browser-facts-decide-the-whole-cache-design:
+  en: 5c653cff38e6aa9f
+  zh: f3cf1f4af3ed09eb
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/alternatives-considered:
+  en: 84858a80c1366893
+  zh: cfba1ec3eb7e4908
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/consequences:
+  en: 1c72d8cdb4be8b88
+  zh: f3a4939586dbdc27
+/agent-note-the-agent-drives-the-content-column-and-its-frames-outlive-session-switches/testing:
+  en: 965ac3c23b31bdf2
+  zh: ebf61c1a73f784c3

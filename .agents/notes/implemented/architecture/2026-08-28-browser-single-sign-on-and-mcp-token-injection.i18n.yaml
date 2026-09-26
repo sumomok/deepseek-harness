@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-browser-single-sign-on-and-mcp-token-injection.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-28-browser-single-sign-on-and-mcp-token-injection.md
-2026-08-28-browser-single-sign-on-and-mcp-token-injection.md: fc6b8bbc0939e9ed26f2eecb0105f48e47cddcca
-2026-08-28-browser-single-sign-on-and-mcp-token-injection.zh.md: 4bd8c99d26facda0b844137eceff73d86044f34c
+/agent-note-browser-single-sign-on-and-mcp-token-injection:
+  en: 2500e81382b03a28
+  zh: 99e4ad18280f7d0b
+/agent-note-browser-single-sign-on-and-mcp-token-injection/problem:
+  en: 2af62d018310dd82
+  zh: a72b27237c76db65
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision:
+  en: c047ad55e9787a4d
+  zh: 53ab8d5a2f869f10
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision/the-token-is-accepted-on-shape-alone:
+  en: ce494e68fc9394a7
+  zh: 5bfb5303101f0623
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision/the-cookie-mirror-is-not-httponly-and-that-costs-nothing:
+  en: 842cac97d318d8d7
+  zh: d8e212fc6137e245
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision/the-mirror-cannot-loop:
+  en: 8f84e5a3088be160
+  zh: 31a2e06bac9a189d
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision/expiry-is-a-navigation-with-one-named-seam:
+  en: fa9eb6b45d33e621
+  zh: ff35cdbff4a7794d
+/agent-note-browser-single-sign-on-and-mcp-token-injection/decision/the-forward-rides-the-dsh-webserver:
+  en: 748e37d5bff921ec
+  zh: d40439a916406bfb
+/agent-note-browser-single-sign-on-and-mcp-token-injection/alternatives-considered:
+  en: 64f19856a36c2de9
+  zh: 187fbea70a46f05a
+/agent-note-browser-single-sign-on-and-mcp-token-injection/consequences:
+  en: e7206a149a2bc1e9
+  zh: 8821ba2d9168262f

@@ -8,7 +8,7 @@ Source: [`packages/compaction/compaction/src/types.ts`](../../packages/compactio
 
 ## The `compaction/*` session events
 
-Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the lock, summary, selected range, shadowed event seqs, token count, and model call without joining the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', start, end }` — the only surface mutation performed by summary compaction. The [Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) owns the rationale for reusing `user/message`.
+Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the lock, summary, selected range, shadowed event seqs, token count, and model call without joining the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', startSeq, endSeq }` — the only surface mutation performed by summary compaction. The [Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) owns the rationale for reusing `user/message`.
 
 | Event | Payload | Role |
 |---|---|---|
@@ -21,6 +21,21 @@ The lock brackets the **whole** operation: `compaction/start` is appended first,
 The markers are lock time points, not an exclusive container. An unrelated idle injection can appear between a standalone manual start and end while summarization is pending. The manual path revalidates only its selected positional span, so that injected context survives after the replacement checkpoint. A live unmatched start blocks every entry point; an unmatched start before a newer `session/end-seed` is stale evidence from a prior lifecycle and is ignored.
 
 These variants are merged inside a `declare module '@deepseek-ai/dsh-session/types'` block, so — unlike the top-level types on the other subsystem pages — they are not pasted as a drift-checked ` ```ts type-equiv ` block (the `verify-type-equiv` extractor matches only top-level declarations by name). The payload table above is the catalog entry; follow the source link for the authoritative fields.
+
+<a id="image-offload"></a>
+## Image offload
+
+`compaction-image-offload` owns the `image/offload` declaration and its pure message projection. Each target identifies a current input node and exact depth-first image occurrences. The event preserves node and message identities and carries no `surfaceOp`. The [package README](../../packages/compaction/compaction-image-offload/README.md) owns recovery policy, registration, and detached replay.
+
+```ts type-equiv
+/** Exact input-image occurrences selected by one durable offload decision. */
+interface ImageOffloadTarget {
+  /** Current message-producing event containing these occurrences. */
+  seq: SessionSeq
+  /** Zero-based depth-first image indexes within the immutable message. */
+  imageIndexes: number[]
+}
+```
 
 ## `CompactionResult`
 
@@ -81,9 +96,9 @@ type ManualCompactionErrorCode =
   | 'persistence'
 ```
 
-`changed` and `summary` leave the conversation surface unchanged but still close and persist the failed attempt in the log. `commit` may follow partial mutation; `persistence` means the in-memory bracket closed but its flush failed. Cancellation remains separate and throws the exact abort reason after required cleanup.
+`changed` and `summary` close and persist the failed attempt without a summary replacement; image omissions recorded during recovery remain effective. `commit` may follow partial mutation; `persistence` means the in-memory bracket closed but its flush failed. Cancellation remains separate and throws the exact abort reason after required cleanup.
 
-Pressure compaction runs at the `agent/pre-step` waterfall before request derivation. Once pressure or canonical overflow qualifies, compaction-basic invokes optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compaction-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
+Pressure compaction runs at the `agent/pre-step` waterfall before request derivation, on the occupancy the context meter displays: wherever provider usage anchors the measurement the backend reads the [`contextPressure` projection](token-meter.md)'s own published `projectedTokens`, so the automatic trigger and the on-screen percentage are one value rather than two calculations; any other baseline keeps the trigger on the meter's route-priced `totalTokens`, the only reading that sees unbilled image pressure. The capacity is unaffected either way: the backend divides by the adapter's `resolveModelInfo` window, never the projection's recorded `contextWindow`. compaction-basic reads an optional `ctx.compactionPolicy` on every such step — never cached — for a live enable switch and a threshold ratio that outranks its configured one; overflow recovery ignores that switch. Once pressure or canonical overflow qualifies, compaction-basic invokes optional [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compaction-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The Service Definition exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for the tool-call/result pairing checks before and after a seq. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compaction/compaction/README.md#tool-pairing-boundaries) defines their cache behavior.
 
@@ -194,6 +209,29 @@ Types: [CommandId](commands.md) · [SessionSeq](session.md)
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 
+<a id="ctxcompactionpolicy--compactionpolicy"></a>
+
+### `ctx.compactionPolicy` — `CompactionPolicy`
+
+Live automatic-compaction policy a host-plane plugin provides from user settings.
+
+```ts cordis-catalog
+/**
+ * Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.
+ * @returns true while the pressure path may run, false to suspend it.
+ */
+isEnabled(): boolean
+
+/**
+ * Share of the model's context window (0–1) at which the next step compacts first.
+ * @returns the live threshold ratio; a value outside (0, 1], or one the retained tail
+ *   would not clear, is refused and the configured ratio governs instead.
+ */
+thresholdRatio(): number
+```
+
+Source: [`packages/compaction/compaction-basic/src/types.ts`](../../packages/compaction/compaction-basic/src/types.ts)
+
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
 ### `ctx.toolResultPruner` — `ToolResultPruner`
@@ -235,4 +273,35 @@ pruneSession(session: Session): PruneResult
 Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/index.ts`](../../packages/compaction/compaction-tool-result-pruner/src/index.ts)
+
+<a id="compaction-events"></a>
+
+### `compaction/*` events
+
+<a id="compactionsummary-error--waterfall"></a>
+
+#### `compaction/summary-error` — waterfall
+
+Recover a failed summary request by synchronously recording a durable change to its selected input. Return true only after making progress; the provider re-derives and re-prices the selection before retrying. Call next() when the failure cannot be recovered. Decisions survive a later summary failure or cancellation.
+
+```ts cordis-catalog
+/**
+ * Recover a failed summary request by synchronously recording a durable
+ * change to its selected input. Return true only after making progress;
+ * the provider re-derives and re-prices the selection before retrying.
+ * Call next() when the failure cannot be recovered. Decisions survive a
+ * later summary failure or cancellation.
+ * @param payload.session - session containing the selected input.
+ * @param payload.sourceEventSeqs - selected message events in request order.
+ * @param payload.error - failure thrown by the summarizer.
+ * @param payload.signal - optional compaction cancellation signal.
+ * @param next - delegate to the next recovery listener.
+ * @mode waterfall
+ */
+'compaction/summary-error'(payload: { session: Session; sourceEventSeqs: readonly SessionSeq[]; error: unknown; signal?: AbortSignal }, next: () => boolean): boolean
+```
+
+Types: [Session](session.md) · [SessionSeq](session.md)
+
+Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 <!-- END GENERATED cordis-surface -->

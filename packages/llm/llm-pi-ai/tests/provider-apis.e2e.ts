@@ -3,18 +3,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
-  FileAttachmentLimits,
-  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
-  ImageRequestPolicy,
+  ImageRequestTarget,
   RequestImageAttachment,
-  SaveFileAttachment,
   SaveImageAttachment,
-  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiReplayResponse } from '../src/replay.ts'
@@ -95,7 +91,7 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
         return Promise.resolve(fixture)
       }
 
-      override readImageRequest(ref: ImageAttachmentRef, _policy: ImageRequestPolicy): Promise<RequestImageAttachment> {
+      override readImageRequest(ref: ImageAttachmentRef, _target: ImageRequestTarget): Promise<RequestImageAttachment> {
         if (ref.attachmentId !== fixture.ref.attachmentId) {
           return Promise.reject(new Error('unknown e2e attachment fixture'))
         }
@@ -112,20 +108,6 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
           hasAlpha: fixture.ref.mediaType === 'image/png',
         })
       }
-
-      readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        return Promise.reject(new Error('e2e attachment fixture is read-only'))
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        return Promise.reject(new Error('e2e attachment fixture is read-only'))
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        return Promise.reject(new Error('e2e attachment fixture is read-only'))
-      }
     }
     await ctx.plugin(E2eAttachmentStore)
   }
@@ -139,7 +121,7 @@ afterEach(async () => {
 function ask(text: string): Message[] {
   return [createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'test' },
+    source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })]
 }
 
@@ -227,13 +209,10 @@ for (const profile of providerCases) {
           messages: [
             ...prompt,
             first.message,
-            createUserMessage({
-              content: [{
-                type: 'tool-result',
-                toolCallId: ToolCallId(call!.id),
-                content: [{ type: 'text', text: 'The code blue means ocean.' }],
-              }],
-              source: { kind: 'plugin', plugin: 'test' },
+            createToolResultMessage({
+              callId: ToolCallId(call!.id),
+              content: [{ type: 'text', text: 'The code blue means ocean.' }],
+              isError: false,
             }),
           ],
           tools: [lookupTool],
@@ -270,7 +249,7 @@ for (const profile of providerCases) {
                 },
                 { type: 'image', attachment: ref },
               ],
-              source: { kind: 'plugin', plugin: 'test' },
+              source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
             })],
             maxTokens: 256,
           })

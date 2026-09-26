@@ -1,14 +1,24 @@
-import { describe, expect, it } from 'vitest'
-import { mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile,
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
-import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsErrorCode, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillFileSystem from '../src/index.ts'
 
+/** Every temp dir created by this file, removed after each test. */
+const tempDirs: string[] = []
+afterEach(async () => {
+  for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
+
 async function tempDir(name: string): Promise<string> {
-  return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
+  const dir = await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
+  tempDirs.push(dir)
+  return await realpath(dir)
 }
 
 async function writeSkill(root: string, name: string, description: string, body = 'Use the skill.'): Promise<void> {
@@ -23,10 +33,12 @@ async function writeFlatSkill(root: string, name: string, description: string, b
 }
 
 class TestFileSystem extends FileSystem {
+  override watch(): never { throw new Error('Fixture does not support watching') }
   listDirCalls = 0
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
   failListDirPaths = new Set<string>()
+  listDirFsErrors = new Map<string, FsErrorCode>()
   errorResolvePaths = new Set<string>()
   errorStatPaths = new Set<string>()
   errorReadPaths = new Set<string>()
@@ -100,9 +112,15 @@ class TestFileSystem extends FileSystem {
     throw new Error('not needed in skill tests')
   }
 
+  override async readByteRange(_target: FsTarget, _range: { offset: number; length: number }, _signal?: AbortSignal): Promise<Uint8Array> {
+    throw new Error('not needed in skill tests')
+  }
+
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
     this.listDirCalls += 1
     if (this.failListDirPaths.has(target.displayPath)) throw new Error('list temporarily failed')
+    const coded = this.listDirFsErrors.get(target.displayPath)
+    if (coded !== undefined) throw new FsError(`cannot list "${target.displayPath}": permission denied`, coded)
     const entries = await readdir(target.displayPath, { withFileTypes: true, encoding: 'utf8' })
     const result: FsDirEntry[] = []
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
@@ -144,6 +162,7 @@ async function setupLocal(home: string, config: Partial<SkillFileSystem.Config> 
   await ctx.plugin(SkillFileSystem, {
     dshHome: join(home, '.dsh'),
     agentsHome: join(home, '.agents'),
+    claudeHome: join(home, '.claude'),
     watch: false,
     ...config,
   })
@@ -203,6 +222,162 @@ describe('FileSystemSkillProvider', () => {
     const noGit = await tempDir('skill-no-git')
     await writeSkill(join(noGit, '.dsh/skills'), 'fallback-root', 'Fallback root')
     expect((await ctx.skills.list({ cwd: noGit })).map(skill => skill.name)).toContain('fallback-root')
+  })
+
+  it('scans the Claude Code roots below the .agents root of their tier', async () => {
+    const home = await tempDir('skill-claude-home')
+    const project = await tempDir('skill-claude-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+
+    await writeSkill(join(project, '.claude/skills'), 'project-only', 'project claude skill')
+    await writeSkill(join(project, '.agents/skills'), 'shared', 'project agents skill')
+    await writeSkill(join(project, '.claude/skills'), 'shared', 'project claude skill')
+    await writeSkill(join(home, '.claude/skills'), 'user-only', 'user claude skill')
+    await writeSkill(join(home, '.agents/skills'), 'user-shared', 'user agents skill')
+    await writeSkill(join(home, '.claude/skills'), 'user-shared', 'user claude skill')
+
+    const ctx = await setupLocal(home)
+    expect((await ctx.skills.list({ cwd: project })).map(skill => [skill.name, skill.source, skill.description])).toEqual([
+      ['project-only', 'project-claude', 'project claude skill'],
+      ['shared', 'project-agents', 'project agents skill'],
+      ['user-only', 'user-claude', 'user claude skill'],
+      ['user-shared', 'user-agents', 'user agents skill'],
+    ])
+    expect((await ctx.skills.get('project-only', { cwd: project }))?.content).toBe('Use the skill.')
+
+    const isolated = new Context()
+    await isolated.plugin(SkillRegistry)
+    await isolated.plugin(SkillFileSystem, {
+      providerName: 'isolated',
+      includeDefaultRoots: false,
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
+    expect(await isolated.skills.list({ cwd: project })).toEqual([])
+    await isolated.fiber.dispose()
+  })
+
+  it('keeps one root per directory when a linked root duplicates another', async () => {
+    const home = await tempDir('skill-linked-home')
+    const project = await tempDir('skill-linked-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'linked', 'agents skill')
+    await mkdir(join(project, '.claude'), { recursive: true })
+    await symlink(join(project, '.agents/skills'), join(project, '.claude/skills'))
+    // A root under a regular file cannot be canonicalized; it keeps its
+    // configured identity and stays in the scan.
+    const notADirectory = join(home, 'not-a-directory')
+    await writeFile(notADirectory, 'not a skill root')
+
+    const ctx = await setupLocal(home, { customSkillDirs: [join(notADirectory, 'skills')] })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    expect((await ctx.skills.list({ cwd: project })).map(skill => [skill.name, skill.source])).toEqual([
+      ['linked', 'project-agents'],
+    ])
+    expect(warnings).toEqual([])
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('keeps the other roots when one root denies reading', async () => {
+    const home = await tempDir('skill-unreadable-home')
+    const project = await tempDir('skill-unreadable-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.dsh/skills'), 'project-skill', 'project dsh skill')
+    await writeSkill(join(home, '.agents/skills'), 'user-skill', 'user agents skill')
+    const unreadable = join(home, '.claude/skills')
+    await mkdir(unreadable, { recursive: true })
+    await chmod(unreadable, 0o000)
+
+    try {
+      const ctx = await setupLocal(home)
+      const warnings: string[] = []
+      ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+      const snapshot = await ctx.skills.snapshot({ cwd: project })
+      expect(snapshot.skills.map(skill => [skill.name, skill.source])).toEqual([
+        ['project-skill', 'project-dsh'],
+        ['user-skill', 'user-agents'],
+      ])
+      // The catalog is missing whatever the denied root holds, so it stays
+      // uncacheable and the next lookup rescans.
+      expect(snapshot.complete).toBe(false)
+      // The absent `.agents`, `.claude`, and `.dsh` roots of the other tiers
+      // stay silent; only the denied one is reported, and the host errno
+      // message carries its own class rather than repeating it.
+      expect(warnings).toEqual([
+        `skill-filesystem: skill directory ${unreadable} skipped: EACCES: permission denied, scandir '${unreadable}'; `
+        + 'its skills stay unavailable until it can be read, and every other skill directory still loads',
+      ])
+      // An incomplete observation is never cached, so the next step rescans the
+      // denied root; the unchanged failure is not reported twice.
+      expect((await ctx.skills.snapshot({ cwd: project })).complete).toBe(false)
+      expect(warnings).toHaveLength(1)
+    } finally {
+      await chmod(unreadable, 0o700)
+    }
+  })
+
+  // Windows needs a privilege to create a symbolic link, and its loop detection
+  // does not surface as `ELOOP`.
+  it.skipIf(process.platform === 'win32')('keeps the other roots when one root links to itself', async () => {
+    const home = await tempDir('skill-looping-home')
+    const project = await tempDir('skill-looping-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'project-skill', 'project agents skill')
+    await writeSkill(join(home, '.dsh/skills'), 'user-skill', 'user dsh skill')
+    await mkdir(join(project, '.claude'), { recursive: true })
+    const looping = join(project, '.claude/skills')
+    await symlink(looping, looping)
+
+    const ctx = await setupLocal(home)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const snapshot = await ctx.skills.snapshot({ cwd: project })
+    expect(snapshot.skills.map(skill => [skill.name, skill.source])).toEqual([
+      ['project-skill', 'project-agents'],
+      ['user-skill', 'user-dsh'],
+    ])
+    expect(snapshot.complete).toBe(false)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain(looping)
+    expect(warnings[0]).toContain('ELOOP')
+  })
+
+  it('reports a filesystem-service root failure by its code and again when the code changes', async () => {
+    const home = await tempDir('skill-coded-root')
+    await writeSkill(join(home, '.agents/skills'), 'user-skill', 'user agents skill')
+    const denied = join(home, '.claude/skills')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    // `dsh-fs-local` translates a denied host listing into this code, and its
+    // message does not repeat it the way a host errno message does.
+    fs.listDirFsErrors.set(denied, 'FS_PERMISSION_DENIED')
+    const snapshot = await ctx.skills.snapshot()
+    expect(snapshot.skills.map(skill => skill.name)).toEqual(['user-skill'])
+    expect(snapshot.complete).toBe(false)
+    expect(warnings).toEqual([
+      `skill-filesystem: skill directory ${denied} skipped: FS_PERMISSION_DENIED: cannot list "${denied}": permission denied; `
+      + 'its skills stay unavailable until it can be read, and every other skill directory still loads',
+    ])
+
+    expect((await ctx.skills.snapshot()).complete).toBe(false)
+    expect(warnings).toHaveLength(1)
+
+    fs.listDirFsErrors.set(denied, 'FS_IO_ERROR')
+    expect((await ctx.skills.snapshot()).complete).toBe(false)
+    expect(warnings).toHaveLength(2)
+    expect(warnings[1]).toContain('FS_IO_ERROR')
   })
 
   it('lets project skills override runtime while runtime overrides custom and user skills', async () => {
@@ -406,7 +581,7 @@ describe('FileSystemSkillProvider', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['good-skill'])
   })
 
-  it('discovers symlinked skill directories and flat files', async () => {
+  it.each([false, true])('publishes regular-file paths for linked skills while retaining their resource roots (filesystem service: %s)', async (withFileSystem) => {
     const home = await tempDir('skill-symlink-home')
     const external = await tempDir('skill-symlink-external')
     await writeSkill(external, 'linked-dir', 'Linked directory')
@@ -417,9 +592,38 @@ describe('FileSystemSkillProvider', () => {
     await symlink(join(external, 'missing'), join(home, '.dsh/skills/broken-link'))
     await symlink('/dev/null', join(home, '.dsh/skills/device-link'))
 
-    const ctx = await setupLocal(home)
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    if (withFileSystem) {
+      await ctx.plugin(class extends TestFileSystem {
+        override async resolve(path: string): Promise<FsTarget> {
+          return { targetKey: await realpath(path) as never, displayPath: path }
+        }
+      })
+    }
+    const fiber = ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false,
+    })
+    await fiber
 
-    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['linked-dir', 'linked-flat'])
+    try {
+      const catalog = await ctx.skills.list()
+      expect(catalog.map(skill => skill.name)).toEqual(['linked-dir', 'linked-flat'])
+      for (const name of ['linked-dir', 'linked-flat']) {
+        const path = name === 'linked-dir' ? join(external, name, 'SKILL.md') : join(external, `${name}.md`)
+        expect(catalog.find(skill => skill.name === name)?.path).toBe(path)
+        const loaded = await ctx.skills.get(name)
+        expect(loaded?.path).toBe(path)
+        expect(loaded?.resourceBase).toEqual({ kind: 'directory', path: name === 'linked-dir' ? join(home, '.dsh/skills', name) : join(home, '.dsh/skills') })
+        expect((await lstat(path)).isFile()).toBe(true)
+      }
+      await writeFile(join(external, 'replacement.md'), '---\nname: linked-flat\ndescription: Replacement\n---\n\nReplacement body.\n')
+      await rm(join(home, '.dsh/skills/linked-flat.md'))
+      await symlink(join(external, 'replacement.md'), join(home, '.dsh/skills/linked-flat.md'))
+      expect((await ctx.skills.get('linked-flat'))?.content).toBe('Replacement body.')
+    } finally {
+      await fiber.dispose()
+    }
   })
 
   it('uses the filesystem service for discovery, reads, and project-root lookup', async () => {
@@ -453,7 +657,12 @@ describe('FileSystemSkillProvider', () => {
       size: 0,
     })
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
 
     expect((await ctx.skills.list({ cwd: nestedCwd })).map(skill => [skill.name, skill.source])).toEqual([
       ['backend-root', 'project-agents'],
@@ -472,6 +681,7 @@ describe('FileSystemSkillProvider', () => {
     await bundledCtx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       bundledSkillDir: bundled,
     })
     expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
@@ -488,6 +698,7 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: false,
     })
 
@@ -524,6 +735,7 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: false,
     })
     const invalidate = (): void => {
@@ -571,7 +783,12 @@ describe('FileSystemSkillProvider', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['abortable-skill'])
 
     fs.statSignals = []
@@ -582,7 +799,7 @@ describe('FileSystemSkillProvider', () => {
       started.resolve(undefined)
       return await new Promise<string>((_resolve, reject) => {
         signal.addEventListener('abort', () => {
-          const abortReason = signal.reason as unknown
+          const abortReason: unknown = signal.reason
           reject(abortReason instanceof Error ? abortReason : new Error(String(abortReason)))
         }, { once: true })
       })
@@ -606,6 +823,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchStabilityThresholdMs: 20,
       watchPollIntervalMs: 10,
@@ -714,6 +932,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       customSkillDirs: [join(first, '.agents/skills')],
       watch: true,
       watchMaxProjects: 1,
@@ -736,6 +955,7 @@ describe('FileSystemSkillProvider', () => {
     await noWatch.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: false,
       watchMaxProjects: 1,
     })
@@ -755,6 +975,7 @@ describe('FileSystemSkillProvider', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
         customSkillDirs: [nonDirectoryRoot],
         watch: true,
         watchStabilityThresholdMs: 20,
@@ -788,6 +1009,7 @@ describe('FileSystemSkillProvider', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchFollowSymlinks: true,
       watchStabilityThresholdMs: 20,
@@ -818,19 +1040,22 @@ describe('FileSystemSkillProvider', () => {
   it('uses default home root resolution without exposing builtin skills', async () => {
     const previousDshHome = process.env.DSH_HOME
     const previousAgentsHome = process.env.DSH_AGENTS_HOME
+    const previousClaudeHome = process.env.DSH_CLAUDE_HOME
     const previousBundledSkillDir = process.env.DSH_BUNDLED_SKILL_DIR
     const envHome = await tempDir('skill-env-home')
     try {
       process.env.DSH_HOME = join(envHome, '.dsh')
       process.env.DSH_AGENTS_HOME = join(envHome, '.agents')
+      process.env.DSH_CLAUDE_HOME = join(envHome, '.claude')
       const bundled = join(envHome, 'bundled-skills')
       process.env.DSH_BUNDLED_SKILL_DIR = bundled
       await writeSkill(join(envHome, '.dsh/skills'), 'env-skill', 'Env skill')
+      await writeSkill(join(envHome, '.claude/skills'), 'env-claude-skill', 'Env Claude Code skill')
       await writeSkill(bundled, 'env-bundled-skill', 'Env bundled skill')
       const ctx = new Context()
       await ctx.plugin(SkillRegistry)
       await ctx.plugin(SkillFileSystem, { watch: false })
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-skill'])
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-claude-skill', 'env-skill'])
 
       // Isolated providers see only their explicit roots: the environment
       // bundled root is a default root, so includeDefaultRoots: false must
@@ -851,12 +1076,14 @@ describe('FileSystemSkillProvider', () => {
       process.env.DSH_HOME = join(envHome, 'empty-dsh')
       delete process.env.DSH_BUNDLED_SKILL_DIR
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
+      process.env.DSH_CLAUDE_HOME = join(envHome, 'empty-claude')
       const empty = new Context()
       await empty.plugin(SkillRegistry)
       SkillFileSystem.apply(empty, { watch: false })
       expect(await empty.skills.list()).toEqual([])
 
       delete process.env.DSH_AGENTS_HOME
+      delete process.env.DSH_CLAUDE_HOME
       expect(new SkillFileSystem.FileSystemSkillProvider(empty, {
         signal: new AbortController().signal,
         invalidate() {},
@@ -871,6 +1098,11 @@ describe('FileSystemSkillProvider', () => {
         delete process.env.DSH_AGENTS_HOME
       } else {
         process.env.DSH_AGENTS_HOME = previousAgentsHome
+      }
+      if (previousClaudeHome === undefined) {
+        delete process.env.DSH_CLAUDE_HOME
+      } else {
+        process.env.DSH_CLAUDE_HOME = previousClaudeHome
       }
       if (previousBundledSkillDir === undefined) {
         delete process.env.DSH_BUNDLED_SKILL_DIR

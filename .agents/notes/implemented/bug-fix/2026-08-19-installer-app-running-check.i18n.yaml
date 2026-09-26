@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-installer-app-running-check.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-installer-app-running-check.md
-2026-08-19-installer-app-running-check.md: 3f8c6d9368ff533786072518ac9490a74691389a
-2026-08-19-installer-app-running-check.zh.md: fadc0369e6a35fe01aeed8718bf9a4efbe494ee3
+/agent-note-the-installer-s-app-running-check-matched-every-process:
+  en: 1817196f491d8de5
+  zh: 3627f5ad9409bd23
+/agent-note-the-installer-s-app-running-check-matched-every-process/problem:
+  en: b126bc073c4faf1d
+  zh: 3fd538cb249620b8
+/agent-note-the-installer-s-app-running-check-matched-every-process/decision:
+  en: a6874d30b876a41e
+  zh: 5a31aae23395087f
+/agent-note-the-installer-s-app-running-check-matched-every-process/where-instdir-comes-from-and-what-an-unresolved-one-costs:
+  en: d4e62026dd8ebdbc
+  zh: a4930df4dc3c45c5
+/agent-note-the-installer-s-app-running-check-matched-every-process/two-upstream-defects:
+  en: ea0c7d15645f1f32
+  zh: 60cbd8eb8c6db5d8
+/agent-note-the-installer-s-app-running-check-matched-every-process/verification:
+  en: 538d1e9972d20c09
+  zh: cb9e5a99d182975b
+/agent-note-the-installer-s-app-running-check-matched-every-process/alternatives-considered:
+  en: a473c14e5fbf0a8c
+  zh: 4d1266250c3d9e47
+/agent-note-the-installer-s-app-running-check-matched-every-process/consequences:
+  en: 08f3e08e2bfb2d55
+  zh: 1688e5869482bad8

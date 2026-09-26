@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-content-image-model-switch.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-05-content-image-model-switch.md
-2026-09-05-content-image-model-switch.md: 0d77a6b14427cc15ca48cae62236848a9f786645
-2026-09-05-content-image-model-switch.zh.md: e9ad9c805b3ccfba49c498e58b2da668771c5a11
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs:
+  en: 1edc185a8f5ebbf7
+  zh: b4e1f26fa7399c11
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/problem:
+  en: f4d01e5f9404988e
+  zh: 240694dd94ddcf92
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision:
+  en: 1f57f76f821f3865
+  zh: 634d9704a1fbe990
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-layering-this-crosses:
+  en: cbf124fea1d3e241
+  zh: 4b028c80925e5e62
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate:
+  en: 36cbb6a17dcd31ee
+  zh: c8f262be4075e4d6
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate/m1-the-gate-asks-and-changes-instead-of-only-refusing:
+  en: 5a13d0576e801b43
+  zh: cc91a0858c3b0abf
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate/m2-the-card-itself:
+  en: 5d2a5953058acabe
+  zh: 3732f7e96d88663d
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate/m3-where-the-model-change-lands:
+  en: a2b7dda2b6a5b42e
+  zh: 32f0623144d41f1a
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate/m4-counting-the-routes-that-can-look-at-pictures:
+  en: a4d22ba1a09e5ec4
+  zh: 44fb1d434e95baf7
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/decision/the-gate/m5-the-first-tier-the-decision-chain-and-the-decline-mark:
+  en: 1bc137589acd3e47
+  zh: 2ce9f7949506360b
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/alternatives-considered:
+  en: c4fa5457ab02959f
+  zh: 3a82617bf60f6ebc
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/consequences:
+  en: 5c7d6a6b7d1d05c1
+  zh: cfd87e8d45160ec7
+/agent-note-asking-the-user-to-change-the-model-a-picture-needs/testing:
+  en: f8c3a6967a08b22c
+  zh: a59ac2d873c33d68

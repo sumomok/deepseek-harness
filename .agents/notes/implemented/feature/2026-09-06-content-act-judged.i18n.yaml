@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-content-act-judged.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-content-act-judged.md
-2026-09-06-content-act-judged.md: 8dafaf37dfec77001c2c1a34b1d00340fbb67a9c
-2026-09-06-content-act-judged.zh.md: 802851b792455e6fdffa716b0de50c1530f88a01
+/agent-note-who-decides-an-allowed-set-of-page-steps:
+  en: a92a949ea26ef2a8
+  zh: 6d183b103d826889
+/agent-note-who-decides-an-allowed-set-of-page-steps/problem:
+  en: 3d4e0abc0ab4ea29
+  zh: c5afc501096d6038
+/agent-note-who-decides-an-allowed-set-of-page-steps/decision:
+  en: 3d72a08cc1c22953
+  zh: 3883439c73318043
+/agent-note-who-decides-an-allowed-set-of-page-steps/alternatives-considered:
+  en: 7e16affdaef85415
+  zh: 998ae3b2ce720604
+/agent-note-who-decides-an-allowed-set-of-page-steps/decision-gate:
+  en: c65ab48f1d591b7a
+  zh: 56d910327d869fa0
+/agent-note-who-decides-an-allowed-set-of-page-steps/consequences:
+  en: f870e61713adefee
+  zh: df8fb172f7a59d8b
+/agent-note-who-decides-an-allowed-set-of-page-steps/testing:
+  en: 6e19f0d3fd0d7969
+  zh: d65d9ae5c21cf680

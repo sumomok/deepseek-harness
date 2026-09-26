@@ -19,14 +19,10 @@ import {
   type Stream,
 } from '@agentclientprotocol/sdk'
 import AttachmentStore, { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type {
-  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
-  SaveFileAttachment, SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
-} from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { type GenerateOptions, LlmAdapter, ReasoningEffortId, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import * as AcpPlugin from '../src/index.ts'
@@ -151,20 +147,6 @@ class MemoryAttachmentStore extends AttachmentStore {
     if (stored === undefined) throw new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
     return { ref: stored.ref, data: Uint8Array.from(stored.data) }
   }
-
-  readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
-
-  validateFile(_input: SaveFileAttachment): Promise<void> {
-    throw new Error('unreachable: this fixture carries no file attachments')
-  }
-
-  saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-    throw new Error('unreachable: this fixture carries no file attachments')
-  }
-
-  readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-    throw new Error('unreachable: this fixture carries no file attachments')
-  }
 }
 
 /** Scripted text response ending in a clean stop. */
@@ -248,11 +230,7 @@ export async function makeBridgeHarness(options: {
   const ctx = new Context()
   const ownsPersistenceRoot = options.persistenceRoot === undefined
   const persistenceRoot = options.persistenceRoot ?? await mkdtemp(join(tmpdir(), 'dsh-acp-test-'))
-  await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: options.persona ?? '' } })
-  // The agent loop and the composed approval/permission services declare
-  // sessionProjections a required injection: mount the registry (and with it
-  // the loop's turnBoundary unit) before the loop activates.
-  await ctx.plugin(SessionProjectionRegistry)
+  await mountAgentLoopTestDependencies(ctx, { systemPrompt: { personaPrefix: options.persona ?? '' } })
   await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
   await ctx.plugin(TokenMeter)
   if (options.attachments !== false) await ctx.plugin(MemoryAttachmentStore)

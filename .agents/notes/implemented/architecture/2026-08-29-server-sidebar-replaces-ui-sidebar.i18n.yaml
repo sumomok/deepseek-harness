@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-29-server-sidebar-replaces-ui-sidebar.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-29-server-sidebar-replaces-ui-sidebar.md
-2026-08-29-server-sidebar-replaces-ui-sidebar.md: 9621502dba015a6e01bb40cb3a32bc2ed05d9c57
-2026-08-29-server-sidebar-replaces-ui-sidebar.zh.md: 0ef88e4565ccdf3cb17880959a7511d38aae1bac
+/agent-note-server-sidebar-replaces-ui-sidebar-through-the-overlay-pattern-not-a-mid-column-extension-point:
+  en: 5d84a578ac0b36f1
+  zh: 94f0d4c5f294b92d
+/agent-note-server-sidebar-replaces-ui-sidebar-through-the-overlay-pattern-not-a-mid-column-extension-point/problem:
+  en: db66daf990c92e3f
+  zh: 9e940c093d49e61e
+/agent-note-server-sidebar-replaces-ui-sidebar-through-the-overlay-pattern-not-a-mid-column-extension-point/decision:
+  en: cb3e39ed50ce7b27
+  zh: f28fcdc7549cfe9d
+/agent-note-server-sidebar-replaces-ui-sidebar-through-the-overlay-pattern-not-a-mid-column-extension-point/alternatives-considered:
+  en: f46e15a50f594cf4
+  zh: 6ba5b8ba7a365c87
+/agent-note-server-sidebar-replaces-ui-sidebar-through-the-overlay-pattern-not-a-mid-column-extension-point/consequences:
+  en: 5a12b8f48a855233
+  zh: 4a41df9843dd7de9

@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-content-surface-router.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-content-surface-router.md
-2026-08-24-content-surface-router.md: 3b1a16a4a8d2c2e9538cda5e9baf938f4f0ab485
-2026-08-24-content-surface-router.zh.md: ed89df8bd59f611e551782a7c74307285ca055e0
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat:
+  en: 8ab6943d7f34db6e
+  zh: b7becc4d95b56af2
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/problem:
+  en: 0eb2630d7071125e
+  zh: ce1adc9362c0066f
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/decision:
+  en: ee003d5fc61727ae
+  zh: 487a47105ad4b226
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/decision/registration-timing-against-what-the-projection-registry-actually-does:
+  en: 9f02bc85be7f0442
+  zh: c789028299c9ef9b
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/decision/one-surface-two-packages:
+  en: 0c511a8d445a17b5
+  zh: 96845a68303287eb
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/decision/kind-renderers-stay-mounted:
+  en: 569670c7e34405ad
+  zh: 399ef286d0d87bdf
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/decision/the-chart-panel-package-is-gone:
+  en: 56e4343bbdc1b6ac
+  zh: cbdab2e936304c7c
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/alternatives-considered:
+  en: 8598fa55fb2e3ce3
+  zh: 21d92715c11fa626
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/consequences:
+  en: 8471ef7590f6fb54
+  zh: 91f2185e2edd3d08
+/agent-note-one-content-column-many-producers-an-entry-stream-instead-of-a-seat/testing:
+  en: 40fe9d4cd61b2808
+  zh: 0e5328cf95cbd15b

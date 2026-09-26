@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-10-command-engages-blank-session.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in:
+  en: 9f06d42c4e366839
+  zh: 3c067b5539adfde1
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in/problem:
+  en: 0afdb16cebf57d34
+  zh: 2a3c271aa2fb52f2
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in/decision:
+  en: a8590c0ef5a5fdb6
+  zh: 1d278b97c79a9a47
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in/testing:
+  en: c61d0a89c389b6fe
+  zh: b1057b02074ad8fb
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in/alternatives-considered:
+  en: 6be0c378c90ba218
+  zh: 61104c9681aeccdf
+/agent-note-a-command-declares-whether-it-engages-the-session-it-runs-in/consequences:
+  en: 375ca44ac2c3b66b
+  zh: e2a76d056ec877a2

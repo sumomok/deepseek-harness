@@ -8,20 +8,26 @@
  */
 
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import type { CommandId } from './brand.ts'
+import type { CommandDefinitionId, CommandId } from './brand.ts'
+import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
+
+/** One browser-submitted command attachment: encoded image input or a staged file receipt. */
+export type CommandSubmitAttachment =
+  | ({ readonly type: 'image' } & EncodedImageAttachment)
+  | { readonly type: 'file'; readonly receiptId: string }
 
 /** Immutable metadata for a command's optional unstructured input. */
 export interface CommandInputDescriptor {
   /** Placeholder shown before the user supplies free-form input. */
   readonly hint: string
   /**
-   * Whether composer image attachments may accompany an invocation. Absent or
-   * false = the executor rejects an invocation carrying images and capable
+   * Whether composer attachments may accompany an invocation. Absent or
+   * false = the executor rejects an invocation carrying attachments and capable
    * composers refuse the submission before dispatch. A declaring command's
    * handler receives the admitted durable blocks and owns every further
    * grammar decision, including rejecting sub-commands that cannot use them.
    */
-  readonly images?: boolean
+  readonly attachments?: boolean
 }
 
 /** Expected command outcome rendered directly by the dispatching UI. */
@@ -49,6 +55,8 @@ export interface CommandExecution {
 
 /** Handler-free immutable command view returned to UI adapters. */
 export interface CommandDescriptor {
+  /** Stable plugin-owned identity; absent for definitions without identity-based client behavior. */
+  readonly definitionId?: CommandDefinitionId
   /** Lowercase command name without the leading slash. */
   readonly name: string
   /** Human-readable summary used in discovery UI. */
@@ -93,8 +101,19 @@ declare module '@deepseek-ai/dsh-session/types' {
      * folding its own command records, a rich command card) never re-parses
      * a line. `args` is absent when the definition sets `recordInput: false`
      * because an authoritative domain event owns the input payload.
+     * `engages` is present only as `false`, from a definition that declared
+     * `engages: false`: this run configures the session and does not make it
+     * a session with something to show. An absent member is the ordinary
+     * engaging command, which is what every log written before the
+     * declaration existed carries.
      */
-    'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
+    'command/run': {
+      commandId: CommandId
+      name: string
+      args?: string
+      source: CommandSource
+      engages?: boolean
+    }
     /**
      * The paired command settled. `kind`/`text` carry the handler's verbatim
      * outcome (a thrown/aborted handler settles as `kind: 'error'` with the

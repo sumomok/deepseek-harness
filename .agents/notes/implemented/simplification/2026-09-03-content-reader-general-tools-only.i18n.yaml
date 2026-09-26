@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-content-reader-general-tools-only.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-03-content-reader-general-tools-only.md
-2026-09-03-content-reader-general-tools-only.md: 2748d893b286b1c812d72c18a421c25d68e0d940
-2026-09-03-content-reader-general-tools-only.zh.md: 650fe54b7b5ca3a89d38b9f0273f55b50c39663f
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application:
+  en: d997a0186a9b2a08
+  zh: 3f1ead5423d54c1f
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/problem:
+  en: 0f922e6bb1dd5b3e
+  zh: 0b2c0978d0e72fbb
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/decision:
+  en: 709ccbcb9890c219
+  zh: 05428a14684067aa
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/decision/the-gate:
+  en: ccfb1387d8ef375d
+  zh: df500b387e120d46
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/decision/what-retires:
+  en: 8a7a0d06ffd6e523
+  zh: ff1a5805f4290db7
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/decision/the-one-thing-added:
+  en: d79ed50b2e68922a
+  zh: 901d042fe1c5d705
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/alternatives-considered:
+  en: 5f9a50717d5a8b2b
+  zh: b0f1513608b10525
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/consequences:
+  en: 4aadf04303a1cadd
+  zh: 63b2b6669833c636
+/agent-note-the-page-reader-offers-general-tools-and-knows-no-application/testing:
+  en: ba0990bfa71868dd
+  zh: e622b71aec940dee

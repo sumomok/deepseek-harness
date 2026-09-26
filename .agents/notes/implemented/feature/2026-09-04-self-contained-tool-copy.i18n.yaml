@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-self-contained-tool-copy.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md
-2026-09-04-self-contained-tool-copy.md: 725262b5504626a4812c181c19e5f1956e0be3a1
-2026-09-04-self-contained-tool-copy.zh.md: f7d76a7519b358557a7667564dd11ef3a15868da
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why:
+  en: 350482ab9f93fb69
+  zh: ea061b2d72a6fb1d
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/problem:
+  en: 2e97335d7f51acaa
+  zh: dc2c4b914077850d
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/decision:
+  en: c42e9ca509af7b43
+  zh: 382b593a6df0ad78
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/decision/what-the-rules-collapsed:
+  en: 195997e61b804d1b
+  zh: c8cb3057d62b4f52
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/decision/where-the-rules-do-not-reach:
+  en: e82c703b136e7245
+  zh: de8d4dccea79745e
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/decision/the-fork-rule:
+  en: 3089800f3c189735
+  zh: 2c677192a956ed0d
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/evidence:
+  en: 4a57afdcfb4ffd8e
+  zh: 208504d4335fa6be
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/alternatives-considered:
+  en: 0144cee5c139330c
+  zh: 90cea3c9d3cc009e
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/consequences:
+  en: 7649a1c6e35a69ff
+  zh: bc7b1fac4f6cb0fc
+/agent-note-descriptions-that-describe-themselves-refusals-that-only-say-why/testing:
+  en: eb6d10786635e7fb
+  zh: 32291a4010456d3b

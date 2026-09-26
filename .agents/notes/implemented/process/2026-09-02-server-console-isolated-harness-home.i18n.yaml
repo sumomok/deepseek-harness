@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-server-console-isolated-harness-home.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-02-server-console-isolated-harness-home.md
-2026-09-02-server-console-isolated-harness-home.md: af34332e9b6c85640436f09e61c8369813917901
-2026-09-02-server-console-isolated-harness-home.zh.md: 95b894ffb0b95a599e9292b1f752bcb7992e5920
+/agent-note-the-server-console-runs-in-its-own-harness-home:
+  en: e17ca1050e49c616
+  zh: ab5c3e228cced28e
+/agent-note-the-server-console-runs-in-its-own-harness-home/problem:
+  en: 65b7a3d43e1ee675
+  zh: 28781c7b42ef19a3
+/agent-note-the-server-console-runs-in-its-own-harness-home/decision:
+  en: a4acadbbf88e633c
+  zh: 260aedba110d7c5a
+/agent-note-the-server-console-runs-in-its-own-harness-home/alternatives-considered:
+  en: 1c7e2a09e56987d6
+  zh: 034a0de869f23b75
+/agent-note-the-server-console-runs-in-its-own-harness-home/consequences:
+  en: 164020ff37ca54a7
+  zh: 01f2d1ad08f714fc

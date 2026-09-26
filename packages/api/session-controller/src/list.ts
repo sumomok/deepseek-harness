@@ -1,11 +1,13 @@
 /** Cold-safe Session list and search projection. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent-presets'
-import type { FileAttachmentLimits, ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
-import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
+// Type-only: merges the command lifecycle events into SessionEventMap so the
+// blank fold can name `command/run`.
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -19,21 +21,6 @@ import type {
   SessionSearchValue, SessionSummary,
 } from './types.ts'
 
-/** Default maximum stat-reported event count eligible for one cold projection observation. */
-export const DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS = 16
-
-/** Default maximum stat-reported artifact size eligible for one cold projection observation. */
-export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
-
-/** Resolved cold-blank probe policy: each threshold gates its stat metric; `0` disables that gate. */
-export interface ColdBlankProbePolicy {
-  /** Maximum stat-reported `eventCount` eligible for a full observation. */
-  readonly coldBlankProbeMaxEvents: number
-  /** Maximum stat-reported `sizeBytes` eligible for a full observation. */
-  readonly coldBlankProbeMaxBytes: number
-}
-
-const COLD_SUMMARY_BATCH_SIZE = 16
 const SEARCH_PROVIDER_CALL_LIMIT = 100
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
@@ -52,21 +39,18 @@ const imageLimitsSchema = z.object({
   mediaTypes: z.array(z.string()),
 }) as unknown as z.ZodType<ImageAttachmentLimits>
 
-const fileLimitsSchema = z.object({
-  maxFilesPerMessage: z.number().int().positive(),
-  maxMessageFileBytes: z.number().int().positive(),
-  maxFileBytes: z.number().int().positive(),
-}) as unknown as z.ZodType<FileAttachmentLimits>
-
-/**
- * secretContainerExtraPatterns projection unit schema (host-side view
- * validation): deployment-appended filename substrings only — the fixed
- * base secret-container heuristic never rides this wire.
- */
-const secretContainerExtraPatternsSchema = z.array(z.string())
-
 /**
  * Advance the Session-list metadata projection by one committed event.
+ *
+ * `blank` means the Session has nothing to show and nothing to address: it
+ * falls on the first `turn/start` and on the first engaging `command/run`,
+ * and never rises again. A command run counts unless it recorded
+ * `engages: false`, the declaration a command makes when it configures the
+ * session instead of contributing to the conversation; the member is absent
+ * on every ordinary run and on every log written before the declaration
+ * existed. The remaining standalone events (`plan/mode`, `session/title`,
+ * permission and sandbox configuration) never clear it: they record a
+ * setting, not content.
  * @param state - metadata before the event.
  * @param event - next committed Session event.
  * @returns the original or advanced metadata value.
@@ -75,7 +59,9 @@ export function applySessionListMetadata(
   state: SessionListMetadata,
   event: SessionEvent,
 ): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start'
+  const blank = state.blank
+    && event.type !== 'turn/start'
+    && !(event.type === 'command/run' && event.data.engages !== false)
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
@@ -103,37 +89,21 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  /**
-   * @param ctx - Host context carrying Session, query, persistence, and projection services.
-   * @param probe - stat-metadata thresholds gating a full cold observation.
-   * @param secretContainerExtraPatterns - deployment-appended filename substrings for the
-   * client's add-time secret-container confirmation; additive only.
-   */
-  constructor(
-    private readonly ctx: Context,
-    private readonly probe: ColdBlankProbePolicy,
-    secretContainerExtraPatterns: readonly string[] = [],
-  ) {
+  /** @param ctx - Host context carrying Session, query, persistence, and projection services. */
+  constructor(private readonly ctx: Context) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-      stateVersion: 1,
-    })
-    // Unlike imageLimits/fileLimits, this unit names no other seam's
-    // capability, so it needs no companion ctx.inject dependency and
-    // activates whenever a projection registry is composed at all.
-    ctx.sessionProjections.register<'secretContainerExtraPatterns', null>({
-      key: 'secretContainerExtraPatterns',
-      stateSchema: z.null(),
-      init: () => null,
-      apply: state => state,
-      wire: {
-        viewSchema: secretContainerExtraPatternsSchema,
-        view: () => secretContainerExtraPatterns,
-      },
+      // Held at 1 although the fold changed. The unit carries `blank` and
+      // `lastPromptAt` under one row version, and a discarded row is refolded
+      // only for a Session that is opened again — `summarizeCold` serves the
+      // list from cached rows alone. Bumping it would drop `lastPromptAt` for
+      // every never-reopened Session, ordering and labelling the whole
+      // sidebar by creation time, to correct a `blank` verdict on the
+      // Sessions that ran a command before this build.
       stateVersion: 1,
     })
     ctx.inject(['attachments'], (attachmentCtx) => {
@@ -145,17 +115,6 @@ export class ApiSessionList {
         wire: {
           viewSchema: imageLimitsSchema,
           view: () => attachmentCtx.attachments.imageLimits,
-        },
-        stateVersion: 1,
-      })
-      ctx.sessionProjections.register<'fileLimits', null>({
-        key: 'fileLimits',
-        stateSchema: z.null(),
-        init: () => null,
-        apply: state => state,
-        wire: {
-          viewSchema: fileLimitsSchema,
-          view: () => attachmentCtx.attachments.fileLimits,
         },
         stateVersion: 1,
       })
@@ -173,6 +132,7 @@ export class ApiSessionList {
     return {
       sessionId: session.id,
       updatedAt: updatedAt(session.header, metadata),
+      agentAvailable: this.ctx.agents.get(session.id)?.session === session,
       running: this.ctx.agents.get(session.id)?.status === 'running',
       blank: metadata?.blank ?? session.seq === 0,
       ...listFields(session.header),
@@ -200,85 +160,23 @@ export class ApiSessionList {
       if (record.header.cwd === undefined) continue
       cold.push(record.header)
     }
-    for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
-      const settled = await Promise.allSettled(cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
-        .map(header => this.summarizeCold(header, signal)))
-      for (const result of settled) {
-        if (result.status === 'rejected') throw result.reason
-        items.push(result.value)
-      }
-    }
+    for (const header of cold) items.push(this.summarizeCold(header))
     items.sort((left, right) => right.updatedAt - left.updatedAt)
     return items
   }
 
-  private async summarizeCold(
-    header: SessionHeader,
-    signal: AbortSignal | undefined,
-  ): Promise<SessionSummary> {
-    const cached = this.projectionsFor(header, undefined)
-    const projections = cached?.values.sessionListMetadata?.blank === false
-      ? cached
-      : await this.probeSmallCold(header, signal) ?? cached
-    const raced = this.ctx.sessions.get(header.id)
-    if (raced !== undefined) return this.summaryFor(raced)
+  private summarizeCold(header: SessionHeader): SessionSummary {
+    const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
     return {
       sessionId: header.id,
       updatedAt: updatedAt(header, metadata),
+      agentAvailable: false,
       running: false,
       // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
       blank: metadata?.blank ?? false,
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
-    }
-  }
-
-  private async probeSmallCold(
-    header: SessionHeader,
-    signal: AbortSignal | undefined,
-  ): Promise<SessionProjectionHints | undefined> {
-    const { coldBlankProbeMaxEvents, coldBlankProbeMaxBytes } = this.probe
-    if (coldBlankProbeMaxEvents === 0 && coldBlankProbeMaxBytes === 0) return undefined
-    const persistence = this.ctx.get('sessionPersistence')
-    if (persistence === undefined) return undefined
-    signal?.throwIfAborted()
-    let snapshot: Awaited<ReturnType<typeof persistence.stat>>
-    try {
-      snapshot = await persistence.stat(header.id, signal === undefined ? {} : { signal })
-    } catch (error: unknown) {
-      // An unreadable single session degrades to unknown state instead of
-      // failing the whole list request.
-      signal?.throwIfAborted()
-      this.ctx.logger.warn(
-        `api-session.list: cold stat for "${header.id}" failed; serving it as visible: ${String(error)}`,
-      )
-      return undefined
-    }
-    if (snapshot === undefined) return undefined
-    if (snapshot.eventCount !== undefined) {
-      if (coldBlankProbeMaxEvents === 0 || snapshot.eventCount > coldBlankProbeMaxEvents) return undefined
-    } else if (snapshot.sizeBytes !== undefined) {
-      if (coldBlankProbeMaxBytes === 0 || snapshot.sizeBytes > coldBlankProbeMaxBytes) return undefined
-    } else {
-      // The backend offers no cheap size hint, so a full observation is unbounded work.
-      return undefined
-    }
-    try {
-      using observation = await this.ctx.sessionQuery.observeSession(header.id, {
-        ...(signal === undefined ? {} : { signal }),
-        projectionMode: 'all',
-      })
-      const block = observation.projections
-      return block === undefined
-        ? undefined
-        : { asOfSeq: block.asOfSeq, values: block.values as SessionProjectionValues }
-    } catch (error: unknown) {
-      signal?.throwIfAborted()
-      this.ctx.logger.warn(
-        `api-session.list: small cold observation for "${header.id}" failed; serving it as visible: ${String(error)}`,
-      )
-      return undefined
     }
   }
 
@@ -395,19 +293,16 @@ export class ApiSessionList {
     session: Session | undefined,
   ): SessionProjectionHints | undefined {
     try {
-      const block = session === undefined
-        ? header.isSeeded
-          ? undefined
-          : this.ctx.get('sessionProjectionCache')?.cachedSnapshot(header, SessionLogOffset(0))
-        : this.ctx.sessionProjections.cachedSnapshot(session)
-      return block !== undefined && Object.keys(block.values).length > 0
-        ? {
-          asOfSeq: block.asOfSeq,
-          // Listing hints contain every currently cached wire value but remain
-          // partial: missing cells and cache rows are never materialized here.
-          values: block.values as SessionProjectionValues,
-        }
-        : undefined
+      if (session !== undefined) {
+        // The live registry computed the block for this Session: its watermark
+        // shares the sequence space of the Session's baselines and frames.
+        return hintsOf('sequenced', this.ctx.sessionProjections.cachedSnapshot(session))
+      }
+      // A cold row reads the persisted cache by header alone; the cache serves
+      // seeded and unseeded lifecycles alike because a listing never seeds a
+      // fold. The watermark is the stored record's own.
+      const cache = this.ctx.get('sessionProjectionCache')
+      return hintsOf('cached', cache?.cachedSnapshot(header) ?? cache?.cachedPredecessorTitle(header))
     } catch (error) {
       this.ctx.logger.warn(
         `api-session.list: projection column for "${header.id}" failed; serving the row without it: ${String(error)}`,
@@ -415,6 +310,22 @@ export class ApiSessionList {
       return undefined
     }
   }
+}
+
+/**
+ * Wrap one projection block as Session-list hints of the named sequence space.
+ * @param kind - which sequence space the block's watermark belongs to.
+ * @param block - the block, or `undefined` when no source served one.
+ * @returns the hints, or `undefined` when the block is absent or carries no value.
+ */
+function hintsOf(
+  kind: SessionProjectionHints['kind'],
+  block: ProjectionSnapshot | undefined,
+): SessionProjectionHints | undefined {
+  if (block === undefined || Object.keys(block.values).length === 0) return undefined
+  // Listing hints contain every wire value the source currently holds but
+  // remain partial: missing cells and cache rows are never materialized here.
+  return { kind, asOfSeq: block.asOfSeq, values: block.values as SessionProjectionValues }
 }
 
 function normalizeSearchQuery(query: string): string {

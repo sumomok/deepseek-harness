@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-content-seat-hidden-tab.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-05-content-seat-hidden-tab.md
-2026-09-05-content-seat-hidden-tab.md: 1d1b19e1df2505f21bb007af2b231e49e1f85e4e
-2026-09-05-content-seat-hidden-tab.zh.md: a4479a98f052c7d667f62337495eb7ee27a0b501
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at:
+  en: 1f60ef7fd752418a
+  zh: 5cafc492b990a1b7
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/problem:
+  en: 48ea2c679315ed99
+  zh: 96fce572e7e208c3
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/decision:
+  en: ea65f75ce5c43b7e
+  zh: bff83d4e85608ebe
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/decision-gate:
+  en: 8186ffb5f519e2e9
+  zh: a3d74dde827db978
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/alternatives-considered:
+  en: 5db733de85b09165
+  zh: 2d9e78cede79bd7f
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/consequences:
+  en: bc980708fc1de761
+  zh: 46ddf90287ceeb2d
+/agent-note-the-page-seat-answers-from-a-tab-the-user-is-not-looking-at/testing:
+  en: d29804212e89803a
+  zh: e87dd230d04ce6c8

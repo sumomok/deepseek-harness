@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-23-permission-preset-glyph.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.md
-2026-08-23-permission-preset-glyph.md: 7275b41472439dc1e25719eb545180e2416a416b
-2026-08-23-permission-preset-glyph.zh.md: 03045bdcc2d97a200455ad233b99ce6f3db88707
+/agent-note-host-configured-presets-name-their-selector-glyph:
+  en: 6759d284da389f04
+  zh: 3c5ab7c9fb899785
+/agent-note-host-configured-presets-name-their-selector-glyph/problem:
+  en: e3ec44a4f617aed7
+  zh: a13ba180f419c05e
+/agent-note-host-configured-presets-name-their-selector-glyph/decision:
+  en: e5433bf1ef3d7435
+  zh: ff56ad82df646029
+/agent-note-host-configured-presets-name-their-selector-glyph/alternatives-considered:
+  en: c3997da69998596c
+  zh: 13515d2cb9b12540
+/agent-note-host-configured-presets-name-their-selector-glyph/consequences:
+  en: a92a19a49253c2e1
+  zh: ad12609c5ed9bbbc

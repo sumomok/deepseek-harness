@@ -1,6 +1,7 @@
 /** Session-log download command and Host-owned streaming route. */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import Schema from '@deepseek-ai/schemastery'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/dsh-attachment'
@@ -23,6 +24,7 @@ import {
   SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
   type SessionLogExportExtent,
 } from './export-extent.ts'
+import { SESSION_LOG_EXPORT_PATH } from './routes.ts'
 
 export {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
@@ -52,8 +54,7 @@ export type { SessionLogExportExtent } from './export-extent.ts'
 export const name = 'session-log-download'
 export const inject = ['commands', 'connection']
 
-/** Stable browser download path retained across the transport migration. */
-export const SESSION_LOG_EXPORT_PATH = '/api/session.export'
+export { SESSION_LOG_EXPORT_PATH } from './routes.ts'
 
 /** Session-log archive policy. */
 export interface Config {
@@ -72,6 +73,7 @@ interface SessionLogConnection {
     register(route: {
       readonly path: string
       readonly methods: readonly ('GET' | 'HEAD')[]
+      readonly requestBody: 'buffered'
       readonly fetch: (request: Request) => Promise<Response>
     }): () => Promise<void>
   }
@@ -89,6 +91,7 @@ const REQUESTED: CommandResult = {
  */
 export function apply(ctx: Context, config: Config = {}): void {
   ctx.effect(() => ctx.commands.register({
+    definitionId: brandString<CommandDefinitionId>('@deepseek-ai/dsh-session-log-export'),
     name: 'export',
     description: 'Download this Session log as a ZIP archive',
     handler: invocation => Promise.resolve(invocation.rawInput.trim() === ''
@@ -98,6 +101,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   connectionOf(ctx).fetch.register({
     path: SESSION_LOG_EXPORT_PATH,
     methods: ['GET', 'HEAD'],
+    requestBody: 'buffered',
     fetch: async (request) => {
       const response = await sessionLogExportResponse(
         ctx,
@@ -169,9 +173,12 @@ async function sessionLogExportResponse(
     // Measuring walks the same lineage and the same persistence reads the
     // producer walks, so every failure reachable here — a missing descendant
     // log, an unreadable handle, a lineage error — is reached again by the
-    // stream, which owns the outcome (an errored stream, never a truncated
-    // archive). Swallowing it here only drops the browser to an indeterminate
-    // progress bar; cancellation is not a measurement failure and is rethrown.
+    // stream, which owns the outcome and errors the response body rather than
+    // shipping a truncated archive. Measuring never reads a stored image, so
+    // an unreadable attachment never reaches here; the stream records that one
+    // inside the archive and still completes. Swallowing a measurement failure
+    // only drops the browser to an indeterminate progress bar; cancellation is
+    // not a measurement failure and is rethrown.
     request.signal.throwIfAborted()
   }
   return new Response(

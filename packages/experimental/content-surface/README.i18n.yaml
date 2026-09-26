@@ -1,6 +1,70 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/content-surface/README.md
-README.md: ef09cbf80603579757082a333b970be39f7ee38e
-README.zh.md: e6088aa28a677e25c9b4df019ff97194fef42ae6
+/:
+  en: 80b9cddb11f05fb5
+  zh: 2ae663a26d25f241
+/deepseek-ai-dsh-experimental-content-surface:
+  en: dbf8998da2f7e9f2
+  zh: aa0d9e45ba9c87db
+/deepseek-ai-dsh-experimental-content-surface/summary:
+  en: 5007e301dbefd426
+  zh: 2e2a3ea3ca0f6711
+/deepseek-ai-dsh-experimental-content-surface/table-of-contents:
+  en: 17f0b277fff7f754
+  zh: 06ca00af781c4c5c
+/deepseek-ai-dsh-experimental-content-surface/the-entry-stream:
+  en: b96e9c8a825d396c
+  zh: 5637feebe3414efd
+/deepseek-ai-dsh-experimental-content-surface/contentsurfaceregistry-ctx-key-contentsurface:
+  en: 55c261b4a69409fd
+  zh: 5eb8d9c68a5bdc27
+/deepseek-ai-dsh-experimental-content-surface/contentsurfaceregistry-ctx-key-contentsurface/registration-timing-is-free-and-what-it-costs:
+  en: 868567782fb5e470
+  zh: 6000b7ed40eb5e81
+/deepseek-ai-dsh-experimental-content-surface/dismissing-an-entry:
+  en: 3015fd0d50fadc84
+  zh: 3625ad0f024a76de
+/deepseek-ai-dsh-experimental-content-surface/which-entry-is-in-front:
+  en: 72b595f8b187c142
+  zh: 2143a1be69e15c58
+/deepseek-ai-dsh-experimental-content-surface/composition:
+  en: 024352f2f75b9586
+  zh: 6b2b254ae6ea20c3
+/deepseek-ai-dsh-experimental-content-surface/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-experimental-content-surface/model-experience/system-prompt-working-with-content-already-on-display:
+  en: 30e3e72d5b1ffff7
+  zh: 30e3e72d5b1ffff7
+/deepseek-ai-dsh-experimental-content-surface/model-experience/system-prompt-working-with-content-already-on-display/what-the-model-sees:
+  en: 32e55088e5b5b66c
+  zh: 30833d69594875cc
+/deepseek-ai-dsh-experimental-content-surface/model-experience/system-prompt-working-with-content-already-on-display/what-the-model-sees/the-section-verbatim:
+  en: f76cef629fd8d5ad
+  zh: f76cef629fd8d5ad
+/deepseek-ai-dsh-experimental-content-surface/model-experience/system-prompt-working-with-content-already-on-display/token-effect:
+  en: 5aacc597a9a21424
+  zh: 7868a8536691159b
+/deepseek-ai-dsh-experimental-content-surface/model-experience/system-prompt-working-with-content-already-on-display/kv-cache-effect:
+  en: efd99e08783bd8fd
+  zh: 51c9e241c17b6f2f
+/deepseek-ai-dsh-experimental-content-surface/model-experience/the-notice-a-closed-tab-injects:
+  en: 498eb710dfa52bb7
+  zh: 498eb710dfa52bb7
+/deepseek-ai-dsh-experimental-content-surface/model-experience/the-notice-a-closed-tab-injects/what-the-model-sees:
+  en: 1c527ade2a73e6b6
+  zh: 16c7724759d2a294
+/deepseek-ai-dsh-experimental-content-surface/model-experience/the-notice-a-closed-tab-injects/token-effect:
+  en: d4a734d51552b6ac
+  zh: fe94bb2634ba3325
+/deepseek-ai-dsh-experimental-content-surface/model-experience/the-notice-a-closed-tab-injects/kv-cache-effect:
+  en: 0eb32019aa53ec2f
+  zh: d97b252fc32201cf
+/deepseek-ai-dsh-experimental-content-surface/known-limitations-and-deferred-work:
+  en: f7892001efac8fa6
+  zh: 0258321303614160
+/deepseek-ai-dsh-experimental-content-surface/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

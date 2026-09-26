@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md
-2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md: 07866f85dc4c2ce73fc8699ac37d22ce2a9c74ff
-2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.zh.md: bc40ee2abbc24247a01fb67abc073fb1c5998a5e
+/agent-note-this-fork-ships-with-session-telemetry-and-plugin-inventory-reporting-off:
+  en: e7cf45841b0d8078
+  zh: 85e30e950bc18825
+/agent-note-this-fork-ships-with-session-telemetry-and-plugin-inventory-reporting-off/problem:
+  en: 427f2be13543bc82
+  zh: 498b71cbfc091401
+/agent-note-this-fork-ships-with-session-telemetry-and-plugin-inventory-reporting-off/decision:
+  en: 14e2f739cf01f986
+  zh: b6c59809198cef18
+/agent-note-this-fork-ships-with-session-telemetry-and-plugin-inventory-reporting-off/alternatives-considered:
+  en: 5e0ad72f414aeac7
+  zh: 283b66eddceee427
+/agent-note-this-fork-ships-with-session-telemetry-and-plugin-inventory-reporting-off/consequences:
+  en: 032505f302ad9fe0
+  zh: 9dc9f15244f2366a

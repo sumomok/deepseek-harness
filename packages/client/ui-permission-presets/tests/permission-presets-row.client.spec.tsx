@@ -1,21 +1,32 @@
 // @vitest-environment jsdom
-import { Context } from '@deepseek-ai/cordis'
+import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { SettingsSchemaService } from '@deepseek-ai/dsh-client-ui-settings/src/client/schema.ts'
+import type { PermissionCatalog } from '@deepseek-ai/dsh-permission-presets/client'
 import { PermissionRow, type PermissionRowProps } from '../src/client/PermissionRow.tsx'
 import { zh } from '../src/client/locales.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { PermissionPresetSettingsController } from '../src/client/settings-store.ts'
 
-const schema = new SettingsSchemaService(new Context())
+// Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
+const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
+const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
+
+// The host names the full-access preset's tone on its catalog option.
+const catalog: PermissionCatalog = { options: [], defaultPreset: 'read-only', defaultOptions: [
+  { value: 'read-only', name: 'read-only' },
+  { value: 'workspace-write', name: 'workspace-write' },
+  { value: 'danger-full-access', name: 'danger-full-access', tone: 'danger' },
+] }
+const directory = { store: createSnapshotStore({ value: catalog }), load: () => Promise.resolve(catalog) }
 
 /** Controller over a real mirror derived from the same scripted context. */
 function derivedController(remote: { settings: object }) {
   const ctx = { remote } as never
-  return new PermissionPresetSettingsController(new SettingsDescribeMirror(ctx), ctx, schema)
+  return new PermissionPresetSettingsController(new SettingsDescribeMirror(ctx), ctx, directory)
 }
 
 afterEach(cleanup)
@@ -37,7 +48,7 @@ function view(defaultPreset: string, revision = 0): SettingsNamespaceView {
     schema: SCHEMA,
     value: { defaultPreset },
     base: { defaultPreset: 'read-only' },
-    applies: 'live',
+    autoGenerate: true, applies: 'live',
     secrets: [],
     revision,
   }
@@ -50,12 +61,13 @@ function ok<T>(value: T) {
 
 const dictionary: Record<string, string> = zh
 const t: PermissionRowProps['t'] = key => dictionary[key] ?? key
-type AttentionSnapshot = Parameters<Parameters<PermissionRowProps['useSessionPendingInteraction']>[0]>[0]
+type AttentionSnapshot = Parameters<Parameters<PermissionRowProps['useSessionStatus']>[0]>[0]
 const noAttention: AttentionSnapshot = new Map()
-const useSessionPendingInteraction: PermissionRowProps['useSessionPendingInteraction'] = selector => selector(noAttention)
+const useSessionStatus: PermissionRowProps['useSessionStatus'] = selector => selector(noAttention)
 const runtime = {
   useSessions: (() => { throw new Error('unused') }) as never,
-  useSessionPendingInteraction,
+  useSessionStatus,
+  usePanelInfo, useSessionRetainInfo: () => undefined, useResource,
   useWorkspaces: (() => { throw new Error('unused') }) as never,
 }
 
@@ -109,6 +121,9 @@ describe('PermissionRow', () => {
     })
     mount(controller)
     fireEvent.click(await screen.findByRole('button', { name: '仅可查看' }))
+    // The host named this preset's tone; the menu paints that one row destructive.
+    expect(screen.getByRole('menuitem', { name: '完全权限' }).className).toMatch(/danger/)
+    expect(screen.getByRole('menuitem', { name: '工作区内修改' }).className).not.toMatch(/danger/)
     fireEvent.click(screen.getByRole('menuitem', { name: '完全权限' }))
     expect(mutate).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))

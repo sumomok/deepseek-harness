@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-content-component-library-v0.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-content-component-library-v0.md
-2026-09-04-content-component-library-v0.md: 7d8d42862206ea1c5ea9466cc806b82d18c4a041
-2026-09-04-content-component-library-v0.zh.md: 0216cfdbd53d62db07b04fe603168757a0f7aebc
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice:
+  en: 33522aa621c23ff1
+  zh: aabaddc54168f733
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice/problem:
+  en: d088c9a84e18e5a3
+  zh: ccec2aa1f078a4f2
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice/decision:
+  en: 6b7f5d3a4274ed2f
+  zh: a7be25ee578096fb
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice/decision/the-gate-table-as-built:
+  en: 72c378a8222c89dc
+  zh: 7a3ffe71effa3c99
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice/alternatives-considered:
+  en: 593640d9fb77f8a7
+  zh: 256f0ba66e434909
+/agent-note-putting-a-block-of-interface-in-the-content-column-the-component-library-s-first-slice/consequences:
+  en: 2c468748035ed757
+  zh: fb9a4e908395ad39

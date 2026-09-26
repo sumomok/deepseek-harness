@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-session-export-progress.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-03-session-export-progress.md
-2026-09-03-session-export-progress.md: 6d96e98835fca4f7871287927ca09b9629e5467d
-2026-09-03-session-export-progress.zh.md: d382414a5cc2b7c4a109c94fa208137d9d9bacf4
+/agent-note-session-export-progress-read-from-the-archive-stream:
+  en: 84eae17f000f25ad
+  zh: b9cff85ae996cdf8
+/agent-note-session-export-progress-read-from-the-archive-stream/problem:
+  en: 17c26fb30f164c45
+  zh: 980f3f19f5ef4e1f
+/agent-note-session-export-progress-read-from-the-archive-stream/decision:
+  en: 972e8fc3b9af35f4
+  zh: c619ef3ff8bab0d4
+/agent-note-session-export-progress-read-from-the-archive-stream/alternatives-considered:
+  en: e0f7108a4b58f775
+  zh: a84bf6aa8ce09e0c
+/agent-note-session-export-progress-read-from-the-archive-stream/consequences:
+  en: ba1828375985c4f1
+  zh: 423d186bb05b51dd

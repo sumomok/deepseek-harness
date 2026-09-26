@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-content-component-library-v2b-vendor-views.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-content-component-library-v2b-vendor-views.md
-2026-09-06-content-component-library-v2b-vendor-views.md: 7912c81c1f14708a2e241a3d5ecd96534b894162
-2026-09-06-content-component-library-v2b-vendor-views.zh.md: 4f80c1185bcecdec7dff967afb4e412509ac69a9
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs:
+  en: 8197718f29b81384
+  zh: 9061f5b6280babb3
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/problem:
+  en: e10a82e9593cae37
+  zh: 8f6fadf06073f93b
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/decision:
+  en: d8ce468ce13e0854
+  zh: cacd05e0b215db62
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/decision/gate-table-3-the-views-a-deployment-writes-and-a-menu-over-two-catalogs:
+  en: e63e2148f27f06d2
+  zh: 555739186dc5c6f2
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/alternatives-considered:
+  en: 197f943c4fb1c807
+  zh: 64528eeadfebc943
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/consequences:
+  en: fdbbced96774ddac
+  zh: 1fa0fa0bf4abc883
+/agent-note-the-views-a-deployment-writes-and-one-navigation-menu-over-two-catalogs/known-limitations-and-deferred-work:
+  en: 0ffb3ce0d2538b2e
+  zh: 3f5c1bde30f65836

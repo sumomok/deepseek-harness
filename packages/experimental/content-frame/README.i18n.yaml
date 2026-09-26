@@ -1,6 +1,274 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/content-frame/README.md
-README.md: e9f28940341ae6348b08e9c00bea46f7b22288d3
-README.zh.md: d732051590b16ddfbd641a868fa4540da2faf6e4
+/:
+  en: 97a8402ea2db1079
+  zh: 6533cdc88e8b5450
+/deepseek-ai-dsh-experimental-content-frame:
+  en: f2a1cda0c4de20a1
+  zh: 9df17e834754f536
+/deepseek-ai-dsh-experimental-content-frame/summary:
+  en: 8b3fcb3ac8ce9e27
+  zh: 27b396a673738432
+/deepseek-ai-dsh-experimental-content-frame/table-of-contents:
+  en: 59bb774fbc2e9e60
+  zh: be1827d08e9d9a1f
+/deepseek-ai-dsh-experimental-content-frame/trust-boundary:
+  en: 22e8635270c83d75
+  zh: 06991974ec429d64
+/deepseek-ai-dsh-experimental-content-frame/serving-the-application:
+  en: 795c7083542f9bf6
+  zh: b8be65ff23d5ad41
+/deepseek-ai-dsh-experimental-content-frame/who-put-a-page-on-display:
+  en: de8e8474bb1c6f31
+  zh: 1ffbf8b4e7330c45
+/deepseek-ai-dsh-experimental-content-frame/pages-the-agent-may-show:
+  en: 908b99786fd538cd
+  zh: 1891fec27eefe881
+/deepseek-ai-dsh-experimental-content-frame/one-live-frame-per-session-and-page:
+  en: 0dd04f0506227eb4
+  zh: b416248c8df23d5a
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-the-agent-put-there:
+  en: 9a3cc5bd61f3a9b7
+  zh: 269848b756490601
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-as-it-was-written:
+  en: 3c1e449b135cf83c
+  zh: 77102ecc1294650d
+/deepseek-ai-dsh-experimental-content-frame/reading-one-picture-on-the-page:
+  en: 67979a90830f9dc0
+  zh: f98c9c32e15f998b
+/deepseek-ai-dsh-experimental-content-frame/acting-on-the-page-the-user-is-looking-at:
+  en: 8a2b0a80a4884da1
+  zh: 0ecf1a8306690339
+/deepseek-ai-dsh-experimental-content-frame/acting-on-the-page-the-user-is-looking-at/the-channel:
+  en: 5a8b6a5d1f8f33e2
+  zh: c8fcad92cf65ff4c
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame:
+  en: 7b6c8efd69576f5e
+  zh: b983c4984bb393e2
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-console-table-reads-as:
+  en: 89f792524d22758c
+  zh: aa24fd77dee51413
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-control-the-page-names-nowhere-reads-as:
+  en: 3140e1c5d44513ef
+  zh: b9d1b4625d5c044f
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-console-form-reads-as:
+  en: cf27e7cbd673d880
+  zh: 9866ac6017be67f4
+/deepseek-ai-dsh-experimental-content-frame/what-the-agent-knows-about-the-column:
+  en: 8c349b81627a0c56
+  zh: 499c25f4fd85f6b7
+/deepseek-ai-dsh-experimental-content-frame/reading-a-page-that-has-not-finished-drawing-itself:
+  en: 7a736c0253a3339f
+  zh: 4e87738a47c79bf7
+/deepseek-ai-dsh-experimental-content-frame/hiding-the-show-content-page-command-from-the-chat-transcript:
+  en: 9b6fa79110a47029
+  zh: f1ecbfb2c3bfc01e
+/deepseek-ai-dsh-experimental-content-frame/composition:
+  en: 0e8c2053e2b072ff
+  zh: 3a90e72987d261ff
+/deepseek-ai-dsh-experimental-content-frame/composition/composing-with-the-review-gate:
+  en: 79668742f90c657d
+  zh: c0caafd3fb35fffc
+/deepseek-ai-dsh-experimental-content-frame/what-the-tools-say-and-what-they-never-say:
+  en: fd22d6481bf5ad12
+  zh: 8495fc55afb3016d
+/deepseek-ai-dsh-experimental-content-frame/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-show-offer:
+  en: ef8f3039fe0e9b0f
+  zh: ef8f3039fe0e9b0f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-show-offer/what-the-model-sees:
+  en: cf6dfef2c8c3ca73
+  zh: 3d9e985f2f3ab232
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-show-offer/token-effect:
+  en: 119463fca3ca559b
+  zh: e3bed4e2bcdb11ba
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-show-offer/kv-cache-effect:
+  en: 7acdf9d7ed5c2a46
+  zh: 1432830511b41290
+/deepseek-ai-dsh-experimental-content-frame/model-experience/tool-call-result-and-column-state:
+  en: f3f43de53f48155b
+  zh: f3f43de53f48155b
+/deepseek-ai-dsh-experimental-content-frame/model-experience/tool-call-result-and-column-state/what-the-model-sees:
+  en: ab7f4d3ad4f58029
+  zh: 33bdd1c5f1fd470d
+/deepseek-ai-dsh-experimental-content-frame/model-experience/tool-call-result-and-column-state/token-effect:
+  en: eebbae95f5d28c9d
+  zh: d640f68085f13603
+/deepseek-ai-dsh-experimental-content-frame/model-experience/tool-call-result-and-column-state/kv-cache-effect:
+  en: e4850a739d8599af
+  zh: b2691243f608fa83
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-offer:
+  en: cd2ecdbce004e06e
+  zh: cd2ecdbce004e06e
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-offer/what-the-model-sees:
+  en: 4a87548ab684090a
+  zh: 37b334ef99c9830d
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-offer/token-effect:
+  en: 922a90b206a39ecd
+  zh: a0427fe00c20f110
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-offer/kv-cache-effect:
+  en: 0d0245032dd7a413
+  zh: 9fc5a0a7bbbe7415
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result:
+  en: f84c91effeac78c3
+  zh: f84c91effeac78c3
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/what-the-model-sees:
+  en: a2f20d40a388a0eb
+  zh: 82c7b111218d241a
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/what-the-model-sees/the-claim-timeout-over-an-empty-column:
+  en: 257a4fa728ec153b
+  zh: 257a4fa728ec153b
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/what-the-model-sees/the-claim-timeout-over-a-column-with-an-entry-in-front:
+  en: b353f69c628a6fac
+  zh: b353f69c628a6fac
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/token-effect:
+  en: ad372a3b6ec20f96
+  zh: 8229077c0120598d
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/kv-cache-effect:
+  en: 48e7bfdebdfddcdb
+  zh: df9b6afa5a823b81
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-three-markup-read-offers:
+  en: 1858ff93c78f9ea7
+  zh: 1858ff93c78f9ea7
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-three-markup-read-offers/what-the-model-sees:
+  en: dd9da9a4dcd565a1
+  zh: f608d13bf7c0e43c
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-three-markup-read-offers/token-effect:
+  en: c6227f65d18e8d20
+  zh: 76f813b05b051663
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-three-markup-read-offers/kv-cache-effect:
+  en: ff10f85a0338199c
+  zh: 997e6fbe181305a9
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result:
+  en: 41f3dc9e494c7fc2
+  zh: 41f3dc9e494c7fc2
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/what-the-model-sees:
+  en: 5688f526d2aa7655
+  zh: f1e7850a7d63cc3a
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/what-the-model-sees/a-tree-of-the-rows-a-listing-named-nothing:
+  en: 30567ac88d930b72
+  zh: 30567ac88d930b72
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/what-the-model-sees/one-element-s-attributes:
+  en: f98ac545a820dbbf
+  zh: f98ac545a820dbbf
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/what-the-model-sees/a-text-too-large-for-one-result:
+  en: 1d8d83c4f607616f
+  zh: 1d8d83c4f607616f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/token-effect:
+  en: 5d5fb108e8343e8a
+  zh: a8529cd7859b080c
+/deepseek-ai-dsh-experimental-content-frame/model-experience/a-markup-read-s-result/kv-cache-effect:
+  en: 310d356d2d2d6b42
+  zh: aa84cbb8b10d50d5
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-image-offer:
+  en: 3666235c8dc39496
+  zh: 3666235c8dc39496
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-image-offer/what-the-model-sees:
+  en: bbd430089b3bae92
+  zh: bf15adb8c3095536
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-image-offer/token-effect:
+  en: 08405e199f863498
+  zh: 2161cd571a1f6205
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-read-image-offer/kv-cache-effect:
+  en: 0d0245032dd7a413
+  zh: 7c0dc3e5c5a94237
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result:
+  en: d3ba6a829221108f
+  zh: d3ba6a829221108f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees:
+  en: 039dbfe63a61850f
+  zh: b13602b496a4f703
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/one-picture-and-the-line-above-it:
+  en: 5fc1212ac6fc66a7
+  zh: 5fc1212ac6fc66a7
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/a-ref-that-names-no-picture:
+  en: c8668eae9718b7a9
+  zh: c8668eae9718b7a9
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/a-picture-the-browser-will-not-export:
+  en: 63b1f38ac970bb8a
+  zh: 63b1f38ac970bb8a
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/an-export-too-large-for-one-result:
+  en: 46acc151e3a3d16e
+  zh: 46acc151e3a3d16e
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/a-session-whose-model-takes-no-pictures:
+  en: 4c490f9665b08f29
+  zh: 4c490f9665b08f29
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/a-deployment-where-no-model-takes-pictures:
+  en: 9abca261c09494b5
+  zh: 9abca261c09494b5
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/what-the-model-sees/a-model-change-the-host-would-not-make:
+  en: fbffc76e6cfe4d7b
+  zh: fbffc76e6cfe4d7b
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/token-effect:
+  en: 59e026201fd60c15
+  zh: 3eaf6f8cd177a05f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-picture-result/kv-cache-effect:
+  en: 771abbbfc8f80734
+  zh: e346d6dee48809cd
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-act-offer:
+  en: acd9b55a7a9c6d38
+  zh: acd9b55a7a9c6d38
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-act-offer/what-the-model-sees:
+  en: 6eb2fa36dd5d0ab9
+  zh: 88a59d7e74797f01
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-act-offer/token-effect:
+  en: feffa3b7d81ff816
+  zh: a7a61d738eebbca1
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-act-offer/kv-cache-effect:
+  en: 14015d4ad72afa12
+  zh: efd05da1ade59b98
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps:
+  en: 7c15d834ddf4c501
+  zh: 7c15d834ddf4c501
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/what-the-model-sees:
+  en: b33a7630c00e9938
+  zh: 72da31444cc57e8e
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/what-the-model-sees/a-call-whose-steps-all-ran:
+  en: 427d46d515c98781
+  zh: 427d46d515c98781
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/what-the-model-sees/a-call-one-step-stopped:
+  en: c744b9b81b5050fb
+  zh: c744b9b81b5050fb
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/what-the-model-sees/the-console-claimed-the-call-and-went-quiet:
+  en: 48d13fa757aff137
+  zh: 48d13fa757aff137
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/token-effect:
+  en: fdfe4653108b471f
+  zh: 8c58d9e9af45ba6c
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-result-of-a-set-of-steps/kv-cache-effect:
+  en: ac520e40a1028a00
+  zh: ddcf0f2b380653d4
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-column-context:
+  en: d2082070d753f654
+  zh: d2082070d753f654
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-column-context/what-the-model-sees:
+  en: dc3690e9daa918b7
+  zh: 7477ce00b0357300
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-column-context/token-effect:
+  en: 0507f2b83bd41a6d
+  zh: d85a6356326df412
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-content-column-context/kv-cache-effect:
+  en: 97fd8dc92e6f2e33
+  zh: e9642082283b2f7f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-notice-a-user-s-page-click-injects:
+  en: bce257837d8634e0
+  zh: bce257837d8634e0
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-notice-a-user-s-page-click-injects/what-the-model-sees:
+  en: b5ae040bfd9687fa
+  zh: 9d0f7943a5cc9679
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-notice-a-user-s-page-click-injects/token-effect:
+  en: e3464c036d577692
+  zh: b234c23f292bf91f
+/deepseek-ai-dsh-experimental-content-frame/model-experience/the-notice-a-user-s-page-click-injects/kv-cache-effect:
+  en: 0eb32019aa53ec2f
+  zh: d97b252fc32201cf
+/deepseek-ai-dsh-experimental-content-frame/known-limitations-and-deferred-work:
+  en: 878c675cffcb2082
+  zh: a71ac1cb18f9a3f7
+/deepseek-ai-dsh-experimental-content-frame/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const DSH_SOURCE_BIN = join(REPO_ROOT, 'apps/cli/src/bin.ts')
@@ -54,8 +55,7 @@ function cleanEnvironment(root: string, dshHome: string): NodeJS.ProcessEnv {
     !/(?:KEY|SECRET|TOKEN|PASSWORD)/iu.test(name)))
   return {
     ...env,
-    DSH_AGENTS_HOME: join(root, '.agents'),
-    DSH_HOME: dshHome,
+    ...isolatedSkillRootEnv(root, { dshHome }),
     DSH_TELEMETRY_DISABLED: '1',
     NODE_NO_WARNINGS: '1',
     SSH_CONNECTION: '',
@@ -172,7 +172,7 @@ describe('dsh web authentication through the real CLI', () => {
 
       const exchange = await fetch(first.launchUrl, { redirect: 'manual' })
       expect(exchange.status).toBe(303)
-      expect(exchange.headers.get('location')).toBe('/')
+      expect(exchange.headers.get('location')).toBe('./')
       const setCookie = exchange.headers.get('set-cookie')
       if (setCookie === null) throw new Error('real CLI token exchange omitted Set-Cookie')
       expect(setCookie).toContain('HttpOnly')
@@ -182,7 +182,7 @@ describe('dsh web authentication through the real CLI', () => {
 
       const authenticated = await describeSettings(port, firstUrl.host, cookie)
       expect(authenticated.status).toBe(200)
-      const authenticatedBody = JSON.parse(authenticated.body) as unknown
+      const authenticatedBody: unknown = JSON.parse(authenticated.body)
       expect(authenticatedBody).toMatchObject({
         type: 'server-response',
         rpcId: 'web-auth-real-cli',

@@ -11,8 +11,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import type { PtcRunRequest, PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -22,10 +22,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { AttachmentError, AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type {
-  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
-  SaveFileAttachment, SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
-} from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   applyReadImageTool,
@@ -73,12 +70,14 @@ class CatalogAdapter extends LlmAdapter {
 }
 
 /** In-process PTC mode seam fake that invokes the real registry bindings. */
-class FakeRuntime extends CodeRuntime {
+class FakeRuntime extends PtcRuntime {
+  resolve(request: import('@deepseek-ai/dsh-ptc-runtime').PtcRunRequest): import('@deepseek-ai/dsh-ptc-runtime').PtcRunSpec { return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: request.timeoutMs ?? 120_000 } }
+
   readonly language = 'typescript'
   readonly isolation = 'fake'
-  behavior: (request: CodeRunRequest) => Promise<CodeRunResult> = () => Promise.resolve({ logs: [] })
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
 
-  run(request: CodeRunRequest): Promise<CodeRunResult> {
+  run(request: PtcRunRequest): Promise<PtcRunResult> {
     return this.behavior(request)
   }
 }
@@ -291,7 +290,7 @@ describe('read_image happy path', () => {
   it('forwards a nested PTC mode image through the outer run_code context', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await setup({ toolMode: 'ptc' })
-    const runtime = ctx.codeRuntime as FakeRuntime
+    const runtime = ctx.ptcRuntime as FakeRuntime
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.read_image!({ file_path: 'red.png' })
       return { logs: [], value }
@@ -411,20 +410,6 @@ describe('extension-less paths', () => {
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
       }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('unreachable in this test')
-      }
     }
     await writeFile(join(dir, 'avatar'), PNG_1X1)
     const ctx = await setup({ attachments: false })
@@ -455,20 +440,6 @@ describe('extension-less paths', () => {
       }
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        throw new Error('unreachable in this test')
-      }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
         throw new Error('unreachable in this test')
       }
     }
@@ -581,20 +552,6 @@ describe('argument and service preconditions', () => {
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
       }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('unreachable in this test')
-      }
     }
     const ctx = await setup({ attachments: false })
     await ctx.plugin(JpegOnlyStore)
@@ -672,20 +629,6 @@ describe('image admission failures', () => {
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
       }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('unreachable in this test')
-      }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await setup({ attachments: false })
@@ -754,20 +697,6 @@ describe('image admission failures', () => {
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
       }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('unreachable in this test')
-      }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await setup({ attachments: false })
@@ -806,20 +735,6 @@ describe('image admission failures', () => {
       }
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
-        throw new Error('unreachable in this test')
-      }
-
-      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('unreachable in this test')
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('unreachable in this test')
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
         throw new Error('unreachable in this test')
       }
     }

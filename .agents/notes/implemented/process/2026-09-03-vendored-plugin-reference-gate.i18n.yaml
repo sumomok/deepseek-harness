@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-vendored-plugin-reference-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-03-vendored-plugin-reference-gate.md
-2026-09-03-vendored-plugin-reference-gate.md: f22eee170b0da6a0eb7f55a4af15de8e0d42992a
-2026-09-03-vendored-plugin-reference-gate.zh.md: ec8ffeb189f35d493a0cf390aca5a86b28c24e27
+/agent-note-vendored-plugin-reference-gate:
+  en: 3fa59b040b8c9b91
+  zh: 5c6b4cfd9848bb13
+/agent-note-vendored-plugin-reference-gate/problem:
+  en: 6f2efe3292b9056f
+  zh: 564d636c587411c4
+/agent-note-vendored-plugin-reference-gate/decision:
+  en: 422f9dbd5aeddc82
+  zh: bcd4485c68f4c2f2
+/agent-note-vendored-plugin-reference-gate/alternatives-considered:
+  en: 9e8c1625b95553dd
+  zh: 23560a9183ca1205
+/agent-note-vendored-plugin-reference-gate/consequences:
+  en: de7b64818fa48d33
+  zh: 7079134a0c6c478e
+/agent-note-vendored-plugin-reference-gate/related:
+  en: ebab21bbdfcabbad
+  zh: 8e8d0f4b956f9717

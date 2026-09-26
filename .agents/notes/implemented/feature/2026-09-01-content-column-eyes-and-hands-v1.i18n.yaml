@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-content-column-eyes-and-hands-v1.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-content-column-eyes-and-hands-v1.md
-2026-09-01-content-column-eyes-and-hands-v1.md: 28b479edabb5cf7488dee0f1ba5bab0d09dfc67b
-2026-09-01-content-column-eyes-and-hands-v1.zh.md: c324b1b001140a3ca69a67b36a7dd48a80132048
+/agent-note-content-column-eyes-and-hands-v1:
+  en: bdb633c8b552aa91
+  zh: dcd784ef024dedf8
+/agent-note-content-column-eyes-and-hands-v1/problem:
+  en: 2a128b9d4c00d33b
+  zh: c03bc5b99623f6ec
+/agent-note-content-column-eyes-and-hands-v1/decision:
+  en: 32696a9fe42a92c0
+  zh: 00208181ddc73691
+/agent-note-content-column-eyes-and-hands-v1/decision/the-layers-and-where-each-one-lives:
+  en: 0eaff528dea43ad1
+  zh: 721ec2724b68afd9
+/agent-note-content-column-eyes-and-hands-v1/decision/what-a-kind-hands-in:
+  en: 8c91261d58155483
+  zh: 187cab852bff2a4a
+/agent-note-content-column-eyes-and-hands-v1/decision/what-reaches-the-session-log:
+  en: fe2c0de1fc506949
+  zh: 6f8f39e7f216e996
+/agent-note-content-column-eyes-and-hands-v1/decision/what-a-deployment-sets:
+  en: fb679e9e3a8b6ccf
+  zh: e8f2574ae1c7e7f7
+/agent-note-content-column-eyes-and-hands-v1/decision/probes-before-guidance-and-how-guidance-retires:
+  en: 1808fa90e87ef4c9
+  zh: 6779caf363f11d39
+/agent-note-content-column-eyes-and-hands-v1/decision/what-the-real-console-taught:
+  en: ab88a2ae5beca5d8
+  zh: ee9d43155a2b6242
+/agent-note-content-column-eyes-and-hands-v1/decision/what-this-line-does-not-do:
+  en: 71b9a717befa828e
+  zh: 1dcf4fe8edc4e117
+/agent-note-content-column-eyes-and-hands-v1/alternatives-considered:
+  en: 6e79f38f58c637e7
+  zh: bbb282ead133fa53
+/agent-note-content-column-eyes-and-hands-v1/consequences:
+  en: 34a1f1dcadd705f2
+  zh: ee20d5eeb9e277a5
+/agent-note-content-column-eyes-and-hands-v1/deferred:
+  en: b397b34374f38898
+  zh: f8059452246eae32
+/agent-note-content-column-eyes-and-hands-v1/testing:
+  en: e099a72e05af0605
+  zh: b4bf3ffd3425693a

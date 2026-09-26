@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/vue-ui-poc/README.md
-README.md: a418e08712eaca6fa82b22c2e23a3d2f8abaff44
-README.zh.md: c5bdca2f8d3744ab724b91850e04c27f7b5560ca
+/:
+  en: 13d7f20d75713ed1
+  zh: 824142f3e7530126
+/deepseek-ai-dsh-experimental-vue-ui-poc:
+  en: 31b445ec3801fec9
+  zh: c457cc13def564fd
+/deepseek-ai-dsh-experimental-vue-ui-poc/summary:
+  en: 77e1043d6326ef43
+  zh: d6307720044cd9b6
+/deepseek-ai-dsh-experimental-vue-ui-poc/table-of-contents:
+  en: 3cf2b5c8be424e91
+  zh: 36f4f3b5c428c9db
+/deepseek-ai-dsh-experimental-vue-ui-poc/what-the-probe-shows:
+  en: 52ef83194ad004a8
+  zh: 3a96458f4a4843e6
+/deepseek-ai-dsh-experimental-vue-ui-poc/composition:
+  en: 219d0467f9f8cbf5
+  zh: bf68e3a28875c4d9
+/deepseek-ai-dsh-experimental-vue-ui-poc/bundle-cost:
+  en: a078077bc792f0a1
+  zh: 8b9c169e878ff76f
+/deepseek-ai-dsh-experimental-vue-ui-poc/model-experience:
+  en: 79257bf5b5373712
+  zh: 9d7fa0084ef01059
+/deepseek-ai-dsh-experimental-vue-ui-poc/model-experience/kv-cache-effect:
+  en: 47f982e326fe77fd
+  zh: 88df5a28ce047ade
+/deepseek-ai-dsh-experimental-vue-ui-poc/known-limitations-and-deferred-work:
+  en: 28d3e3af0bca23c0
+  zh: 0dcd5b78b1cc9913
+/deepseek-ai-dsh-experimental-vue-ui-poc/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

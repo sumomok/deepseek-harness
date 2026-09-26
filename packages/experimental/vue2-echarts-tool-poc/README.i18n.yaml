@@ -1,6 +1,67 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/vue2-echarts-tool-poc/README.md
-README.md: aab243c6b0e318c3866a4eff01b0a9d54bcfe77d
-README.zh.md: 1892aa842096a5f6c998b88cdea259f9f971d5cc
+/:
+  en: d599f3231aabd043
+  zh: dbe3630795bb96e2
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc:
+  en: c5e773efc3988f39
+  zh: 9d5ba3e12a404ecd
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/summary:
+  en: 61ca466a6f311a36
+  zh: e3ad90e10cfc8d38
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/table-of-contents:
+  en: 3d3bfea6c1012be7
+  zh: dfc6f0435d60f4b1
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/composition:
+  en: f23dbb230ccfb299
+  zh: 0dd3439c40b8166c
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/configuration:
+  en: be6016fa06f5a8d5
+  zh: 3534a3dee5f023b9
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/the-three-feedback-layers:
+  en: 9bd63bd244291d24
+  zh: e94022efe72ba995
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/where-the-chart-is-drawn:
+  en: 62cef4e66123b35d
+  zh: 6a719b22daf0d72d
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/one-chart-several-calls:
+  en: 31a01ea917ff5f2b
+  zh: 7c4d046ddd9d057a
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/trust:
+  en: 33cafccd3e293bb5
+  zh: f952ba68c4d4e6a9
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/the-show-chart-offer:
+  en: b71e23b15912f051
+  zh: fcf2500a55a01521
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/the-show-chart-offer/what-the-model-sees:
+  en: 7c84352080b3ce2e
+  zh: 0b4ca661fa089b9f
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/the-show-chart-offer/token-effect:
+  en: 11e7f51a17500db2
+  zh: d3648aa390d0f87c
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/the-show-chart-offer/kv-cache-effect:
+  en: 609f4f80fc438ffd
+  zh: da5f3f3296d2b3de
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/tool-call-result:
+  en: 13fed9761967bce9
+  zh: 9937e2a13f34f183
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/tool-call-result/what-the-model-sees:
+  en: 59bc6ab80ee64661
+  zh: b94aff5fd3ddae6f
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/tool-call-result/token-effect:
+  en: fa4c58a4ff705a9c
+  zh: eeb49a3bf51cdb84
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/model-experience/tool-call-result/kv-cache-effect:
+  en: e4850a739d8599af
+  zh: 35291ce85ac34365
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/known-limitations-and-deferred-work:
+  en: e524e79867d6738e
+  zh: fd640bada09a575d
+/deepseek-ai-dsh-experimental-vue2-echarts-tool-poc/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

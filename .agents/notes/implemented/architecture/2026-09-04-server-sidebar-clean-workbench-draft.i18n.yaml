@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-server-sidebar-clean-workbench-draft.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-server-sidebar-clean-workbench-draft.md
-2026-09-04-server-sidebar-clean-workbench-draft.md: 33c5d231f5c77d07021e1645761a07472bdb1880
-2026-09-04-server-sidebar-clean-workbench-draft.zh.md: af52c143d6f78da04fb9f30389f6870b85bf9d7e
+/agent-note-server-sidebar-reusing-the-workbench-draft-only-while-it-is-clean:
+  en: 89839ca281d29499
+  zh: 993bf6937afcab4c
+/agent-note-server-sidebar-reusing-the-workbench-draft-only-while-it-is-clean/problem:
+  en: 30de842aca962b14
+  zh: c4522856eda1b69f
+/agent-note-server-sidebar-reusing-the-workbench-draft-only-while-it-is-clean/decision:
+  en: 9fab14ccbf5d102c
+  zh: c6188ccc6d70a9e0
+/agent-note-server-sidebar-reusing-the-workbench-draft-only-while-it-is-clean/alternatives-considered:
+  en: d8e7886975787174
+  zh: 2819867a53f62607
+/agent-note-server-sidebar-reusing-the-workbench-draft-only-while-it-is-clean/consequences:
+  en: e4b8ce8c87db9307
+  zh: 3a02af346f9a6a0b

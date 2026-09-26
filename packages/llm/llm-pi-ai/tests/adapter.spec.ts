@@ -2,20 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
-  FileAttachmentLimits,
-  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
-  ImageRequestPolicy,
+  ImageRequestTarget,
   RequestImageAttachment,
-  SaveFileAttachment,
   SaveImageAttachment,
-  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
-import { SpillLocator } from '@deepseek-ai/dsh-spill'
-import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -36,11 +30,6 @@ const IMAGE_REF: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
-}
-const FILE_REF: FileAttachmentRef = {
-  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
-  name: 'notes.txt',
-  bytes: 8,
 }
 const HOST_IMAGE_PATH = '/host/.dsh/attachments/objects/aa/object'
 const MODEL_IMAGE_PATH = '/model/.dsh/attachments/objects/aa/object'
@@ -91,7 +80,7 @@ describe('PiAiAdapter provider routing', () => {
       model: 'deepseek-v4-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
-        source: { kind: 'plugin', plugin: 'test' },
+        source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })],
     })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
@@ -231,6 +220,17 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
+  it('refuses a tool choice before provider I/O', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url)
+    const tools = [{ name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }]
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], tools, toolChoice: { type: 'any' } })
+    expect(result.finish).toMatchObject({
+      kind: 'error', failure: { code: 'UNSUPPORTED_OPTION', message: expect.stringContaining('GenerateOptions.toolChoice') as string },
+    })
+    expect(server.requests).toEqual([])
+  })
+
   it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
@@ -265,7 +265,7 @@ describe('PiAiAdapter provider routing', () => {
       Promise.resolve({ ref, data: Uint8Array.of(1) }))
     const readImageRequest = vi.fn((
       value: ImageAttachmentRef,
-      _policy: ImageRequestPolicy,
+      _target: ImageRequestTarget,
       _signal?: AbortSignal,
     ): Promise<RequestImageAttachment> => (
       Promise.resolve({
@@ -310,24 +310,10 @@ describe('PiAiAdapter provider routing', () => {
 
       override readImageRequest(
         value: ImageAttachmentRef,
-        policy: ImageRequestPolicy,
+        policy: ImageRequestTarget,
         signal?: AbortSignal,
       ): Promise<RequestImageAttachment> {
         return readImageRequest(value, policy, signal)
-      }
-
-      readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
-
-      validateFile(_input: SaveFileAttachment): Promise<void> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        return Promise.reject(new Error('not used'))
-      }
-
-      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        return Promise.reject(new Error('not used'))
       }
     }
 
@@ -344,62 +330,18 @@ describe('PiAiAdapter provider routing', () => {
       model: 'gpt-4.1',
       messages: [createUserMessage({
         content: [{ type: 'image', attachment: ref }],
-        source: { kind: 'plugin', plugin: 'test' },
+        source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })],
     })
 
     expect(result.finish.kind).toBe('error')
     expect(readImageRequest).toHaveBeenCalledWith(ref, {
-      maxPixels: 2048 * 2048,
+      width: 1,
+      height: 1,
       maxBytes: 1024 * 1024,
     }, expect.any(AbortSignal))
     expect(JSON.stringify(server.requests[0])).toContain(MODEL_IMAGE_PATH)
     expect(server.paths).toEqual(['/v1/responses'])
-  })
-
-  it('rejects file input before provider I/O when no attachment service is resolved', async () => {
-    const adapter = adapterOf({ openai: {} })
-    const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
-      for await (const _chunk of adapter.stream(options)) { /* drain */ }
-    }
-
-    await expect(drain({
-      provider: 'openai',
-      model: 'gpt-4.1',
-      messages: [createUserMessage({
-        content: [{ type: 'file', attachment: FILE_REF }],
-        source: { kind: 'plugin', plugin: 'test' },
-      })],
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
-  })
-
-  it('spills an oversized file through resolveAttachmentSpill instead of truncating it', async () => {
-    const server = await mockServer([{ events: textEvents }])
-    const bigText = 'x'.repeat(20)
-    const readFile = vi.fn((ref: FileAttachmentRef): Promise<StoredFileAttachment> => (
-      Promise.resolve({ ref, data: new TextEncoder().encode(bigText) })
-    ))
-    const spillRef = { locator: SpillLocator('/spill/session-abc/xyz-notes.txt'), bytes: bigText.length, retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
-    const resolveSpill = vi.fn(() => Promise.resolve(spillRef))
-    const attachmentSpill = { inlineWholeUnderChars: 10, previewChars: 4, resolveSpill } as unknown as AttachmentSpill
-    const adapter = new PiAiAdapter({
-      profiles: () => resolveProfiles({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url } }),
-      resolveApiKey: () => Promise.resolve('test-key'),
-      auth: memoryAuth(),
-      resolveAttachments: () => ({ readFile } as unknown as AttachmentStore),
-      resolveAttachmentSpill: () => attachmentSpill,
-    })
-
-    for await (const _chunk of adapter.stream({
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
-      messages: [createUserMessage({
-        content: [{ type: 'file', attachment: FILE_REF }],
-        source: { kind: 'plugin', plugin: 'test' },
-      })],
-    })) { /* drain */ }
-
-    expect(resolveSpill).toHaveBeenCalledWith(FILE_REF, bigText)
   })
 
   it('forces one wire request for an SDK-retryable provider failure', async () => {
@@ -983,7 +925,7 @@ describe('provider profile lifecycle', () => {
       model: 'deepseek-v4-flash',
       messages: [createUserMessage({
         content: [{ type: 'image', attachment: IMAGE_REF }],
-        source: { kind: 'plugin', plugin: 'test' },
+        source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(drain({
@@ -991,23 +933,16 @@ describe('provider profile lifecycle', () => {
       model: 'gpt-4.1',
       messages: [createUserMessage({
         content: [{ type: 'image', attachment: IMAGE_REF }],
-        source: { kind: 'plugin', plugin: 'test' },
+        source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(drain({
       provider: 'openai',
       model: 'gpt-4.1',
-      messages: [createUserMessage({
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'call-outer' as never,
-          content: [{
-            type: 'tool-result',
-            toolCallId: 'call-inner' as never,
-            content: [{ type: 'image', attachment: IMAGE_REF }],
-          }],
-        }],
-        source: { kind: 'plugin', plugin: 'test' },
+      messages: [createToolResultMessage({
+        callId: 'call-outer' as never,
+        content: [{ type: 'image', attachment: IMAGE_REF }],
+        isError: false,
       })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
@@ -1109,4 +1044,17 @@ describe('abort wiring', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
   })
+})
+
+it.each([
+  new LlmError('missing credential', 'MISSING_CREDENTIAL'),
+  new LlmError('invalid credential', 'INVALID_CREDENTIAL'),
+  new Error('credential storage failed'),
+])('retains its configured catalog independently of credential failures: $message', async (error) => {
+  const adapter = new PiAiAdapter({
+    profiles: () => resolveProfiles({ deepseek: { apiKeyEnv: 'PI_TEST_KEY' } }),
+    resolveApiKey: () => Promise.reject(error),
+    auth: memoryAuth(),
+  })
+  expect(await adapter.listModels('deepseek')).not.toHaveLength(0)
 })

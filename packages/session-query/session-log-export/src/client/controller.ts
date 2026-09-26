@@ -1,6 +1,5 @@
 /** Browser download state shared by the Session Header button and `/export`. */
 
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -9,6 +8,7 @@ import {
   SessionExportProgressTracker,
   type SessionExportProgress,
 } from './progress.ts'
+import { SESSION_LOG_EXPORT_ROUTE } from '../routes.ts'
 
 /** Download phases presented by the shared panel. */
 export type SessionLogDownloadStatus = 'downloading' | 'success' | 'error'
@@ -26,11 +26,9 @@ export interface SessionLogDownloadState {
   bySession: Record<string, SessionLogDownloadEntry | undefined>
 }
 
+/** HTTP carrier for the export route. */
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 type Save = (archive: Blob, filename: string) => void
-
-/** Host route streaming one Session's ZIP, as the Host registers it. */
-const SESSION_EXPORT_ROUTE = '/api/session.export'
 
 const INITIAL: SessionLogDownloadState = { bySession: {} }
 
@@ -192,12 +190,9 @@ export class SessionLogDownloadController {
       open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START,
     })
     try {
-      // Resolved against the page's deployment base: under a served path
-      // prefix the root-absolute route would address the origin root instead.
-      const url = clientUrl(SESSION_EXPORT_ROUTE)
-      url.searchParams.set('sessionId', sessionId)
-      url.searchParams.set('includeDescendants', 'true')
-      const response = await this.fetcher(url, { method: 'GET', signal })
+      const query = new URLSearchParams({ sessionId, includeDescendants: 'true' })
+      const route = `${SESSION_LOG_EXPORT_ROUTE}?${query.toString()}`
+      const response = await this.fetcher(route, { method: 'GET', signal })
       if (!response.ok) {
         const detail = await response.text().catch(() => '')
         throw new Error(`HTTP ${response.status}${detail === '' ? '' : ` ${detail}`}`)

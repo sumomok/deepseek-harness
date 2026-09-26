@@ -1,6 +1,40 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/content-column/README.md
-README.md: d4e23d1e7a38afa1025c491c7aec428c113e6670
-README.zh.md: 83f09a62951558c16d9e1cd2f4e815b495702017
+/:
+  en: 8143f03dc25f4e42
+  zh: ac6afa637c190a44
+/deepseek-ai-dsh-experimental-content-column:
+  en: 73ff2f99c826e553
+  zh: 18aa6a2c2b0296b5
+/deepseek-ai-dsh-experimental-content-column/summary:
+  en: e8eb25fa95431afa
+  zh: 636b40bf638e197f
+/deepseek-ai-dsh-experimental-content-column/table-of-contents:
+  en: 085dad0db2927d19
+  zh: 7e0d031e1ddfb7eb
+/deepseek-ai-dsh-experimental-content-column/the-column-and-its-kind-slot:
+  en: 6a1b2b8c5a579699
+  zh: 2a5ae8acd961ef39
+/deepseek-ai-dsh-experimental-content-column/choosing-an-entry:
+  en: 0db02a3a53f12ac6
+  zh: 10e45443d6e5347d
+/deepseek-ai-dsh-experimental-content-column/closing-an-entry-s-tab:
+  en: e4e41b4d41c6f62d
+  zh: a2018e657e7dbb88
+/deepseek-ai-dsh-experimental-content-column/composition:
+  en: 2005e36a06b4b8b9
+  zh: 9bf8d4fbd3ace288
+/deepseek-ai-dsh-experimental-content-column/model-experience:
+  en: 0aa8c6c8937c0b89
+  zh: 0aa8c6c8937c0b89
+/deepseek-ai-dsh-experimental-content-column/model-experience/kv-cache-effect:
+  en: ca75c51c89c2c9b0
+  zh: ca75c51c89c2c9b0
+/deepseek-ai-dsh-experimental-content-column/known-limitations-and-deferred-work:
+  en: 60a26350def706d4
+  zh: a1376b5dc31612b7
+/deepseek-ai-dsh-experimental-content-column/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

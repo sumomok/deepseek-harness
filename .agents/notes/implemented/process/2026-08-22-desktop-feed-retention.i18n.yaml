@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-desktop-feed-retention.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-22-desktop-feed-retention.md
-2026-08-22-desktop-feed-retention.md: b82ee4f65310d10a16102f126bfe24b1fd5814b5
-2026-08-22-desktop-feed-retention.zh.md: 1a51adf3fb91c3c4b037c612854136b734b8c9c4
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths:
+  en: 77695189ea1e38d5
+  zh: 3286c4a2e8aa7d15
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/problem:
+  en: 048086907301ac45
+  zh: 92e7f12160b53fe5
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/decision:
+  en: 89184640f104d321
+  zh: c700ed6ff929909b
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/decision/the-decision-is-a-pure-function-only-the-deleting-needs-a-server:
+  en: 3338d6e375f56955
+  zh: e0a38e8d2c5e8bf8
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/decision/what-is-never-a-deletion-candidate:
+  en: b4ed56a44789bc94
+  zh: fcae03d52f13d7e6
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/decision/when-it-runs-and-what-a-failure-costs:
+  en: 3fbbd166eff6e9dc
+  zh: 404e43c74dfda518
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/alternatives-considered:
+  en: a9f66990a274eada
+  zh: b79e9a36fb76d56f
+/agent-note-the-update-feed-prunes-itself-artifacts-and-blockmaps-at-their-own-depths/consequences:
+  en: d9c4edb14e3bca3d
+  zh: 9a5c61276bd70fbc

@@ -1,7 +1,9 @@
 import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { DatabaseSync } from 'node:sqlite'
+import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -17,11 +19,13 @@ import type {
   SessionAccess,
   SessionHandle,
   SessionHandleReadOptions,
+  SessionHandleReadResult,
   SessionPersistenceListOptions,
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SqliteSessionQueryEngine, {
+  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
 import {
@@ -32,6 +36,12 @@ import {
   type SessionQueryErrorCode,
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'test': { kind: 'test' } & ContextFormed
+  }
+}
 
 const temporaryDirectories: string[] = []
 
@@ -86,7 +96,7 @@ class TestHandle implements SessionHandle {
     readonly access: SessionAccess,
   ) {}
 
-  async read(_offset = 0, _length?: number, options?: SessionHandleReadOptions): Promise<readonly SessionEvent[]> {
+  async read(_offset = 0, _length?: number, options?: SessionHandleReadOptions): Promise<SessionHandleReadResult> {
     TestPersistence.reads.set(this.id, (TestPersistence.reads.get(this.id) ?? 0) + 1)
     TestPersistence.readSignals.push(options?.signal)
     if (TestPersistence.failure !== undefined) throw TestPersistence.failure
@@ -94,7 +104,7 @@ class TestHandle implements SessionHandle {
     if (entry === undefined) throw new SessionPersistenceNotFoundError(this.id)
     await TestPersistence.readEffect?.(entry, options?.signal)
     TestPersistence.readEffect = undefined
-    return structuredClone(entry.events)
+    return { eventState: 'detached', events: structuredClone(entry.events) }
   }
 
   append(events: readonly SessionEvent[]): Promise<void> {
@@ -363,6 +373,7 @@ describe('SQLite session search', () => {
     session.append(
       'assistant/message',
       {
+        stream: [],
         turn: 1,
         step: 1,
         message: createAssistantMessage({
@@ -394,10 +405,19 @@ describe('SQLite session search', () => {
       { type: 'user/message', seq: SessionSeq(0), time: 10, data: createUserMessage({
         content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' },
       }), surfaceOp: 'append' },
-      { type: 'assistant/chunk', seq: SessionSeq(1), time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'needle raw' } } },
+      {
+        type: 'assistant/attempt',
+        seq: SessionSeq(1),
+        time: 11,
+        data: {
+          turn: 1,
+          step: 1,
+          stream: [{ type: 'text-chunks', time0: 11, index: 0, dt: [], texts: ['needle raw'] }],
+        },
+      },
       { type: 'user/message', seq: SessionSeq(2), time: 12, data: createUserMessage({
-        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' },
-      }), surfaceOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(0) }, sourceEventSeqs: [SessionSeq(0)] },
+        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'test' },
+      }), surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(0) }, sourceEventSeqs: [SessionSeq(0)] },
       { type: 'turn/end', seq: SessionSeq(3), time: 13, data: { turn: 1, reason: { kind: 'error', error: { message: 'needle failure', code: 'UNKNOWN' } } } },
     ]
     ctx.sessions.create(SessionId('a'), { seed: events, meta: { cwd: '/a', parentSession: parent, createdAt: 20 } })
@@ -1294,6 +1314,68 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(ctx.sessionQuery).toBeUndefined()
   })
 
+  it('rebuilds persisted rows extracted under a retired Session generation', async () => {
+    // The stamped identity has to move with the Session generation; carrying
+    // the schema version alone is what let rows survive a migration edge.
+    expect(SESSION_QUERY_SQLITE_INDEX_IDENTITY % 100).toBe(SESSION_FORMAT_VERSION)
+    expect(Math.floor(SESSION_QUERY_SQLITE_INDEX_IDENTITY / 100)).toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
+    const persistenceRoot = await temporaryPath('generation-sessions')
+    const searchPath = await temporaryPath('generation.db')
+    const meta = header('generation', 10, { cwd: '/work' })
+    const build = async (): Promise<void> => {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      const persistence = await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+      const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
+      if (!existsSync(join(persistenceRoot, '--work--'))) {
+        const writer = await ctx.sessionPersistence.create(meta)
+        await writer.append(messageEvents('generation needle'))
+        await writer.close()
+      }
+      await ctx.sessionQuery.searchSessions({ query: 'needle' })
+      await search.dispose()
+      await persistence.dispose()
+    }
+    // A row this index already holds is reused: reconciliation reads a Session
+    // again only when its file revision moved, and nothing writes to a log to
+    // migrate it. The planted text is what makes that reuse observable.
+    const plant = (): void => {
+      const db = new DatabaseSync(searchPath)
+      db.exec("UPDATE persisted_docs SET text = 'plantedmarker'")
+      db.close()
+    }
+    const markerHits = async (): Promise<number> => {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+      const persistence = await ctx.plugin(JsonlSessionPersistence, { root: persistenceRoot, compression: 'none' })
+      const search = await ctx.plugin(SqliteSessionQueryEngine, { path: searchPath })
+      const found = await ctx.sessionQuery.searchSessions({ query: 'plantedmarker' })
+      const rebuilt = await ctx.sessionQuery.searchSessions({ query: 'generation needle' })
+      await search.dispose()
+      await persistence.dispose()
+      return found.items.length * 10 + rebuilt.items.length
+    }
+
+    await build()
+    plant()
+    // Same identity: the planted row stands and the source text is not indexed.
+    expect(await markerHits()).toBe(10)
+
+    plant()
+    const retired = new DatabaseSync(searchPath)
+    retired.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION * 100 + (SESSION_FORMAT_VERSION - 1)}`)
+    retired.close()
+    // A retired generation drops the derived rows, so the next search extracts
+    // the log again under the current one.
+    expect(await markerHits()).toBe(1)
+    const stamped = new DatabaseSync(searchPath, { readOnly: true })
+    expect(stamped.prepare('PRAGMA user_version').get())
+      .toEqual({ user_version: SESSION_QUERY_SQLITE_INDEX_IDENTITY })
+    stamped.close()
+  })
+
   it('resets a recognized incompatible schema but refuses unknown or foreign tables', { timeout: 20_000 }, async () => {
     const stalePath = await temporaryPath('stale.db')
     const staleOwner = await liveContext({ path: stalePath })
@@ -1307,7 +1389,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await (staleCtx.sessionQuery as SqliteSessionQueryEngine).close()
     const rebuilt = new DatabaseSync(stalePath)
     expect((rebuilt.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-      .toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
+      .toBe(SESSION_QUERY_SQLITE_INDEX_IDENTITY)
     rebuilt.close()
 
     const augmentedPath = await temporaryPath('augmented.db')
@@ -1347,7 +1429,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const stillCurrentAugmented = new DatabaseSync(currentAugmentedPath)
     expect(stillCurrentAugmented.prepare('SELECT value FROM unrelated').get()).toEqual({ value: 'safe' })
     expect(stillCurrentAugmented.prepare('PRAGMA user_version').get())
-      .toEqual({ user_version: SESSION_QUERY_SQLITE_SCHEMA_VERSION })
+      .toEqual({ user_version: SESSION_QUERY_SQLITE_INDEX_IDENTITY })
     expect(stillCurrentAugmented.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     stillCurrentAugmented.close()
 
@@ -1804,7 +1886,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await search.dispose()
     const reader = await ctx.sessionPersistence.open(meta.id, 'read')
     expect(reader.header).toMatchObject(meta)
-    await expect(reader.read()).resolves.toMatchObject([{ seq: SessionSeq(0) }])
+    await expect(reader.read()).resolves.toMatchObject({ events: [{ seq: SessionSeq(0) }] })
     await reader.close()
     await persistence.dispose()
   })

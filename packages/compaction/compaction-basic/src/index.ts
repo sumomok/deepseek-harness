@@ -8,8 +8,10 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
-import type { TokenMeter } from '@deepseek-ai/dsh-token-meter'
+import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
+// Type-only: the `ctx.sessionProjections` Context merge behind the declared injection.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -32,12 +34,16 @@ import { summarizeWithLlm } from './summarizer.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
+  CompactionPolicy,
   ModelCompactPolicyConfig,
+  ResolvedCompactSpec,
   ResolvedConfig,
+  ResolvedTargetPolicy,
 } from './types.ts'
 
 export type {
   BasicCompactionConfig,
+  CompactionPolicy,
   CompactionPolicyConfig,
   ModelCompactPolicyConfig,
   ResolvedCompactSpec,
@@ -46,8 +52,11 @@ export type {
   ResolvedTargetPolicy,
 } from './types.ts'
 
-/** The region transaction's view of this service's dynamically dispatched summarizer. */
-type RegionSummarize = (input: SummarizationInput, agent: Agent, signal?: AbortSignal) => Promise<SummaryResult>
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    compactionPolicy: CompactionPolicy
+  }
+}
 
 /** Resolve the exact provider/model durably routed for the latest request. */
 function routedTarget(
@@ -58,6 +67,17 @@ function routedTarget(
     return undefined
   }
   return { provider: config.provider, model: config.model }
+}
+
+/**
+ * Output tokens the routed request reserves, which the provider charges to the
+ * same window as the prompt. The effective envelope's own cap wins; otherwise
+ * the adapter's per-request default, which the adapter materializes when that
+ * envelope omits one. No declared cap means no reservation.
+ */
+function reservedCompletionTokens(agent: Agent, defaultMaxTokens: number | undefined): number {
+  const configured = agent.session.requestHeader()?.config.maxTokens
+  return configured ?? defaultMaxTokens ?? 0
 }
 
 /** Resolve the conversation target used to select an optional policy override. */
@@ -72,6 +92,7 @@ function conversationTarget(
 }
 
 const thresholdRatioSchema = z.number()
+const headroomTokensSchema = z.number().step(1).min(0)
 const retainRatioSchema = z.number()
 const retainTokensSchema = z.number().step(1).min(0)
 const summarizationProviderSchema = z.string()
@@ -84,6 +105,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
   thresholdRatio: thresholdRatioSchema,
+  headroomTokens: headroomTokensSchema,
   retainRatio: retainRatioSchema,
   retainTokens: retainTokensSchema,
   summarizationProvider: summarizationProviderSchema,
@@ -102,10 +124,11 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
  * token meter.
  */
 export class BasicCompactionEngine extends CompactionEngine {
-  static inject = ['llm', 'tokenMeter', 'sessions']
+  static inject = ['llm', 'tokenMeter', 'sessions', 'sessionProjections']
 
   static Config: z<BasicCompactionConfig> = z.object({
     thresholdRatio: thresholdRatioSchema,
+    headroomTokens: headroomTokensSchema,
     retainRatio: retainRatioSchema,
     retainTokens: retainTokensSchema,
     summarizationProvider: summarizationProviderSchema,
@@ -121,6 +144,7 @@ export class BasicCompactionEngine extends CompactionEngine {
   readonly config: ResolvedConfig
 
   private readonly warnedPressureConfigTargets = new Set<string>()
+  private readonly warnedPolicyThresholdTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
 
@@ -149,7 +173,10 @@ export class BasicCompactionEngine extends CompactionEngine {
       { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
-      if (!signal.aborted) {
+      // The live switch gates only this pressure path: overflow recovery is
+      // the last defense against a request the provider already refused, and
+      // a user who turned automatic compaction off did not ask to lose it.
+      if (!signal.aborted && ctx.get('compactionPolicy')?.isEnabled() !== false) {
         try {
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
           if (result !== null) logResult(result, 'step pressure')
@@ -291,26 +318,33 @@ export class BasicCompactionEngine extends CompactionEngine {
       return this.compactRegion(range.start, range.end, agent, signal)
     }
 
-    const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
+    const info = await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)
     assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
     const targetKey = `${target.provider}/${target.model}`
-    if (context === undefined) {
+    if (info.context === undefined) {
       throw new TargetPressureConfigError(
         targetKey,
         `compaction-basic: no context capacity for ${targetKey}; `
         + 'configure contextWindow on that adapter model',
       )
     }
-    const spec = resolveCompactSpec(policy, context.contextWindow)
-    if (measurement.totalTokens < spec.thresholdTokens) return null
+    const spec = this.pressureSpec(
+      policy,
+      info.context.contextWindow,
+      reservedCompletionTokens(agent, info.defaultMaxTokens),
+      targetKey,
+    )
+    let occupancy = this.occupancyTokens(agent.session, measurement)
+    if (occupancy < spec.thresholdTokens) return null
 
     // Once pressure qualifies, land the model-free pass before choosing a
     // summary range, then remeasure through the singleton replay fold.
     if (prune !== undefined) {
       prune.pruneSession(agent.session)
       measurement = meter.measure(agent.session)
+      occupancy = this.occupancyTokens(agent.session, measurement)
     }
-    if (measurement.totalTokens < spec.thresholdTokens) return null
+    if (occupancy < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
@@ -323,13 +357,98 @@ export class BasicCompactionEngine extends CompactionEngine {
       }
       result = await this.compactRegion(range.start, range.end, agent, signal)
       measurement = meter.measure(agent.session)
-      if (measurement.totalTokens < spec.thresholdTokens) return result
+      occupancy = this.occupancyTokens(agent.session, measurement)
+      if (occupancy < spec.thresholdTokens) return result
     }
 
     throw new Error(
       `compaction still above threshold after ${spec.compactionRetries + 1} compaction attempts `
-      + `(${measurement.totalTokens} estimated tokens >= threshold ${spec.thresholdTokens})`,
+      + `(${occupancy} estimated tokens >= threshold ${spec.thresholdTokens})`,
     )
+  }
+
+  /**
+   * The occupancy numerator: whenever the measurement anchors on provider
+   * usage, the exact value the context meter divides — `contextPressure`'s
+   * published `projectedTokens`, read off the same wire object the browser
+   * reads, not derived a second time from anything else.
+   *
+   * No arithmetic relation to `totalTokens` is claimed or relied on. The two
+   * price the anchored call's own output differently — the meter with the
+   * provider's `outputTokens`, the projection with the fixed heuristic applied
+   * to the recorded stream — so their difference varies with the response and
+   * can fall either way. The guarantee is the shared source, not a formula.
+   *
+   * Any other baseline means no provider figure is anchoring the measurement.
+   * The projection is the weaker reading there: it prices everything after its
+   * last sample with the route-independent heuristic, so it cannot see a routed
+   * adapter's declared image pricing for history the provider has not billed.
+   * `totalTokens` prices the whole surface under the route instead, and its
+   * estimated baseline charges the anchored output only the heuristic price,
+   * not the provider's — so it is both the figure that sees such pressure and
+   * the one closer to the next request there.
+   *
+   * The same image blind spot survives inside the usage branch, on a smaller
+   * scale: images admitted after the last sample ride the projection's fixed
+   * heuristic until a request bills them.
+   *
+   * @param session - session whose published occupancy is read.
+   * @param measurement - the same call's meter measurement, and the numerator whenever it does not anchor on usage.
+   * @returns non-negative request-pressure tokens for the next request.
+   */
+  private occupancyTokens(session: Session, measurement: TokenMeasurement): number {
+    if (measurement.baseline.kind !== 'usage') return measurement.totalTokens
+    const pressure = this.ctx.sessionProjections
+      .snapshot(session, ['contextPressure']).values.contextPressure
+    /* v8 ignore next -- a usage-anchored meter implies a folded usage sample, so the projected figure is present here */
+    return pressure?.projectedTokens ?? measurement.totalTokens
+  }
+
+  /**
+   * Scale the routed policy into token budgets, letting a mounted
+   * `compactionPolicy` replace the configured `thresholdRatio` — including a
+   * `modelPolicies` override of it, which one live user setting outranks. The
+   * rest of that per-model override, retention and headroom included, still
+   * applies, so the replaced ratio sets only the window-fraction term of the
+   * trigger `floor(min(W × ratio, W − O − headroomTokens))`. A ratio outside
+   * `(0, 1]`, or one whose trigger would not clear the retained tail, warns
+   * once per routed target and keeps the configured value.
+   * @param policy - merged policy for the exact routed target.
+   * @param contextWindow - adapter-owned capacity for that target.
+   * @param reservedCompletionTokens - output tokens one routed request reserves.
+   * @param targetKey - `provider/model` route used as the warning key.
+   * @returns this step's concrete pressure and retention budget.
+   */
+  private pressureSpec(
+    policy: ResolvedTargetPolicy,
+    contextWindow: number,
+    reservedCompletionTokens: number,
+    targetKey: string,
+  ): ResolvedCompactSpec {
+    const spec = resolveCompactSpec(policy, contextWindow, reservedCompletionTokens)
+    const live = this.ctx.get('compactionPolicy')
+    if (live === undefined) return spec
+    const ratio = live.thresholdRatio()
+    // Retention and the headroom term are untouched by the override, so the
+    // configured spec's tail is exactly the tail the overridden trigger would
+    // have to clear, and the configured spec already proved the headroom term
+    // positive.
+    const trigger = Math.floor(Math.min(
+      contextWindow * ratio,
+      contextWindow - reservedCompletionTokens - policy.headroomTokens,
+    ))
+    if (ratio > 0 && ratio <= 1 && spec.retainTokens < trigger) {
+      return resolveCompactSpec({ ...policy, thresholdRatio: ratio }, contextWindow, reservedCompletionTokens)
+    }
+    if (!this.warnedPolicyThresholdTargets.has(targetKey)) {
+      this.warnedPolicyThresholdTargets.add(targetKey)
+      this.ctx.logger.warn(
+        `compaction policy threshold ratio ${ratio} is unusable for ${targetKey} `
+        + `(retained tail ${spec.retainTokens} of context window ${contextWindow}); `
+        + `keeping the configured ratio ${spec.thresholdRatio}`,
+      )
+    }
+    return spec
   }
 
   /**
@@ -421,10 +540,16 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /** Bind the effective token meter and dynamically dispatched summarizer hook. */
-  private regionDependencies(): { meter: TokenMeter; summarize: RegionSummarize } {
+  private regionDependencies(): Parameters<typeof compactSurfaceRegion>[0] {
     return {
       meter: this.ctx.tokenMeter,
       summarize: (input, owner, abort) => this.summarize(input, owner, abort),
+      recover: (error, agent, sourceEventSeqs, signal) => this.ctx.waterfall('compaction/summary-error', {
+        session: agent.session,
+        sourceEventSeqs,
+        error,
+        ...signal === undefined ? {} : { signal },
+      }, () => false),
     }
   }
 }

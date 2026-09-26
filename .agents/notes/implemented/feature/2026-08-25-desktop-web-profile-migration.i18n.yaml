@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-25-desktop-web-profile-migration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-desktop-web-profile-migration.md
-2026-08-25-desktop-web-profile-migration.md: fd426db94df7d4b27b4d9036ed3bd86e92e31a95
-2026-08-25-desktop-web-profile-migration.zh.md: acc7561875d8452561964fb764a5400be5e1c758
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible:
+  en: 9bf0187d7403d966
+  zh: 2f0033ebfc20a97d
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/problem:
+  en: 7e59c653bb267171
+  zh: caf1e5caef3686c8
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/decision:
+  en: 7c95889c236a4db6
+  zh: ffe5d0b3fcd27d7f
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/alternatives-considered:
+  en: 4f57ef13d8e0ec68
+  zh: 96de4003be5d5361
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/consequences:
+  en: 41fd84950af09a16
+  zh: bd2a9ca08a2d428b
+/agent-note-the-web-profile-s-plugins-stay-synced-to-the-desktop-and-a-defective-one-stays-visible/testing:
+  en: 91e813d0e2eabfac
+  zh: be2e85eb88e25452

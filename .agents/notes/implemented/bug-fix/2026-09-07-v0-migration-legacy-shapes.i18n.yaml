@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-07-v0-migration-legacy-shapes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry:
+  en: 67e29838358294ba
+  zh: ee55370721127eb8
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/problem:
+  en: b2c2b77c600ede01
+  zh: 97d909558f41bc02
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/decision:
+  en: 2c8c7daadeab40c7
+  zh: ba15ebea9e29807d
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/what-the-two-libraries-say-now:
+  en: fd5774c7bd82825e
+  zh: e2b17ddc2a71c04a
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/alternatives-considered:
+  en: 7d077b1feb41c3aa
+  zh: 2c15dd9abff9cc8b
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/consequences:
+  en: 3ea59d8b18fe6dbc
+  zh: 461fbe1218361c75
+/agent-note-the-v0-identity-edge-accepts-three-legacy-shapes-this-fork-s-sessions-carry/testing:
+  en: 622a649ea2ff80cf
+  zh: 1afd9f453dcd33e1

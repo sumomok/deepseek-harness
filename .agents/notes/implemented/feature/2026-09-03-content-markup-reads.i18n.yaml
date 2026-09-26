@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-content-markup-reads.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-03-content-markup-reads.md
-2026-09-03-content-markup-reads.md: 510241ca1f337c80161d40460cd6afd7e8dc0bf6
-2026-09-03-content-markup-reads.zh.md: 46bbbd3438418f2f1a6537972b5790a93f2c08e4
+/agent-note-three-reads-of-the-page-as-it-was-written:
+  en: d4b6e4e277ed15d3
+  zh: ece9bd834c298e9e
+/agent-note-three-reads-of-the-page-as-it-was-written/problem:
+  en: 24d159c4997f5129
+  zh: f28cae472067ab38
+/agent-note-three-reads-of-the-page-as-it-was-written/decision:
+  en: 4ed0963bffedc0c8
+  zh: 692dce5d613d5b95
+/agent-note-three-reads-of-the-page-as-it-was-written/decision/the-gate:
+  en: 21186ea2ece8742d
+  zh: 24173bb6dac065d9
+/agent-note-three-reads-of-the-page-as-it-was-written/decision/what-the-answers-look-like:
+  en: 74cf49953c1a860d
+  zh: 512f532c0d8bfc97
+/agent-note-three-reads-of-the-page-as-it-was-written/alternatives-considered:
+  en: 5682f80b2afaf526
+  zh: 738f2208df879553
+/agent-note-three-reads-of-the-page-as-it-was-written/consequences:
+  en: e56bd1244b200891
+  zh: f2c961db6a1b5810
+/agent-note-three-reads-of-the-page-as-it-was-written/testing:
+  en: 1faa4602586048c3
+  zh: 849f729a8acee112

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-content-component-library-v0.5-return-channel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-content-component-library-v0.5-return-channel.md
-2026-09-04-content-component-library-v0.5-return-channel.md: efddfe2f2f09951d492bda98c88a8a4d86eac595
-2026-09-04-content-component-library-v0.5-return-channel.zh.md: 3c0c45dcfb41a4ea790fea1b55a9db512aed0134
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent:
+  en: 55f2bf20dd07007c
+  zh: fa4ba57bea928232
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent/problem:
+  en: ee2179071def9811
+  zh: b64ef29fa473ec21
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent/decision:
+  en: 68f94e9016d7eb7f
+  zh: 139a55d6753055cb
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent/decision/the-gate-table-as-built:
+  en: 9f16b5da1713b000
+  zh: 87f2e93527a6a7cc
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent/alternatives-considered:
+  en: 322a48396f63a12a
+  zh: 5865d1b600a89394
+/agent-note-the-return-channel-what-a-user-does-inside-a-block-reaches-the-agent/consequences:
+  en: 347c61ad0423ee5b
+  zh: 19dcee36c58d1e63

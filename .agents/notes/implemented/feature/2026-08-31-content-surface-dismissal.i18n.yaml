@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-31-content-surface-dismissal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-content-surface-dismissal.md
-2026-08-31-content-surface-dismissal.md: e872b08adbd6f276d066a1bf8b2d6bfde222d998
-2026-08-31-content-surface-dismissal.zh.md: 71e08bf1ad04fbe426b45c7cb90175d5b7c9feeb
+/agent-note-tab-dismissal-as-a-session-event:
+  en: 6d681948ca82da47
+  zh: ca26752eed05ea4c
+/agent-note-tab-dismissal-as-a-session-event/problem:
+  en: 7596c1a0e06a8382
+  zh: ca3566a5436e15d3
+/agent-note-tab-dismissal-as-a-session-event/decision:
+  en: eaf341cd5e3aaced
+  zh: f9079333aef06b83
+/agent-note-tab-dismissal-as-a-session-event/decision/chrome-style-tabs-never-a-button-in-a-button:
+  en: e71c6dc0f1e3a4d2
+  zh: 0f6ab49e884eb959
+/agent-note-tab-dismissal-as-a-session-event/decision/hiding-the-command-s-own-chat-echo:
+  en: 7ddee3d311a8367b
+  zh: a5b72d465159f7c8
+/agent-note-tab-dismissal-as-a-session-event/alternatives-considered:
+  en: 5cbc876eaed8d726
+  zh: c2054208be06df41
+/agent-note-tab-dismissal-as-a-session-event/consequences:
+  en: 704686bb6b244207
+  zh: 98eb33e8419d4afe
+/agent-note-tab-dismissal-as-a-session-event/testing:
+  en: da1f55cd211b69cb
+  zh: 1a1229572b2bfc83

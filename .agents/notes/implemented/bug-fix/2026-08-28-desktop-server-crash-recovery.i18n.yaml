@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-desktop-server-crash-recovery.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-28-desktop-server-crash-recovery.md
-2026-08-28-desktop-server-crash-recovery.md: bddc3a5d70391ad5dcf09effdab7900d38bd7e14
-2026-08-28-desktop-server-crash-recovery.zh.md: baec6114184383096030a70ff369aaccc234c1e5
+/agent-note-recover-from-the-embedded-server-dying-after-startup:
+  en: 1ee822d7c95fb739
+  zh: 5467600d62920352
+/agent-note-recover-from-the-embedded-server-dying-after-startup/problem:
+  en: 09c1280d9513a960
+  zh: 4d3c70c8b9641061
+/agent-note-recover-from-the-embedded-server-dying-after-startup/decision:
+  en: ed7bc073bcea56db
+  zh: 2193e88e83bdea14
+/agent-note-recover-from-the-embedded-server-dying-after-startup/alternatives-considered:
+  en: 24ec1e545ff88a18
+  zh: f2a3dbd69d31787b
+/agent-note-recover-from-the-embedded-server-dying-after-startup/consequences:
+  en: 82cdf672c900b18f
+  zh: 1ae08b73101ee1ab

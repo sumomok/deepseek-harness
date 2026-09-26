@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-21-desktop-update-download-retry.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-21-desktop-update-download-retry.md
-2026-08-21-desktop-update-download-retry.md: 07232557653e164003c70eef47a803ccca138af0
-2026-08-21-desktop-update-download-retry.zh.md: df5b164d88d48bb79db871949c59aaf7f63027f7
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered:
+  en: 8c08e5d69a8aba20
+  zh: 56734eed8c9f9a41
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/problem:
+  en: 3a5cf200c0a81a98
+  zh: 0534a1dfbc963ec5
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/decision:
+  en: 0baab35bfc0f16dc
+  zh: 1164cfdd348cbb78
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/decision/the-policy-is-a-module-with-no-electron-in-it:
+  en: 93a4bcb7126b6604
+  zh: 74190826287c7748
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/decision/what-is-retried:
+  en: 2bc7c9ba06882c0d
+  zh: f4e44162c5b36af5
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/decision/one-place-starts-a-download-one-place-decides-what-a-failure-means:
+  en: b758e2d7144e6a82
+  zh: 80b4a65a2d4e3dc7
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/decision/what-the-window-says:
+  en: cdb8399253582a52
+  zh: d1c7aa8dc8689ae9
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/alternatives-considered:
+  en: e96ad988693aaf60
+  zh: 4aa77b773a62bce6
+/agent-note-an-interrupted-update-download-is-retried-not-surrendered/consequences:
+  en: 75bc46ecbcb63272
+  zh: 77aea1a71d6426f6

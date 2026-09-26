@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-show-chart-supersede-and-inspection.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-show-chart-supersede-and-inspection.md
-2026-08-24-show-chart-supersede-and-inspection.md: 971d6e6ab6b2a0d5b76e1041bea17f6d6287075e
-2026-08-24-show-chart-supersede-and-inspection.zh.md: f3e453837ab2fba48a6b2c818c96c20bb34f47a1
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads:
+  en: e3d1082a8bf9b0cd
+  zh: ed26d7ac01398bf4
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/problem:
+  en: 317de827cb3368da
+  zh: 7f10204161badc1a
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision:
+  en: a15c7c13f167e5ac
+  zh: a15c7c13f167e5ac
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision/the-result-text-asks-for-the-next-step:
+  en: 2fdc90087ee966d1
+  zh: a7b119ff3fa19ff9
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision/id-names-a-chart-the-newer-call-replaces-the-older-row:
+  en: 52010700fe382433
+  zh: 340758b7bd139b59
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision/the-showcharts-projection-is-what-a-row-cannot-see-for-itself:
+  en: 78b5befef4e6c927
+  zh: b9b7a22c2a788e09
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision/radar:
+  en: 6e17ca353b3b3be7
+  zh: fec4e33352f85dff
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/decision/legibility-and-room:
+  en: 7bd15cd4b3122f9b
+  zh: b4487d3eeadd2b25
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/alternatives-considered:
+  en: 6c681f342deeaff8
+  zh: 9e5f494a3fb75ffd
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/consequences:
+  en: 516484885fb922cc
+  zh: aa7800fd40575575
+/agent-note-show-chart-one-chart-across-calls-and-a-screenshot-the-model-actually-reads/testing:
+  en: 43e449dd48792889
+  zh: 40da212b20a3d8de

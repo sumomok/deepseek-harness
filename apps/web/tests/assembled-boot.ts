@@ -1,18 +1,12 @@
 // Shared scaffolding for the assembled-jsdom snapshots: the real built
 // workspace `lib/client.js` artifacts booted through AppWebEntry's
-// ModuleLoader path (loadBundle) against the keyless fixture Connection RPC
+// ModuleLoader path (loadBundle) against a test-owned RemoteMock carrier
 // transport. Every file that mounts this graph needs the same boot entry list,
 // the same bundle map, the same jsdom globals, and the same mount call, and
 // differs only in what it asserts afterwards, so the scaffolding lives here.
 //
 // Keyless and deterministic: the fixture is the fake server, so nothing here
 // reaches a model or the network.
-//
-// The harness mounts on a deployment prefix as well as on the origin root. A
-// prefixed mount reproduces what `dsh-server-base` injects at run time — the
-// page address, `<base href>`, and `__DSH_BASE__` — so a scenario can assert
-// that the shell resolves its own URLs against the deployment prefix instead of
-// the origin root.
 import { globSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -21,7 +15,11 @@ import { act, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import type { ClientModuleLoaderTarget, WebBootEntry, WebBootGraph } from '@deepseek-ai/dsh-client-modules/client'
+import type { RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
+import {
+  createAssembledRemote, type AssembledRemote, type AssembledRemoteOptions,
+} from './assembled-remote.ts'
 
 interface AssembledPlugin extends WebBootEntry {
   /** Absolute path to the built client artifact declared by this package. */
@@ -31,8 +29,8 @@ interface AssembledPlugin extends WebBootEntry {
 interface AssembledBootOptions {
   /** Package ids omitted from this mounted composition. */
   readonly exclude?: readonly string[]
-  /** Deployment prefix the page is served under; the origin root by default. */
-  readonly basePath?: string
+  /** Remote answers owned by this assembled case. */
+  readonly remote?: AssembledRemoteOptions
 }
 
 interface ClientPackageManifest {
@@ -54,21 +52,16 @@ interface ComposedEntry {
 }
 
 interface BootComposition {
+  bundlePatchPaths(packageDir: string, bundle: { patch: string | string[] }): string[]
   loadOverlayPatches(binName: string, file: string): unknown[]
   composeEntries(layers: readonly unknown[][]): ComposedEntry[]
 }
 
 const REPO_ROOT = process.cwd()
-const BUNDLE_LAYERS = [
-  {
-    manifest: join(REPO_ROOT, 'packages/bundle/base/package.json'),
-    patch: join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml'),
-  },
-  {
-    manifest: join(REPO_ROOT, 'packages/bundle/web-app/package.json'),
-    patch: join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml'),
-  },
-] as const
+const BUNDLE_LAYERS = ['packages/bundle/base', 'packages/bundle/web-app'].map(dir => ({
+  dir: join(REPO_ROOT, dir),
+  manifest: join(REPO_ROOT, dir, 'package.json'),
+}))
 const bundleResolvers = BUNDLE_LAYERS.map(layer => createRequire(layer.manifest))
 const webBundleResolver = bundleResolvers[1]
 if (webBundleResolver === undefined) throw new Error('assembled boot: web bundle resolver missing')
@@ -93,18 +86,16 @@ function resolveClientExport(packagePath: string, pkg: ClientPackageManifest): s
   return resolve(dirname(packagePath), relative)
 }
 
-// Mirrors the url `graphRow` in @deepseek-ai/dsh-client-modules mints for a
-// bundle row: relative, so a page served under a deployment prefix resolves it
-// under that prefix. It is a mirror, not an import (that helper is private), so
-// it moves whenever that one does — the prefixed-mount scenario is what makes a
-// drift fail rather than pass quietly.
-const comboUrl = (ids: readonly string[], rev: string): string =>
+/** App-directory-relative combo references, matching the wire the Host composes. */
+const comboReference = (ids: readonly string[], rev: string): string =>
   `plugins/??${ids.map(id => `${id}/client.js`).join(',')}&rev=${rev}`
 
 /** Derive the assembled browser graph from the same bundle patches and package declarations as `dsh web`. */
 function loadAssembledPlugins(): readonly AssembledPlugin[] {
-  const entries = appBoot.composeEntries(BUNDLE_LAYERS.map(layer =>
-    appBoot.loadOverlayPatches('assembled boot', layer.patch)))
+  const entries = appBoot.composeEntries(BUNDLE_LAYERS.map((layer) => {
+    const declared = (JSON.parse(readFileSync(layer.manifest, 'utf8')) as { dsh: { bundle: { patch: string | string[] } } }).dsh.bundle
+    return appBoot.bundlePatchPaths(layer.dir, declared).flatMap(patch => appBoot.loadOverlayPatches('assembled boot', patch))
+  }))
   const plugins = new Map<string, AssembledPlugin>()
   for (const entry of entries) {
     if (entry.disabled === true || typeof entry.name !== 'string') continue
@@ -119,7 +110,7 @@ function loadAssembledPlugins(): readonly AssembledPlugin[] {
     plugins.set(entry.name, {
       id: entry.name,
       bundlePath: resolveClientExport(packagePath, pkg),
-      url: comboUrl([entry.name], 'fx'),
+      url: comboReference([entry.name], 'fx'),
       rev: 'fx',
       ...(declaration.inject === undefined ? {} : { inject: declaration.inject }),
       ...(declaration.external === undefined ? {} : { external: declaration.external }),
@@ -139,7 +130,7 @@ const PLUGINS = loadAssembledPlugins()
 const BOOTSTRAP_IDS = ['@deepseek-ai/dsh-client-modules'] as const
 
 /** Build the fixture graph after applying per-scenario package exclusions. */
-function bootGraph(plugins: readonly AssembledPlugin[] = PLUGINS): WebBootGraph {
+function bootGraph(plugins: readonly AssembledPlugin[]): WebBootGraph {
   const bootstrapEntries = plugins
     .map(plugin => plugin.id)
     .filter(id => BOOTSTRAP_IDS.includes(id as typeof BOOTSTRAP_IDS[number]))
@@ -152,13 +143,13 @@ function bootGraph(plugins: readonly AssembledPlugin[] = PLUGINS): WebBootGraph 
     batches: [
       ...(bootstrapEntries.length === 0 ? [] : [{
         phase: 'bootstrap' as const,
-        url: comboUrl(bootstrapEntries, 'fx'),
+        url: comboReference(bootstrapEntries, 'fx'),
         rev: 'fx',
         entries: bootstrapEntries,
       }]),
       ...(applicationEntries.length === 0 ? [] : [{
         phase: 'application' as const,
-        url: comboUrl(applicationEntries, 'fx'),
+        url: comboReference(applicationEntries, 'fx'),
         rev: 'fx',
         entries: applicationEntries,
       }]),
@@ -184,24 +175,10 @@ function bundleTable(graph: WebBootGraph, plugins: readonly AssembledPlugin[]): 
   return bundles
 }
 
-/** Deployment prefix of an origin-root mount, which is where this lane serves the shell. */
-const ROOT_BASE_PATH = '/'
-
-/**
- * Reject a prefix the Host would reject: `dsh-server-base` requires a leading
- * and a trailing slash so `<base href>` names a directory rather than a file.
- * @param basePath - the deployment prefix under test.
- */
-function assertBasePath(basePath: string): void {
-  if (!basePath.startsWith('/') || !basePath.endsWith('/')) {
-    throw new Error(`assembled boot: deployment prefix ${JSON.stringify(basePath)} must start and end with '/'`)
-  }
-}
-
 interface FixtureWindow extends Window {
   __DSH_BOOT__?: WebBootGraph
-  __DSH_BASE__?: string
   __ModuleLoader__?: ClientModuleLoaderTarget
+  __DSH_TRANSPORT__?: { readonly rpc: RemoteMock['rpc'] }
 }
 
 class ResizeObserverStub {
@@ -217,12 +194,13 @@ class EventSourceStub {
 
 const win = window as FixtureWindow
 let unmount: (() => Promise<void>) | undefined
+let mountedRemote: RemoteMock | undefined
 
 /**
  * Register the per-test jsdom setup and teardown the assembled boot needs:
  * English pinned before boot so role/text locators stay deterministic across
  * localized component migrations (the newEnglishPage e2e convention), the
- * observers and frame callbacks jsdom lacks, and a full reset of the document,
+ * observers, font events, and frame callbacks jsdom lacks, and a full reset of the document,
  * the boot globals, and the injected plugin styles afterwards.
  */
 export function installAssembledBootEnv(): void {
@@ -239,12 +217,14 @@ export function installAssembledBootEnv(): void {
       top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}),
     })
   }
+  let fontsDescriptor: PropertyDescriptor | undefined
   beforeEach(() => {
+    fontsDescriptor = Object.getOwnPropertyDescriptor(document, 'fonts')
+    Object.defineProperty(document, 'fonts', { configurable: true, value: new EventTarget() })
     localStorage.clear()
     // The locale service derives its provisional locale from the browser and
-    // takes an explicit choice only from Host settings, which this lane's
-    // fixture transport does not serve; pinning the navigator is what selects
-    // English here.
+    // takes an explicit choice only from Host settings. This scenario serves no
+    // locale setting, so pinning the navigator selects English.
     Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
     Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
@@ -256,90 +236,70 @@ export function installAssembledBootEnv(): void {
   })
 
   afterEach(async () => {
-    await act(async () => { await unmount?.() })
+    const failures: unknown[] = []
+    try {
+      await act(async () => { await unmount?.() })
+    } catch (error) {
+      failures.push(error)
+    }
+    try {
+      mountedRemote?.assertNoUnmatched()
+    } catch (error) {
+      failures.push(error)
+    }
     unmount = undefined
+    mountedRemote = undefined
     cleanup()
     delete win.__DSH_BOOT__
     delete win.__ModuleLoader__
+    delete win.__DSH_TRANSPORT__
     document.body.innerHTML = ''
     document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
-    document.head.querySelectorAll('base[data-dsh-base]').forEach((base) => { base.remove() })
-    delete win.__DSH_BASE__
     document.title = ''
-    history.replaceState(null, '', ROOT_BASE_PATH)
+    history.replaceState(null, '', '/')
     // Deleting the own properties uncovers jsdom's own accessors again
     // (Navigator declares both readonly, hence the erased receiver).
     const ownNavigator = navigator as unknown as Record<string, unknown>
     delete ownNavigator.languages
     delete ownNavigator.language
     vi.unstubAllGlobals()
+    if (fontsDescriptor === undefined) Reflect.deleteProperty(document, 'fonts')
+    else Object.defineProperty(document, 'fonts', fontsDescriptor)
+    if (failures.length > 0) throw new AggregateError(failures, 'assembled boot teardown failed')
   })
 }
 
 /**
- * Put the document on a deployment prefix the way `dsh-server-base` does at run
- * time: the page address, the `<base href>` head row, and the `__DSH_BASE__`
- * global. The teardown registered by installAssembledBootEnv undoes all three.
- * @param basePath - deployment prefix, leading and trailing slash included.
- * @param search - query string appended to the page address.
- */
-export function installDeploymentBase(basePath = ROOT_BASE_PATH, search = ''): void {
-  assertBasePath(basePath)
-  history.replaceState(null, '', `${basePath}${search}`)
-  // The Host injects this row first in `<head>`, ahead of every asset the shell
-  // references, so a relative `<script src>` resolves under the prefix. One
-  // document carries one base — the first in tree order is the one the parser
-  // honors, so a second call replaces rather than shadows.
-  document.head.querySelectorAll('base[data-dsh-base]').forEach((stale) => { stale.remove() })
-  const base = document.createElement('base')
-  base.setAttribute('href', basePath)
-  base.setAttribute('data-dsh-base', '')
-  document.head.prepend(base)
-  win.__DSH_BASE__ = basePath
-}
-
-/**
- * Every URL the boot manifest asks the browser to fetch: the graph rows the
- * module loader resolves and the parser-blocking preloads the Host injects as
- * `<script src>`. A URL that resolves outside the deployment prefix is a
- * request the reverse proxy never routes.
- * @returns the manifest urls followed by the injected preload sources.
- */
-export function bootRequestUrls(): readonly string[] {
-  const graph = bootGraph()
-  const preloads = bootInjections(graph)
-    .flatMap(row => row.kind === 'script-src' || row.kind === 'script-preload' ? [row.src] : [])
-  return [...graph.entries.map(entry => entry.url), ...preloads]
-}
-
-/**
- * Mount the assembled application on the fixture transport; the teardown
+ * Mount the assembled application on an isolated RemoteMock transport; the teardown
  * registered by installAssembledBootEnv disposes it.
- * @param search - fixture query string used to select deterministic host behavior.
- * @param options - composition changes and the deployment prefix applied to this mount.
+ * @param options - composition changes applied to this mount.
+ * @returns the test-owned RemoteMock world.
  */
-export function mountAssembledApp(search = '?fixture', options: AssembledBootOptions = {}): void {
+export function mountAssembledApp(options: AssembledBootOptions = {}): AssembledRemote {
   const excluded = new Set(options.exclude)
   const plugins = PLUGINS.filter(plugin => !excluded.has(plugin.id))
-  installDeploymentBase(options.basePath ?? ROOT_BASE_PATH, search)
+  const remote = createAssembledRemote(options.remote)
+  mountedRemote = remote.mock
+  win.__DSH_TRANSPORT__ = { rpc: remote.mock.rpc }
+  history.replaceState(null, '', '/')
   const root = document.createElement('div')
   root.id = 'root'
   document.body.appendChild(root)
   const graph = bootGraph(plugins)
-  const sources = bundleTable(graph, plugins)
+  const bundles = bundleTable(graph, plugins)
   win.__DSH_BOOT__ = graph
   const [facadeRow] = bootInjections(win.__DSH_BOOT__)
   if (facadeRow?.kind !== 'script') throw new Error('missing injected ModuleLoader facade row')
   ;(0, eval)(facadeRow.text)
   // Mirror the blocking Host-injected bootstrap batch before the Vite entry calls create().
   const bootstrapUrl = graph.batches.find(batch => batch.phase === 'bootstrap')?.url
-  const bootstrap = bootstrapUrl === undefined ? undefined : sources.get(bootstrapUrl)
+  const bootstrap = bootstrapUrl === undefined ? undefined : bundles.get(bootstrapUrl)
   if (bootstrap === undefined) throw new Error('missing parser-preloaded fixture batch')
   ;(0, eval)(bootstrap)
   act(() => {
     const entry = new AppWebEntry(root, {
       loadBundle: async (url) => {
-        const code = sources.get(url)
+        const code = bundles.get(url)
         if (code === undefined) throw new Error(`missing built bundle ${url}`)
         ;(0, eval)(code)
       },
@@ -347,6 +307,7 @@ export function mountAssembledApp(search = '?fixture', options: AssembledBootOpt
     void entry.run()
     unmount = () => entry.dispose()
   })
+  return remote
 }
 
 /**

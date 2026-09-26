@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-18-auto-compaction-running-card.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-18-auto-compaction-running-card.md
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row:
+  en: d3e0f62b74c16db4
+  zh: 910f138294c2c05b
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row/problem:
+  en: bc9d2c78f4cb169e
+  zh: f1c5bc0f2f8a2747
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row/decision:
+  en: 4cd9952a86c3996c
+  zh: 4fcb87ad27b512f4
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row/alternatives-considered:
+  en: 67353c21458a12aa
+  zh: 5a2b024425542ff5
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row/consequences:
+  en: 5823b969dd25e320
+  zh: 96c225bb5ca93d38
+/agent-note-an-open-automatic-compaction-bracket-owns-a-row/testing:
+  en: 6d37224130a55905
+  zh: da661914e20c984c

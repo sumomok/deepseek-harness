@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-content-component-library-v2c-data-source.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-content-component-library-v2c-data-source.md
-2026-09-06-content-component-library-v2c-data-source.md: 6cc6e38de5e0f29124ea44b7bf66acb298d7c78d
-2026-09-06-content-component-library-v2c-data-source.zh.md: 8da21db515e1a461055105b935270656463e7d01
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential:
+  en: e1d6adbbe53299b3
+  zh: 42a9ef77ddea878d
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/problem:
+  en: ddef0bfe52c5388c
+  zh: 7e39597d226aa5ff
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/decision:
+  en: 2f899744d253f9b0
+  zh: 7e1b061681cdd38e
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/decision/gate-table-a-read-of-the-deployment-s-own-data-inside-a-tool-call:
+  en: 716f567480fe157b
+  zh: a320849e86dc79b9
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/alternatives-considered:
+  en: 0f17a9373734f36c
+  zh: 8fe4d1832a3ae466
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/consequences:
+  en: bfdc32726e6f5776
+  zh: 8994e8efc9ecde6c
+/agent-note-reading-the-deployment-s-own-data-with-the-visitor-s-own-credential/known-limitations-and-deferred-work:
+  en: 66ae4fcddbb8bbfc
+  zh: 6e436cfd93f4a346

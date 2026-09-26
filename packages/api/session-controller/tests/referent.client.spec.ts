@@ -18,7 +18,7 @@ function ref(overrides: Partial<ReferentRef> = {}): ReferentRef {
     target: '/proj/a.txt',
     raw: 'a.txt',
     source: 'test',
-    provenance: 'structured',
+    enteredAs: 'structured',
     ...overrides,
   }
 }

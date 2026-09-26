@@ -17,8 +17,13 @@
     - id: deepseek-llm-api-extensions
       name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 
+    # Held shut by its own schema field: `enabled: false` is what withholds the
+    # `dsh_session_log` request contribution this fork product does not send,
+    # because the plugin's schema defaults that field to true.
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
+      config:
+        enabled: false
 
     # Disabled: this fork product reports no installed-plugin inventory to DeepSeek.
     - id: plugin-package-inventory-deepseek
@@ -26,7 +31,7 @@
       disabled: true
 
     - id: llm-deepseek
-      name: '@deepseek-ai/dsh-llm-deepseek'
+      name: '@deepseek-ai/dsh-llm-deepseek-api-key'
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
         defaultContextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
@@ -65,13 +70,6 @@
         shellDialect: pwsh
         timeoutMs: 300000
 
-    # The editor uses the bare local filesystem; persistent Bash still consumes
-    # the shared danger-full-access sandbox policy above.
-    - id: fs-local
-      name: '@deepseek-ai/dsh-fs-local'
-      config:
-        cwd: !!js process.cwd()
-
     # Keep the minimal agent kernel explicit: unlike dsh-base, this profile
     # owns each service row and omits every optional producer it does not use.
     - id: timer
@@ -95,10 +93,13 @@
       config:
         includeHarnessIdentity: false
         includeRuntimeContext: false
-        persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
+        personaPrefix: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
 
     - id: tools
       name: '@deepseek-ai/dsh-tools'
+
+    - id: mcp-resources
+      name: '@deepseek-ai/dsh-mcp-resources'
 
     - id: agent
       name: '@deepseek-ai/dsh-agent'
@@ -137,8 +138,7 @@
         description: |-
           Run commands in a bash shell
           * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
-          * You don't have access to the internet via this tool.
-          * You do have access to a mirror of common linux and python packages via apt and pip.
+          * Network access depends on the task environment. Prefer configured mirrors/proxies when they are available.
           * State is persistent across command calls and discussions with the user.
           * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
           * Please avoid commands that may produce a very large amount of output.
@@ -157,11 +157,6 @@
           * Use native Windows paths (C:\...) and $env:NAME variables; this is PowerShell, not bash.
           * Please avoid commands that may produce a very large amount of output.
           * Please run long lived commands in the background, e.g. 'Start-Job' or start a server with Start-Process.
-
-    - id: str-replace-editor
-      name: '@deepseek-ai/dsh-tool-str-replace-editor'
-      config:
-        maxOutputChars: 16000
 
     - id: sessions
       name: '@deepseek-ai/dsh-session-persistence-jsonl'

@@ -1,145 +1,138 @@
 /**
- * A prefix-stripping reverse proxy for the browser lane, standing in for the
- * deployment's nginx: it publishes the shell under `/<prefix>/` and forwards
- * every request to a `dsh web` listening on the origin root, exactly as the
- * production `location /console/ { proxy_pass http://…/; }` pair does.
- *
- * Three behaviors matter to the scenarios that use it. The prefix is stripped
- * whole, so the harness process keeps seeing the root-absolute routes it
- * registers. A path that is not under the prefix is answered 404 here rather
- * than forwarded, which is what makes "the prefix must be stripped, never
- * passed through" a mechanically observable deployment rule instead of a note.
- * And `Upgrade` requests and streaming responses pass through untouched and
- * unbuffered, because the two WebSocket downlinks and the SSE fallback are the
- * traffic most likely to break on a misconfigured proxy.
- *
- * The `Host` header is forwarded verbatim, matching `proxy_set_header Host
- * $host`: the harness derives its trusted-origin verdict from it.
- * @module apps/web/tests/prefix-proxy
+ * Test-only HTTP plumbing for the Web browser scaffold beside it
+ * (`./scaffold.ts`). The proxy owns one browser-facing mount: it preserves the
+ * external Host, strips the prefix, removes hop-by-hop headers, forwards WebSocket upgrades, and rewrites the
+ * backend's `Path=/` cookies to the mount. TLS terminates at the real
+ * deployment's proxy; this fixture stays plain HTTP.
  */
-import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import type { AddressInfo, Socket } from 'node:net'
+import {
+  createServer as createHttpServer, request as httpRequest,
+  type IncomingMessage, type OutgoingHttpHeaders, type ServerResponse,
+} from 'node:http'
+import { connect as netConnect, type AddressInfo, type Socket } from 'node:net'
 
-/** A running prefix proxy; the caller owns it and closes it. */
-export interface PrefixProxy {
-  /** Scheme and authority the proxy listens on, no trailing slash. */
-  readonly origin: string
-  /** The shell's public address through the proxy: `origin` plus the prefix, trailing slash included. */
-  readonly baseUrl: string
-  /** Stop listening and drop every open connection. */
-  close(): Promise<void>
-}
+/** Headers that describe one hop and must not reach the origin. */
+const HOP_BY_HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer']
 
-/** What to publish, and where to send it. */
+/** Options for {@link startPrefixProxy}. */
 export interface PrefixProxyOptions {
-  /** Port of the upstream `dsh web` on 127.0.0.1. */
-  targetPort: number
-  /** Deployment prefix to publish under, leading and trailing slash included. */
+  /** Browser-facing mount; must start with `/` and end with `/`. */
   prefix: string
 }
 
-/**
- * Map a request path the browser asked for onto the path the upstream expects.
- * Only the slash-terminated prefix is published, as in the deployment: that
- * nginx carries no rewrite module, so it can neither redirect the slashless
- * `/console` nor usefully serve it — a document there sits outside the
- * `Path=/console/` the page writes its cookies with — and every link published
- * outward carries the trailing slash.
- * @param requestPath - `req.url`, path and query as the client sent them.
- * @param prefix - deployment prefix, leading and trailing slash included.
- * @returns the upstream path, or undefined when the request is not under the prefix.
- */
-export function stripPrefix(requestPath: string, prefix: string): string | undefined {
-  if (!requestPath.startsWith(prefix)) return undefined
-  return `/${requestPath.slice(prefix.length)}`
+/** One running prefix proxy; its owner disposes it with {@link PrefixProxy.close}. */
+export interface PrefixProxy {
+  /** Loopback port assigned by the operating system. */
+  readonly port: number
+  /** Point the proxy at the backend listener; requests before this answer `502`. */
+  setTarget(port: number): void
+  /** Stop accepting, destroy live sockets, and resolve once every listener and socket closed. */
+  close(): Promise<void>
 }
 
 /**
- * Rebuild the upstream's `101 Switching Protocols` reply so it can be written
- * back to the client socket byte for byte; `http.request` parses the handshake
- * away, and only the raw header pairs survive that parse in order.
- * @param upstream - the upstream response carrying the handshake.
- * @returns the serialized status line and headers, terminated by a blank line.
- */
-function handshake(upstream: IncomingMessage): string {
-  const lines = [`HTTP/1.1 ${String(upstream.statusCode ?? 101)} ${upstream.statusMessage ?? 'Switching Protocols'}`]
-  for (let index = 0; index + 1 < upstream.rawHeaders.length; index += 2) {
-    lines.push(`${String(upstream.rawHeaders[index])}: ${String(upstream.rawHeaders[index + 1])}`)
-  }
-  return `${lines.join('\r\n')}\r\n\r\n`
-}
-
-/**
- * Start the proxy.
- * @param options - upstream port and the prefix to publish under.
- * @returns the running proxy, already listening.
- * @throws {Error} when the prefix is not bounded by slashes on both sides.
+ * Start the proxy on an operating-system-assigned loopback port.
+ * @param options - browser-facing mount prefix.
+ * @returns the running proxy; the caller owns registration and disposal.
  */
 export async function startPrefixProxy(options: PrefixProxyOptions): Promise<PrefixProxy> {
-  const { targetPort, prefix } = options
-  if (!prefix.startsWith('/') || !prefix.endsWith('/')) {
-    throw new Error(`prefix proxy: prefix ${JSON.stringify(prefix)} must start and end with '/'`)
+  const { prefix } = options
+  const server = createHttpServer()
+  let targetPort: number | undefined
+  let closing: Promise<void> | undefined
+  const sockets = new Set<Socket>()
+  const track = (socket: Socket): void => {
+    sockets.add(socket)
+    socket.once('close', () => { sockets.delete(socket) })
+    if (closing !== undefined) socket.destroy()
   }
-
-  const forward = (path: string, req: IncomingMessage): ReturnType<typeof httpRequest> => httpRequest({
-    host: '127.0.0.1',
-    port: targetPort,
-    method: req.method ?? 'GET',
-    path,
-    headers: req.headers,
-  })
-
-  const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const path = stripPrefix(req.url ?? '/', prefix)
-    if (path === undefined) {
-      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end(`prefix proxy: ${req.url ?? ''} is not under ${prefix}\n`)
+  const mountPath = (raw: string): string | undefined => {
+    const url = new URL(raw, 'http://dsh.invalid')
+    if (!url.pathname.startsWith(prefix)) return undefined
+    return `/${url.pathname.slice(prefix.length)}${url.search}`
+  }
+  const forward = (headers: IncomingMessage['headers']): OutgoingHttpHeaders => {
+    const copy = { ...headers }
+    for (const name of HOP_BY_HOP) Reflect.deleteProperty(copy, name)
+    return copy
+  }
+  const rewriteCookies = (headers: IncomingMessage['headers']): OutgoingHttpHeaders => {
+    const copy = forward(headers)
+    const setCookie = copy['set-cookie']
+    if (setCookie === undefined) return copy
+    const values = Array.isArray(setCookie) ? setCookie : [setCookie]
+    copy['set-cookie'] = values.map(value => value.replace(/(^|;\s*)Path=\/(?=;|$)/iu, `$1Path=${prefix}`))
+    return copy
+  }
+  server.on('request', (requestMessage: IncomingMessage, response: ServerResponse) => {
+    if (closing !== undefined) { response.destroy(); return }
+    const routed = mountPath(requestMessage.url ?? '/')
+    if (routed === undefined) {
+      response.writeHead(404)
+      response.end()
       return
     }
-    const upstream = forward(path, req)
-    upstream.on('response', (proxied: IncomingMessage) => {
-      res.writeHead(proxied.statusCode ?? 502, proxied.headers)
-      // Streaming responses (SSE) must reach the client as they arrive: send the
-      // headers before the first chunk and pipe, never collect.
-      res.flushHeaders()
-      proxied.pipe(res)
-    })
-    upstream.on('error', () => {
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('prefix proxy: upstream failed\n')
-    })
-    req.pipe(upstream)
-  })
-
-  server.on('upgrade', (req: IncomingMessage, client: Socket, head: Buffer) => {
-    const path = stripPrefix(req.url ?? '/', prefix)
-    if (path === undefined) {
-      client.destroy()
+    if (targetPort === undefined) {
+      response.writeHead(502)
+      response.end()
       return
     }
-    const upstream = forward(path, req)
-    upstream.on('upgrade', (proxied: IncomingMessage, peer: Socket, peerHead: Buffer) => {
-      client.write(handshake(proxied))
-      if (peerHead.length > 0) client.write(peerHead)
-      if (head.length > 0) peer.write(head)
-      peer.pipe(client)
-      client.pipe(peer)
-      peer.on('error', () => { client.destroy() })
-      client.on('error', () => { peer.destroy() })
+    const upstream = httpRequest({
+      host: '127.0.0.1', port: targetPort, method: requestMessage.method, path: routed,
+      headers: forward(requestMessage.headers), agent: false,
+    }, (result) => {
+      response.writeHead(result.statusCode as number, rewriteCookies(result.headers))
+      result.pipe(response)
     })
-    upstream.on('error', () => { client.destroy() })
-    upstream.end()
+    upstream.on('socket', track)
+    upstream.once('error', (error) => { response.destroy(error) })
+    response.once('close', () => { upstream.destroy() })
+    requestMessage.pipe(upstream)
   })
-
-  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+  // An upgrade speaks its own hop-by-hop framing, so it cannot ride the
+  // request handler: replay the request line and raw headers at the backend,
+  // then pipe both directions raw until either side closes.
+  server.on('upgrade', (requestMessage, socket, head) => {
+    const routed = mountPath(requestMessage.url ?? '/')
+    if (closing !== undefined || targetPort === undefined || routed === undefined) {
+      socket.destroy()
+      return
+    }
+    const upstream = netConnect(targetPort, '127.0.0.1')
+    track(upstream)
+    upstream.once('connect', () => {
+      upstream.write(`${requestMessage.method} ${routed} HTTP/1.1\r\n`)
+      for (let index = 0; index < requestMessage.rawHeaders.length; index += 2) {
+        upstream.write(`${requestMessage.rawHeaders[index]}: ${requestMessage.rawHeaders[index + 1]}\r\n`)
+      }
+      upstream.write('\r\n')
+      if (head.length > 0) upstream.write(head)
+      socket.pipe(upstream).pipe(socket)
+    })
+    upstream.once('error', () => { socket.destroy() })
+    socket.once('error', () => { upstream.destroy() })
+    upstream.once('close', () => { socket.destroy() })
+    socket.once('close', () => { upstream.destroy() })
+  })
+  server.on('connection', track)
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
   const { port } = server.address() as AddressInfo
-  const origin = `http://127.0.0.1:${String(port)}`
   return {
-    origin,
-    baseUrl: `${origin}${prefix}`,
-    close: () => new Promise<void>((resolve) => {
-      server.closeAllConnections()
-      server.close(() => { resolve() })
-    }),
+    port,
+    setTarget(port: number) { targetPort = port },
+    close() {
+      closing ??= (async () => {
+        const stopped = new Promise<void>((resolve) => { server.close(() => { resolve() }) })
+        const drained = [...sockets].map(socket => new Promise<void>((resolve) => {
+          socket.once('close', () => { resolve() })
+          socket.destroy()
+        }))
+        await Promise.all([stopped, ...drained])
+      })()
+      return closing
+    },
   }
 }

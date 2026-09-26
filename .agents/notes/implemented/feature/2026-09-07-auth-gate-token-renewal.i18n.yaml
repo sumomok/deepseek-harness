@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-auth-gate-token-renewal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-auth-gate-token-renewal.md
-2026-09-07-auth-gate-token-renewal.md: 7c0f96e7a2dd106c5b97026f5d499740f6491adf
-2026-09-07-auth-gate-token-renewal.zh.md: a2f4cb75f612ae3aca0268b47451cc56a90fafdf
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint:
+  en: 0bc4ff907948e66a
+  zh: e4ec40633f3efc5b
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/problem:
+  en: e7cd142eae08fb1b
+  zh: 90cc52527a65d922
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/decision:
+  en: 9aa0467b11d7d9dd
+  zh: c369ded9efba74a8
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/decision/gate-table-renewing-the-token-in-place:
+  en: e6aa5841ffefd76d
+  zh: 6edf52c766ab67be
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/alternatives-considered:
+  en: 2b03238e03289e06
+  zh: 4e9a129ef76fdf4b
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/consequences:
+  en: 60e9c9de58b7c44d
+  zh: 9a48251154f866c7
+/agent-note-the-gate-renews-its-token-in-place-where-the-deployment-publishes-an-endpoint/known-limitations-and-deferred-work:
+  en: b8c14683952c03ba
+  zh: d678fe32b482bf6e

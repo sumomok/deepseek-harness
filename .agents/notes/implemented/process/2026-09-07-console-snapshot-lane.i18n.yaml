@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-console-snapshot-lane.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-07-console-snapshot-lane.md
-2026-09-07-console-snapshot-lane.md: 8c911c760236266cd7d18ac559a665fe3d37c972
-2026-09-07-console-snapshot-lane.zh.md: d4007d11bcc75c77df0349b0334274073c6eb156
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile:
+  en: 2717c443a0e4af1e
+  zh: 182f8907dc0be161
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/problem:
+  en: b487ae2e35abf3ca
+  zh: ade789d2ebb212d0
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/decision:
+  en: 318d8a18e3c2a65b
+  zh: 922f409a9ec83cc3
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/decision/what-the-rc-1-composition-replaces:
+  en: 4aab9fd9c1c47e82
+  zh: 1ee846bee9d9bd0a
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/decision/what-the-fixture-refresh-changed:
+  en: 73611116f43b827a
+  zh: b041d9cf88250829
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/decision/what-the-corpus-gate-now-guards:
+  en: 4ee1c4cce18d3d1c
+  zh: 071f72ccea0baf83
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/alternatives-considered:
+  en: 03bb34595376d27b
+  zh: 73bc09a183edb687
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/consequences:
+  en: 4022dab84f891dcd
+  zh: 72f90a63bad8bd5a
+/agent-note-the-console-s-snapshot-lane-moves-to-snapshots-console-over-the-acp-profile/testing:
+  en: 1d29ca3a69bcc338
+  zh: d602029afc9ca046

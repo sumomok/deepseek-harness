@@ -1,0 +1,5 @@
+/* The approval card body already spaces its children; the primitive's own
+   vertical margin would double that gap under the request's headline. */
+.diff {
+  margin: 0;
+}

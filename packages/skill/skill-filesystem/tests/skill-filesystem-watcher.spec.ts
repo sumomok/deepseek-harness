@@ -1,9 +1,9 @@
 import { EventEmitter } from 'node:events'
 import type { Stats } from 'node:fs'
-import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 
@@ -91,8 +91,16 @@ vi.mock('chokidar', () => ({
 
 const SkillFileSystem = await import('../src/index.ts')
 
+/** Every temp dir created by this file, removed after each test. */
+const tempDirs: string[] = []
+afterEach(async () => {
+  for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true })
+})
+
 async function tempDir(name: string): Promise<string> {
-  return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
+  const dir = await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
+  tempDirs.push(dir)
+  return dir
 }
 
 async function writeSkill(root: string, name: string): Promise<void> {
@@ -127,6 +135,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(alias, '.dsh'),
       agentsHome: join(alias, '.agents'),
+      claudeHome: join(alias, '.claude'),
       watch: true,
     })
 
@@ -162,6 +171,29 @@ describe('skill-filesystem watcher failures', () => {
     }
   })
 
+  it('opens one watcher when a linked root duplicates another', async () => {
+    const home = await tempDir('skill-watch-linked')
+    const agentsRoot = join(home, '.agents/skills')
+    await writeSkill(agentsRoot, 'linked-once')
+    await mkdir(join(home, '.claude'), { recursive: true })
+    await symlink(agentsRoot, join(home, '.claude/skills'), process.platform === 'win32' ? 'junction' : 'dir')
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: true,
+      watchPollIntervalMs: 10,
+    })
+    try {
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['linked-once'])
+      expect(watcherHarness.watchers.map(control => control.path)).toEqual([await realpath(agentsRoot)])
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
   it('ignores missing-path probes until the observed path actually changes', async () => {
     const home = await tempDir('skill-watch-missing-stable')
     const ctx = new Context()
@@ -169,11 +201,12 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchPollIntervalMs: 10,
     })
     expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
-    expect(watcherHarness.watchFiles).toHaveLength(2)
+    expect(watcherHarness.watchFiles).toHaveLength(3)
     let invalidations = 0
     ctx.on('skills/change', () => { invalidations += 1 })
 
@@ -183,8 +216,51 @@ describe('skill-filesystem watcher failures', () => {
     await settle()
 
     expect(invalidations).toBe(0)
-    expect(watcherHarness.watchFiles).toHaveLength(2)
+    expect(watcherHarness.watchFiles).toHaveLength(3)
     await fiber.dispose()
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('reports an unreadable root once while watching keeps retrying it', async () => {
+    const readable = await tempDir('skill-watch-readable-root')
+    const denied = await tempDir('skill-watch-denied-root')
+    await writeSkill(readable, 'watched-skill')
+    await chmod(denied, 0o000)
+    // One per root per lookup: the same failure twice proves the retry is
+    // silent, not absent.
+    watcherHarness.startupErrors.push(
+      new Error('watch failed'),
+      new Error('watch failed'),
+      new Error('watch failed'),
+      new Error('watch failed'),
+    )
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false,
+      customSkillDirs: [readable, denied],
+      watch: true,
+    })
+
+    try {
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'watched-skill' }],
+        complete: false,
+      })
+      expect(warnings.filter(warning => warning.includes(`skill directory ${denied} skipped`))).toHaveLength(1)
+      expect(warnings.filter(warning => warning.startsWith('skill-filesystem: failed to watch'))).toHaveLength(2)
+
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'watched-skill' }],
+        complete: false,
+      })
+      expect(warnings).toHaveLength(3)
+      await fiber.dispose()
+    } finally {
+      await chmod(denied, 0o700)
+    }
   })
 
   it('keeps skills loadable across persistent watcher startup failures without caching them', async () => {
@@ -202,6 +278,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchUsePolling: true,
       watchFollowSymlinks: false,
@@ -243,6 +320,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -290,6 +368,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -318,6 +397,7 @@ describe('skill-filesystem watcher failures', () => {
     const fiber = await ctx.plugin(SkillFileSystem, {
       dshHome: join(home, '.dsh'),
       agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
       watch: true,
       watchPollIntervalMs: 10,
       watchStabilityThresholdMs: 20,
@@ -343,6 +423,37 @@ describe('skill-filesystem watcher failures', () => {
     await fiber.dispose()
   })
 
+  it('shares one opening watcher between concurrent lookups', async () => {
+    const home = await tempDir('skill-watch-concurrent')
+    await writeSkill(join(home, '.dsh/skills'), 'concurrent-skill')
+    watcherHarness.deferredReady = 1
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    let provider!: InstanceType<typeof SkillFileSystem.FileSystemSkillProvider>
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
+        watch: true,
+        watchPollIntervalMs: 10,
+      })
+      return provider
+    })
+
+    const first = provider.list({})
+    await vi.waitFor(() => { expect(watcherHarness.watchers).toHaveLength(1) })
+    // The deferred `ready` holds the first watcher open until both lookups have
+    // reached the shared root, so the second observes the pending open.
+    const second = provider.list({})
+    await new Promise(resolve => setTimeout(resolve, 100))
+    watcherHarness.watchers[0]?.emitter.emit('ready')
+    await Promise.all([first, second])
+    expect(watcherHarness.watchers).toHaveLength(1)
+    disposeProvider()
+    await provider.dispose()
+  })
+
   it('settles an opening watcher when plugin disposal races its ready event', async () => {
     const home = await tempDir('skill-watch-opening-dispose')
     const root = join(home, '.dsh/skills')
@@ -355,6 +466,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
@@ -392,6 +504,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,
@@ -423,6 +536,7 @@ describe('skill-filesystem watcher failures', () => {
       provider = new SkillFileSystem.FileSystemSkillProvider(ctx, control, {
         dshHome: join(home, '.dsh'),
         agentsHome: join(home, '.agents'),
+        claudeHome: join(home, '.claude'),
         watch: true,
         watchPollIntervalMs: 10,
         watchStabilityThresholdMs: 20,

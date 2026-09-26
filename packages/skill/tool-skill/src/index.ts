@@ -80,7 +80,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const skillTool = defineTool({
     name: 'skill',
-    description: 'Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill.',
+    description: 'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
     parameters: {
       name: { type: 'string', required: true, description: 'The exact skill name from the available skills list.' },
     },
@@ -222,8 +222,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal, scope: agent })
       : { skills: [], complete: true }
     signal.throwIfAborted()
-    if (!snapshot.complete) return decision
+    // An incomplete observation that still reaches model-invocable skills is a
+    // provider degrading part of its own discovery — one unreadable local root
+    // among several — and the skills it did reach are real and directly
+    // loadable, so they reach the model. Incomplete with nothing left to
+    // publish stays a blind step: it cannot tell "no skills exist" from
+    // "nothing was readable", and an empty replacement tells the model the
+    // names it already has are gone. The count is of what this catalog would
+    // carry, so surviving skills the model may not invoke do not stand in for
+    // a view.
     const skills = snapshot.skills.filter(isModelInvocable)
+    if (!snapshot.complete && skills.length === 0) return decision
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
     const history = catalogHistory(agent)
@@ -362,6 +371,7 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
   const visible = new Set(agent.session.surface.nodes)
   let published = false
   for (let index = agent.session.seq - 1; index >= 0; index -= 1) {
+    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     const event = agent.session.eventAt(SessionSeq(index))
     if (event === undefined) {
       throw new Error(`skill catalog cannot read seq ${String(index)} below the current Session length`)

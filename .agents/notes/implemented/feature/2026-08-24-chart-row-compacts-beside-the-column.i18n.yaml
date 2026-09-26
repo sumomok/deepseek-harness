@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-chart-row-compacts-beside-the-column.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-chart-row-compacts-beside-the-column.md
-2026-08-24-chart-row-compacts-beside-the-column.md: 7f41d9be80c0d707f02d596417fb76e518d5bfee
-2026-08-24-chart-row-compacts-beside-the-column.zh.md: c33188b404a64e2e038999dbd92fdf7caea27d77
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture:
+  en: 0f3762a9407e7f2a
+  zh: 1a3d59d7a0160aa1
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture/problem:
+  en: eb204421cb58d446
+  zh: 553f6b3623d04d69
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture/decision:
+  en: 636465fb4ef3ff7c
+  zh: bc7380ab35293c87
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture/alternatives-considered:
+  en: 571916d3fa5380d9
+  zh: 8ac24368a08cd3c2
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture/consequences:
+  en: a0e1b8c626d7800e
+  zh: 62839f50669455da
+/agent-note-beside-a-content-column-the-chart-row-keeps-the-verdict-and-gives-up-the-picture/testing:
+  en: 724d6787b475c338
+  zh: f3be7eef0e96cf69

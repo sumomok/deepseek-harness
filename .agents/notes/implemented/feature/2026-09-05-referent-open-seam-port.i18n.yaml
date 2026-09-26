@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-05-referent-open-seam-port.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.md
+/agent-note-the-referent-open-interception-seam-for-reference-clicks:
+  en: 7229aaa26181bc97
+  zh: 057769f18132a7e2
+/agent-note-the-referent-open-interception-seam-for-reference-clicks/problem:
+  en: 77606f753f395191
+  zh: 196ff9f6f09c6bd5
+/agent-note-the-referent-open-interception-seam-for-reference-clicks/decision:
+  en: efa29777e6a61eff
+  zh: 9084d91e2c10d0ac
+/agent-note-the-referent-open-interception-seam-for-reference-clicks/alternatives-considered:
+  en: 65abc7cc557c82a5
+  zh: 50c7587c840f22b2
+/agent-note-the-referent-open-interception-seam-for-reference-clicks/consequences:
+  en: 918e92e8e42fdc00
+  zh: 846a56cfba99f314

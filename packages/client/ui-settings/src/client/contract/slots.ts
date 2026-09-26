@@ -13,6 +13,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Optional sidebar account launcher; opens the shell-owned settings panel. */
+    'settings.launcher': { kind: 'single'; scope: 'root'; owner: SettingsLauncherOwnerProps }
+
     /**
      * The sidebar-foot trigger row content: icon + label, supplied as slot
      * content (the accessible name comes from the content — rail state
@@ -22,6 +25,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * the shipped composition always registers the seat).
      */
     'settings.trigger': { kind: 'single'; scope: 'root'; owner: SettingsTriggerOwnerProps }
+    /**
+     * Optional actions on the trigger row itself, at its right edge. This is
+     * the seat for a control that must share the row with Settings; one that
+     * may take a row of its own above it belongs in `sidebar.footer.action`.
+     * The shell supplies the ordered render site, the column state, and an
+     * opener for its own panel; registrants own visibility, copy, and
+     * behavior. The collapsed rail row is a 36px circle with nothing beside
+     * the trigger, so the shell paints the seat only while `wide` is true;
+     * occupants stay mounted across the fold.
+     */
+    'settings.trigger.action': { kind: 'list'; scope: 'root'; owner: SettingsTriggerActionOwnerProps }
     /**
      * The panel title text seat. Content renders inside the nav heading row;
      * the dialog's accessible name points at that node via aria-labelledby.
@@ -84,7 +98,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * through your own inject face and `host.call`. Declared at runtime by
      * ui-settings-general's General entry; the type lives here with every other
      * settings slot type, because this package is the settings domain's base
-     * layer and every registrant already depends on it for `ctx.settingsScope`.
+     * layer and every registrant already depends on it for `ctx.configForms`.
      */
     'settings.general.item': { kind: 'list'; scope: 'root'; owner: SettingsGeneralItemOwnerProps }
   }
@@ -105,6 +119,22 @@ export interface SettingsPluginsTabOwnerProps {
 export interface SettingsTriggerOwnerProps {
   /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
   wide: boolean
+}
+
+/**
+ * Owner share of the same-row action seat: the trigger's column state plus the
+ * shell's own opener, so an occupant reaches a settings page directly instead
+ * of driving the trigger button it sits beside.
+ */
+export interface SettingsTriggerActionOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
+  wide: boolean
+  /**
+   * Open the settings panel and activate the section registered under `id`.
+   * An id no `settings.section` entry claims activates nothing of its own —
+   * the panel still opens, on the first nav row (empty with no rows at all).
+   */
+  openSection: (id: string) => void
 }
 
 /** Owner share of the header title seat (the shell supplies nothing). */
@@ -129,8 +159,24 @@ export interface SettingsSectionOwnerProps {
 export interface SettingsOnboardingOwnerProps {
   /** Stable id of the step currently selected by the coordinator. */
   stepId: string
+  /** User explicitly reopened this step outside first-run onboarding. */
+  explicit?: boolean
   /** Complete or skip this step and transfer ownership to the next entry. */
   complete: () => void
   /** Open the settings panel directly on one registered section. */
   openSection: (id: string) => void
+}
+
+/** Sidebar launcher geometry and settings navigation. */
+export interface SettingsLauncherOwnerProps {
+  /** Whether the sidebar shows labels. */
+  wide: boolean
+  /** Whether the settings dialog covers the sidebar; a launcher may treat a false-to-true edge as one Settings entry. */
+  settingsOpen: boolean
+  /** Effective Settings key labels and accessible combination; omitted when unbound. */
+  settingsShortcut?: { readonly keys: readonly string[]; readonly aria?: string | undefined }
+  /** Open the settings panel. */
+  openSettings: () => void
+  /** @param id - registered onboarding editor to open explicitly. */
+  openOnboarding: (id: string) => void
 }

@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-content-column-perception.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-02-content-column-perception.md
-2026-09-02-content-column-perception.md: da28039989f7f42f8787bb9c214b69fc8d439e49
-2026-09-02-content-column-perception.zh.md: 2da2a2e6e616113c57f7b32c86d6291623b3bf40
+/agent-note-what-the-agent-knows-about-the-content-column:
+  en: 417841481d1f751d
+  zh: 8b54526da900b1b2
+/agent-note-what-the-agent-knows-about-the-content-column/problem:
+  en: 40ccafafb9e4baa2
+  zh: 60afb97d7fd071fd
+/agent-note-what-the-agent-knows-about-the-content-column/decision:
+  en: d7af26080c2ded92
+  zh: 1ea76216c3736350
+/agent-note-what-the-agent-knows-about-the-content-column/decision/a-page-the-user-opened-is-a-message-a-tab-brought-forward-is-not:
+  en: a798d9b97e378cce
+  zh: 32a5bb8a9a7c3c28
+/agent-note-what-the-agent-knows-about-the-content-column/decision/which-entry-is-in-front-is-a-logged-decision-and-the-later-fact-wins:
+  en: fad71f1346ef8925
+  zh: a20a74d82bc876da
+/agent-note-what-the-agent-knows-about-the-content-column/decision/where-the-column-stands-is-a-prompt-context-never-a-section:
+  en: 4739e78e6136bafe
+  zh: a172d265b4208419
+/agent-note-what-the-agent-knows-about-the-content-column/decision/the-column-is-named-by-where-it-is-not-by-what-users-call-the-direction:
+  en: b13f6124ea5e7245
+  zh: 827409067f057078
+/agent-note-what-the-agent-knows-about-the-content-column/decision/the-ref-rule-lives-in-the-context-not-in-the-tool-description:
+  en: ce3d8dd9b2dc65ea
+  zh: 65e94df4928173b6
+/agent-note-what-the-agent-knows-about-the-content-column/decision/a-route-change-is-polled-never-patched:
+  en: 16364b5738cdd7c5
+  zh: 18c6ca533a653b35
+/agent-note-what-the-agent-knows-about-the-content-column/decision/a-read-waits-for-the-page-to-stop-drawing-itself:
+  en: 9c34bace09c2d0b2
+  zh: 024eeebbca809898
+/agent-note-what-the-agent-knows-about-the-content-column/decision/neither-new-event-is-ignorable:
+  en: 3c1fc8eae0ae63e5
+  zh: 76ddaf7f307a10c2
+/agent-note-what-the-agent-knows-about-the-content-column/alternatives-considered:
+  en: 6132da251ae63130
+  zh: 884f83799c96ad7b
+/agent-note-what-the-agent-knows-about-the-content-column/consequences:
+  en: d403d2c0d1bdae2b
+  zh: 8243392e32c16b77
+/agent-note-what-the-agent-knows-about-the-content-column/testing:
+  en: 800f64171dcac171
+  zh: 703d69cd204373db
+/agent-note-what-the-agent-knows-about-the-content-column/deferred:
+  en: b703edda9985e73e
+  zh: 33f72f29a6490fac

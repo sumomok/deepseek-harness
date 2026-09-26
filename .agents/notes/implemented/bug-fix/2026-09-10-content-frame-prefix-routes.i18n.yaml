@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-content-frame-prefix-routes.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-content-frame-prefix-routes.md
-2026-09-10-content-frame-prefix-routes.md: a23fb03f2db3da07980d2b2f9b5b991354edbd36
-2026-09-10-content-frame-prefix-routes.zh.md: 432627d5bfbbea6add6a80e207f21b00f42942d8
+/agent-note-the-read-channel-addresses-the-deployment-prefix:
+  en: 92226497cc104b35
+  zh: b26f7798a15422db
+/agent-note-the-read-channel-addresses-the-deployment-prefix/problem:
+  en: 01a373bd2336a21e
+  zh: 9b326ea54253df6d
+/agent-note-the-read-channel-addresses-the-deployment-prefix/problem/why-the-prefix-work-did-not-catch-it:
+  en: fcf96aed4faf913b
+  zh: 7e54c0d3a3795b54
+/agent-note-the-read-channel-addresses-the-deployment-prefix/decision:
+  en: c74a2ee0ba02dd11
+  zh: 74d5679b1216154d
+/agent-note-the-read-channel-addresses-the-deployment-prefix/the-sweep:
+  en: f18ee67463c08a36
+  zh: ed6570bb3c0dbf8f
+/agent-note-the-read-channel-addresses-the-deployment-prefix/alternatives-considered:
+  en: f5f6ce3ccc7f795f
+  zh: ae31df53f496f938
+/agent-note-the-read-channel-addresses-the-deployment-prefix/consequences:
+  en: 747bd370b51a9306
+  zh: 8b5212495cf96ac3
+/agent-note-the-read-channel-addresses-the-deployment-prefix/testing:
+  en: 67a217b9b05627f4
+  zh: 0781c3a98ecda71d

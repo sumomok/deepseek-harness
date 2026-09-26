@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-11-settings-trigger-action-slot.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md
+/agent-note-a-same-row-action-seat-beside-the-settings-trigger:
+  en: f11fb996805560ee
+  zh: 2cec63f7e6d3caec
+/agent-note-a-same-row-action-seat-beside-the-settings-trigger/problem:
+  en: 6009fe8f0bfc89f3
+  zh: c10e9a1b3bde55de
+/agent-note-a-same-row-action-seat-beside-the-settings-trigger/decision:
+  en: b17ca230e0ed66e5
+  zh: f8835eea70f7b254
+/agent-note-a-same-row-action-seat-beside-the-settings-trigger/alternatives-considered:
+  en: f53bbe90791a71be
+  zh: cd6abfb188574abe
+/agent-note-a-same-row-action-seat-beside-the-settings-trigger/consequences:
+  en: bfc9a6c474828e52
+  zh: e4a49798fc512d7a

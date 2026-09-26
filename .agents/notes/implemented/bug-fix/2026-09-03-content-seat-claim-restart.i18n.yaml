@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-content-seat-claim-restart.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-content-seat-claim-restart.md
-2026-09-03-content-seat-claim-restart.md: 4633d3ad330d1d539df9187701ae4e40ec861845
-2026-09-03-content-seat-claim-restart.zh.md: 23118fa7455560c0219e43093a64fac3a8c7f748
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again:
+  en: 78ad3aaa0f1f7b04
+  zh: 2cafca840cbb7779
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again/problem:
+  en: e437adba2680a88c
+  zh: ed92ad74d94c8851
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again/decision:
+  en: e310f407ac86b7ca
+  zh: b1e92929cb28cf4f
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again/alternatives-considered:
+  en: f0ff9e39bceeb6bd
+  zh: 1725378405ca057f
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again/consequences:
+  en: 2975152b92790d5d
+  zh: a527b11518d9c829
+/agent-note-a-call-the-page-seat-gave-up-on-is-taken-up-again/testing:
+  en: 1d20b7efc2b988f7
+  zh: f24dc101c038f8fe

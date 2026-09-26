@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md
-2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md: 89c1418206260f01c35dd321bad185dd720656aa
-2026-09-01-desktop-server-vendored-plugins-off-client-runtime.zh.md: 28542f5e511521ae582cb4164cb34a23ed7b03dd
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime:
+  en: e776d51eba3ed4d2
+  zh: 392297a7816d9407
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime/problem:
+  en: 8174229ec70d4a3c
+  zh: ad61b1a7bb97c783
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime/decision:
+  en: 181d3c6ce84b8dec
+  zh: 3184a548b5e46b9a
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime/the-two-plugins-outside-this-decision-no-longer-pull-the-retired-name-in:
+  en: 5c3c46c85838db39
+  zh: 7252fd937f2807df
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime/alternatives-considered:
+  en: 98ff4301aceb12ac
+  zh: 2e5c8bfaa873c865
+/agent-note-re-vendoring-apps-desktop-server-s-third-party-plugins-off-the-retired-client-runtime/consequences:
+  en: 2fa2a2f2177ceacc
+  zh: 711d04b6b5e64e75

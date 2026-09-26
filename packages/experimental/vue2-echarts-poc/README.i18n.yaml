@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/vue2-echarts-poc/README.md
-README.md: 235727efb737af7ccf7fda99889747c776814a76
-README.zh.md: 7688679ff0fdca7e4a692a4756ece0b0b0e6008c
+/:
+  en: 0004af8f877a322d
+  zh: c968e49739aae601
+/deepseek-ai-dsh-experimental-vue2-echarts-poc:
+  en: 099d2ee089392155
+  zh: 17555a469a59dfb6
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/summary:
+  en: bbd7c3cbfa63527b
+  zh: c298e26c6e163324
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/table-of-contents:
+  en: 6b146c8c9bd9329b
+  zh: acad1af1b0da2f4f
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/the-bridge:
+  en: 1b3e79f3746c7ccd
+  zh: 8e98506a2f571211
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/the-row-surface:
+  en: 4d0d1ac349fd4364
+  zh: 6b3f6450ede2a244
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/the-row-surface/the-supported-series-set:
+  en: 66c9d9e56ee23528
+  zh: f8e22937be967b39
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/the-row-surface/one-vue-runtime-per-module-graph:
+  en: 814f90a098ed35ec
+  zh: 7003bbfbb54dc77e
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/composition:
+  en: f3a90716e80e21c2
+  zh: 57c6ef6194d14983
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/bundle-cost:
+  en: 59bba4996d25ad82
+  zh: 772a2926066cc753
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/model-experience:
+  en: 48da41cd5ea07bd5
+  zh: 10f8b01e22a999ae
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/model-experience/kv-cache-effect:
+  en: 47f982e326fe77fd
+  zh: 1642ca87f6dcd101
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/known-limitations-and-deferred-work:
+  en: d1bc0cec8daf06bb
+  zh: 6305c9ba6f2c3394
+/deepseek-ai-dsh-experimental-vue2-echarts-poc/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

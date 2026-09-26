@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-06-approval-detail-keyed-by-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-approval-detail-keyed-by-tool.md
+/agent-note-the-approval-card-s-detail-is-keyed-by-tool-name-so-a-file-mutation-previews-its-diff:
+  en: 3d7ba3e5a36c3d00
+  zh: 2b9988f063aa620d
+/agent-note-the-approval-card-s-detail-is-keyed-by-tool-name-so-a-file-mutation-previews-its-diff/problem:
+  en: 0b473cab7e387c8d
+  zh: 58ea29ee5f8081c5
+/agent-note-the-approval-card-s-detail-is-keyed-by-tool-name-so-a-file-mutation-previews-its-diff/decision:
+  en: e78894696f72f0a7
+  zh: a924dfe97679740a
+/agent-note-the-approval-card-s-detail-is-keyed-by-tool-name-so-a-file-mutation-previews-its-diff/alternatives-considered:
+  en: 842b5dd251203199
+  zh: 4a8f2033e54131f9
+/agent-note-the-approval-card-s-detail-is-keyed-by-tool-name-so-a-file-mutation-previews-its-diff/consequences:
+  en: c1f7a4d674606f13
+  zh: cf940fa26137277b

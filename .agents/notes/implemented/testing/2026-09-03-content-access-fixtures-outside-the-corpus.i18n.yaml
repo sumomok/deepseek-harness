@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-content-access-fixtures-outside-the-corpus.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-09-03-content-access-fixtures-outside-the-corpus.md
-2026-09-03-content-access-fixtures-outside-the-corpus.md: 7153d765231baea9f57e55497c8d90045ed2ff9a
-2026-09-03-content-access-fixtures-outside-the-corpus.zh.md: 32281dca7254dc37251836d236fd4f688eaf28da
+/agent-note-the-two-content-access-web-fixtures-stay-outside-the-recorded-session-corpus:
+  en: 262d3938bca40dcc
+  zh: 3ce6a0d7b9f3a8d0
+/agent-note-the-two-content-access-web-fixtures-stay-outside-the-recorded-session-corpus/problem:
+  en: 15fd735daa26ca3e
+  zh: cb115c3bbd36dcca
+/agent-note-the-two-content-access-web-fixtures-stay-outside-the-recorded-session-corpus/decision:
+  en: 5189e2ae7697e246
+  zh: 869b54c36b3af6b9
+/agent-note-the-two-content-access-web-fixtures-stay-outside-the-recorded-session-corpus/consequences:
+  en: 84140a33df65d80f
+  zh: c2772d1edae8be7a
+/agent-note-the-two-content-access-web-fixtures-stay-outside-the-recorded-session-corpus/alternatives-considered:
+  en: 502e6d2614e7a437
+  zh: 0cea189d1807dc9a

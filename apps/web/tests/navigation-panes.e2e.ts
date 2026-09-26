@@ -12,9 +12,13 @@ import { join } from 'node:path'
 import type { Browser, Page, Response } from 'playwright'
 import { chromium } from 'playwright'
 import { strFromU8, unzipSync } from 'fflate'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import { sessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
@@ -22,18 +26,94 @@ import {
 import { expandOwningTurnProcess, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/navigation-panes', import.meta.url))
-const SEED = join(SNAPSHOT_DIR, 'session.jsonl')
+const SEED = join(SNAPSHOT_DIR, 'session.v3.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
+const TIMING_EXPECTED = join(SNAPSHOT_DIR, 'timing.expected.md')
 const SEARCH_EXPECTED = join(SNAPSHOT_DIR, 'search-results.expected.md')
 const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
+const CODE_CARD_DIR = fileURLToPath(new URL('./expected/navigation-panes', import.meta.url))
+const CODE_CARD_EXPECTED = join(CODE_CARD_DIR, 'code-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
+const EXPORTED_LOG_FILE = `session.v${SESSION_FORMAT_VERSION}.jsonl`
 
 // Turn 1 leads with a distinctive word: the session-title fallback takes the
 // first words of the first message, so the sidebar-search scenario has a
 // known-matching query ('navscenario') without depending on a live title call.
 const PROMPT_TURN1 = 'NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop.'
 const PROMPT_TURN2 = 'Reply in markdown with: a level-2 heading "Navigation Summary", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop.'
+
+// A second, hand-written seed for the export's unreadable-media path. The id
+// is well-formed for attachment-local's `sha256:<64 hex>` reference pattern
+// and no object is ever written for it, so the export's own attachment read
+// raises ATTACHMENT_NOT_FOUND and the archive must record that entry instead
+// of tearing. Hand-written rather than recorded: no model call can produce a
+// reference to an object that does not exist.
+const MEDIA_SEED_ID = 'navigation-panes-unreadable-media-web-e2e'
+const MISSING_ATTACHMENT_ID = `sha256:${'0'.repeat(64)}`
+/** The archive's log basename for the generation this build writes. */
+const EXPORT_LOG_NAME = sessionFormatLogFilename(SESSION_FORMAT_VERSION)
+
+const MEDIA_ENTRY = `media/${MISSING_ATTACHMENT_ID}.png.error.txt`
+const MEDIA_MARKER = 'MISSINGMEDIA'
+const MEDIA_DONE = 'MISSING_MEDIA_DONE'
+
+/** One closed turn whose user message references an attachment object that is not on disk. */
+function unreadableMediaFixture(): string {
+  const session = Session.create(SessionId('navigation-panes-unreadable-media-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
+  session.append('turn/start', { turn: 1 })
+  const user = session.append('user/message', createUserMessage({
+    content: [
+      { type: 'text', text: `${MEDIA_MARKER}: this message references a screenshot the store cannot produce.` },
+      {
+        type: 'image',
+        attachment: {
+          attachmentId: MISSING_ATTACHMENT_ID,
+          mediaType: 'image/png',
+          bytes: 4,
+          width: 2,
+          height: 2,
+        },
+      },
+    ] as never,
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('session/title', {
+    title: 'Unreadable media export',
+    messageSeqs: [user.seq],
+    source: { kind: 'fallback' },
+  })
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: MEDIA_DONE }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+    stream: [],
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  return [
+    JSON.stringify({
+      type: 'session',
+      version: SESSION_FORMAT_VERSION,
+      id: '{{sessionId}}',
+      createdAt: 0,
+      isSeeded: false,
+      delegationDepth: 0,
+      cwd: '{{cwd}}',
+    }),
+    ...session.snapshotEvents().map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
+    '',
+  ].join('\n')
+}
 
 async function baselineResponse(
   page: Page,
@@ -60,7 +140,7 @@ async function ensureSeedOpen(page: Page): Promise<void> {
   // Search is a collapsed header action; expand it so the input is actionable.
   const searchButton = page.getByRole('button', { name: 'Search sessions' })
   if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByPlaceholder('Search sessions', { exact: false })
+  const search = page.getByPlaceholder('Search session names', { exact: false })
   if (await chat.count() === 0) {
     await search.fill('WATERFALL')
     const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
@@ -74,6 +154,26 @@ async function ensureSeedOpen(page: Page): Promise<void> {
     await search.fill('')
     await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
   }
+}
+
+/** Open the unreadable-media seed through sidebar search, whatever is open now. */
+async function openMediaSeed(page: Page): Promise<void> {
+  const welcome = page.locator('[class*="onboardingOverlay"]')
+  if (await welcome.count() > 0) {
+    await welcome.getByRole('button').click()
+    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
+  }
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const search = page.getByPlaceholder('Search session names', { exact: false })
+  await search.fill(MEDIA_MARKER)
+  const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+  await expect.poll(() => result.count(), { timeout: 30_000 }).toBe(1)
+  await result.click()
+  await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor({ timeout: 15_000 })
+  await page.getByText(MEDIA_DONE, { exact: true }).waitFor({ timeout: 15_000 })
+  await search.fill('')
+  await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
 }
 
 describe('web e2e: navigation & panes over a rich seeded session', () => {
@@ -96,7 +196,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the two drive prompts')
         .toEqual([PROMPT_TURN1, PROMPT_TURN2])
-      await seedSession(scaffold, raw, SEED_ID)
+      // The inspector's calendar date must not depend on the day the test runs.
+      await seedSession(scaffold, raw, SEED_ID, undefined, { createdAt: Date.UTC(2026, 0, 1) })
+      await seedSession(scaffold, unreadableMediaFixture(), MEDIA_SEED_ID)
     }
     browser = await chromium.launch()
   }, 120_000)
@@ -185,7 +287,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // Search is a collapsed header action; expand it so the input is actionable.
     const searchButton = page.getByRole('button', { name: 'Search sessions' })
     if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-    const search = page.getByPlaceholder('Search sessions', { exact: false })
+    const search = page.getByPlaceholder('Search session names', { exact: false })
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
     await search.fill('zzzqx-no-such-session')
@@ -207,15 +309,35 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await compareOrRefreshGolden(SEARCH_EXPECTED, snapshot, MODE)
 
     await result.click()
-    // Search navigation addresses the session, not a specific event, and the
-    // query remains until the user explicitly clears it.
-    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('WATERFALL')
+    // Search navigation returns to the browser with the opened Session row exposed.
+    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
+    const selectedRow = page.locator('[role="tree"][aria-label="Sessions"] [role="treeitem"][aria-selected="true"]')
+    await expect.poll(() => selectedRow.count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('FIRST_DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByRole('heading', { name: 'Navigation Summary' }).count(), { timeout: 15_000 }).toBe(1)
-    await page.getByRole('button', { name: 'Clear search' }).click()
-    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
-    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 90_000)
+
+  it.skipIf(MODE === 'record')('renders recorded Markdown with icon tooltips and switchable wrapping', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-code-card'))
+    await ensureSeedOpen(page)
+    const selector = '.md-code-block:has-text("echo WATERFALL")'
+    const block = page.locator(selector)
+    await block.waitFor({ timeout: 15_000 })
+    await compareOrRefreshGolden(CODE_CARD_EXPECTED, await captureStableAria(page, selector, scaffold.workspaceCwd), MODE)
+    const code = block.locator('pre')
+    const source = await code.textContent()
+    const copy = block.getByRole('button', { name: 'Copy', exact: true })
+    await copy.hover()
+    await page.getByRole('tooltip', { name: 'Copy', exact: true }).waitFor()
+    const unwrap = block.getByRole('button', { name: 'Wrap lines', exact: true })
+    await unwrap.hover()
+    await page.getByRole('tooltip', { name: 'Do not wrap lines', exact: true }).waitFor()
+    await unwrap.click()
+    await expect.poll(() => code.evaluate(element => getComputedStyle(element).whiteSpace)).toBe('pre')
+    await block.getByRole('button', { name: 'Wrap lines', exact: true }).click()
+    await expect.poll(() => code.evaluate(element => getComputedStyle(element).whiteSpace)).toBe('pre-wrap')
+    expect(await code.textContent()).toBe(source)
+  }, 60_000)
 
   it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
@@ -265,41 +387,53 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await page.getByRole('tab', { name: 'Result' }).click()
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
-    const assistantSpan = page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').first()
-    await assistantSpan.hover()
-    const timingTooltip = page.getByRole('tooltip')
-    await timingTooltip.waitFor({ timeout: 5_000 })
-    await expect.poll(() => timingTooltip.textContent(), { timeout: 5_000 }).toMatch(/TTFT .* Decoding/)
-    const assistantTimingStyle = await assistantSpan.evaluate(node => ({
-      background: getComputedStyle(node).backgroundImage,
-      ttft: getComputedStyle(node).getPropertyValue('--trajectory-assistant-ttft'),
-    }))
-    expect(assistantTimingStyle.background).toContain('linear-gradient')
-    expect(assistantTimingStyle.ttft).toMatch(/%$/)
+    expect(await page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').count()).toBeGreaterThan(0)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
     await details.getByRole('button', { name: 'Close details' }).click()
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('restores Assistant timing from recorded history', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-timing'))
+    await ensureSeedOpen(page)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    await page.getByRole('button', { name: 'Request #1', exact: true }).click()
+    const details = page.getByRole('complementary', { name: 'Event details' })
+    await details.getByRole('tab', { name: 'Timing', exact: true }).click()
+    const panel = details.getByRole('tabpanel', { name: 'Timing' })
+    for (const metric of ['TTFT', 'Generation', 'Throughput']) {
+      const value = panel.getByText(metric, { exact: true }).locator('..').locator('dd')
+      await expect.poll(() => value.textContent()).toMatch(/^\d/)
+    }
+    expect(await panel.getByText('First token unavailable', { exact: true }).count()).toBe(0)
+    const snapshot = await captureStableAria(page, '#trajectory-detail-panel', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(TIMING_EXPECTED, snapshot, MODE)
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('downloads through the Session Header and /export with one dialog', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-export'))
     await ensureSeedOpen(page)
-    const exportButton = page.getByRole('button', { name: 'Session log' })
+    const exportButton = page.getByRole('button', { name: 'More actions' })
     expect(await exportButton.isDisabled()).toBe(false)
     const header = exportButton.locator('xpath=ancestor::header[1]')
-    const [buttonBox, headerBox] = await Promise.all([
-      exportButton.boundingBox(), header.boundingBox(),
+    // The right Sidebar's expand button holds the header's corner; the export
+    // control sits immediately to its left.
+    const sidebarButton = page.getByRole('button', { name: 'Open right sidebar' })
+    const [buttonBox, sidebarBox, headerBox] = await Promise.all([
+      exportButton.boundingBox(), sidebarButton.boundingBox(), header.boundingBox(),
     ])
-    if (buttonBox === null || headerBox === null) {
+    if (buttonBox === null || sidebarBox === null || headerBox === null) {
       throw new Error('Session Header export geometry is unavailable')
     }
-    expect(headerBox.x + headerBox.width - (buttonBox.x + buttonBox.width)).toBeLessThanOrEqual(32)
+    expect(headerBox.x + headerBox.width - (sidebarBox.x + sidebarBox.width)).toBeLessThanOrEqual(32)
+    expect(sidebarBox.x - (buttonBox.x + buttonBox.width)).toBeLessThanOrEqual(32)
     const responsePromise = page.waitForResponse(response =>
       response.request().method() === 'GET'
       && new URL(response.url()).pathname === '/api/session.export', { timeout: 30_000 })
     const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
     await exportButton.click()
+    await page.getByRole('menuitem', { name: 'Download session log' }).click()
     const response = await responsePromise
     expect(response.status()).toBe(200)
     // The page reads the archive itself, so the route announces the extent it
@@ -315,8 +449,11 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // The real host streamed the ZIP; its root entry is the persisted log
     // text verbatim (the assembled seam: real route, real persistence read).
     const files = unzipSync(await readFile(await download.path()))
-    expect(Object.keys(files)).toEqual(['session.jsonl'])
-    const content = strFromU8(files['session.jsonl'] as Uint8Array)
+    expect(Object.keys(files)).toEqual([EXPORTED_LOG_FILE])
+    const content = strFromU8(files[EXPORTED_LOG_FILE] as Uint8Array)
+    expect(JSON.parse(content.split('\n')[0] ?? '')).toMatchObject({
+      type: 'session', version: SESSION_FORMAT_VERSION,
+    })
     expect(content.split('\n')[0]).toContain(SEED_ID)
     expect(content).toContain('FIRST_DONE')
     await dialog.getByText('Close', { exact: true }).click()
@@ -344,12 +481,16 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       const input = page.locator('[data-composer-input]').first()
       const slashDownloadPromise = page.waitForEvent('download', { timeout: 30_000 })
       await input.fill('/export')
-      await page.getByRole('option', { name: /export/u }).waitFor({ timeout: 10_000 })
+      await page.getByRole('option', { name: /^Export/u }).waitFor({ timeout: 10_000 })
       await input.press('Enter')
       const slashDownload = await slashDownloadPromise
       expect(slashDownload.suggestedFilename()).toBe(download.suggestedFilename())
       const slashFiles = unzipSync(await readFile(await slashDownload.path()))
-      const slashContent = strFromU8(slashFiles['session.jsonl'] as Uint8Array)
+      expect(Object.keys(slashFiles)).toEqual([EXPORTED_LOG_FILE])
+      const slashContent = strFromU8(slashFiles[EXPORTED_LOG_FILE] as Uint8Array)
+      expect(JSON.parse(slashContent.split('\n')[0] ?? '')).toMatchObject({
+        type: 'session', version: SESSION_FORMAT_VERSION,
+      })
       const slashEvents = parseSessionLog(slashContent)
       const exportRun = slashEvents.findLast(event => event.type === 'command/run' && event.data.name === 'export')
       if (exportRun?.type !== 'command/run') throw new Error('slash ZIP has no export command/run')
@@ -392,33 +533,32 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('tr[data-timeline-focus]').count(), { timeout: 10_000 }).toBe(0)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column closed', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
+  it.skipIf(MODE === 'record')('bash rows leave the right column at its rail; a file link opens the Sidebar', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-rightbar'))
     await ensureSeedOpen(page)
     const bashRow = page.locator('[data-sample="bash"]').first()
     await expandOwningTurnProcess(page, bashRow)
     await bashRow.waitFor({ timeout: 15_000 })
     const frame = page.locator('[style*="grid-template-columns"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
+    expect(await frame.getAttribute('data-rightbar-collapsed')).toBe('true')
     // The row click is the card's expand toggle (unified tool-row
     // interaction); it must not drive layout geometry either way.
     await bashRow.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
-    // The card's own controls are outside the summary row and must not open
-    // details either — the expanded terminal card is read in place.
+    await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe('true')
+    // The card's own controls are outside the summary row and must not expand
+    // the right column either — the expanded terminal card is read in place.
     await page.locator('[data-sample="bash"] ~ div [data-terminal] [class*="_copyButton_"]').first().click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
-    // Read summaries are host-open file links; they also must not open details.
+    await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe('true')
+    // Opening a file into the empty column creates only its preview tab.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
-    const openPath = vi.spyOn(scaffold.ctx.sessionController, 'openWorkspacePath')
-      .mockResolvedValue({ opened: true })
-    try {
-      await fileLink.click()
-      await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
-    } finally {
-      openPath.mockRestore()
-    }
+    await fileLink.click()
+    await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe(null)
+    const column = page.locator('[data-rightbar-col]')
+    await expect.poll(() => column.locator('[data-dockkit-tab-title]').allTextContents(), { timeout: 5_000 }).toEqual(['nav-a.md'])
+    // Put the column back so later cases start from the default frame.
+    await column.locator('[data-sidebar-right-toggle]').click()
+    await expect.poll(() => frame.getAttribute('data-rightbar-collapsed'), { timeout: 5_000 }).toBe('true')
   }, 60_000)
 
   it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {
@@ -507,10 +647,48 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('records an attachment the store cannot read and still completes the export', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-export-unreadable-media'))
+    await openMediaSeed(page)
+    const moreActions = page.getByRole('button', { name: 'More actions' })
+    const responsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/session.export', { timeout: 30_000 })
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    await moreActions.click()
+    await page.getByRole('menuitem', { name: 'Download session log' }).click()
+
+    // The archive completes: the route answers 200 and the body arrives whole,
+    // where an attachment read that reached the ZIP producer would have cut it.
+    const response = await responsePromise
+    expect(response.status()).toBe(200)
+    // The record occupies the entry the image would have, so the extent the
+    // page scales its bar by counts both files.
+    expect((await response.allHeaders())['x-session-export-entries']).toBe('2')
+    const download = await downloadPromise
+    const dialog = page.getByRole('dialog', { name: 'Export complete' })
+    await dialog.waitFor({ timeout: 30_000 })
+
+    const files = unzipSync(await readFile(await download.path()))
+    expect(Object.keys(files).sort()).toEqual([MEDIA_ENTRY, EXPORT_LOG_NAME])
+    const record = strFromU8(files[MEDIA_ENTRY] as Uint8Array)
+    expect(record).toContain(`attachmentId: ${MISSING_ATTACHMENT_ID}`)
+    expect(record).toContain('mediaType: image/png')
+    // The real host store's own failure, through the real route: the object
+    // named by a well-formed reference is not on disk.
+    expect(record).toContain('code: ATTACHMENT_NOT_FOUND')
+    expect(record).toContain('reason: Attachment object is missing.')
+    const log = strFromU8(files[EXPORT_LOG_NAME] as Uint8Array)
+    expect(log.split('\n')[0]).toContain(MEDIA_SEED_ID)
+    expect(log).toContain(MEDIA_DONE)
+    await dialog.getByText('Close', { exact: true }).click()
+  }, 90_000)
+
   it.skipIf(MODE === 'record')('keeps the recorded fixture inventory exact', async () => {
+    await assertFixtureInventory(CODE_CARD_DIR, ['code-card.expected.md'])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'session.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
-      'terminal-card.expected.md',
+      'session.v3.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
+      'terminal-card.expected.md', 'timing.expected.md',
     ])
   })
 })

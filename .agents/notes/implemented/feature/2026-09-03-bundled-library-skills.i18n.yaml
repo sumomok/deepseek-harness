@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-bundled-library-skills.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-03-bundled-library-skills.md
-2026-09-03-bundled-library-skills.md: d702ddc83b93ac9a78d36eabf834d800f8283674
-2026-09-03-bundled-library-skills.zh.md: 72b62f667719f0f05e379c86c77f5e067a9dee28
+/agent-note-bundled-library-skills:
+  en: ee0d98ad6d13bef8
+  zh: 7688eb38dc5b4b85
+/agent-note-bundled-library-skills/problem:
+  en: 04bb31df0fa63cd2
+  zh: 57efb4641c25cd44
+/agent-note-bundled-library-skills/decision:
+  en: 48942a5a99343750
+  zh: 4ed0af71613cd19a
+/agent-note-bundled-library-skills/decision/decision-gate:
+  en: 4c5ce31196d84b19
+  zh: 136c79841c02a989
+/agent-note-bundled-library-skills/what-slice-0-measured:
+  en: 42eb41b62b9b85c6
+  zh: 8ad0cfa8c8d0e723
+/agent-note-bundled-library-skills/alternatives-considered:
+  en: d7230ce2cb845d09
+  zh: c7b8fd61860e0b6a
+/agent-note-bundled-library-skills/consequences:
+  en: 0a9e9a74239a377b
+  zh: 7a20a7e8058c3a8b
+/agent-note-bundled-library-skills/testing:
+  en: 46c633c88f7076eb
+  zh: d630a32c5d7484d7

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-installable-client-packages.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-installable-client-packages.md
-2026-08-18-installable-client-packages.md: 4aa70fe069b2b87cd049f9af2422bd27dfa2faf8
-2026-08-18-installable-client-packages.zh.md: 56696835870d173787cc892cf4f8aa51e879b06c
+/agent-note-installable-client-packages:
+  en: 8419efd3f8d3ba94
+  zh: 4509b14a4946489d
+/agent-note-installable-client-packages/problem:
+  en: 79f6764f5f0c2f0c
+  zh: 1e0e7a21a0ba99c5
+/agent-note-installable-client-packages/decision:
+  en: f270264c9b1808ad
+  zh: e02539c9c42f49d8
+/agent-note-installable-client-packages/verification:
+  en: abea218313ebe086
+  zh: 1fd83fb9dcfc0601
+/agent-note-installable-client-packages/alternatives-considered:
+  en: 0daadb334f982857
+  zh: 0901f7ef3b99c189
+/agent-note-installable-client-packages/consequences:
+  en: 6e99b775d5233750
+  zh: 708171412bbfa6da

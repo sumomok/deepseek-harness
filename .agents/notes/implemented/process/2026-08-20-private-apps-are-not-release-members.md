@@ -6,7 +6,7 @@ English | [中文](2026-08-20-private-apps-are-not-release-members.zh.md)
 
 ## Problem
 
-`scripts/check-workspace-constraints.ts` decides who publishes from the directory alone. `releaseMemberDirectory` matches every `apps/*` package, so each one must be non-private, set `publishConfig.access` to `public`, point `repository` at the published source with its own directory, and hold an entry in the `appPackageFiles` publication policy.
+`scripts/check-workspace-constraints.ts` decides who publishes from the directory alone. `standardReleaseMemberDirectory` matches every `apps/*` package except the two the expression names for itself, so each other one must be non-private, set `publishConfig.access` to `public`, point `repository` at the published source with its own directory, and hold an entry in the `appPackageFiles` publication policy.
 
 `apps/` also holds product assemblies that never reach npm: an Electron shell, the dependency-only deploy root whose closure that shell embeds, and a composition-layer bundle patched into a running `dsh web`. Each ships inside a client build, each declares `"private": true`, and each therefore failed all four release-member constraints at once.
 
@@ -14,11 +14,11 @@ Nothing outside the script could say otherwise. The gate reads manifests directl
 
 ## Decision
 
-`apps/*` carries two kinds of package and `private` separates them. `isPrivateApp` classifies an `apps/*` manifest that declares `"private": true` as an in-tree app, and `checkWorkspace` then skips both the release-member metadata block and the published-app files policy for it. This follows the shape `packages/experimental/*` already has: a category that participates in every shared workspace check while sitting outside `releaseMemberDirectory`.
+`apps/*` carries two kinds of package and `private` separates them. `isPrivateApp` classifies an `apps/*` manifest that declares `"private": true` as an in-tree app, and `checkWorkspace` then skips both the release-member metadata block and the published-app files policy for it. This follows the shape `packages/experimental/*` already has: a category that participates in every shared workspace check while sitting outside `isReleaseMemberDirectory`.
 
 `private` is the discriminator rather than a nested directory or a name allowlist because it is also what stops `npm publish` from uploading the package. A manifest cannot claim in-tree status here and still reach a registry.
 
-`checkPrivateAppManifest` states what the category owes in place of release metadata. A private app must omit `publishConfig`, mirroring the experimental rule. It must also stay out of `appPackageFiles`, which keeps that table authoritative over which apps publish: without the second rule, adding `"private": true` to `apps/cli` would silently drop the `dsh` CLI out of the release instead of failing the gate.
+`checkPrivateAppManifest` states what the category owes in place of release metadata. A private app must omit `publishConfig`, mirroring the experimental rule. It must also stay out of `appPackageFiles`, which keeps that table authoritative over which apps publish: without the second rule, adding `"private": true` to `apps/cli` would silently drop the `dsh` CLI out of the release instead of failing the gate. That second rule asks this only of a directory `isReleaseMemberDirectory` still admits, because a directory the release-member expression names for itself is packed into a client build through a files policy while never publishing.
 
 `checkExperimentalDependencyIsolation` keeps private apps in scope. A desktop build that requires an experimental package breaks a runtime real users install, whether or not npm ever sees the manifest.
 

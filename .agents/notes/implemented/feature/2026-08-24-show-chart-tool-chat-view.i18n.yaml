@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-show-chart-tool-chat-view.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-show-chart-tool-chat-view.md
-2026-08-24-show-chart-tool-chat-view.md: fbcddfd1b5c83aa6e44ba4f9fc5465ddfb6ec6d6
-2026-08-24-show-chart-tool-chat-view.zh.md: 479540e3a6de0565aaca66f282981f545be2910b
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back:
+  en: 33fc283f2b408c3e
+  zh: f7bd2e8304befe88
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/problem:
+  en: d39b99c205d979fd
+  zh: 6e2b240def1013ff
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision:
+  en: 7ca16fcfd6308edb
+  zh: b9d4cf1bff18a132
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision/the-option-passes-through-the-supported-set-has-one-home:
+  en: 7e4d45c15f4cc27f
+  zh: 531fc7c9021bfa86
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision/a-keyed-tool-view-not-a-column:
+  en: 519e36e8f3c4c34f
+  zh: 3295c1e246af4a3f
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision/the-verdict-round-trip-and-hidden-until-verified:
+  en: 8e7ec790a9d33e61
+  zh: ad7e21f3825f7d93
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision/the-screenshot-is-opt-in:
+  en: b74f8761507df3ec
+  zh: e06843bac3720275
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/decision/the-sanitizer-rewrites-three-things:
+  en: 1230c3366a6cac3d
+  zh: b2b39350e09d60c7
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/alternatives-considered:
+  en: 9b1de0f1de0a4f44
+  zh: 622a63ab0dd955fc
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/consequences:
+  en: 694dcd3785a37cda
+  zh: 53501015f1cd6f8d
+/agent-note-show-chart-a-chart-the-agent-draws-in-the-conversation-and-the-browser-s-answer-back/testing:
+  en: 702e4a53009522b6
+  zh: da5eae3c5aa5d5e7

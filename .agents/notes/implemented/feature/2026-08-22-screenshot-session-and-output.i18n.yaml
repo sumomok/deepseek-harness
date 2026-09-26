@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-22-screenshot-session-and-output.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-22-screenshot-session-and-output.md
-2026-08-22-screenshot-session-and-output.md: 876ca34b50a225f61fc03ef98342b585a3e65c1f
-2026-08-22-screenshot-session-and-output.zh.md: cb1a6b943c827266c4b9c35a0f90cd3886985b7d
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at:
+  en: 1ea739491dc87fc9
+  zh: 977a2f67437b0556
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/problem:
+  en: 4f959ce22dd4c3d8
+  zh: ee3f99d3045edee0
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/decision:
+  en: a9c214f6c1849645
+  zh: 3d2b3e7ec87a2399
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/wire-contract:
+  en: 06d71b5661f985f1
+  zh: 385343ad41c79797
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/alternatives-considered:
+  en: 22c6f7f52e6b5967
+  zh: d03808aa74d5e14a
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/consequences:
+  en: bb0889b28f1eba45
+  zh: a67ff53be98d3bff
+/agent-note-the-screenshot-tool-renders-the-page-it-was-pointed-at/testing:
+  en: 90a9783bbbb43257
+  zh: f4a427ddc5aeba58

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-console-business-content-only.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-console-business-content-only.md
-2026-09-07-console-business-content-only.md: 238f8194747b7e8f1c2af5bb5f3f2edd270f4d69
-2026-09-07-console-business-content-only.zh.md: 8e6c96090f8d443da43cbcf0658ad85be1920e4b
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only:
+  en: 9446ac7c6c88c0fa
+  zh: 0c5b99a3703e28f5
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only/problem:
+  en: f55b1b82c2a5caff
+  zh: 6227e66a070d32d6
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only/decision:
+  en: ce037ae9fc35efec
+  zh: 6b480342b557fd81
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only/alternatives-considered:
+  en: a64dc6146113b9f6
+  zh: 3a2fcbfc4cba753e
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only/consequences:
+  en: 8364fd0086c8f11f
+  zh: 5ea42f7f8c28a038
+/agent-note-the-customer-console-s-conversation-column-shows-business-content-only/testing:
+  en: 2949085d315f1461
+  zh: 77dafb3baa10debd

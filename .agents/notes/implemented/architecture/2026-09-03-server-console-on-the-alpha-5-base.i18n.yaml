@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-server-console-on-the-alpha-5-base.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-03-server-console-on-the-alpha-5-base.md
-2026-09-03-server-console-on-the-alpha-5-base.md: a5b4d35fa253179721224636ef049b2c8171c7e1
-2026-09-03-server-console-on-the-alpha-5-base.zh.md: 4e8372ef6ace43033a58a0ad0278b294cfcf6176
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation:
+  en: 667e8481f8cdd494
+  zh: ac8c9a8675600a7f
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/problem:
+  en: 4b93e627cebfaa79
+  zh: 2ebefd8473200db3
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/decision:
+  en: bbdb98a7b1c49f85
+  zh: a566d86b6937e63b
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/ui-workspace-is-composed-and-one-css-rule-carries-the-vocabulary:
+  en: e17914947ecb42bd
+  zh: 6b250993f42f6bbf
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/what-is-restated-from-upstream-and-what-must-not-be:
+  en: 99f647ed787e20e3
+  zh: 4db6f47429222667
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/what-the-alpha-5-step-cost:
+  en: 1b2663ec680f4533
+  zh: c0af358b79fafc4e
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/upstream-gaps-this-migration-found:
+  en: 459780fcf33b9d6a
+  zh: e963bca806376787
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/alternatives-considered:
+  en: faff540c51cd039e
+  zh: 7e7a6fa03874052a
+/agent-note-the-product-console-line-on-the-0-1-2-alpha-5-base-composition-over-accommodation/consequences:
+  en: 24416c78af8385f4
+  zh: c0bbe495dac5cb4d

@@ -3,9 +3,23 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
 export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 8
+
+/**
+ * Identity stamped in `PRAGMA user_version`: the schema version above in the
+ * high digits and the Session generation the rows were extracted from in the
+ * low two. A migration edge renumbers `seq` and renames event types without
+ * writing to any log file, while reconciliation skips a Session whose file
+ * revision is unchanged, so rows extracted under a retired generation are
+ * never re-read on their own. Carrying the generation here is what turns a
+ * generation change into the in-place reset this schema already performs for a
+ * shape change. Two digits hold every generation up to 99.
+ */
+export const SESSION_QUERY_SQLITE_INDEX_IDENTITY
+  = SESSION_QUERY_SQLITE_SCHEMA_VERSION * 100 + SESSION_FORMAT_VERSION
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -63,7 +77,7 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
     }
     if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID) {
       assertDerivedUserTables(actual, userTables)
-      if (version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) resetDerivedSchema(db, userTables)
+      if (version !== SESSION_QUERY_SQLITE_INDEX_IDENTITY) resetDerivedSchema(db, userTables)
     }
     // Apply mutating pragmas only after refusing foreign or canonical files.
     // journalMode is a validated closed union, not caller-controlled SQL.
@@ -135,7 +149,7 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       tokenize = 'unicode61'
     )
   `)
-  db.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION}`)
+  db.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_INDEX_IDENTITY}`)
 }
 
 function ensureTemporarySchema(db: DatabaseSync): void {

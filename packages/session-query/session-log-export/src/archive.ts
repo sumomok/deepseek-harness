@@ -1,33 +1,39 @@
 /**
  * Host-side session-log download: streams one ZIP archive whose files are the
- * sessions' logical session logs plus every referenced media object. Each log
+ * sessions' logical session logs plus every referenced attachment. Each log
  * is read through a persistence read handle and serialized here as canonical
  * JSONL — one header line, then one line per validated event — so every
- * backend (JSONL, SQLite, future) exports identically. The root log sits at
- * `session.jsonl`; each subagent descendant under
- * `subagents/<id>/session.jsonl`; each image referenced by any included log
+ * backend (JSONL, SQLite, future) exports identically. The root log uses the
+ * current generation's canonical `session[.vN].jsonl` name; each subagent
+ * descendant uses `subagents/<id>/session[.vN].jsonl`; each image referenced by any included log
  * under `media/<attachmentId>.<ext>` (content-addressed, so one archive never
- * duplicates a shared image). No manifest is written — every file is
- * self-describing through its own header line or media type. Before each live
- * session's log read, the SessionStore flush barrier makes the current
- * in-memory log durable; cold sessions need no barrier. Request abort and
- * response-consumer cancellation share one producer signal and terminate the
- * active compressor.
+ * duplicates a shared image), or, when the attachment store cannot produce
+ * that image, a `media/<attachmentId>.<ext>.error.txt` record naming the
+ * reference and the failure in its place; each generic file sits under
+ * `files/<prefix>/<digest>/<name>` and streams from the attachment store, or,
+ * when the store refuses that file outright, a `files/<prefix>/<digest>/<name>.error.txt`
+ * record naming the reference and the failure in its place. No
+ * manifest is written — every file is self-describing through its own header
+ * line or media type. Before each live session's log read, the SessionStore
+ * flush barrier makes the current in-memory log durable; cold sessions need no
+ * barrier. Request abort and response-consumer cancellation share one producer
+ * signal and terminate the active compressor.
  * Compression runs on the host with fflate's streaming Zip API, so the archive
  * bytes are produced incrementally and the host never holds the whole archive
  * in one buffer; production waits for consumer pull whenever the response queue
  * reaches its byte high-water mark, so a slow consumer bounds accumulation to
  * the fixed 64 KiB response queue plus one synchronous fflate push.
- * The same traversal also answers, ahead of the stream, how many entries the
- * archive will hold and how large they are uncompressed, which the route sends
- * as headers so the browser can draw a determinate progress bar.
  * @module
  */
 
 import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
-import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentStore, FileAttachmentRef, ImageAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import type { SessionLineageNode, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { sessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import type { SessionEvent, SessionHeader, SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
@@ -71,7 +77,7 @@ export function sessionLogExportDeps(ctx: Context): SessionLogExportDeps {
 
 /**
  * Flush one currently live session through the store's authoritative durability
- * barrier immediately before its raw artifact is read. A cold or absent id has
+ * barrier immediately before its logical log is read. A cold or absent id has
  * no in-memory work to flush.
  * @param deps - export services, including the optional live-session store.
  * @param id - the session whose artifact is about to be read.
@@ -91,40 +97,31 @@ export async function flushLiveSessionLog(
   signal?.throwIfAborted()
 }
 
-/** One exported session log: its archive path and the canonical JSONL text. */
-interface SessionLogTextEntry {
-  readonly path: string
-  readonly content: string
-}
-
-/** One exported file: a serialized session log or one referenced media object. */
+/** One exported file: a serialized session log or one referenced attachment object. */
 export type SessionLogZipEntry =
   | { readonly path: string; readonly content: string }
   | { readonly path: string; readonly data: Uint8Array }
+  | { readonly path: string; readonly chunks: AsyncIterable<Uint8Array> }
 
-/** The zip base filename for every exported session log. */
-export const SESSION_LOG_FILENAME = 'session.jsonl'
+/** The current generation's canonical base filename for every exported session log. */
+export const SESSION_LOG_FILENAME = sessionFormatLogFilename(SESSION_FORMAT_VERSION)
 
 /**
  * Serialize one session's logical log as canonical JSONL text: the header
  * line, then one line per event, with a trailing newline.
  * @param header - the session's immutable header.
- * @param inheritedEventCount - the exact fork-inherited prefix length stored
- *   beside the header (`0` when `header.isSeeded` is false).
  * @param events - the validated committed events in seq order.
  * @returns the JSONL text.
  */
 export function serializeSessionLog(
   header: SessionHeader,
-  inheritedEventCount: number,
   events: readonly SessionEvent[],
 ): string {
-  // Match the JSONL backend's canonical header line: lineage is the physical
-  // `seedLength`, and `delegationDepth` is required-on-read there, so an
-  // omitted top-level depth serializes as 0 and the exported log parses as a
-  // valid log.
+  // Match the current v2 physical header. The inherited cut is already
+  // represented by the tagged session/end-seed event in `events`;
+  // `delegationDepth` is required on disk, so an omitted top-level depth is 0.
   /* jscpd:ignore-start -- deliberately mirrors the JSONL backend's
-     `toHeaderLine`: the exported text is the canonical v0 physical header
+     `toHeaderLine`: the exported text is the canonical v2 physical header
      line, and this backend-agnostic package must not depend on one backend
      implementation. */
   const lines = [JSON.stringify({
@@ -134,7 +131,7 @@ export function serializeSessionLog(
     createdAt: header.createdAt,
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
-    ...header.isSeeded ? { seedLength: inheritedEventCount } : {},
+    isSeeded: header.isSeeded,
     ...header.origin !== undefined ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
     ...header.agentPreset !== undefined ? { agentPreset: header.agentPreset } : {},
@@ -170,8 +167,8 @@ export async function readSessionLogText(
     throw error
   }
   try {
-    const events = await handle.read(0, undefined, options)
-    return serializeSessionLog(handle.header, Number(handle.inheritedEventCount), events)
+    const { events } = await handle.read(0, undefined, options)
+    return serializeSessionLog(handle.header, events)
   } finally {
     await handle.close()
   }
@@ -197,62 +194,290 @@ function mediaEntryPath(ref: ImageAttachmentRef): string {
 }
 
 /**
- * Collect every image reference inside one content array, descending into
- * nested tool results the way the live attachment route does.
- * @param content - an event content array (or nested tool-result content).
- * @param refs - the dedupe map being filled (keyed by attachment id).
+ * Archive path that preserves one stored file reference's digest and name.
+ * Sanitizing the display name maps distinct names onto one path: under the
+ * same digest, `a/b` and `a_b` both yield `files/<xx>/<digest>/a_b`, while the
+ * export dedupes references on the original name, so both yield an entry.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the stored file.
  */
-function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef>): void {
+function fileEntryPath(ref: FileAttachmentRef): string {
+  const digest = String(ref.attachmentId).replace(/^sha256:/u, '')
+  const name = ref.name.replace(/[\\/\u0000-\u001f\u007f]/gu, '_')
+  const safeName = name === '.' || name === '..' || name === '' ? 'file' : name
+  return `files/${digest.slice(0, 2)}/${digest}/${safeName}`
+}
+
+/**
+ * The archive path for one media object the export could not read: the media
+ * entry's own path plus a `.error.txt` suffix, so the record sits beside the
+ * log reference that names the image. One attachment id yields the image entry
+ * or this one, never both, so the suffix cannot collide with a stored object.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the failure record.
+ */
+function unreadableMediaEntryPath(ref: ImageAttachmentRef): string {
+  return `${mediaEntryPath(ref)}.error.txt`
+}
+
+/**
+ * The failure lines one unreadable attachment contributes to its record. An
+ * `AttachmentError` is quoted by `code` and `message`: its declaring class
+ * requires the message to describe the failure without raw bytes or host
+ * paths, and the code separates a missing object from bytes that no longer
+ * match their reference. Any other failure is recorded without its message,
+ * which carries no such requirement — a filesystem error's message names an
+ * absolute host path, and the archive reaches a browser.
+ * The match is structural on `name` because this package depends on
+ * `@deepseek-ai/dsh-attachment` for types only, so there is no constructor
+ * here to test with `instanceof`. A code test alone would not do: a Node
+ * filesystem error also carries a string `code`, and quoting its message is
+ * exactly what leaks a host path. That is stricter than the `route on code,
+ * never on the prototype chain` rule the error class documents, which admits
+ * any structurally compatible error; the stricter side is the one that decides
+ * whether text is safe to copy into a downloaded file.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the failure lines, without a trailing newline.
+ */
+function unreadableAttachmentReason(error: unknown): string {
+  if (error instanceof Error && error.name === 'AttachmentError'
+    && 'code' in error && typeof error.code === 'string') {
+    return `code: ${error.code}\nreason: ${error.message}`
+  }
+  return 'reason: the attachment store rejected the read without a stable failure code'
+}
+
+/**
+ * The archive entry that records one unreadable media object: the reference
+ * the log carries and why the store could not produce its bytes.
+ * @param ref - the durable reference from a session log.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the text entry that stands in for the image.
+ */
+function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionLogZipEntry {
+  return {
+    path: unreadableMediaEntryPath(ref),
+    content: `${[
+      'This image could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.',
+      `attachmentId: ${String(ref.attachmentId)}`,
+      `mediaType: ${ref.mediaType}`,
+      `bytes: ${ref.bytes}`,
+      `width: ${ref.width}`,
+      `height: ${ref.height}`,
+      unreadableAttachmentReason(error),
+    ].join('\n')}\n`,
+  }
+}
+
+/**
+ * The archive path for one stored file the export could not read: the file
+ * entry's own path plus a `.error.txt` suffix, so the record sits in the
+ * digest directory the log reference names. One reference yields the file
+ * entry or this one, never both. The path keys on the digest and the sanitized
+ * display name, and the local store reads every reference through its own
+ * name-keyed alias, so two references to one digest can differ in readability.
+ * The record shares a path with another reference's file entry only when that
+ * reference's sanitized display name is this one's sanitized display name plus
+ * `.error.txt`, its alias reads, and this one's does not.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the failure record.
+ */
+function unreadableFileEntryPath(ref: FileAttachmentRef): string {
+  return `${fileEntryPath(ref)}.error.txt`
+}
+
+/**
+ * The archive entry that records one unreadable stored file: the reference the
+ * log carries and why the store could not produce its bytes.
+ * @param ref - the durable reference from a session log.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the text entry that stands in for the file.
+ */
+function unreadableFileEntry(ref: FileAttachmentRef, error: unknown): SessionLogZipEntry {
+  return {
+    path: unreadableFileEntryPath(ref),
+    content: `${[
+      'This file could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.',
+      `attachmentId: ${String(ref.attachmentId)}`,
+      `name: ${ref.name}`,
+      `bytes: ${ref.bytes}`,
+      unreadableAttachmentReason(error),
+    ].join('\n')}\n`,
+  }
+}
+
+/**
+ * Resume one file's chunks after its first has been pulled, so the entry the
+ * ZIP writer receives streams exactly the bytes the store produces.
+ * @param first - the already-pulled first result.
+ * @param rest - the store's iterator, positioned after `first`.
+ * @returns the complete chunk sequence in order.
+ */
+async function* resumedFileChunks(
+  first: IteratorResult<Uint8Array>,
+  rest: AsyncIterator<Uint8Array>,
+): AsyncIterable<Uint8Array> {
+  if (first.done === true) return
+  yield first.value
+  yield* { [Symbol.asyncIterator]: () => rest }
+}
+
+/**
+ * Open one stored file into its archive entry, recording an unreadable object
+ * rather than failing the archive. Symmetric with {@link mediaEntry}, and
+ * bounded by the same one-chunk budget: the store's first chunk is pulled
+ * here, so a reference the store refuses outright — a deleted object, an
+ * invalid reference — becomes a record instead of a torn response. A failure
+ * the store raises after that first chunk still tears the response, because
+ * those bytes have already reached the ZIP writer. Cancellation is not an
+ * unreadable attachment and is rethrown.
+ * @param attachments - the mounted attachment store.
+ * @param ref - the durable reference from a session log.
+ * @param signal - optional cancellation forwarded to the store read.
+ * @returns the file entry, or the record that stands in for it.
+ */
+async function fileEntry(
+  attachments: AttachmentStore,
+  ref: FileAttachmentRef,
+  signal?: AbortSignal,
+): Promise<SessionLogZipEntry> {
+  const rest = attachments.readFileStream(ref, signal)[Symbol.asyncIterator]()
+  let first: IteratorResult<Uint8Array>
+  try {
+    first = await rest.next()
+  } catch (error) {
+    signal?.throwIfAborted()
+    return unreadableFileEntry(ref, error)
+  }
+  return { path: fileEntryPath(ref), chunks: resumedFileChunks(first, rest) }
+}
+
+/**
+ * Read one media object into its archive entry, recording an unreadable object
+ * rather than failing the archive. A stored image the deployment can no longer
+ * produce is a property of that one attachment — a reference written with the
+ * wrong media type, an object deleted or rewritten under the store — and every
+ * other file in the export is still exact. Cancellation is not an unreadable
+ * attachment and is rethrown.
+ * @param attachments - the mounted attachment store.
+ * @param ref - the durable reference from a session log.
+ * @param signal - optional cancellation forwarded to the store read.
+ * @returns the image entry, or the record that stands in for it.
+ */
+async function mediaEntry(
+  attachments: AttachmentStore,
+  ref: ImageAttachmentRef,
+  signal?: AbortSignal,
+): Promise<SessionLogZipEntry> {
+  try {
+    const stored = await attachments.readImage(ref, signal)
+    return { path: mediaEntryPath(ref), data: stored.data }
+  } catch (error) {
+    signal?.throwIfAborted()
+    return unreadableMediaEntry(ref, error)
+  }
+}
+
+/**
+ * Collect direct attachment blocks from one declared V4 content array.
+ * @param content - an event or message content array.
+ * @param images - image dedupe map keyed by attachment id.
+ * @param files - file dedupe map keyed by attachment id and stored name.
+ */
+function collectAttachmentRefs(
+  content: unknown,
+  images: Map<string, ImageAttachmentRef>,
+  files: Map<string, FileAttachmentRef>,
+): void {
   if (!Array.isArray(content)) return
-  const pending: unknown[] = []
-  for (const item of content) pending.push(item)
-  while (pending.length > 0) {
-    const value = pending.pop()
+  for (const value of content) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-    const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
+    const block = value as { type?: unknown; attachment?: unknown }
     if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
       const ref = block.attachment as ImageAttachmentRef
-      refs.set(String(ref.attachmentId), ref)
+      images.set(String(ref.attachmentId), ref)
     }
-    if (Array.isArray(block.content)) {
-      for (const item of block.content) pending.push(item)
+    if (block.type === 'file' && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as FileAttachmentRef
+      files.set(`${String(ref.attachmentId)}\u0000${ref.name}`, ref)
     }
   }
 }
 
 /**
- * Collect every image reference one session event carries, across the same
- * carriers the live attachment route scans (direct content, message content,
- * inserted messages, and completed assistant chunk blocks).
+ * Collect references only from declared first-party content fields and completed
+ * Assistant blocks. Unknown events and unrelated payload fields remain opaque.
  * @param event - one parsed JSONL event object.
- * @param refs - the dedupe map being filled (keyed by attachment id).
+ * @param images - image dedupe map keyed by attachment id.
+ * @param files - file dedupe map keyed by attachment id and stored name.
  */
-function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachmentRef>): void {
-  const data = (event as { data?: unknown }).data
+function collectEventAttachmentRefs(
+  event: unknown,
+  images: Map<string, ImageAttachmentRef>,
+  files: Map<string, FileAttachmentRef>,
+): void {
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) return
+  const row = event as { type?: unknown; data?: unknown }
+  const data = row.data
   if (typeof data !== 'object' || data === null) return
   const carrier = data as {
     content?: unknown
     message?: { content?: unknown }
-    inserted?: Array<{ content?: unknown }>
-    chunk?: { type?: unknown; block?: unknown }
+    inserted?: unknown
+    summary?: unknown
+    rawOutput?: unknown
+    stream?: Array<{ type?: unknown; chunk?: { type?: unknown; block?: unknown } }>
   }
-  collectImageRefs(carrier.content, refs)
-  if (carrier.message !== undefined) collectImageRefs(carrier.message.content, refs)
-  if (carrier.inserted !== undefined) {
-    for (const message of carrier.inserted) collectImageRefs(message.content, refs)
+  switch (row.type) {
+    case 'user/message': case 'tool/ptc-dispatch':
+      collectAttachmentRefs(carrier.content, images, files)
+      return
+    case 'system/message': case 'developer/message': case 'tool/result': case 'team/message/queued':
+      collectAttachmentRefs(carrier.message?.content, images, files)
+      return
+    case 'agent/inbox/spliced': {
+      const messages = carrier.inserted
+      if (!Array.isArray(messages)) return
+      for (const message of messages as readonly unknown[]) {
+        if (typeof message !== 'object' || message === null || Array.isArray(message)) continue
+        collectAttachmentRefs((message as { readonly content?: unknown }).content, images, files)
+      }
+      return
+    }
+    case 'compaction/summary':
+      collectAttachmentRefs(carrier.summary, images, files)
+      collectAttachmentRefs(carrier.rawOutput, images, files)
+      return
+    case 'assistant/message':
+      collectAttachmentRefs(carrier.message?.content, images, files)
+      break
+    case 'assistant/attempt': break
+    default: return
   }
-  if (carrier.chunk?.type === 'block-end') collectImageRefs([carrier.chunk.block], refs)
+  if (carrier.stream !== undefined) {
+    for (const record of carrier.stream) {
+      if (record.type === 'chunk' && record.chunk?.type === 'block-end') {
+        collectAttachmentRefs([record.chunk.block], images, files)
+      }
+    }
+  }
 }
 
 /**
- * Collect the distinct media references one stored artifact text names.
- * Lines that fail to parse cannot reference media and are skipped (the
+ * Collect the distinct attachment references one stored artifact text names.
+ * Lines that fail to parse cannot reference attachments and are skipped (the
  * artifact text itself is exported verbatim regardless).
  * @param content - the stored artifact text.
- * @returns the dedupe map keyed by attachment id.
+ * @returns image and file dedupe maps.
  */
-function imageRefsInArtifact(content: string): Map<string, ImageAttachmentRef> {
-  const refs = new Map<string, ImageAttachmentRef>()
+function attachmentRefsInArtifact(content: string): {
+  readonly images: Map<string, ImageAttachmentRef>
+  readonly files: Map<string, FileAttachmentRef>
+} {
+  const images = new Map<string, ImageAttachmentRef>()
+  const files = new Map<string, FileAttachmentRef>()
   for (const line of content.split('\n')) {
     if (line === '') continue
     let event: unknown
@@ -261,9 +486,9 @@ function imageRefsInArtifact(content: string): Map<string, ImageAttachmentRef> {
     } catch {
       continue
     }
-    collectEventImageRefs(event, refs)
+    collectEventAttachmentRefs(event, images, files)
   }
-  return refs
+  return { images, files }
 }
 
 /**
@@ -288,22 +513,29 @@ export function sessionLogZipFilename(sessionId: string): string {
   return `dsh-session-${safeSessionIdSegment(sessionId)}.zip`
 }
 
+/** One exported session log: its archive path and the canonical JSONL text. */
+interface SessionLogTextEntry {
+  readonly path: string
+  readonly content: string
+}
+
 /**
  * Yield the archive's log entries in zip order — the preloaded root log first,
  * then every subagent descendant in lineage order (each flushed when live,
  * read through a persistence read handle right before it is yielded, and
- * dropped after the consumer moves on) — while filling `media` with every
- * distinct image reference those logs name. The traversal holds at most one
- * descendant's log text at a time beyond the root. The entry stream and the
- * extent measurement each run it once, so both see the same archive shape, but
- * they see it at two different moments: a live sub-session that appends events
- * between the two passes makes the announced totals read below what the
- * archive actually carries.
+ * dropped after the consumer moves on) — while filling `media` and `files`
+ * with every distinct attachment reference those logs name. The traversal
+ * holds at most one descendant's log text at a time beyond the root. The entry
+ * stream and the extent measurement each run it once, so both see the same
+ * archive shape, but they see it at two different moments: a live sub-session
+ * that appends events between the two passes makes the announced totals read
+ * below what the archive actually carries.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log.
  * @param sessionId - the root session id.
  * @param includeDescendants - whether to include every subagent descendant.
- * @param media - dedupe map filled with the referenced media, keyed by attachment id.
+ * @param media - dedupe map filled with the referenced images, keyed by attachment id.
+ * @param files - dedupe map filled with the referenced generic files, keyed by attachment id.
  * @param signal - optional cancellation forwarded to lineage and persistence reads.
  * @returns the log entries in zip order.
  */
@@ -313,12 +545,15 @@ async function* sessionLogTextEntries(
   sessionId: SessionId,
   includeDescendants: boolean,
   media: Map<string, ImageAttachmentRef>,
+  files: Map<string, FileAttachmentRef>,
   signal?: AbortSignal,
 ): AsyncGenerator<SessionLogTextEntry> {
-  const rememberMedia = (content: string): void => {
-    for (const [id, ref] of imageRefsInArtifact(content)) media.set(id, ref)
+  const rememberAttachments = (content: string): void => {
+    const refs = attachmentRefsInArtifact(content)
+    for (const [id, ref] of refs.images) media.set(id, ref)
+    for (const [id, ref] of refs.files) files.set(id, ref)
   }
-  rememberMedia(rootContent)
+  rememberAttachments(rootContent)
   yield { path: SESSION_LOG_FILENAME, content: rootContent }
   if (!includeDescendants) return
   const seen = new Set<SessionId>([sessionId])
@@ -336,7 +571,7 @@ async function* sessionLogTextEntries(
       if (content === undefined) {
         throw new Error(`subagent "${id}" has no stored log`)
       }
-      rememberMedia(content)
+      rememberAttachments(content)
       yield {
         path: `subagents/${safeSessionIdSegment(id)}/${SESSION_LOG_FILENAME}`,
         content,
@@ -350,11 +585,12 @@ async function* sessionLogTextEntries(
 }
 
 /**
- * Yield the export entries in zip order: every session log, then every
- * distinct media object those logs reference (read and verified from the
- * attachment store, one archive entry per attachment id). The host holds at
- * most one descendant's log text and one media object at a time beyond the
- * root.
+ * Yield the export entries in zip order: every session log, then one entry per
+ * distinct attachment those logs reference — an image's verified bytes read
+ * from the attachment store, a generic file streamed through the ZIP writer,
+ * or the `.error.txt` record that stands in for either one when the store
+ * cannot produce it. The host holds at most one descendant log, one image, and
+ * one file chunk beyond the root.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log (read by the caller so
  * the missing-session path can answer cleanly before streaming starts).
@@ -371,12 +607,19 @@ export async function* sessionLogZipEntries(
   signal?: AbortSignal,
 ): AsyncGenerator<SessionLogZipEntry> {
   const media = new Map<string, ImageAttachmentRef>()
-  yield* sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, signal)
+  const files = new Map<string, FileAttachmentRef>()
+  yield* sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, files, signal)
   for (const ref of media.values()) {
     signal?.throwIfAborted()
-    const stored = await deps.attachments.readImage(ref, signal)
+    const entry = await mediaEntry(deps.attachments, ref, signal)
     signal?.throwIfAborted()
-    yield { path: mediaEntryPath(ref), data: stored.data }
+    yield entry
+  }
+  for (const ref of files.values()) {
+    signal?.throwIfAborted()
+    const entry = await fileEntry(deps.attachments, ref, signal)
+    signal?.throwIfAborted()
+    yield entry
   }
 }
 
@@ -394,8 +637,11 @@ const TEXT_DEFLATE_RATIO = 0.14
 /**
  * Share of its uncompressed size one entry occupies on the wire.
  * @param compressionLevel - the resolved DEFLATE level for every ZIP entry.
- * @param compressible - whether the entry is session-log text; media is
- * already-compressed raster data that deflate leaves at its stored size.
+ * @param compressible - whether the entry is session-log text. Every stored
+ * attachment takes the unity ratio: an image is already compressed, and a
+ * generic file's content is unknown before it is read. A text file that
+ * deflates well therefore overstates the wire denominator, which makes the
+ * progress bar lag and then jump to complete instead of overshooting it.
  * @returns the multiplier from uncompressed bytes to wire bytes.
  */
 function wireRatio(compressionLevel: SessionLogCompressionLevel, compressible: boolean): number {
@@ -408,8 +654,12 @@ function wireRatio(compressionLevel: SessionLogCompressionLevel, compressible: b
  * Measure what the export will contain before any byte is produced: the entry
  * count, the summed uncompressed entry size, and an estimate of the bytes the
  * response body will carry. Log sizes are the exact UTF-8 length of the text
- * the stream pushes; media sizes are each reference's recorded `bytes`, so
- * measuring re-reads the descendant logs but never re-reads a stored image.
+ * the stream pushes; attachment sizes are each reference's recorded `bytes`,
+ * so measuring re-reads the descendant logs but never re-reads a stored
+ * attachment. Not reading them is also why an attachment the stream turns out
+ * to be unable to read is counted here at its recorded size rather than at the
+ * few hundred bytes its `.error.txt` record occupies: the entry count is exact
+ * either way, and the size totals read high for that entry.
  * The wire estimate scales those sizes by {@link wireRatio} and ignores ZIP
  * framing, which is tens of bytes per entry.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
@@ -429,17 +679,19 @@ export async function measureSessionLogZip(
   signal?: AbortSignal,
 ): Promise<SessionLogExportExtent> {
   const media = new Map<string, ImageAttachmentRef>()
+  const files = new Map<string, FileAttachmentRef>()
   const encoder = new TextEncoder()
   let entries = 0
   let bytes = 0
   let estimatedWireBytes = 0
-  for await (const entry of sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, signal)) {
+  const logs = sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, files, signal)
+  for await (const entry of logs) {
     entries += 1
     const size = encoder.encode(entry.content).byteLength
     bytes += size
     estimatedWireBytes += size * wireRatio(compressionLevel, true)
   }
-  for (const ref of media.values()) {
+  for (const ref of [...media.values(), ...files.values()]) {
     entries += 1
     bytes += ref.bytes
     estimatedWireBytes += ref.bytes * wireRatio(compressionLevel, false)
@@ -447,7 +699,7 @@ export async function measureSessionLogZip(
   return { entries, bytes, estimatedWireBytes: Math.round(estimatedWireBytes) }
 }
 
-/** How many code units of artifact text one zip push carries (bounded encode memory). */
+/** How many code units of Session-log text one zip push carries (bounded encode memory). */
 const PUSH_CHUNK_CODE_UNITS = 1 << 16
 
 /** How many bytes of media one zip push carries (bounded memory; images are already size-capped). */
@@ -516,12 +768,31 @@ async function pushBinaryChunks(
   } while (offset < data.byteLength)
 }
 
+/** Push one streamed file entry without retaining its complete byte sequence. */
+async function pushStreamChunks(
+  deflate: ZipDeflate,
+  chunks: AsyncIterable<Uint8Array>,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  capacity: ResponseCapacityGate,
+  signal: AbortSignal,
+): Promise<void> {
+  for await (const chunk of chunks) {
+    signal.throwIfAborted()
+    if (chunk.byteLength === 0) continue
+    deflate.push(chunk, false)
+    await capacity.wait(controller, signal)
+  }
+  signal.throwIfAborted()
+  deflate.push(new Uint8Array(), true)
+  await capacity.wait(controller, signal)
+}
+
 /**
  * Push one artifact's text into a deflate stream in bounded chunks, never
  * splitting a surrogate pair across a chunk boundary (a lone high surrogate
  * re-encodes as U+FFFD and would silently corrupt the exported artifact).
  * @param deflate - the zip entry's deflate stream.
- * @param content - the artifact text verbatim.
+ * @param content - the canonical Session-log text.
  * @param controller - response queue controller.
  * @param capacity - pull-driven response-capacity gate.
  * @param signal - cancellation; throws when aborted.
@@ -558,7 +829,8 @@ async function pushArtifactChunks(
  * missing services answer cleanly before any byte is produced); each entry is
  * then encoded and deflated in bounded chunks as it is produced, so the
  * archive bytes arrive incrementally. A descendant that fails to read errors
- * the stream (fail-loud, never silent under-export).
+ * the stream (fail-loud, never silent under-export); an unreadable media
+ * object does not, because the archive records it and stays complete.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log (first zip entry).
  * @param sessionId - the root session id.
@@ -609,8 +881,10 @@ export function streamSessionLogZip(
             archive.add(deflate)
             if ('content' in entry) {
               await pushArtifactChunks(deflate, entry.content, controller, capacity, producerSignal)
-            } else {
+            } else if ('data' in entry) {
               await pushBinaryChunks(deflate, entry.data, controller, capacity, producerSignal)
+            } else {
+              await pushStreamChunks(deflate, entry.chunks, controller, capacity, producerSignal)
             }
           }
           archive.end()

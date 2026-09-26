@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-darwin-native-variants-dropped-by-closure.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-darwin-native-variants-dropped-by-closure.md
-2026-08-19-darwin-native-variants-dropped-by-closure.md: d33511a4e82311f6c825f254811c082416737081
-2026-08-19-darwin-native-variants-dropped-by-closure.zh.md: 3081b918108a082a5618f46d9670452a6f312877
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants:
+  en: eb120b167c05548d
+  zh: fe8e13c6a021e55a
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/problem:
+  en: 64031d2a3d448a3a
+  zh: bf1a4df8efff2a21
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/decision:
+  en: 63e496b739781d6f
+  zh: 27004e3065fdab0f
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/verification:
+  en: e4ea5b91b7105d79
+  zh: c302b014e4f3bbf5
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/deferred-make-the-invariant-mechanical:
+  en: a13abca55499679e
+  zh: 7530528aecf0f18e
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/alternatives-considered:
+  en: 52175f96c2b9e429
+  zh: 9792ec84ae912d1d
+/agent-note-the-closure-bundler-dropped-the-darwin-native-variants/consequences:
+  en: d6b2d49f43c4aee7
+  zh: cfb06be29c0976ee

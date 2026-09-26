@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-content-component-library-v1b-1-seam.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-content-component-library-v1b-1-seam.md
-2026-09-05-content-component-library-v1b-1-seam.md: 9ee39756e4230695d31b21f81c25209f4594156d
-2026-09-05-content-component-library-v1b-1-seam.zh.md: 9b4c1066a0a08647a507c9da91fa08864e319169
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam:
+  en: 1768a93583593f3a
+  zh: 217a6fb61b233237
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/problem:
+  en: 2d427d10c50fd22a
+  zh: 33c61a1a2e4459f1
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/decision:
+  en: b0dff020e48ce93f
+  zh: 0bf149855ed7137b
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/decision/gate-table-4-vendoring-a-component-library-as-a-tarball:
+  en: 53736558e91cc53b
+  zh: 16b6b1fa7c96137d
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/decision/gate-table-5-one-vue-and-one-element-ui-for-the-whole-page:
+  en: d1aac14fa7531b98
+  zh: 8a466f149001c557
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/decision/gate-table-6-the-tightening-pass-and-the-readings-nothing-declares-yet:
+  en: 8d2499883463a777
+  zh: 0c0694c80df8d56c
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/alternatives-considered:
+  en: aa038da6f9c47d46
+  zh: 61c0d73d1a963182
+/agent-note-drawing-a-customer-s-own-vue-component-in-the-content-column-the-vendoring-seam/consequences:
+  en: 66c70de895e664b9
+  zh: 907cd6fa7efa2e9c

@@ -1,907 +1,1293 @@
-/**
- * Electron main process of the DSH desktop client: start the embedded
- * `dsh web` server from the app resources (bundled Node runtime + deployed
- * server closure), open the served UI in a native window, and tear the
- * server down with the app. The window is a plain browser surface — no
- * preload, no Node integration; everything the UI can do goes through the
- * same `/api` transport the browser uses.
- *
- * The window opens immediately on a boot page that names the three startup
- * phases and how long the current one has taken, and — on the first launch
- * after an update installed itself — which version this now is. Server output
- * goes to `dsh-server.log` only: on screen a failure shows one summary line and the
- * path of that file, because a scrolling command-line panel is diagnosis
- * material for the developer who receives the log, not for the person waiting.
- *
- * This module is also where the pieces that outlive the window are composed:
- * the update channel, the Windows tray that the close button can hide into,
- * and the notifier that watches the running server. All three reach the window
- * through [[reveal]], and all three quit through the same `before-quit`
- * teardown, so there is one way back in and one way out.
- * @module @deepseek-ai/dsh-desktop/main
- */
+import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
+/** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { basename, join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, shell, type DownloadItem } from 'electron'
-import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { recordRun } from './desktop-state.ts'
-import { decideDownload } from './download-policy.ts'
-import { mainWindow, revealMainWindow } from './main-window.ts'
-import { isExternalNavigationTarget } from './navigation.ts'
-import { announceDownload, setupNotifications } from './notifications.ts'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
-  ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
-  startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
-  type ConfirmRequest, type PluginAdminHandle,
-} from './plugin-admin-service.ts'
-import { describeSeed, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
-import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
-import { renderInHiddenWindow } from './render-window.ts'
-import { clearLoginSession, openLoginWindow } from './login-window.ts'
-import {
-  classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
-  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
-} from './server-supervision.ts'
-import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
-import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
-import { guardWindowClose, setupTray } from './tray.ts'
-import { launchGate, setupUpdates } from './updater.ts'
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  powerMonitor,
+  nativeImage,
+  nativeTheme,
+  net,
+  protocol,
+  session,
+  shell,
+  type IpcMainInvokeEvent,
+  type MenuItemConstructorOptions,
+} from 'electron'
+import { resolveDesktopPaths } from './paths.ts'
+import { DesktopProjectManager } from './project-manager.ts'
+import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
+import { installDesktopDirectoryPicker } from './directory-picker.ts'
+import { installMicrophonePermissions } from './microphone-permissions.ts'
+import { DesktopBackendController } from './backend-controller.ts'
+import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
+import { claimDesktopSingleInstance } from './single-instance.ts'
+import { DesktopUpdateCoordinator } from './update-coordinator.ts'
+import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
+import { DesktopFatalRecovery } from './fatal-recovery.ts'
+import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
+import { openWelcomeWindow } from './welcome-window.ts'
+import { WELCOME_IPC, needsWelcome, type WelcomeNotice } from './welcome-api.ts'
+import { connectDesktopWelcome, type DesktopWelcomeBackend } from './welcome-backend.ts'
+import { DesktopUpdateJournal } from './update-journal.ts'
+import { DesktopUpdatePreparationError } from './update-error.ts'
+import { DesktopUpdateSchedule, resolveDesktopUpdateScheduleConfig } from './update-schedule.ts'
+import { desktopUpdateErrorSummary, presentDesktopUpdate } from './update-presentation.ts'
+import { desktopErrorState } from './startup-error.ts'
+import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
+import { desktopClientMetadata } from './client-metadata.ts'
+import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
+import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
+import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
+import { readDesktopRuntime } from './runtime-tree.ts'
+import { DesktopBrowserGuests } from './browser-guests.ts'
+import { installDesktopShortcuts } from './keyboard.ts'
+import { DesktopUpdateOverlays } from './update-overlay.ts'
+import { DesktopQuitConfirmation } from './quit-confirmation.ts'
+import { DesktopTray } from './tray.ts'
+import { DesktopBackgroundNotice } from './background-notice.ts'
 
+let focusPrimaryWindow = (): void => {}
+let stopForRecovery = async (): Promise<void> => {}
+let shuttingDown = false
 /**
- * A server launch plus the shipped closure the built-in plugins are seeded
- * from. The environment additions are not part of it: they carry the two
- * loopback services' addresses, which do not exist yet when the paths are
- * resolved.
+ * Set by quit entries that must not ask: crash recovery exit and restart, and the
+ * development restart command. The installer handoff has its own before-quit branch.
  */
-interface LaunchSpec extends Omit<ServerSpec, 'env'> {
-  /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
-  builtinModules: string
+let skipQuitConfirmation = false
+let windowsLanguage: string | undefined
+/**
+ * Whether the backend has reached ready: false until the first ready, back to
+ * false when a restart returns it to starting, frozen during shutdown so a
+ * failure while tearing down a ready backend still reads as `running`.
+ */
+let backendReady = false
+/** Error-level console output of the primary window, attached to crash reports. */
+const rendererConsole = new RendererConsoleTail()
+
+// Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
+// set before ready so the first fatal report already resolves under it.
+app.setAppLogsPath()
+
+function currentDesktopLocale(): ReturnType<typeof resolveDesktopLocale> {
+  return resolveDesktopLocale(windowsLanguage ?? app.getLocale())
 }
-
-/**
- * Resolve where the server lives for this launch. Packaged builds use the
- * app resources; a source-tree launch (`pnpm --filter @deepseek-ai/dsh-desktop
- * exec electron lib/main.js`) uses the checkout's built CLI on the
- * development Node found in PATH, with the built-in plugins coming from the
- * same `apps/desktop-server` closure the packaged payload is deployed from.
- * @returns the launch spec.
- */
-function resolveSpec(): LaunchSpec {
-  const home = app.getPath('home')
-  if (app.isPackaged) {
-    const modules = join(process.resourcesPath, 'server', 'node_modules')
-    return {
-      nodeBin: join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
-      entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
-      builtinModules: modules,
-      cwd: home,
-    }
-  }
-  const apps = join(app.getAppPath(), '..')
-  return {
-    nodeBin: process.env.DSH_DESKTOP_NODE ?? 'node',
-    entry: join(apps, 'cli', 'lib', 'bin.js'),
-    builtinModules: join(apps, 'desktop-server', 'node_modules'),
-    cwd: home,
-  }
-}
-
-let server: ServerHandle | undefined
-let renderService: RenderServiceHandle | undefined
-let pluginAdminService: PluginAdminHandle | undefined
-let quitting = false
-/**
- * The desktop log sink. Until the log file is known there is nowhere durable
- * to write, so a line goes to stderr rather than nowhere — which is what
- * carries a launch-chain crash report that arrives before the file exists.
- */
-let logLine: (chunk: string) => void = (chunk) => {
-  try {
-    process.stderr.write(chunk)
-  } catch {
-    // A packaged GUI process may have no usable stderr handle. Reporting must
-    // never throw: this sink is what a crash report falls back to, and a throw
-    // here would make that report the silence it exists to prevent.
-  }
-}
-/** Set once the log file's own path is known, for the L2 "打开日志" button. */
-let logFile = ''
-
-/**
- * Where a crash report goes. `log` reads {@link logLine} at report time, not
- * at construction, so the same host serves both the handlers registered once
- * the file sink exists and the launch chain that can fail before it does.
- */
-const CRASH_LOG_HOST: CrashLogHost = {
-  log: (entry) => { logLine(entry) },
-  showErrorBox: (title, content) => { dialog.showErrorBox(title, content) },
-}
-
-/**
- * The launch spec the running server was started (or last rebound) with —
- * paths plus the loopback-service environment additions. Recorded once the
- * first startup succeeds; every automatic or manual rebind reuses it
- * unchanged, since the loopback services it points at keep running across a
- * server-only crash.
- */
-let activeServerSpec: ServerSpec | undefined
-
-/** The recovery ladder's own memory between unexpected server exits; see [[@deepseek-ai/dsh-desktop/server-supervision]]. */
-let supervisorState: SupervisorState = initialSupervisorState
-
-/** Wall-clock ms this process started, for the L2 guard window. */
-const processStartedAt = Date.now()
-
-/** Whether this launch is L1's own relaunch after repeated server crashes. */
-const isRecoveryRelaunch = isRecoveryRelaunchInstance(process.argv)
-
-/**
- * How long a quit waits for the server to stop before exiting regardless.
- *
- * Without a deadline a stop that never settles holds the process open forever,
- * and a windowless zombie is exactly what blocks the next Windows update. The
- * two platforms bound it differently because the constraint differs:
- *
- * - Windows must beat the updater's installer, which allows the old app about
- *   7.6 s to disappear — 300 ms + 1 s before its first kill, then two rounds of
- *   1 s + 2 s — before it gives up and shows "cannot be closed"
- *   (app-builder-lib `templates/nsis/include/allowOnlyOneInstallerInstance.nsh`,
- *   `_CHECK_APP_RUNNING`). Teardown there is one `taskkill /T /F`, so 4 s is
- *   already generous, and being late costs the user a dialog.
- * - POSIX must outlast `STOP_GRACE_MS`, the server's SIGTERM-to-SIGKILL window,
- *   or the deadline would cut in before the escalation and orphan the very
- *   process it is trying to reap.
- */
-const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
-
-/**
- * Stop the server, giving up after `STOP_TIMEOUT_MS`. The caller exits either
- * way; a stop that timed out leaves an orphan for the next launch to sweep,
- * which is recoverable, while waiting forever is not.
- * @returns resolves when the server stopped or the deadline passed.
- */
-async function stopServerBounded(): Promise<void> {
-  const handle = server
-  if (handle === undefined) return
-  let timer: NodeJS.Timeout | undefined
-  const deadline = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => { resolve('timeout') }, STOP_TIMEOUT_MS)
-  })
-  const outcome = await Promise.race([handle.stop().then(() => 'stopped' as const), deadline])
-  clearTimeout(timer)
-  if (outcome === 'timeout') {
-    logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
-  }
-}
-
-/**
- * Point every window showing the served UI at a new URL — the one holder the
- * ordinary reload path (`will-navigate`, `reveal`) does not cover on its own,
- * because both of those read `server.url` live and are already correct once
- * {@link server} itself is reassigned. `mainWindow`'s own discriminator
- * (`isResizable`) is what tells the served UI apart from the fixed-size
- * progress and login windows, which this must leave alone.
- * @param url - the rebound server's new authenticated URL.
- */
-function retargetWindows(url: string): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isResizable() && !window.isDestroyed()) void window.loadURL(url)
-  }
-}
-
-/**
- * Tell the user an L0 rebind is under way, on both platforms — the window
- * itself is showing whatever a dead backend renders as, which explains nothing.
- */
-function notifyRecovering(): void {
-  const body = '后台服务已停止,正在恢复…'
-  logLine(`[desktop] notify: ${body}\n`)
-  if (!Notification.isSupported()) return
-  new Notification({ title: 'DSH Desktop', body }).show()
-}
-
-/**
- * Attempt one rebind of the embedded server: start it again from
- * {@link activeServerSpec}, and on success retarget every window and the
- * notification streams, and resume supervising the new child. Used both by
- * the L0 ladder and by the L2 dialog's manual retry.
- * @returns true once the server is back up.
- */
-async function performRebind(): Promise<boolean> {
-  const spec = activeServerSpec
-  if (spec === undefined) return false
-  try {
-    const handle = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
-    server = handle
-    logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
-    retargetWindows(handle.authenticatedUrl)
-    setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
-    attachSupervision()
-    return true
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    logLine(`[desktop] rebind attempt failed: ${message}\n`)
-    return false
-  }
-}
-
-/**
- * Watch the current {@link server} for its own exit and log the autopsy line
- * for an unexpected one, then hand it to the recovery ladder. Called once
- * after the very first successful startup and again after every successful
- * rebind, because `onExit` fires once per child.
- */
-function attachSupervision(): void {
-  server?.onExit((info) => {
-    if (info.expected) return
-    const code = info.code === null ? 'null' : String(info.code)
-    const signal = info.signal ?? 'null'
-    logLine(`[desktop] server exited unexpectedly: code=${code} signal=${signal}\n${info.tail}\n`)
-    void handleUnexpectedServerExit()
-  })
-}
-
-/**
- * Run the recovery ladder for one unexpected server exit and carry out its
- * verdict: nothing further on a recovered rebind, a marked whole-app relaunch
- * on `relaunch`, or the L2 dialog on `stop`.
- */
-async function handleUnexpectedServerExit(): Promise<void> {
-  // The app is already on its way out through a deliberate stop; that exit is
-  // `expected` and never reaches here, but a second, unrelated crash racing
-  // the same teardown must not start a rebind the quit is about to undo.
-  if (quitting) return
-  const { state, outcome } = await runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
-    sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
-    notifyRecovering,
-    rebind: performRebind,
-  })
-  supervisorState = state
-  if (outcome === 'relaunch') relaunchForRecovery()
-  else if (outcome === 'stop') void runStoppedDialog()
-}
-
-/**
- * Escalate to L1: relaunch the whole app once, marked so the next instance
- * knows it is this relaunch (the L2 guard reads it). Goes through
- * `app.quit()`, not `app.exit()`, so the ordinary `before-quit` teardown
- * (closing the loopback services, `quitting` already true here so the tray's
- * close guard stands aside) still runs — there is nothing left to stop on the
- * server itself, which already exited.
- */
-function relaunchForRecovery(): void {
-  logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
-  quitting = true
-  const args = process.argv.includes(RECOVERY_RELAUNCH_FLAG)
-    ? process.argv.slice(1)
-    : [...process.argv.slice(1), RECOVERY_RELAUNCH_FLAG]
-  app.relaunch({ args })
+/** Quit without the task confirmation; the caller has already decided the application must stop. */
+function quitWithoutConfirmation(): void {
+  skipQuitConfirmation = true
   app.quit()
 }
+const recovery = new DesktopFatalRecovery({
+  messages: () => currentDesktopLocale().messages,
+  show: options => dialog.showMessageBox(options),
+  stop: () => { shuttingDown = true; return stopForRecovery() },
+  disablePlugins: async () => {
+    const manager = new DesktopProjectManager(resolveDesktopPaths(), runtimeResources())
+    const backupPath = await manager.disableAllPlugins()
+    console.info('Desktop profile recovery completed:', { profilePatchBackup: backupPath ?? null, homePatch: 'unchanged' })
+  },
+  exit: () => { quitWithoutConfirmation() },
+  restart: () => { app.relaunch(); quitWithoutConfirmation() },
+  writeReport: (error, source) => persistCrashReport(error, source),
+})
 
-/**
- * Escalate to L2: put the decision in front of the user instead of trying
- * again automatically. 「重试」makes exactly one more manual rebind attempt
- * and, on failure, shows the dialog again — repeatable, but never on a timer.
- * 「打开日志」reveals the log file and reshows the dialog, since the user asked
- * for information, not to end anything. 「关闭」ends the dialog loop and
- * returns with the backend left down and nothing further attempted
- * automatically; {@link STOPPED_DIALOG_CANCEL_INDEX} routes Esc and every
- * other way of dismissing the dialog to the same button, so a user who
- * cannot fix the crash always has a way out that is not quitting the whole
- * app.
- */
-async function runStoppedDialog(): Promise<void> {
-  logLine('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
-  for (;;) {
-    const window = mainWindow()
-    const options = {
-      type: 'error' as const,
-      title: 'DSH Desktop',
-      message: '后台服务多次崩溃,已停止自动恢复',
-      buttons: [...STOPPED_DIALOG_BUTTONS],
-      defaultId: 0,
-      cancelId: STOPPED_DIALOG_CANCEL_INDEX,
-    }
-    const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
-    const outcome = classifyStoppedDialogAnswer(answer.response)
-    if (outcome === 'retry') {
-      if (await performRebind()) return
-      continue
-    }
-    if (outcome === 'open-log') {
-      void shell.openPath(logFile).then((failure) => {
-        if (failure !== '') shell.showItemInFolder(logFile)
-      })
-      continue
-    }
-    logLine('[desktop] user dismissed the crash dialog; backend stays down\n')
-    return
-  }
-}
-
-/**
- * Start the loopback render service and return what the server child needs to
- * reach it.
- *
- * The shell is a Chromium, and lending it to the embedded server is what lets
- * a screenshot happen on a machine with no browser installed. Failing to open
- * a loopback listener is not a reason to refuse the launch: a server told
- * nothing falls back to whatever browser the machine has, which is what every
- * non-desktop install already does.
- * @param log - the server log sink; receives one line either way, never the token.
- * @returns the environment additions for the server process, empty when the service did not start.
- */
-async function startRenderServiceForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
-  let started: RenderServiceHandle
-  try {
-    started = await startRenderService({
-      renderer: renderInHiddenWindow,
-      openLogin: openLoginWindow,
-      clearLoginSession,
-      limits: RENDER_LIMITS,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    log(`[desktop] render service unavailable (${message}); screenshots fall back to a browser on this machine\n`)
-    return {}
-  }
-  renderService = started
-  log(`[desktop] render service on ${started.endpoint}\n`)
-  return { DSH_DESKTOP_RENDER_ENDPOINT: started.endpoint, DSH_DESKTOP_RENDER_TOKEN: started.token }
-}
-
-/**
- * Put one plugin-admin confirmation on screen.
- *
- * A native modal rather than anything the web UI draws: the page asking for an
- * install is the page a compromised plugin would draw its own confirmation in,
- * and this window is the one it cannot paint over. It is parented to the main
- * window when there is one, so it is modal to the app rather than a dialog the
- * user can lose behind it.
- * @param request - what the service wants asked.
- * @returns true when the user chose the confirming button.
- */
-async function confirmPluginAdmin(request: ConfirmRequest): Promise<boolean> {
-  const options = {
-    type: 'question' as const,
-    title: request.title,
-    message: request.message,
-    ...request.detail === undefined ? {} : { detail: request.detail },
-    buttons: [request.confirmLabel, request.cancelLabel],
-    defaultId: 0,
-    // Dismissing the dialog installs nothing and restarts nothing.
-    cancelId: 1,
-  }
-  const window = mainWindow()
-  const answer = window === undefined
-    ? await dialog.showMessageBox(options)
-    : await dialog.showMessageBox(window, options)
-  return answer.response === 0
-}
-
-/**
- * Start the loopback plugin-admin service and return what the server child
- * needs to reach it.
- *
- * The shell ships a package manager the machine does not have, and lending it
- * is what lets a plugin be updated from the Settings window. Failing to open a
- * loopback listener is not a reason to refuse the launch: a server told nothing
- * reports the capability unavailable and hides the tab, which is what every
- * non-desktop install already does.
- * @param spec - this launch's paths, for the pnpm the packaged build ships.
- * @param log - the server log sink; receives one line either way, never the token.
- * @returns the environment additions for the server process, empty when the service did not start.
- */
-async function startPluginAdminForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
-  const launcher = resolvePnpmLauncher({
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    nodeBin: spec.nodeBin,
+function persistCrashReport(error: unknown, source: CrashReportSource): Promise<string | undefined> {
+  return writeCrashReport(app.getPath('logs'), {
+    source,
+    phase: backendReady ? 'running' : 'startup',
+    error,
+    ...(error instanceof DesktopHostFatalError && error.diagnostic !== undefined ? { hostDiagnostic: error.diagnostic } : {}),
+    rendererConsole: rendererConsole.snapshot(),
+    app: {
+      name: app.name, version: app.getVersion(), platform: process.platform, arch: process.arch,
+      electron: process.versions.electron, node: process.versions.node, locale: currentDesktopLocale().id,
+    },
+    time: new Date(),
   })
-  let started: PluginAdminHandle
-  try {
-    started = await startPluginAdminService({
-      home: resolveHarnessHome(),
-      run: spawnPnpm(launcher),
-      confirm: confirmPluginAdmin,
-      relaunch: () => {
-        app.relaunch()
-        app.quit()
-      },
-      limits: PLUGIN_ADMIN_LIMITS,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    log(`[desktop] plugin admin service unavailable (${message}); plugin updates are not offered\n`)
-    return {}
-  }
-  pluginAdminService = started
-  log(`[desktop] plugin admin service on ${started.endpoint}, pnpm: ${[launcher.command, ...launcher.prefixArgs].join(' ')}\n`)
-  return { [PLUGIN_ADMIN_ENDPOINT_ENV]: started.endpoint, [PLUGIN_ADMIN_TOKEN_ENV]: started.token }
 }
 
-/**
- * Windows groups taskbar buttons, jump lists, and — the reason it is set here —
- * **toast notifications** by an Application User Model ID. A process without
- * one gets whatever the shortcut that launched it carried, and a launch that
- * bypassed the shortcut gets nothing, at which point notifications are silently
- * dropped. The value must be the `appId` from electron-builder.yml, which is
- * what the installer writes onto the shortcut it creates; the two are the same
- * fact in the two places that need it, exactly like the update feed URL.
- * A no-op on every other platform.
- */
-const APP_USER_MODEL_ID = 'dev.dsh.desktop'
-
-/**
- * The boot page: a self-contained `data:` document (no external resource, no
- * preload) that the main process drives through `window.__dsh`. It shows one
- * phase at a time — the one actually running — because a checklist of things
- * that have not happened yet is a list of ways to wonder what went wrong.
- * @param version - the app version shown at the bottom of the page.
- * @param appearance - which palette to paint.
- * @param receipt - one line confirming an update, when this launch is the first
- * of a new version. It is baked into the document rather than pushed into it,
- * because the push path tolerates a page that has not finished loading by
- * dropping what it carries, which is right for a phase and wrong for this.
- * @returns the `data:` URL to load.
- */
-function bootPage(version: string, appearance: Appearance, receipt: string | undefined): string {
-  const colors = PALETTES[appearance]
-  return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; height: 100vh; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-    background: ${colors.gradient};
-    color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
-  }
-  /* Dot grid and vignette, both purely decorative and both behind the column. */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    background-image: radial-gradient(circle, ${colors.grid} 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-  body::after {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    box-shadow: inset 0 0 180px 40px ${colors.vignette};
-  }
-  main { position: relative; width: 100%; max-width: 460px; padding: 0 32px; }
-  .glow {
-    position: absolute; left: 4px; top: -88px; width: 320px; height: 320px;
-    pointer-events: none; transform-origin: center;
-    background: radial-gradient(circle, ${colors.glow} 0%, transparent 68%);
-    animation: breathe 8s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%, 100% { transform: scale(1); opacity: .75; }
-    50% { transform: scale(1.12); opacity: 1; }
-  }
-  .enter { opacity: 0; animation: enter .32s ease-out forwards; }
-  @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .wordmark { position: relative; font-size: 40px; font-weight: 700; line-height: 1.15; animation-delay: 0ms; }
-  /* The Chinese glyphs take a real CJK face; only the caret stays monospace,
-     which is the one character a mono stack renders better than a text face. */
-  .wordmark .zh {
-    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-    color: ${colors.text}; letter-spacing: .02em;
-  }
-  .caret {
-    display: inline-block; margin-left: 8px; color: ${colors.accent};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    animation: blink 1.1s steps(2) infinite;
-  }
-  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-  /* Fixed height and stacked rows: one phase replaces another without the
-     column below it moving. */
-  .phases { position: relative; height: 30px; margin-top: 36px; }
-  .phase {
-    position: absolute; inset: 0; display: flex; align-items: baseline; gap: 10px;
-    font: 13px/2.1 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: ${colors.text}; opacity: 0; transition: opacity .28s ease;
-  }
-  .phase.showing { opacity: 1; }
-  .mark { flex: none; width: 1em; color: ${colors.accent}; animation: pulse 1.6s ease-in-out infinite; }
-  .phase.failed .mark { color: ${colors.danger}; animation: none; }
-  @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
-  .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
-  .elapsed { color: ${colors.muted}; }
-  .receipt { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.accent}; }
-  .hint { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.muted}; }
-  .failure { position: relative; margin-top: 16px; display: none; }
-  body.failed .failure { display: block; }
-  .summary {
-    font-size: 13px; color: ${colors.text}; word-break: break-all; user-select: text;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
-  }
-  .lead { margin-top: 12px; font-size: 13px; color: ${colors.muted}; }
-  footer {
-    position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-    font-size: 11px; color: ${colors.muted};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .glow, .caret, .mark, .enter { animation: none; }
-    .enter { opacity: 1; }
-  }
-</style></head><body>
-<main>
-  <div class="glow"></div>
-  <div class="wordmark enter"><span class="zh">从这里开始</span><span class="caret">▮</span></div>
-  <div class="phases" id="phases">
-    <div class="phase" data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></div>
-  </div>
-  ${receipt === undefined ? '' : `<div class="receipt">${receipt}</div>`}
-  <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
-  <div class="failure" id="failure">
-    <div class="summary" id="summary"></div>
-    <div class="lead">完整日志:菜单 帮助 → 查看日志</div>
-  </div>
-</main>
-<footer>v${version}</footer>
-<script>
-  const rows = [...document.querySelectorAll('.phase')]
-  let current = 0
-  setTimeout(() => { document.getElementById('hint').hidden = false }, 8000)
-  window.__dsh = {
-    phase(index) {
-      current = index
-      rows.forEach((row, position) => {
-        row.classList.toggle('showing', position === index)
-        if (position !== index) row.querySelector('.elapsed').textContent = ''
-      })
-    },
-    elapsed(seconds) {
-      const cell = rows[current]?.querySelector('.elapsed')
-      if (cell) cell.textContent = seconds < 3 ? '' : ' · ' + seconds + 's'
-    },
-    fail(message) {
-      const row = rows[current]
-      if (row) {
-        row.classList.add('failed')
-        row.querySelector('.mark').textContent = '✕'
-        row.querySelector('.elapsed').textContent = ''
-      }
-      document.getElementById('hint').hidden = true
-      document.getElementById('summary').textContent = message
-      document.body.classList.add('failed')
-    },
-    block(message) {
-      const hint = document.getElementById('hint')
-      hint.textContent = message
-      hint.hidden = false
-    },
-  }
-  window.__dsh.phase(0)
-</script></body></html>`)
-}
-
-/** One window whose boot page the main process can drive. */
-interface BootView {
-  window: BrowserWindow
-  /** Show `index` as the running phase and hide every other one. */
-  phase: (index: number) => void
-  /** Update the seconds suffix on the running phase. */
-  elapsed: (seconds: number) => void
-  /** Fail the running phase and show the error summary. */
-  fail: (message: string) => void
-  /** Replace the hint line with why the app is holding at this phase. */
-  block: (message: string) => void
-  /** Stop driving the boot page and load the served UI. */
-  showApp: (url: string) => void
-}
-
-/**
- * How each unsuccessful terminal download state is announced. Only the
- * interrupted one names a remedy: a transfer the user cancelled needs no
- * instructions, and one that broke mid-stream is worth starting again.
- */
-const DOWNLOAD_FAILURES: Record<'cancelled' | 'interrupted', { title: string; body: (filename: string) => string }> = {
-  cancelled: { title: '下载已取消', body: filename => filename },
-  interrupted: { title: '下载失败', body: filename => `${filename}:传输中断,请重新导出` },
-}
-
-/**
- * Paths already handed to a transfer that has not finished. A download's name
- * is derived from what it exports, so a second gesture on one session suggests
- * the name the first is about to write; nothing is on disk under it until the
- * first byte arrives, and this set is what keeps the second from overwriting it.
- */
-const claimedDownloadPaths = new Set<string>()
-
-/**
- * Say where a download the shell placed ended up, in the log and to the user.
- * @param state - the terminal state Electron reported for the transfer.
- * @param path - the path the transfer was given.
- */
-function reportDownload(state: 'completed' | 'cancelled' | 'interrupted', path: string): void {
-  const filename = basename(path)
-  if (state === 'completed') {
-    logLine(`[desktop] download saved: ${path}\n`)
-    announceDownload({ title: '已保存到下载', body: filename, savePath: path })
+function reportFatal(error: unknown, source: CrashReportSource): void {
+  console.error(error)
+  if (shuttingDown) {
+    // No dialog during shutdown, but the report still records what failed on the way out.
+    void persistCrashReport(error, source)
     return
   }
-  const failure = DOWNLOAD_FAILURES[state]
-  logLine(`[desktop] download ${state}: ${path}\n`)
-  announceDownload({ title: failure.title, body: failure.body(filename) })
+  void recovery.report(error, source).catch((failure: unknown) => { console.error(failure); app.exit(1) })
 }
 
-/**
- * Place what the served UI downloads, instead of letting Electron ask.
- *
- * The window is a browser surface without a browser's download manager, so
- * Electron answers a download with a modal Save As sheet that explains
- * nothing — while the page that started it has already said it started, the
- * session-log export announcing 「Session 导出已开始下载」 the moment the
- * transfer begins, and a dismissed sheet drops the transfer while that page
- * still reads as success. A transfer from the embedded server therefore goes
- * straight to the user's downloads folder, and its outcome is reported the way
- * a download manager reports it: the plugin that owns the export delegates
- * mid-stream failures to exactly that.
- *
- * Every other origin keeps Electron's default, sheet and all — a file the
- * shell did not serve is not the shell's to place.
- * @param window - the app window whose session the downloads arrive on.
- */
-function attachDownloadHandling(window: BrowserWindow): void {
-  // The default session: this window names no partition, and neither does any
-  // window opened after it, so all of them share this one.
-  const windowSession = window.webContents.session
-  const onWillDownload = (_event: Electron.Event, item: DownloadItem): void => {
-    if (server === undefined) return
-    const downloadsDir = app.getPath('downloads')
-    const decision = decideDownload({
-      urls: item.getURLChain(),
-      serverOrigin: server.url,
-      filename: item.getFilename(),
-      downloadsDir,
-      claimed: claimedDownloadPaths,
-      exists: existsSync,
-    })
-    if (decision.kind === 'default') {
-      // A download from elsewhere is the ordinary case and says nothing; a
-      // folder with no free name left is not, and the sheet the user then sees
-      // has a reason in the file they are asked to send.
-      if (decision.reason === 'no-free-name') {
-        logLine(`[desktop] download left to Electron: ${item.getFilename()} (no free name under ${downloadsDir})\n`)
-      }
-      return
-    }
-    const { path } = decision
-    claimedDownloadPaths.add(path)
-    item.setSavePath(path)
-    item.once('done', (_doneEvent, state) => {
-      claimedDownloadPaths.delete(path)
-      reportDownload(state, path)
-    })
+protocol.registerSchemesAsPrivileged([{
+  scheme: SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true,
+    codeCache: true,
+  },
+}])
+
+interface RuntimeResources {
+  readonly nodeBin: string
+  readonly node: string
+  readonly pnpm: string
+  readonly dsh: string
+}
+
+function runtimeResources(): RuntimeResources {
+  const development = !app.isPackaged
+  const node = process.execPath
+  const nodeBin = development ? join(app.getAppPath(), 'scripts', 'node-bin') : join(process.resourcesPath, 'runtime', 'bin')
+  const pnpm = (development ? process.env.DSH_DESKTOP_PNPM_ENTRY : undefined)
+    ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
+      : join(process.resourcesPath, 'runtime', 'pnpm', 'bin', 'pnpm.mjs'))
+  const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
+    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
+  return { node, nodeBin, pnpm, dsh }
+}
+
+function developmentPrimaryRuntime(): string {
+  const directory = process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR
+  if (directory === undefined || directory === '') {
+    throw new Error('dsh desktop: DSH_DESKTOP_PRIMARY_RUNTIME_DIR is required for an unpackaged launch')
   }
-  windowSession.on('will-download', onWillDownload)
-  // The session outlives the window, so the listener is removed with the
-  // window rather than left to accumulate one copy per window the user closes
-  // and reopens — which on macOS is every trip through the Dock.
-  window.once('closed', () => { windowSession.off('will-download', onWillDownload) })
+  return directory
+}
+
+function developmentHostInspectPort(enabled: boolean): number | undefined {
+  const configured = process.env.DSH_DESKTOP_HOST_INSPECT_PORT
+  if (!enabled || configured === undefined || configured === '') return undefined
+  const port = Number(configured)
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('dsh desktop: DSH_DESKTOP_HOST_INSPECT_PORT must be an integer from 1 through 65535')
+  }
+  return port
 }
 
 /**
- * Open the window on the boot page and return its update handle.
- * @param receipt - the update confirmation line, when there is one to show.
+ * Opaque chrome fallback matching the built-in sidebar palette (the resolved
+ * `--dsw-static-neutral-bluish-900` / `-50` tokens). An approximation for
+ * custom themes: Windows swaps in the renderer's measured palette over the
+ * windowsAppearance IPC, and macOS shows it only while minimized or hidden.
+ * @returns the sidebar fill hex for the active system color scheme.
  */
-function createBootWindow(receipt?: string): BootView {
-  // Chosen before the window exists: `backgroundColor` is what paints while the
-  // page loads, so resolving the theme here is what prevents a flash of the
-  // opposite one.
-  const appearance = resolveAppearance()
+function chromeFallbackFill(): string {
+  return nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb'
+}
+
+/**
+ * Add the effective Desktop palette to a Platform authorization URL so the
+ * login page opens in the application's theme. `system` resolves through
+ * `nativeTheme.shouldUseDarkColors`, which follows the theme source the
+ * application preload publishes.
+ * @param authorizeUrl - validated Platform authorization URL.
+ * @returns the authorization URL carrying `theme=light` or `theme=dark`.
+ */
+function platformLoginUrl(authorizeUrl: string): string {
+  const url = new URL(authorizeUrl)
+  url.searchParams.set('theme', nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+  return url.href
+}
+
+function createWindow(preload: string, show = false, primary = false): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1360,
-    height: 900,
-    backgroundColor: PALETTES[appearance].background,
-    title: 'DSH Desktop',
+    width: 1280,
+    height: 820,
+    minWidth: 520,
+    minHeight: 600,
+    show,
+    ...(process.platform === 'win32' && primary ? {
+      titleBarStyle: 'hidden' as const,
+      titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
+        symbolColor: nativeTheme.shouldUseDarkColors ? '#f9fafb' : '#0f1115' },
+    } : {}),
+    // hiddenInset places traffic lights inside the sidebar; sidebar vibrancy
+    // needs a transparent window background to show through the page.
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 16, y: 18 },
+      vibrancy: 'sidebar' as const,
+      // 'active' keeps the vibrancy material stable when the window blurs;
+      // 'followWindow' washes the sidebar out behind an unfocused window.
+      visualEffectState: 'active' as const,
+      backgroundColor: '#00000000',
+    } : {}),
     webPreferences: {
-      sandbox: true,
+      preload,
+      nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: primary,
+      devTools: true,
     },
   })
-  window.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url)
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
     return { action: 'deny' }
   })
-  window.webContents.on('will-navigate', (event, target) => {
-    if (server === undefined || !target.startsWith(server.url)) {
-      event.preventDefault()
-      if (isExternalNavigationTarget(target)) void shell.openExternal(target)
+  if (process.platform === 'darwin') {
+    // macOS hides the traffic lights in fullscreen; the page drops its
+    // clearance for them off the html[data-fullscreen] flag this feeds.
+    const sendFullscreen = (): void => {
+      if (!window.isDestroyed()) window.webContents.send(DESKTOP_IPC.windowFullscreen, window.isFullScreen())
     }
-  })
-  guardWindowClose(window)
-  attachDownloadHandling(window)
-  void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
-  let booting = true
-  const push = (script: string): void => {
-    if (!booting || window.isDestroyed()) return
-    window.webContents.executeJavaScript(script).catch(() => {
-      // The page may still be loading or already gone; every phase this push
-      // carried is also in the log file.
-    })
-  }
-  return {
-    window,
-    phase: (index) => { push(`window.__dsh.phase(${String(index)})`) },
-    elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
-    fail: (message) => { push(`window.__dsh.fail(${JSON.stringify(message)})`) },
-    block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
-    showApp: (url) => {
-      booting = false
-      if (!window.isDestroyed()) void window.loadURL(url)
-    },
-  }
-}
-
-/** Open a plain window directly on the served UI (reopen path). */
-function createAppWindow(url: string): void {
-  const view = createBootWindow()
-  view.showApp(url)
-}
-
-/**
- * Put the app in front of the user: uncover the window it already has, or open
- * one on the served UI when it has none. Every route back into the app — the
- * tray icon, a clicked notification, a second launch, the macOS Dock — ends
- * here, so all of them behave the same whether the window is hidden in the
- * tray, minimized, merely behind something, or gone.
- */
-function reveal(): void {
-  if (mainWindow() !== undefined) {
-    revealMainWindow()
-    return
-  }
-  if (server !== undefined) createAppWindow(server.authenticatedUrl)
-}
-
-const locked = app.requestSingleInstanceLock()
-if (!locked) {
-  app.quit()
-} else {
-  app.on('second-instance', () => { reveal() })
-
-  app.on('window-all-closed', () => {
-    // macOS keeps the app (and its server) alive in the Dock; elsewhere the
-    // last window ends the app. A window hidden into the Windows tray was
-    // never closed, so this does not fire for it.
-    if (process.platform !== 'darwin') app.quit()
-  })
-
-  app.on('activate', () => { reveal() })
-
-  // Async teardown: hold the first quit, stop the server, then exit for real.
-  // The stop is bounded, so this path always reaches `app.exit`.
-  //
-  // `quitting` is raised before the server check, not after it, because the
-  // flag is what tells the tray's close handler to let windows go. A quit with
-  // no server to stop — a launch whose server never came up — must still set
-  // it, or the handler intercepts the close, calls `app.quit()` again, and the
-  // two hold each other in a loop the user cannot get out of.
-  app.on('before-quit', (event) => {
-    if (quitting) return
-    quitting = true
-    // Best-effort and unawaited: the listener dies with the process anyway, and
-    // this quit must not wait on a render that is still running.
-    void renderService?.close()
-    void pluginAdminService?.close()
-    if (server === undefined) return
-    event.preventDefault()
-    void stopServerBounded().finally(() => { app.exit(0) })
-  })
-
-  void app.whenReady().then(async () => {
-    app.setAppUserModelId(APP_USER_MODEL_ID)
-    const upgradedFrom = recordRun()
-    const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
-    const logDir = app.getPath('logs')
-    logFile = join(logDir, 'dsh-server.log')
-    try {
-      mkdirSync(logDir, { recursive: true })
-    } catch {
-      // Logging must never block the app; a failed sink drops chunks only.
-    }
-    // Every server byte lands in the file; the boot page shows phases only.
-    const sink = (chunk: string): void => {
-      try {
-        appendFileSync(logFile, chunk)
-      } catch {
-        // Same best-effort contract: the UI keeps running without the file.
+    window.on('enter-full-screen', sendFullscreen)
+    window.on('leave-full-screen', sendFullscreen)
+    // Reloads and navigations re-register the preload listener; resend the
+    // current state so a fullscreen reload does not fall back to windowed CSS.
+    window.webContents.on('did-finish-load', sendFullscreen)
+    // Deminiaturize reattaches the NSVisualEffectView material late
+    // (electron/electron#25368), so a transparent window shows the desktop
+    // through the sidebar until then. Paint an opaque base while minimized or
+    // hidden so the deminiaturize animation and the reattachment gap show a
+    // solid fill; restoring flips back, and the null -> 'sidebar' transition
+    // forces the material to reattach.
+    const applyBackdrop = (): void => {
+      if (window.isDestroyed()) return
+      if (window.isMinimized() || !window.isVisible()) {
+        window.setVibrancy(null)
+        window.setBackgroundColor(chromeFallbackFill())
+      } else {
+        window.setVibrancy('sidebar')
+        window.setBackgroundColor('#00000000')
       }
     }
-    logLine = sink
-    // Before the updater and the server: from here on a main-process
-    // exception is in the file the user is asked to send, rather than only in
-    // the box Electron opens over it.
-    setupCrashLog(CRASH_LOG_HOST)
-    const startedAt = Date.now()
-    const ticker = setInterval(() => {
-      view.elapsed(Math.round((Date.now() - startedAt) / 1000))
-    }, 1000)
-    const spec = resolveSpec()
-    sink(`[desktop] ${new Date().toISOString()} version=${app.getVersion()} packaged=${String(app.isPackaged)} platform=${process.platform} arch=${process.arch}\n`)
-    sink(`[desktop] node runtime: ${spec.nodeBin} (exists: ${String(existsSync(spec.nodeBin) || spec.nodeBin === 'node')})\n`)
-    sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
-    sink(`[desktop] server cwd: ${spec.cwd}\n`)
-    if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
-    if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
-    view.phase(1)
-    const host = {
-      log: sink,
-      openLog: () => {
-        // The boot page no longer prints the path, so this menu item is the
-        // only way to reach the log; a directory reveal still gets the user
-        // there when no application is registered for `.log`.
-        void shell.openPath(logFile).then((failure) => {
-          if (failure !== '') shell.showItemInFolder(logFile)
+    window.on('minimize', applyBackdrop)
+    window.on('hide', applyBackdrop)
+    window.on('restore', applyBackdrop)
+    window.on('show', applyBackdrop)
+  }
+  window.webContents.on('context-menu', (_event, { isEditable, selectionText, editFlags }) => {
+    const items: MenuItemConstructorOptions[] = []
+    if (isEditable) {
+      items.push(
+        { role: 'undo', enabled: editFlags.canUndo },
+        { role: 'redo', enabled: editFlags.canRedo },
+        { type: 'separator' },
+        { role: 'cut', enabled: editFlags.canCut },
+        { role: 'copy', enabled: editFlags.canCopy },
+        { role: 'paste', enabled: editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: editFlags.canSelectAll },
+      )
+    } else if (selectionText.length > 0) {
+      items.push({ role: 'copy', enabled: editFlags.canCopy })
+    }
+    // Empty accelerators suppress Electron's default shortcut labels for native roles.
+    if (items.length > 0) {
+      const messages = currentDesktopLocale().messages
+      Menu.buildFromTemplate(items.map(item => ({
+        ...item,
+        ...(process.platform === 'win32' && item.role !== undefined && item.role in messages
+          ? { label: messages[item.role as keyof typeof messages] } : {}),
+        accelerator: '',
+      }))).popup({ window })
+    }
+  })
+  window.webContents.on('will-navigate', (event, url) => {
+    const destination = new URL(url)
+    const current = new URL(window.webContents.getURL())
+    if (destination.protocol !== `${SCHEME}:`
+      && !(destination.protocol === 'http:' && destination.origin === current.origin)) {
+      event.preventDefault()
+      if (['http:', 'https:'].includes(destination.protocol)) void shell.openExternal(url)
+    }
+  })
+  return window
+}
+
+async function main(): Promise<void> {
+  void pruneCrashReports(app.getPath('logs'))
+  const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
+  const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
+  const resources = runtimeResources()
+  const paths = resolveDesktopPaths()
+  const development = !app.isPackaged
+  const primaryRuntime = development
+    ? developmentPrimaryRuntime()
+    : join(process.resourcesPath, 'runtime', 'primary-runtime')
+  const activeProject = paths.profile
+  const manager = new DesktopProjectManager(paths, resources)
+  let quitting = false
+  let startup: Promise<void> | undefined
+  let workspaceRecovery: Promise<void> | undefined
+  let mainWindow: BrowserWindow | undefined
+  let welcomeWindow: BrowserWindow | undefined
+  let enteredWorkspace = false
+  // NSIS passes --updated when it launches the application after installation.
+  let raiseAfterUpdate = process.platform === 'win32' && process.argv.includes('--updated')
+  let shellInstallerOwnsQuit = false
+  let requireCleanStop = false
+  let updateStoppedHost = false
+  let updateStopFailure: DesktopHostUncleanExitError | undefined
+  let updateState: DesktopUpdateState = { phase: 'idle' }
+  const systemLanguages = app.getPreferredSystemLanguages()
+  let locale = resolveDesktopStartupLocale(null, systemLanguages)
+  windowsLanguage = locale.id
+  let mandatoryPolicy: DesktopMandatoryUpdatePolicy | undefined
+  let mandatoryUI: DesktopMandatoryUpdateWindow | undefined
+  let policyAuth: DesktopPolicyTestAuth | undefined
+  let tray: DesktopTray | undefined
+  /**
+   * The operating system is ending the session: the quit skips its confirmation. Windows sets it
+   * on the definitive session-end message. macOS sets it on the power-off notification, which
+   * another application can still cancel, so the next focus or show of the main window clears it.
+   */
+  let sessionEnding = false
+  const isQuitting = (): boolean => quitting
+  const currentMainWindow = (): BrowserWindow | undefined => mainWindow
+  const ordinaryDialogs = new Set<AbortController>()
+  const currentDialogWindow = (): BrowserWindow | undefined => welcomeWindow ?? mainWindow
+  const updateOverlays = new DesktopUpdateOverlays()
+  const updateDialog = new DesktopUpdateDialog(fileURLToPath(new URL('./preload-update-dialog.cjs', import.meta.url)), () => locale, updateOverlays)
+  const isMandatory = (): boolean => mandatoryPolicy?.state.blocking === true
+  const ordinaryMessageBox = async (options: UpdateDialogOptions): Promise<Electron.MessageBoxReturnValue> => {
+    const controller = new AbortController()
+    ordinaryDialogs.add(controller)
+    try {
+      const parent = currentDialogWindow()
+      if (parent === undefined) return { response: options.cancelId ?? 0, checkboxChecked: false }
+      return await updateDialog.show(parent, { ...options, signal: controller.signal })
+    }
+    finally { ordinaryDialogs.delete(controller) }
+  }
+  // Copy comes from the same locale as the update prompts so the dialog
+  // chrome and its content never mix languages.
+  const showAbout = async (): Promise<void> => {
+    await ordinaryMessageBox({ type: 'info', title: locale.messages.aboutMenu, message: locale.messages.aboutProduct,
+      detail: formatDesktopMessage(locale.messages.aboutVersion, { version: app.getVersion() }),
+      buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
+  }
+  const appPreload = fileURLToPath(new URL('./preload-app.cjs', import.meta.url))
+  const applicationUrl = `${SCHEME}://app/`
+  let hostUrl: string | undefined
+  let hostCookie: string | undefined
+  const browserGuests = new DesktopBrowserGuests(() => hostUrl)
+  let injections: readonly unknown[] = []
+  let welcomeBackend: DesktopWelcomeBackend | undefined
+  let stopAccount: (() => void) | undefined
+  let openedAttempt: string | undefined
+  let returnedAttempt: string | undefined
+  let pendingWelcomeNotice: WelcomeNotice | undefined
+  let previousAccountStatus: string | undefined
+  const assertProductSender = (event: IpcMainInvokeEvent): void => {
+    assertDesktopSender(event, ['app'])
+    if (mainWindow === undefined || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+      || event.senderFrame === null || event.senderFrame !== mainWindow.webContents.mainFrame) {
+      throw new Error('dsh desktop: rejected IPC from an unowned renderer')
+    }
+  }
+  let navigation: { window: BrowserWindow; url: string; promise: Promise<void> } | undefined
+  const navigateMain = (url: string): Promise<void> => {
+    const window = mainWindow
+    if (quitting || window === undefined || window.isDestroyed()) return Promise.resolve()
+    if (navigation?.window === window && navigation.url === url) return navigation.promise
+    const next = { window, url, promise: Promise.resolve() }
+    next.promise = window.loadURL(url).catch((error: unknown) => {
+      if (quitting || shuttingDown || window.isDestroyed() || navigation !== next
+        || (error instanceof Error && 'code' in error && error.code === 'ERR_ABORTED')) return
+      navigation = undefined
+      throw error
+    })
+    navigation = next
+    return next.promise
+  }
+  const platformView = new DesktopPlatformView(join(app.getAppPath(), 'lib', 'preload-platform-account.cjs'),
+    () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
+  const backend = new DesktopBackendController((onFailure) => {
+    const hostInspectPort = developmentHostInspectPort(development)
+    const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
+      hostInspectPort, process.env, onFailure,
+      primaryRuntime,
+      resources, (next) => { platformView.setSession(next) })
+    return {
+      start: async () => {
+        const ready = await host.start()
+        hostCookie = await authenticateWebHost(ready.url)
+        hostUrl = ready.url
+        if (ready.injections === undefined) throw new Error('Desktop Host did not provide boot injections')
+        injections = ready.injections
+        welcomeBackend = await connectDesktopWelcome(ready.url, (input, init) => net.fetch(input, init), async () => (await session.defaultSession.cookies.get({ url: ready.url })).map(cookie => `${cookie.name}=${cookie.value}`).join('; '))
+        stopAccount?.()
+        const accountBackend = welcomeBackend.account
+        stopAccount = accountBackend.watch((state) => {
+          if (quitting) return
+          if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
+          const attempt = state.attempt
+          if (attempt?.phase === 'waiting-browser' && attempt.authorizeUrl !== undefined && openedAttempt !== attempt.id) {
+            openedAttempt = attempt.id
+            void shell.openExternal(platformLoginUrl(attempt.authorizeUrl)).catch(() => undefined)
+          }
+          if ((attempt?.phase === 'failed' || attempt?.phase === 'expired') && returnedAttempt !== attempt.id) {
+            returnedAttempt = attempt.id
+            focusPrimaryWindow()
+          }
+          if (state.status === 'credential-stored' && attempt?.phase === 'succeeded' && welcomeWindow !== undefined) void enterWorkspace({ activate: false }).catch(() => undefined)
+          if (previousAccountStatus === 'credential-stored' && state.status === 'signed-out') {
+            void readWelcomeState().then(async (value) => {
+              if (needsWelcome(value) && !quitting) {
+                enteredWorkspace = false
+                await showWelcome()
+                if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
+              }
+              return undefined
+            }).catch(() => undefined)
+          }
+          previousAccountStatus = state.status
+        }, () => {
+          // The stream reconnects; a transport failure does not change account state.
+        }, () => {
+          void readWelcomeState().then(async (value) => {
+            if (!needsWelcome(value) || quitting) return
+            pendingWelcomeNotice = 'session-expired'
+            enteredWorkspace = false
+            await showWelcome()
+            const state = await accountBackend.state()
+            if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.webContents.send(WELCOME_IPC.state, state)
+          }).catch(() => undefined)
         })
       },
-      prepareQuit: async () => {
-        quitting = true
-        await stopServerBounded()
+      stop: async () => {
+        try { await host.stop(requireCleanStop) }
+        catch (error) {
+          if (!requireCleanStop || !(error instanceof DesktopHostUncleanExitError)) throw error
+          // Backend cleanup succeeded; installation still rejects the unsuccessful task teardown.
+          updateStopFailure = error
+        }
       },
+      updateTasks: (action: 'inspect' | 'lock' | 'unlock') => host.updateTasks(action),
+      inspectQuit: () => host.inspectQuit(),
     }
-    const checkForUpdates = setupUpdates(host)
-    setupTray({ log: sink, reveal, checkForUpdates, isQuitting: () => quitting })
-    // Runs alongside the server boot, so on the ordinary path its verdict is
-    // already in by the time the UI would be shown and it costs nothing.
-    const gate = launchGate(host, (message) => { view.block(message) })
-    try {
-      // Before starting a new server, take down any left by a run that could
-      // not finish its teardown: they hold the files this install occupies.
-      await sweepOrphanedServers(spec.nodeBin, sink)
-      // Before the server reads the profile, not after: `initProfile` writes a
-      // profile once and never revisits it, so a name added later would not
-      // reach this launch's composition.
-      const seeded = describeSeed(seedBuiltinBundles({
-        home: resolveHarnessHome(),
-        serverModules: spec.builtinModules,
-      }))
-      if (seeded !== undefined) sink(seeded)
-      // Before the spawn, because the address and token reach the server as
-      // environment variables of that child and of nothing else.
-      const renderEnv = await startRenderServiceForServer(sink)
-      const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv } }
-      server = await startServerWithQuarantine(
-        activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
-      )
-      clearInterval(ticker)
-      sink(`[desktop] server ready at ${server.url}\n`)
-      view.phase(2)
-      if (await gate) {
-        // A build below the feed's minimumVersion may not reach the UI. The
-        // server goes down with it, so nothing here is usable until the
-        // update the updater is now driving has been installed.
-        sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await server.stop()
-        server = undefined
+  }, (state) => {
+    if (state.phase === 'error') reportFatal(state.failure, 'host')
+    else if (!shuttingDown) backendReady = state.phase === 'ready'
+  })
+
+  const updateErrors = new WeakMap<DesktopUpdateState, Promise<void>>()
+  const showUpdateFailure = (state: DesktopUpdateState): Promise<void> => {
+    if (state.phase !== 'error') return Promise.resolve()
+    if (isMandatory()) { mandatoryUI?.sync(); return Promise.resolve() }
+    let shown = updateErrors.get(state)
+    if (shown === undefined) {
+      shown = ordinaryMessageBox({ type: 'error', title: locale.messages.updateFailedTitle,
+        message: desktopUpdateErrorSummary(state, locale.messages),
+        technicalDetails: state.technicalDetails ?? state.message ?? '' }).then(() => {})
+      updateErrors.set(state, shown)
+    }
+    return shown
+  }
+  const publishUpdate = (state: DesktopUpdateState): DesktopUpdateState => {
+    updateJournal?.state(state)
+    updateState = state
+    mandatoryUI?.sync()
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(DESKTOP_IPC.updatesPresentation, presentDesktopUpdate(state))
+    }
+    if (state.phase === 'error' && state.failedOperation !== 'check') {
+      const restoreHost = state.failedOperation === 'install' && updateStoppedHost && !quitting
+      shellInstallerOwnsQuit = false
+      updateStoppedHost = false
+      if (restoreHost) {
+        // Only confirmed process exit permits replacement before another installation confirmation.
+        const hostReady = backend.start(async () => {})
+        startup = hostReady
+        const recovery = hostReady.then(async () => {
+          if (quitting) return
+          // A replacement Host can have a new port, cookie, or boot injections even at the same URL.
+          navigation = undefined
+          await navigateMain(applicationUrl)
+          if (backend.host !== undefined) updateJournal?.action('workspace-ready')
+        })
+        workspaceRecovery = recovery
+        void recovery.catch((error: unknown) => { reportFatal(error, 'main') }).finally(() => {
+          if (startup === hostReady) startup = undefined
+          if (workspaceRecovery === recovery) workspaceRecovery = undefined
+        })
+      }
+      void showUpdateFailure(state).catch((error: unknown) => { console.error(error) })
+    }
+    return state
+  }
+
+  const readWelcomeState = async () => {
+    if (backend.host === undefined || welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+    return welcomeBackend.read()
+  }
+  stopForRecovery = () => backend.close()
+
+  const reconcileBackend = (): Promise<void> => {
+    startup ??= (async () => {
+      await navigateMain(applicationUrl)
+      await backend.start(async () => {
+        await manager.applyRelease()
+      })
+      if (backend.host !== undefined) await openInitialWindow()
+      if (backend.host !== undefined) updateJournal?.action('workspace-ready')
+      // The existing Web document resumes through the boot IPC response.
+    })().catch((error: unknown) => {
+      updateJournal?.action('workspace-failed')
+      reportFatal(error, 'main')
+      throw error
+    }).finally(() => { startup = undefined })
+    return startup
+  }
+
+  const updates = new DesktopUpdateCoordinator(
+    publishUpdate,
+    async () => {
+      await workspaceRecovery
+      await startup?.catch(() => undefined)
+      const host = backend.host
+      if (host === undefined) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
+      const active = await host.updateTasks('inspect')
+      const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform)
+      const confirmation: Electron.MessageBoxOptions = {
+        type: active ? 'warning' : 'info', title: locale.messages.updateTitle,
+        message: active ? locale.messages.updateActiveTasks : ready.message,
+        detail: active ? locale.messages.updateActiveTasksDetail : ready.detail,
+        buttons: active ? [locale.messages.updateStopTasks, locale.messages.updateLater] : [locale.messages.installAndRestart],
+        defaultId: 1, cancelId: 1,
+      }
+      if (isMandatory()) {
+        if (!await mandatoryUI?.confirm(updates.state.version ?? '', active)) return false
+      } else {
+        const parent = currentDialogWindow()
+        if (parent === undefined) return false
+        const result = await updateDialog.show(parent, confirmation)
+        if (result.response !== 0 || isMandatory()) return false
+      }
+      if (backend.host !== host) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
+      try {
+        const stillActive = await host.updateTasks('lock')
+        if (stillActive && !active) throw new DesktopUpdatePreparationError('tasks-changed', locale.messages.updateTasksChanged)
+        mandatoryUI?.preparingRestart(stillActive)
+        // The embedded Platform document holds credentials issued by the Host that is about to stop.
+        await platformView.closeAndWait()
+        requireCleanStop = true
+        updateStopFailure = undefined
+        await backend.stop()
+        updateStoppedHost = true
+        // The backend's async cleanup callback can assign this after the reset above.
+        const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
+        if (stopFailure !== undefined) throw new DesktopUpdatePreparationError('stop-failed', locale.messages.updateStopFailed, stopFailure.message)
+        updateJournal?.action('install-confirmed')
+        shellInstallerOwnsQuit = true
+      } catch (error) {
+        if (!updateStoppedHost) await host.updateTasks('unlock').catch((unlockError: unknown) => { console.error(unlockError) })
+        throw error
+      } finally {
+        requireCleanStop = false
+      }
+      return true
+    },
+  )
+
+  const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
+
+  const downloadUpdate = async (version: string): Promise<DesktopUpdateState> => {
+    updateJournal?.action('download-requested')
+    const state = await updates.download(version)
+    if (state.phase !== 'ready' || quitting) return state
+    // Only a completed user-driven download opens this prompt; cancelling installation does not reopen it.
+    // A confirmation on a hidden window would go unseen, so it waits for the next show; the mandatory
+    // flow keeps its own taskbar and Dock attention instead.
+    if (!isMandatory()) await windowShown()
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- A quit can begin while the show is awaited.
+    if (quitting) return state
+    return updates.install(version)
+  }
+  const windowShown = (): Promise<void> => new Promise((resolve) => {
+    const window = currentDialogWindow()
+    if (window === undefined || window.isDestroyed() || window.isVisible()) { resolve(); return }
+    window.once('show', () => { resolve() })
+    window.once('closed', () => { resolve() })
+  })
+
+  protocol.handle(SCHEME, (request) => {
+    const url = new URL(request.url)
+    // Shell-owned documents live in the application bundle and never pass through the Host.
+    if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
+    if (url.hostname === 'app') {
+      if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
+        || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
+        return serveWebDocument(request, join(resources.dsh, 'node_modules', '@deepseek-ai', 'dsh-web-frontend', 'dist'))
+      }
+      if (backend.host === undefined || hostUrl === undefined || hostCookie === undefined) {
+        return Promise.resolve(new Response(null, { status: 503 }))
+      }
+      return forwardWebRequest(request, hostUrl, hostCookie)
+    }
+    return Promise.resolve(new Response(null, { status: 404 }))
+  })
+
+  installDesktopDirectoryPicker(() => mainWindow)
+  installMicrophonePermissions(session.defaultSession, () => mainWindow?.webContents)
+  const shortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
+    process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
+  app.on('will-quit', () => { shortcuts.dispose() })
+
+  ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
+    assertDesktopSender(event, ['app'])
+    await startup
+    if (backend.host === undefined || hostUrl === undefined) throw new Error('Desktop Host is unavailable')
+    return { injections, streamBaseUrl: new URL(hostUrl).origin }
+  })
+
+  ipcMain.handle(DESKTOP_IPC.bootFailed, (event, message: unknown) => {
+    assertDesktopSender(event, ['app'])
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) {
+      throw new Error('dsh desktop: rejected startup failure from a non-primary frame')
+    }
+    if (typeof message !== 'string') throw new Error('dsh desktop: startup failure must be text')
+    reportFatal(new Error(message), 'web-boot')
+  })
+
+  ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace: unknown) => {
+    assertProductSender(event)
+    return browserGuests.acquire(event.sender, workspace)
+  })
+  ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
+    assertProductSender(event)
+    return browserGuests.release(event.sender, lease)
+  })
+
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://127.0.0.1/*'] }, (details, callback) => {
+    if (hostUrl === undefined || hostCookie === undefined || details.webContentsId !== mainWindow?.webContents.id) {
+      callback({})
+      return
+    }
+    const target = new URL(hostUrl)
+    const requested = new URL(details.url)
+    if (requested.host !== target.host) { callback({}); return }
+    const headers = Object.fromEntries(Object.entries(details.requestHeaders).map(([name, value]) => [name.toLowerCase(), value]))
+    if (headers.origin !== 'dsh-app://app') { callback({ cancel: true }); return }
+    callback({ requestHeaders: { ...headers, origin: target.origin, cookie: hostCookie, 'sec-fetch-site': 'same-origin' } })
+  })
+
+  const assertMainApplication = (event: IpcMainInvokeEvent): BrowserWindow => {
+    const owner = mainWindow
+    if (owner === undefined || event.sender !== owner.webContents || event.senderFrame !== owner.webContents.mainFrame
+      || !event.senderFrame.url.startsWith('dsh-app://app/')) throw new Error('Rejected Platform command')
+    return owner
+  }
+  ipcMain.on(PLATFORM_IPC.bootstrap, (event) => {
+    try { event.returnValue = platformView.bootstrap(event) }
+    catch { event.returnValue = null }
+  })
+  ipcMain.handle(PLATFORM_IPC.open, (event, page: unknown, bounds: unknown) => {
+    const owner = assertMainApplication(event)
+    if (page !== 'usage' && page !== 'top-up') throw new Error('Invalid Platform page')
+    return platformView.open(owner, page, platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.bounds, (event, bounds: unknown) => {
+    assertMainApplication(event)
+    platformView.setBounds(platformBounds(bounds))
+  })
+  ipcMain.handle(PLATFORM_IPC.close, (event) => { assertMainApplication(event); platformView.close() })
+  // Only the main window may synchronize its palette with the native material.
+  ipcMain.on(DESKTOP_IPC.nativeThemeSet, (event, source: unknown) => {
+    if (mainWindow === undefined || event.sender !== mainWindow.webContents) return
+    if (source === 'light' || source === 'dark' || source === 'system') nativeTheme.themeSource = source
+  })
+  ipcMain.handle(DESKTOP_IPC.localeBootstrap, async (event) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame
+      || new URL(event.senderFrame.url).origin !== new URL(applicationUrl).origin) {
+      throw new Error('desktop welcome: rejected locale request from an unowned frame')
+    }
+    if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+    return { languages: systemLanguages, preference: await welcomeBackend.readLocalePreference() }
+  })
+  ipcMain.on(DESKTOP_IPC.localeChanged, (event, next: unknown) => {
+    const window = mainWindow
+    if (window === undefined || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
+      || typeof next !== 'string') return
+    const current = resolveDesktopStartupLocale(next, systemLanguages)
+    if (current.id === locale.id) return
+    locale = current
+    platformView.notifyLocaleChanged()
+    windowsLanguage = locale.id
+    refreshApplicationMenu()
+  })
+  ipcMain.handle(DESKTOP_IPC.updatesStatus, (event) => {
+    assertProductSender(event)
+    return presentDesktopUpdate(updates.state)
+  })
+  ipcMain.handle(DESKTOP_IPC.onboardingApiKey, async (event) => {
+    assertProductSender(event)
+    return (await readWelcomeState()).hasApiKey
+  })
+  ipcMain.on(DESKTOP_IPC.onboardingActive, (event, active: unknown) => {
+    const window = mainWindow
+    if (window === undefined || window.isDestroyed() || event.sender !== window.webContents
+      || event.senderFrame !== window.webContents.mainFrame
+      || !event.senderFrame.url.startsWith(`${SCHEME}://app/`) || typeof active !== 'boolean') return
+    window.setMinimumSize(active ? 960 : 520, 600)
+    if (active) {
+      const { width, height } = window.getBounds()
+      if (width < 960) window.setSize(960, height)
+    }
+  })
+  ipcMain.handle(DESKTOP_IPC.updatesOpen, async (event) => {
+    assertProductSender(event)
+    await openUpdatePrompt()
+  })
+
+  let promptOperation: Promise<void> | undefined
+  let policyAuthenticationQueued = false
+  const openUpdatePrompt = (manual = false): Promise<void> => {
+    if (authenticationOperation !== undefined) {
+      policyAuth?.focus(); updateDialog.focus()
+    }
+    let failedOperation: 'check' | 'download' | 'install' = 'check'
+    promptOperation ??= Promise.resolve().then(async () => {
+      if (manual) updateJournal?.action('check-requested')
+      const joinedPolicyAuthentication = authenticationOperation !== undefined
+      if (joinedPolicyAuthentication) await authenticatePolicy()
+      if (isMandatory()) {
+        mandatoryUI?.focus()
+        if (manual) await Promise.all([checkPolicyManually(), updateSchedule.check(true)])
         return
       }
-      // After the gate, so a launch that must update first never subscribes to
-      // a server it is about to take down.
-      setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
-      attachSupervision()
-      view.showApp(server.authenticatedUrl)
-    } catch (error) {
-      clearInterval(ticker)
-      const message = error instanceof Error ? error.message : String(error)
-      sink(`[desktop] startup failed: ${message}\n`)
-      // The page keeps the log path on screen; the file carries the output.
-      view.fail(message.split('\n')[0] ?? message)
+      let controller: AbortController | undefined
+      let progress: Promise<unknown> | undefined
+      try {
+        let state = updates.state
+        if (manual || state.phase === 'idle' || (state.phase === 'error' && state.failedOperation === 'check')) {
+          controller = new AbortController()
+          ordinaryDialogs.add(controller)
+          const parent = currentDialogWindow()
+          progress = parent === undefined ? Promise.resolve() : updateDialog.show(parent, { type: 'info', title: locale.messages.updateCheckTitle,
+            message: locale.messages.updateChecking, buttons: [locale.messages.later], cancelId: 0, signal: controller.signal })
+          if (!joinedPolicyAuthentication) {
+            void checkPolicyManually('deferred').catch((error: unknown) => { console.error(error) })
+          }
+          state = await updateSchedule.check(true)
+        }
+        if (isMandatory()) { mandatoryUI?.focus(); return }
+        if (state.phase === 'error' && state.failedOperation === 'check') { await showUpdateFailure(state); return }
+        if (state.phase === 'idle') {
+          await ordinaryMessageBox({ type: 'info', title: locale.messages.updateCheckTitle,
+            message: formatDesktopMessage(locale.messages.updateCurrent, { version: app.getVersion() }) })
+          return
+        }
+        if (state.phase === 'ready' || (state.phase === 'error' && state.failedOperation === 'install')) {
+          if (state.version !== undefined) {
+            failedOperation = 'install'
+            await showUpdateFailure(await updates.install(state.version))
+          }
+          return
+        }
+        if (state.phase !== 'available' && !(state.phase === 'error' && state.failedOperation === 'download')) return
+        if (manual) {
+          const result = await ordinaryMessageBox({ title: locale.messages.updateCheckTitle, message: locale.messages.updateAvailable,
+            detail: formatDesktopMessage(locale.messages.updateDetail, { version: state.version ?? '' }),
+            buttons: [locale.messages.updateDownload], cancelId: 1 })
+          if (result.response !== 0) return
+        }
+        if (!isMandatory() && state.version !== undefined) {
+          controller?.abort()
+          failedOperation = 'download'
+          await showUpdateFailure(await downloadUpdate(state.version))
+        }
+      } finally {
+        controller?.abort()
+        if (controller !== undefined) ordinaryDialogs.delete(controller)
+        await progress
+      }
+    }).catch((error: unknown) => showUpdateFailure({ phase: 'error', failedOperation,
+      message: desktopErrorState(error).message }))
+      .finally(() => { promptOperation = undefined; flushQueuedPolicyAuthentication() })
+    return promptOperation
+  }
+
+  let authenticationOperation: Promise<DesktopPolicyState | undefined> | undefined
+  const authenticatePolicy = () => {
+    if (authenticationOperation !== undefined) { policyAuth?.focus(); updateDialog.focus() }
+    authenticationOperation ??= runPolicyAuthentication().finally(() => { authenticationOperation = undefined })
+    return authenticationOperation
+  }
+  const flushQueuedPolicyAuthentication = (): void => {
+    if (!policyAuthenticationQueued || promptOperation !== undefined || authenticationOperation !== undefined
+      || isMandatory() || quitting) return
+    policyAuthenticationQueued = false
+    void authenticatePolicy().catch((error: unknown) => { console.error(error) })
+  }
+  const queuePolicyAuthentication = (): void => {
+    if (authenticationOperation !== undefined) {
+      policyAuth?.focus(); updateDialog.focus()
+      return
     }
-  }).catch((error: unknown) => {
-    // Everything above the try — the boot window, the log directory, the tray
-    // — throws into this rejection rather than into `uncaughtException`, and
-    // Electron 43 runs a main-process rejection in `warn-with-error-code`
-    // mode: unreported, such a launch stops with an empty boot page, no box
-    // and no line anywhere. The report goes to the file sink when there is one
-    // and to stderr before that.
-    reportUncaughtException(CRASH_LOG_HOST, error)
+    policyAuthenticationQueued = true
+    flushQueuedPolicyAuthentication()
+  }
+  const runPolicyAuthentication = async () => {
+    if (policyAuth === undefined || mandatoryPolicy === undefined || quitting) return undefined
+    const parent = mandatoryUI?.confirmationWindow ?? currentDialogWindow()
+    if (parent === undefined) return undefined
+    const consent = await updateDialog.show(parent, { type: 'info', title: locale.messages.policyLoginTitle,
+      message: locale.messages.policyLoginRequired, buttons: [locale.messages.policyLogin, locale.messages.later], cancelId: 1 })
+    if (consent.response !== 0 || isQuitting()) return undefined
+    const outcome = await policyAuth.login()
+    if (isQuitting() || outcome === 'cancelled') return undefined
+    if (outcome === 'failed') {
+      await updateDialog.show(parent, { type: 'error', title: locale.messages.policyLoginTitle,
+        message: locale.messages.policyLoginFailed, buttons: [locale.messages.updateAcknowledge], cancelId: 0 })
+      return undefined
+    }
+    // Drain a pre-login request before asking the server to evaluate the new cookies.
+    await mandatoryPolicy.check('login-return')
+    if (isQuitting()) return undefined
+    return mandatoryPolicy.check('login-return', true)
+  }
+
+  const checkPolicyManually = async (authentication: 'immediate' | 'deferred' = 'immediate') => {
+    if (authenticationOperation !== undefined) return authenticatePolicy()
+    const policy = await mandatoryPolicy?.check('manual', true)
+    if (policy?.error !== 'authentication-required') return policy
+    if (authentication === 'immediate') return authenticatePolicy()
+    queuePolicyAuthentication()
+    return policy
+  }
+
+  const automaticCheck = (): void => {
+    if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })
+    if (!quitting) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
+  }
+  powerMonitor.on('resume', automaticCheck)
+  app.on('will-quit', () => {
+    updateSchedule.dispose()
+    powerMonitor.off('resume', automaticCheck)
+    updates.dispose()
   })
+
+  const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+    : join(process.resourcesPath, 'icon.png')
+  app.setAboutPanelOptions({
+    applicationName: 'DeepSeek Harness',
+    applicationVersion: app.getVersion(),
+    // The release has no separate build number; omit Electron's bundle version.
+    version: '',
+    copyright: '',
+    iconPath: applicationIconPath,
+  })
+  // A custom application menu replaces Electron's default menu, so macOS needs
+  // its standard menus and application hide commands declared explicitly.
+  // Keep app.name stable: Electron derives its default userData directory from it.
+  const darwin = process.platform === 'darwin'
+  const platformMenus = (): MenuItemConstructorOptions[] => darwin
+    ? [shortcuts.fileMenu(currentDesktopLocale().messages), { role: 'editMenu' }, { role: 'windowMenu' }]
+    : [{ role: 'editMenu' }]
+  const hideCommands: MenuItemConstructorOptions[] = darwin
+    ? [{ role: 'hide', label: currentDesktopLocale().messages.hideApplication },
+      { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
+      { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
+    : []
+  const applicationItems = (): MenuItemConstructorOptions[] => [
+    // Windows has no system About panel; Electron's fallback is a plain
+    // message box, so the shell shows its own dimmed dialog instead.
+    process.platform === 'win32'
+      ? { label: currentDesktopLocale().messages.aboutMenu,
+        click: () => { void showAbout().catch((error: unknown) => { console.error(error) }) } }
+      : { label: currentDesktopLocale().messages.aboutMenu, role: 'about' },
+    { type: 'separator' },
+    { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
+    ...development ? [
+      { type: 'separator' as const },
+      { label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const },
+      { label: currentDesktopLocale().messages.restartAppHostMenu, click: () => {
+        if (quitting) return
+        app.relaunch()
+        quitWithoutConfirmation()
+      } },
+    ] : [],
+    { type: 'separator' },
+    ...hideCommands,
+    { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
+      : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
+  ]
+  const devToolsItems: MenuItemConstructorOptions[] = [
+    { role: 'toggleDevTools', visible: false },
+    { role: 'toggleDevTools', visible: false, accelerator: 'F12' },
+  ]
+  const refreshApplicationMenu = (): void => {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32' ? devToolsItems : [{
+      label: darwin ? app.name : currentDesktopLocale().messages.application,
+      submenu: [...applicationItems(), ...devToolsItems],
+    }, ...platformMenus()]))
+    tray?.relabel()
+  }
+  refreshApplicationMenu()
+  const trayIconPath = development ? join(app.getAppPath(), 'resources', 'tray-windows.ico') : join(process.resourcesPath, 'tray.ico')
+  if (process.platform === 'win32') {
+    // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
+    try {
+      tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
+        open: () => { focusPrimaryWindow() }, quit: () => { app.quit() } })
+    } catch (error) { console.warn('desktop tray: unavailable', error) }
+  }
+  const backgroundNotice = process.platform === 'win32'
+    ? new DesktopBackgroundNotice({ markerPath: join(app.getPath('userData'), 'background-close-confirmed'),
+      locale: () => locale, show: ordinaryMessageBox, focus: () => { updateDialog.focus() } })
+    : undefined
+  const quitConfirmation = new DesktopQuitConfirmation({
+    locale: () => locale,
+    inspect: () => backend.host?.inspectQuit(),
+    // No owner window: a hidden window stays hidden and the native box is its own top-level window.
+    show: options => dialog.showMessageBox(options),
+    // macOS raises the open alert with the application; Electron exposes no handle to the Windows task
+    // dialog, so a repeated request there only joins the open decision.
+    focus: () => { if (process.platform === 'darwin') app.focus({ steal: true }) },
+    // The task dialog draws its main icon at the system icon size; the multi-size ICO yields that
+    // size directly, where the 1024 px PNG would be scaled down by GDI.
+    ...(process.platform === 'win32' ? { icon: nativeImage.createFromPath(trayIconPath) } : {}),
+  })
+
+  if (process.platform === 'win32') {
+    ipcMain.handle(DESKTOP_IPC.windowsMenu, (event, name: unknown, x: unknown, y: unknown) => {
+      assertDesktopSender(event, ['app'])
+      if (mainWindow === undefined || event.sender !== mainWindow.webContents
+        || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('desktop menu: rejected sender')
+      if ((name !== 'application' && name !== 'edit')
+        || typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)
+        || x < 0 || y < 0 || x > 100_000 || y > 100_000) throw new Error('desktop menu: invalid popup request')
+      const window = mainWindow
+      // Editor-owned history listens to key events rather than Chromium's native undo stack.
+      const editItem = (label: string, keyCode: string, modifiers: Array<'control'>, accelerator?: string): MenuItemConstructorOptions => ({
+        label,
+        ...(accelerator === undefined ? {} : { accelerator }),
+        click: () => {
+          shortcuts.sendEditingKey(keyCode, modifiers)
+        },
+      })
+      const items: MenuItemConstructorOptions[] = name === 'application' ? applicationItems() : [
+        editItem(currentDesktopLocale().messages.undo, 'Z', ['control'], 'Ctrl+Z'),
+        editItem(currentDesktopLocale().messages.redo, 'Y', ['control'], 'Ctrl+Y'),
+        { type: 'separator' },
+        editItem(currentDesktopLocale().messages.cut, 'X', ['control'], 'Ctrl+X'),
+        editItem(currentDesktopLocale().messages.copy, 'C', ['control'], 'Ctrl+C'),
+        editItem(currentDesktopLocale().messages.paste, 'V', ['control'], 'Ctrl+V'),
+        editItem(currentDesktopLocale().messages.delete, 'Delete', []),
+        { type: 'separator' },
+        editItem(currentDesktopLocale().messages.selectAll, 'A', ['control'], 'Ctrl+A'),
+      ]
+      const zoom = mainWindow.webContents.getZoomFactor()
+      return new Promise<void>((resolve) => {
+        Menu.buildFromTemplate(items).popup({ window, x: Math.round(x * zoom), y: Math.round(y * zoom), callback: resolve })
+      })
+    })
+    ipcMain.on(DESKTOP_IPC.windowsAppearance, (event, language: unknown, color: unknown, symbolColor: unknown) => {
+      if (mainWindow === undefined || event.sender !== mainWindow.webContents
+        || event.senderFrame !== mainWindow.webContents.mainFrame) return
+      if (!event.senderFrame.url.startsWith(`${SCHEME}://app/`)) return
+      if (typeof language === 'string' && /^[a-zA-Z]+(?:-[a-zA-Z0-9]+)*$/u.test(language)) {
+        windowsLanguage = language
+      }
+      // Empty colors precede client stylesheet installation; only CSS color values cross IPC.
+      const validColor = (value: unknown): value is string => typeof value === 'string'
+        && /^(?:#[\da-f]{3,8}|rgba?\([\d.,%\s]+\))$/iu.test(value)
+      if (validColor(color) && validColor(symbolColor)) mainWindow.setTitleBarOverlay({ color, symbolColor })
+    })
+  }
+
+  const hideMainWindow = (window: BrowserWindow): void => {
+    if (process.platform === 'darwin' && window.isFullScreen()) {
+      // Hiding a fullscreen window leaves an empty black space; leave fullscreen first.
+      window.once('leave-full-screen', () => { if (!window.isDestroyed()) window.hide() })
+      window.setFullScreen(false)
+    } else {
+      window.hide()
+    }
+  }
+  const createMainWindow = (): BrowserWindow => {
+    const window = createWindow(appPreload, false, true)
+    mainWindow = window
+    browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
+    shortcuts.attach(window)
+    window.on('focus', automaticCheck)
+    // Closing hides: the page and the Host keep running, and the next show resumes the same document.
+    window.on('close', (event) => {
+      if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+      event.preventDefault()
+      if (updateDialog.isOpen) { updateDialog.focus(); return }
+      const hide = (): void => {
+        if (!quitting && !shellInstallerOwnsQuit && !sessionEnding && !window.isDestroyed()) hideMainWindow(window)
+      }
+      if (backgroundNotice === undefined) hide()
+      else backgroundNotice.close(hide)
+    })
+    if (process.platform === 'win32') {
+      // Shutdown, restart, and log-off must not wait on a confirmation. query-session-end is only a
+      // question that another application can veto without any follow-up message, so it does not count.
+      window.on('session-end', () => { sessionEnding = true })
+    } else {
+      // The macOS power-off notification arrives before the terminate request; a cancelled shutdown
+      // leaves the process running, and user attention on the window shows the session continues.
+      window.on('focus', () => { sessionEnding = false })
+      window.on('show', () => { sessionEnding = false })
+    }
+    window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+    window.webContents.on('console-message', (details) => {
+      if (details.level !== 'error') return
+      rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
+    })
+    window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (isMainFrame && code !== -3 && !quitting && !window.isDestroyed()) {
+        reportFatal(new Error(`Desktop page failed to load: ${url} (${String(code)}: ${description})`), 'renderer')
+      }
+    })
+    window.webContents.on('preload-error', (_event, _path, error) => {
+      if (!quitting && !window.isDestroyed()) reportFatal(error, 'renderer')
+    })
+    window.webContents.on('render-process-gone', (_event, details) => {
+      navigation = undefined
+      if (!quitting && !window.isDestroyed() && details.reason !== 'clean-exit') {
+        reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
+      }
+    })
+    return window
+  }
+  const enterWorkspace = async ({ activate = true }: { activate?: boolean } = {}): Promise<void> => {
+    if (quitting) return
+    const window = mainWindow ?? createMainWindow()
+    await navigateMain(applicationUrl)
+    if (isQuitting() || recovery.active || window.isDestroyed()) return
+    if (activate) window.show()
+    else window.showInactive()
+    enteredWorkspace = true
+    if (welcomeWindow !== undefined) {
+      welcomeWindow.close()
+      window.webContents.send(DESKTOP_IPC.enterWorkspace)
+    }
+    welcomeWindow = undefined
+    if (raiseAfterUpdate) {
+      raiseAfterUpdate = false
+      window.moveTop()
+      window.focus()
+    }
+    if (activate && development && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
+      window.webContents.openDevTools({ mode: 'detach' })
+    }
+  }
+  let openingWelcome: Promise<void> | undefined
+  const showWelcome = (): Promise<void> => {
+    if (quitting) return Promise.resolve()
+    if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) {
+      welcomeWindow.show()
+      welcomeWindow.focus()
+      return Promise.resolve()
+    }
+    openingWelcome ??= (async () => {
+      welcomeWindow = await openWelcomeWindow(locale, {
+        takeNotice: () => {
+          const notice = pendingWelcomeNotice
+          pendingWelcomeNotice = undefined
+          return Promise.resolve(notice)
+        },
+        startSignIn: async () => {
+          if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+          return welcomeBackend.account.start(desktopClientMetadata(locale.id))
+        },
+        cancelSignIn: async (id) => {
+          if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')
+          return welcomeBackend.account.cancel(id)
+        },
+        copySignInLink: async (id) => {
+          const state = await welcomeBackend?.account.state()
+          if (state?.attempt?.id !== id || state.attempt.phase !== 'waiting-browser' || state.attempt.authorizeUrl === undefined) {
+            throw new Error('desktop welcome: login link is unavailable')
+          }
+          await clipboard.writeText(platformLoginUrl(state.attempt.authorizeUrl))
+        },
+        saveApiKey: async (apiKey) => {
+          if (backend.host === undefined || welcomeBackend === undefined) return { ok: false }
+          const saved = await welcomeBackend.save(apiKey)
+          if (!saved.ok) return saved
+          await enterWorkspace()
+          return { ok: true }
+        },
+        skip: enterWorkspace,
+      })
+      const window = welcomeWindow
+      window.once('closed', () => {
+        void welcomeBackend?.account.state().then((state) => {
+          if (state.attempt !== null && !enteredWorkspace) return welcomeBackend?.account.cancel(state.attempt.id)
+          return undefined
+        }).catch(() => undefined)
+      })
+      window.once('closed', () => {
+        if (welcomeWindow === window) welcomeWindow = undefined
+        if (enteredWorkspace || recovery.active) return
+        // Nothing runs before the workspace opens. macOS keeps the Dock convention and drops the
+        // unused main window so the next activation rebuilds the welcome; elsewhere the close quits.
+        if (process.platform === 'darwin') mainWindow?.destroy()
+        else app.quit()
+      })
+      if (isQuitting() || recovery.active || enteredWorkspace) window.close()
+      else mainWindow?.hide()
+    })().finally(() => { openingWelcome = undefined })
+    return openingWelcome
+  }
+  const openInitialWindow = async (): Promise<void> => {
+    if (quitting || recovery.active) return
+    const state = await readWelcomeState()
+    if (isQuitting() || backend.state.phase !== 'ready') return
+    locale = resolveDesktopStartupLocale(state.localePreference, systemLanguages)
+    windowsLanguage = locale.id
+    refreshApplicationMenu()
+    if (!enteredWorkspace && needsWelcome({ loggedIn: state.loggedIn, hasApiKey: state.hasApiKey })) {
+      // A later login must retain its own activation policy instead of replaying startup focus.
+      raiseAfterUpdate = false
+      await showWelcome()
+    } else {
+      await enterWorkspace()
+    }
+  }
+  focusPrimaryWindow = () => {
+    if (quitting) return
+    if (isMandatory()) { mandatoryUI?.focus(); return }
+    const window = welcomeWindow ?? mainWindow
+    if (window === undefined || window.isDestroyed()) {
+      try { createMainWindow() } catch (error) { reportFatal(error, 'main'); return }
+      void (backend.state.phase === 'ready' ? openInitialWindow() : navigateMain(applicationUrl)).catch((error: unknown) => { reportFatal(error, 'main') })
+      return
+    }
+    // Startup and sign-out select the visible window before activation may reveal the workspace.
+    if (window === mainWindow && !enteredWorkspace) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  }
+
+  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
+  })
+
+  app.on('activate', (_event, hasVisibleWindows) => {
+    if (!hasVisibleWindows) focusPrimaryWindow()
+  })
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+  if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
+  const finishQuit = (): void => {
+    quitting = true
+    shuttingDown = true
+    updateJournal?.action('quit-requested')
+    quitConfirmation.dispose()
+    backgroundNotice?.dispose()
+    tray?.dispose()
+    stopAccount?.()
+    if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.hide()
+    if (mainWindow !== undefined && !mainWindow.isDestroyed()) mainWindow.hide()
+    updateSchedule.dispose()
+    updateDialog.dispose()
+    mandatoryUI?.dispose()
+    void Promise.all([Promise.resolve(mandatoryPolicy?.dispose()).then(() => policyAuth?.dispose()), backend.close(),
+      // A Platform cleanup failure is logged without cutting the remaining Host shutdown short.
+      platformView.dispose().catch((error: unknown) => { console.error(error) })])
+      .catch((error: unknown) => { console.error(error) }).finally(() => { app.quit() })
+  }
+  app.on('before-quit', (event) => {
+    if (shellInstallerOwnsQuit) {
+      shuttingDown = true
+      quitConfirmation.dispose()
+      backgroundNotice?.dispose()
+      updateJournal?.action('quit-requested')
+      tray?.dispose()
+      updateDialog.dispose()
+      mandatoryUI?.dispose()
+      // Installation preparation already awaited Platform storage cleanup.
+      void platformView.dispose().catch((error: unknown) => { console.error(error) })
+      return
+    }
+    if (quitting) return
+    event.preventDefault()
+    if (skipQuitConfirmation || sessionEnding) { finishQuit(); return }
+    void quitConfirmation.confirm().then((approved) => {
+      if (quitting || shellInstallerOwnsQuit) return
+      if (approved) { finishQuit(); return }
+      // A quit that started from closing the welcome window destroyed it; a cancelled quit needs it back.
+      if (!enteredWorkspace && !recovery.active) void showWelcome().catch((error: unknown) => { reportFatal(error, 'main') })
+    }).catch((error: unknown) => { console.error(error); if (!quitting && !shellInstallerOwnsQuit) finishQuit() })
+  })
+
+  mainWindow = createMainWindow()
+  const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
+  if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop policy: invalid application manifest')
+  const developmentPolicy = app.isPackaged ? undefined : process.env.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG
+  const policyInput: unknown = app.isPackaged
+    ? ('dshMandatoryUpdatePolicy' in manifest ? manifest.dshMandatoryUpdatePolicy : undefined)
+    : developmentPolicy === undefined ? undefined : JSON.parse(developmentPolicy) as unknown
+  const policyConfig = resolveDesktopPolicyConfig(policyInput, !app.isPackaged)
+  if (policyConfig !== undefined) {
+    if (policyConfig.authentication === 'feishu-test') {
+      policyAuth = new DesktopPolicyTestAuth(policyConfig.origin, policyConfig.allowedAuthOrigins, locale,
+        () => mandatoryUI?.confirmationWindow ?? currentDialogWindow(),
+        (event) => { console.info(`desktop policy authentication: ${event}`); updateJournal?.action(`policy-login-${event}`) })
+    }
+    if (!['win32', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('desktop policy: unsupported platform')
+    let wasBlocking = false
+    mandatoryPolicy = new DesktopMandatoryUpdatePolicy(policyConfig, {
+      platform: process.platform as 'win32' | 'darwin', arch: process.arch as 'x64' | 'arm64',
+      bundledDshVersion: app.isPackaged ? readDesktopRuntime(resources.dsh).release.version : app.getVersion(),
+    }, (state) => {
+      if (state.error !== 'authentication-required') policyAuthenticationQueued = false
+      if (state.blocking) {
+        for (const controller of ordinaryDialogs) controller.abort()
+        if (!wasBlocking) updateDialog.cancel()
+      }
+      mandatoryUI?.sync()
+      if (state.blocking && !wasBlocking) void updateSchedule.check(false, true).catch((error: unknown) => { console.error(error) })
+      wasBlocking = state.blocking
+    }, policyAuth?.request, () => desktopClientMetadata(locale.id))
+    const policy = mandatoryPolicy
+    mandatoryUI = new DesktopMandatoryUpdateWindow({
+      overlays: updateOverlays,
+      preload: fileURLToPath(new URL('./preload-mandatory.cjs', import.meta.url)), locale,
+      allowedPageOrigins: policyConfig.allowedPageOrigins, parent: () => mainWindow,
+      policy: () => policy.state, update: () => updates.state,
+      refresh: async () => { await Promise.all([checkPolicyManually(), updateSchedule.check(true)]) },
+      download: downloadUpdate, install: version => updates.install(version),
+    })
+    void mandatoryPolicy.check('launch').then((state) => {
+      if (app.isPackaged && state.error === 'authentication-required' && !isQuitting()) queuePolicyAuthentication()
+    }).catch((error: unknown) => { console.error(error) })
+  }
+  automaticCheck()
+  await reconcileBackend().catch(() => undefined)
+  // Window lifecycle callbacks run while backend startup is pending.
+  if (isQuitting()) return
+  const window = currentMainWindow()
+  if (window !== undefined && development && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
+    window.webContents.openDevTools({ mode: 'detach' })
+  }
+  publishUpdate(updateState)
 }
+
+const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
+
+if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(error)
+  const diagnosticFile = process.env.DSH_DESKTOP_DIAGNOSTIC_FILE
+  if (diagnosticFile !== undefined) {
+    await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
+  }
+  reportFatal(error, 'main')
+}).catch((error: unknown) => {
+  console.error(error)
+  app.exit(1)
+})

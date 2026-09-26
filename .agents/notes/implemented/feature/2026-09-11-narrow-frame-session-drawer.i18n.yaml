@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-narrow-frame-session-drawer.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-narrow-frame-session-drawer.md
-2026-09-11-narrow-frame-session-drawer.md: c9245309d66eb4116ecf9c6ccc50d11e7f17890f
-2026-09-11-narrow-frame-session-drawer.zh.md: 80abad1b42f88fd8c08fdfd4d45dcc67f53918b8
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px:
+  en: 68d957b840f456b4
+  zh: 01f3a02c02fefb65
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px/problem:
+  en: a5f2dded5f7b6856
+  zh: f9af3b8b672043f7
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px/decision:
+  en: 544756a5a9d25ba8
+  zh: 20319699002f8c8c
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px/alternatives-considered:
+  en: 0f41212f1581a8f3
+  zh: 6c847d4bc77c6f4d
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px/consequences:
+  en: b9a50db4f23a5fdb
+  zh: 6b5446a46cc50cc9
+/agent-note-the-console-sidebar-collapses-to-a-top-left-hamburger-drawer-below-1024px/testing:
+  en: 89e1d1e1aca8627f
+  zh: 6642e2a43ce7a3fa

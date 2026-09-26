@@ -10,6 +10,35 @@ import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
+import {
+  Config as TelemetryConfig,
+  DEFAULT_TELEMETRY_MODE,
+  SessionTelemetryMode,
+} from '@deepseek-ai/dsh-session-telemetry-otel'
+import { Config as SessionLogConfig } from '@deepseek-ai/dsh-session-log-deepseek'
+
+/** One row of the shipped base patch, as the loader's entry schema parses it. */
+interface PatchRow {
+  id?: string
+  config?: Record<string, unknown>
+  disabled?: boolean
+}
+
+/**
+ * Read the rows of the shipped `dsh-base` patch file.
+ * @returns every insert row, in file order.
+ */
+function patchRows(): PatchRow[] {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const parsed = yaml.load(
+    readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
+    { schema: entryListSchema },
+  )
+  // A patch file that parses to anything but a list fails by name here rather
+  // than as a TypeError thrown out of the walk below.
+  expect(Array.isArray(parsed)).toBe(true)
+  return (parsed as { insert?: PatchRow[] }[]).flatMap(patch => patch.insert ?? [])
+}
 
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
@@ -21,15 +50,9 @@ describe('dsh-base bundle', () => {
       dsh?: { bundle?: { patch?: string } }
     }
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
-    const parsed = yaml.load(
-      readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'),
-      { schema: entryListSchema },
-    )
-    expect(Array.isArray(parsed)).toBe(true)
-    // The base layer is one insert list over the empty profile root.
-    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown>; disabled?: boolean }[] }[]).flatMap(
-      patch => patch.insert ?? [],
-    )
+    // The base layer is one insert list over the empty profile root, and
+    // `patchRows()` reads the same file the manifest field names.
+    const rows = patchRows()
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
     expect(rows.find(row => row.id === 'session-telemetry-otel')).toMatchObject({
@@ -44,9 +67,13 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
     })
+    // The third DeepSeek-bound path answers to the plugin's own schema field,
+    // so this row carries `enabled: false`.
+    expect(rows.find(row => row.id === 'session-log-deepseek')).toMatchObject({
+      config: { enabled: false },
+    })
     expect(rows.find(row => row.id === 'hmr')).toMatchObject({
-      disabled: true,
-      config: { root: ['.'] },
+      config: { root: [] },
     })
     expect(rows.filter(row => row.id === 'subagent-codex')).toHaveLength(0)
     expect(rows.filter(row => row.id === 'subagent-claude-code')).toHaveLength(0)
@@ -90,5 +117,23 @@ describe('dsh-base bundle', () => {
     }
     // The platform layer folded into these rows: no separate patch file ships.
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
+  })
+
+  it('keeps each DeepSeek-bound reporter off through a switch that holds, never through a mode', () => {
+    // `mode` selects a capture policy, never on or off: the two the plugin
+    // accepts both deliver, and an omitted one resolves to FEEDBACK_ONLY, so
+    // the shipped `!!js` expression cannot express this product's answer.
+    // `disabled: true` above is what keeps `apply()` from running at all, and
+    // it holds whatever DSH_TELEMETRY_MODE says.
+    expect([...Object.values(SessionTelemetryMode)].sort())
+      .toEqual(['DISABLED', 'FEEDBACK_ONLY'])
+    expect(DEFAULT_TELEMETRY_MODE).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
+    expect(TelemetryConfig({}).mode).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
+    // The third DeepSeek-bound path ships on by its own schema default, so the
+    // off-switch that reaches it is the row's `config`, resolved here through
+    // that same schema.
+    expect(SessionLogConfig({}).enabled).toBe(true)
+    const sessionLog = patchRows().find(row => row.id === 'session-log-deepseek')
+    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
   })
 })

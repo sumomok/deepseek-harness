@@ -2,7 +2,7 @@
 
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 import type {
-  AssistantBlock, ContextProvenanceView, KnownContextForm,
+  AssistantBlock, ContextProducerView, KnownContextForm,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /* jscpd:ignore-start -- Chat and Trajectory own independent event-to-view projections. */
@@ -57,7 +57,7 @@ export function contextForm(source: unknown): KnownContextForm | null {
  * @param source - Logged `user/message` source.
  * @returns Role and label rendered by Chat.
  */
-export function contextProvenance(source: unknown): ContextProvenanceView {
+export function contextProducer(source: unknown): ContextProducerView {
   const record = asRecord(source)
   const kind = record === null ? null : readString(record, 'kind')
   if (record === null || kind === null) return { role: 'inject', label: null }
@@ -66,8 +66,6 @@ export function contextProvenance(source: unknown): ContextProvenanceView {
       return { role: 'recall', label: joined(collect(record, 'references', 'label')) ?? kind }
     case 'agent-instructions':
       return { role: 'inject', label: joined(collect(record, 'changes', 'path')) ?? kind }
-    case 'plugin':
-      return { role: 'inject', label: readString(record, 'plugin') ?? kind }
     case 'skill-invocation':
       return { role: 'inject', label: readString(record, 'name') ?? kind }
     default:
@@ -89,6 +87,17 @@ export function sessionRecallLabels(source: unknown): string[] {
 }
 
 /**
+ * Read the skill name a durable skill-invocation injection loaded.
+ * @param source - Logged `user/message` source.
+ * @returns The skill name, or null for every other source.
+ */
+export function skillInvocationName(source: unknown): string | null {
+  const record = asRecord(source)
+  if (record === null || readString(record, 'kind') !== 'skill-invocation') return null
+  return readString(record, 'name')
+}
+
+/**
  * Classify finalized Assistant content for Chat rendering.
  * @param content - Core content blocks.
  * @returns Chat blocks in source order.
@@ -107,7 +116,6 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
     case 'image': return { kind: 'image', attachment: block.attachment }
-    case 'file': return { kind: 'file', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
   }

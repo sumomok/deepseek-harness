@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-console-no-permission-switch.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-console-no-permission-switch.md
-2026-09-07-console-no-permission-switch.md: 41bc53937d171578c996a886693ef3abcec3db25
-2026-09-07-console-no-permission-switch.zh.md: 9395fbe1e984f29662f9dbb159b41b9a39ca1db9
+/agent-note-the-customer-console-offers-no-permission-switch:
+  en: d8cea13fb2ccfd3b
+  zh: 267047ad3bf62709
+/agent-note-the-customer-console-offers-no-permission-switch/problem:
+  en: fd265cb9b780a0fc
+  zh: 58b08e3b9b8de12f
+/agent-note-the-customer-console-offers-no-permission-switch/decision:
+  en: 29a56cea57b5ff8f
+  zh: b15675faf06105ad
+/agent-note-the-customer-console-offers-no-permission-switch/alternatives-considered:
+  en: 72ca8ea559c9d356
+  zh: 2ee3efacd62875c5
+/agent-note-the-customer-console-offers-no-permission-switch/consequences:
+  en: ec41a936c245ec8d
+  zh: d8bbf07a0f84ad3d
+/agent-note-the-customer-console-offers-no-permission-switch/testing:
+  en: 69df94fa307186ab
+  zh: d6f7e4cd6da3c074

@@ -1,6 +1,16 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for content-surface.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/content-surface.md
-content-surface.md: bcd8232b56867ffd711b8984b95263bfbce36b65
-content-surface.zh.md: a68daf6d19e23b858a19235a9d664b0ffe0b4ee6
+/content-surface:
+  en: 24a296fd20bf1a09
+  zh: 2517f878b15e6632
+/content-surface/what-a-kind-contributes:
+  en: da05f1611d9c76cc
+  zh: 94efda0ae2df6b8e
+/content-surface/what-the-fold-stores-what-the-column-receives:
+  en: d103e397457248e3
+  zh: e95f4e9baae6ada1
+/content-surface/registration-timing-and-the-fold-version:
+  en: df9fb2bf8649916c
+  zh: 1913516233e776e2

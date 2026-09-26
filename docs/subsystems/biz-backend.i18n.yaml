@@ -1,6 +1,16 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for biz-backend.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/biz-backend.md
-biz-backend.md: 5ce317cb312961a49e21315fc7bb7b8ef848967b
-biz-backend.zh.md: 97c0519b528299baac7c02f89b2f0f035331ee08
+/deployment-data-backend:
+  en: 7f61660515ec6ce8
+  zh: bed839bf8ddc178e
+/deployment-data-backend/the-service-is-constructed-not-composed:
+  en: 6ce208f6653758e6
+  zh: 394591e1ffbe13cd
+/deployment-data-backend/the-answer-s-own-code-decides-not-the-status:
+  en: 059072f1f87821a3
+  zh: 22df3f346bbd36e7
+/deployment-data-backend/nothing-a-failure-carries-reaches-a-log:
+  en: 039b14e949713111
+  zh: 5481289936df614d

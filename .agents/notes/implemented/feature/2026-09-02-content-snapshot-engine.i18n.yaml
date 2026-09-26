@@ -1,6 +1,70 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-02-content-snapshot-engine.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md
-2026-09-02-content-snapshot-engine.md: 4aed8e0961df031c3d596d3428560fc666873086
-2026-09-02-content-snapshot-engine.zh.md: d695af21cc8ccb162266a9d1ade4aabf1ec6ef6c
+/agent-note-the-rules-a-structural-page-read-is-written-by:
+  en: 46ebc83289cca793
+  zh: 9b4b37108b4d5155
+/agent-note-the-rules-a-structural-page-read-is-written-by/problem:
+  en: 2b68a0cb538ecd37
+  zh: fc3eb6bb44d21c12
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision:
+  en: 81c20f147e06aad2
+  zh: f70ec90d67e9cf35
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/model-visible-means-readable:
+  en: 5eb13ea0779cb835
+  zh: 59fe5657e848fc4a
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/only-what-the-page-wrote-counts-as-a-label:
+  en: 8e91a3b4d5cb2d2a
+  zh: 3b3f9ce3db8d9375
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/the-node-name-ladder:
+  en: ee91b121f2954e59
+  zh: 5f5224918fecf265
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-picture-is-one-thing-and-so-is-everything-else-a-browser-draws-itself:
+  en: c4356e0179e81628
+  zh: ddadc51db2bad57d
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/landmarks-stop-at-the-page-and-roles-stop-at-what-aria-defines:
+  en: c91053f0c6dafdb6
+  zh: fa5f53bbeed3cecd
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-control-s-state-is-what-the-page-said-and-no-more:
+  en: dff6a7db8ee872f0
+  zh: e772dbbe678b597f
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/structure-reaches-the-model-data-does-not:
+  en: 31684fe85f4a68a2
+  zh: 4badbb7069c6fa06
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-table-drawn-again-for-each-pinned-column-is-one-table:
+  en: 6c6c72211ed6a42a
+  zh: 4766cce3bf6c4a59
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-cell-offers-what-the-page-makes-clickable-in-it:
+  en: 61562e66a5c2adc2
+  zh: cc8b289bd995a411
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/an-icon-a-page-draws-as-a-command-is-a-thing-to-act-on:
+  en: 89af0fc5db737c9b
+  zh: aab57a8a7e543417
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-field-is-named-by-the-words-a-page-draws-in-front-of-it:
+  en: 036720d9be3e71cc
+  zh: c2e6b1dd6c123cc7
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/the-mark-a-page-draws-rather-than-writes:
+  en: 162ede6d06320391
+  zh: 5be5b010c161cc8d
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/a-picker-drawn-in-two-halves-is-one-field:
+  en: cba44f282494a2a5
+  zh: 86bbc30b492a2d1e
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/never-a-blind-cut:
+  en: 6b120d11f971fdfa
+  zh: d8b9adcec8a29f3c
+/agent-note-the-rules-a-structural-page-read-is-written-by/decision/layout-is-injected:
+  en: cac0f85be3f5718b
+  zh: 4d309bcbebdc4cf4
+/agent-note-the-rules-a-structural-page-read-is-written-by/alternatives-considered:
+  en: a87e86115bb07259
+  zh: 3c0c495c4a1855ef
+/agent-note-the-rules-a-structural-page-read-is-written-by/consequences:
+  en: 1caab32f9489ec24
+  zh: 0286b02699561bde
+/agent-note-the-rules-a-structural-page-read-is-written-by/deferred:
+  en: 85803dfc60f55d30
+  zh: 2db395872fee65e7
+/agent-note-the-rules-a-structural-page-read-is-written-by/testing:
+  en: b5551fcc28269ad3
+  zh: 6dadd8ced5fff269

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-server-sidebar-workflow-groups.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-server-sidebar-workflow-groups.md
-2026-09-06-server-sidebar-workflow-groups.md: 1607fb362be725bf9c5234d29acff2b5052d628f
-2026-09-06-server-sidebar-workflow-groups.zh.md: 51bcf206d619a5b6e892e7a4e3be720c535ed942
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section:
+  en: 7a807192aaf68401
+  zh: 5ba41944e4daaec5
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/problem:
+  en: 77594531de6eaa81
+  zh: f5b45a4b08829656
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/decision:
+  en: 534172c98e5cc2e7
+  zh: e28579f7d5e34b62
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/decision/two-build-facts-this-change-forces:
+  en: a51f7f53079f13ab
+  zh: e0fd33e3b10993a2
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/alternatives-considered:
+  en: 5ddbff5978c4045c
+  zh: 7685c1e2d7ec8e61
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/consequences:
+  en: f6e366589847fe18
+  zh: 402f2383f797427e
+/agent-note-server-sidebar-workflow-groups-and-the-temporary-section/testing:
+  en: eebb3da42efedbab
+  zh: 4e2f32975d07e6ca

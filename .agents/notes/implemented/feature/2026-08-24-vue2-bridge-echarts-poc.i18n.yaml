@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-vue2-bridge-echarts-poc.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-vue2-bridge-echarts-poc.md
-2026-08-24-vue2-bridge-echarts-poc.md: 7e0962c0e741b9370755f481e8026c60e15d98f8
-2026-08-24-vue2-bridge-echarts-poc.zh.md: 3d1df92321b551fef9f1291e31fa046d9ce09280
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel:
+  en: 0f829e68d9c87ea1
+  zh: 1311f6d154ab7a1f
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/problem:
+  en: cc183941701e4397
+  zh: 31ee7934ad4ce6fa
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/decision:
+  en: 2178a550c0492295
+  zh: c5a3c92b79a4ca92
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/decision/the-bridge-owns-a-vue-root-not-a-container:
+  en: 3cbd9b83eb7e3a75
+  zh: ef78483c29a72da1
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/decision/component-and-placement-are-separate-packages:
+  en: 609585817623776d
+  zh: 878173f0e7cb49ed
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/decision/the-first-package-row-module-request-in-the-repository:
+  en: cc95070ee092d1f1
+  zh: 641488e26f674822
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/alternatives-considered:
+  en: 37898cca216428be
+  zh: e94a8203f6c89eb6
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/consequences:
+  en: aab619c3f1bcccf0
+  zh: a7ffe624e45b1f60
+/agent-note-a-vue-2-7-bridge-and-the-component-placement-split-that-lets-the-component-travel/testing:
+  en: eedf4840472cff60
+  zh: 36745532a4a8a9ce

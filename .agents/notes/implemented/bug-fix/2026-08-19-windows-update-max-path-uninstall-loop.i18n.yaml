@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-windows-update-max-path-uninstall-loop.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-windows-update-max-path-uninstall-loop.md
-2026-08-19-windows-update-max-path-uninstall-loop.md: 0e549d37bb9c142f829d2cea5270b308bc15452d
-2026-08-19-windows-update-max-path-uninstall-loop.zh.md: 1088d57033cbe51ab2aeefe101ceb813b84fe490
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside:
+  en: 5f6e38dc19bcefb9
+  zh: d06f22c8cac99c4b
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/problem:
+  en: b53e80c53972cb59
+  zh: 9cca816e48c05a15
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/problem/why-the-old-uninstaller-failed:
+  en: 5a511f1f2e3d3949
+  zh: fea8c2c1a6e15fc9
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/decision:
+  en: 06d507101765689e
+  zh: 20ab1904e7acf07e
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/decision/native-windows-packaging:
+  en: a7b9127bbebddd61
+  zh: ab9009ceced003e8
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/verification:
+  en: 97e5847eb68a6b45
+  zh: 4de1597a4e6b9c92
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/alternatives-considered:
+  en: cb8e04c1a7d07dc8
+  zh: 428cc5409547bf41
+/agent-note-windows-update-removes-the-old-install-by-renaming-it-aside/consequences:
+  en: c2f8e56efd442cee
+  zh: a7ded91a705caf64

@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-content-on-display-rule.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-content-on-display-rule.md
-2026-08-24-content-on-display-rule.md: a4781d56d288a5925e173e18abecff93874a8843
-2026-08-24-content-on-display-rule.zh.md: 0884171568d2f9e018b6a52a786ac67f483f4576
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display:
+  en: 716adf5262f77275
+  zh: 0d24baf08747c6f3
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/problem:
+  en: 7f7e0496df1481d3
+  zh: 16e7a3e261bf7228
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/decision:
+  en: c54e3ceee54c3373
+  zh: 59f9695c3748c75e
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/decision/what-was-measured:
+  en: 666fb70462652f2c
+  zh: f2c970bcfa547626
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/decision/where-the-section-lands:
+  en: 9ecc29f2ac04dd6a
+  zh: 1591d3e0ee448479
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/decision/optional-and-unconditional:
+  en: 30a2b0c293847db3
+  zh: be0b19d38ea68ed7
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/decision/nothing-new-is-logged:
+  en: d0943e7a3e9643e6
+  zh: f28cb0a0c504f1b0
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/alternatives-considered:
+  en: 4210328605f2ee68
+  zh: 545410902d6c0eeb
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/consequences:
+  en: 28af40f2570863e8
+  zh: f1ba8118e93857cf
+/agent-note-the-rule-that-a-follow-up-lands-on-the-content-already-on-display/testing:
+  en: 7588e840ed80aa38
+  zh: 51e85e9eb4bdd2db

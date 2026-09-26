@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-server-sidebar-footer-one-row.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-server-sidebar-footer-one-row.md
-2026-09-10-server-sidebar-footer-one-row.md: 4cf4e235ebddb02e86f52201a82ee7a2b88c682a
-2026-09-10-server-sidebar-footer-one-row.zh.md: c80d24f359fc4814c917f6b88d99e616b1d7591e
+/agent-note-server-sidebar-the-footer-identity-band-is-one-row:
+  en: f568a88b17cdaf98
+  zh: 8ff0e50dd6da9660
+/agent-note-server-sidebar-the-footer-identity-band-is-one-row/problem:
+  en: ee7bb3a700505da0
+  zh: e1af74afebc46be7
+/agent-note-server-sidebar-the-footer-identity-band-is-one-row/decision:
+  en: 23ed9db271ce7d02
+  zh: fe432edf66438998
+/agent-note-server-sidebar-the-footer-identity-band-is-one-row/alternatives-considered:
+  en: 1817b6a056c03767
+  zh: 52f1296b1eff8028
+/agent-note-server-sidebar-the-footer-identity-band-is-one-row/consequences:
+  en: 6cc62c7377a9810c
+  zh: 55d1f791195dde4f

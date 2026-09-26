@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-content-read-image.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-04-content-read-image.md
-2026-09-04-content-read-image.md: 23c57b691886158776a87cf81ad6fb752e640657
-2026-09-04-content-read-image.zh.md: c5c86d5f49998e4c555e72539bfa641b40289b67
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at:
+  en: 27a77bc9b9fd7af8
+  zh: 483cb95f8e24bf6b
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/problem:
+  en: 122547d821db7e4b
+  zh: 5b82ffc79e52f363
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision:
+  en: b64cf872f008f00b
+  zh: e357845d9a44d868
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate:
+  en: 99027b6b50324852
+  zh: 6e6c1b55d2994ee8
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate/the-tool-and-its-two-gates:
+  en: 8e65fd69f1f3c215
+  zh: 80a3c4a085618a63
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate/the-capture-in-the-seat:
+  en: cd9bb7882cfcd1ae
+  zh: 145d4e4059a6df9a
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate/the-picture-route:
+  en: 33f8039f3245eef9
+  zh: 806619917266bfe1
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate/the-host-half-stored-before-settled:
+  en: 9f0385248715f106
+  zh: 3653a00cd86668d4
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/the-gate/the-export-constants:
+  en: 81d75f2f3af21e63
+  zh: b3073f3fc5524cc5
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/decision/evidence:
+  en: 4ce953acb2b13c70
+  zh: 096743f7e4289340
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/alternatives-considered:
+  en: de386f36f2f6655d
+  zh: 753e1ef470afe244
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/consequences:
+  en: dc441cf57d40dbe9
+  zh: 9efd834f2f996ef2
+/agent-note-one-picture-on-the-page-as-pixels-the-model-looks-at/testing:
+  en: 44cb62d87c90c534
+  zh: 6f71964821316a05

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-07-data-source-default-columns.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-data-source-default-columns.md
-2026-09-07-data-source-default-columns.md: 11aea910beb968d53bebaa2504db24a5901a0de7
-2026-09-07-data-source-default-columns.zh.md: 6a989dcc4b7679da536e9e66a401de5a026d73f9
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so:
+  en: f14f837854efa03f
+  zh: 1e7eb69e7cdfa6ff
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/problem:
+  en: 2feb157d66cf7272
+  zh: 0de789998ac3faf8
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/decision:
+  en: ad8deb9b0de193d7
+  zh: cb39bdf182b9e79a
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/decision/gate-table-the-table-s-own-columns-and-an-empty-answer:
+  en: 804cf9b4827eb357
+  zh: 871a58689ab7a76b
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/alternatives-considered:
+  en: c51a248054b0ce43
+  zh: eff6632d0563edde
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/consequences:
+  en: f9091c0ecdd8b0da
+  zh: 205a65b3a960bc31
+/agent-note-the-table-decides-its-own-columns-and-an-empty-answer-says-so/known-limitations-and-deferred-work:
+  en: b0a08f65624ed79c
+  zh: 25ebdb0029caf0af

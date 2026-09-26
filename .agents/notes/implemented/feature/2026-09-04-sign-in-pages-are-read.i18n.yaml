@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-04-sign-in-pages-are-read.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-04-sign-in-pages-are-read.md
-2026-09-04-sign-in-pages-are-read.md: ebf0f1b25f453cd6fd1862b188ab005c83e1176a
-2026-09-04-sign-in-pages-are-read.zh.md: 46bcb0cdc137bc1a605217fa7a142a5315e8a935
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld:
+  en: 18f8e7ae1d67b097
+  zh: a0a618ddefeb7735
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/problem:
+  en: 7a7d6589094a88c1
+  zh: e3e07219dc9304fa
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/decision:
+  en: aaab48026f7fed9a
+  zh: 37c4ecd6ae3f297f
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/decision/what-was-deleted:
+  en: 26fe7c12a02fcdda
+  zh: a6b29b6fab9b393b
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/decision/where-the-rule-does-not-reach:
+  en: acf5ab2a23a6ceba
+  zh: 217f7424fbba8c43
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/alternatives-considered:
+  en: 4a93be0778bbfb40
+  zh: 7bb3ae6a2b238765
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/consequences:
+  en: 3b5dbd328fca0fbd
+  zh: 4808675fa23e4df8
+/agent-note-sign-in-pages-are-read-and-only-a-password-s-value-is-withheld/testing:
+  en: d8fe8152b4b40c5c
+  zh: 33c937981180c8b6

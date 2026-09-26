@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-self-contained-desktop-closure.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-self-contained-desktop-closure.md
-2026-08-19-self-contained-desktop-closure.md: 3b7f958b66d043236f7b3e0764490848b03308f9
-2026-08-19-self-contained-desktop-closure.zh.md: 849c26e50df5da9a6bb1273a1ff9dbdd5b6bc7b8
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed:
+  en: 92743bbe5d8f4d52
+  zh: 239f846118752a77
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/problem:
+  en: a10978264c859f09
+  zh: 56a90770ec93dfe5
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/decision:
+  en: e1dcfb037cb9349b
+  zh: 08fef294756c5d37
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/what-stays-loose-and-why:
+  en: 3b0b692afa5d5e24
+  zh: 8dd80599c79c9639
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/verification:
+  en: 6080eb903dea9f36
+  zh: 521d9e61972324a3
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/alternatives-considered:
+  en: d5747a8b3d349f4e
+  zh: 99788c1819927363
+/agent-note-the-desktop-server-closure-ships-collapsed-and-sealed/consequences:
+  en: 0b36427299347f05
+  zh: 6b95731cd14cb095

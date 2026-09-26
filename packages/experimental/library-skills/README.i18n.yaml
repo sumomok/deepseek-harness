@@ -1,6 +1,55 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/library-skills/README.md
-README.md: 3f52bcdb86555c782eee40c4131ae56a3044e905
-README.zh.md: 8a2625c349ddae36ed788ee8762b1fb702da6156
+/:
+  en: d258ebae1d416f0f
+  zh: 02fa9d0e3c25167e
+/deepseek-ai-dsh-experimental-library-skills:
+  en: 5bdfd9505eda6a1c
+  zh: 57b68a65f97021cb
+/deepseek-ai-dsh-experimental-library-skills/summary:
+  en: 749294aba04c63ee
+  zh: 48c2c61e923239ba
+/deepseek-ai-dsh-experimental-library-skills/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-experimental-library-skills/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/deepseek-ai-dsh-experimental-library-skills/use-this-package/install-into-a-profile:
+  en: a1c91be06279ff48
+  zh: 1412a5c9f87340ec
+/deepseek-ai-dsh-experimental-library-skills/use-this-package/what-you-get:
+  en: 5b43d4000211b530
+  zh: 660f0c26ecf91ece
+/deepseek-ai-dsh-experimental-library-skills/use-this-package/add-a-skill:
+  en: efd07d0dfb65cd9b
+  zh: 67bac7602963e62d
+/deepseek-ai-dsh-experimental-library-skills/understand-the-implementation:
+  en: a2ce69004598ae39
+  zh: 1a619f1d7251e97b
+/deepseek-ai-dsh-experimental-library-skills/further-exploration:
+  en: 629dec1203b25194
+  zh: 5f42e5e13f29b3a6
+/deepseek-ai-dsh-experimental-library-skills/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-library-skills/model-experience/bundled-library-knowledge:
+  en: 35cd2c31c0a886af
+  zh: 4a7d6be1eb6616f0
+/deepseek-ai-dsh-experimental-library-skills/model-experience/bundled-library-knowledge/what-the-model-sees:
+  en: 6ebc745b10f34915
+  zh: f7edd600d40da4c8
+/deepseek-ai-dsh-experimental-library-skills/model-experience/bundled-library-knowledge/token-effect:
+  en: d6066fec031555d3
+  zh: 9a4e589f6689ac0d
+/deepseek-ai-dsh-experimental-library-skills/model-experience/bundled-library-knowledge/kv-cache-effect:
+  en: 2f4097d85ebe480f
+  zh: 31fb084ffc20dd4a
+/deepseek-ai-dsh-experimental-library-skills/known-limitations-and-deferred-work:
+  en: afa766032fedafed
+  zh: cdbfbe933031aa5c
+/deepseek-ai-dsh-experimental-library-skills/known-limitations-and-deferred-work/dev-note:
+  en: b09d599cbd697629
+  zh: 6f5ba6469c63cb9b

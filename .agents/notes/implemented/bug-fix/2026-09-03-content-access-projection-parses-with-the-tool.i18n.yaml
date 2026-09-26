@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-03-content-access-projection-parses-with-the-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-content-access-projection-parses-with-the-tool.md
-2026-09-03-content-access-projection-parses-with-the-tool.md: b32c4cdff12093f70335b38607d027e8dada18a3
-2026-09-03-content-access-projection-parses-with-the-tool.zh.md: 29cdfc35dceb8f17e145882b99d829b0797ce282
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser:
+  en: e61f06516ff5c60f
+  zh: 34425401f5033b68
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser/problem:
+  en: 4d556e8a23a4e54f
+  zh: 26e0c2bd4ba078f7
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser/decision:
+  en: 358c7fa5bd89aa51
+  zh: 1f76b302886affc7
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser/alternatives-considered:
+  en: cae19a01de88c8ac
+  zh: e62fe64df878a582
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser/consequences:
+  en: 826af294d04a4641
+  zh: e2483f2adeae6108
+/agent-note-the-projection-reads-a-call-with-the-tool-s-own-parser/testing:
+  en: 493b0e9b9c242e1e
+  zh: f1c3d2be6b11a4cd

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-windows-install-cost.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-08-19-windows-install-cost.md
-2026-08-19-windows-install-cost.md: c5c0412be017fd85dff8ff26526d7cd6b973e402
-2026-08-19-windows-install-cost.zh.md: ea2082e50a47d5d7fe3b00dfd85feee851e83a73
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong:
+  en: 80c3e706c3c714ab
+  zh: 4eb96b42128fbf54
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/problem:
+  en: d55c65dd197705d2
+  zh: e701772716af98d7
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/decision:
+  en: 62bf5c3ef8fc196b
+  zh: b475ee4903d035d0
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/two-measurements-that-were-wrong:
+  en: adb585d6506c5338
+  zh: b5935433cc1c0971
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/how-to-measure-it-again:
+  en: 274545cb5ed4a962
+  zh: 69202f17c6db4294
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/alternatives-considered:
+  en: dc8854be839b9387
+  zh: 7479f2fb110f3f69
+/agent-note-what-a-windows-install-spends-its-time-on-and-two-ways-of-measuring-that-were-wrong/consequences:
+  en: b24d913f35baefb8
+  zh: c8cfa50c74b90027

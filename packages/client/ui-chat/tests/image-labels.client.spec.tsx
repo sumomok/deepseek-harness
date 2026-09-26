@@ -7,14 +7,13 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RenderMessageImages } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
-import type { AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
+import { useDetailedPresentation } from './presentation-fixture.client.ts'
+import { useDisclosure } from '../src/client/chat/use-disclosure.ts'
 import { zh } from '../src/client/locale.ts'
 
 afterEach(cleanup)
 
 const t = makeTranslate(zh, commonZh)
-const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
-const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 const attachment = {
   attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
@@ -46,13 +45,12 @@ describe('assistant image slot handoff', () => {
   it('passes one image group and its message alignment to the renderer', () => {
     const calls: MessageImagesRenderOwner[] = []
     const view = render(
-      <AssistantMarkdown
+      <AssistantMarkdown useDisclosure={useDisclosure}
+        usePresentation={useDetailedPresentation}
         t={t}
         blocks={[{ kind: 'image', attachment }]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(view.getByTestId('message-images').getAttribute('data-align')).toBe('start')
@@ -63,7 +61,8 @@ describe('assistant image slot handoff', () => {
   it('merges consecutive image blocks into one group and splits groups at text', () => {
     const calls: MessageImagesRenderOwner[] = []
     const view = render(
-      <AssistantMarkdown
+      <AssistantMarkdown useDisclosure={useDisclosure}
+        usePresentation={useDetailedPresentation}
         t={t}
         blocks={[
           { kind: 'image', attachment },
@@ -73,8 +72,6 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const galleries = view.getAllByTestId('message-images')
@@ -86,7 +83,8 @@ describe('assistant image slot handoff', () => {
   it('keeps the renderer output at the image block position between text blocks', () => {
     const calls: MessageImagesRenderOwner[] = []
     const view = render(
-      <AssistantMarkdown
+      <AssistantMarkdown useDisclosure={useDisclosure}
+        usePresentation={useDetailedPresentation}
         t={t}
         blocks={[
           { kind: 'text', text: 'before' },
@@ -95,8 +93,6 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const image = view.getByTestId('message-images')

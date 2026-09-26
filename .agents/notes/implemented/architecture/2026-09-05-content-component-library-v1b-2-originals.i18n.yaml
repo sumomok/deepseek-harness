@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-content-component-library-v1b-2-originals.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-content-component-library-v1b-2-originals.md
-2026-09-05-content-component-library-v1b-2-originals.md: 78f15b25f7fca255b3814b6717f0ef395050be05
-2026-09-05-content-component-library-v1b-2-originals.zh.md: 86418dd99080d7ce2abfd2d8a9e6df66cefb84e0
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric:
+  en: ace3d87c3f488a37
+  zh: 0720f8dd6a913430
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric/problem:
+  en: 41b37f45657adae9
+  zh: 14dbd6f8f11a1830
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric/decision:
+  en: d9635e6744ec7f6e
+  zh: 3d01f3813aac4907
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric/decision/gate-table-7-three-vendored-components-with-gestures:
+  en: 81738ebdf2cd80cc
+  zh: 87cac76a5d5c6e2d
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric/alternatives-considered:
+  en: 5808e5f4c5d48e3a
+  zh: 7215d9b76fe84845
+/agent-note-three-more-of-the-customer-s-own-components-the-table-the-filter-the-metric/consequences:
+  en: 0ce5e7012fcffbcf
+  zh: f5e118bbb8fea6f1

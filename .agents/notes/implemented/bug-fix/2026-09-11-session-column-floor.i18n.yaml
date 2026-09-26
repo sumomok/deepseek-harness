@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-session-column-floor.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-session-column-floor.md
-2026-09-11-session-column-floor.md: 0d9bad9d7cc10d93c86702ba70499c4bc0eb8113
-2026-09-11-session-column-floor.zh.md: ee6aef122105e39a43a4b7a5f17ffb1473d635a7
+/agent-note-the-session-column-floors-at-180px:
+  en: f8b449d0b132fab8
+  zh: e6708ad612fe05cc
+/agent-note-the-session-column-floors-at-180px/problem:
+  en: 04a7402388681002
+  zh: 24008f1bd58ee9f5
+/agent-note-the-session-column-floors-at-180px/decision:
+  en: b0dfa71a8dc58411
+  zh: e0020fc03234a5cd
+/agent-note-the-session-column-floors-at-180px/alternatives-considered:
+  en: 3af5b0780f023e95
+  zh: 8a98f463167e7466
+/agent-note-the-session-column-floors-at-180px/consequences:
+  en: f562596901bda5e6
+  zh: 1889d85de30e74f1
+/agent-note-the-session-column-floors-at-180px/testing:
+  en: c4cf297b8be8e3ee
+  zh: b7318aff1772fcbc

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-05-content-component-library-v2a-layout-and-bindings.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-content-component-library-v2a-layout-and-bindings.md
-2026-09-05-content-component-library-v2a-layout-and-bindings.md: f66e1788ed0c0afa6b85df3602669cd41958125d
-2026-09-05-content-component-library-v2a-layout-and-bindings.zh.md: 53cb9c6ee3c32b8c50d960a07cb965b51fcfdb13
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another:
+  en: 873aef548c4dd1f8
+  zh: 8d35dfa400b33bc2
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/problem:
+  en: 8f00e2c47ae21a34
+  zh: 96ac06b9ec2d8408
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/decision:
+  en: 87f0ae8f958c32fc
+  zh: f0a8eb8d8188510a
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/decision/gate-table-3-a-layout-between-blocks-and-a-binding-from-one-to-another:
+  en: e3ac6911297d95e2
+  zh: ab0e67faa206f3e0
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/alternatives-considered:
+  en: 73e061bf7240e586
+  zh: 2673e3bcd678ec77
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/consequences:
+  en: 9ce40071ee35520f
+  zh: db6f3d6687660df8
+/agent-note-arranging-the-blocks-of-one-call-and-feeding-one-from-another/known-limitations-and-deferred-work:
+  en: 1c84271f48b05d5b
+  zh: a124052688dfc9ba

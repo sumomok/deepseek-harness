@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-26-llm-tool-choice.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-llm-tool-choice.md
+/agent-note-a-direct-request-can-require-its-answer-to-call-an-offered-tool:
+  en: 8a0dbd3e1bdf2e41
+  zh: 989389a2a179ee98
+/agent-note-a-direct-request-can-require-its-answer-to-call-an-offered-tool/problem:
+  en: 8db2ca0eb5f2316e
+  zh: c504203e7f9c0d25
+/agent-note-a-direct-request-can-require-its-answer-to-call-an-offered-tool/decision:
+  en: c23ca5d1ca54a0de
+  zh: cdf8b199b4971e8d
+/agent-note-a-direct-request-can-require-its-answer-to-call-an-offered-tool/alternatives-considered:
+  en: 91ce091f59ddfda7
+  zh: 5b20bf2430539b7b
+/agent-note-a-direct-request-can-require-its-answer-to-call-an-offered-tool/consequences:
+  en: 68e59632d279c631
+  zh: e9595594e5767823

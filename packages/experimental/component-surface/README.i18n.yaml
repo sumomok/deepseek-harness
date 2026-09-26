@@ -1,6 +1,124 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/component-surface/README.md
-README.md: 264dbed9181f7883e349e121291f59e5b4963605
-README.zh.md: fb465097ec18b1866f3e96d8982364f14bc5a618
+/:
+  en: 85ca5637c2fcc00e
+  zh: d29eb489ed44c382
+/deepseek-ai-dsh-experimental-component-surface:
+  en: 27c52d19c7afb733
+  zh: c9f8e497dfa753b5
+/deepseek-ai-dsh-experimental-component-surface/summary:
+  en: ebc2d07fe7c3ec1f
+  zh: f00c43650760186a
+/deepseek-ai-dsh-experimental-component-surface/table-of-contents:
+  en: fe4a79659565e98c
+  zh: 90839d2d05eba2bf
+/deepseek-ai-dsh-experimental-component-surface/composition:
+  en: 60ad02bcab70c726
+  zh: fb4bc5785d2dad95
+/deepseek-ai-dsh-experimental-component-surface/configuration:
+  en: 38f9487b212531d8
+  zh: 43660820039c7871
+/deepseek-ai-dsh-experimental-component-surface/views-the-deployment-writes:
+  en: 963ec0cdede0bce2
+  zh: 519b56f02595a950
+/deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data:
+  en: 6dc8cca997fafd10
+  zh: e566e38a66acd543
+/deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data/the-order-and-what-each-step-costs:
+  en: 306d194149a63938
+  zh: 12bc7e857ac12bfe
+/deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data/what-the-user-is-asked:
+  en: 88d959079f309803
+  zh: 2b0f426c53041884
+/deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data/what-is-recorded-and-what-the-model-is-told:
+  en: a3d2ea26d7ed70ae
+  zh: 130438242fc65c20
+/deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page:
+  en: 4638c78f71520fc7
+  zh: c2f4a83280477918
+/deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/the-order-and-what-each-step-costs:
+  en: 0cebdc551f641734
+  zh: caba5cc27582c7f0
+/deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/what-the-user-is-asked:
+  en: 74a3f35ffbc16d53
+  zh: 5b5eb8115e1e744e
+/deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/what-is-recorded-and-what-the-model-is-told:
+  en: 6eb102f612ec5fe3
+  zh: c868b177759d26a6
+/deepseek-ai-dsh-experimental-component-surface/the-catalog:
+  en: ed36048e049fe36a
+  zh: ac68d08a5648e48a
+/deepseek-ai-dsh-experimental-component-surface/what-a-call-is-judged-against:
+  en: 2ae6d267bb9e7cbe
+  zh: 7c5e1ab5d961f115
+/deepseek-ai-dsh-experimental-component-surface/how-the-blocks-are-arranged:
+  en: 922bf0d2313b722e
+  zh: 5c5373e5bf0ab7e6
+/deepseek-ai-dsh-experimental-component-surface/what-one-block-reads-from-another:
+  en: 42d1db05abb878ea
+  zh: 4953b5d0add3ab3f
+/deepseek-ai-dsh-experimental-component-surface/one-entry-several-calls:
+  en: 9a81b75369f2d129
+  zh: 44a98ce1cbbf337a
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back:
+  en: 85b3439fe80d21bc
+  zh: 8c4ed52516ce10c6
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/what-a-press-is-answered-with:
+  en: f74cb3c80354c3cd
+  zh: c4a1c6ad02357c45
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-pressed-state:
+  en: f95d04493dc833fd
+  zh: 1509873232060d26
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-three-grades:
+  en: ad4a9454a09c91a6
+  zh: 3841332e619268d8
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/the-wake-budget:
+  en: 8d104822cde8023f
+  zh: 22d10c095ad11fa4
+/deepseek-ai-dsh-experimental-component-surface/what-comes-back/where-the-approval-gate-is:
+  en: 58cfea22c03f6739
+  zh: 6892642daa9272a6
+/deepseek-ai-dsh-experimental-component-surface/trust:
+  en: 81525fd2c63d1031
+  zh: c02f2d7c1b05037d
+/deepseek-ai-dsh-experimental-component-surface/the-seat:
+  en: 732a895ed1636da7
+  zh: 0e4fba2b6a00cea1
+/deepseek-ai-dsh-experimental-component-surface/the-seat/what-one-block-lends-another:
+  en: 2c8ac3a4dda0e52a
+  zh: 0e6c3eed1fcd77e3
+/deepseek-ai-dsh-experimental-component-surface/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-experimental-component-surface/model-experience/the-show-component-offer:
+  en: fe3219b9b505c3ee
+  zh: ab0014111697f178
+/deepseek-ai-dsh-experimental-component-surface/model-experience/the-show-component-offer/what-the-model-sees:
+  en: 3f140a455ce5ef00
+  zh: e810035afe7819a6
+/deepseek-ai-dsh-experimental-component-surface/model-experience/the-show-component-offer/token-effect:
+  en: 4e85842058c8145d
+  zh: 8fb09f2e4683136d
+/deepseek-ai-dsh-experimental-component-surface/model-experience/the-show-component-offer/kv-cache-effect:
+  en: 0e41bba7854d8174
+  zh: 5fe4125620dcf8f9
+/deepseek-ai-dsh-experimental-component-surface/model-experience/tool-call-result:
+  en: 13fed9761967bce9
+  zh: 9937e2a13f34f183
+/deepseek-ai-dsh-experimental-component-surface/model-experience/tool-call-result/what-the-model-sees:
+  en: ff771dd185482898
+  zh: ef3e97b913ece14f
+/deepseek-ai-dsh-experimental-component-surface/model-experience/tool-call-result/token-effect:
+  en: f454a4a1c88e9191
+  zh: dd8e94629dc30ce4
+/deepseek-ai-dsh-experimental-component-surface/model-experience/tool-call-result/kv-cache-effect:
+  en: e4850a739d8599af
+  zh: 22a192c03b6f7b7b
+/deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work:
+  en: 2e63026e9d60541e
+  zh: d9b7f2f795d143d0
+/deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

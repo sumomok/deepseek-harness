@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-25-desktop-plugin-admin-service.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-desktop-plugin-admin-service.md
-2026-08-25-desktop-plugin-admin-service.md: cce5c346986bcc778a65ecd29cb5fdae44cfe243
-2026-08-25-desktop-plugin-admin-service.zh.md: 133493ec3316fc773812d2d829f00df81f615507
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal:
+  en: 49cd37927575a06a
+  zh: 5cd7b84f8837a7e3
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/problem:
+  en: cb58aa0fa90f749d
+  zh: 1d8869717a5f7b79
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/decision:
+  en: 4a54edaace0de906
+  zh: efe7ce8e55613bfa
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/the-reachable-surface:
+  en: fd8fe7cbc6c44008
+  zh: f1ef4189a359a29c
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/alternatives-considered:
+  en: 1d489195216b1793
+  zh: 6dd355db73e6c7ec
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/consequences:
+  en: 6ba62d15b885ed3d
+  zh: 4894229075afc966
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/testing:
+  en: 3bc4ba84c9ce4fc5
+  zh: 53abf19d53c04085
+/agent-note-the-shell-lends-its-package-manager-so-a-plugin-can-be-updated-without-a-terminal/related:
+  en: 072ccbc37766ce8a
+  zh: 828def00c6c80641

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-server-sidebar-product-console-retrofit.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-30-server-sidebar-product-console-retrofit.md
-2026-08-30-server-sidebar-product-console-retrofit.md: 6a066de1a0fecf3f0ebc506792a0a616c6d01c46
-2026-08-30-server-sidebar-product-console-retrofit.zh.md: 507e16b7b49843396c6e6759215c534803639016
+/agent-note-server-sidebar-retrofit-from-a-page-routes-plus-favorites-menu-to-a-fixed-three-section-product-console:
+  en: c9ec141e302d9e3f
+  zh: 0012ffaa934959df
+/agent-note-server-sidebar-retrofit-from-a-page-routes-plus-favorites-menu-to-a-fixed-three-section-product-console/problem:
+  en: ee4bc67d94b80c7e
+  zh: 6f61e65abb59b7ea
+/agent-note-server-sidebar-retrofit-from-a-page-routes-plus-favorites-menu-to-a-fixed-three-section-product-console/decision:
+  en: 771734a8c92bf068
+  zh: eb5510856cab0179
+/agent-note-server-sidebar-retrofit-from-a-page-routes-plus-favorites-menu-to-a-fixed-three-section-product-console/alternatives-considered:
+  en: 2e5ab2ff90ac3522
+  zh: 113413de21500c36
+/agent-note-server-sidebar-retrofit-from-a-page-routes-plus-favorites-menu-to-a-fixed-three-section-product-console/consequences:
+  en: f6619f80ca835302
+  zh: 511734fb5be8478d
