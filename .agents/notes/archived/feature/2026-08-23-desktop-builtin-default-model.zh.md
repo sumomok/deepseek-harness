@@ -1,6 +1,7 @@
 # Agent Note: 桌面安装包自带出厂默认模型
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-08-23-desktop-builtin-default-model.md) | 中文
 

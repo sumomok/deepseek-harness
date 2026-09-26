@@ -1,6 +1,7 @@
 # Agent Note: 桌面端自带引用与改问重跑
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-08-23-desktop-builtin-conversation-plugins.md) | 中文
 

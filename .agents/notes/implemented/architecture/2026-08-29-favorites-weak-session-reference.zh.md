@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-`@deepseek-ai/dsh-experimental-server-sidebar` 的工作流菜单以会话 id 在一份比任何单个会话都长寿的文档里指名一个对话：一条工作流的 `homeSessionId` 持久保存在 `settings` 能力的持久文档里（[按账号，一个用户一个 `$DSH_HOME`](../../../../packages/settings/settings-file/README.zh.md)），而它所指名的会话可以在任何时候，被同一个用户，通过普通的 Workspace 机制删除，两个功能之间没有任何协调。本包里没有任何东西监听会话删除——拥有删除权的工作区域没有理由知道别处的某份 settings 文档可能引用了它刚刚删掉的 id，为这一个功能的记账去打通这条通知，会把两个原本独立的能力耦合在一起。因此工作流文档终将指名一个已经不存在的会话——这是预期中的正常情况，不是一种失败。
+`@deepseek-ai/dsh-experimental-server-sidebar` 的工作流菜单以会话 id 在一份比任何单个会话都长寿的文档里指名一个对话：一条工作流的 `homeSessionId` 持久保存在 `settings` 能力的持久文档里（[按账号，一个用户一个 `$DSH_HOME`](../../../../packages/settings/settings/README.zh.md)），而它所指名的会话可以在任何时候，被同一个用户，通过普通的 Workspace 机制删除，两个功能之间没有任何协调。本包里没有任何东西监听会话删除——拥有删除权的工作区域没有理由知道别处的某份 settings 文档可能引用了它刚刚删掉的 id，为这一个功能的记账去打通这条通知，会把两个原本独立的能力耦合在一起。因此工作流文档终将指名一个已经不存在的会话——这是预期中的正常情况，不是一种失败。
 
 ## Decision
 

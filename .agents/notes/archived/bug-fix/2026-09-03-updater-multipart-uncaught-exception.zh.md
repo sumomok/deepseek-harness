@@ -1,6 +1,7 @@
 # Agent Note: 记录主进程崩溃，并在多段范围响应出错时 reject
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-03-updater-multipart-uncaught-exception.md) | 中文
 

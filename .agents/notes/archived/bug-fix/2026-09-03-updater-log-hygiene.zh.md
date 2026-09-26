@@ -1,6 +1,7 @@
 # Agent Note: 把 electron-updater 的 debug 通道挡在 dsh-server.log 之外
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-03-updater-log-hygiene.md) | 中文
 

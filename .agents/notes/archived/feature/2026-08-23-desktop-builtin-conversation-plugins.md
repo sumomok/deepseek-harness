@@ -1,6 +1,7 @@
 # Agent Note: The desktop ships quoting and edit-and-rerun
 
 Status: implemented
+Archived: 2026-09-26
 
 English | [中文](2026-08-23-desktop-builtin-conversation-plugins.zh.md)
 

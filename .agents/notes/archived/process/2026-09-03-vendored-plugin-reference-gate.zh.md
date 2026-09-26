@@ -1,6 +1,7 @@
 # Agent Note: Vendored plugin reference gate
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-03-vendored-plugin-reference-gate.md) | 中文
 

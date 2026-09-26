@@ -1,6 +1,7 @@
 # Agent Note: 由壳来安置所服务 UI 的下载,而不是弹窗去问
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-03-desktop-download-handling.md) | 中文
 

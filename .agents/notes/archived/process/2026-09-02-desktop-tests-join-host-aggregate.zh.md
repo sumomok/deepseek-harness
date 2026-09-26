@@ -1,6 +1,7 @@
 # Agent Note: apps/desktop 的测试与打包脚本并入 Host 聚合面
 
 Status: implemented
+Archived: 2026-09-26
 
 [English](2026-09-02-desktop-tests-join-host-aggregate.md) | 中文
 

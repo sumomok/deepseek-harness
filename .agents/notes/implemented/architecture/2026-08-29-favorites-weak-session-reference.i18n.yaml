@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-29-favorites-weak-session-reference.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-29-favorites-weak-session-reference.md
-2026-08-29-favorites-weak-session-reference.md: 079d41e21a10d103407f007d45d0f6a5101244da
-2026-08-29-favorites-weak-session-reference.zh.md: 84aabdebd8289da5aa1a11f7a2134508ad8156f0
+/agent-note-a-workflow-s-bound-session-id-is-a-weak-reference-resolved-fresh-at-render-time:
+  en: 42be85ed32f88ab8
+  zh: c9f441a68eb011a1
+/agent-note-a-workflow-s-bound-session-id-is-a-weak-reference-resolved-fresh-at-render-time/problem:
+  en: 8d33d07f54e392b2
+  zh: db25790933b3557f
+/agent-note-a-workflow-s-bound-session-id-is-a-weak-reference-resolved-fresh-at-render-time/decision:
+  en: b575ab8a100ad060
+  zh: 749a520c438ce71d
+/agent-note-a-workflow-s-bound-session-id-is-a-weak-reference-resolved-fresh-at-render-time/alternatives-considered:
+  en: 4425c652aea6c1fe
+  zh: 78c9b86f80e3124d
+/agent-note-a-workflow-s-bound-session-id-is-a-weak-reference-resolved-fresh-at-render-time/consequences:
+  en: cfc4bf5f9439e77d
+  zh: b3f125a77ff0ab6f

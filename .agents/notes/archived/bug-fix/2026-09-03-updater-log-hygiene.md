@@ -1,6 +1,7 @@
 # Agent Note: Keep electron-updater's debug channel out of dsh-server.log
 
 Status: implemented
+Archived: 2026-09-26
 
 English | [中文](2026-09-03-updater-log-hygiene.zh.md)
 

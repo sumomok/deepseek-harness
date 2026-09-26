@@ -1,6 +1,7 @@
 # Agent Note: The desktop installer ships its own factory default model
 
 Status: implemented
+Archived: 2026-09-26
 
 English | [中文](2026-08-23-desktop-builtin-default-model.zh.md)
 

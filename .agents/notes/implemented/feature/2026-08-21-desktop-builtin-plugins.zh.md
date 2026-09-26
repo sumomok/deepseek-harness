@@ -102,7 +102,7 @@ Status: implemented
 
 用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
 
-载荷里的每个内置插件都来自一个提交进来的归档,而不是注册表,所以每一个都是它那份归档的内容,而不是注册表对同一版本号会给出的内容。注册表上出现所分发版本或更高版本时,值得换回去。[vendored plugin reference gate](../process/2026-09-03-vendored-plugin-reference-gate.zh.md) 负责这些归档如何命名,以及如何与复述它们的清单、声明文件与 README 表格保持一致。
+载荷里的每个内置插件都来自一个提交进来的归档,而不是注册表,所以每一个都是它那份归档的内容,而不是注册表对同一版本号会给出的内容。注册表上出现所分发版本或更高版本时,值得换回去。[vendored plugin reference gate](../../archived/process/2026-09-03-vendored-plugin-reference-gate.md) 负责这些归档如何命名,以及如何与复述它们的清单、声明文件与 README 表格保持一致。
 
 `pnpm-workspace.yaml` 的 override 把插件的 `node-pty` 绑到 harness 内核钉住的版本上。挪动内核的钉子就得连同挪动这条 override,而那时要重新核对的是插件自己的兼容窗口,不只是 harness 的。
 
