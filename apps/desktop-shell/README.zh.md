@@ -19,6 +19,8 @@ pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installe
 
 **整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求每个声明了浏览器那一半的内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
 
+**启动门禁像已安装的壳那样运行暂存的服务端,暂存树必须带齐安装包的整个依赖闭包。**暂存启动与 `--dump-config` 运行时去掉 `NODE_PATH`、`npm_*` 与 `PNPM_*`:pnpm 的 `.bin` shim 会导出指向工作区 `node_modules/.pnpm/node_modules` 的 `NODE_PATH`,继承它的服务端会从构建检出里找到载荷缺的任何东西。暂存树缺少 `@deepseek-ai/dsh` 的任一生产依赖(沿每个依赖自己的生产依赖追下去,扣掉有意扣下的包)时,`verifyStaging` 失败;每份成品载荷只按这个闭包里 `@deepseek-ai` 的部分核对,因为 `scripts/bundle-closure.ts` 会把第三方包内联掉。pnpm 的 legacy 部署器把 `@deepseek-ai/dsh` 放在部署源旁边,它的一部分生产依赖(包括 `@deepseek-ai/dsh-base`)只在它内部的 `node_modules` 里;`restoreLegacyHoists` 通过 `scripts/legacy-hoists.ts` 把它们拷进暂存树。
+
 ## 关掉窗口,以及被叫回来
 
 **Windows 上关闭按钮会问一次它该是什么意思**:「最小化到托盘」还是「退出应用」,配一个「记住我的选择」。不勾,答案只管这一次;勾上,答案作为 `closeAction` 写进 `desktop-state.json`,此后每次关闭都照办、不再问,直到托盘菜单的「关闭时询问」把它清掉。最小化按钮原样不动——它仍然是普通的任务栏最小化。托盘图标从启动起就在,于是「最小化到托盘」指的是屏幕上已有的东西,窗口隐藏期间 **检查更新** / **退出** 也仍然够得着;菜单是 打开 / 检查更新 / 关闭时询问 / 退出,和菜单栏一样本地化。每一次退出——托盘的、记住的、更新触发的——都走同一条停服务器的 `before-quit` 拆除链;更新对话框会先把窗口显示出来再挂上去,因为挂在隐藏窗口上的窗口模态对话框既看不见也找不到。macOS 保留自己的习惯:关窗把应用留在 Dock 里,`activate` 重开窗口,所以没有菜单栏图标。
