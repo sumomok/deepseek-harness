@@ -52,7 +52,7 @@ export interface ResolveSessionOptions {
  */
 export async function resolveOrCreateSession(ctx: ClientContext, options: ResolveSessionOptions): Promise<SessionId | undefined> {
   if (options.reuseCurrent) {
-    const current = ctx.sessions.list.getSnapshot().current
+    const current = mainViewSessionId(ctx)
     if (current !== undefined) return current
   }
   const target = recentWorkspace(ctx)
@@ -61,8 +61,17 @@ export async function resolveOrCreateSession(ctx: ClientContext, options: Resolv
     return undefined
   }
   const sessionId = await ctx.uiWorkspace.connectWorkspace(target.workspaceId)
-  ctx.sessions.open(sessionId)
+  ctx.uiWorkspace.openSession(sessionId)
   return sessionId
+}
+
+/**
+ * The session on screen: the row the Conversation retains (`retainedBy.mainView`).
+ * @param ctx - client root context (sessions).
+ * @returns that session's id, or `undefined` while no session is on the main view.
+ */
+export function mainViewSessionId(ctx: ClientContext): SessionId | undefined {
+  return Object.values(ctx.sessions.list.getSnapshot().byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id
 }
 
 /**

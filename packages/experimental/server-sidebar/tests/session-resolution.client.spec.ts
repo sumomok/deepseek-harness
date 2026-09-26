@@ -34,7 +34,7 @@ interface FakeSession {
 }
 
 /**
- * Build a fake context, plus the raw `sessions.open` and
+ * Build a fake context, plus the raw `uiWorkspace.openSession` and
  * `uiWorkspace.connectWorkspace` spies on the side: reading them back off
  * `ctx` for an assertion would type them as `ClientContext`'s declared
  * methods (an unbound-method lint violation), not as the `vi.fn()`s they
@@ -66,18 +66,23 @@ function fakeContext(overrides: {
     sessions: {
       list: {
         getSnapshot: () => ({
-          current: overrides.currentSessionId,
           phase: overrides.sessionsPhase ?? 'ready',
           ids: summaries.map(summary => summary.id),
-          byId: Object.fromEntries(summaries.map(summary => [summary.id, {
-            id: summary.id,
-            updatedAt: summary.updatedAt ?? 0,
-          }])),
+          byId: {
+            ...Object.fromEntries(summaries.map(summary => [summary.id, {
+              id: summary.id,
+              updatedAt: summary.updatedAt ?? 0,
+              retainedBy: {},
+            }])),
+            // The main view is the row the Conversation retains.
+            ...overrides.currentSessionId === undefined ? {} : {
+              [overrides.currentSessionId]: { id: overrides.currentSessionId, updatedAt: 0, retainedBy: { mainView: 1 } },
+            },
+          },
         }),
       },
-      open,
     },
-    uiWorkspace: { connectWorkspace: connect },
+    uiWorkspace: { connectWorkspace: connect, openSession: open },
     workspaces: {
       list: {
         getSnapshot: () => ({

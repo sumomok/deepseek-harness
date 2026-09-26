@@ -39,6 +39,7 @@ export const inject = ['invariants']
  */
 function authorizedEntryIds(session: Session): Set<string> {
   const ids = new Set<string>()
+  // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
   for (const event of session.snapshotEvents()) {
     const args = readComponentEvent(event)
     if (args === undefined) continue

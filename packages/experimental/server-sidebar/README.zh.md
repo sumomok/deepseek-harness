@@ -80,7 +80,7 @@ kind: "package-reference"
 - **降级**（决策⑧）——当 `homeSessionId` 已经不在时，打开这条工作流会针对最近使用的工作区创建一个新会话，按顺序（从旧到新，因此最后重放的那一个会停留在展示位，与保存这条工作流时展示的内容一致）把 `navSnapshot` 重放到新会话上，并把 `homeSessionId` 重新指向这个新会话。一个全新会话从空白开始，因此「补齐缺失的部分」在此就是重放整份快照。
 - **改名／移除**——用悬停显现的图标按钮（沿用原收藏菜单自己的交互习惯），而非原生右键菜单；见「已知限制」。
 - **重新排序**——原生 HTML5 拖拽：每一行都是 `draggable`，把一行拖到另一行的上半或下半时，会在那里预览一条插入线（纯 CSS）；放开后经由 `reorderWithinGroup()`（`client/workflow-actions.ts`）提交，它写明目标车道的完整下一序列，并把其中每一个被点名的行的 `order` 字段重写为它在该序列里的位置（0..n-1）——是一次整体重写，而非成对交换，因此无论此前的取值是什么，任何一次放置都会产生一份干净、连续的顺序。从别的车道拖进来的行由同一次调用改归属，因此车道内重排与跨车道搬运是同一套机制。这跟随用户的拖拽顺序（决策⑤）。
-- **未读提示**（决策④）——一条工作流所绑定的 `homeSessionId` 若有尚未查看的产出，会显示绿点，原样复用会话列表自己的 `completed` 位（「运行结束时未被选中、且尚未被打开过」），而不是原始任务提议作为备选方案的第二套「最后查看时间」记账机制：`completed` 本身的语义与此完全吻合,并且 `sessions.open` 一旦选中该会话就会立即清除它。为什么这一机制只有单测覆盖、没有端到端覆盖，见「已知限制」。
+- **未读提示**（决策④）——一条工作流所绑定的 `homeSessionId` 若有尚未查看的产出，会显示绿点，原样复用会话状态流自己的 `completionUnread` 位（「在主视图之外停下、且尚未被打开过」），而不是原始任务提议作为备选方案的第二套「最后查看时间」记账机制：这一位本身的语义与此完全吻合，并且会话一进入主视图就会被清除。为什么这一机制只有单测覆盖、没有端到端覆盖，见「已知限制」。
 - **被顶掉的对话不会被删除。** 一次工作台点击若落到一个全新会话上（见上文「工作台」），并不会删除被它顶掉的那一个：若某条工作流已经绑定它，那条工作流会继续原样管着它；若没有任何东西绑定它，它就只是不再被任何东西指着而已。本组合没有会话概念可供用户查看或清理（决策②），因此一个未被绑定的、被顶掉的对话只会自然淡出，不需要任何处置。
 
 ### 导航快照的存储形式
@@ -94,7 +94,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snapshot ~/.dsh/settings.yaml
 ```
 
-路径是必填而非有默认值的（一个靠猜决定自己在改写哪份文档的转换器，就是一个能改错文档的转换器）；把它指向 settings 文件 provider 实际提供的那份文档，通常是 `$DSH_HOME/settings.yaml`。它把每一个存下来的 id 改写成 `{kind: 'page', entryId: id}`，在文档没有 `groups` 键时补上当前格式携带的那个空列表，对一份已经是当前格式的文档逐字节保持原样，并在 `--dry-run` 下什么都不写。YAML 那条路径通过 `yaml` 的文档模型编辑，而不是解析后重新序列化，因此运维自己的注释与键顺序都会保留。
+路径是必填而非有默认值的（一个靠猜决定自己在改写哪份文档的转换器，就是一个能改错文档的转换器）。在 settings 服务会导入该文件的版本首次启动之前，对 `$DSH_HOME/settings.yaml` 运行它（见下文「工作流」）：导入随后把转换过的分区带进本行的条目。已被导入拒绝的分区留在 `settings.yaml.imported` 里；转换该文件并把它改名回 `settings.yaml`，下次启动就会再导入一次，连同其中的其他所有分区。它把每一个存下来的 id 改写成 `{kind: 'page', entryId: id}`，在文档没有 `groups` 键时补上当前格式携带的那个空列表，对一份已经是当前格式的文档逐字节保持原样，并在 `--dry-run` 下什么都不写。YAML 那条路径通过 `yaml` 的文档模型编辑，而不是解析后重新序列化，因此运维自己的注释与键顺序都会保留。
 
 ### 分组
 
@@ -119,12 +119,12 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **「移出列表」是归档，不是删除**——它调用 `ctx.workspaces.archiveSession`，会话日志在 host 侧保留。由于本外壳没有任何回到已归档对话的入口，这个控件会先就地问一次，第二次点击才真正提交；而且这一问的排布本身就挡住了误提交：「确定移出」向左展开，行的右缘——刚才「移出列表」图标所在、也是双击第二下落点的位置——变成「取消」。Escape 同样解除，无论焦点去了哪里；把这一段折起也解除。移出的如果正是屏幕上打开的那个对话，外壳随即落回工作台：这个控制台任何时候都停在一个对话上，而侧栏自己那次载入时的落位是一次性的，不会再触发第二次。归档失败就地报在这一段里，用它自己的一句固定文案（「移出失败，请稍后重试」），而不是工作流列表的保存失败；被拒绝的那句原文出自 host 运行时（`session archive failed: …`），带着本控制台要挡在屏幕之外的词汇，因此只进浏览器控制台。
 - **一条工作流被存下后会自己离开这一段**——保存会绑定它的 `homeSessionId`，而那正是五条排除之一。不需要第二套记账。
 
-持久文档（`{workflows, groups, workbenchSessionId}`）存在本包自己的 settings 命名空间里，并在一条同源路由上对外提供：
+菜单（`{workflows, groups, workbenchSessionId}`）是本行自己 Config 里的三个 volatile 字段，经 settings 服务写入当前 profile 的补丁，不会重新挂载本行；本行为它们关掉了自动生成的设置页，因为侧边栏就是它们的编辑器。早先版本存在 `settings.yaml` 的 `server-sidebar` 分区里的菜单，会被一次性导入同名 id 的 profile 条目，所以本行保留这个 id。它在一条同源路由上对外提供：
 
 - `GET /server-menu/workflows`——当前文档，`cache-control: no-store`。
-- `POST /server-menu/workflows`——把提交的补丁（`{workflows?, groups?, workbenchSessionId?}`）**合并**进当前文档，而不是整体替换，因此只改其中一个字段的调用方从不需要重新提交其余字段；补丁里真正携带的每个数组则是整值替换。上文每一条规则（重复的工作流 id、改版前的 `navSnapshot`、任一条分组约束）都会在提交前被拒绝，路由的 `validate` 钩子与本包的 invariant 各自把关一次。
+- `POST /server-menu/workflows`——把提交的补丁（`{workflows?, groups?, workbenchSessionId?}`）**合并**进当前菜单，而不是整体替换，因此只改其中一个字段的调用方从不需要重新提交其余字段；补丁里真正携带的每个数组则是整值替换。上文每一条规则（重复的工作流 id、改版前的 `navSnapshot`、任一条分组约束）都会对合并后的菜单检查，并在写入前以 400 拒绝；settings 服务拒绝的写入（例如被更高配置层覆盖的写入）答以 500。本行在加载时检查同样的规则，所以被手工改到违反其中一条的 profile 会让本行加载失败。
 
-浏览器无法直接调用 `settings.*` RPC——这是一组 loopback 特权方法，经反向代理进来的请求会被外壳自身的信任栅栏答以 403，而不是被反代配置里的某条规则拦下——因此本包的 node 半边是一个可选子节点，只在 `ctx.settings` 与 `ctx.webServer` 同时被组合时才注册这条路由；两者都不存在时侧边栏本身依然可用（导航不受影响），只是我的工作流下面没有东西可展示或持久化。
+浏览器无法直接调用 `settings.*` RPC——这是一组 loopback 特权方法，经反向代理进来的请求会被外壳自身的信任栅栏答以 403，而不是被反代配置里的某条规则拦下——因此本包的 node 半边是一个可选子节点，只在 `ctx.settings` 与 `ctx.webServer` 同时被组合、且本行由 Loader 挂载时（settings 服务写入的是 profile 条目）才注册这条路由；条件不满足时侧边栏本身依然可用（导航不受影响），只是我的工作流下面没有东西可展示或持久化。
 
 <a id="selection-highlight"></a>
 ## 选中高亮
@@ -186,7 +186,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 控制台不向终端用户提供任何形式的权限开关（产品决策，2026-09-07），因此剩下两个入口由 overlay 在组合层关掉。Settings → General 的默认值行有自己的行——`ui-permission`，直接禁用。`/permission` 则既没有可禁用的行，也没有 Config 开关：`@deepseek-ai/dsh-permission-presets` 是在 `ctx.inject(['commands'], …)` 里注册它的；整个拿掉 `commands` 注册表这条路也不通——切换条的标签与关闭按钮、侧栏的导航行、`show_component` 的按下回传路径，以及 `SessionFace.command()` 都注入了它。overlay 改为只在那一行上写 `isolate: { commands: true }`：loader 会为这个名字铸一个 entry 本地的 realm，那里没有任何东西实现 `commands`，被注入的子上下文因而永不激活，这条命令也就从未注册——于是 `commands.list` 不会点到它的名字，斜杠菜单也没有需要过滤的行。隔离是按 entry 生效的，所以其余每一个消费者拿到的仍是 base bundle 组合进来的那个注册表；这一行上也没有别的东西被隔离：预设表、`permissions` 投影、该包安装的 Settings 分区，以及权限执行本身，都原样不变。三条写入路径都没了之后，overlay 把生效的预设写明而不是留给推断——`defaultPreset: workspace-write`，也就是组合出的沙箱与审批默认值本来就会解析到的那一个，由该包自己的 `pinInitialPermission` 钉进每一个新会话。
 
-这个值是下限，不是常量。`defaultPreset` 是以组合层 `base` 的身份到达这个服务的，而 settings 的解析顺序是 schema 默认值、然后 `base`、然后用户层（`packages/settings/settings/src/index.ts:739`），因此部署的 settings 文档里已经存下的 `permission.defaultPreset` 仍然盖过它，并且正是 `pinInitialPermission` 钉进去的那一个。禁用 `ui-permission` 关掉的是写这个键的界面，它不会抹掉访客在升级之前存进去的值，而且此后也没有任何界面能看见或改动它。部署清掉它的办法，是把这个分区——一个 `permission:` 键，下面缩进一行 `defaultPreset: <名字>`——从 `<harness home>/settings.yaml` 里删掉：即 `$DSH_HOME/settings.yaml`，否则 `~/.dsh/settings.yaml`，再否则 `settings-file` 那一行配置的 `path`（`packages/settings/settings-file/src/index.ts:23-24,51-57`）。没有任何组合层的键能代劳：`base` 是 cordis.yml 的一行唯一能提供的那一层，而作为重置手段的 `SettingsScope.replace({})` 是拥有方的运行期调用。`remote.settings` 这条写入路径也依然能从浏览器够到——那是一台不带应用内鉴权运行的控制台的固有属性，不是这份 overlay 改出来的。
+新会话拿到的就是这个值。客户 overlay 以 `--patch` 应用，属于命令行层，settings 服务把它排在自己写入的当前 profile 补丁之上（见 [settings README](../../settings/settings/README.zh.md)）：对 `permission.defaultPreset` 的设置写入会被拒绝，早先版本存在 `settings.yaml` 里的值也不会被导入 profile——导入会记录这次拒绝，值留在 `settings.yaml.imported` 里。`remote.settings` 这条写入路径也依然能从浏览器够到——那是一台不带应用内鉴权运行的控制台的固有属性，不是这份 overlay 改出来的。
 
 <a id="brand-and-hero-facade"></a>
 ## 品牌与英雄区门面
@@ -218,11 +218,11 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **字面上的 240px 并非独立强制的。** 本外壳从不固定一个内联像素宽度；它按其 owner（`dsh-experimental-server-layout`）交给它的 `width` 渲染，也从不触发折叠。`server-layout` 冻结的 3:16:5 轨道比例恰好在其自身 1920px 参考帧宽下等于 240px（`1920 * 3/24 = 240`），但在任何其他帧宽下这一栏是等比例的，而非固定的。要让它真正固定，需要改动 `server-layout` 自己那份冻结、刻意不可配置的几何设定，这超出了本次改动的范围。
 - **决策③的用户消息判断是一个分页窗口内的近似值。** 「存为工作流」的可见性读取 `useSession(s => s.chat.legacy.nodes)`，与 `StatsLine.tsx` 读取的是同一个分页会话快照窗口——一条足够早、已经分页出这个窗口的用户消息不会被发现。要做到整份日志级别的判断，需要新增一个本 v1 没有引入的持久投影。
 - **轮次/步骤状态行与权限预设选择器都由耦合式 CSS 选择器隐藏，而非 Config 开关。** 一个耦合在 DOM 顺序上，另一个耦合在两个 CSS module 类名子串上；各自具体的脆弱之处与钉住它们的手段见上文「去术语化」。
-- **存下来的 `permission.defaultPreset` 会盖过 overlay 的。** overlay 提供的是组合层 `base`，而 settings 把它解析在用户层之下（`packages/settings/settings/src/index.ts:739`）。从 Settings → General 那一行还活着的版本升级上来的控制台，携带的是访客当时在那里选的预设，而此后没有任何界面能展示或改动它；要清掉它就得去改部署的 settings 文档——见上文「去术语化」。
+- **访客在升级前存下的预设会被丢弃。** overlay 的 `defaultPreset` 位于 profile 补丁之上的层，因此 `settings.yaml` 的一次性导入会拒绝存下的 `permission` 分区，把它留在 `settings.yaml.imported` 里——见上文「去术语化」。
 - **手打 `/permission` 仍然会发出一条消息。** 这个名字下既没有宿主描述符也没有客户端贡献，触发层的 Enter 裁决因此解析不出任何东西，输入框的默认落点把这一行当作普通文本提交：`/permission read-only` 会作为一条 `user/message` 落到日志上并开启一个轮次，模型读到的就是这两个词，除此之外什么也不会发生——没有 `permission/preset` 事件，权限 chip 的 `aria-label` 仍然是被钉住的那个预设。要堵住它，需要一种命令层表达不了的拒绝：注册表的一个条目只能添加一行，无法认领一个它拒绝服务的名字。
 - **`navSnapshot` 只捕获 导航 菜单列出的东西。** `captureNavSnapshot` 只在合并目录里能查到某个条目的 `{kind, entryId}` 时才保留它，所以一个寻常 content 栏里的三样东西会从降级重建中掉队：agent 画的图表、模型自己用 `show_component` 展示的组件（它的 id 是模型自由写下的，不是一份配置好的视图），以及展示时部署确实配置过、但保存时已不再配置的页面或视图。
 - **存下来的视图按今天的配置重放，而不是按保存当时的样子。** `navSnapshot` 记的是视图的 id，不是它背后的 spec——重放执行的是 `show-content-view`，读的是部署当下的 `views` 配置。部署后来改过的视图会以改过的样子回来，后来删掉的视图会得到「没有这个视图。」并被跳过。原对话的会话日志仍然携带用户当时看到的那份 spec（这正是 `content-component/shown` 记下的东西）；一条工作流的快照是一串落点，不是落点上那些内容的副本。
-- **绿点机制复用了 `completed`，而非新记账，且只有单测覆盖。** 它与「运行结束时未被选中、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——`SessionManager` 的 `running` 位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。
+- **绿点机制复用了 `completionUnread`，而非新记账，且只有单测覆盖。** 它与「在主视图之外停下、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——运行位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。
 - **改名/移除用悬停显现的图标按钮，而非原生右键菜单。** 这是任务本身明确允许的 v1 降级（「若实现体量失控，降级为右键菜单「上移/下移」」）——这条降级条款曾经也覆盖重新排序，直到重新排序改为原生 HTML5 拖拽为止；改名/移除这一半的降级依然保留，因为为这两个偶发动作再引入第二种交互模式依然没有正当理由。
 - **`ui-workspace` 是被组合的，挡住它英雄区选择器的只有一条 CSS 规则。** 它无法被禁用：`dsh-client-ui-conversation` 注入它的 `uiWorkspace` 服务，缺了它的组合根本不会激活对话列。它的 `sidebar.workspaces` 那一半在本外壳去掉那个槽之后已经失效（`ctx.slots.inject` 只是永远不会触发——见上文「替换出厂侧边栏」），但它的 `conversation.hero.workspace` 注册会落地，挡住它的是 `terminology-guard.ts` 的 `heroWorkspaceRow` 规则——一处类名子串耦合，那个类名一旦改名它就静默失效。一次零工作区的全新安装,依然会让页面或工作流点击成为一次被吸收的空操作（见上文「导航」）——这是从此前基于收藏的设计里延续下来的、已经被接受的既有边界情况，并非本次新引入。工作台自己的加载态自动落位比这更进一步：这种情况下它根本不会去尝试（见上文「工作台」），而是一直等待工作区出现，而不是先尝试一次再报一次警告。
 - **没有连接任何工作区时，输入框会说出这个词。** `ConversationRoot` 会以 `placeholder.workspace`（「Choose a workspace to start」）渲染它那个不可用的输入框，这是本包唯一触及不到的一处禁用词汇。它不是该用 CSS 盖掉的装饰——那个状态下输入框确实不能用，而这句占位文字是唯一在说明这件事的东西——也不是组合层能改名的东西：它属于 `dsh-client-ui-conversation` 自己的 locale 命名空间，而 locale 注册表对已有的命名空间/语言对会直接报错，所以任何插件都无法遮蔽另一个插件的键。要关掉它，要么让部署总是带着一个工作区（这本来就是整个控制台会退化成空操作的那个状态——见上文「导航」），要么给 locale 注册表加一个覆盖接口。有一个 e2e 场景把这处泄漏钉在那一句占位文字上，以免再出现第二处而无人发现。
@@ -242,6 +242,8 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **临时工作流那一段是在整份会话目录上现算的。** `session.list` 返回全部（其 v1 没有分页），因此一份很长的历史会在每一次相关变化时于浏览器里被整份过滤一遍。五行上限缩短的是画出来的部分，不是算出来的部分。
 - **一行的相对时间不会自己走。** 它在渲染时算出，因此「刚刚」会一直停在那里，直到别的什么触发这一段重新渲染。
 - **未被 assembled snapshot 覆盖。** 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+
+**运行时不变式：** 不发布伴生入口。菜单是本行自己的 Loader Config：settings 服务经 config editor 写入它，路由在写入前检查每一份合并后的菜单，本行加载时再检查一次已提交的菜单，因此不存在第二个能与它分歧的观察点。
 
 <a id="dev-note"></a>
 ### 开发备注

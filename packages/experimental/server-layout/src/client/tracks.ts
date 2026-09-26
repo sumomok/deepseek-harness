@@ -2,7 +2,8 @@
  * Pure track solver for the permanent four-track service shell. Every column
  * is resident: the session list, the content column, and the chat column split
  * the frame on a fixed 24-unit ratio, and the details column is a fixed-width
- * band that the layout service opens and closes. There is no concession chain
+ * band the right column's occupant reserves and releases through the layout
+ * service. There is no concession chain
  * and no drag preference — the solve is a function of (frame width, sidebar
  * fold, details open, content empty, narrow) alone, so any resize reproduces
  * the same ratio, with one fixed point on it: the expanded session column never
@@ -81,7 +82,7 @@ export interface Tracks {
   content: number
   /** Chat (conversation) column. */
   chat: number
-  /** Details band; 0 while closed, and the subtree stays mounted at that width. */
+  /** Details band; 0 while no track is reserved, and the subtree stays mounted at that width. */
   details: number
 }
 
@@ -110,7 +111,8 @@ function share(total: number, units: number, of: number): number {
  * Solve the four track widths for one frame.
  * @param frame - the shell's own measured width in px.
  * @param sessionFolded - whether the session column renders its control rail.
- * @param detailsOpen - whether the layout service has the details band open.
+ * @param detailsOpen - whether the right column's occupant reports a track
+ * reservation (`ILayout.openRightbar` with `track: true`).
  * @param contentEmpty - whether the content column has nothing to show
  * (collapses it to zero, same as `detailsOpen: false` does for details).
  * @param narrow - whether the frame is below {@link SIDEBAR_AUTO_COLLAPSE}

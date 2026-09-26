@@ -395,7 +395,7 @@ describe('hasShownHome', () => {
 })
 
 /**
- * Build a fake context, plus the raw `sessions.open` spy on the side: reading
+ * Build a fake context, plus the raw `uiWorkspace.openSession` spy on the side: reading
  * it back off `ctx` for an assertion would type it as `ClientContext`'s
  * declared method (an unbound-method lint violation), not as the `vi.fn()`
  * it actually is.
@@ -408,11 +408,11 @@ function fakeContext(overrides: {
   const open = vi.fn()
   const ctx = {
     sessions: {
-      list: { getSnapshot: () => ({ current: undefined, phase: 'ready', ids: [], byId: {} }) },
-      open,
+      list: { getSnapshot: () => ({ phase: 'ready', ids: [], byId: {} }) },
     },
     uiWorkspace: {
       connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
+      openSession: open,
     },
     workspaces: {
       list: {
@@ -527,7 +527,7 @@ describe('openWorkflow', () => {
 describe('openTemporarySession', () => {
   it('selects the conversation, with no liveness judgment to make', async () => {
     const open = vi.fn()
-    const ctx = { sessions: { open } } as unknown as ClientContext
+    const ctx = { uiWorkspace: { openSession: open } } as unknown as ClientContext
     await openTemporarySession(ctx, 's1')
     expect(open).toHaveBeenCalledWith('s1')
   })

@@ -24,13 +24,18 @@ const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unkn
       return typeof value === 'string' ? value : ''
     })
 }
-/** No Session has a pending interaction in these fixtures. */
-const noPendingInteraction: ServerSidebarRootComponentProps['useSessionPendingInteraction'] =
+/** A standard hook the sidebar never reads, supplied only to complete the root share. */
+function unusedHook(): never {
+  throw new Error('server-sidebar: this standard hook is not read by the sidebar')
+}
+
+/** No Session reports a status in these fixtures. */
+const noSessionStatus: ServerSidebarRootComponentProps['useSessionStatus'] =
   selector => selector(new Map())
 
 const emptySessions = (<S,>(
-  sel: (s: { ids: never[]; current: undefined; byId: Record<string, never>; phase: 'ready' }) => S,
-): S => sel({ ids: [], current: undefined, byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
+  sel: (s: { ids: never[]; byId: Record<string, never>; phase: 'ready' }) => S,
+): S => sel({ ids: [], byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
 
 afterEach(() => {
   cleanup()
@@ -80,7 +85,10 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       }) => S): S => (
         sel({ phase: 'ready', items: [{}], archivedSessionIds: [] })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
-      useSessionPendingInteraction={noPendingInteraction}
+      useSessionStatus={noSessionStatus}
+      usePanelInfo={unusedHook}
+      useSessionRetainInfo={unusedHook}
+      useResource={unusedHook}
       renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
         options?.fallback ?? <div data-testid="region" />) as ServerSidebarRootComponentProps['renderSlot']}
     />,

@@ -70,7 +70,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * never present without the session it belongs to.
  */
 export interface ContentSurfaceKindOwnerProps {
-  /** The session whose surface the column shows, or undefined while none is current. */
+  /** The session whose surface the column shows, or undefined while no session is on the main view. */
   sessionId: string | undefined
   /**
    * The selected entry while it belongs to this seat's kind; undefined while

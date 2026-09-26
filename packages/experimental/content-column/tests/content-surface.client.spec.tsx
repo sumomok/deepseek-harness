@@ -41,11 +41,16 @@ interface Feed {
  * @returns the hook the column calls.
  */
 function sessionsHook(feed: Feed): ContentSurfaceProps['useSessions'] {
+  const ids = new Set([...Object.keys(feed.entries ?? {}), ...feed.current === undefined ? [] : [feed.current]])
   const state = {
-    current: feed.current,
-    byId: Object.fromEntries(Object.entries(feed.entries ?? {}).map(([id, entries]) => [id, {
-      projectionValues: {
-        contentSurface: { entries, ...feed.front?.[id] === undefined ? {} : { front: feed.front[id] } },
+    byId: Object.fromEntries([...ids].map(id => [id, {
+      id,
+      // The main view is the row the Conversation retains.
+      retainedBy: id === feed.current ? { mainView: 1 } : {},
+      ...feed.entries?.[id] === undefined ? {} : {
+        projectionValues: {
+          contentSurface: { entries: feed.entries[id], ...feed.front?.[id] === undefined ? {} : { front: feed.front[id] } },
+        },
       },
     }])),
   }

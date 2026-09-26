@@ -1,52 +1,70 @@
 /**
- * The ctx.layout face this shell provides: the three transitions forward to
- * whichever bound action set is attached, an unwired call fails loud rather
- * than dropping the gesture, and re-attaching replaces a stale set (which is
- * what an entry re-register produces).
+ * The ctx.layout face this shell provides: each transition forwards to the
+ * bound panel actions, main-panel selection refuses an unregistered key and
+ * supersedes a pending navigation, and disposal aborts the pending one.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { createPanelFace } from '../src/client/panel-face.ts'
+import type { MainPanelId, PanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import { PanelFace } from '../src/client/panel-face.ts'
 import type { BoundPanelActions } from '../src/client/panel-face.ts'
 
 function fakePanels(): BoundPanelActions {
   return {
-    toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
+    selectPanel: vi.fn(), retainMainPanels: vi.fn(), toggleSidebar: vi.fn(),
+    openRightbar: vi.fn(), closeRightbar: vi.fn(),
     openDrawer: vi.fn(), closeDrawer: vi.fn(), setNarrow: vi.fn(),
   }
 }
 
-describe('createPanelFace', () => {
-  it('forwards each transition to the attached action set', () => {
-    const face = createPanelFace()
-    const panels = fakePanels()
-    face.attach(panels)
+const panelInfo: HostObservable<PanelInfo> = {
+  getSnapshot: () => ({ activePanelId: null }),
+  subscribe: () => () => {},
+}
 
-    face.layout.toggleSidebar()
-    face.layout.openDetails()
-    face.layout.closeDetails()
+const SCHEDULE = 'schedule' as MainPanelId
+
+describe('PanelFace', () => {
+  it('forwards the sidebar and right-column transitions to the bound actions', () => {
+    const panels = fakePanels()
+    const face = new PanelFace(panels, () => true, panelInfo)
+
+    face.toggleSidebar()
+    face.openRightbar(true, false)
+    face.closeRightbar()
 
     expect(panels.toggleSidebar).toHaveBeenCalledTimes(1)
-    expect(panels.openDetails).toHaveBeenCalledTimes(1)
-    expect(panels.closeDetails).toHaveBeenCalledTimes(1)
+    expect(panels.openRightbar).toHaveBeenCalledWith(true, false)
+    expect(panels.closeRightbar).toHaveBeenCalledTimes(1)
+    expect(face.panelInfo).toBe(panelInfo)
   })
 
-  it('fails loud before the root entry wired its actions', () => {
-    const { layout } = createPanelFace()
-    expect(() => { layout.toggleSidebar() }).toThrow(/panel actions not wired/)
-    expect(() => { layout.openDetails() }).toThrow(/panel actions not wired/)
-    expect(() => { layout.closeDetails() }).toThrow(/panel actions not wired/)
+  it('selects a registered main panel or the Conversation, and refuses an unregistered one', () => {
+    const panels = fakePanels()
+    const face = new PanelFace(panels, id => id === SCHEDULE, panelInfo)
+
+    face.selectPanel(SCHEDULE)
+    face.selectPanel(null)
+    expect(panels.selectPanel).toHaveBeenNthCalledWith(1, SCHEDULE)
+    expect(panels.selectPanel).toHaveBeenNthCalledWith(2, null)
+
+    expect(() => { face.selectPanel('missing' as MainPanelId) }).toThrow(/"missing" is not registered/)
+    expect(panels.selectPanel).toHaveBeenCalledTimes(2)
   })
 
-  it('re-attach replaces the stale action set (entry re-register)', () => {
-    const face = createPanelFace()
-    const stale = fakePanels()
-    const fresh = fakePanels()
-    face.attach(stale)
-    face.attach(fresh)
+  it('aborts the pending navigation on the next navigation, a selection, and disposal', () => {
+    const face = new PanelFace(fakePanels(), () => true, panelInfo)
 
-    face.layout.toggleSidebar()
+    const first = face.beginNavigation()
+    const second = face.beginNavigation()
+    expect(first.aborted).toBe(true)
+    expect(second.aborted).toBe(false)
 
-    expect(stale.toggleSidebar).not.toHaveBeenCalled()
-    expect(fresh.toggleSidebar).toHaveBeenCalledTimes(1)
+    face.selectPanel(null)
+    expect(second.aborted).toBe(true)
+
+    const third = face.beginNavigation()
+    face.dispose()
+    expect(third.aborted).toBe(true)
   })
 })

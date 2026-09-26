@@ -1,11 +1,12 @@
 /**
- * Server-menu domain: the durable shape, its schema, and the settings
- * namespace this package's node half registers.
+ * Server-menu domain: the durable fields, their schemas, and the section name
+ * the removed `settings.yaml` stored them under.
  *
- * Persistence is per-account because it rides the settings capability: the
- * local file provider's document lives at `$DSH_HOME/settings.yaml`, and this
- * deployment shape is one process per signed-in user (see the package
- * README's workflows section). One document carries three independent facts:
+ * Persistence is per-account because the fields are this plugin's own
+ * volatile Config, written through the settings service into the active
+ * profile's patch, and this deployment shape is one process per signed-in
+ * user (see the package README's workflows section). The menu carries three
+ * independent facts:
  * the persistent 工作台 (workbench) conversation's id, the user's own named
  * workflow shortcuts, and the groups those shortcuts are filed under. A
  * workflow's `homeSessionId` is a weak reference to a session id — see
@@ -13,11 +14,18 @@
  * a stale pointer must not corrupt the document it lives in.
  */
 
+import type { VolatileSnapshot } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_GROUP_NAME_LENGTH, TEMPORARY_GROUP_ID } from './menu-constants.ts'
 
-/** Settings namespace this package owns. */
+/**
+ * Section of the removed `settings.yaml` the menu was stored under. The
+ * settings service imports each section into the profile entry of the same
+ * id, so a composition whose server-sidebar row carries this id picks up a
+ * menu saved by an earlier release; `nav-snapshot-migration.ts` converts that
+ * section in place.
+ */
 export const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 /**
@@ -146,7 +154,7 @@ export interface ServerMenuWorkflow {
   groupId?: string
 }
 
-/** Durable section this package's namespace resolves to. */
+/** The menu as the server-menu route answers it: the three volatile Config fields' current values. */
 export interface ServerMenuSettings {
   /** Every workflow, in no particular storage order — `order` is what the menu sorts by. */
   workflows: ServerMenuWorkflow[]
@@ -165,23 +173,29 @@ export interface ServerMenuSettings {
   workbenchSessionId?: string
 }
 
-/** Durable schema; also the wire shape the server-menu route validates a patch's merged result against. */
+/** Schema of the `workflows` Config field. */
+export const ServerMenuWorkflowsSchema: z<ServerMenuWorkflow[]> = z.array(z.object({
+  id: z.string().required(),
+  name: z.string().required(),
+  order: z.number().required(),
+  homeSessionId: z.string().required(),
+  navSnapshot: z.array(NavSnapshotItemSchema).default([]),
+  savedAt: z.number().required(),
+  groupId: z.string(),
+}))
+
+/** Schema of the `groups` Config field. */
+export const ServerMenuGroupsSchema: z<ServerMenuGroup[]> = z.array(z.object({
+  id: z.string().required(),
+  name: z.string().required(),
+  pinned: z.boolean().default(false),
+  order: z.number().required(),
+}))
+
+/** The three fields as one document: what the server-menu route resolves a patch's merged candidate against. */
 export const ServerMenuSettingsSchema: z<ServerMenuSettings> = z.object({
-  workflows: z.array(z.object({
-    id: z.string().required(),
-    name: z.string().required(),
-    order: z.number().required(),
-    homeSessionId: z.string().required(),
-    navSnapshot: z.array(NavSnapshotItemSchema).default([]),
-    savedAt: z.number().required(),
-    groupId: z.string(),
-  })).default([]),
-  groups: z.array(z.object({
-    id: z.string().required(),
-    name: z.string().required(),
-    pinned: z.boolean().default(false),
-    order: z.number().required(),
-  })).default([]),
+  workflows: ServerMenuWorkflowsSchema.default([]),
+  groups: ServerMenuGroupsSchema.default([]),
   workbenchSessionId: z.string(),
 })
 
@@ -195,10 +209,11 @@ export const ServerMenuSettingsSchema: z<ServerMenuSettings> = z.object({
  * Every message here is unprefixed: their one consumer (the server-menu
  * route's error response) adds the "server-sidebar:" prefix itself, alongside
  * every other write failure it wraps the same way.
- * @param value - the resolved section, schema-valid by construction.
+ * @param value - the resolved menu, schema-valid by construction; the
+ * volatile Config fields' frozen snapshots qualify.
  * @throws {Error} when any of those constraints is broken.
  */
-export function validateServerMenu(value: ServerMenuSettings): void {
+export function validateServerMenu(value: VolatileSnapshot<ServerMenuSettings>): void {
   const groupIds = new Set<string>()
   for (const group of value.groups) {
     if (group.id === TEMPORARY_GROUP_ID) {

@@ -344,7 +344,6 @@
       "@deepseek-ai/dsh-experimental-server-layout/client": ["./packages/experimental/server-layout/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-server-sidebar": ["./packages/experimental/server-sidebar/src"],
       "@deepseek-ai/dsh-experimental-server-sidebar/client": ["./packages/experimental/server-sidebar/src/client/index.ts"],
-      "@deepseek-ai/dsh-experimental-server-sidebar/invariant": ["./packages/experimental/server-sidebar/src/invariant.ts"],
       "@deepseek-ai/dsh-experimental-vue-ui-poc": ["./packages/experimental/vue-ui-poc/src"],
       "@deepseek-ai/dsh-experimental-vue-ui-poc/client": ["./packages/experimental/vue-ui-poc/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-vue2-echarts-poc": ["./packages/experimental/vue2-echarts-poc/src"],

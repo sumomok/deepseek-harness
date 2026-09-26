@@ -2,11 +2,13 @@
  * The service-line shell frame, registered into the built-in 'root' slot (the
  * web shell renders only 'root'). Four resident grid tracks — session |
  * content | chat | details — solved in px from the frame's own measured width
- * (tracks.ts). The frame owns three render decisions: the session slot renders
+ * (tracks.ts). The frame owns four render decisions: the session slot renders
  * here with the fold state and the solved px width it must lay itself out
  * against, the content slot carries this shell's own empty-state body as its
- * renderSlot fallback, and the session-aware occupants render at fixed tree
- * positions so a session switch never moves them.
+ * renderSlot fallback, the chat column renders the `main` entry the selected
+ * panel names (the Conversation by default), and the right column's occupant
+ * receives the fixed details width it draws its panel at. Every occupant
+ * renders at a fixed tree position so a session switch never moves it.
  *
  * Below the {@link isNarrow} breakpoint the session column leaves the grid
  * (its track solves to 0) and the session list is reached through an off-canvas
@@ -20,7 +22,7 @@
  *
  * The content column additionally collapses to zero width while the current
  * session's content surface has shown nothing — read defensively off the
- * standard `useSessions` list feed's per-entry `projectionValues`
+ * standard `useSessions` list feed's `projectionValues` on the main view's row
  * (`@deepseek-ai/dsh-experimental-content-surface`'s `contentSurface` key)
  * rather than importing that package: this shell has zero dependency on it,
  * and a deployment that never composes it simply always reads an empty
@@ -33,32 +35,48 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { ContentPlaceholder } from './ContentPlaceholder.tsx'
-import { isNarrow, SIDEBAR_DRAWER, solveTracks } from './tracks.ts'
+import { DETAILS_WIDTH, isNarrow, SIDEBAR_DRAWER, solveTracks } from './tracks.ts'
 import type { createPanelStore } from './stores.ts'
 import css from './ShellFrame.module.css'
 
 /** Full composed props: runtime share + child-slot render share + store share + locale seat. */
 export type ShellFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'content' | 'conversation' | 'details' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'content' | 'main' | 'rightbar' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createPanelStore>>
   & PropsLocale<'serverLayout'>
 
+/** The session-list fields the content-empty read looks at. */
+interface ContentEmptyInput {
+  byId: Record<string, { projectionValues?: object; retainedBy: Readonly<Record<string, number | undefined>> }>
+}
+
 /**
- * Read whether the current session's content surface has anything to show,
- * off the standard session-list feed rather than a content-surface import
- * (see the module doc). Defensive `unknown` narrowing throughout: neither
- * `projectionValues` nor its `contentSurface` member is typed in this
- * package's own compilation.
+ * Read whether the main view's content surface has anything to show, off the
+ * standard session-list feed rather than a content-surface import (see the
+ * module doc). The main view is the row the Conversation retains
+ * (`retainedBy.mainView`). Defensive narrowing throughout: the
+ * `contentSurface` projection key is not typed in this package's own
+ * compilation.
  * @param state - the `useSessions` snapshot.
- * @returns `false` once the current session's content surface carries at
- * least one entry; `true` otherwise, including no current session at all.
+ * @returns `false` once the main view's content surface carries at least one
+ * entry; `true` otherwise, including no main-view session at all.
  */
-function currentContentEmpty(state: { byId: Record<string, { projectionValues?: unknown }>; current: string | undefined }): boolean {
-  if (state.current === undefined) return true
-  const projectionValues = state.byId[state.current]?.projectionValues as Record<string, unknown> | undefined
-  const contentSurface = projectionValues?.contentSurface as { entries?: readonly unknown[] } | undefined
-  return (contentSurface?.entries?.length ?? 0) === 0
+function currentContentEmpty(state: ContentEmptyInput): boolean {
+  const current = Object.values(state.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)
+  if (current?.projectionValues === undefined) return true
+  const contentSurface: unknown = Reflect.get(current.projectionValues, 'contentSurface')
+  if (typeof contentSurface !== 'object' || contentSurface === null || !('entries' in contentSurface)) return true
+  return !Array.isArray(contentSurface.entries) || contentSurface.entries.length === 0
+}
+
+/**
+ * The chat column: the `main` entry the selected panel names, subscribed on
+ * its own so a selection change re-renders only this subtree.
+ */
+function MainPanel({ usePanelInfo, renderSlot }: Pick<ShellFrameProps, 'usePanelInfo' | 'renderSlot'>) {
+  const panelId = usePanelInfo(info => info.activePanelId)
+  return renderSlot('main', {}, { entryKey: panelId ?? 'conversation' })
 }
 
 /**
@@ -66,7 +84,7 @@ function currentContentEmpty(state: { byId: Record<string, { projectionValues?: 
  * @param props - the composed slot props.
  * @returns the frame element.
  */
-export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider, t, actions }: ShellFrameProps) {
+export function ShellFrame({ useStore, useSessions, usePanelInfo, renderSlot, t, actions }: ShellFrameProps) {
   const panels = useStore(s => s)
   const contentEmpty = useSessions(currentContentEmpty)
   const frameRef = useRef<HTMLDivElement | null>(null)
@@ -119,7 +137,8 @@ export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider,
     target?.focus()
   }, [panels.drawerOpen])
 
-  const tracks = solveTracks(frame, panels.sessionFolded, panels.detailsOpen, contentEmpty, narrow)
+  const tracks = solveTracks(frame, panels.sessionFolded, panels.rightbarTrack, contentEmpty, narrow)
+  const rightbarWidth = Math.min(DETAILS_WIDTH, frame)
   const showHamburger = narrow && !panels.drawerOpen
   const showDrawer = narrow && panels.drawerOpen
   const drawerWidth = Math.min(SIDEBAR_DRAWER, frame)
@@ -130,7 +149,8 @@ export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider,
       className={css.frame}
       style={{ gridTemplateColumns: `${tracks.session}px ${tracks.content}px ${tracks.chat}px ${tracks.details}px` }}
       data-session-folded={panels.sessionFolded || undefined}
-      data-details-open={panels.detailsOpen || undefined}
+      data-details-open={panels.rightbarTrack || undefined}
+      data-rightbar-fullscreen={panels.rightbarFullscreen || undefined}
       data-content-empty={contentEmpty || undefined}
       data-narrow={narrow || undefined}
     >
@@ -147,15 +167,14 @@ export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider,
         })}
       </div>
       <div className={css.chatCol} data-shell-column="chat">
-        {renderSlot('conversation', {})}
+        <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
       </div>
-      {/* Zero width keeps the details subtree mounted across close/open.
-          `details` is strict session scope, so the renderer requires the
-          standard-kit SessionProvider seat around it: the provider withholds
-          the entry while no session is current, rather than rendering it
-          without a scope binding. */}
+      {/* The right column's occupant draws its panel against this column's
+          right edge at the fixed details width; the track only decides whether
+          chat makes room for it. The occupant owns its Session binding and
+          reports shown/track/fullscreen through ctx.layout. */}
       <div className={css.detailsCol} data-shell-column="details">
-        <SessionProvider>{renderSlot('details', {})}</SessionProvider>
+        {renderSlot('rightbar', { width: rightbarWidth, viewportWidth: frame, canShow: rightbarWidth > 0 })}
       </div>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}

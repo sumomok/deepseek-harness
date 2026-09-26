@@ -47,6 +47,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls dsh-client-ui-conversation's `ctx.conversation` Context
 // merge, which is what a session scope resolves the cancel face out of.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { mainViewSessionId } from './session-resolution.ts'
 
 /** Must match `@deepseek-ai/dsh-experimental-auth-gate`'s `AUTH_GATE_SETTINGS_ROUTE`. */
 const AUTH_GATE_SETTINGS_ROUTE = '/auth-gate/settings'
@@ -269,7 +270,8 @@ function scopedConversation(ctx: ClientContext, sessionId: SessionId): { cancel:
  * @returns nothing, once every target has been asked to stop.
  */
 export async function stopRunningTurns(ctx: ClientContext): Promise<void> {
-  const { ids, byId, current } = ctx.sessions.list.getSnapshot()
+  const { ids, byId } = ctx.sessions.list.getSnapshot()
+  const current = mainViewSessionId(ctx)
   const targets = ids.filter(id => byId[id]?.running === true)
   if (current !== undefined && !targets.includes(current)) targets.push(current)
   for (const sessionId of targets) {

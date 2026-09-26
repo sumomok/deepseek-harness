@@ -2,8 +2,9 @@
 /**
  * ShellFrame under the four-share props form: a real panel store instance
  * (createPanelStore().create() — the test-sanctioned engine path), a
- * recording renderSlot stub, and a `useSessions` stub carrying the current
- * session's `contentSurface.entries` count (the content-empty collapse's own
+ * recording renderSlot stub, a `usePanelInfo` hook over that instance's
+ * selection, and a `useSessions` stub carrying the main view's
+ * `contentSurface.entries` count (the content-empty collapse's own
  * input — see `ShellFrame.tsx`'s module doc). jsdom has no layout engine, so
  * the frame's own box arrives through the ResizeObserver stub rather than a
  * real measurement. The assertions are the user-visible ones: the four
@@ -22,7 +23,8 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ShellFrame, type ShellFrameProps } from '../src/client/ShellFrame.tsx'
 import { createPanelStore } from '../src/client/stores.ts'
-import { CHAT_UNITS, CONTENT_UNITS, SESSION_RAIL, SESSION_UNITS, SIDEBAR_DRAWER, solveTracks } from '../src/client/tracks.ts'
+import { CHAT_UNITS, CONTENT_UNITS, DETAILS_WIDTH, SESSION_RAIL, SESSION_UNITS, SIDEBAR_DRAWER, solveTracks } from '../src/client/tracks.ts'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh } from '../src/client/locales.ts'
 
 const FRAME = 1680
@@ -53,7 +55,7 @@ function hookOf<T>(instance: { subscribe: (fn: () => void) => () => void; getSna
 
 /**
  * `mountFrame`'s content-surface control: a positive/zero entry count, no
- * current session at all, or a current session carrying no `contentSurface`
+ * main-view session at all, or a main-view session carrying no `contentSurface`
  * projection value whatsoever (a deployment that never composes
  * `dsh-experimental-content-surface` — this package has zero dependency on
  * it, see the module doc).
@@ -61,7 +63,7 @@ function hookOf<T>(instance: { subscribe: (fn: () => void) => () => void; getSna
 type ContentFixture = number | 'no-session' | 'no-projection'
 
 /**
- * Build a `useSessions` stub reporting one current session whose
+ * Build a `useSessions` stub reporting one main-view session whose
  * `contentSurface.entries` carries `contentEntries` items — see
  * {@link ContentFixture} for the two sentinel cases (both collapsed
  * readings; see `ShellFrame.tsx`'s own `currentContentEmpty`).
@@ -82,12 +84,12 @@ function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSe
         running: false,
         blank: false,
         updatedAt: 1,
+        retainedBy: { mainView: 1 },
         ...noProjection ? {} : {
           projectionValues: { contentSurface: { entries: Array.from({ length: entryCount }, () => ({})) } },
         },
       },
     },
-    current: noSession ? undefined : TEST_SESSION_ID,
     phase: 'ready',
   } as unknown as SessionListState
   return ((select: (s: SessionListState) => unknown) => select(state)) as never
@@ -96,21 +98,23 @@ function useSessionsStub(contentEntries: ContentFixture): ShellFrameProps['useSe
 function mountFrame(occupied: readonly string[] = [], contentEntries: ContentFixture = 1) {
   window.innerWidth = FRAME
   const instance = createPanelStore().create()
-  const calls: { key: string; owner: unknown }[] = []
-  const renderSlot = (key: string, owner: object, opts?: { fallback?: ReactNode }) => {
-    calls.push({ key, owner })
+  const calls: { key: string; owner: unknown; entryKey?: string | undefined }[] = []
+  const renderSlot = (key: string, owner: object, opts?: { fallback?: ReactNode; entryKey?: string }) => {
+    calls.push({ key, owner, entryKey: opts?.entryKey })
     return occupied.includes(key) ? <div data-testid={`${key}-occupant`} /> : opts?.fallback ?? null
   }
+  const usePanelInfo = hookOf({
+    subscribe: listener => instance.subscribe(listener),
+    getSnapshot: () => instance.getSnapshot().panelInfo,
+  })
   // The frame reads seven of its seats; the rest of the composed share is
   // framework-supplied and never touched, so the bench supplies only these.
-  // The renderer injects `SessionProvider`; this bench renders its children
-  // straight through, because no assertion here turns on the scope binding.
   const props = {
     useStore: hookOf(instance),
     useSessions: useSessionsStub(contentEntries),
+    usePanelInfo,
     actions: instance.actions,
     renderSlot,
-    SessionProvider: ({ children }: { children?: ReactNode }) => <>{children}</>,
     t: makeTranslate(zh),
   } as unknown as ShellFrameProps
   const view = render(<ShellFrame {...props} />)
@@ -180,19 +184,33 @@ describe('ShellFrame', () => {
       .toEqual({ collapsed: true, width: SESSION_RAIL })
   })
 
-  it('opens the details band to its fixed width and keeps the subtree mounted while closed', () => {
-    const { instance, frame, calls } = mountFrame(['details'])
+  it('reserves the details track when the right column reports one and keeps its occupant mounted without it', () => {
+    const { instance, frame, calls } = mountFrame(['rightbar'])
     expect(tracks(frame)[3]).toBe(0)
-    expect(screen.getByTestId('details-occupant')).toBeDefined()
+    expect(screen.getByTestId('rightbar-occupant')).toBeDefined()
+    expect(calls.find(call => call.key === 'rightbar')?.owner)
+      .toEqual({ width: DETAILS_WIDTH, viewportWidth: FRAME, canShow: true })
 
-    act(() => { instance.actions.openDetails() })
+    act(() => { instance.actions.openRightbar(true, false) })
     expect(frame.dataset['detailsOpen']).toBe('true')
     expect(tracks(frame)[3]).toBe(solveTracks(FRAME, false, true, false, false).details)
 
-    act(() => { instance.actions.closeDetails() })
+    act(() => { instance.actions.openRightbar(false, true) })
     expect(tracks(frame)[3]).toBe(0)
-    expect(screen.getByTestId('details-occupant')).toBeDefined()
+    expect(frame.dataset['rightbarFullscreen']).toBe('true')
+
+    act(() => { instance.actions.closeRightbar() })
+    expect(tracks(frame)[3]).toBe(0)
+    expect(screen.getByTestId('rightbar-occupant')).toBeDefined()
     expect(calls.some(call => call.key === 'shell.overlay')).toBe(true)
+  })
+
+  it('renders the Conversation main entry by default and the selected panel after a selection', () => {
+    const { instance, calls } = mountFrame(['main'])
+    expect(calls.filter(call => call.key === 'main').at(-1)?.entryKey).toBe('conversation')
+
+    act(() => { instance.actions.selectPanel('schedule' as MainPanelId) })
+    expect(calls.filter(call => call.key === 'main').at(-1)?.entryKey).toBe('schedule')
   })
 
   it('fills an unclaimed content column with its own placeholder', () => {
@@ -214,7 +232,7 @@ describe('ShellFrame', () => {
     expect(deliverResize).toBeNull()
   })
 
-  it('collapses the content column to zero width while the current session has shown nothing', () => {
+  it('collapses the content column to zero width while the main view has shown nothing', () => {
     const { frame } = mountFrame([], 0)
     const solved = solveTracks(FRAME, false, false, true, false)
     expect(tracks(frame)).toEqual([solved.session, 0, solved.chat, 0])
@@ -222,19 +240,19 @@ describe('ShellFrame', () => {
     expect(frame.dataset['contentEmpty']).toBe('true')
   })
 
-  it('collapses the content column when there is no current session at all', () => {
+  it('collapses the content column when no session is on the main view', () => {
     const { frame } = mountFrame([], 'no-session')
     expect(tracks(frame)[1]).toBe(0)
     expect(frame.dataset['contentEmpty']).toBe('true')
   })
 
-  it('collapses the content column when the current session carries no content-surface projection at all', () => {
+  it('collapses the content column when the main view carries no content-surface projection at all', () => {
     const { frame } = mountFrame([], 'no-projection')
     expect(tracks(frame)[1]).toBe(0)
     expect(frame.dataset['contentEmpty']).toBe('true')
   })
 
-  it('expands the content column once the current session has shown something', () => {
+  it('expands the content column once the main view has shown something', () => {
     const { frame } = mountFrame([], 1)
     expect(tracks(frame)[1]).toBeGreaterThan(0)
     expect(frame.dataset['contentEmpty']).toBeUndefined()

@@ -28,13 +28,14 @@ function fakeContext(overrides: {
     sessions: {
       list: {
         getSnapshot: () => ({
-          current: overrides.currentSessionId,
           phase: 'ready' as const,
           ids: [],
-          byId: {},
+          // The main view is the row the Conversation retains.
+          byId: overrides.currentSessionId === undefined ? {} : {
+            [overrides.currentSessionId]: { id: overrides.currentSessionId, retainedBy: { mainView: 1 } },
+          },
         }),
       },
-      open: vi.fn(),
     },
     workspaces: {
       list: {
@@ -49,6 +50,7 @@ function fakeContext(overrides: {
     },
     uiWorkspace: {
       connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
+      openSession: vi.fn(),
     },
     remote: {
       commands: { execute: overrides.execute ?? (() => Promise.resolve({ ok: true, value: undefined })) },

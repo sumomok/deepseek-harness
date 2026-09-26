@@ -7,12 +7,11 @@
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action, the workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
- * and its sign-out action, removal on fiber teardown (HMR safety), the
- * dictionaries, and the invariant companion's ownership reservation.
+ * and its sign-out action, removal on fiber teardown (HMR safety), and the
+ * dictionaries.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
@@ -22,7 +21,6 @@ import { apply, inject, type ServerSidebarInjected } from '../src/client/index.t
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
-import * as ServerSidebarInvariant from '../src/invariant.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -46,14 +44,14 @@ interface BenchWorkspaces {
 
 /** Mocked `sessions` service face this bench provides. */
 interface BenchSessions {
-  open: ReturnType<typeof vi.fn>
-  list: { getSnapshot: () => { current: string | undefined; phase: 'ready'; ids: readonly string[]; byId: object } }
+  list: { getSnapshot: () => { phase: 'ready'; ids: readonly string[]; byId: object } }
   scope: (id: string) => { get: (service: string) => { cancel: ReturnType<typeof vi.fn> } }
 }
 
 /** Mocked `uiWorkspace` service face this bench provides. */
 interface BenchUiWorkspace {
   connectWorkspace: ReturnType<typeof vi.fn>
+  openSession: ReturnType<typeof vi.fn>
 }
 
 /** Mocked `remote` service face this bench provides. */
@@ -196,18 +194,19 @@ async function bench(
     ...options.liveSessionIds ?? [],
   ]
   const sessions = {
-    open: vi.fn(),
     list: {
       getSnapshot: () => ({
-        current: options.currentSessionId,
         phase: 'ready' as const,
         ids: listed,
-        byId: Object.fromEntries(listed.map(id => [id, { running: false }])),
+        // The main view is the row the Conversation retains.
+        byId: Object.fromEntries(listed.map(id => [id, {
+          id, running: false, retainedBy: id === options.currentSessionId ? { mainView: 1 } : {},
+        }])),
       }),
     },
     scope: () => ({ get: () => ({ cancel }) }),
   }
-  const uiWorkspace = { connectWorkspace: vi.fn(() => Promise.resolve('new-session')) }
+  const uiWorkspace = { connectWorkspace: vi.fn(() => Promise.resolve('new-session')), openSession: vi.fn() }
   const remote = { commands: { execute: vi.fn(() => Promise.resolve({ ok: true, value: undefined })) } }
   ctx.provide('workspaces', workspaces as never)
   ctx.provide('uiWorkspace', uiWorkspace as never)
@@ -309,64 +308,64 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('onOpenWorkbenchOnLoad reopens the recorded session directly when it is live, with no persist', async () => {
-    const { ctx, sessions } = await bench()
+    const { ctx, uiWorkspace } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenWorkbenchOnLoad('home-1', true)
-    expect(sessions.open).toHaveBeenCalledWith('home-1')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('home-1')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('onOpenWorkbenchOnLoad creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbenchOnLoad(undefined, false)
     expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbenchOnLoad leaves a workbench open with no session and no workspace to create one in', async () => {
-    const { ctx, sessions } = await bench()
+    const { ctx, uiWorkspace } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenWorkbenchOnLoad(undefined, false)
-    expect(sessions.open).not.toHaveBeenCalled()
+    expect(uiWorkspace.openSession).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('onOpenWorkbench (click) reopens the recorded session directly when it is live and still clean', async () => {
-    const { ctx, sessions } = await bench()
+    const { ctx, uiWorkspace } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenWorkbench('home-1', true, true, false)
-    expect(sessions.open).toHaveBeenCalledWith('home-1')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('home-1')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer clean', async () => {
-    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench('home-1', true, false, false)
     expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench(undefined, false, false, false)
     expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) leaves a workbench open with no session and no workspace to create one in', async () => {
-    const { ctx, sessions } = await bench()
+    const { ctx, uiWorkspace } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenWorkbench(undefined, false, false, false)
-    expect(sessions.open).not.toHaveBeenCalled()
+    expect(uiWorkspace.openSession).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
@@ -416,21 +415,21 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('opens a live workflow directly, with no replay and no persist', async () => {
-    const { ctx, sessions, remote } = await bench()
+    const { ctx, uiWorkspace, remote } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenWorkflow(WORKFLOW, true)
-    expect(sessions.open).toHaveBeenCalledWith('session-a')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('session-a')
     expect(remote.commands.execute).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('degrades a stale workflow: creates a fresh session, replays its snapshot, and repoints homeSessionId', async () => {
-    const { ctx, uiWorkspace, sessions, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] } } })
     await injected.onOpenWorkflow(WORKFLOW, false)
     expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(remote.commands.execute).toHaveBeenNthCalledWith(1, 'new-session', '/show-content-page home', [])
     expect(remote.commands.execute).toHaveBeenNthCalledWith(2, 'new-session', '/show-content-view sales', [])
     expect(actions.setServerMenu).toHaveBeenCalledWith(
@@ -481,43 +480,43 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('opens one temporary conversation by selecting it, with no persist', async () => {
-    const { ctx, sessions } = await bench()
+    const { ctx, uiWorkspace } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     await injected.onOpenTemporary('session-loose')
-    expect(sessions.open).toHaveBeenCalledWith('session-loose')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('session-loose')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('takes one temporary conversation off the list by archiving it, never deleting it', async () => {
-    const { ctx, workspaces, sessions } = await bench({ currentSessionId: 'session-a' })
+    const { ctx, uiWorkspace, workspaces } = await bench({ currentSessionId: 'session-a' })
     const { injected, actions } = injectSidebar(ctx)
     await injected.onDismissTemporary('session-loose', 'home-1', true)
     expect(workspaces.archiveSession).toHaveBeenCalledWith('session-loose')
     expect(actions.setError).not.toHaveBeenCalled()
     expect(actions.setTemporaryFailed).toHaveBeenCalledWith(false)
     // A row that was not the one on screen leaves the selection alone.
-    expect(sessions.open).not.toHaveBeenCalled()
+    expect(uiWorkspace.openSession).not.toHaveBeenCalled()
   })
 
   it('lands on the recorded workbench when the archived conversation was the one on screen', async () => {
-    const { ctx, sessions } = await bench({ currentSessionId: 'session-loose', liveSessionIds: ['home-1'] })
+    const { ctx, uiWorkspace } = await bench({ currentSessionId: 'session-loose', liveSessionIds: ['home-1'] })
     const { injected, actions } = injectSidebar(ctx)
     await injected.onDismissTemporary('session-loose', 'home-1', true)
     // Reopened, not re-created: the recorded workbench is still live, so
     // nothing is written back to the document.
-    expect(sessions.open).toHaveBeenCalledWith('home-1')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('home-1')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
   it('creates a workbench conversation and records it when the archived one on screen left none live', async () => {
-    const { ctx, uiWorkspace, sessions } = await bench({
+    const { ctx, uiWorkspace } = await bench({
       currentSessionId: 'session-loose', recentWorkspaceId: 'workspace-1',
     })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onDismissTemporary('session-loose', undefined, false)
     expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith(
       { workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' },
     )
@@ -525,7 +524,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
 
   it('reports a failed archive as a flag and keeps its host wording out of the section', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { ctx, workspaces, sessions } = await bench({ currentSessionId: 'session-loose' })
+    const { ctx, uiWorkspace, workspaces } = await bench({ currentSessionId: 'session-loose' })
     const { injected, actions } = injectSidebar(ctx)
     const refusal = new Error('session archive failed: session-not-found: no session session-loose')
     workspaces.archiveSession.mockRejectedValueOnce(refusal)
@@ -538,13 +537,13 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('server-sidebar:'), refusal)
     expect(actions.setTemporaryFailed.mock.calls.flat().join(' ')).not.toMatch(/\bsession\b/i)
     // A refused archive leaves the conversation open rather than landing away from it.
-    expect(sessions.open).not.toHaveBeenCalled()
+    expect(uiWorkspace.openSession).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
   it('leaves other workflows untouched while repointing only the degraded one', async () => {
     const other = { ...WORKFLOW, id: 'w2', name: 'Other', order: 1, homeSessionId: 'session-c' }
-    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     let posted: unknown
     vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
@@ -553,7 +552,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ workflows: [WORKFLOW, other] }) })
     }))
     await injected.onOpenWorkflow(WORKFLOW, false)
-    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
     expect(posted).toEqual({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }, other] })
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW, other], groups: [], workbenchSessionId: undefined })
   })
@@ -738,17 +737,5 @@ describe('server-sidebar browser half: dictionaries', () => {
         }
       }
     }
-  })
-})
-
-describe('server-sidebar invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ServerSidebarInvariant)
-    await fiber.await()
-    expect(ServerSidebarInvariant.name).toBe('experimental-server-sidebar-invariant')
-    expect(ServerSidebarInvariant.inject).toEqual(['invariants'])
-    await fiber.dispose()
   })
 })

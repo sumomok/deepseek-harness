@@ -1,23 +1,35 @@
 /**
- * The root entry's transient panel store: the booleans this shell's geometry
- * depends on. Column widths are not stored — they are solved from the measured
- * frame (tracks.ts), so the store carries only what a user gesture can change
- * plus the breakpoint the frame mirrors in so `toggleSidebar` can pick its
- * meaning. Module level exports the factory only; a module-level handle would
- * pin the store's identity in the module cache and survive plugin reloads as a
+ * The root entry's transient panel store: the selected main panel and the
+ * booleans this shell's geometry depends on. Column widths are not stored —
+ * they are solved from the measured frame (tracks.ts), so the store carries
+ * only what a user gesture or an occupant report can change, plus the
+ * breakpoint the frame mirrors in so `toggleSidebar` can pick its meaning.
+ * Module level exports the factory only; a module-level handle would pin the
+ * store's identity in the module cache and survive plugin reloads as a
  * de-facto singleton.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 
 /**
- * Panel state: the session column's fold, the details band's open flag, the
- * off-canvas drawer's open flag, and the frame's narrow reading.
+ * Panel state: the selected main panel, the session column's fold, the right
+ * column's reported presentation, the off-canvas drawer's open flag, and the
+ * frame's narrow reading.
  */
 export type PanelState = {
+  /** Selected central panel, as `ILayout.panelInfo` publishes it; null displays the Conversation. */
+  panelInfo: { activePanelId: MainPanelId | null }
   /** True while the session column renders its control rail (wide frames only). */
   sessionFolded: boolean
-  /** True while the details band occupies its fixed width. */
-  detailsOpen: boolean
+  /**
+   * Whether the right column's occupant draws its panel at all. Reported by
+   * that occupant through `ctx.layout`; nothing else writes it.
+   */
+  rightbarShown: boolean
+  /** Whether the shown panel reserves the fixed details track; always false while hidden. */
+  rightbarTrack: boolean
+  /** Whether the shown panel covers the frame; the track reservation stays underneath. */
+  rightbarFullscreen: boolean
   /** True while the off-canvas session drawer is open over the content (narrow frames only). */
   drawerOpen: boolean
   /**
@@ -34,17 +46,21 @@ export type PanelState = {
  * return type); drift fails assignability at the defineStore call.
  */
 type PanelStoreActions = {
+  selectPanel: (draft: PanelState, panelId: MainPanelId | null) => void
+  retainMainPanels: (draft: PanelState, panelIds: readonly string[]) => void
   toggleSidebar: (draft: PanelState) => void
-  openDetails: (draft: PanelState) => void
-  closeDetails: (draft: PanelState) => void
+  openRightbar: (draft: PanelState, track: boolean, fullscreen: boolean) => void
+  closeRightbar: (draft: PanelState) => void
   openDrawer: (draft: PanelState) => void
   closeDrawer: (draft: PanelState) => void
   setNarrow: (draft: PanelState, narrow: boolean) => void
 }
 
 /**
- * Create the panel store handle. The write set is the three `ILayout`
- * transitions plus the drawer's own open/close and the frame's narrow mirror:
+ * Create the panel store handle. The write set is the `ILayout` transitions
+ * (main-panel selection, the sidebar fold, the right column's presentation
+ * report), the retention sweep that drops a selection whose `main` entry
+ * unregistered, the drawer's own open/close, and the frame's narrow mirror:
  * this shell offers no drag, so no other gesture can move a panel.
  *
  * `toggleSidebar` is the one fold verb external callers reach through
@@ -58,14 +74,38 @@ type PanelStoreActions = {
  */
 export function createPanelStore(): EngineStoreHandle<PanelState, PanelStoreActions> {
   return defineStore({
-    init: (): PanelState => ({ sessionFolded: false, detailsOpen: false, drawerOpen: false, narrow: false }),
+    init: (): PanelState => ({
+      panelInfo: { activePanelId: null },
+      sessionFolded: false,
+      rightbarShown: false,
+      rightbarTrack: false,
+      rightbarFullscreen: false,
+      drawerOpen: false,
+      narrow: false,
+    }),
     actions: {
+      selectPanel: (d, panelId: MainPanelId | null) => {
+        d.panelInfo.activePanelId = panelId
+      },
+      retainMainPanels: (d, panelIds: readonly string[]) => {
+        if (d.panelInfo.activePanelId !== null && !panelIds.includes(d.panelInfo.activePanelId)) {
+          d.panelInfo.activePanelId = null
+        }
+      },
       toggleSidebar: (d) => {
         if (d.narrow) d.drawerOpen = !d.drawerOpen
         else d.sessionFolded = !d.sessionFolded
       },
-      openDetails: (d) => { d.detailsOpen = true },
-      closeDetails: (d) => { d.detailsOpen = false },
+      openRightbar: (d, track: boolean, fullscreen: boolean) => {
+        d.rightbarShown = true
+        d.rightbarTrack = track
+        d.rightbarFullscreen = fullscreen
+      },
+      closeRightbar: (d) => {
+        d.rightbarShown = false
+        d.rightbarTrack = false
+        d.rightbarFullscreen = false
+      },
       openDrawer: (d) => { d.drawerOpen = true },
       closeDrawer: (d) => { d.drawerOpen = false },
       // Crossing back to a wide frame drops the drawer: it has no place in the

@@ -1,66 +1,56 @@
 /**
- * One branch `workflow-route.client.spec.ts`'s real composition cannot
- * reach: every throw the real `dsh-settings-file` provider can produce
- * (schemastery's `ValidationError`, this package's own `validateServerMenu`)
- * is an `Error` instance, so the server-menu route's `renderThrown` fallback
- * for a non-Error rejection never fires against the real provider. The
- * `settings` capability's Service Definition places no such constraint on a
- * provider, so a fake one exercising that fallback is a legitimate
- * configuration of the same seam, not a hostile input to a value the static
- * interface requires.
+ * Two server-menu route branches the real settings service cannot reach:
+ * every refusal it produces is an `Error` instance, so the route's
+ * `renderThrown` fallback for a non-Error rejection needs a stand-in service;
+ * and a row mounted outside the Loader has no profile entry to persist into.
+ * The `settings` Service Definition places no constraint on a provider's
+ * rejection values, so the stand-in is a legitimate configuration of the same
+ * seam, not a hostile input to a value the static interface requires.
  */
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as ServerSidebar from '../src/index.ts'
-import { SERVER_MENU_ROUTE } from '../src/route.ts'
+import { SERVER_IDENTITY_ROUTE, SERVER_MENU_ROUTE } from '../src/route.ts'
+import { bootProfile } from './profile-composition.client.ts'
 
-/** A request whose body is one JSON chunk, with the headers a valid POST needs. */
-function fakeRequest(body: string): IncomingMessage {
-  async function* chunks() { yield body }
-  return {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    setEncoding: () => {},
-    [Symbol.asyncIterator]: chunks,
-  } as unknown as IncomingMessage
-}
-
-/** A response that captures what the handler answered. */
-function fakeResponse(): { res: ServerResponse; status: () => number; body: () => unknown } {
-  let status = 0
-  let body = ''
-  const res = {
-    writeHead: (code: number) => { status = code },
-    end: (chunk?: string) => { if (chunk !== undefined) body = chunk },
-  } as unknown as ServerResponse
-  return { res, status: () => status, body: () => JSON.parse(body) as unknown }
+/** A settings stand-in whose every write rejects with a non-Error value. */
+const RejectingSettings = {
+  name: 'rejecting-settings',
+  apply: (ctx: Context) => {
+    ctx.effect(() => ctx.reflect.provide('settings', {
+      configure: () => () => {},
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
+      update: () => Promise.reject('not an Error instance'),
+    }))
+  },
 }
 
 describe('server-sidebar server-menu route: non-Error rejection fallback', () => {
   it('renders a thrown non-Error value through String() rather than crashing', async () => {
-    let handler: ((req: IncomingMessage, res: ServerResponse) => void | Promise<void>) | undefined
+    const { ctx } = await bootProfile({ settings: RejectingSettings })
+    const response = await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${SERVER_MENU_ROUTE}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workflows: [] }),
+    })
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'server-sidebar: the server-menu could not be saved: not an Error instance' })
+  })
+})
+
+describe('server-sidebar outside the Loader', () => {
+  it('serves its identity but no server-menu route, which has no profile entry to persist into', async () => {
+    const paths: string[] = []
     const ctx = new Context()
-    ctx.provide('settings', {
-      register: () => ({
-        get: () => ({ workflows: [] }),
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
-        update: () => Promise.reject('not an Error instance'),
-      }),
-    } as never)
+    ctx.provide('settings', { configure: () => () => {} } as never)
     ctx.provide('webServer', {
-      // This plugin claims two routes; only the server-menu one is under test.
-      register: (route: { path: string; handler: typeof handler }) => {
-        if (route.path === SERVER_MENU_ROUTE) handler = route.handler
+      register: (route: { path: string }) => {
+        paths.push(route.path)
         return () => {}
       },
     } as never)
     await ctx.plugin(ServerSidebar, { displayNameClaim: 'login_uname' }).await()
-    expect(handler).toBeDefined()
-
-    const { res, status, body } = fakeResponse()
-    await handler?.(fakeRequest(JSON.stringify({ workflows: [] })), res)
-    expect(status()).toBe(400)
-    expect(body()).toEqual({ error: 'server-sidebar: not an Error instance' })
+    expect(paths).toEqual([SERVER_IDENTITY_ROUTE])
+    expect(paths).not.toContain(SERVER_MENU_ROUTE)
   })
 })

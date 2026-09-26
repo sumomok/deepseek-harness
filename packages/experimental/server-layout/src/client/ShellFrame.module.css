@@ -39,12 +39,15 @@
 }
 
 .detailsCol {
+  /* The right column's occupant positions its panel against this column's
+     right edge and may hang over chat while it reserves no track. */
+  position: relative;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   border-left: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-/* The details subtree stays mounted at zero width, so its border must not
+/* The right column stays mounted at zero width, so its border must not
    paint a 1px seam against the chat column. */
 .frame:not([data-details-open]) .detailsCol {
   border-left: none;
@@ -83,7 +86,8 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  border: 0.5px solid var(--dsw-alias-border-l2);
+  /* The elevation token draws the hairline stroke, so no border sits beside it. */
+  border: 0;
   border-radius: 10px;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
@@ -116,7 +120,6 @@
   z-index: 2;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
-  border-right: 0.5px solid var(--dsw-alias-border-l1);
   box-shadow: var(--dsw-elevation-prominent);
   animation: drawer-slide-in var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }

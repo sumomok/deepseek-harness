@@ -255,8 +255,10 @@ describe('stopRunningTurns', () => {
         list: {
           getSnapshot: () => ({
             ids: options.ids,
-            byId: Object.fromEntries(options.ids.map(id => [id, { running: options.running.includes(id) }])),
-            current: options.current,
+            // The main view is the row the Conversation retains.
+            byId: Object.fromEntries(options.ids.map(id => [id, {
+              id, running: options.running.includes(id), retainedBy: id === options.current ? { mainView: 1 } : {},
+            }])),
           }),
         },
         scope: (id: string) => (id === options.noScope ? undefined : {
@@ -364,7 +366,7 @@ describe('windowSignOutBrowser', () => {
       set: (value: string) => { navigations.push(value) },
     })
     const ctx = {
-      sessions: { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined }) } },
+      sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) } },
     } as unknown as ClientContext
 
     const browser = windowSignOutBrowser(ctx)
@@ -388,7 +390,7 @@ describe('windowSignOutBrowser', () => {
     const written: string[] = []
     vi.stubGlobal('document', { baseURI: 'https://console.example/console/', set cookie(value: string) { written.push(value) } })
     const ctx = {
-      sessions: { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined }) } },
+      sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) } },
     } as unknown as ClientContext
 
     windowSignOutBrowser(ctx).clearCookie('accessToken')

@@ -12,6 +12,8 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// Type-only: pulls ui-workspace's ctx.uiWorkspace Context merge.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { resolveOrCreateSession } from './session-resolution.ts'
 import { replayNavSnapshot } from './open-nav.ts'
 import { surfaceKindOf } from './nav-snapshot.ts'
@@ -390,7 +392,7 @@ async function openOrCreateWorkbench(
   ctx: ClientContext, workbenchSessionId: string | undefined, reuse: boolean,
 ): Promise<OpenOutcome | undefined> {
   if (reuse && workbenchSessionId !== undefined) {
-    ctx.sessions.open(workbenchSessionId as SessionId)
+    ctx.uiWorkspace.openSession(workbenchSessionId as SessionId)
     return { sessionId: workbenchSessionId, created: false }
   }
   const sessionId = await resolveOrCreateSession(ctx, {
@@ -463,7 +465,7 @@ export async function openWorkflow(
   ctx: ClientContext, workflow: ServerMenuWorkflow, isLive: boolean,
 ): Promise<OpenOutcome | undefined> {
   if (isLive) {
-    ctx.sessions.open(workflow.homeSessionId as SessionId)
+    ctx.uiWorkspace.openSession(workflow.homeSessionId as SessionId)
     return { sessionId: workflow.homeSessionId, created: false }
   }
   const sessionId = await resolveOrCreateSession(ctx, {
@@ -486,7 +488,7 @@ export async function openWorkflow(
  * asynchronous face its seat declares alongside its dismiss sibling.
  */
 export function openTemporarySession(ctx: ClientContext, sessionId: string): Promise<void> {
-  ctx.sessions.open(sessionId as SessionId)
+  ctx.uiWorkspace.openSession(sessionId as SessionId)
   return Promise.resolve()
 }
 

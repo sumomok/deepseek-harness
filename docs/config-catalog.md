@@ -1533,10 +1533,16 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-server-sidebar`
 
-- `source`: [`packages/experimental/server-sidebar/src/index.ts:53`](../packages/experimental/server-sidebar/src/index.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/experimental/server-sidebar/src/index.ts:61`](../packages/experimental/server-sidebar/src/index.ts)
 
 ```ts config-catalog
-/** Plugin config: the one browser-facing value this shell cannot work out for itself. */
+/**
+ * Plugin config: the one browser-facing value this shell cannot work out for
+ * itself, and the three user-edited menu fields. The menu fields are volatile:
+ * the server-menu route writes them through the settings service without
+ * remounting this plugin, and every read takes the current value.
+ */
 export interface Config {
   /**
    * Claim of the deployment's access token that carries the signed-in
@@ -1546,7 +1552,85 @@ export interface Config {
    * to default to.
    */
   displayNameClaim: string
+  /** The user's named workflows; see {@link ServerMenuSettings.workflows}. */
+  workflows: Volatile<ServerMenuWorkflow[]>
+  /** The user's workflow groups; see {@link ServerMenuSettings.groups}. */
+  groups: Volatile<ServerMenuGroup[]>
+  /** The workbench conversation's id; see {@link ServerMenuSettings.workbenchSessionId}. */
+  workbenchSessionId: Volatile<string | undefined>
 }
+
+/**
+ * One workflow: a user-named shortcut back to the one conversation it binds
+ * (v1 boundary: one workflow binds one conversation, decision ⑥). `id` is
+ * the stable primary key that a rename or a degraded re-creation never
+ * changes; `homeSessionId` is a weak reference to a session id — this
+ * package never observes session deletion, so a workflow naming a session
+ * the workspace domain no longer lists is expected, not corrupt. Opening a
+ * workflow whose session is gone re-creates one and repoints
+ * `homeSessionId` at it rather than dropping the workflow (decision ⑧; see
+ * the package README).
+ */
+export interface ServerMenuWorkflow {
+  /** Stable identity, generated once at save time; survives a degraded re-creation. */
+  id: string
+  /** The user's own name for the workflow. */
+  name: string
+  /** Display order among workflows, ascending; ties break on `id`. User-dragged (decision ⑤). */
+  order: number
+  /** The conversation this workflow currently binds; a weak reference (see above). */
+  homeSessionId: string
+  /**
+   * The navigation stops shown in the bound conversation at save time,
+   * oldest first — replayed in this order into a re-created conversation so
+   * the last one replayed ends up on display, matching what was on display
+   * when the workflow was saved. Only the two navigable kinds are captured;
+   * a chart the agent drew is not (v1 boundary; see the package README).
+   */
+  navSnapshot: NavSnapshotItem[]
+  /** When this workflow was first saved (epoch ms); unchanged by a later re-creation. */
+  savedAt: number
+  /**
+   * The group this workflow is filed under: a stored {@link ServerMenuGroup}'s
+   * id, and nothing else. Absent means ungrouped, which is what every
+   * workflow saved so far is.
+   */
+  groupId?: string
+}
+
+/**
+ * One group: a user-named folder over their own workflows. Groups sort by
+ * `pinned` first, then `order`; a workflow files itself into one by naming
+ * its {@link ServerMenuGroup.id}, and a workflow naming none is ungrouped.
+ */
+export interface ServerMenuGroup {
+  /** Stable identity, generated once at creation (a UUID); survives a rename. */
+  id: string
+  /** The user's own name for the group; non-empty, at most 40 characters. */
+  name: string
+  /** Whether the group sorts ahead of every unpinned one. */
+  pinned: boolean
+  /** Display order among groups of equal `pinned`, ascending. */
+  order: number
+}
+
+/** One captured navigation stop. */
+export interface NavSnapshotItem {
+  /** Which catalog it came from. */
+  kind: NavSnapshotKind
+  /** Its id within that catalog: a page id, or a view id. */
+  entryId: string
+}
+
+/**
+ * Which catalog one captured navigation stop came from: a
+ * `dsh-experimental-content-frame` page, or a
+ * `dsh-experimental-component-surface` composed view. The two are replayed
+ * through different commands and land as different content-surface entry
+ * kinds, so the snapshot has to carry which one it is rather than an id
+ * alone.
+ */
+export type NavSnapshotKind = 'page' | 'view'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-server-sidebar -->
 

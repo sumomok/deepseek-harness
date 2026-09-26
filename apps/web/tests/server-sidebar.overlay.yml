@@ -88,19 +88,12 @@
 # decoration, which has no host command left to decorate.
 #
 # Disabling this row closes the last surface that writes
-# `permission.defaultPreset`; it does not erase a value already written. The
-# settings service resolves schema defaults, then the composition `base`, then
-# the user layer (`packages/settings/settings/src/index.ts:739`), so a stored
-# key still outranks the `defaultPreset` below. A deployment upgraded from a
-# build where this row was live clears it by deleting
-#
-#     permission:
-#       defaultPreset: <name>
-#
-# from `<harness home>/settings.yaml` — `$DSH_HOME/settings.yaml`, else
-# `~/.dsh/settings.yaml`, else the `path` the `settings-file` row configures
-# (`packages/settings/settings-file/src/index.ts:23-24,51-57`). No composition
-# key clears or pins it: `base` is the only layer a row supplies.
+# `permission.defaultPreset`; it does not erase a value already written. That
+# field is volatile Config of the `permission` row below: the settings service
+# writes it into the active profile's patch, an earlier release's
+# `settings.yaml` value was imported there once, and which layer wins over the
+# `defaultPreset` this file sets follows the Loader's layer order (see
+# `packages/settings/settings/README.md`).
 - id: ui-permission
   name: '@deepseek-ai/dsh-client-ui-permission-presets'
   disabled: true
@@ -141,7 +134,7 @@
     # The composition `base` for the preset a new session is pinned to: what
     # this table derives today from the composed sandbox and approval defaults
     # (workspace-write + ask, `packages/bundle/base/cordis.patch.yml`). A
-    # stored `permission.defaultPreset` still outranks it — see the
+    # stored `permission.defaultPreset` may outrank it — see the
     # `ui-permission` row above.
     defaultPreset: workspace-write
     presets:

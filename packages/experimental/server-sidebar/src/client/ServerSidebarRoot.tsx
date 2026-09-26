@@ -92,8 +92,8 @@ function contentSurfaceEntries(
 interface TemporaryFacts extends TemporarySessionFacts {
   /** The session's latest durable title, absent until the host projects one. */
   readonly title?: string
-  /** Whether it finished while unselected and unopened (decision ④'s green dot). */
-  readonly completed?: boolean
+  /** Whether it stopped outside the main view and nobody has opened it since (decision ④'s green dot). */
+  readonly completionUnread?: boolean
 }
 
 /**
@@ -114,7 +114,7 @@ function temporaryRow(facts: TemporaryFacts, current: string | undefined): Tempo
     id: facts.id,
     title: title === undefined || title.length === 0 ? undefined : title,
     updatedAt: facts.updatedAt,
-    unread: facts.completed === true,
+    unread: facts.completionUnread === true,
     active: facts.id === current,
   }
 }
@@ -224,7 +224,7 @@ export function ServerSidebarRoot({
   width, t, renderSlot,
   navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveMenu,
   onOpenTemporary, onDismissTemporary, onSignOut,
-  useStore, actions, useSessions, useWorkspaces, useDisplayName,
+  useStore, actions, useSessions, useSessionStatus, useWorkspaces, useDisplayName,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
   const workflows = useStore(state => state.workflows)
@@ -239,7 +239,9 @@ export function ServerSidebarRoot({
   // deleted session is reflected without a save round trip.
   const sessionIds = useSessions(state => state.ids)
   const byId = useSessions(state => state.byId)
-  const current = useSessions(state => state.current)
+  // The session on screen is the row the Conversation retains.
+  const current = useSessions(state => Object.values(state.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)?.id)
+  const status = useSessionStatus(snapshot => snapshot)
   const phase = useSessions(state => state.phase)
   const liveSessionIds = useMemo(() => new Set(Object.keys(byId)), [byId])
   const blankSessionIds = useMemo(
@@ -251,12 +253,13 @@ export function ServerSidebarRoot({
   const workbenchEntries = contentSurfaceEntries(byId, workbenchSessionId)
   const workbenchIsClean = isCleanWorkbenchDraft(workbenchIsBlank, workbenchEntries, home)
   const workbenchHomeShown = hasShownHome(workbenchEntries, home)
-  // Decision ④'s green dot reuses the session list's own `completed` bit
-  // ("finished while not selected and not yet opened") rather than a second
-  // last-seen bookkeeping mechanism — see the package README.
+  // Decision ④'s green dot reuses the session status feed's own
+  // `completionUnread` bit ("stopped outside the main view and not yet
+  // opened") rather than a second last-seen bookkeeping mechanism — see the
+  // package README.
   const unreadHomeSessionIds = useMemo(
-    () => new Set(Object.entries(byId).filter(([, summary]) => summary.completed === true).map(([id]) => id)),
-    [byId],
+    () => new Set([...status].filter(([, facts]) => facts.completionUnread).map(([id]) => id)),
+    [status],
   )
   // A session a workflow already binds wins the active highlight over the
   // workbench, so a session named by both never lights up two rows at once
@@ -275,7 +278,7 @@ export function ServerSidebarRoot({
       // A session listed in `ids` always has a row in `byId` (one snapshot,
       // one source); the empty branch keeps the read total rather than
       // asserting across the store's own boundary.
-      return summary === undefined ? [] : [{ ...summary, id }]
+      return summary === undefined ? [] : [{ ...summary, id, completionUnread: status.get(id)?.completionUnread === true }]
     }),
     {
       boundHomeSessionIds,
@@ -283,7 +286,7 @@ export function ServerSidebarRoot({
       currentSessionId: current,
       archivedSessionIds: archived,
     },
-  ).map(facts => temporaryRow(facts, current)), [sessionIds, byId, boundHomeSessionIds, workbenchSessionId, current, archived])
+  ).map(facts => temporaryRow(facts, current)), [sessionIds, byId, status, boundHomeSessionIds, workbenchSessionId, current, archived])
 
   // Land on the workbench automatically when the sidebar loads with no
   // current session — evaluated at most once per mount, a "settle then

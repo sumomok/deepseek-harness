@@ -60,6 +60,7 @@ import { mergeNavCatalogs, readContentPages, readContentViews } from './nav-cata
 import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
 import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
 import { openHome, openNavItem } from './open-nav.ts'
+import { mainViewSessionId } from './session-resolution.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuPatch, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
@@ -235,7 +236,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // domain sweeps an archived selection into the no-conversation
             // state as part of the same call, so afterwards there is nothing
             // left to compare against.
-            const wasOnScreen = ctx.sessions.list.getSnapshot().current === sessionId
+            const wasOnScreen = mainViewSessionId(ctx) === sessionId
             try {
               await dismissTemporarySession(ctx, sessionId)
             } catch (error) {

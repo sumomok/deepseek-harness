@@ -2,9 +2,9 @@
  * The content column: a switcher strip over one mounted seat per content kind.
  *
  * The column is a `single`, `root` slot, so this component mounts once for the
- * page's life and owns every session transition itself. It reads the current
- * session and that session's `contentSurface` entries through the root standard
- * hook, keeps one seat per kind it has ever seen, and hides the seats that do
+ * page's life and owns every session transition itself. It reads the main
+ * view's session (the row the Conversation retains) and that session's
+ * `contentSurface` entries through the root standard hook, keeps one seat per kind it has ever seen, and hides the seats that do
  * not own the selection instead of unmounting them — a kind renderer may hold
  * DOM that must survive both a session switch and a switch to another kind.
  *
@@ -57,6 +57,27 @@ export interface ContentSurfaceInjected {
   onSelect: (sessionId: string, kind: string, entryId: string) => void
 }
 
+/** The session-list snapshot the root `useSessions` hook selects over. */
+type SessionList = Parameters<Parameters<ContentSurfaceProps['useSessions']>[0]>[0]
+
+/**
+ * The row the Conversation retains (`retainedBy.mainView`): the session the
+ * chat column shows, and so the one whose surface this column shows.
+ * @param state - the session-list snapshot.
+ * @returns that row, or undefined while no session is on the main view.
+ */
+function mainViewRow(state: SessionList): SessionList['byId'][keyof SessionList['byId']] | undefined {
+  return Object.values(state.byId).find(row => (row.retainedBy.mainView ?? 0) > 0)
+}
+
+/**
+ * @param state - the session-list snapshot.
+ * @returns the main view's session id, or undefined while none is on it.
+ */
+function mainViewSessionId(state: SessionList): string | undefined {
+  return mainViewRow(state)?.id
+}
+
 /** Composed props: the root runtime share, the kind-slot render share, this registration's injected face, and the locale seat. */
 export type ContentSurfaceProps =
   & PropsRuntime<'content'>
@@ -70,15 +91,10 @@ export type ContentSurfaceProps =
  * @returns the switcher strip, every mounted kind seat, and the empty-state notice.
  */
 export function ContentSurface({ useSessions, renderSlot, onDismiss, onSelect, t }: ContentSurfaceProps) {
-  const sessionId = useSessions(state => state.current)
+  const sessionId = useSessions(mainViewSessionId)
   const entries: readonly ContentSurfaceEntry[] = useSessions(state => (
-    state.current === undefined
-      ? undefined
-      : state.byId[state.current]?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
-  const front = useSessions(state => (
-    state.current === undefined
-      ? undefined
-      : state.byId[state.current]?.projectionValues?.contentSurface?.front))
+    mainViewRow(state)?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
+  const front = useSessions(state => mainViewRow(state)?.projectionValues?.contentSurface?.front)
 
   // Per session, because a root slot survives every switch: the framework
   // clears nothing, so the column carries the click it is still waiting on

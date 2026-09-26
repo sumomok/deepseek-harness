@@ -95,7 +95,10 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 /** A workflow naming a session nobody ever created — seeded before the browser ever reads it (decision ⑧). */
 const GHOST_SESSION_ID = 'server-sidebar-e2e-ghost-session'
 const GHOST_WORKFLOW_ID = 'ghost-workflow'
-/** This package's own settings namespace; a bare string literal, not an import (see the module doc above). */
+/**
+ * The server-sidebar row's profile entry id, which the settings service
+ * addresses; a bare string literal, not an import (see the module doc above).
+ */
 const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 // A fresh session's composer still carries the hero placeholder
@@ -308,9 +311,9 @@ function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'us
   }))
 }
 
-/** Read the server-menu settings document straight from the host, bypassing the HTTP route entirely. */
+/** Read the server-sidebar row's live menu fields straight from the host, bypassing the HTTP route entirely. */
 function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
-  return scaffold.ctx.settings.get(SERVER_SIDEBAR_NAMESPACE) as LocalServerMenu
+  return scaffold.ctx.settings.describe().find(form => form.ns === SERVER_SIDEBAR_NAMESPACE)?.value as LocalServerMenu
 }
 
 /**
@@ -398,9 +401,8 @@ describe('web e2e: the product-console sidebar', () => {
     // where the scaffold runs the Loader.
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
     scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
-    // Seed one ghost workflow before the browser ever loads: this package's
-    // own settings namespace, already registered by the server-sidebar row
-    // this composition just loaded. Its `homeSessionId` names a session that
+    // Seed one ghost workflow before the browser ever loads: the live menu
+    // fields of the server-sidebar row this composition just loaded. Its `homeSessionId` names a session that
     // never existed — decision ⑧'s degrade path, exercised below.
     await scaffold.ctx.settings.replace(SERVER_SIDEBAR_NAMESPACE, {
       workflows: [{

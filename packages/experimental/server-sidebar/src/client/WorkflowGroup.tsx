@@ -116,12 +116,12 @@ export interface WorkflowGroupProps {
    */
   current: string | undefined
   /**
-   * Home session ids with unread produce (decision ④: the session list's own
-   * `completed` bit — "finished while not selected and not yet opened" —
-   * reused verbatim rather than a second last-seen bookkeeping mechanism;
-   * see the package README). A workflow bound to one of these ids draws the
-   * green dot; opening it clears the dot for free, since `completed` clears
-   * the instant `sessions.open` selects the session.
+   * Home session ids with unread produce (decision ④: the session status
+   * feed's own `completionUnread` bit — "stopped outside the main view and
+   * not yet opened" — reused verbatim rather than a second last-seen
+   * bookkeeping mechanism; see the package README). A workflow bound to one
+   * of these ids draws the green dot; opening it clears the dot for free,
+   * since the bit clears once the session is on the main view.
    */
   unreadHomeSessionIds: ReadonlySet<string>
   /** Open a workflow, degrading to a fresh conversation when its bound one is gone. Not awaited by this component. */

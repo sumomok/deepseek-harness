@@ -13,6 +13,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { ServerSidebarRoot, type ServerSidebarRootComponentProps } from '../src/client/ServerSidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { NavSnapshotItem, ServerMenuGroup, ServerMenuPatch, ServerMenuWorkflow } from '../src/client/workflow-api.ts'
 import { TEMPORARY_GROUP_ID } from '../src/menu-constants.ts'
 
@@ -36,16 +37,18 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-/** No Session has a pending interaction in these fixtures. */
-const noPendingInteraction: ServerSidebarRootComponentProps['useSessionPendingInteraction'] =
-  selector => selector(new Map())
+/** A standard hook the sidebar never reads, supplied only to complete the root share. */
+function unusedHook(): never {
+  throw new Error('server-sidebar: this standard hook is not read by the sidebar')
+}
 
 /** One session row as this bench authors it; `mount` fills the fields every row really carries. */
 interface BenchSession {
   displayTitle: string
   /** The durable title, which is the only one the temporary section draws. */
   title?: string
-  completed?: boolean
+  /** Whether the session status feed reports an unacknowledged stop outside the main view. */
+  completionUnread?: boolean
   blank?: boolean
   origin?: 'subagent'
   updatedAt?: number
@@ -141,16 +144,26 @@ function mount(overrides: Partial<Bench> = {}) {
       }}
       useSessions={((<S,>(sel: (s: {
         ids: string[]
-        byId: Record<string, BenchSession & { blank: boolean; updatedAt: number }>
-        current: string | undefined
+        byId: Record<string, BenchSession & { id: string; blank: boolean; updatedAt: number; retainedBy: { mainView?: number } }>
         phase: 'pending' | 'ready'
       }) => S): S => sel({
         ids: current.ids ?? Object.keys(current.byId),
-        byId: Object.fromEntries(Object.entries(current.byId)
-          .map(([id, session]) => [id, { blank: false, updatedAt: 0, ...session }])),
-        current: current.current,
+        // The main view is the row the Conversation retains.
+        byId: Object.fromEntries(Object.entries({
+          ...current.current === undefined || current.current in current.byId
+            ? {}
+            : { [current.current]: { displayTitle: current.current } },
+          ...current.byId,
+        }).map(([id, session]) => [id, {
+          id, blank: false, updatedAt: 0, ...session, retainedBy: id === current.current ? { mainView: 1 } : {},
+        }])),
         phase: current.phase,
       })) as unknown) as ServerSidebarRootComponentProps['useSessions']}
+      useSessionStatus={selector => selector(new Map(Object.entries(current.byId)
+        .filter(([, session]) => session.completionUnread === true)
+        .map(([id, session]) => [id as SessionId, {
+          running: undefined, pendingInteraction: undefined, completionUnread: session.completionUnread === true,
+        }])))}
       useWorkspaces={((<S,>(sel: (s: {
         phase: 'pending' | 'ready'
         items: readonly object[]
@@ -162,7 +175,9 @@ function mount(overrides: Partial<Bench> = {}) {
           archivedSessionIds: current.archivedSessionIds,
         })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
-      useSessionPendingInteraction={noPendingInteraction}
+      usePanelInfo={unusedHook}
+      useSessionRetainInfo={unusedHook}
+      useResource={unusedHook}
       renderSlot={renderSlot}
     />
   )
@@ -420,7 +435,7 @@ describe('ServerSidebarRoot', () => {
 
   it('marks a workflow unread only when its bound session has completed', () => {
     const workflow: ServerMenuWorkflow = { id: 'w1', name: 'My Flow', order: 0, homeSessionId: 's1', navSnapshot: [], savedAt: 1 }
-    mount({ workflows: [workflow], byId: { s1: { displayTitle: 'S1', completed: true } }, current: 'other', phase: 'ready' })
+    mount({ workflows: [workflow], byId: { s1: { displayTitle: 'S1', completionUnread: true } }, current: 'other', phase: 'ready' })
     const row = screen.getByRole('button', { name: /My Flow/ })
     expect(row.querySelector('[aria-hidden="true"]')).not.toBeNull()
   })
@@ -563,7 +578,7 @@ describe('ServerSidebarRoot', () => {
     })
 
     it('marks a conversation that finished unseen', () => {
-      mount({ byId: { s1: { displayTitle: 'x', title: 'Chat', updatedAt: 1, completed: true } } })
+      mount({ byId: { s1: { displayTitle: 'x', title: 'Chat', updatedAt: 1, completionUnread: true } } })
       expect(screen.getByRole('button', { name: /Chat/ }).querySelector('[aria-hidden="true"]')).not.toBeNull()
     })
 

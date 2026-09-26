@@ -120,7 +120,7 @@ describe('server-sidebar identity route', () => {
   })
 
   it('refuses a blank claim name at load rather than showing everyone as anonymous', () => {
-    expect(() => { ServerSidebar.apply(new Context(), { displayNameClaim: '  ' }) })
+    expect(() => { ServerSidebar.apply(new Context(), ServerSidebar.Config({ displayNameClaim: '  ' })) })
       .toThrow('server-sidebar: displayNameClaim must name a claim')
   })
 })
