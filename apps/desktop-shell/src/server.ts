@@ -130,9 +130,9 @@ export interface ServerSpec {
   /**
    * Variables added to the inherited environment for this child alone — the
    * endpoint and token of each loopback service the shell lends it, the
-   * renderer and the plugin admin. They are deliberately not put on the shell's
-   * own `process.env`, because every other process the user starts — pnpm
-   * included — would inherit them from there.
+   * renderer and the update service, and the path of the pnpm launcher. They
+   * are deliberately not put on the shell's own `process.env`, because every
+   * other process the shell starts would inherit them from there.
    */
   env: Record<string, string>
 }

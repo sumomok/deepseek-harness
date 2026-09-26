@@ -22,15 +22,15 @@
  * every other request, the settings forms are in-memory, and the Host-served
  * `session` namespace is {@link HOST_SESSION_NAMESPACE}, mounted through the
  * real registrar because the generated contributions exist only in built `lib/`
- * and this suite runs on the source plane. Three halves call a Remote method
- * while applying. `@haoran/dsh-plugin-updates` and `@haoran/dsh-desktop-update`
- * register their settings pages only after their first read of Host state
- * answers `available: true`, so the carrier answers those reads with an empty,
- * available state. `@sumomok/dsh-balance` does not wait on its reads: its store
- * catches the rejection and reports it with `console.error`, and the half goes
- * on to register its footer chip, its spend rows, and its settings page.
+ * and this suite runs on the source plane. Two halves call a Remote method
+ * while applying. `@haoran/dsh-desktop-update` registers its settings page only
+ * after its first read of Host state answers `available: true`, so the carrier
+ * answers that read with an idle, available state. `@sumomok/dsh-balance` does
+ * not wait on its reads: its store catches the rejection and reports it with
+ * `console.error`, and the half goes on to register its footer chip, its spend
+ * rows, and its settings page.
  *
- * The page declares the three settings slots the halves register into, because
+ * The page declares the two settings slots the halves register into, because
  * the SlotRegistry runs a `slots.inject` callback only once its slot is
  * declared, and an undeclared slot would leave every settings registration
  * unrun and unchecked. A registration runs inside a child fiber whose failure
@@ -231,7 +231,6 @@ const HOST_SESSION_NAMESPACE: TypertRemoteContribution = {
 const SETTINGS_SLOTS = {
   'settings.section': { kind: 'list', scope: 'root' },
   'settings.general.item': { kind: 'list', scope: 'root' },
-  'settings.plugins.tab': { kind: 'list', scope: 'root' },
 } as const
 
 /** One assembled page: the runtime plus the teardown that unwinds it. */
@@ -251,13 +250,10 @@ interface Page {
 
 /**
  * The Host reads this suite answers, by `<namespace>/<method>` endpoint: the
- * smallest state each of `@haoran/dsh-plugin-updates` and
- * `@haoran/dsh-desktop-update` accepts as available, with nothing to update and
- * nothing to repair.
+ * smallest state `@haoran/dsh-desktop-update` accepts as available, with
+ * nothing to update.
  */
 const HOST_ANSWERS: Readonly<Record<string, unknown>> = {
-  'pluginUpdates/list': { available: true, rows: [], checkedAt: null, checking: false, checkFailed: false, rollback: null },
-  'pluginUpdates/repairs': { available: true, defective: [], removed: [] },
   'desktopUpdate/state': { available: true, phase: 'idle', currentVersion: '0.1.0', poll: { activeMs: 60_000, idleMs: 600_000 } },
 }
 
@@ -400,7 +396,5 @@ describe('vendored built-in client halves', () => {
     ])
     // `language` is the locale runtime's own row, which the page mounts.
     expect(registered(mounted, 'settings.general.item')).toEqual(['auto-compact', 'language'])
-    // The plugin-updates tab, which also follows its first Host read.
-    expect(registered(mounted, 'settings.plugins.tab')).toEqual(['updates'])
   })
 })

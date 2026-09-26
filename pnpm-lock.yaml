@@ -1113,9 +1113,6 @@ importers:
       '@haoran/dsh-mcp-servers':
         specifier: file:./vendor/haoran-dsh-mcp-servers-0.2.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-mcp-client@packages+mcp+mcp-client)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-user-approval@packages+interaction+user-approval)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@haoran/dsh-plugin-updates':
-        specifier: file:./vendor/haoran-dsh-plugin-updates-0.3.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-app-boot@packages+boot+app-boot)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-screenshot':
         specifier: file:./vendor/haoran-dsh-screenshot-0.6.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)
@@ -16278,48 +16275,6 @@ packages:
       react-dom:
         optional: true
 
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.3.0.tgz':
-    resolution: {integrity: sha512-AdX4s6PkTtqmu2kI40qPAnuUzAdMyEn4wP/nuGt9UoKybGUG4NPO8HHp+rRVEG4JF8wV8YVoKo43+ovu+6eOWw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.3.0.tgz}
-    version: 0.3.0
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.3
-      '@deepseek-ai/dsh-api-remotes': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-app-boot': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-home-paths': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-typert-protocol': '>=0.1.7-rc.1 <0.2.0-0'
-      '@deepseek-ai/schemastery': ^3.18.3
-      react: ^18.2.0
-    peerDependenciesMeta:
-      '@deepseek-ai/cordis':
-        optional: true
-      '@deepseek-ai/dsh-api-remotes':
-        optional: true
-      '@deepseek-ai/dsh-app-boot':
-        optional: true
-      '@deepseek-ai/dsh-client-locale':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-primitives':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-renderer':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-settings':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-slots':
-        optional: true
-      '@deepseek-ai/dsh-home-paths':
-        optional: true
-      '@deepseek-ai/dsh-typert-protocol':
-        optional: true
-      '@deepseek-ai/schemastery':
-        optional: true
-      react:
-        optional: true
-
   '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz':
     resolution: {integrity: sha512-CA7E+k2RMeK3+OjfprJRrg3cB9GiRGAisnVovM+sghfnCxu+meBSuRpLlxa13oNCq2jR5IkdBDdkuF5nrmiH5A==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz}
     version: 0.6.0
@@ -24043,24 +23998,6 @@ snapshots:
       '@deepseek-ai/dsh-user-approval': link:packages/interaction/user-approval
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-app-boot@packages+boot+app-boot)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
-    dependencies:
-      semver: 7.8.5
-      zod: 4.4.3
-    optionalDependencies:
-      '@deepseek-ai/cordis': link:vendor/cordis
-      '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
-      '@deepseek-ai/dsh-app-boot': link:packages/boot/app-boot
-      '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
-      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
-      '@deepseek-ai/dsh-client-ui-settings': link:packages/client/ui-settings
-      '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
-      '@deepseek-ai/dsh-home-paths': link:packages/util/home-paths
-      '@deepseek-ai/dsh-typert-protocol': link:packages/typert/protocol
-      '@deepseek-ai/schemastery': link:vendor/schemastery
-      react: 18.3.1
 
   '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)':
     dependencies:

@@ -17,8 +17,8 @@ import { join, sep } from 'node:path'
 import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  addBundleName, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, dropBundleNames, ensureLink,
-  MIGRATION_MARKER_FILENAME, type MigrationMarker, profileDependencySpec, quarantineLoadFailureFromOutput,
+  BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, ensureLink,
+  MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
   readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
 } from '../src/profile-seed.ts'
@@ -884,9 +884,8 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
   })
 
   it('does not bring a disabled name back on its own when the bundle version returns', () => {
-    // A defective entry is only ever promoted back by the plugin-admin
-    // service's own `/recheck` and `/repair` routes — never by a later boot
-    // finding it healthy again on its own.
+    // A later boot finding the package healthy again does not promote a
+    // defective entry back on its own.
     migrated()
     installIntoWeb(userPlugin, {})
     seedBuiltinBundles({ home, serverModules })
@@ -895,6 +894,22 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     expect(again).toEqual(nothingHappened())
     expect(bundlesNow()).not.toContain(userPlugin)
     expect(defectiveNow()).toHaveLength(1)
+  })
+
+  it('admits a defective name again once its entry is deleted from the marker', () => {
+    // No screen offers a repair; the marker file is where a person takes a
+    // name back out of `defective`.
+    migrated()
+    installIntoWeb(userPlugin, {})
+    seedBuiltinBundles({ home, serverModules })
+    installIntoWeb(userPlugin)
+    const markerPath = join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME)
+    const marker = readMigrationMarker(markerPath) as MigrationMarker
+    writeMigrationMarker(markerPath, { ...marker, defective: [] })
+    const again = seedBuiltinBundles({ home, serverModules })
+    expect(again.migrated).toEqual([userPlugin])
+    expect(bundlesNow()).toContain(userPlugin)
+    expect(defectiveNow()).toEqual([])
   })
 
   it('rebuilds a record deleted by hand from the links it made', () => {
@@ -1443,32 +1458,7 @@ describe('quarantineLoadFailureFromOutput', () => {
   })
 })
 
-describe('the repair-route primitives profile-seed.ts exports for plugin-admin-service.ts', () => {
-  it('profileDependencySpec answers the declared specifier, or undefined for an undeclared name', () => {
-    writeWebProfile([userPlugin])
-    expect(profileDependencySpec(join(home, 'profiles', WEB_PROFILE), userPlugin)).toBe('^1.2.3')
-    expect(profileDependencySpec(join(home, 'profiles', WEB_PROFILE), 'never-installed')).toBeUndefined()
-  })
-
-  it('addBundleName appends a name once and copies its declared web version', () => {
-    writeWebProfile([userPlugin])
-    const profileDir = join(home, 'profiles', DESKTOP_PROFILE)
-    seedBuiltinBundles({ home, serverModules }) // creates the desktop profile's manifest and links
-    // Not yet listed: this route path is the one `/enable` and `/recheck` use.
-    const dropped = dropBundleNames(join(profileDir, 'package.json'), [userPlugin])
-    expect(dropped).toEqual([userPlugin])
-    expect(bundlesNow()).not.toContain(userPlugin)
-
-    addBundleName(profileDir, home, userPlugin)
-    expect((bundlesNow() as string[]).filter(name => name === userPlugin)).toEqual([userPlugin])
-    expect(readProfile()['dependencies']).toMatchObject({ [userPlugin]: '^1.2.3' })
-
-    // Already listed: a second call changes nothing.
-    const before = readFileSync(join(profileDir, 'package.json'), 'utf8')
-    addBundleName(profileDir, home, userPlugin)
-    expect(readFileSync(join(profileDir, 'package.json'), 'utf8')).toBe(before)
-  })
-
+describe('ensureLink and removeLink', () => {
   it('ensureLink and removeLink round-trip a link this shell owns', () => {
     const link = join(root, 'link-target-test', 'name')
     const target = join(root, 'store', 'name')

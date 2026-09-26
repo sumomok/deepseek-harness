@@ -72,11 +72,12 @@
  * unbuilt git install with no `lib/` and no `prepare` script is a real field
  * case — and one that is skipped on every boot, with nothing on screen, looks
  * to its owner like a feature that disappeared. {@link bundleDefect} is the
- * one predicate every admission, every per-boot revalidation, and the
- * plugin-admin service's own repair routes read, and a defective name never
- * reaches the bundle list: its link is kept (so it stays inspectable and
- * repairable) and it is recorded in the marker's `defective` list instead,
- * visible and disabled rather than silently gone. Deleting the desktop link while the web profile still holds a
+ * one predicate every admission and every per-boot revalidation reads, and a
+ * defective name never reaches the bundle list: its link is kept (so it stays
+ * inspectable and repairable) and it is recorded in the marker's `defective`
+ * list instead, with one line in the launch log that records it, rather than
+ * silently gone. No screen shows either list; deleting a name's entry from the
+ * marker is what readmits it on the next launch. Deleting the desktop link while the web profile still holds a
  * healthy copy tombstones the name into the marker's `removed` list instead of
  * dropping it outright, which is what keeps a plugin the user deliberately took
  * off the desktop from coming back on its own; a name whose web copy is also
@@ -144,7 +145,8 @@ import { FAILSAFE_SCHEMA, load } from 'js-yaml'
  *
  * Last here is not last in `dsh.profile.bundles` for good: {@link
  * syncWebBundles} appends what it migrates from the `web` profile after these,
- * and so does {@link addBundleName}. The user layers apply later still —
+ * and so does upstream's plugin manager for a package it installs. The user
+ * layers apply later still —
  * the profile's own `cordis.patch.yml`, then `$DSH_HOME/cordis.patch.yml`,
  * then any `--patch` overlay (`allPatches` in `apps/cli/src/profile-boot.ts`).
  *
@@ -163,7 +165,7 @@ import { FAILSAFE_SCHEMA, load } from 'js-yaml'
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
-  '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
+  '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@deepseek-ai/dsh-desktop-app',
 ]
@@ -185,7 +187,9 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
  * An entry stays here while any build that seeded it may still be installed;
  * dropping one only stops repairing the profiles that still name it.
  */
-export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-rerun', 'dsh-better-sidebar', 'dsh-at-file']
+export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
+  '@sumomok/dsh-edit-rerun', 'dsh-better-sidebar', 'dsh-at-file', '@haoran/dsh-plugin-updates',
+]
 
 /**
  * The profile the desktop shell boots (`dsh --profile desktop-shell`), which no
@@ -348,9 +352,9 @@ export interface DefectiveEntry {
 export type PermissionPatchOutcome = 'removed' | 'kept' | 'absent'
 
 /**
- * The shell's own record of what it has synced out of the `web` profile:
- * cross-component contract read by `@haoran/dsh-plugin-updates` as well as this
- * shell, so its field names and the meaning of each list are load-bearing.
+ * The shell's own record of what it has synced out of the `web` profile. A
+ * file an earlier build wrote is read back by this one, so its field names and
+ * the meaning of each list are load-bearing.
  */
 export interface MigrationMarker {
   /** The profile the names came from. */
@@ -524,9 +528,9 @@ export function ensureLink(link: string, target: string): boolean {
  * Remove a symbolic link this shell made, if one is there.
  *
  * Unconditional, unlike {@link ensureLink}'s own cleanup: this is for a caller
- * that has already decided the link should go — `/forget` on a defective or
- * removed name — rather than one repointing it. A real directory at that path,
- * or nothing at all, is left alone.
+ * that has already decided the link should go — a migrated name nothing
+ * resolves any more — rather than one repointing it. A real directory at that
+ * path, or nothing at all, is left alone.
  * @param link - the link path.
  * @throws when the path is a symbolic link that cannot be removed.
  */
@@ -707,35 +711,6 @@ function dependenciesOf(manifest: ProfileManifest | undefined): Record<string, u
   return value as Record<string, unknown>
 }
 
-/**
- * The package names one profile's manifest declares as its own dependencies.
- *
- * These are the packages the profile installed, as opposed to the bundles it
- * merely lists: a built-in the shell seeded is named in `dsh.profile.bundles`
- * and resolves from the installation, so it never appears here. That makes this
- * set the one a package manager may act on for this profile, and the reason
- * {@link seedBuiltinBundles} may not add to it directly.
- * @param profileDir - the profile directory.
- * @returns the declared names, sorted; empty for a profile whose manifest is absent or unreadable.
- */
-export function profileDependencyNames(profileDir: string): string[] {
-  const declared = dependenciesOf(tryReadManifest(join(profileDir, 'package.json')))
-  return Object.keys(declared).filter(name => typeof declared[name] === 'string').sort()
-}
-
-/**
- * The version specifier a profile's manifest declares for one of its own
- * dependencies — the spec pnpm recorded when it was installed, and the one a
- * reinstall should ask pnpm for again.
- * @param profileDir - the profile directory.
- * @param name - the dependency name.
- * @returns the specifier, or undefined when the profile declares none for that name.
- */
-export function profileDependencySpec(profileDir: string, name: string): string | undefined {
-  const value = dependenciesOf(tryReadManifest(join(profileDir, 'package.json')))[name]
-  return typeof value === 'string' ? value : undefined
-}
-
 /** Whether `link` is a symbolic link this shell would have made, resolving to `target`. */
 function linksTo(link: string, target: string): boolean {
   try {
@@ -842,9 +817,8 @@ function hasMissingEntry(dir: string, manifest: ProfileManifest): boolean {
  * `resolveBundleDir` finds no package, the package it finds declares no
  * `dsh.bundle`, or the package declares one but its own entry file was never
  * built — the field case is an unbuilt git install with `src/*.ts` and no
- * `lib/` at all. Every admission and revalidation in this module, and the
- * plugin-admin service's `/recheck` and `/repair` routes, read this one
- * function, so none of them can come to disagree about what the server
+ * `lib/` at all. Every admission and revalidation in this module reads this
+ * one function, so none of them can come to disagree about what the server
  * accepts.
  * @param dir - the package directory to inspect, which need not exist.
  * @returns which defect the package has, or undefined when it has none.
@@ -934,27 +908,6 @@ export function readMigrationMarker(path: string): MigrationMarker | undefined {
  */
 export function writeMigrationMarker(path: string, marker: MigrationMarker): void {
   writeAtomic(path, `${JSON.stringify(marker, undefined, 2)}\n`)
-}
-
-/**
- * Append one name to a profile manifest's `dsh.profile.bundles`, copying the
- * web profile's own dependency specifier for it when the manifest declares
- * none of its own. A name already listed is left exactly as it is.
- * @param profileDir - the profile directory whose manifest gains the name.
- * @param home - the Harness home, for the web profile's declared specifier.
- * @param name - the bundle name to add.
- * @throws when the manifest cannot be read as one with a bundle list, or cannot be replaced.
- */
-export function addBundleName(profileDir: string, home: string, name: string): void {
-  const manifestPath = join(profileDir, 'package.json')
-  const manifest = tryReadManifest(manifestPath)
-  const listed = manifest?.dsh?.profile?.bundles
-  if (manifest === undefined || !Array.isArray(listed)) {
-    throw new Error(`${manifestPath}: unreadable, or declares no dsh.profile.bundles list`)
-  }
-  if (listed.includes(name)) return
-  const webManifest = tryReadManifest(join(profileDirectory(home, WEB_PROFILE), 'package.json'))
-  updateTrackedBundles(manifestPath, manifest, listed, [name], dependenciesOf(webManifest), [])
 }
 
 /**
@@ -1114,8 +1067,8 @@ function reviewMigrated(spec: SeedSpec, profileDir: string, webDir: string, name
  * marker's `defective` list with its link kept, one whose desktop link is gone
  * while the web copy is still healthy is tombstoned into `removed`, and one
  * gone from both sides is dropped with nothing left to track. A name already
- * in `defective` or `removed` is left exactly where it is — only `/recheck`,
- * `/repair`, and `/enable` on the plugin-admin service move one of those back.
+ * in `defective` or `removed` is left exactly where it is; deleting its entry
+ * from the marker file is what lets the next launch admit it again.
  *
  * Every name the web profile's own bundle list now carries and this marker has
  * not yet seen is admitted next: linked, and — when {@link bundleDefect} finds

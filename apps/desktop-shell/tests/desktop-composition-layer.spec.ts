@@ -273,10 +273,6 @@ describe('the composed plugin-manager rows', () => {
     expect(presetToolRow(desktop, 'preset-cordis').disabled).toEqual(profileGate)
     expect(pluginManagerToolInject).toContain('pluginManager')
   })
-
-  it('keeps the Settings Plugins section, which declares the plugin-updates tab slot', () => {
-    expect(entry(desktop, 'ui-settings-plugins').disabled).toBeUndefined()
-  })
 })
 
 describe('the composed office-to-pdf row', () => {

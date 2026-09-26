@@ -99,7 +99,6 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@haoran/dsh-desktop-update': { repo: 'apps/desktop-server/vendor/haoran-dsh-desktop-update-0.2.0.tgz' },
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.5.0.tgz' },
   '@haoran/dsh-mcp-servers': { repo: 'apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.2.0.tgz' },
-  '@haoran/dsh-plugin-updates': { repo: 'apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.3.0.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz' },
   '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.3.0.tgz' },
   '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.6.0.tgz' },

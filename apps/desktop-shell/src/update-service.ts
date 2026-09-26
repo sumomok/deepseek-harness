@@ -9,11 +9,10 @@
  * server — sets neither, and a plugin that finds neither reports the capability
  * unavailable rather than looking for an updater itself.
  *
- * This is a **third** service beside the render and plugin-admin listeners,
- * with a token of its own, because the three lend different powers: this one
- * buys the replacement of the whole application, which is heavier than a
- * screenshot or a package install. Admission to one is never admission to
- * another.
+ * This is a **second** service beside the render listener, with a token of
+ * its own, because the two lend different powers: this one buys the
+ * replacement of the whole application, which is heavier than a screenshot.
+ * Admission to one is never admission to the other.
  *
  * The protocol is four routes and no request body.
  *
