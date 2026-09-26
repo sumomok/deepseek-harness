@@ -32,6 +32,7 @@ import { decideDownload, downloadOutcome, type DownloadAlert } from './download-
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
+import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import {
   ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
   startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
@@ -894,7 +895,12 @@ if (!locked) {
       const renderEnv = await startRenderServiceForServer(sink)
       const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
       const updateEnv = await startUpdateForServer(host, sink)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv, ...updateEnv } }
+      const pnpmEnv = pnpmLauncherEnv({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform })
+      const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
+      sink(launcher === undefined
+        ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
+        : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
+      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv, ...updateEnv, ...pnpmEnv } }
       server = await startServerWithQuarantine(
         activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
       )

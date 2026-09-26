@@ -8,7 +8,8 @@
  * — the builder's copier hard-excludes node_modules trees, and both trees have
  * one — and `cp -R` preserves the executable bits node-pty's macOS spawn-helper
  * needs (the hook host is always the macOS build machine, for Windows targets
- * too). What each does next is platform-specific and mutually exclusive.
+ * too). The platform's pnpm launcher script follows them into `runtime/`.
+ * What each platform does next is platform-specific and mutually exclusive.
  *
  * macOS then signs the app (scripts/sign-mac.cjs), which must see the finished
  * bundle: the signature seals every resource, so anything written afterwards
@@ -75,10 +76,11 @@ module.exports = async function afterPack(context) {
   execFileSync('cp', ['-R', source, server])
   console.log(`after-pack: copied ${source} into ${server}`)
 
-  // Beside the bundled Node that runs it: src/plugin-admin-service.ts spawns
-  // `runtime/pnpm/bin/pnpm.mjs` under `runtime/node`, which is how a machine
-  // with no package manager updates a plugin. `runtime/` itself is already
-  // there, from the platform's extraResources entry.
+  // Beside the bundled Node that runs it: the launcher script copied below
+  // runs `runtime/pnpm/bin/pnpm.mjs` under `runtime/node`, which is how
+  // upstream's plugin manager installs on a machine with no package manager.
+  // `runtime/` itself is already there, from the platform's extraResources
+  // entry.
   const pnpmSource = join(__dirname, '..', 'staging', 'pnpm')
   if (!existsSync(pnpmSource)) throw new Error(`after-pack: no staged package manager at ${pnpmSource}`)
   const pnpm = join(resources, 'runtime', 'pnpm')
@@ -86,6 +88,18 @@ module.exports = async function afterPack(context) {
   execFileSync('cp', ['-R', pnpmSource, pnpm])
   if (!existsSync(join(pnpm, 'bin', 'pnpm.mjs'))) throw new Error(`after-pack: ${pnpm} carries no bin/pnpm.mjs`)
   console.log(`after-pack: copied ${pnpmSource} into ${pnpm}`)
+
+  // The platform's pnpm launcher, whose path the shell hands the server as
+  // DSH_DESKTOP_PNPM. The file names restate PNPM_LAUNCHERS in
+  // src/pnpm-launcher.ts, which this CommonJS hook cannot import;
+  // scripts/package.ts stages both under these names.
+  const launcherName = isMac ? 'dsh-pnpm' : 'dsh-pnpm.cmd'
+  const launcherSource = join(__dirname, '..', 'staging', 'pnpm-launchers', launcherName)
+  if (!existsSync(launcherSource)) throw new Error(`after-pack: no staged pnpm launcher at ${launcherSource}`)
+  const launcher = join(resources, 'runtime', launcherName)
+  execFileSync('cp', [launcherSource, launcher])
+  if (isMac) chmodSync(launcher, 0o755)
+  console.log(`after-pack: copied ${launcherSource} into ${launcher}`)
 
   if (isMac) {
     signMacApp({ appPath, log: line => { console.log(line) } })
