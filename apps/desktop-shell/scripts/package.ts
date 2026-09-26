@@ -36,6 +36,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { loadFailureLines, verifyDesktopLayer } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
@@ -435,6 +436,15 @@ async function verifyStaging(): Promise<void> {
  * machine's own profile happens to hold. Booting against the developer's home
  * is what this check used to do, and it covered the built-in plugins only by
  * the accident of that developer having installed them.
+ *
+ * Reaching the URL line does not show the seeded profile composed whole: a
+ * bundle the profile names and the Loader cannot resolve or admit is skipped
+ * with one stderr line, and the server starts without that bundle's layer. So
+ * after the server exits, any stderr line reporting a skipped bundle, a
+ * disabled row, or an entry that did not activate fails the build, and
+ * `--dump-config` against the same home must show the desktop composition
+ * layer's own value on its search row ([[verifyDesktopLayer]]). The dump runs
+ * after the boot because both rewrite the profile's root config.
  * @param root - the staged server tree to boot.
  * @param buildHome - this build's throwaway `$DSH_HOME`.
  */
@@ -452,6 +462,8 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let collected = ''
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
   try {
     const url = await new Promise<string>((resolvePromise, reject) => {
       const timer = setTimeout(() => {
@@ -496,6 +508,36 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       child.once('exit', () => { clearTimeout(timer); resolvePromise() })
     })
   }
+  const bootFailures = loadFailureLines(stderr)
+  if (bootFailures.length > 0) {
+    throw new Error(`package: staged boot started without part of its profile:\n  ${bootFailures.join('\n  ')}`)
+  }
+  const dump = await captureNode([join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--dump-config'], root)
+  const dumpFailures = loadFailureLines(dump.stderr)
+  if (dump.code !== 0 || dumpFailures.length > 0) {
+    throw new Error(`package: staged --dump-config failed (exit ${String(dump.code)}):\n${dump.stderr.split('\n').slice(-20).join('\n')}`)
+  }
+  verifyDesktopLayer(dump.stdout)
+  console.log('package: staged profile composed every seeded bundle, the desktop layer included')
+}
+
+/**
+ * Run the build's Node on a script and collect what it printed.
+ * @param args - the script path and its arguments.
+ * @param cwd - the working directory.
+ * @returns the exit code (null when a signal ended it) and both output streams.
+ */
+async function captureNode(args: string[], cwd: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+  child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+  const code = await new Promise<number | null>((resolvePromise, reject) => {
+    child.once('error', reject)
+    child.once('close', resolvePromise)
+  })
+  return { code, stdout, stderr }
 }
 
 /**
@@ -543,11 +585,11 @@ async function verifyClientModules(root: string, base: string, index: string, co
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
   const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
   // A built-in with a browser half reaches the page only if the payload carried
-  // it, the seed named it, and the Loader resolved it; nothing else in this
-  // build fails when one of those three stops being true. A built-in without
-  // one is proved by this boot happening at all: a bundle the profile names and
-  // the Loader cannot resolve is a hard boot failure, so the server would never
-  // have printed the URL line above.
+  // it, the seed named it, and the Loader resolved it; this loop is what fails
+  // when one of those three stops being true. A built-in without one serves
+  // nothing here: the boot's stderr check and the `--dump-config` check in
+  // `verifyStagedBoot` cover it, since a bundle the Loader skips still lets the
+  // server print its URL line.
   let withClient = 0
   for (const name of BUILTIN_WEB_BUNDLES) {
     if (!await servesClientModule(root, name)) continue
