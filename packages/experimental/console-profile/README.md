@@ -102,7 +102,7 @@ None beyond the composed plugins' own; the skill catalog is prefix-stable while 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, and a `defaultPreset` any settings write can change.
+- **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, and a `defaultPreset` any settings write can change. Its Agent-preset default is the Web bundle's `standard`, which this bundle disables, so every new session fails with `agent-preset/not-found`.
 - **The `console` preset keeps the file tools.** `tool-fs` lets the agent write the skills it distils into `<workspace>/.dsh/skills`, and it also lets it write any other file the `permission` preset's sandbox admits.
 
 <a id="dev-note"></a>

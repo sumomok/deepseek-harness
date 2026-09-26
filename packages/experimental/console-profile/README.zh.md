@@ -102,7 +102,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，以及一个任何设置写入都能改的 `defaultPreset`。
+- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，以及一个任何设置写入都能改的 `defaultPreset`。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
 <a id="dev-note"></a>
