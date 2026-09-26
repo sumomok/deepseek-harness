@@ -134,7 +134,7 @@
     "@haoran/dsh-desktop-update": "file:./vendor/haoran-dsh-desktop-update-0.2.0.tgz",
     "@haoran/dsh-llm-permission-gateway": "file:./vendor/haoran-dsh-llm-permission-gateway-0.5.0.tgz",
     "@haoran/dsh-mcp-servers": "file:./vendor/haoran-dsh-mcp-servers-0.2.0.tgz",
-    "@haoran/dsh-office-preview-notice": "file:./vendor/haoran-dsh-office-preview-notice-0.1.0.tgz",
+    "@haoran/dsh-office-preview-notice": "file:./vendor/haoran-dsh-office-preview-notice-0.2.1.tgz",
     "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.6.0.tgz",
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.3.0.tgz",
     "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.6.0.tgz",

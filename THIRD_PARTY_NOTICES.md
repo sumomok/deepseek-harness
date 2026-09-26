@@ -49,7 +49,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.2.0.tgz) | MIT |
 | [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.5.0.tgz) | MIT |
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.2.0.tgz) | MIT |
-| [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz) | MIT |
+| [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.3.0.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |

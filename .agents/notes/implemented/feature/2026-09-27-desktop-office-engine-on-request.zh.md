@@ -42,4 +42,4 @@ rc.34 把每个 `@deepseek-ai/libreoffice-kit-*` 引擎都从两个桌面载荷�
 
 - `apps/desktop-shell/src/office-engine.ts`、`office-engine-service.ts`、`pnpm-launcher.ts`(`pnpmInvocation`)、`main.ts`(`startOfficeEngineForServer`)
 - `apps/desktop-app/cordis.patch.yml`;`apps/desktop-shell/README.md` 的「Office 引擎服务」
-- 插件仓库里的 `@haoran/dsh-office-preview-notice` 0.2.0,它提供下载并删掉 `NODE_PATH` 那一项
+- `@haoran/dsh-office-preview-notice` 0.2.1,vendor 为 `apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz`,它在「用默认程序打开文件」旁提供下载,并删掉 `NODE_PATH` 那一项

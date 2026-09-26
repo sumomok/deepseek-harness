@@ -42,4 +42,4 @@ rc.34 dropped every `@deepseek-ai/libreoffice-kit-*` engine from both desktop pa
 
 - `apps/desktop-shell/src/office-engine.ts`, `office-engine-service.ts`, `pnpm-launcher.ts` (`pnpmInvocation`), `main.ts` (`startOfficeEngineForServer`)
 - `apps/desktop-app/cordis.patch.yml`; `apps/desktop-shell/README.md` "Office engine service"
-- `@haoran/dsh-office-preview-notice` 0.2.0 in the plugin repository, which offers the download and strips the `NODE_PATH` entry
+- `@haoran/dsh-office-preview-notice` 0.2.1, vendored as `apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz`, which offers the download beside opening the file in the default application, and strips the `NODE_PATH` entry
