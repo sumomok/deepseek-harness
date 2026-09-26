@@ -53,7 +53,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { expandOwningTurnProcess, newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
+import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
@@ -64,8 +64,10 @@ const OVERLAY = fileURLToPath(new URL('./component-surface.overlay.yml', import.
 // string: it opens with a `{{fromRequest:}}` pattern that llm-replay resolves
 // against the live request, so the reply can only be produced at all if the
 // notice built from the press is in that request — a pattern matching nothing
-// throws instead of answering.
-const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-action/session.jsonl', import.meta.url))
+// throws instead of answering. The file is a whole-script `ReplayEntry[]`
+// override, one entry per model call, which llm-replay reads in place of a
+// session log.
+const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-action/replay.override.json', import.meta.url))
 
 /** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
@@ -148,7 +150,7 @@ const APPROVE_ID = 'approve'
  * the pressed button reached the model.
  */
 const MODEL_REPLY = `${APPROVE_LABEL} it is — I will submit the revised budget now.`
-/** What the agent is told the press was, verbatim, and what the user reads on the collapsed row. */
+/** What the agent is told the press was, verbatim, and the summary the notice declares. */
 const PRESS_TEXT = `The user pressed "${APPROVE_LABEL}" in content panel entry "${BUDGET_ID}" ("${BUDGET_TITLE}"), on the 确认条 block "ask".`
 const PRESS_SUMMARY = `用户在「${BUDGET_TITLE}」里点了「${APPROVE_LABEL}」`
 /**
@@ -171,8 +173,8 @@ const SENT_LINE = 'Sent to the conversation'
 const ACTION_NOT_RECORDED = '这个动作没能记下来。'
 /** A `/component-action` line naming no action at all — the shape a hand-typed one takes. */
 const MALFORMED_ACTION = '/component-action {"entryId":"budget"}'
-/** The header the shell draws over any logged non-user message, in English. */
-const CONTEXT_ROW_HEADING = 'Context injection'
+/** The header the shell draws over a turn trigger from a source it has no family for, in English. */
+const TRIGGER_HEADING = 'Execution requested'
 
 /** The spec the `cleanup` call placed, so the column holds two entries at once. */
 const CLEANUP_SPEC = {
@@ -361,15 +363,36 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 
 /**
  * One settled `show_component` call, as the log records it.
+ *
+ * A format-4 log advertises every call in an assistant message before its
+ * `tool/call`, and settles it with an identified tool-role result message, so
+ * the seed carries both messages and takes their identities from the seed
+ * fixture's own `{{message:N}}` token space, which ordinals 1-6 already use.
  * @param callId - the tool call id.
  * @param id - the entry the call owns.
  * @param title - the line the user reads in the switcher strip.
  * @param spec - what the call placed.
- * @returns the two log lines the loop writes for one settled call.
+ * @param message - the identity ordinal of the advertising assistant message; the result takes the next one.
+ * @returns the three log lines the loop writes for one settled call.
  */
 function componentCall(callId: string, id: string, title: string, spec: unknown, message: number): string[] {
   const args = JSON.stringify({ id, title, spec })
   return [
+    JSON.stringify({
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: `{{message:${String(message)}}}`,
+          role: 'assistant',
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          content: [{ type: 'tool-call', id: callId, name: 'show_component', arguments: args }],
+        },
+        stream: [],
+      },
+      surfaceOp: 'append',
+    }),
     JSON.stringify({
       type: 'tool/call',
       data: { turn: 1, step: 1, callId, name: 'show_component', arguments: args },
@@ -379,20 +402,13 @@ function componentCall(callId: string, id: string, title: string, spec: unknown,
       data: {
         turn: 1,
         step: 1,
-        // A result is a message of its own, identified: a stored session whose
-        // result carries none is refused as corrupt before anything reads it.
-        // The ordinal continues the seed fixture's own, so no two events in the
-        // realized log claim one id.
         message: {
+          id: `{{message:${String(message + 1)}}}`,
+          role: 'tool',
           source: { kind: 'tool', callId },
-          content: [{
-            type: 'tool-result',
-            toolCallId: callId,
-            content: [{ type: 'text', text: `Now showing "${title}" in the content panel.` }],
-            isError: false,
-          }],
-          role: 'user',
-          id: `{{message:${String(message)}}}`,
+          toolCallId: callId,
+          content: [{ type: 'text', text: `Now showing "${title}" in the content panel.` }],
+          isError: false,
         },
       },
       surfaceOp: 'append',
@@ -417,14 +433,14 @@ function withComponentCalls(fixtureText: string): string {
   if (closing === -1) throw new Error('seed fixture has no step/end to splice before')
   return [
     ...lines.slice(0, closing),
-    ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC, 6),
-    ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC, 7),
-    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC, 8),
-    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC, 9),
-    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC, 10),
-    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC, 11),
-    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC, 12),
-    ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC, 13),
+    ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC, 7),
+    ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC, 9),
+    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC, 11),
+    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC, 13),
+    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC, 15),
+    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC, 17),
+    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC, 19),
+    ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC, 21),
     ...lines.slice(closing),
   ].join('\n')
 }
@@ -485,7 +501,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY })
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY, replayOverride: REPLAY })
     await seedSession(scaffold, withComponentCalls(await readFile(FIXTURE, 'utf8')), SESSION)
 
     browser = await chromium.launch()
@@ -654,33 +670,17 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     expect(pressTurn?.seq ?? 0).toBeGreaterThan(run?.seq ?? Infinity)
     expect(pressTurn?.seq ?? Infinity).toBeLessThan(notice?.seq ?? 0)
 
-    // What the user reads: a collapsed row headed by the shell's own wording for
-    // any logged non-user message, naming the producer and this press. The
-    // summary is asserted through the DOM rather than through visibility: it is
-    // a `flex: 1 1 auto` cell with `overflow: hidden`, so at the console's
-    // three-column chat width it is squeezed to nothing and the reader is left
-    // with the heading and the plugin id alone.
-    const row = page.locator('[data-disclosure-row]', { hasText: PRESS_SUMMARY })
-    await row.waitFor({ state: 'attached', timeout: 30_000 })
-    // The shell's compact chat keeps a turn's process rows folded; this row is
-    // one of them, so its own group is opened before it can be read.
-    await expandOwningTurnProcess(page, row)
-    await row.scrollIntoViewIfNeeded()
-    await expect.poll(async () => await row.isVisible(), { timeout: 15_000 }).toBe(true)
-    expect(await row.locator('[data-context-source]').textContent()).toBe(NOTICE_PLUGIN)
-    expect(await row.locator('[data-context-summary]').textContent()).toBe(PRESS_SUMMARY)
-    // The heading is the shell's own, drawn the same for every producer; this
-    // row records the exact wording an end user is shown beside the press.
-    expect(await row.textContent()).toContain(CONTEXT_ROW_HEADING)
-    // And what expanding it opens on, which is the README's limitation as the
-    // user meets it: the model-facing English sentence, internal identifiers
-    // included. A `notice` renders its own body, so the source field table the
-    // opaque fallback would add is not there — the sentence is the whole of it.
-    await row.click()
-    const body = page.locator('[data-context-injection-body]', { hasText: PRESS_TEXT })
-    await body.waitFor({ state: 'attached', timeout: 15_000 })
-    expect(await body.locator('[data-context-text]').textContent()).toBe(PRESS_TEXT)
-    expect(await body.locator('[data-context-fields]').count()).toBe(0)
+    // What the user reads: the notice that woke the press's turn is drawn as
+    // that turn's trigger, headed by the shell's own wording for a trigger from
+    // a source it has no family for. The summary the notice declares is not
+    // drawn; expanding the trigger opens on the model-facing English sentence,
+    // internal identifiers included, which is the README's limitation as the
+    // user meets it.
+    const trigger = page.locator('[data-turn-trigger]', { hasText: TRIGGER_HEADING })
+    await trigger.waitFor({ state: 'visible', timeout: 30_000 })
+    expect(await page.getByText(PRESS_SUMMARY, { exact: false }).count()).toBe(0)
+    await trigger.getByRole('button').click()
+    await expect.poll(async () => await trigger.textContent(), { timeout: 15_000 }).toContain(PRESS_TEXT)
 
     // The press is not narrated in chat: the command row this row registers for
     // `component-action` renders nothing, so the reader is left with the notice

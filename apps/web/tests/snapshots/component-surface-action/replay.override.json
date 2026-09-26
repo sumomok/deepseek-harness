@@ -1,0 +1,110 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "{{fromRequest:pressed \"([^\"]+)\" in content panel entry}} it is — I will submit the revised budget now."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "{{fromRequest:pressed \"([^\"]+)\" in content panel entry}} it is — I will submit the revised budget now."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "Filtering by {{fromRequest:submitted a filter in [^:]*: ([^;]+);}} now."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Filtering by {{fromRequest:submitted a filter in [^:]*: ([^;]+);}} now."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]

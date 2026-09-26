@@ -40,7 +40,8 @@ import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot, w
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('./component-surface-datasource.overlay.yml', import.meta.url))
-const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-datasource/session.jsonl', import.meta.url))
+/** The hand-written model answers: a whole-script `ReplayEntry[]` override, one entry per model call, read in place of a session log. */
+const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-datasource/replay.override.json', import.meta.url))
 
 /** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
@@ -317,7 +318,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     // which happens inside this process during the launch below.
     process.env.DSH_E2E_BIZ_UPSTREAM = `${backend.origin}${API_PREFIX}/`
     harnessHome = await harnessHomeWithRowLinks()
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY })
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY, replayOverride: REPLAY })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
 
     browser = await chromium.launch()

@@ -1,0 +1,245 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_datasource000000000000001",
+          "name": "show_component",
+          "arguments": "{\"id\":\"layers\",\"title\":\"图层配置\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{\"selectMode\":\"checkbox\",\"tableConfig\":{\"gridItems\":[{\"relatedMetaAttr\":\"zh_label\",\"alias\":\"名称\"},{\"relatedMetaAttr\":\"layer_id\"},{\"relatedMetaAttr\":\"belong_map_topic\"}]}}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\",\"page\":{\"pageSize\":200}}]}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "DONE"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "DONE"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_datasource000000000000002",
+          "name": "show_component",
+          "arguments": "{\"id\":\"layers\",\"title\":\"图层配置\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\"}]}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "DEFAULT COLUMNS DRAWN"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "DEFAULT COLUMNS DRAWN"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_datasource000000000000003",
+          "name": "show_component",
+          "arguments": "{\"id\":\"no-match\",\"title\":\"没有匹配的行\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{\"tableConfig\":{\"gridItems\":[{\"relatedMetaAttr\":\"zh_label\",\"alias\":\"名称\"}]}}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\",\"conditions\":[{\"key\":\"zh_label\",\"op\":\"EQ\",\"value\":\"没有这一行\"}]}]}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "SpaceLayer {{fromRequest:\"SpaceLayer\" (returned no rows for those conditions)}}, so nothing was drawn."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "SpaceLayer {{fromRequest:\"SpaceLayer\" (returned no rows for those conditions)}}, so nothing was drawn."
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 1,
+          "outputTokens": 1
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]
