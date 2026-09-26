@@ -64,13 +64,13 @@ describe('desktop brand occupant', () => {
     expect(view.container.textContent).toBe('Beiming')
   })
 
-  it('stacks the embedded desktop version under the name', async () => {
-    vi.stubEnv('DSH_CLIENT_VERSION', '0.1.0-rc.34')
+  it('stacks the client build\'s upstream version under the name', async () => {
+    vi.stubEnv('DSH_CLIENT_VERSION', '0.1.7-rc.2')
     const { view, setLocale } = await page()
     setLocale('zh')
     expect(view.view.getByText('北冥')).toBeTruthy()
-    expect(view.view.getByText('0.1.0-rc.34')).toBeTruthy()
-    expect(view.container.textContent).toBe('北冥0.1.0-rc.34')
+    expect(view.view.getByText('0.1.7-rc.2')).toBeTruthy()
+    expect(view.container.textContent).toBe('北冥0.1.7-rc.2')
   })
 
   it('renders no current-version row and no element in its place in Settings → General', async () => {

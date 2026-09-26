@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-桌面客户端显示的是上游本地构建的身份。侧栏品牌行渲染 ui-sidebar 的回退：`brand.localBuild`（「DSH 本地构建」/「DSH Local Build」），下面一行是构建版本；窗口标题是 `DSH_CLIENT_TITLE ?? t('brand.localBuild')`。设置 → 通用的最后一行写着 `当前版本：0.1.7-rc.2`，这是仓库版本；旁边 `@haoran/dsh-desktop-update` 渲染的更新设置页显示的是应用自己的版本（`0.1.0-rc.34`），同一个窗口里出现两个版本。产品要叫北冥（英文 Beiming）；客户端构建嵌入的版本保持上游的；桌面发行版本只在更新页显示。应用名、安装包名 `DSH Desktop` 与 `appId` 保持不变，因为 userData 和更新通道都以它们为键。
+桌面客户端显示的是上游本地构建的身份。侧栏品牌行渲染 ui-sidebar 的回退：`brand.localBuild`（「DSH 本地构建」/「DSH Local Build」），下面一行是构建版本；窗口标题是 `DSH_CLIENT_TITLE ?? t('brand.localBuild')`。设置 → 通用的最后一行写着 `当前版本：0.1.7-rc.2`，这是仓库版本；而 `@haoran/dsh-desktop-update` 渲染的更新设置页显示的是应用自己的版本（`0.1.0-rc.34`）。产品要叫北冥（英文 Beiming）。客户端构建嵌入的版本保持上游的，名称下方的侧栏徽标继续显示它，所以侧栏是 `0.1.7-rc.2`，更新页是 `0.1.0-rc.34`；桌面发行版本只在更新页显示，侧栏徽标是否保留由用户决定。应用名、安装包名 `DSH Desktop` 与 `appId` 保持不变，因为 userData 和更新通道都以它们为键。
 
 改动必须留在 fork 自有路径里。有三条上游事实决定了做法：
 
