@@ -63,6 +63,7 @@ import * as typertRegistryClient from '@deepseek-ai/dsh-typert-registry/client'
 import * as localeClient from '@deepseek-ai/dsh-client-locale/client'
 import * as inputTriggerClient from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { documentTabInfoFactory } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/contract.ts'
 import { DocumentPreviewRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/registry.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
@@ -238,12 +239,12 @@ const SETTINGS_SLOTS = {
 } as const
 
 /**
- * The document tab's keyed body slot, which the preview package declares as a
- * child of its tab body and a half registers a preview body into by
+ * The document tab's keyed body slot, declared as the preview package declares
+ * it under its tab body; a half registers a preview body into it by
  * implementation id.
  */
 const DOCUMENT_SLOTS = {
-  'sidebar.right.tab.document': { kind: 'keyed', scope: 'session' },
+  'sidebar.right.tab.document': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo: documentTabInfoFactory } } },
 } as const
 
 /** One assembled page: the runtime plus the teardown that unwinds it. */
