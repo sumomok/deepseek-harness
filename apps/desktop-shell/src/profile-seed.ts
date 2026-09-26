@@ -47,9 +47,10 @@
  *
  * The one thing a run removes on its own is a built-in this build withdrew — a
  * name in {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this
- * payload no longer carries. `loadProfile` resolves every `dsh.profile.bundles`
- * entry and throws on one it cannot resolve, so an upgrade that just stopped
- * shipping a package would leave every profile it had seeded unbootable.
+ * payload no longer carries. `loadProfile` skips a `dsh.profile.bundles` entry
+ * it cannot resolve and the server writes one `skipping profile bundle` line to
+ * stderr for it on every boot, so an upgrade that just stopped shipping a
+ * package would leave that name, and that line, in every profile it had seeded.
  *
  * **The plugins a user installed into the CLI's shared `web` profile stay in
  * step with the desktop profile on every launch**, because every build before
@@ -164,10 +165,11 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
  *
  * A name here is one the shell put into a profile itself, which makes the shell
  * the only thing that can take it back out: the server resolves every
- * `dsh.profile.bundles` entry against the installation and the profile, and a
- * name that resolves in neither place fails the boot outright.
+ * `dsh.profile.bundles` entry against the installation and the profile, and
+ * skips a name that resolves in neither place with one `skipping profile
+ * bundle` line on its stderr, on every boot.
  *
- * A run removes such a name only where leaving it would be that failure, and
+ * A run removes such a name only where it no longer resolves, and
  * removes the flat-fallback link only where it is the one this shell would have
  * made. A copy the user installed themselves keeps both its link and its bundle
  * entry, under the ownership that put it there.

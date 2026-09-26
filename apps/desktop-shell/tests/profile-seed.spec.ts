@@ -641,7 +641,9 @@ describe('seedBuiltinBundles migrating the web profile', () => {
   })
 
   it('copies neither file on a run that migrated nothing', () => {
-    writeWebProfile(['dsh-at-file'])
+    // A built-in the web profile also lists is passed over as covered, so this
+    // run migrates nothing.
+    writeWebProfile(['@sumomok/dsh-quote-message'])
     writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: at-file\n  disabled: true\n')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.copied).toEqual([])
@@ -1514,8 +1516,12 @@ describe('describeSeed', () => {
   })
 
   it('names what was seeded and linked on one line', () => {
-    const line = describeSeed({ ...nothingHappened(), seeded: ['dsh-at-file'], linked: ['dsh-at-file'], created: true })
-    expect(line).toBe('[desktop] profile desktop-shell: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
+    const line = describeSeed({
+      ...nothingHappened(), seeded: ['@sumomok/dsh-quote-message'], linked: ['@sumomok/dsh-quote-message'], created: true,
+    })
+    expect(line).toBe(
+      '[desktop] profile desktop-shell: created with built-in bundles @sumomok/dsh-quote-message; linked @sumomok/dsh-quote-message\n',
+    )
   })
 
   it('carries every skip reason', () => {
