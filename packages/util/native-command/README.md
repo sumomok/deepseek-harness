@@ -41,7 +41,7 @@ On exit 0 the call resolves with captured stdout and stderr. On any failure it r
 
 ### Injecting the command boundary
 
-The `NativeCommandRunner` type is the injectable command boundary for host integrations: pass the function (or a wrapper) where the integration needs a testable boundary, so tests can substitute a fake runner.
+The `NativeCommandRunner` type is the injectable command boundary for host integrations: pass the function (or a wrapper) where the integration needs a testable boundary, so tests can substitute a fake runner. The optional fourth argument, `NativeCommandOptions`, carries per-command process options: a call that omits it starts the command with a hidden Windows window, and `{ windowsHide: false }` shows it. The path opener passes `{ windowsHide: false }` only to Explorer, whose folder or selection window is the result of the call; every other command it runs stays hidden.
 
 ### Opening a Host path
 
@@ -72,7 +72,7 @@ The command runner is a thin wrapper over Node's `execFile`. The path opener sel
 
 ### What execFile gives the runner
 
-`execFile` spawns the executable directly with an argv array — no shell string, no shell interpretation of the arguments. The `signal` option terminates the child when the caller's abort fires; `windowsHide` suppresses the transient console window on Windows. On a non-zero exit or spawn error, the callback attaches `code`, `stdout`, and `stderr` to the rejected error and keeps the original error as `cause`.
+`execFile` spawns the executable directly with an argv array — no shell string, no shell interpretation of the arguments. The `signal` option terminates the child when the caller's abort fires; `windowsHide` takes the value from the call's options, true when the call passes none, which suppresses the transient console window on Windows. A hidden start also hides the first window of a GUI program, which is why Explorer is started visible. On a non-zero exit or spawn error, the callback attaches `code`, `stdout`, and `stderr` to the rejected error and keeps the original error as `cause`.
 
 </details>
 
