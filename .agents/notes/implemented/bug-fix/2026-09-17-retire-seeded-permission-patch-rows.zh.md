@@ -10,7 +10,7 @@ Status: implemented
 
 盖住它的文件是 `~/.dsh/profiles/desktop-shell/cordis.patch.yml`,最后一次写入在 2026-08-27,里面装着一条带整张预设表的 `- id: permission`,外加一行 `llm-permission-gateway`。后面那一行是以 id 为目标的 `- id: llm-permission-gateway`,而不是包自己那份 `- insert:`——一份对着已经挂载了这个插件的构建写下的层,取的正是这种形态。profile 自己的 patch 层是倒数第二层——每一个 bundle 层都在它之前生效——所以那里一条以 id 为目标的条目会替换整个 `config`,插件那张表就永远不生效。产品里没有任何东西会从那个文件里把一行取回去:`WITHDRAWN_WEB_BUNDLES` 与 `web-migration.json` 够得着的是 bundle 名字与链接,从来不是 patch 层的内容。
 
-这两行是壳自己留下的,走的是 [`copyPristineProfileFile`](../../../../apps/desktop-shell/src/profile-seed.ts) 说明的那条路。一个 `desktop-shell` profile 迄今第一次跑同步时,会把仍是空模板的那份 patch 层逐字节换成 `web` profile 的文件,而在这台机器上,`web` 层正是 [2026-08-22 那份网关记录](../feature/2026-08-22-desktop-builtin-permission-gateway.zh.md)写下的那份手写文件:`yolo-access` 与这道门,靠一句请阅读的人别把两个块拆开的注释配在一起。0.1.0-rc.18 把这两行搬进了包里(`apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`),六天之后,首次同步把这台机器自己那份副本抄进了如今盖住这个包的那个 profile。
+这两行是壳自己留下的,走的是 [`copyPristineProfileFile`](../../../../apps/desktop-shell/src/profile-seed.ts) 说明的那条路。一个 `desktop-shell` profile 迄今第一次跑同步时,会把仍是空模板的那份 patch 层逐字节换成 `web` profile 的文件,而在这台机器上,`web` 层正是 [2026-08-22 那份网关记录](../feature/2026-08-22-desktop-builtin-permission-gateway.zh.md)写下的那份手写文件:`yolo-access` 与这道门,靠一句请阅读的人别把两个块拆开的注释配在一起。0.1.0-rc.18(2026-08-22 打 tag)把这两行搬进了包里(`apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`),2026-08-27——即上文那次最后写入——首次同步把这台机器自己那份副本抄进了如今盖住这个包的那个 profile。
 
 那台机器上那份文件的确切字节不在本仓库里。在这条改动落地之前,树里没有任何东西带着那份文件开头的那段注释,而 `apps/` 下唯一带着这两行完整字节的文件是那三个随包的网关 tarball;壳自己的 `PROFILE_PATCH_TEMPLATE` 从来就是那份空的 `[]` 层。能取回来的是 0.1.3 的那份 patch 层,它的两条条目逐字段就是那套手写配对所声明的东西,而那台机器自己的头部注释是对这份文件自带注释的转述。
 
