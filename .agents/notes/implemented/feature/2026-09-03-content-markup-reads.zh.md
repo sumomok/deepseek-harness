@@ -66,7 +66,7 @@ Status: implemented
 
 `tests/markup.client.spec.ts` 钉住三件读取产出的每一个字符串——树形行、裁断标记、属性行及其 JSON 引号、被扣留的密码值、文字的分行、以及两种空答案——外加预算裁断、游标、续读，以及对一个并非该树某一行的游标的拒绝。`tests/content-markup-tool.client.spec.ts` 对着真实的工具运行时逐字钉住三段描述与参数表，并驱动每件工具能到达的每一种结局。`tests/content-read-executor.client.spec.tsx` 让三件读取都在真实 iframe 里的真实文档上过一遍座位，包含三种「宽到 wire 装不下」的拒绝。`src/` 按文件 100% 覆盖；耦合审计——没有任何代码路径读取厂商 class 前缀——只命中一处点名说明「刻意不识别什么」的注释。
 
-四份 Web 场景为它作证，全部位于 `snapshots/web/` 下：`content-read` 与 `content-act` 自 `apps/web/tests/snapshots/` 迁入，`content-read-dom` 与 `content-read-attrs` 新增，对着新的 fixture 应用 `tests/fixtures/markup-app`——它的 Operations 列画成只带一个 class 与一个 `data-op`、别无他物的裸元素，正是那种在真实浏览器里读出来一列全空的形状，而这是任何 jsdom fixture 都造不出来的。四者共用语料库组合 `web-content`。`content-read`、`content-act` 与 `content-read-attrs` 共用它的 `standard` 预设 header class，由 `content-read` 钉住；`content-read-dom` 组合的是客户控制台的预设，不提供 shell、文件搜索与网页抓取，自己钉住 header class `web-content-console`。带密钥录制：
+四份 Web 场景为它作证，全部位于 `snapshots/web/` 下：`content-read` 与 `content-act` 自 `apps/web/tests/snapshots/` 迁入，`content-read-dom` 与 `content-read-attrs` 新增，对着新的 fixture 应用 `tests/fixtures/markup-app`——它的 Operations 列画成只带一个 class 与一个 `data-op`、别无他物的裸元素，正是那种在真实浏览器里读出来一列全空的形状，而这是任何 jsdom fixture 都造不出来的。四者共用语料库组合 `web-content`。`content-read` 与 `content-act` 组合 `standard` 预设，共用由 `content-read` 钉住的 header class；`content-read-dom` 与 `content-read-attrs` 组合客户控制台的预设，不提供 shell、文件搜索与网页抓取，共用 header class `web-content-console`，由 `content-read-dom` 钉住。带密钥录制：
 
 ```sh
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read.e2e.ts

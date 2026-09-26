@@ -14,18 +14,25 @@
  * identify the row and do not explain it, and the explanation is an attribute
  * away.
  *
+ * The session is composed from the customer console's own preset, whose tools
+ * are the file tools, the skill loader, the question tool and the todo list
+ * beside the content column's. Offered a shell, this model grepped the fixture
+ * application's source in the checkout for the class names rather than
+ * reading what the browser rendered.
+ *
  * The fixture pins what the MODEL said; every read executes for real.
  */
 
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
   recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
+  COMPOSER, CONSOLE_OFFERED, CONSOLE_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn,
+  recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -53,11 +60,12 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads one el
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let close: () => Promise<void>
+  let seeded: SessionId
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    ({ close, page, scaffold, tripwire } = await openContentColumn({
-      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents,
+    ({ close, page, scaffold, sessionId: seeded, tripwire } = await openContentColumn({
+      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, preset: CONSOLE_PRESET,
     }))
   }, 180_000)
 
@@ -70,6 +78,11 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads one el
     if (MODE !== 'record') {
       expect(await recordedUserPrompts(FIXTURE)).toEqual([PROMPT])
     }
+    // What the session may reach for, asserted before anything is driven: no
+    // shell, no file search and no web fetch.
+    const agent = scaffold.ctx.agents.get(seeded)
+    if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
+    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(CONSOLE_OFFERED)
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)

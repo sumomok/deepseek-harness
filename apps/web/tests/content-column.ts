@@ -62,10 +62,10 @@ export const CONTENT_COLUMN_PRESET: PresetDefinition = {
  * and the todo list — no shell, no file search, no web tool, and no working
  * directory in the persona.
  *
- * A scenario about reading markup the console's model is expected to answer
- * from the column composes this, because the `standard` preset hands the model
- * a shell, a file search and a web fetch, and with those it read the fixture
- * application's source off disk and fetched the hosted page over HTTP instead.
+ * The scenarios about reading markup compose this, because the `standard`
+ * preset hands the model a shell, a file search and a web fetch, and with those
+ * it read the fixture application's source off disk and fetched the hosted page
+ * over HTTP instead of reading what the browser rendered.
  */
 export const CONSOLE_PRESET: PresetDefinition = {
   id: 'console',
@@ -100,6 +100,24 @@ export const CONSOLE_PRESET: PresetDefinition = {
     { id: 'tool-todo', name: '@deepseek-ai/dsh-tool-todo', config: { allowParallelInProgress: true } },
   ],
 }
+
+/** Every tool a session composed from {@link CONSOLE_PRESET} is offered: the preset's and the content column's. */
+export const CONSOLE_OFFERED = [
+  'ask_user_question',
+  'content_act',
+  'content_read',
+  'content_read_attrs',
+  'content_read_dom',
+  'content_read_dom_content',
+  'content_read_image',
+  'content_show',
+  'edit',
+  'read',
+  'read_image',
+  'skill',
+  'todo_write',
+  'write',
+]
 
 /** The package these scenarios exercise. */
 export const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')

@@ -15,7 +15,8 @@
  * This scenario owns the corpus's `web-content` header class: the content
  * scenarios composed from the `standard` preset boot one composition, and the
  * tool schemas and system prompt its pin holds are the ones their requests
- * carry. `content-read-dom` composes the console preset and owns its own class.
+ * carry. `content-read-dom` and `content-read-attrs` compose the console preset
+ * and share the class `content-read-dom` pins.
  */
 
 import { join } from 'node:path'

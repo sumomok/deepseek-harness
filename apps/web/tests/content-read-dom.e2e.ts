@@ -33,7 +33,8 @@ import {
   recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, CONSOLE_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn, recordedUserPrompts, toolResults,
+  COMPOSER, CONSOLE_OFFERED, CONSOLE_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn,
+  recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
 
@@ -42,24 +43,6 @@ const SCENARIO = 'content-read-dom'
 const FIXTURE = fixtureFor(SCENARIO)
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
-
-/** Every tool the session is offered: the console preset's and the content column's. */
-const OFFERED = [
-  'ask_user_question',
-  'content_act',
-  'content_read',
-  'content_read_attrs',
-  'content_read_dom',
-  'content_read_dom_content',
-  'content_read_image',
-  'content_show',
-  'edit',
-  'read',
-  'read_image',
-  'skill',
-  'todo_write',
-  'write',
-]
 
 /**
  * Whether this scenario's recording is on disk. A replay run without it is
@@ -101,7 +84,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads the pa
     // shell, no file search and no web fetch.
     const agent = scaffold.ctx.agents.get(seeded)
     if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
-    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(OFFERED)
+    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(CONSOLE_OFFERED)
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)
