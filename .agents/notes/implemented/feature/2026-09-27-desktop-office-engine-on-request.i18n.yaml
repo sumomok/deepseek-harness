@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-office-engine-on-request.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-office-engine-on-request.md
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request:
+  en: d423ca6c9cceb555
+  zh: e5f92d765f37c617
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request/problem:
+  en: a9dbccf4f072fdd8
+  zh: 0cd4d432c040885e
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request/decision:
+  en: 347f185465e05cfc
+  zh: 0939aec0eb43895f
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request/alternatives-considered:
+  en: 710159a65274af0b
+  zh: cd94013646b8c95d
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request/consequences:
+  en: 5ae6c13fafba88a2
+  zh: 73c577fb5b6e8ae7
+/agent-note-the-desktop-downloads-the-libreoffice-engine-on-request/related:
+  en: 188e5bcb9e1663b6
+  zh: bb1bbd48d9238319
