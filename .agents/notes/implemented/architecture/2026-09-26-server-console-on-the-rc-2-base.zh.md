@@ -24,6 +24,8 @@ Status: implemented
 
 **控制台 bundle 声明自己的 `console` Agent 预设，由锁把它定为默认。** 在更早的基座上，控制台跑的是 `dsh-agent-presets` 从 `$DSH_HOME/.agent-presets` 读入的 `console` 预设；0.1.7-rc.2 删掉了那个包，预设改为 `@deepseek-ai/dsh-agent-preset` 行，控制台于是悄悄退回出厂 `standard` 预设，带着 shell、搜索、后台任务、目标、计划、委派与 web 工具。现在 bundle 层插入 `preset-console`，行与旧预设相同——persona（它的 `text` 即 rc.2 的 `prefix`）、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`——锁 overlay 带上 `agent-preset-registry` 行，`default: console`。registry 行放在锁里而不是 bundle 层，理由与 `permission` 相同：`selectedDefault` 是任何被放行的浏览器都能写的 volatile Config，而指向控制台未声明预设的值会让每个新会话以 `agent-preset/not-found` 失败。bundle 层还禁用 `preset-standard`、`preset-ptc`、`preset-minimal` 与 `preset-cordis`：控制台没有预设选择器，但 `session.create` 经 RPC 接受 `agentPreset`，所以 registry 列出的预设只有 `console`。
 
+**控制台 bundle 还声明了 `standard`，插件与 `console` 完全相同。** 会话记下创建时所用预设的 id，并按这个 id 恢复。控制台部署在 `console` 出现之前建的会话记的是 `standard`；出厂的 `standard` 被禁用后，这些会话既收不了消息，也跑不了导航。`preset-standard-as-console` 行让它们以客户工具集恢复，`packages/experimental/console-profile/tests/profile.spec.ts` 断言它的插件清单与 `console` 相等，所以经 RPC 点名 `standard` 的调用方拿到的不会多于 `console`。上游给预设提供别名或恢复回退、或者没有部署再保留以 `standard` 建的会话时，退役这一行。
+
 ## Alternatives considered
 
 **由产品自带导入器把菜单从 `settings.yaml` 复制到自己的存储里。** settings 服务已经会把每个分区导入同名 id 的条目；第二个导入器将拥有一个基座已经退役的文件，以及一条 settings README 明确告诉插件不要自己拥有的持久化路径。
