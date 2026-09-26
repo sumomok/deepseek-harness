@@ -7,7 +7,7 @@
  * @module
  */
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -34,12 +34,19 @@ afterEach(async () => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-/** Put a complete engine where the manager looks, the way a finished install leaves it. */
-function placeEngine(root: string, version = REQUIREMENT.version): void {
+/**
+ * Put a complete engine where the manager looks, the way a finished install leaves it.
+ * @returns the path of its executable.
+ */
+function placeEngine(root: string, version = REQUIREMENT.version): string {
   const dir = join(root, version, 'node_modules', REQUIREMENT.name)
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(join(dir, 'bin'), { recursive: true })
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: REQUIREMENT.name, version }))
-  writeFileSync(join(dir, 'prebuilds.json'), '{}')
+  writeFileSync(join(dir, 'prebuilds.json'), JSON.stringify({ engine: { executable: 'bin/libreoffice-kit' } }))
+  const executable = join(dir, 'bin', 'libreoffice-kit')
+  writeFileSync(executable, '')
+  chmodSync(executable, 0o755)
+  return executable
 }
 
 /** A promise the case settles by hand. */
@@ -150,6 +157,20 @@ describe('the office engine protocol', () => {
     placeEngine(root)
     expect((await call(handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'installed', version: '0.1.1', downloadBytes: 66_711_287 })
     expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'installed', message: 'the preview component is already installed' } })
+  })
+
+  it('reports an engine whose executable is gone as absent, and offers the download again', async () => {
+    const { handle, root } = await start()
+    unlinkSync(placeEngine(root))
+    expect((await call(handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'absent', version: '0.1.1', downloadBytes: 66_711_287 })
+    expect((await call(handle, 'POST', INSTALL_PATH)).status).toBe(202)
+  })
+
+  // Windows has no execute bit; the kit checks it everywhere else.
+  it.skipIf(process.platform === 'win32')('reports an engine whose executable lost its execute bit as absent', async () => {
+    const { handle, root } = await start()
+    chmodSync(placeEngine(root), 0o644)
+    expect((await call(handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'absent' })
   })
 
   it('reports a host with no engine, and refuses every command there', async () => {

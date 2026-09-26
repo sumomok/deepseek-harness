@@ -40,7 +40,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { delimiter, dirname, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
@@ -213,27 +213,52 @@ export function engineServerEnv(root: string, requirement: EngineRequirement, in
 }
 
 /**
- * Whether a `node_modules` holds the required engine, complete: the version
- * the kit checks for and the engine manifest it reads next.
- * @param modules - the `node_modules` to look in.
- * @param requirement - the engine to look for.
- * @returns true when the package directory carries that version and its `prebuilds.json`.
+ * Read one JSON file of an engine package.
+ * @param path - the file.
+ * @returns the parsed value, or undefined when it is absent or not JSON.
  */
-function holdsEngine(modules: string, requirement: EngineRequirement): boolean {
-  const dir = join(modules, requirement.name)
-  let version: unknown
+function readJson(path: string): unknown {
   try {
-    version = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown }).version
+    return JSON.parse(readFileSync(path, 'utf8'))
   } catch {
     // Absent before an install and half-written after an interrupted one;
-    // neither is an installed engine.
-    return false
+    // neither is part of an installed engine.
+    return undefined
   }
-  return version === requirement.version && existsSync(join(dir, 'prebuilds.json'))
 }
 
 /**
- * Whether the required engine is installed where {@link engineServerEnv} points.
+ * Whether a `node_modules` holds the required engine, complete: the version
+ * the kit checks for, the engine manifest it reads next, and the executable
+ * that manifest names, which the kit requires to be a file with an execute
+ * bit outside Windows.
+ * @param modules - the `node_modules` to look in.
+ * @param requirement - the engine to look for.
+ * @returns true when the package directory carries that version, its `prebuilds.json`, and a runnable executable.
+ */
+function holdsEngine(modules: string, requirement: EngineRequirement): boolean {
+  const dir = join(modules, requirement.name)
+  const manifest = readJson(join(dir, 'package.json')) as { version?: unknown } | null | undefined
+  if (manifest?.version !== requirement.version) return false
+  const prebuilds = readJson(join(dir, 'prebuilds.json')) as { engine?: { executable?: unknown } } | null | undefined
+  const executable = prebuilds?.engine?.executable
+  if (typeof executable !== 'string') return false
+  let mode: number
+  try {
+    const status = statSync(join(dir, executable))
+    if (!status.isFile()) return false
+    mode = status.mode
+  } catch {
+    // A missing executable is an engine removed or cut short by hand.
+    return false
+  }
+  return process.platform === 'win32' || (mode & 0o111) !== 0
+}
+
+/**
+ * Whether the required engine is installed where {@link engineServerEnv}
+ * points. An engine whose executable is gone or has lost its execute bit is
+ * not, so the download is offered again.
  * @param root - {@link officeEngineRoot}.
  * @param requirement - the engine to look for.
  * @returns true when the version directory holds it, complete.

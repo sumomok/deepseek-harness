@@ -187,7 +187,7 @@ describe('readProgressLine', () => {
 
 /** The stand-in package manager; its first argument picks what it does. */
 const FAKE_PNPM = `
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 const [mode, integrity, ...args] = process.argv.slice(2)
 writeFileSync(join(process.cwd(), 'fake-args.json'), JSON.stringify(args))
@@ -220,7 +220,12 @@ writeFileSync(join(store, 'v10', 'blob'), 'x')
 const dir = join(process.cwd(), 'node_modules', name)
 mkdirSync(dir, { recursive: true })
 writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
-if (mode !== 'incomplete') writeFileSync(join(dir, 'prebuilds.json'), '{}')
+if (mode !== 'incomplete') writeFileSync(join(dir, 'prebuilds.json'), JSON.stringify({ engine: { executable: 'bin/libreoffice-kit' } }))
+if (mode !== 'no-executable') {
+  mkdirSync(join(dir, 'bin'))
+  writeFileSync(join(dir, 'bin', 'libreoffice-kit'), '')
+  chmodSync(join(dir, 'bin', 'libreoffice-kit'), mode === 'not-executable' ? 0o644 : 0o755)
+}
 `
 
 /**
@@ -314,12 +319,19 @@ describe('installEngine', () => {
     expect(readdirSync(root)).toEqual([])
   })
 
-  it('refuses an engine missing its manifest, or of another version, and leaves nothing behind', async () => {
-    for (const mode of ['incomplete', 'wrong-version']) {
+  it('refuses an engine missing its manifest or its executable, or of another version, and leaves nothing behind', async () => {
+    for (const mode of ['incomplete', 'wrong-version', 'no-executable']) {
       const { outcome, root } = await install(mode)
       expect(outcome).toEqual({ ok: false, cancelled: false, reason: 'the package manager finished, but @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1 is not complete on disk' })
       expect(readdirSync(root)).toEqual([])
     }
+  })
+
+  // Windows has no execute bit; the kit checks it everywhere else.
+  it.skipIf(process.platform === 'win32')('refuses an engine whose executable has no execute bit', async () => {
+    const { outcome, root } = await install('not-executable')
+    expect(outcome).toEqual({ ok: false, cancelled: false, reason: 'the package manager finished, but @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1 is not complete on disk' })
+    expect(readdirSync(root)).toEqual([])
   })
 
   it('stops the package manager when aborted, and removes the staging directory', async () => {
