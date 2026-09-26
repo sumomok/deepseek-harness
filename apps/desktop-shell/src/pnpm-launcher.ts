@@ -98,3 +98,39 @@ export function pnpmLauncherEnv(location: LauncherLocation): Record<string, stri
   const script = PNPM_LAUNCHERS[location.platform === 'win32' ? 'win' : 'darwin']
   return { [PNPM_LAUNCHER_ENV]: join(location.resourcesPath, 'runtime', script.file) }
 }
+
+/** How to invoke the package manager: an executable, the arguments before the subcommand, and `PATH` additions. */
+export interface PnpmInvocation {
+  /** The program to spawn. */
+  command: string
+  /** Arguments before the pnpm subcommand — the shipped `pnpm.mjs` when the bundled Node is the program. */
+  prefixArgs: readonly string[]
+  /** A directory put first on the child's `PATH`, so what pnpm starts finds the bundled Node. */
+  pathPrefix?: string
+}
+
+/** Where this launch runs from, plus the bundled Node binary a packaged launch runs pnpm under. */
+export interface InvocationLocation extends LauncherLocation {
+  /** Absolute path of the bundled Node binary. */
+  nodeBin: string
+}
+
+/**
+ * How the shell itself runs the shipped pnpm, which the Office engine install
+ * does.
+ *
+ * The launcher scripts exist for upstream's plugin manager, which can only
+ * name one executable. The shell can pass arguments, so it runs `pnpm.mjs`
+ * under the bundled Node directly: on Windows a `.cmd` cannot be spawned
+ * without a shell, and a stop then reaches the package manager itself rather
+ * than a `cmd.exe` in front of it. `runtime/` goes first on the child's `PATH`
+ * for the same reason the launcher scripts put it there. A development launch
+ * runs `pnpm` from the developer's own `PATH`.
+ * @param location - whether this launch is packaged, where its resources are, and its Node binary.
+ * @returns the program, its leading arguments, and the `PATH` addition.
+ */
+export function pnpmInvocation(location: InvocationLocation): PnpmInvocation {
+  if (!location.packaged) return { command: 'pnpm', prefixArgs: [] }
+  const runtime = join(location.resourcesPath, 'runtime')
+  return { command: location.nodeBin, prefixArgs: [join(runtime, 'pnpm', 'bin', 'pnpm.mjs')], pathPrefix: runtime }
+}

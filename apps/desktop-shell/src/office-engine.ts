@@ -1,0 +1,492 @@
+/**
+ * The LibreOffice engine the desktop downloads on request instead of shipping.
+ *
+ * The payload carries `@deepseek-ai/libreoffice-kit`, the entry package
+ * `@deepseek-ai/dsh-office-to-pdf` imports, and none of its engine packages
+ * (`@deepseek-ai/libreoffice-kit-<platform>-<arch>`): each is a whole
+ * LibreOffice build of 145 MB or more once unpacked. The kit resolves its
+ * engine with `createRequire(import.meta.url)` from its own directory and takes
+ * no path from configuration, so an engine installed anywhere else reaches it
+ * through `NODE_PATH` alone. On macOS and Windows a missing engine is an error
+ * the converter reports; the kit falls back to its WASM build on Linux only.
+ *
+ * This module owns the facts that follow from that:
+ *
+ * - **Which engine.** {@link readEngineRequirement} reads the package name and
+ *   the exact version from the shipped kit's own `optionalDependencies`, the
+ *   same pair the kit's resolver checks every engine against, so a kit upgrade
+ *   moves the download with it.
+ * - **Where it lives.** One directory per version under
+ *   {@link officeEngineRoot}, which is a function of the data directory it is
+ *   given rather than of the home directory, so a relocated data directory
+ *   carries its engine with it.
+ * - **How the server finds it.** {@link engineServerEnv} names the current
+ *   version's `node_modules` in `NODE_PATH` whether or not it exists yet. Node
+ *   reads `NODE_PATH` once at startup and caches only resolutions that
+ *   succeed, so an engine installed while the server runs is found on the next
+ *   conversion without a restart.
+ * - **How it arrives.** {@link installEngine} runs the package manager this
+ *   shell ships into a staging directory beside the version directory and
+ *   renames it into place only once the engine on disk is the one asked for.
+ *   The package manager verifies the tarball's integrity, filters by `os` and
+ *   `cpu`, keeps the executable bits the kit checks for, and reads the user's
+ *   own `.npmrc`, so a registry mirror or proxy configured there applies. The
+ *   download never goes through Electron's session, which would mark every
+ *   file it writes with macOS's quarantine attribute.
+ * @module @deepseek-ai/dsh-desktop-shell/office-engine
+ */
+
+import { spawn } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { delimiter, dirname, join } from 'node:path'
+import type { PnpmInvocation } from './pnpm-launcher.ts'
+import { augmentedEnv } from './server.ts'
+
+/** The kit's entry package; each engine is `<entry>-<target>`. */
+export const OFFICE_KIT = '@deepseek-ai/libreoffice-kit'
+
+/**
+ * The packages the server closure reaches the kit through, each resolved from
+ * the one before it. The same chain holds in the hoisted payload, where every
+ * name is a top-level directory, and in a development checkout, where each is
+ * a workspace link.
+ */
+const KIT_RESOLUTION_CHAIN = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-office-to-pdf', OFFICE_KIT] as const
+
+/**
+ * Environment variable naming the engine directory this shell appended to the
+ * server's `NODE_PATH`, set on the server child alone. The host half of
+ * `@haoran/dsh-office-preview-notice` removes that entry from its own
+ * `process.env.NODE_PATH`, so the processes the server starts do not inherit
+ * it; the server itself keeps resolving through it, because Node read the
+ * variable when it started.
+ */
+export const ENGINE_MODULES_ENV = 'DSH_DESKTOP_OFFICE_ENGINE_MODULES'
+
+/**
+ * A bare exact version. The version is joined into a package spec handed to
+ * the package manager and into a directory name, so a range, a tag, a URL, or
+ * anything carrying a path separator is refused rather than installed.
+ */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+
+/** Prefix of the directories an install stages into; only this module creates them. */
+const STAGING_PREFIX = '.staging-'
+
+/** Directory name, inside a staging directory, of the package store that install uses and then removes. */
+const STAGING_STORE = '.pnpm-store'
+
+/**
+ * The published tarball size of each engine this desktop offers, by
+ * `<package>@<version>`, in bytes, as the registry reports it
+ * (`content-range` of the tarball URL). The download prompt quotes it before
+ * anything is fetched, and the progress bar uses it when the registry sends no
+ * length. `tests/office-engine.spec.ts` fails when the shipped kit names an
+ * engine for either desktop target that this table does not carry.
+ */
+export const ENGINE_DOWNLOAD_BYTES: Readonly<Record<string, number>> = {
+  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': 66_711_287,
+  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': 71_367_891,
+}
+
+/** The engine this launch's kit requires. */
+export interface EngineRequirement {
+  /** The kit's target name, `<platform>-<arch>`. */
+  target: string
+  /** The engine package name. */
+  name: string
+  /** The exact version the kit declares for it. */
+  version: string
+  /** The published tarball size, when {@link ENGINE_DOWNLOAD_BYTES} knows it. */
+  downloadBytes?: number
+}
+
+/** The outcome of reading the requirement: the engine, or why this launch can offer none. */
+export type RequirementResult = { ok: true; requirement: EngineRequirement } | { ok: false; reason: string }
+
+/**
+ * The kit's target name for a host, as the kit itself computes it for macOS
+ * and Windows.
+ * @param platform - `process.platform`.
+ * @param arch - `process.arch`.
+ * @returns `<platform>-<arch>`, or undefined for a host the kit builds no native engine for.
+ */
+export function officeEngineTarget(platform: NodeJS.Platform, arch: string): string | undefined {
+  if (platform !== 'darwin' && platform !== 'win32') return undefined
+  if (arch !== 'arm64' && arch !== 'x64') return undefined
+  return `${platform}-${arch}`
+}
+
+/**
+ * Locate the kit manifest the server closure resolves.
+ * @param serverModules - `node_modules` of the shipped server closure.
+ * @returns the absolute path of the kit's `package.json`.
+ * @throws when a package on the chain does not resolve.
+ */
+export function kitManifestPath(serverModules: string): string {
+  let from = join(dirname(serverModules), 'package.json')
+  for (const name of KIT_RESOLUTION_CHAIN) {
+    from = createRequire(from).resolve(`${name}/package.json`)
+  }
+  return from
+}
+
+/**
+ * Read which engine this launch's kit requires.
+ * @param serverModules - `node_modules` of the shipped server closure.
+ * @param platform - `process.platform`.
+ * @param arch - `process.arch`.
+ * @returns the engine, or the sentence saying why there is none to offer.
+ */
+export function readEngineRequirement(serverModules: string, platform: NodeJS.Platform, arch: string): RequirementResult {
+  const target = officeEngineTarget(platform, arch)
+  if (target === undefined) return { ok: false, reason: `no LibreOffice engine is built for ${platform}-${arch}` }
+  let manifest: { optionalDependencies?: Record<string, unknown> }
+  try {
+    manifest = JSON.parse(readFileSync(kitManifestPath(serverModules), 'utf8')) as typeof manifest
+  } catch (error) {
+    return { ok: false, reason: `the LibreOffice kit could not be read: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const name = `${OFFICE_KIT}-${target}`
+  const version = manifest.optionalDependencies?.[name]
+  if (typeof version !== 'string' || !EXACT_VERSION.test(version)) {
+    return { ok: false, reason: `the LibreOffice kit declares no exact version of ${name}` }
+  }
+  const downloadBytes = ENGINE_DOWNLOAD_BYTES[`${name}@${version}`]
+  return { ok: true, requirement: { target, name, version, ...downloadBytes === undefined ? {} : { downloadBytes } } }
+}
+
+/**
+ * The directory every engine version lives under.
+ * @param dataDir - the data directory this launch uses.
+ * @returns `<dataDir>/engines/office`.
+ */
+export function officeEngineRoot(dataDir: string): string {
+  return join(dataDir, 'engines', 'office')
+}
+
+/**
+ * The `node_modules` one engine version is installed into, which is what
+ * `NODE_PATH` names.
+ * @param root - {@link officeEngineRoot}.
+ * @param version - the engine version.
+ * @returns `<root>/<version>/node_modules`.
+ */
+export function engineModulesDir(root: string, version: string): string {
+  return join(root, version, 'node_modules')
+}
+
+/**
+ * The environment additions that let the server's kit resolve the engine.
+ * @param root - {@link officeEngineRoot}.
+ * @param requirement - the engine this launch's kit requires.
+ * @param inherited - the `NODE_PATH` the shell itself was started with, kept after the engine entry.
+ * @returns `NODE_PATH` and {@link ENGINE_MODULES_ENV}.
+ */
+export function engineServerEnv(root: string, requirement: EngineRequirement, inherited: string | undefined): Record<string, string> {
+  const modules = engineModulesDir(root, requirement.version)
+  const rest = (inherited ?? '').split(delimiter).filter(entry => entry !== '' && entry !== modules)
+  return { NODE_PATH: [modules, ...rest].join(delimiter), [ENGINE_MODULES_ENV]: modules }
+}
+
+/**
+ * Whether a `node_modules` holds the required engine, complete: the version
+ * the kit checks for and the engine manifest it reads next.
+ * @param modules - the `node_modules` to look in.
+ * @param requirement - the engine to look for.
+ * @returns true when the package directory carries that version and its `prebuilds.json`.
+ */
+function holdsEngine(modules: string, requirement: EngineRequirement): boolean {
+  const dir = join(modules, requirement.name)
+  let version: unknown
+  try {
+    version = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown }).version
+  } catch {
+    // Absent before an install and half-written after an interrupted one;
+    // neither is an installed engine.
+    return false
+  }
+  return version === requirement.version && existsSync(join(dir, 'prebuilds.json'))
+}
+
+/**
+ * Whether the required engine is installed where {@link engineServerEnv} points.
+ * @param root - {@link officeEngineRoot}.
+ * @param requirement - the engine to look for.
+ * @returns true when the version directory holds it, complete.
+ */
+export function engineInstalled(root: string, requirement: EngineRequirement): boolean {
+  return holdsEngine(engineModulesDir(root, requirement.version), requirement)
+}
+
+/** What one prune removed and what it could not. */
+export interface PruneResult {
+  /** Entry names removed from the root. */
+  removed: string[]
+  /** Entry names that matched and could not be removed, each with the reason. */
+  failed: string[]
+}
+
+/**
+ * Remove every engine version but one, and every staging directory an
+ * interrupted install left behind.
+ *
+ * Only names this module creates are touched — an exact version or the
+ * staging prefix — so anything else a person put under the root stays. Call
+ * it when no install is running: a staging directory in use is removed too.
+ * @param root - {@link officeEngineRoot}.
+ * @param keep - the version to keep, or undefined to keep none.
+ * @returns what was removed and what could not be.
+ */
+export function pruneEngineRoot(root: string, keep: string | undefined): PruneResult {
+  const result: PruneResult = { removed: [], failed: [] }
+  let names: string[]
+  try {
+    names = readdirSync(root)
+  } catch {
+    // No root yet: nothing was ever installed, so nothing is stale.
+    return result
+  }
+  for (const name of names) {
+    if (name === keep) continue
+    if (!EXACT_VERSION.test(name) && !name.startsWith(STAGING_PREFIX)) continue
+    try {
+      rmSync(join(root, name), { recursive: true, force: true })
+      result.removed.push(name)
+    } catch (error) {
+      result.failed.push(`${name} (${error instanceof Error ? error.message : String(error)})`)
+    }
+  }
+  return result
+}
+
+/** Progress one install reports, in bytes. */
+export interface InstallProgress {
+  /** Bytes of the engine tarball received so far. */
+  transferredBytes: number
+  /** The tarball's size, when the registry or {@link ENGINE_DOWNLOAD_BYTES} says. */
+  totalBytes?: number
+}
+
+/** What one install is given. */
+export interface InstallSpec {
+  /** {@link officeEngineRoot}. */
+  root: string
+  /** The engine to install. */
+  requirement: EngineRequirement
+  /** How to run the package manager. */
+  pnpm: PnpmInvocation
+  /** Aborting it stops the package manager and removes the staging directory. */
+  signal: AbortSignal
+  /** Wall-clock budget for the package manager run. */
+  timeoutMs: number
+  /** Receives every progress change. */
+  onProgress: (progress: InstallProgress) => void
+}
+
+/** How one install ended. */
+export type InstallOutcome = { ok: true } | { ok: false; cancelled: boolean; reason: string }
+
+/** Lines of package-manager output a failure quotes. */
+const FAILURE_LINES = 3
+
+/** Characters of one quoted failure line. */
+const FAILURE_LINE_CHARS = 300
+
+/**
+ * Read one ndjson line of the package manager's reporter into progress.
+ *
+ * `pnpm:fetching-progress` reports a tarball's size when its download starts
+ * and the running byte count while it continues; every other record is
+ * ignored.
+ * @param line - one line of the reporter's output.
+ * @param requirement - the engine being installed, whose tarball is the one reported.
+ * @returns the byte fields this line carries, or undefined when it carries none.
+ */
+export function readProgressLine(line: string, requirement: EngineRequirement): { size?: number; downloaded?: number } | undefined {
+  let record: unknown
+  try {
+    record = JSON.parse(line)
+  } catch {
+    // The reporter writes one JSON object per line; anything else is a
+    // warning the package manager printed around it, and carries no bytes.
+    return undefined
+  }
+  if (typeof record !== 'object' || record === null) return undefined
+  const fields = record as Record<string, unknown>
+  if (fields.name !== 'pnpm:fetching-progress') return undefined
+  if (typeof fields.packageId !== 'string' || !fields.packageId.includes(`${requirement.name}@${requirement.version}`)) return undefined
+  if (fields.status === 'started' && typeof fields.size === 'number') return { size: fields.size }
+  if (fields.status === 'in_progress' && typeof fields.downloaded === 'number') return { downloaded: fields.downloaded }
+  return undefined
+}
+
+/**
+ * The error lines of the reporter's output, for a failure's reason.
+ * @param line - one line of the reporter's output.
+ * @returns the message of an error-level record, or undefined for anything else.
+ */
+function errorMessage(line: string): string | undefined {
+  let record: unknown
+  try {
+    record = JSON.parse(line)
+  } catch {
+    // Output outside the reporter's records; see readProgressLine.
+    return line.trim() === '' ? undefined : line.trim()
+  }
+  if (typeof record !== 'object' || record === null) return undefined
+  const fields = record as Record<string, unknown>
+  if (fields.level !== 'error') return undefined
+  const err = fields.err as { message?: unknown } | undefined
+  if (typeof err?.message === 'string') return err.message
+  return typeof fields.message === 'string' ? fields.message : undefined
+}
+
+/**
+ * Rename, retrying a Windows `EPERM`/`EBUSY`: an on-access scanner holds files
+ * it has just seen being written, and a rename fails while it does.
+ * @param from - the staging directory.
+ * @param to - the version directory.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (attempt >= 9 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw error
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+}
+
+/**
+ * Install one engine version.
+ *
+ * The package manager runs in a staging directory created inside `root`, so
+ * the final rename stays on one volume and is atomic: the version directory
+ * {@link engineServerEnv} names either does not exist or holds the complete
+ * engine, and a converter never meets a half-written one. The run uses a
+ * package store inside that staging directory and removes it before the
+ * rename, so the engine is on disk once rather than once more in the user's
+ * global store. `--ignore-workspace` keeps a `pnpm-workspace.yaml` above the
+ * data directory from turning the install into someone else's workspace, and
+ * `--ignore-scripts` means nothing the package declares runs.
+ * @param spec - where, what, how, and the abort and progress hooks.
+ * @returns how it ended; it never throws.
+ */
+export async function installEngine(spec: InstallSpec): Promise<InstallOutcome> {
+  const { root, requirement } = spec
+  let staging: string
+  try {
+    mkdirSync(root, { recursive: true })
+    staging = mkdtempSync(join(root, STAGING_PREFIX))
+    writeFileSync(join(staging, 'package.json'), `${JSON.stringify({ name: 'dsh-office-engine', private: true })}\n`)
+  } catch (error) {
+    return { ok: false, cancelled: false, reason: `the engine directory could not be prepared: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  const discard = (): void => {
+    try {
+      rmSync(staging, { recursive: true, force: true })
+    } catch {
+      // Left for the next launch's prune, which removes every staging
+      // directory; a failed cleanup must not replace the outcome being reported.
+    }
+  }
+  const run = await runPnpm(spec, staging)
+  if (!run.ok) {
+    discard()
+    return run
+  }
+  const modules = join(staging, 'node_modules')
+  if (!holdsEngine(modules, requirement)) {
+    discard()
+    return { ok: false, cancelled: false, reason: `the package manager finished, but ${requirement.name}@${requirement.version} is not complete on disk` }
+  }
+  try {
+    rmSync(join(staging, STAGING_STORE), { recursive: true, force: true })
+    rmSync(join(root, requirement.version), { recursive: true, force: true })
+    await renameWithRetry(staging, join(root, requirement.version))
+  } catch (error) {
+    discard()
+    return { ok: false, cancelled: false, reason: `the engine could not be moved into place: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  return { ok: true }
+}
+
+/**
+ * Run the package manager for one install.
+ * @param spec - the install being run.
+ * @param staging - the directory it runs in.
+ * @returns ok, or how it failed.
+ */
+async function runPnpm(spec: InstallSpec, staging: string): Promise<InstallOutcome> {
+  const { requirement, pnpm } = spec
+  if (spec.signal.aborted) return { ok: false, cancelled: true, reason: 'cancelled' }
+  const args = [
+    ...pnpm.prefixArgs,
+    'add', `${requirement.name}@${requirement.version}`,
+    '--ignore-workspace', '--ignore-scripts', '--reporter=ndjson',
+    '--config.node-linker=hoisted', `--store-dir=${join(staging, STAGING_STORE)}`,
+  ]
+  const env = augmentedEnv(process.env)
+  if (pnpm.pathPrefix !== undefined) env.PATH = [pnpm.pathPrefix, env.PATH ?? ''].filter(part => part !== '').join(delimiter)
+  return new Promise<InstallOutcome>((resolve) => {
+    const child = spawn(pnpm.command, args, { cwd: staging, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let totalBytes = requirement.downloadBytes
+    const errors: string[] = []
+    let settled = false
+    let ending: InstallOutcome | undefined
+    const stop = (outcome: InstallOutcome): void => {
+      ending ??= outcome
+      child.kill()
+    }
+    const onAbort = (): void => { stop({ ok: false, cancelled: true, reason: 'cancelled' }) }
+    spec.signal.addEventListener('abort', onAbort, { once: true })
+    const timer = setTimeout(() => {
+      stop({ ok: false, cancelled: false, reason: `the download did not finish within ${String(Math.ceil(spec.timeoutMs / 60_000))} minutes` })
+    }, spec.timeoutMs)
+    const settle = (outcome: InstallOutcome): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      spec.signal.removeEventListener('abort', onAbort)
+      resolve(outcome)
+    }
+    const onLine = (line: string): void => {
+      const progress = readProgressLine(line, requirement)
+      if (progress?.size !== undefined) {
+        totalBytes = progress.size
+        spec.onProgress({ transferredBytes: 0, totalBytes })
+      } else if (progress?.downloaded !== undefined) {
+        spec.onProgress({ transferredBytes: progress.downloaded, ...totalBytes === undefined ? {} : { totalBytes } })
+      }
+      const message = errorMessage(line)
+      if (message !== undefined) {
+        errors.push(message.slice(0, FAILURE_LINE_CHARS))
+        if (errors.length > FAILURE_LINES) errors.shift()
+      }
+    }
+    for (const stream of [child.stdout, child.stderr]) {
+      let pending = ''
+      stream.on('data', (chunk: Buffer) => {
+        const lines = (pending + chunk.toString()).split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) onLine(line)
+      })
+      stream.on('end', () => {
+        if (pending !== '') onLine(pending)
+      })
+    }
+    child.once('error', (error) => {
+      settle({ ok: false, cancelled: false, reason: `the package manager could not be started: ${error.message}` })
+    })
+    child.once('close', (code) => {
+      if (ending !== undefined) settle(ending)
+      else if (code === 0) settle({ ok: true })
+      else settle({ ok: false, cancelled: false, reason: `the package manager exited with ${String(code)}${errors.length === 0 ? '' : `: ${errors.join(' / ')}`}` })
+    })
+  })
+}
