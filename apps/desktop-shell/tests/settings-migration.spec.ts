@@ -5,7 +5,7 @@
  * @module
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,6 +23,8 @@ let profileDir: string
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'dsh-settings-migration-'))
+  // Every case reads and writes this home; it must never be the user's own.
+  expect(home.startsWith(realpathSync(tmpdir())) || home.startsWith(tmpdir())).toBe(true)
   profileDir = join(home, 'profiles', DESKTOP_PROFILE)
   mkdirSync(profileDir, { recursive: true })
   writeFileSync(join(profileDir, 'cordis.patch.yml'), PATCH_TEMPLATE)
