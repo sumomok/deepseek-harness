@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { collectSlotEntries, oversizedSlotReports, resolveSlotEntries, validateSlotContracts } from './gen-client-catalog.ts'
+import { collectSlotEntries, oversizedSlotReports, resolveSlotEntries, validateSlotContracts, type SlotEntry } from './gen-client-catalog.ts'
 import type { SlotDeclaration, SlotRegistration, TypeDeclaration } from './slot-walk.ts'
 
 /** A declaration with every field the catalog needs, overridable per case. */
@@ -232,6 +232,21 @@ describe('the per-slot report budget', () => {
   it('passes a slot whose report stays within the budget', () => {
     const entries = resolveSlotEntries([declaration({ ownerType: 'DemoOwnerProps' })], [], OWNER_TYPES, new Map())
     expect(oversizedSlotReports(entries)).toEqual([])
+  })
+
+  it('holds `tool.call.toolview` to its own budget of 121 lines and every other slot to 120', () => {
+    const [base] = resolveSlotEntries([declaration()], [], OWNER_TYPES, new Map())
+    if (base === undefined) throw new Error('resolveSlotEntries returned no entry')
+    // Only `doc` carries lines: an empty example counts one, every list is empty.
+    const sized = (key: string, lines: number): SlotEntry => ({
+      ...base, key, example: '', ownerProps: [], registerOptions: [], standardProps: [],
+      ownerPropsReferences: [], occupants: [], doc: Array.from({ length: lines - 1 }, () => 'line').join('\n'),
+    })
+    expect(oversizedSlotReports([sized('tool.call.toolview', 121)])).toEqual([])
+    expect(oversizedSlotReports([sized('tool.call.toolview', 122)])).toHaveLength(1)
+    expect(oversizedSlotReports([sized('demo.seat', 120)])).toEqual([])
+    const [problem] = oversizedSlotReports([sized('demo.seat', 121)])
+    expect(problem).toContain('reports 121 lines, over its budget of 120')
   })
 })
 

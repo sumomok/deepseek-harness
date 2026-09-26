@@ -50,6 +50,16 @@ const MAX_DECL_CHARS = 1200
  */
 const MAX_ENTRY_LINES = 120
 
+/**
+ * Per-slot budgets that replace {@link MAX_ENTRY_LINES} for one slot key.
+ *
+ * `tool.call.toolview` is a keyed slot whose report lists one line per
+ * occupant; the product-console line adds two occupants (`content_read` and
+ * `show_chart`) to the 119 lines the base reports, and each is one line with
+ * no prose of its own. The allowance is the smallest budget that admits them.
+ */
+const SLOT_LINE_BUDGETS: ReadonlyMap<string, number> = new Map([['tool.call.toolview', 121]])
+
 /** One register-call option as the catalog teaches it. */
 interface OptionDoc {
   readonly name: string
@@ -142,8 +152,8 @@ export function collectSlotEntries(scanRoot: string): SlotEntry[] {
   const entries = resolveSlotEntries(declarations, registrations, types, standardKits(files))
   const oversized = oversizedSlotReports(entries)
   if (oversized.length > 0) {
-    throw new Error(`gen-client-catalog: ${String(oversized.length)} slot(s) exceed the per-slot report budget `
-      + `of ${String(MAX_ENTRY_LINES)} lines:\n${oversized.map(problem => `  ${problem}`).join('\n')}`)
+    throw new Error(`gen-client-catalog: ${String(oversized.length)} slot(s) exceed their per-slot report budget:\n`
+      + oversized.map(problem => `  ${problem}`).join('\n'))
   }
   return entries
 }
@@ -156,10 +166,20 @@ export function collectSlotEntries(scanRoot: string): SlotEntry[] {
  */
 export function oversizedSlotReports(entries: readonly SlotEntry[]): string[] {
   return entries
-    .filter(entry => entryLines(entry) > MAX_ENTRY_LINES)
-    .map(entry => `slot '${entry.key}' (${entry.source}) reports ${String(entryLines(entry))} lines. `
+    .filter(entry => entryLines(entry) > slotLineBudget(entry.key))
+    .map(entry => `slot '${entry.key}' (${entry.source}) reports ${String(entryLines(entry))} lines, `
+      + `over its budget of ${String(slotLineBudget(entry.key))}. `
       + 'Narrow the owner share it passes down (a slot hands a registrant a share, not a subsystem) or tighten '
       + 'its prose, so asking about one slot stays cheaper than asking about all of them.')
+}
+
+/**
+ * The line budget one slot's report must stay within.
+ * @param key - the slot key.
+ * @returns the slot's own budget from {@link SLOT_LINE_BUDGETS}, else {@link MAX_ENTRY_LINES}.
+ */
+function slotLineBudget(key: string): number {
+  return SLOT_LINE_BUDGETS.get(key) ?? MAX_ENTRY_LINES
 }
 
 /** Line count of one entry's variable-length content, the proxy for its rendered report. */

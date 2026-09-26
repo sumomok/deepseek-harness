@@ -658,6 +658,15 @@
 - **状态**：在役（`product/server-console`）。
 - **路径**：`scripts/rescope-vendor.ts`
 
+## client-catalog-toolview-budget — `tool.call.toolview` 的单槽报告预算放宽到 121 行（本线专属）
+
+- **改了什么**：`scripts/gen-client-catalog.ts` 新增 `SLOT_LINE_BUDGETS`（只有一项：`tool.call.toolview` → 121）与 `slotLineBudget(key)`；`oversizedSlotReports` 按每个槽自己的预算判超限，报错文字写出该槽的预算；`collectSlotEntries` 的汇总报错不再写死 120。`scripts/gen-client-catalog.spec.ts` 加一例：`tool.call.toolview` 121 行通过、122 行被拒，其他槽 120 行通过、121 行被拒。
+- **为什么**：`dsh-v0.1.7-rc.2` 的单槽报告预算是写死的 120 行，没有逐槽放宽机制。上游自己在 `tool.call.toolview` 上报 119 行；本线加了两个占位 `content_read`（content-frame 的 `ContentReadRow`）与 `show_chart`（vue2-echarts-tool-poc 的 `ShowChartRow`），各算一行、没有任何说明文字，两者都在用，合计 121 行，`gen-client-catalog --check` 因此退出 1。
+- **要达到的效果**：放宽只作用于这一个槽、只放宽到容下本线两行所需的最小值；其他槽仍按 120 行判，新写的长文档照样被拒。生成物 `slot-catalog.ts` 重新生成，`--check` 退出 0。
+- **退役条件**：上游自己在 `tool.call.toolview` 上的计数降到 118 行及以下，或上游把预算提高到 121 行及以上，或上游提供逐槽预算机制（届时改用上游机制）；任一成立即删掉 `SLOT_LINE_BUDGETS` 并还原两文件。这是本线有意保留的专属补丁，不进 `core-patches`。
+- **状态**：在役（`product/server-console`）。
+- **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
+
 ## 历史轮次
 
 本线由 `core-patches-v1` 起逐轮变基而来，到 `core-patches-v11` 为止；此后改为合并上游发布。变基那些轮次的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
