@@ -36,7 +36,7 @@ marker 的 `migrated` 里列着的包会带着 kind `load-failed` 挪进 `defect
 
 ## Consequences
 
-import 失败的迁移插件,或被兼容检查拒绝的迁移插件,从发现它的那次启动的下一次起,出现在 plugin-updates 页面的已停用组里,并能用 web profile 同步已经提供的修复路径。
+import 失败的迁移插件,或被兼容检查拒绝的迁移插件,从发现它的那次启动起记进标记文件的 `defective` 列表,并在启动日志里点名;没有任何界面列出它,删掉它的标记条目才是把它带回来的办法([插件管理交给上游](../feature/2026-09-26-desktop-plugin-management-on-upstream.zh.md))。
 
 壳依赖三行上游文字的确切写法。某个基座改写了其中一行,那种情况就会回到悄无声息的缺席;`tests/profile-seed.spec.ts` 固定了壳读取的这三种写法。
 

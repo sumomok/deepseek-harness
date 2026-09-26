@@ -16,7 +16,7 @@ Status: implemented
 
 它在那份名单里排**最后**。已存在的 profile 对缺失的名字采取追加，所以末位是全新 profile 与升级而来的 profile 都会给它的唯一位置——而这个位置本身也重要：该层于是盖过 `dsh-base`、`dsh-web-app` 与每一个内置插件层，包括[内置的出厂默认模型](2026-08-23-desktop-builtin-default-model.zh.md)，而后者的条目本层一个也不碰。
 
-在那里排最后，只是播种那一刻的最后，不是永远的最后。同一次 `seedBuiltinBundles` 运行里，`syncWebBundles` 从 `web` profile 迁移过来的每一个名字都被追加到 `dsh.profile.bundles` 末尾，而插件管理服务重新启用一个插件时调用的 `addBundleName` 也追加在那里，所以本次构建之后才接纳的插件排在本层之后。每一个 bundle 层之上还坐着三个用户层，依次是：`$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`，以及任何 `--patch` overlay（`apps/cli/src/profile-boot.ts` 里的 `allPatches`）。所以这里的一行是用户可以替换的部署默认值，而不是无法摆脱的设定。
+在那里排最后，只是播种那一刻的最后，不是永远的最后。同一次 `seedBuiltinBundles` 运行里，`syncWebBundles` 从 `web` profile 迁移过来的每一个名字都被追加到 `dsh.profile.bundles` 末尾，而上游插件管理器装上的 bundle 也追加在那里，所以本次构建之后才接纳的插件排在本层之后。每一个 bundle 层之上还坐着三个用户层，依次是：`$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`，以及任何 `--patch` overlay（`apps/cli/src/profile-boot.ts` 里的 `allPatches`）。所以这里的一行是用户可以替换的部署默认值，而不是无法摆脱的设定。
 
 它携带的唯一一行把 `session-query-sqlite` 重述为 `openAt: first-search` 与 `path: dshHomePath('session-search/desktop.db')`。`first-search` 把 `node:sqlite` 的导入与索引的打开挡在启动之外，于是一次从不搜索的运行不付任何代价，Node 的 SQLite 实验特性警告也不会进入启动输出。路径取持久文件而非出厂的 `:memory:`，是因为这份索引是派生的而非权威的：留着它，意味着此后某次运行的首次搜索只对账新增与变更的日志，而不是重建整个语料库——这正是「只付一次构建」与「每次启动都付一次」的差别。它刻意落在 `dshHomePath('sessions')` 之外——派生索引与会话持久化存储是两个存储，后端也拒绝把权威数据库当作自己的来打开。
 

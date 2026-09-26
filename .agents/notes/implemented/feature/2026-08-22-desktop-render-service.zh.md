@@ -66,4 +66,4 @@ Status: implemented
 
 ## Related
 
-- [插件管理服务](2026-08-25-desktop-plugin-admin-service.zh.md)是壳的第二个本机服务,以同样的方式打开、带着自己独立的 token。两者现在共享 loopback 地址、token 生成、常数时间比较、带上限的请求体读取,以及两个回答写入器——它们从 `render-service.ts` 搬到了 `apps/desktop-shell/src/loopback-service.ts`。渲染协议没有随它们发生任何改变。
+- [更新服务](2026-09-11-desktop-quiet-resumable-updates.zh.md)是壳的另一个本机服务,以同样的方式打开、带着自己独立的 token。两者共享 `apps/desktop-shell/src/loopback-service.ts` 里的 loopback 地址、token 生成、常数时间比较、带上限的请求体读取,以及两个回答写入器。它们从 `render-service.ts` 搬出来时,渲染协议没有发生任何改变。

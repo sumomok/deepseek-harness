@@ -66,4 +66,4 @@ The payload carries it as another profile bundle, and the build names every bund
 
 ## Related
 
-- [The plugin admin service](2026-08-25-desktop-plugin-admin-service.md) is the shell'''s second loopback service, opened the same way and with a token of its own. The two now share the loopback address, the token mint, the constant-time comparison, the capped body read, and the two answer writers, which moved out of `render-service.ts` into `apps/desktop-shell/src/loopback-service.ts`. Nothing about the render protocol changed with them.
+- [The update service](2026-09-11-desktop-quiet-resumable-updates.md) is the shell's other loopback service, opened the same way and with a token of its own. The two share the loopback address, the token mint, the constant-time comparison, the capped body read, and the two answer writers in `apps/desktop-shell/src/loopback-service.ts`. Nothing about the render protocol changed when those moved out of `render-service.ts`.

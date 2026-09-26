@@ -14,7 +14,7 @@ Status: implemented
 
 ## Decision
 
-**fork 的 profile 叫 `desktop-shell`。**`apps/desktop-shell/src/profile-seed.ts` 里的 `DESKTOP_PROFILE` 持有这个名字,模板清单据它得出 `dsh-profile-desktop-shell`,`plugin-admin-service.ts` 里的 `ADMIN_PROFILES` 读这个常量而不是再写一遍字面量。`resolveProfileDir` 只拒绝空名、分隔符、`.`、`..` 与 `node_modules`,所以带连字符的名字不需要上游做任何事;`desktop-shell` 同样不在 `PROFILE_TEMPLATES` 里,所以播种仍然和从前一样是启动的前置条件。
+**fork 的 profile 叫 `desktop-shell`。**`apps/desktop-shell/src/profile-seed.ts` 里的 `DESKTOP_PROFILE` 持有这个名字,模板清单据它得出 `dsh-profile-desktop-shell`。`resolveProfileDir` 只拒绝空名、分隔符、`.`、`..` 与 `node_modules`,所以带连字符的名字不需要上游做任何事;`desktop-shell` 同样不在 `PROFILE_TEMPLATES` 里,所以播种仍然和从前一样是启动的前置条件。
 
 **已装客户端的 profile 会在本次构建的首次启动时被改名一次。**`adoptLegacyProfile` 在 `seedBuiltinBundles` 里先于其他一切运行,把 `$DSH_HOME/profiles/desktop` 改名到 `$DSH_HOME/profiles/desktop-shell`。同一个卷上的一次 `renameSync` 就把清单、用户的 `cordis.patch.yml`、`pnpm-workspace.yaml`、`web-migration.json`、每一个迁移插件的链接,以及这个 profile 自己装过的每一个包一并带走。链接照样解析得到,因为 `ensureLink` 写的是绝对目标;而内置插件的链接住在 `$DSH_HOME/profiles/node_modules`,那里根本没有被移动。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 ## Consequences
 
-**设置里的更新页随改名一起走,早先构建写下的回滚记录仍然打得开。**`@haoran/dsh-plugin-updates` 0.2.1——`apps/desktop-server/vendor/` 下随包分发的那个 tarball——把 `DESKTOP_PROFILE = "desktop-shell"` 编进了它的 host 半边,读 `$DSH_HOME/profiles/desktop-shell/package.json` 与 `web-migration.json`,并向插件管理服务发送 `profile: "desktop-shell"`,那正是服务接受的两个名字之一。它的回滚台账是它唯一落在所有 profile 之外的状态——`$DSH_HOME/dsh-plugin-updates/last-update.json`——所以改名不会移动它,本次构建之前写下的记录里仍读出 `profile: "desktop"`;插件在读取时把这个值映射为 `desktop-shell`、写入时只写新名,于是撤销那一步跨过升级仍然在。内置插件从来不在此列,因为它们是播种进去的、不是装进去的,载荷里也没有别的东西点这个 profile 的名。0.2.1 只为这一个名字构建:仍然启动 `desktop` 的壳要配 0.2.0。
+**改名不会挪动 profile 之外的任何插件状态。**内置插件从来不在此列,因为它们是播种进去的、不是装进去的,载荷里也没有别的东西点这个 profile 的名。唯一落在所有 profile 之外、又写着这个名字的文件是 `$DSH_HOME/dsh-plugin-updates/last-update.json`,它属于 `@haoran/dsh-plugin-updates`,而这个插件在 0.1.0-rc.34 离开了载荷([插件管理交给上游](../feature/2026-09-26-desktop-plugin-management-on-upstream.zh.md));没有任何东西读它。
 
 **两个应用可以装在同一台机器上。**上游自己的壳会在它首次运行时创建并拥有 `$DSH_HOME/profiles/desktop`,本壳拥有 `$DSH_HOME/profiles/desktop-shell`。它们仍然共享 `$DSH_HOME` 的其余部分——会话、凭据、设置——那也是它们此前就共享的,fork 的壳一直把这件事写在文档里。
 

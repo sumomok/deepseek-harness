@@ -8,9 +8,9 @@ Status: implemented
 
 在 dsh 0.1.7-rc.2 上，桌面服务端闭包带进来的包多于桌面 profile 实际运行的包；而暂存启动走到 URL 那一行，也不再能说明 profile 已组合完整。
 
-`@deepseek-ai/dsh` 把 `@deepseek-ai/dsh-experimental-auto-review` 列为运行时依赖，好让上游的插件页能提供它。它的审查与本部署的权限网关并行运行，而不是取代网关，桌面 profile 里也没有任何地方点名它。同一个闭包经 `dsh-office-to-pdf` 与 `dsh-skill-office` 带进 `@deepseek-ai/libreoffice-kit`，连同构建宿主的 LibreOffice 引擎包，而 `stageWindowsVariants` 还会在旁边取来 win32-x64 引擎。每个引擎都是一整套 LibreOffice 构建，远超一百兆字节；web 应用的 `office-to-pdf` 行就在它上面为右侧边栏的文档标签页启动转换器。
+`@deepseek-ai/dsh` 把 `@deepseek-ai/dsh-experimental-auto-review` 列为运行时依赖，好让上游的插件页能提供它。它的审查与本部署的权限网关并行运行，而不是取代网关。同一个闭包经 `dsh-office-to-pdf` 与 `dsh-skill-office` 带进 `@deepseek-ai/libreoffice-kit`，连同构建宿主的 LibreOffice 引擎包，而 `stageWindowsVariants` 还会在旁边取来 win32-x64 引擎。每个引擎都是一整套 LibreOffice 构建，远超一百兆字节；web 应用的 `office-to-pdf` 行就在它上面为右侧边栏的文档标签页启动转换器。
 
-出厂组合包组合了上游的插件管理器：dsh-base 的 `plugin-manager` Host 行提供安装、启用、移除 bundle 的 `pluginManager` 服务，dsh-web-app 的 `ui-plugin-manager` 行是它的侧栏页。桌面本来就经由 `@haoran/dsh-plugin-updates` 更新内置插件，它会拿壳的更新锁；上游的安装器不拿任何锁，而且能装回载荷有意不带的包。
+出厂组合包组合了上游的插件管理器：dsh-base 的 `plugin-manager` Host 行提供安装、启用、移除 bundle 的 `pluginManager` 服务，dsh-web-app 的 `ui-plugin-manager` 行是它的侧栏页。这个安装器能装回载荷有意不带的包。
 
 基座会跳过解析不到或不予接纳的 `dsh.profile.bundles` 名字，往 stderr 写一行 `skipping profile bundle`，然后不带这个 bundle 的层照常启动。被拒的插件行会伴随一行 `disabling profile plugin` 被禁用，没有激活的条目会在一条 `did not activate` 警告里报出。打包的启动闸原先把 URL 那一行当作每个播种的 bundle 都已组合的证明。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 **没有哪份载荷带 LibreOffice 引擎，Office 预览关闭。** `apps/desktop-shell/scripts/platform-dir-rules.ts` 里的 `platformDirRules` 在两个目标上丢掉每一个 `@deepseek-ai/libreoffice-kit-<suffix>` 目录，保留 kit 的入口包，因为 `dsh-office-to-pdf` 静态导入它；kit 只在创建转换器时才解析引擎。`stageWindowsVariants` 不再取 win32-x64 引擎，并打印一行说明跳过了它。`payload-gate.ts` 的 `EXEMPTIONS['platform-variant']` 收下各目标原生的引擎目录，因为该目标的载荷现在不带它。这条豁免点名的是目录而不是方向，所以引擎混进另一个目标的载荷时它同样放行；因此只要成品载荷在任何深度还留着一个以暂存 kit 的 `optionalDependencies` 所声明的引擎命名的目录，`deriveServerPayload` 就让它失败。desktop-app 层禁用 `office-to-pdf`，于是没有谁会创建转换器。
 
-**desktop-app 层禁用 `plugin-manager` 与 `ui-plugin-manager`。** 插件更新仍归 `@haoran/dsh-plugin-updates`，被扣下的包也没有装回来的入口。这一层不加 `tool-plugin-manager` 行。cordis 预设启用的那个 agent 工具位于 `preset-cordis` 的 `config.plugins` 里，按 id 的 patch 够不到那里；一行 `id: tool-plugin-manager` 只会改到 dsh-base 的顶层行，而 dsh-base 与 dsh-web-app 早已把它关掉。预设里的工具注入 `pluginManager`，只有被禁用的那个 Host 行提供它，所以它永远不会激活。设置里的「插件」分区及其 `settings.plugins.tab` 插槽（plugin-updates 的标签页就注册在那里）属于 `ui-settings-plugins`，这一行保持开启。
+**插件管理归上游；这一决定归[插件管理那份 Note](../feature/2026-09-26-desktop-plugin-management-on-upstream.zh.md)。**desktop-app 层让 `plugin-manager` 与 `ui-plugin-manager` 保持开启，并把 `pnpmCommand` 指向随包的 pnpm 启动脚本；壳在 profile 层让被扣下的 auto-review 组合为关闭。这一层不加 `tool-plugin-manager` 行。cordis 预设启用的那个 agent 工具位于 `preset-cordis` 的 `config.plugins` 里，按 id 的 patch 够不到那里；一行 `id: tool-plugin-manager` 只会改到 dsh-base 的顶层行，而 dsh-base 与 dsh-web-app 早已把它关掉。改由网关行的 `alwaysAsk` 把这个工具的每次调用交给人。
 
 **暂存启动遇到加载报告就失败，组合出的 dump 必须显出桌面层。** `verifyStagedBoot` 收集服务端的 stderr，任何一行带有 `LOAD_FAILURE_MARKERS` 之一——`skipping profile bundle`、`disabling profile plugin` 或 `did not activate`——都让打包失败。随后它在同一个构建 home 上跑 `--dump-config`，要求 `verifyDesktopLayer` 找到以 `openAt: first-search` 组合出的 `session-query-sqlite`，这个值只有最后一个 bundle `@deepseek-ai/dsh-desktop-app` 会设。
 

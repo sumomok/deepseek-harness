@@ -36,7 +36,7 @@ The retry after `ServerExitedBeforeUrl` stays, for a boot that exits before its 
 
 ## Consequences
 
-A migrated plugin that fails to import, or that the compatibility check refuses, appears in the plugin-updates page's disabled group from the launch after the one that found it, with the repair routes the web-profile sync already provides.
+A migrated plugin that fails to import, or that the compatibility check refuses, is recorded in the marker's `defective` list and named in the launch log from the launch that found it; no screen lists it, and deleting its marker entry is how a person brings it back ([plugin management on upstream](../feature/2026-09-26-desktop-plugin-management-on-upstream.md)).
 
 The shell depends on the exact text of three upstream lines. A base that rewords one of them brings back the silent absence for that case, and `tests/profile-seed.spec.ts` holds the three shapes this shell reads.
 

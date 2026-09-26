@@ -1,6 +1,7 @@
 # Agent Note: The shell lends its package manager, so a plugin can be updated without a terminal
 
 Status: implemented
+Archived: 2026-09-26
 
 English | [中文](2026-08-25-desktop-plugin-admin-service.zh.md)
 

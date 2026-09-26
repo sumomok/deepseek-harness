@@ -24,20 +24,20 @@
   en: bf0d89ec83c8d2ed
   zh: 286cc07d7dc846f6
 /deepseek-ai-dsh-desktop-shell/built-in-plugins:
-  en: 68731e574fc30b5b
-  zh: 30a449bdb7424128
+  en: c495a8be6945b702
+  zh: f3e792f197f86986
 /deepseek-ai-dsh-desktop-shell/the-render-service:
   en: a3bbc320b10aefcb
   zh: 4588a6649a680ed1
-/deepseek-ai-dsh-desktop-shell/the-plugin-admin-service:
-  en: a9a211689fb9774b
-  zh: 3c3c3ef988a8250c
+/deepseek-ai-dsh-desktop-shell/plugin-management:
+  en: acbd9eb209a75b5a
+  zh: e554e0c82d474640
 /deepseek-ai-dsh-desktop-shell/update-service:
-  en: 1f884a2a5b82be89
-  zh: 52222ca2c6335a57
+  en: 61ef6fb24a6f32a8
+  zh: e54855ad3ca88371
 /deepseek-ai-dsh-desktop-shell/server-environment:
   en: 3cdbbffedb564ee3
   zh: 6cd3648026479dbb
 /deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
-  en: 59ee613103d18b9c
-  zh: 916229ccb182206d
+  en: 5c239e450f439380
+  zh: db8582c9ee78876a

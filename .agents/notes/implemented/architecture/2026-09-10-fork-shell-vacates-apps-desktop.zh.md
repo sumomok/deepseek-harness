@@ -8,7 +8,7 @@ Status: implemented
 
 上游 0.1.5-rc.1 自带一个 Electron 外壳，落在 `apps/desktop`，包名 `@deepseek-ai/dsh-desktop`——正是本 fork 的外壳自诞生起就占着的路径与名字。把那个基座并进来，会让两个互不相干的外壳挤在同一个目录里，此后上游对它自己那个外壳的每一次改动，都会变成与 fork 代码的冲突，而两者除了路径之外毫无关系。名字同样撞车：pnpm 按清单里的 name 解析 `apps/*`，一个工作区容不下两个都叫 `@deepseek-ai/dsh-desktop` 的包。
 
-上游那个外壳不是这一个的替代品。这个外壳把内置插件组合包播种进 `desktop-shell` profile，服务 `https://lhr.ink/dsh-updates/` 上的更新源，用自签证书签 macOS 构建，并且承载着出货产品赖以成立的登录窗口、渲染服务、插件管理服务与服务端崩溃恢复阶梯。上游那个是另一个产品：`productName: DeepSeek Harness`，自己的产物名，自己的更新主机。
+上游那个外壳不是这一个的替代品。这个外壳把内置插件组合包播种进 `desktop-shell` profile，服务 `https://lhr.ink/dsh-updates/` 上的更新源，用自签证书签 macOS 构建，并且承载着出货产品赖以成立的登录窗口、渲染服务与服务端崩溃恢复阶梯。上游那个是另一个产品：`productName: DeepSeek Harness`，自己的产物名，自己的更新主机。
 
 ## 决策
 
@@ -16,7 +16,7 @@ Status: implemented
 
 **已安装的应用保留 `@deepseek-ai/dsh-desktop` 这个名字。**Electron 从应用 `package.json` 的 `name` 字段取应用名，并由它推出 `userData`、`sessionData`、`crashDumps` 与 macOS 的 `logs` 目录；electron-builder 也由同一个字段推出生成的 `app-update.yml` 里的 `updaterCacheDirName`。光改名字，会把每一份安装的 cookie、登录分区、`Preferences` 与 `desktop-state.json` 挪到够不着的地方，并让更新器的下载缓存变成孤儿，其中包括差分更新要复用的 `current.blockmap`。`electron-builder.yml` 里的 `extraMetadata.name` 把旧名字写进 asar 内那份 `package.json`，于是打包出来的构建解析到的位置与今天一致。`src/app-identity.ts` 在运行期为源码树启动做同一件事：先设名字，再显式设 `userData` 与 `sessionData`——因为这两个是 Electron 在启动过程中解析的，早于本包的第一行代码。
 
-**退役条件。**当上游那个外壳覆盖了这一个在做的事——把内置插件集播种进 profile、fork 的更新源与自签 macOS 路径、登录窗口，以及渲染、插件管理、崩溃恢复三个服务——本包即删除，`apps/desktop` 成为出货客户端。那时出货的东西要么解析到同一批用户目录，要么自带迁移；一个丢掉数据的存量安装不叫升级。
+**退役条件。**当上游那个外壳覆盖了这一个在做的事——把内置插件集播种进 profile、fork 的更新源与自签 macOS 路径、登录窗口，以及渲染、崩溃恢复两个服务——本包即删除，`apps/desktop` 成为出货客户端。那时出货的东西要么解析到同一批用户目录，要么自带迁移；一个丢掉数据的存量安装不叫升级。
 
 ## 这次搬家不改变什么
 

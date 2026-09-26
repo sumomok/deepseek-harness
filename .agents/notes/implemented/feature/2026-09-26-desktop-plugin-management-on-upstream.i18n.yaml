@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-26-desktop-plugin-management-on-upstream.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-desktop-plugin-management-on-upstream.md
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager:
+  en: f5325b020bc83f88
+  zh: 0823674093fe3094
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager/problem:
+  en: 7522a8da4ff40e16
+  zh: eb3cf95781b020ed
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager/decision:
+  en: 8e986bd5bc43fee0
+  zh: 58ecb7f6487182ce
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager/alternatives-considered:
+  en: 87db2f86a5712c5c
+  zh: be0bb97f1f49c32e
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager/consequences:
+  en: db2105705fbbafa8
+  zh: 6efcf455c2f2dfca
+/agent-note-the-desktop-manages-plugins-through-upstream-s-plugin-manager/related:
+  en: 728ea3e2caff79ca
+  zh: b7a9ebbea1b3612c

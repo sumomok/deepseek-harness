@@ -54,7 +54,7 @@ The decision is recorded as `permissionPatch` in `web-migration.json` — `remov
 
 A client that copied those rows over gets the shipped access-mode table back on its next launch, with no terminal and no hand-edited YAML, and keeps every other row in its patch layer. A client that edited either row keeps it and is told which one and why, once per launch until a marker exists to record the decision. The machine this was found on loses both rows: its gateway row is the id-targeted form, and every field in it is the shipped value.
 
-`MigrationMarker` gains an optional field. It is a cross-component contract `@haoran/dsh-plugin-updates` reads, so the field is additive, absent until decided, and carried through by both `readMigrationMarker` and the marker `syncWebBundles` writes.
+`MigrationMarker` gains an optional field. A marker an earlier build wrote is read back by later builds, so the field is additive, absent until decided, and carried through by both `readMigrationMarker` and the marker `syncWebBundles` writes.
 
 An entry the failsafe schema refuses is left alone, which is the safe direction but means a machine whose copy carries a tag, a duplicate key, or a tab in that entry keeps the shadow and says so in the log rather than being repaired.
 
