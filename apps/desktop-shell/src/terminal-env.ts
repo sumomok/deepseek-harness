@@ -29,7 +29,7 @@
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import {
-  closeSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync,
+  closeSync, copyFileSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
 
@@ -251,10 +251,33 @@ export interface ProfileTarget {
   zdotdir: string | undefined
 }
 
+/** The files a bash login shell reads, in its order; it reads only the first that exists. */
+const BASH_LOGIN_FILES = ['.bash_profile', '.bash_login', '.profile'] as const
+
 /**
- * The profile file a shell reads for an interactive terminal.
+ * Whether a directory entry exists, a dangling link included.
+ * @param path - the entry.
+ * @returns true when `lstat` finds it.
+ */
+function entryExists(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
+/**
+ * The profile file a shell reads for an interactive terminal. For bash it is
+ * the first of `~/.bash_profile`, `~/.bash_login`, and `~/.profile` that
+ * exists, because a login bash reads that one and skips the rest; creating
+ * `~/.bash_profile` beside an existing `~/.profile` would stop bash reading
+ * the `~/.profile`. With none of them it is `~/.bash_profile`.
  * @param target - home, shell, and `ZDOTDIR`.
  * @returns the file, or `undefined` for a shell this module does not write.
+ * @throws when a bash candidate cannot be checked for a reason other than its absence.
  */
 export function profileFile(target: ProfileTarget): string | undefined {
   const name = target.shell === undefined ? '' : basename(target.shell)
@@ -262,7 +285,10 @@ export function profileFile(target: ProfileTarget): string | undefined {
     const dir = target.zdotdir !== undefined && target.zdotdir.length > 0 ? target.zdotdir : target.home
     return join(dir, '.zshrc')
   }
-  if (name === 'bash') return join(target.home, '.bash_profile')
+  if (name === 'bash') {
+    const found = BASH_LOGIN_FILES.map(file => join(target.home, file)).find(entryExists)
+    return found ?? join(target.home, BASH_LOGIN_FILES[0])
+  }
   return undefined
 }
 
@@ -281,8 +307,11 @@ const ASSIGNMENT = /(^|[\s;&|])(export\s+|typeset\s+-x\s+|declare\s+-x\s+)?DSH_H
 /**
  * Set or remove this module's `DSH_HOME` block in the person's shell profile.
  * A profile that is a symbolic link is written at its target, so a dotfiles
- * checkout keeps its link. The file is copied to `<file>.dsh-backup` and then
- * replaced atomically with the same permission bits.
+ * checkout keeps its link. The file is copied byte for byte to
+ * `<file>.dsh-backup` and then replaced atomically with the same permission
+ * bits. The profile is handled as bytes, not decoded text: every byte outside
+ * the block, in whatever encoding the person saved it, is written back
+ * unchanged, and only the block itself is UTF-8.
  * @param target - home, shell, and `ZDOTDIR`.
  * @param value - the absolute data directory, or `undefined` to remove the block.
  * @returns what was done, or why nothing was written.
@@ -292,18 +321,14 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
   const file = profileFile(target)
   if (file === undefined) return { kind: 'unsupported-shell', shell: target.shell ?? '' }
   let path = file
+  // latin1 maps each byte to one code unit and back, so the string operations
+  // below see ASCII markers exactly and leave every other byte as it was.
   let original = ''
   let mode = 0o644
-  let exists = true
-  try {
-    lstatSync(file)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    exists = false
-  }
+  const exists = entryExists(file)
   if (exists) {
     path = realpathSync(file)
-    original = readFileSync(path, 'utf8')
+    original = readFileSync(path).toString('latin1')
     mode = statSync(path).mode & 0o777
   }
   const lines = original.length === 0 ? [] : original.replace(/\n$/, '').split('\n')
@@ -317,7 +342,8 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
     if (ASSIGNMENT.test(line)) places.push({ file: path, line: index + 1 })
   })
   if (places.length > 0) return { kind: 'foreign-assignment', file: path, places }
-  const block = value === undefined ? [] : [BLOCK_START, `export DSH_HOME=${shellQuote(value)}`, BLOCK_END]
+  const assignment = Buffer.from(`export DSH_HOME=${shellQuote(value ?? '')}`, 'utf8').toString('latin1')
+  const block = value === undefined ? [] : [BLOCK_START, assignment, BLOCK_END]
   let next: string[]
   if (start !== -1) {
     next = [...lines.slice(0, start), ...block, ...lines.slice(end + 1)]
@@ -331,9 +357,9 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
   let backup: string | undefined
   if (exists) {
     backup = `${path}${PROFILE_BACKUP_SUFFIX}`
-    writeDurably(backup, original, mode)
+    copyDurably(path, backup)
   }
-  writeDurably(path, content, mode)
+  writeDurably(path, Buffer.from(content, 'latin1'), mode)
   return backup === undefined ? { kind: 'written', file: path } : { kind: 'written', file: path, backup }
 }
 
@@ -344,7 +370,7 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
  * @param content - the full content.
  * @param mode - permission bits of the result.
  */
-function writeDurably(file: string, content: string, mode: number): void {
+function writeDurably(file: string, content: Buffer, mode: number): void {
   const temporary = `${file}.${String(process.pid)}.tmp`
   const fd = openSync(temporary, 'w', mode)
   try {
@@ -353,6 +379,33 @@ function writeDurably(file: string, content: string, mode: number): void {
   } finally {
     closeSync(fd)
   }
+  renameOver(temporary, file)
+}
+
+/**
+ * Copy `source` to `file` byte for byte, permission bits included, through a
+ * flushed temporary sibling.
+ * @param source - the file to copy.
+ * @param file - the destination.
+ */
+function copyDurably(source: string, file: string): void {
+  const temporary = `${file}.${String(process.pid)}.tmp`
+  copyFileSync(source, temporary)
+  const fd = openSync(temporary, 'r+')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  renameOver(temporary, file)
+}
+
+/**
+ * Rename a temporary file over its destination, removing it when the rename fails.
+ * @param temporary - the temporary file.
+ * @param file - the destination.
+ */
+function renameOver(temporary: string, file: string): void {
   try {
     renameSync(temporary, file)
   } catch (error) {

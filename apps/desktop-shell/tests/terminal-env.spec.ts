@@ -139,6 +139,44 @@ describe('updateShellProfile', () => {
     expect(profileFile({ home: '/h', shell: undefined, zdotdir: undefined })).toBeUndefined()
   })
 
+  it('writes the first bash login file that exists, as bash reads only that one', () => {
+    const bash = { home, shell: '/bin/bash', zdotdir: undefined }
+    expect(profileFile(bash)).toBe(join(home, '.bash_profile'))
+    writeFileSync(join(home, '.profile'), '')
+    expect(profileFile(bash)).toBe(join(home, '.profile'))
+    writeFileSync(join(home, '.bash_login'), '')
+    expect(profileFile(bash)).toBe(join(home, '.bash_login'))
+    symlinkSync(join(home, 'dotfiles-gone'), join(home, '.bash_profile'))
+    expect(profileFile(bash)).toBe(join(home, '.bash_profile'))
+  })
+
+  withBash('keeps a login bash reading ~/.profile after the block is written', () => {
+    writeFileSync(join(home, '.profile'), 'export PROFILE_MARK=from-profile\n')
+    const login = (): string => execFileSync('/bin/bash', ['-ilc', 'printf "%s|%s" "$PROFILE_MARK" "$DSH_HOME"'], {
+      env: shellEnv(), stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8',
+    })
+    expect(login()).toBe('from-profile|')
+    expect(updateShellProfile({ home, shell: '/bin/bash', zdotdir: undefined }, '/data/B'))
+      .toMatchObject({ kind: 'written', file: join(home, '.profile') })
+    expect(existsSync(join(home, '.bash_profile'))).toBe(false)
+    expect(login()).toBe('from-profile|/data/B')
+  })
+
+  withZsh('backs up and keeps every byte outside the block, whatever the file\'s encoding', () => {
+    const file = join(home, '.zshrc')
+    const original = Buffer.concat([Buffer.from('# caf'), Buffer.from([0xe9]), Buffer.from('\nalias x=y\n')])
+    writeFileSync(file, original)
+    updateShellProfile(zsh(), TRICKY)
+    expect(readFileSync(`${file}${PROFILE_BACKUP_SUFFIX}`).equals(original)).toBe(true)
+    const written = readFileSync(file)
+    expect(written.subarray(0, original.length).equals(original)).toBe(true)
+    expect(written.subarray(original.length).toString('utf8')).toBe(`\n${BLOCK_START}\nexport DSH_HOME=${shellQuote(TRICKY)}\n${BLOCK_END}\n`)
+    const read = execFileSync('/bin/zsh', ['-c', `. '${file}'; printf %s "$DSH_HOME"`], { env: shellEnv(), encoding: 'utf8' })
+    expect(read).toBe(TRICKY)
+    updateShellProfile(zsh(), undefined)
+    expect(readFileSync(file).equals(Buffer.concat([original, Buffer.from('\n')]))).toBe(true)
+  })
+
   it('does not write for fish', () => {
     expect(updateShellProfile({ home, shell: '/opt/homebrew/bin/fish', zdotdir: undefined }, '/d'))
       .toEqual({ kind: 'unsupported-shell', shell: '/opt/homebrew/bin/fish' })
