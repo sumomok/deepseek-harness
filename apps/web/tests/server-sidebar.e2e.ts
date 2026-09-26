@@ -879,6 +879,42 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await accessChip(page).count()).toBe(0)
   }, 60_000)
 
+  it('draws a Settings dialog with the General section only, the configuration-file action hidden, and the close button at the right', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-settings-dialog'))
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.waitFor({ timeout: 10_000 })
+    // Settings → Plugins is gone with its two disabled rows, and no settings
+    // form is drawn for `console-mcp`: its server list is not volatile.
+    await expect.poll(() => dialog.locator('nav').innerText(), { timeout: 10_000 })
+      .toBe('Settings\nGeneral\nGeneral settings')
+    const header = await dialog.evaluate((panel) => {
+      const row = panel.querySelector('[class$="_header"]')
+      const actions = row?.querySelector(':scope > [class$="_actions"]')
+      const close = row?.querySelector(':scope > button')
+      const right = (element: Element | null | undefined): number | undefined => element?.getBoundingClientRect().right
+      return {
+        actions: [...actions?.children ?? []].map(child => ({
+          text: child.textContent,
+          display: getComputedStyle(child).display,
+        })),
+        headerRight: right(row),
+        closeRight: right(close),
+        actionsRight: right(actions),
+      }
+    })
+    // `terminology-guard.ts` hides what the header's action row holds and
+    // leaves the row in the layout, which is what keeps the close button at
+    // the header's right edge.
+    expect(header.actions).toEqual([{ text: 'Open configuration file', display: 'none' }])
+    expect(header.closeRight).toBeDefined()
+    expect(header.actionsRight).toBeDefined()
+    expect(header.closeRight!).toBeGreaterThan(header.actionsRight!)
+    expect(header.headerRight! - header.closeRight!).toBeLessThanOrEqual(16)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+  }, 30_000)
+
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
     // `remote.settings` answers any browser the deployment admits, so the
     // pinned preset holds only because the lock composes above the profile

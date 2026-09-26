@@ -285,6 +285,15 @@ async function harnessHomeWithRowLinks(): Promise<string> {
   return home
 }
 
+/**
+ * Whether a URL is component-kit's ability route.
+ * @param url - an absolute request URL.
+ * @returns true for the ability route, whatever its query.
+ */
+function isAbilityRoute(url: string): boolean {
+  return url !== '' && new URL(url).pathname === '/component-kit/abilities'
+}
+
 /** The component seat of the content column. */
 const seat = (page: Page): Locator => page.locator('[data-content-surface-seat="component"]')
 
@@ -295,6 +304,8 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
   let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
   const consoleErrors: string[] = []
+  /** Statuses the ability route answered with, in order. */
+  const abilityAnswers: number[] = []
   const sessionEvents: SessionEvent[] = []
   const seen: Seen[] = []
 
@@ -316,7 +327,11 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
     await page.route(url => url.pathname.startsWith(`${API_PREFIX}/`), route => answerBackend(route, seen))
     tripwire = watchConsole(page)
     page.on('console', (message: ConsoleMessage) => {
-      if (message.type() === 'error') consoleErrors.push(message.text())
+      // The ability read's 404 is asserted on its own below, not as noise.
+      if (message.type() === 'error' && !isAbilityRoute(message.location().url)) consoleErrors.push(message.text())
+    })
+    page.on('response', (response) => {
+      if (isAbilityRoute(response.url())) abilityAnswers.push(response.status())
     })
     // The first load finds no token and leaves for the login page, which stores
     // one and comes back; the shell then mirrors it and reloads once more.
@@ -463,6 +478,13 @@ describe.skipIf(MODE === 'record')('web e2e: a call that opens the deployment\'s
       .toBeGreaterThan(0)
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-data-page-click.png'), fullPage: true })
   }, 180_000)
+
+  it('reads the visitor\'s abilities from a route this composition does not register, and draws the page with none', () => {
+    // No `bizUpstream` composes no `ctx.bizBackend`, so component-kit
+    // registers no ability route; the page asked, got a 404, and failed closed.
+    expect(abilityAnswers.length).toBeGreaterThan(0)
+    expect(new Set(abilityAnswers)).toEqual(new Set([404]))
+  })
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])
