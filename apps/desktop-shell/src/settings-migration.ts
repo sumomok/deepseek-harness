@@ -32,7 +32,9 @@
  * The profile's patch layer also loses a duplicate gateway `insert` row an
  * earlier sync kept because it had been edited: the gateway's own bundle
  * layer inserts that id, so the copy is rewritten as an id-targeted row
- * carrying the same config.
+ * carrying the same config. That row, and every id-targeted gateway row whose
+ * `config` has no `alwaysAsk`, gets {@link GATEWAY_ALWAYS_ASK}: its `config`
+ * replaces the desktop layer's, which is where `plugin_manager` joins the map.
  *
  * {@link SETTINGS_MIGRATION_MARKER} records every decision and makes the whole
  * run happen once. It is written `pending` before the first change and `done`
@@ -89,6 +91,11 @@ export interface SettingsMigrationMarker {
   gatewayRow?: { before: string; after?: string }
   /** The legacy gateway `mode` value, which no build reads any more. */
   gatewayModeDropped?: unknown
+  /**
+   * How many gateway rows get {@link GATEWAY_ALWAYS_ASK}, counted before the
+   * first change, so a run resumed from `pending` records the same number.
+   */
+  alwaysAskAdded?: number
   /** The `llm-deepseek.baseURL` a run found, and whether it was kept. */
   baseURL?: { value: string; kept: boolean }
   /** The ids of the profile rows this migration wrote. */
@@ -252,6 +259,16 @@ export const DEFAULT_EXCLUDED_DIRECTORIES: readonly string[] = [
 /** dsh-at-file 0.7.0's `DEFAULT_IGNORE_FILES`: what its global list meant when never configured. */
 const AT_FILE_DEFAULT_IGNORE_FILES: readonly string[] = ['desktop.ini', 'Thumbs.db', '.DS_Store']
 
+/**
+ * The `alwaysAsk` map `apps/desktop-app/cordis.patch.yml` sets on the
+ * `llm-permission-gateway` row. `tests/settings-migration.spec.ts` holds the
+ * two equal, so the desktop layer stays the one source of the map.
+ */
+export const GATEWAY_ALWAYS_ASK: Readonly<Record<string, string>> = {
+  browser_auth: '这一步会把你浏览器里这个网站的登录状态交给助手——那个网址下的所有登录信息都在内。之后它做的每一件事，都是以你本人的身份登录着做的。',
+  plugin_manager: '这一步会改动这台电脑上装的插件：安装、移除、启用或停用插件，或者放行一个与当前版本不兼容的插件，停用的也可能是负责审查的这个插件本身。装上的插件代码在应用里运行，不受工作区沙箱限制，改动对之后的所有对话都生效。',
+}
+
 /** The host every chat-completions address DeepSeek published is on. */
 const DEEPSEEK_API_HOST = 'api.deepseek.com'
 
@@ -323,6 +340,8 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
 
   const gatewayBefore = previous?.gatewayRow?.before ?? duplicateGatewayRowText(patchPath)
   if (gatewayBefore !== undefined) marker.gatewayRow = { before: gatewayBefore }
+  const alwaysAskAdded = previous?.alwaysAskAdded ?? gatewayRowsWithoutAlwaysAsk(patchPath)
+  if (alwaysAskAdded > 0) marker.alwaysAskAdded = alwaysAskAdded
   writeMarker(markerPath, marker)
 
   const hasSettings = existsSync(settingsPath)
@@ -332,8 +351,11 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
   if (rewritten !== undefined) {
     report.lines.push(`rewrote the duplicate llm-permission-gateway insert row in ${PROFILE_PATCH_FILENAME} as an id-targeted row`)
   }
+  if (addGatewayAlwaysAsk(patchPath) > 0) {
+    report.lines.push(`added the desktop alwaysAsk map to ${String(alwaysAskAdded)} llm-permission-gateway row(s) in ${PROFILE_PATCH_FILENAME}`)
+  }
   // A run resumed from `pending` finds the row already rewritten.
-  const after = rewritten ?? targetedGatewayRowText(patchPath)
+  const after = targetedGatewayRowText(patchPath)
   if (marker.gatewayRow !== undefined && after !== undefined) marker.gatewayRow.after = after
 
   if (hasSettings) {
@@ -620,6 +642,55 @@ function targetedGatewayRowText(patchPath: string): string | undefined {
   const items = (document.contents as { items: unknown[] }).items
   const row = items.findLast(item => isMap(item) && item.get('id') === 'llm-permission-gateway' && !item.has('insert'))
   return row === undefined ? undefined : nodeText(row)
+}
+
+/** A gateway row's `config` mapping when it has no `alwaysAsk`, which is what {@link addGatewayAlwaysAsk} completes. */
+function configWithoutAlwaysAsk(row: unknown): YAMLMap | undefined {
+  if (!isMap(row) || row.get('id') !== 'llm-permission-gateway') return undefined
+  const config = row.get('config', true)
+  return isMap(config) && !config.has('alwaysAsk') ? config : undefined
+}
+
+/**
+ * How many gateway rows {@link rewriteDuplicateGatewayRow} and
+ * {@link addGatewayAlwaysAsk} together give the desktop `alwaysAsk` map: the
+ * id-targeted ones and the one inside a duplicate `insert` entry.
+ * @param patchPath - the profile's `cordis.patch.yml`.
+ * @returns the count, zero when the layer is absent or cannot be edited.
+ */
+function gatewayRowsWithoutAlwaysAsk(patchPath: string): number {
+  if (!existsSync(patchPath)) return 0
+  const document = readPatchLayer(patchPath)
+  if (document === undefined) return 0
+  const items = (document.contents as { items: unknown[] }).items
+  const targeted = items.filter(item => isMap(item) && !item.has('insert') && configWithoutAlwaysAsk(item) !== undefined).length
+  const duplicate = findDuplicateGatewayRow(document)
+  if (duplicate === undefined) return targeted
+  const insert = (items[duplicate.entry] as YAMLMap).get('insert', true)
+  return targeted + (isSeq(insert) && configWithoutAlwaysAsk(insert.items[duplicate.row]) !== undefined ? 1 : 0)
+}
+
+/**
+ * Give every top-level id-targeted gateway row whose `config` mapping has no
+ * `alwaysAsk` the desktop layer's map. A row without a `config` mapping is left
+ * alone: it does not replace the desktop layer's `config`, and giving it one
+ * would drop that layer's required `provider` and `model`.
+ * @param patchPath - the profile's `cordis.patch.yml`.
+ * @returns how many rows it changed.
+ */
+function addGatewayAlwaysAsk(patchPath: string): number {
+  if (!existsSync(patchPath)) return 0
+  const document = readPatchLayer(patchPath)
+  if (document === undefined) return 0
+  let changed = 0
+  for (const item of (document.contents as { items: unknown[] }).items) {
+    const config = isMap(item) && !item.has('insert') ? configWithoutAlwaysAsk(item) : undefined
+    if (config === undefined) continue
+    config.set('alwaysAsk', document.createNode({ ...GATEWAY_ALWAYS_ASK }))
+    changed += 1
+  }
+  if (changed > 0) writeAtomic(patchPath, document.toString(), PRIVATE_FILE_MODE)
+  return changed
 }
 
 /**

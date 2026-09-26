@@ -13,7 +13,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME } from '../src/profile-seed.ts'
 import {
-  DEFAULT_EXCLUDED_DIRECTORIES, migrateLegacySettings, readSettingsMigrationMarker, SETTINGS_MIGRATION_MARKER,
+  DEFAULT_EXCLUDED_DIRECTORIES, GATEWAY_ALWAYS_ASK, migrateLegacySettings, readSettingsMigrationMarker,
+  SETTINGS_MIGRATION_MARKER,
   type SettingsMigrationMarker,
 } from '../src/settings-migration.ts'
 import { storedThemePreference } from '../src/theme-preference.ts'
@@ -347,10 +348,13 @@ describe('migrateLegacySettings on a duplicate gateway insert row (S3)', () => {
     const text = readFileSync(join(profileDir, 'cordis.patch.yml'), 'utf8')
     expect(text).toContain('disabled: !!js "!ctx.get(\'typert\')"')
     expect(text).not.toContain('insert:')
-    expect(rowOf('llm-permission-gateway')).toEqual({ id: 'llm-permission-gateway', config: { provider: 'my-proxy', model: 'my-model' } })
-    const { gatewayRow } = markerNow()
+    expect(rowOf('llm-permission-gateway')).toEqual({
+      id: 'llm-permission-gateway', config: { provider: 'my-proxy', model: 'my-model', alwaysAsk: GATEWAY_ALWAYS_ASK },
+    })
+    const { gatewayRow, alwaysAskAdded } = markerNow()
     expect(gatewayRow?.before).toContain('insert:')
-    expect(gatewayRow?.after).toBe('id: llm-permission-gateway\nconfig:\n  provider: my-proxy\n  model: my-model\n')
+    expect(gatewayRow?.after).toMatch(/^id: llm-permission-gateway\nconfig:\n {2}provider: my-proxy\n {2}model: my-model\n {2}alwaysAsk:\n/)
+    expect(alwaysAskAdded).toBe(1)
   })
 
   it('keeps an insert list that holds other rows too, taking only the gateway out of it', () => {
@@ -363,16 +367,60 @@ describe('migrateLegacySettings on a duplicate gateway insert row (S3)', () => {
     migrateLegacySettings(home, profileDir)
     expect(patchRows()).toEqual([
       { insert: [{ id: 'mine', name: 'my-plugin' }] },
-      { id: 'llm-permission-gateway', config: { provider: 'p', model: 'm' } },
+      { id: 'llm-permission-gateway', config: { provider: 'p', model: 'm', alwaysAsk: GATEWAY_ALWAYS_ASK } },
     ])
   })
 
   it('runs without a settings file, and still finishes', () => {
     writeFileSync(join(profileDir, 'cordis.patch.yml'), EDITED_GATEWAY_PATCH)
     migrateLegacySettings(home, profileDir)
-    expect(rowOf('llm-permission-gateway')).toEqual({ id: 'llm-permission-gateway', config: { provider: 'my-proxy', model: 'my-model' } })
+    expect(rowOf('llm-permission-gateway')).toEqual({
+      id: 'llm-permission-gateway', config: { provider: 'my-proxy', model: 'my-model', alwaysAsk: GATEWAY_ALWAYS_ASK },
+    })
     expect(markerNow().state).toBe('done')
     expect(existsSync(join(home, 'settings.yaml.pre-rc34'))).toBe(false)
+  })
+})
+
+describe('migrateLegacySettings on the gateway rows\' alwaysAsk', () => {
+  it('carries exactly the map the desktop layer sets on the gateway row', () => {
+    const layer = parse(readFileSync(join(process.cwd(), 'apps', 'desktop-app', 'cordis.patch.yml'), 'utf8'), {
+      customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+    }) as { id?: string; config?: { alwaysAsk?: unknown } }[]
+    const row = layer.find(entry => entry.id === 'llm-permission-gateway')
+    expect(row?.config?.alwaysAsk).toStrictEqual(GATEWAY_ALWAYS_ASK)
+  })
+
+  it('adds the map to an id-targeted row whose config has none, and to no other', () => {
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), `- id: llm-permission-gateway
+  config:
+    provider: p
+    model: m
+- id: llm-permission-gateway
+  config:
+    provider: q
+    model: n
+    alwaysAsk:
+      browser_auth: mine
+- id: llm-permission-gateway
+  disabled: false
+`)
+    const report = migrateLegacySettings(home, profileDir)
+    expect(patchRows()).toEqual([
+      { id: 'llm-permission-gateway', config: { provider: 'p', model: 'm', alwaysAsk: GATEWAY_ALWAYS_ASK } },
+      { id: 'llm-permission-gateway', config: { provider: 'q', model: 'n', alwaysAsk: { browser_auth: 'mine' } } },
+      { id: 'llm-permission-gateway', disabled: false },
+    ])
+    expect(markerNow().alwaysAskAdded).toBe(1)
+    expect(report.lines).toContain('added the desktop alwaysAsk map to 1 llm-permission-gateway row(s) in cordis.patch.yml')
+  })
+
+  it('adds nothing on a later launch', () => {
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: llm-permission-gateway\n  config:\n    provider: p\n    model: m\n')
+    migrateLegacySettings(home, profileDir)
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: llm-permission-gateway\n  config:\n    provider: p\n    model: m\n')
+    migrateLegacySettings(home, profileDir)
+    expect(rowOf('llm-permission-gateway')).toEqual({ id: 'llm-permission-gateway', config: { provider: 'p', model: 'm' } })
   })
 })
 
@@ -420,6 +468,7 @@ describe('migrateLegacySettings resumed from pending', () => {
     // first written.
     writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), JSON.stringify({
       state: 'pending', rows: [], dropped: [], skipped: [], gatewayRow: { before: uninterrupted.gatewayRow?.before },
+      alwaysAskAdded: uninterrupted.alwaysAskAdded,
     }))
     migrateLegacySettings(home, profileDir)
     expect(markerNow()).toEqual(uninterrupted)
