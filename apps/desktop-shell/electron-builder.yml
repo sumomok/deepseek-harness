@@ -72,8 +72,16 @@ mac:
   # reason. The shell writes there for one reason only — a download the served
   # UI started, which src/download-policy.ts places instead of letting Electron
   # open a Save As sheet.
+  #
+  # The microphone is behind the same kind of prompt, raised the first time the
+  # voice input records; the served UI records in the app window, and
+  # src/microphone-permissions.ts asks the system for the grant. Under the
+  # hardened runtime the prompt also needs the `device.audio-input`
+  # entitlement in build/entitlements.mac.plist; without it the system refuses
+  # without asking.
   extendInfo:
     NSDownloadsFolderUsageDescription: DSH 需要访问「下载」文件夹,才能把你从应用里导出的文件保存到那里。
+    NSMicrophoneUsageDescription: DSH 需要使用麦克风,才能把你说的话转成文字填进输入框。
   extraResources:
     - from: staging/runtime/darwin
       to: runtime

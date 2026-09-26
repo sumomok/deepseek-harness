@@ -23,13 +23,14 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, session, shell, type DownloadItem } from 'electron'
+import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { pinAppIdentity } from './app-identity.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
+import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
@@ -754,6 +755,14 @@ if (!locked) {
 
   void app.whenReady().then(async () => {
     app.setAppUserModelId(APP_USER_MODEL_ID)
+    // Before the first window, so no page ever runs under the default policy.
+    installMicrophonePermissions(session.defaultSession, {
+      primary: () => mainWindow()?.webContents,
+      serverOrigin: () => server?.url,
+      platform: process.platform,
+      microphoneStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
+      askForMicrophone: () => systemPreferences.askForMediaAccess('microphone'),
+    })
     const upgradedFrom = recordRun()
     const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
     const logDir = app.getPath('logs')
