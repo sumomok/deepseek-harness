@@ -12,7 +12,8 @@ import {
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BLOCK_END, BLOCK_START, POINTER_HOME_ENV, PROFILE_BACKUP_SUFFIX, processDshHome, profileFile,
   READ_USER_ENV_SCRIPT, readExplicitDshHome, readLoginShellDshHome, readWindowsUserDshHome, shellQuote,
@@ -36,6 +37,21 @@ const TRICKY = "/Volumes/外置 盘/it's DSH-Data"
 const posixOnly = process.platform === 'win32' ? it.skip : it
 const withZsh = existsSync('/bin/zsh') ? it : it.skip
 const withBash = existsSync('/bin/bash') ? it : it.skip
+
+/**
+ * Whether a process exists.
+ * @param pid - the process id.
+ * @returns false once signal 0 reports no such process.
+ */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    // ESRCH: the process is gone, which is the state being waited for.
+    return false
+  }
+}
 
 /** Environment for a shell confined to the temporary home. */
 function shellEnv(): NodeJS.ProcessEnv {
@@ -75,16 +91,24 @@ describe('readLoginShellDshHome', () => {
     mkdirSync(bin)
     const pidFile = join(home, 'pid')
     const shell = join(bin, 'zsh')
-    writeFileSync(shell, `#!/bin/sh\necho $$ > '${pidFile}'\nexec sleep 30\n`)
+    writeFileSync(shell, `#!/bin/sh\necho $$ > '${pidFile}.tmp'\nmv '${pidFile}.tmp' '${pidFile}'\nexec sleep 30\n`)
     chmodSync(shell, 0o755)
-    const started = Date.now()
-    const read = await readLoginShellDshHome({ shell, env: shellEnv(), timeoutMs: 1500 })
-    expect(read.kind).toBe('unknown')
-    expect(read.kind === 'unknown' && read.detail).toContain('did not answer within 1500ms')
-    expect(Date.now() - started).toBeLessThan(8000)
-    const pid = Number(readFileSync(pidFile, 'utf8'))
-    await new Promise(settle => setTimeout(settle, 100))
-    expect(() => process.kill(pid, 0)).toThrow()
+    // The probe's limit runs on a faked clock, advanced only once the shell has
+    // written its pid, so a slow start under load cannot outlast the limit.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const pending = readLoginShellDshHome({ shell, env: shellEnv(), timeoutMs: 1500 })
+      while (!existsSync(pidFile)) await sleep(10)
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      vi.advanceTimersByTime(1500)
+      const read = await pending
+      expect(read.kind).toBe('unknown')
+      expect(read.kind === 'unknown' && read.detail).toContain('did not answer within 1500ms')
+      // A killed child stays a zombie until Node reaps it; wait for that state.
+      while (isAlive(pid)) await sleep(10)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   posixOnly('reports unknown for a shell that exits without reporting', async () => {
