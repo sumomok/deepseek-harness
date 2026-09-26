@@ -559,6 +559,7 @@
 - **退役条件**：结构性常驻；把这些包移出仓库（仓外 tarball 引入），或上游门禁改为从包元数据推导这些表。
 - **状态**：在役（`product/server-console`）。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
+- **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：同版本确认记录已补为本线新文件 `docs/persistence-changes/2026-09-26-console-content-events.*`，kind 名保持裸名；提取器只看到 `content-surface` 一种来源，`content-frame`、`content-component` 的 `MessageSourceMap` 声明在 `tsconfig.host.json` 之外的 client 聚合包里，未进记录。`tsconfig.client.json` 增加对 `tsconfig.vue2-tests.json` 的引用并排除其中的 spec（见上条退役记录）；`tsconfig.base.json` 删掉 `server-sidebar` 已移除的 `invariant` 别名。`packages.md` 核查：console 叠加层之下的 web 配置装配了 web-app 包的 `cordis` 预设（`tool-cordis` + 挂 `agent-preset/skills` 的 `skill-filesystem`），叠加层没有移除它；默认预设是 `standard`，`ui-agent-preset` 下拉与其设置行被叠加层禁用，控制台界面上选不到它。本轮不改。
 - **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
 ## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
@@ -577,8 +578,7 @@
 - **为什么**：本线 `vue2-echarts-poc` 钉 Vue 2.7，其类型入口无条件加载 `vue/types/jsx.d.ts`，`declare global` 给 `JSX.IntrinsicAttributes` 加 `slot?: string` 与 `ref`；它进入同时编译 `packages/client` 的 Client 聚合，在 `exactOptionalPropertyTypes` 下拒绝这处展开。
 - **要达到的效果**：`createElement` 按 `React.Attributes` 校验，程序里有没有 Vue 包都类型正确。
 - **退役条件**：Vue 2.7 的全局 JSX 声明不再进入 Client 聚合（Vue 探针包另有编译面，需要先做架构决定：`docs/development.md#typescript-project-layout` 只设 Host／Client 两个聚合）。机械判定：还原成 JSX 展开后 `tsc -b tsconfig.client.json` 不再报该行。
-- **状态**：在役（`product/server-console`）。同一冲突在本轮扩大且未处理：`dsh-v0.1.7-rc.2` 的 `ui-chat/tests/turn-navigator.client.spec.tsx`（两处）、`ui-primitives/tests/atoms.client.spec.tsx`、`ui-primitives/tests/menu-surface.client.spec.tsx` 在 JSX 上传 `ref`，被 Vue 2.7 的全局 `ref?: VNodeRef` 拒绝（`TS2322`）。进入路径：`vue2-echarts-poc` 与 `component-kit` 的 client spec 及其 `lib/types/client/*.d.ts` 导入 `vue`。候选做法是仿上游 `tsconfig.desktop-keyboard-tests.json` 给 Vue 2 探针单开一个测试程序，待决定。
-- **路径**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx`
+- **状态**：退役（`product/server-console`，随并入 `dsh-v0.1.7-rc.2` 的第二轮）。Vue 2 探针的 spec（`component-kit`、`vue2-echarts-poc` 全部，`component-surface` 两个）改在按编译面划分的叶子配置 `tsconfig.vue2-tests.json` 里做类型检查，`tsconfig.client.json` 排除它们并引用该程序；Vue 2.7 的全局 JSX 声明不再进入 Client 聚合。机械判定已满足：该文件取回 `dsh-v0.1.7-rc.2` 版本后 `tsc -b tsconfig.client.json` 退出 0，上游四处 JSX `ref` 的 `TS2322` 同时消失。
 
 ## vendored-component-kit-gates — vendored 组件 tarball 与 Vue 2／element-ui 在上游门禁里的处理
 
@@ -587,18 +587,19 @@
 - **要达到的效果**：vendored 第三方代码照样被披露（缺声明就报错），豁免只覆盖不发布的 `packages/experimental/`，文档站构建与 install 不受本线依赖影响，样式契约只管本产品自己写的样式表。
 - **退役条件**：`@sumomok/toy-*-kit` 改为 registry 包或移出本仓，且 Vue 2／element-ui 不再进入工作区；或上游门禁自己处理这些情况。
 - **状态**：在役（`product/server-console`）。
-- **本轮适配（`dsh-v0.1.7-rc.2`）**：`gen-third-party-notices.ts` 的 `FIRST_PARTY` 改用上游的 `node-addon-system` 包名，`collectNpmDeps` 接上游的浏览器分层参数，`renderBundled` 放在 `renderClaudeDistribution` 之前；`stylesheet-scan.ts` 以上游 `packageFiles(accepts)` 为底接回排除；`publint-all.spec.ts` 的 vendored tarball 用例改为 await 上游的异步 `run`；桌面删除后 `OVERRIDES` 里 desktop-server tarball 的条目与 `node-pty` 覆盖一起删掉。
+- **本轮适配（`dsh-v0.1.7-rc.2`）**：`gen-third-party-notices.ts` 的 `FIRST_PARTY` 改用上游的 `node-addon-system` 包名，`collectNpmDeps` 接上游的浏览器分层参数，`renderBundled` 放在 `renderClaudeDistribution` 之前；`stylesheet-scan.ts` 以上游 `packageFiles(accepts)` 为底接回排除；`publint-all.spec.ts` 的 vendored tarball 用例改为 await 上游的异步 `run`；桌面删除后 `OVERRIDES` 里 desktop-server tarball 的条目与 `node-pty` 覆盖一起删掉。第二轮删掉 `pnpm-workspace.yaml` `allowBuilds` 里的 `electron: set this to true or false`：它是删桌面外壳那次安装时 pnpm 写进去的占位行，随那次删除一起提交；删掉后清掉工作区安装状态重跑 `pnpm install --frozen-lockfile` 退出 0，不再需要 `--config.strict-dep-builds=false`。
 - **路径**：`packages/client/ui-theme/tests/stylesheet-scan.ts` `pnpm-workspace.yaml` `scripts/gen-third-party-notices.spec.ts` `scripts/gen-third-party-notices.ts` `scripts/publint-all.spec.ts` `scripts/publint-all.ts`
 
 ## console-snapshot-lane — console 录制会话通道 snapshots/console
 
-- **改了什么**：`packages/test-support/session-snapshot/src/{harness.ts,suite.ts}` 与 `tests/{harness,suite}.spec.ts`：`RunOptions`／`Scenario` 新增可选 `afterSpawn`，在 agent 进程起来之后、第一步输入之前执行；`scripts/session-snapshot-corpus.corpus.ts` 的 `profiles` 改为 `profileByLane` 映射并加入跑 `acp` profile 的 `console` 通道；`docs/testing.{md,zh.md}` 一句话写明组合补丁挂在已发布 profile 上的通道单独占一个语料目录。
+- **改了什么**：`packages/test-support/session-snapshot/src/{harness.ts,suite.ts}` 与 `tests/{harness,suite}.spec.ts`：`RunOptions`／`Scenario` 新增可选 `afterSpawn`，在 agent 进程起来之后、第一步输入之前执行；`scripts/session-snapshot-corpus.corpus.ts` 的 `profiles` 改为 `profileByLane` 映射并加入跑 `acp` profile 的 `console` 通道。
 - **为什么**：console 场景要在进程起来后先向路由提交凭据，上游 harness 只有进程起来之前的 `prepareWorkspace`；语料门禁把目录名与 profile 写死成一一对应。
 - **要达到的效果**：console 通道与上游通道受同一语料门禁约束，`afterSpawn` 抛错时照常拆掉子进程。
 - **退役条件**：上游 harness 提供进程起来后的准备钩子且语料门禁支持通道目录与 profile 解耦，或 console 通道移出本仓。
 - **状态**：在役（`product/server-console`）。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`snapshots/console/cordis.yml` 的 `system-prompt` 配置 `persona` 改为上游改名后的 `personaPrefix`。已录的 12 个场景夹具是 V4 之前录的：keyless 回放 12 个场景全部与期望输出不符，夹具头检查报「pinning fixture 必须恰好带一条 system 消息」；按本通道规则需要带 key 重录（`pnpm run test:snapshot:record`），本轮没有重录。
-- **路径**：`docs/testing.*` `packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/suite.ts` `packages/test-support/session-snapshot/tests/harness.spec.ts` `packages/test-support/session-snapshot/tests/suite.spec.ts` `scripts/session-snapshot-corpus.corpus.ts`
+- **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：`docs/testing.{md,zh.md}` 里本线加的那一句撤回，两文件回到 `dsh-v0.1.7-rc.2` 版本：上游对该文件设了字数预算，加句后超限。通道目录与 profile 解耦的事实由 `scripts/session-snapshot-corpus.corpus.ts` 的 `profileByLane` 与 `snapshots/console/README.*` 承载。
+- **路径**：`packages/test-support/session-snapshot/src/harness.ts` `packages/test-support/session-snapshot/src/suite.ts` `packages/test-support/session-snapshot/tests/harness.spec.ts` `packages/test-support/session-snapshot/tests/suite.spec.ts` `scripts/session-snapshot-corpus.corpus.ts`
 
 ## web-test-scaffold-console — web 测试脚手架的增补
 
@@ -620,12 +621,30 @@
 
 ## product-sealed-referent-notes — 本线归档清单里的两份 referent Note
 
-- **改了什么**：`.agents/notes/archived/manifest.json` 在 `core-patches` 的条目之外保留 `feature/2026-08-28-chat-prose-referents-seam.*` 与 `feature/2026-08-28-file-attachment-bubble-and-referent-seam.*` 六个条目，对应文件留在 `.agents/notes/archived/feature/`。
+- **改了什么**：`.agents/notes/archived/manifest.json` 在 `core-patches` 的条目之外保留 `feature/2026-08-28-chat-prose-referents-seam.*` 与 `feature/2026-08-28-file-attachment-bubble-and-referent-seam.*` 六个条目，对应文件留在 `.agents/notes/archived/feature/`。并入 `dsh-v0.1.7-rc.2` 的第二轮又封存七份只描述 develop 桌面发行机制的 Note（`bug-fix/2026-09-03-{desktop-download-handling,updater-log-hygiene,updater-multipart-uncaught-exception}`、`feature/2026-08-23-desktop-builtin-{conversation-plugins,default-model}`、`process/2026-09-02-desktop-tests-join-host-aggregate`、`process/2026-09-03-vendored-plugin-reference-gate`）共二十一个条目：它们引用的 `apps/desktop-server`、`verify-vendored-plugin-versions` 在本线已删。
 - **为什么**：本线基线已把这两份 Note 封存进归档清单；`verify-archived-agent-notes` 以 HEAD 清单为基线，已封存的条目不能删除。
 - **要达到的效果**：归档门禁在本线通过，归档 Note 冻结不改。
-- **退役条件**：`core-patches` 的归档清单自己收录这两份 Note，或本线决定按归档政策删除它们。
+- **退役条件**：`core-patches` 的归档清单自己收录这些 Note，或本线决定按归档政策删除它们。
 - **状态**：在役（`product/server-console`）。
 - **路径**：`.agents/notes/archived/manifest.json`
+
+## experimental-private-publication — 本线实验包按上游显式例外表不发布
+
+- **改了什么**：`scripts/experimental-package-policy.ts` 的 `PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES` 由空表改为列出本线十四个包目录（`auth-gate`、`biz-backend`、`component-kit`、`component-surface`、`content-column`、`content-frame`、`content-surface`、`library-skills`、`server-base`、`server-layout`、`server-sidebar`、`vue-ui-poc`、`vue2-echarts-poc`、`vue2-echarts-tool-poc`）；`scripts/check-workspace-constraints.spec.ts` 里上游断言该表为空的用例改为断言表中每项都是存在的 `packages/experimental/<dir>`。
+- **为什么**：`dsh-v0.1.7-rc.2` 把实验包默认改为公开发布，只有这张显式例外表能把包排除在公开发布与 npm 基线之外；本线这些包只随本线部署交付，不应进入公开发布。
+- **要达到的效果**：上游发布与 npm 基线门禁照常覆盖全工作区，本线包按上游自己的例外机制排除，不改门禁逻辑。
+- **退役条件**：本线包移出本仓（仓外 tarball 引入），或上游让包以自身元数据声明不发布。
+- **状态**：在役（`product/server-console`）。
+- **路径**：`scripts/check-workspace-constraints.spec.ts` `scripts/experimental-package-policy.ts`
+
+## unknown-casts-product-baseline — 本线既有 `as unknown` 断言进上游基线
+
+- **改了什么**：`scripts/no-unknown-casts.baseline.json` 增加本线 85 个文件里的 201 处断言（按文件与语法指纹计数），全部位于 `packages/experimental/` 的本线包与 `apps/web/tests/` 下本线自有的场景文件；这些文件都不在 `dsh-v0.1.7-rc.2` 里。上游已有条目未变，也没有过期条目。
+- **为什么**：`dsh-v0.1.7-rc.2` 的 `verify-no-unknown-casts` 拒绝基线外的每一处断言，脚本只提供 `--prune`，没有登记新增的模式；逐处改写两百处断言不在合并轮的范围内。
+- **要达到的效果**：新写的 `as unknown` 在本线同样被拒，既有的这批按上游机制计数冻结，改掉一处就能用 `--prune` 收紧。
+- **退役条件**：本线把这些断言改成类型化取值或收窄后 `pnpm run verify-no-unknown-casts --prune` 删净本线条目，或这些文件移出本仓。
+- **状态**：在役（`product/server-console`）。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
+- **路径**：`scripts/no-unknown-casts.baseline.json`
 
 ## 历史轮次
 
