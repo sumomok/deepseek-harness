@@ -13,7 +13,7 @@ pnpm exec tsx apps/desktop-shell/scripts/package.ts --mac        # zip + dmg (ar
 pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installer (x64), cross-packaged from macOS
 ```
 
-产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
+产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 Windows x64 成员(名字里写 `win32-x64`,或像 sherpa-onnx 那样写 `win-x64`;以版本范围声明的成员,取本机已装成员的版本),再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
 
 **一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里、非空、而且**是本次运行开始之后写下的**,打印通过校验的清单,并点名其中缺失、为空或属于遗留的文件。`dist-app` 从不清空,过去每个版本的产物都还在;而修完一个问题重打同一个版本时,该版本自己的文件早已顶着完全相同的名字躺在那里:光看「在不在」分不出「某个平台压根没构建」和「某个平台的产物是上一次运行留下的」。期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
 
@@ -311,6 +311,16 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **每次 `plugin_manager` 调用都交给人。**一次调用就能装上在工作区沙箱之外运行的代码,或者停用某一行——包括权限网关自己那一行。所以桌面层的 `llm-permission-gateway` 行把 `plugin_manager` 加进网关的 `alwaysAsk`,与它重述的网关自带的 `browser_auth` 并列。在「自动审查」与两个有围墙的档位下,网关在任何审查模型看到这次调用之前先问你,附一句说明它能改动什么的话。在「完全权限」下,什么都不问。
 
+## 语音输入
+
+**语音输入出厂关闭,与上游的出厂状态一致。**`@deepseek-ai/dsh-experimental-voice-input-bundle` 是上游 `OPTIONAL_BUNDLES` 之一:载荷带着它,没有任何 bundle 选中它,上游的**插件**页把它列出来,由人打开。它的层加上语音转文字服务、本地 SenseVoice 识别器、HTTP API,以及输入框里的麦克风按钮。打开它不会下载任何东西。
+
+**识别模型在人要求时才下载,不随包。**模型还没准备好时点麦克风,会弹出提示把人带到语音输入的插件详情,那里的**下载并准备**按钮下载 INT8 SenseVoice 模型(约 239 MB)、它的 `tokens.txt`(约 0.3 MB)和 Silero VAD 模型(约 1.8 MB),每个都钉在一个固定版本上,并核对 sha256。来源是 `huggingface.co` 与 `hf-mirror.com`:默认情况下识别器向两者各发一个 `HEAD` 请求,先试先应答的那个,失败再换另一个;在卡片上选定的来源则只用它一个。文件落在 `$DSH_HOME/speech-to-text/sensevoice/models/` 下。两个来源都连不上的机器用不了语音输入。
+
+**每份载荷带着自己平台的识别运行时。**识别在服务端用随包 Node 运行时启动的 worker 里进行,它加载 `sherpa-onnx-node` 和旁边的平台成员:macOS 载荷里是 `sherpa-onnx-darwin-arm64`(约 34 MB,含 `libonnxruntime.dylib`),Windows 载荷里是 `sherpa-onnx-win-x64`(约 23 MB)。成员是按相对路径加载的,可达性遍历看不见,所以 `scripts/bundle-closure.ts` 的 `NATIVE` 点了两个平台的名字,`scripts/platform-dir-rules.ts` 的顶层规则只留目标平台自己的那个。macOS 上这些库凭 `disable-library-validation` entitlement 加载,与 sharp、koffi 一样。
+
+**麦克风由应用窗口录音,而且只有窗口里嵌入服务端提供的页面能打开它。**页面通过 `getUserMedia` 录音。`src/microphone-permissions.ts` 在应用窗口的 session 上回答 `media` 请求:只允许应用窗口里嵌入服务端页面的主 frame、只限音频,其他 frame 与来源一律拒绝;其余权限保持 Electron 的默认。macOS 上一个被允许的请求会先问系统,系统弹窗显示 `electron-builder.yml` 里的 `NSMicrophoneUsageDescription` 那句话;签名后的应用带着 `com.apple.security.device.audio-input` entitlement,没有它,hardened runtime 会不问就拒绝麦克风。Windows 不需要声明;系统隐私设置里允许桌面应用使用麦克风的开关要开着。
+
 ## 更新服务
 
 **更新通道归壳所有,而设置窗口是嵌入服务端画的**,所以用户能看见更新、并对它动手的那一处,落在一条本机监听的另一侧。这是渲染服务之外的第二个,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_UPDATE_ENDPOINT` 与 `DSH_DESKTOP_UPDATE_TOKEN`,绝不放进壳自己的 `process.env`。两个都读不到的 harness 会报告该能力不可用,并且根本不放出更新入口,这正是服务器上所有 `dsh web` 的做法。两个服务分开,是因为它们借出的权力不同,而这一个借出的更重:`/install` 会替换掉整个应用。
@@ -371,4 +381,5 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 壳停用或打了墓碑的迁移插件,只在 `dsh-server.log` 里被点名一次,界面上哪里都没有。
 - 只有网关组合出来的 `config` 里带着桌面层的 `alwaysAsk` 时,`plugin_manager` 才会交给人。profile 自己的补丁层里 `config` 自带 `alwaysAsk` 的网关行会替换这张表,`src/settings-migration.ts` 对这样的行原样不动。
 - 在插件页停用内置插件,只到下一次启动为止:下一次启动会把它的名字播种回来;按「内置插件」一节关掉它那一行,才会一直生效。
+- Windows 的语音输入运行时只打了包、核对了在不在。`sherpa-onnx.node` 能不能在 `sherpa-onnx-win-x64` 里找到它的 DLL,要在真实 Windows 机器上录一次音才知道。
 - 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。

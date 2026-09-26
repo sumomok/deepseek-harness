@@ -6,8 +6,8 @@
   en: 42aa4c3ae6be24e6
   zh: 91cc497eebac63e7
 /deepseek-ai-dsh-desktop-shell/building-installable-packages:
-  en: e426493eb53f4fd2
-  zh: cc1741bb846a6d6b
+  en: 224bf4cc329233e6
+  zh: 60b53cab95ca212d
 /deepseek-ai-dsh-desktop-shell/closing-the-window-and-being-called-back:
   en: 3357218ba9365336
   zh: bfb691b819523cff
@@ -32,6 +32,9 @@
 /deepseek-ai-dsh-desktop-shell/plugin-management:
   en: acbd9eb209a75b5a
   zh: e554e0c82d474640
+/deepseek-ai-dsh-desktop-shell/voice-input:
+  en: b1d64b42c625dd68
+  zh: 75d3db6bb3360c1a
 /deepseek-ai-dsh-desktop-shell/update-service:
   en: 61ef6fb24a6f32a8
   zh: e54855ad3ca88371
@@ -39,5 +42,5 @@
   en: 3cdbbffedb564ee3
   zh: 6cd3648026479dbb
 /deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
-  en: b2b1ed9bf121d3c1
-  zh: 438e85bd224c2386
+  en: a91d96245aac8b85
+  zh: cb30763308fd2bdb
