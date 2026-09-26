@@ -72,7 +72,11 @@ import {
 } from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 import { UpdateState, type UpdateSnapshot } from './update-state.ts'
-import { appCacheDir, discardStaleParts, partFileFor, placeInPendingCache } from './pending-cache.ts'
+import { readState, setInstalledUpdate } from './desktop-state.ts'
+import {
+  appCacheDir, discardStaleParts, type InstalledPendingSweep, partFileFor, placeInPendingCache, readStagedArtifact,
+  sweepInstalledPending,
+} from './pending-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
 
@@ -454,6 +458,8 @@ export function setupUpdates(host: UpdateHost): () => void {
   // development launch, where startup problems are just as likely.
   buildMenu(manual, host.openLog)
   if (!app.isPackaged) return manual
+  // Before the first check, so no download of this run can be staged yet.
+  sweepAfterInstall(host)
   const first = setTimeout(() => { check('startup') }, FIRST_CHECK_DELAY_MS)
   const recurring = setInterval(() => { check('scheduled') }, CHECK_INTERVAL_MS)
   app.once('before-quit', () => {
@@ -1076,6 +1082,61 @@ async function offerInstall(host: UpdateHost, version: string): Promise<void> {
 }
 
 /**
+ * Record which staged artifact the install about to start takes, so the
+ * launch after it can recognize that artifact in `pending` and remove it
+ * ([[sweepAfterInstall]]).
+ * @param host - logging from the main process.
+ */
+function rememberInstall(host: UpdateHost): void {
+  const staged = readStagedArtifact(updaterCacheDir())
+  if (staged === undefined) {
+    host.log('[updater] pending holds no record to remember for this install\n')
+    return
+  }
+  setInstalledUpdate({ fromVersion: app.getVersion(), ...staged })
+}
+
+/**
+ * Remove the artifact an earlier launch installed from electron-updater's
+ * `pending` directory, which the library itself leaves there until the next
+ * update's download starts ([[sweepInstalledPending]] decides what may go).
+ * The remembered install is forgotten once `pending` no longer holds it, and
+ * kept while it still might: an install that did not land, or an entry that
+ * could not be removed, which the next launch tries again.
+ * @param host - logging from the main process.
+ */
+function sweepAfterInstall(host: UpdateHost): void {
+  const installed = readState().installedUpdate
+  if (installed === undefined) return
+  let sweep: InstalledPendingSweep
+  try {
+    sweep = sweepInstalledPending(updaterCacheDir(), installed, app.getVersion())
+  } catch (error) {
+    host.log(`[updater] could not sweep ${installed.fileName} from pending: ${describeDownloadError(error)}\n`)
+    return
+  }
+  switch (sweep.kind) {
+    case 'not-landed':
+      return
+    case 'incomplete':
+      host.log(`[updater] removed ${sweep.removed.join(', ') || 'nothing'} from pending; ${sweep.failed.join(', ')} remain until the next launch\n`)
+      return
+    case 'emptied':
+      host.log(`[updater] removed the installed ${installed.fileName} from pending (${sweep.removed.join(', ')})\n`)
+      setInstalledUpdate(undefined)
+      return
+    case 'absent':
+    case 'replaced':
+      setInstalledUpdate(undefined)
+      return
+    default: {
+      const unreachable: never = sweep
+      throw new Error(`unhandled pending sweep: ${JSON.stringify(unreachable)}`)
+    }
+  }
+}
+
+/**
  * Replace the application with the update already on disk.
  *
  * **No dialog stands between this and the click that reached it.** The button in
@@ -1096,6 +1157,7 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     mainWindow()?.hide()
     showInstalling(version)
   }
+  rememberInstall(host)
   host.log(`[updater] stopping the server before installing ${version}\n`)
   await host.prepareQuit()
   if (process.platform === 'darwin') {

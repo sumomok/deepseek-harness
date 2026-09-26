@@ -68,6 +68,8 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 **安装失败时**,下载好的安装程序仍在 `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater\pending\` 里。手动运行它——右键**以管理员身份运行**——装的就是这次更新要装的那一版,会话记录两种路径下都在。之所以要提权运行,是因为手动启动的安装程序没有 `elevate.exe` 替它索取 per-machine 卸旧所需的权限。
 
+**安装落地后,下一次启动会把它从 `pending` 里删掉。**electron-updater 只在下载失败或缓存记录与更新源对不上时清空这个目录,所以装好的 zip 或安装程序——整个安装包——本来会一直留到下一次更新开始下载。点击安装时,壳把暂存安装包的文件名、sha512 和当时运行的版本记进 `desktop-state.json`;更新后版本的第一次启动,在 `update-info.json` 仍指向那个安装包时清空 `pending`,再删掉这条记录。同一版本再次启动说明安装没有落地,文件留给上面说的手动安装;记录指向别的安装包说明那是之后的新下载,保留。重新拉起应用的 Windows 安装程序仍占着的条目会写进日志,记录保留,下次启动再试。缓存目录根下的差分基线(`update.zip`、`installer.exe`、`package.7z`、`current.blockmap`)从不动。由早于这项改动的版本发起的安装没有留下记录,它的安装包仍要等下一次更新下载时才清掉。
+
 **如果连这条路也停在「无法关闭」**,说明本产品记录的安装目录丢了,把它写回去就足以放行一个旧版安装器:
 
 ```

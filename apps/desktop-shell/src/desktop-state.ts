@@ -1,8 +1,8 @@
 /**
  * The desktop shell's own state file, `desktop-state.json` under the user data
  * directory. It holds what the shell must remember across launches but the
- * server knows nothing about: which build ran last, and what closing the
- * window does.
+ * server knows nothing about: which build ran last, what closing the window
+ * does, and which update it last handed to the installer.
  *
  * The user data directory is the only place a build can leave a note for its
  * successor — an update replaces the whole install directory, and the
@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import type { StartedInstall } from './pending-cache.ts'
 import { compareVersions } from './version-order.ts'
 
 /** What closing the main window does when the user asked not to be asked again. */
@@ -31,7 +32,14 @@ export interface DesktopState {
    * every close, which is the state a fresh install starts in.
    */
   closeAction?: CloseAction
+  /**
+   * The update this build handed to the installer, written at the install
+   * click and read by the first launch after it to empty the updater's
+   * `pending` directory. Absent when no install is outstanding.
+   */
+  installedUpdate?: StartedInstall
 }
+
 
 /** Absolute path of the state file. */
 function stateFile(): string {
@@ -48,6 +56,10 @@ export function readState(): DesktopState {
     const state: DesktopState = {}
     if (typeof parsed.lastRunVersion === 'string') state.lastRunVersion = parsed.lastRunVersion
     if (parsed.closeAction === 'tray' || parsed.closeAction === 'quit') state.closeAction = parsed.closeAction
+    const installed = parsed.installedUpdate as Partial<Record<keyof StartedInstall, unknown>> | undefined
+    if (typeof installed?.fromVersion === 'string' && typeof installed.fileName === 'string' && typeof installed.sha512 === 'string') {
+      state.installedUpdate = { fromVersion: installed.fromVersion, fileName: installed.fileName, sha512: installed.sha512 }
+    }
     return state
   } catch {
     // No state yet, or it did not survive. Both mean the same thing to every
@@ -92,5 +104,17 @@ export function setCloseAction(action: CloseAction | undefined): void {
   const state = readState()
   if (action === undefined) delete state.closeAction
   else state.closeAction = action
+  writeState(state)
+}
+
+/**
+ * Remember — or forget — the install this build started.
+ * @param installed - what was handed to the installer, or undefined once the
+ * launch after it has dealt with the staged artifact.
+ */
+export function setInstalledUpdate(installed: StartedInstall | undefined): void {
+  const state = readState()
+  if (installed === undefined) delete state.installedUpdate
+  else state.installedUpdate = installed
   writeState(state)
 }
