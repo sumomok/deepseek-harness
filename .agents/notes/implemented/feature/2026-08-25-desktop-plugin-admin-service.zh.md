@@ -34,7 +34,7 @@ Status: implemented
 
 **说明一次安装成没成的是硬盘上的版本,而不是退出码。**这一条是把做完的功能真跑起来才发现的,而不是读出来的;它在每一次全新安装上都是一个真实缺陷:`pnpm add` 会在装得完全正确的同时以 `ERR_PNPM_IGNORED_BUILDS` 退出码 **1** 结束——在任何还没回答过 pnpm 那个构建审批问题的 profile 上都会。这个壳植入的每一个 profile 都是这样的 profile——模板写了 `nodeLinker` 与 `autoInstallPeers`,没写 `allowBuilds`——而任何依赖树里带有安装脚本的插件都会踩到它,`dsh-better-sidebar` 就经由 `node-pty` 踩到了。把退出码当结果来读,会在新版本已经躺在硬盘上时告诉那个人更新失败了,并且连撤销记录与重启提示一起带走,之后那一行还会不声不响地回到「已是最新」那一组里。所以 `/update` 在运行之后重新读一遍那个包自己的清单,回答 `installedVersion`,由调用方拿它和自己要的版本比对。退出码仍然一并报告,因为它点名的是那句抱怨。这与 `outdated` 那条路由本来就遵循的规则是同一条——pnpm 在那里恰恰是「有东西过时」时才退出 1——只是把它用到了会改东西的那条路由上。
 
-**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单。一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了 `resolveBundleDir` 这一关,却在之后拒绝这个层,而那会终结整次启动——迁移自己那趟修复存在的理由,正是同一个失败。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除,并在回答里说出来。依赖项保持不动:包还装着,而这件事说的是 Loader 挂载什么。
+**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单。一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了 `resolveBundleDir` 这一关,却在之后拒绝这个层:服务端不带这一层照常启动,并在每次启动时往自己的 stderr 写一行 `skipping profile bundle`——迁移自己那趟修复要消除的,正是同一条报告。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除,并在回答里说出来。依赖项保持不动:包还装着,而这件事说的是 Loader 挂载什么。
 
 ## The reachable surface
 

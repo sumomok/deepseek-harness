@@ -319,7 +319,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **说明一次安装成没成的是硬盘上的版本,而不是退出码。**`pnpm add` 会在正确装完的同时以 `ERR_PNPM_IGNORED_BUILDS` 退出码 1 结束——在任何还没回答过它那个构建审批问题的 profile 上都会,而这个壳植入的每一个 profile 都是如此:它们的 `pnpm-workspace.yaml` 里没有 `allowBuilds`,而任何依赖树里带有安装脚本的插件都会触发。所以 `/update` 事后重新读一遍那个包自己的清单,回答 `installedVersion`,由调用方拿它和自己要的版本比对。退出码仍然一并报告,因为它说的是 pnpm 抱怨了什么;它说的不是这次安装到底发生了没有。
 
-**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层,而那会终结整次启动。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
+**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层:服务端不带这一层照常启动,并在每次启动时往自己的 stderr 写一行 `skipping profile bundle`。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
 
 **四条修复路由每次调用都从硬盘重新读写 `web-migration.json`,绝不采信任何缓存副本**,因为这是一个人能在两次请求之间、通过这四条路由中的任意一条改动的状态——先 recheck,再 repair,再从另一扇窗口 recheck 一次。`/recheck` 与 `/repair` 无论怎么收场,都会把一份更新过的 `detail` 写回 `defective` 条目,于是设置页面显示的「仍然坏着」永远是最新的理由,包括修复梯子自己给出的那句——`<path> declares no build script` 或 `build failed (exit 1): <stderr>`——而不是这个名字第一次被判定 defective 时的理由。这四条路由没有一条会拿调用方传来的参数去跑 pnpm:`/repair` 的重装请求永远问的是 web profile 自己清单声明的那个 specifier,在处理函数里从硬盘读出来,与 `/update` 的包围栏做法一样,绝不取自请求本身。
 

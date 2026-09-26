@@ -741,7 +741,7 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
 
   it('keeps the profile bootable when the web profile is deleted wholesale', () => {
     // The link points into a directory this shell does not own, and
-    // `loadProfile` ends the boot on one entry it cannot resolve.
+    // `loadProfile` skips an entry it cannot resolve and reports it on every boot.
     migrated()
     rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
     const report = seedBuiltinBundles({ home, serverModules })
@@ -860,7 +860,7 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
   it('disables a migrated name whose installed version stopped being a bundle, keeping it visible and repairable', () => {
     // Updating the package in the web profile can replace it with one that
     // declares no `dsh.bundle`. It still resolves, so resolution alone says
-    // nothing is wrong, and `loadProfile` still ends the boot over it — and a
+    // nothing is wrong, and `loadProfile` still skips its layer on every boot — and a
     // `dsh plugin --profile web` reconcile repairs the web manifest, never this
     // one. The fix is no longer to drop the name outright: it stays linked and
     // visible as defective, so a person can see it and repair it.

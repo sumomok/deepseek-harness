@@ -649,7 +649,8 @@ export async function startPluginAdminService(spec: PluginAdminSpec): Promise<Pl
     const found = installedPackage(dir, name)
     const installed = found !== undefined && found.version === version
     // A package that stopped declaring `dsh.bundle` still resolves, so
-    // `loadProfile` gets past resolution and then refuses the layer, ending the
+    // `loadProfile` gets past resolution and then refuses the layer: the server
+    // boots without it and writes a `skipping profile bundle` line on every
     // boot. The same removal the seed performs for a migrated name that lost
     // its bundle applies here, and for the same reason: this shell put the name
     // in that list, so this shell takes it back out.
