@@ -14,11 +14,11 @@ Status: implemented
 
 插件随 deploy 闭包一起分发,桌面壳在启动服务端之前把它们的名字放进 profile。
 
-**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以 `file:` tarball 声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。`dsh-better-sidebar` 此后已在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 撤下;这套机制本身没变,仍承载 `dsh-at-file` 与此后新增的内置插件。
+**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以 `file:` tarball 声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。`dsh-better-sidebar` 此后已在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 撤下;`dsh-at-file` 随后在 [0.1.0-rc.34](../process/2026-09-26-desktop-builtins-on-the-rc2-base.zh.md) 撤下;这套机制本身没变,承载着此后新增的内置插件。
 
 **版本。**`dsh-better-sidebar` 的下限是 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以在这个插件仍随包分发的期间,下面那条 override 照原样生效;[0.1.0-rc.33 把这个插件撤下](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md),那条 override 随之退役。
 
-`dsh-at-file` 走在作者最新 npm 发布版之前,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了更新版本的 profile 分发注册表上那一版——第一台跑起这个插件的机器正是这个状态——会让一个版本的一行配上另一个版本的代码。
+`dsh-at-file` 在撤下之前一直走在作者最新 npm 发布版之前,`@sumomok/dsh-balance` 与 `@sumomok/dsh-quote-message` 至今如此,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了更新版本的 profile 分发注册表上那一版——第一台跑起这个插件的机器正是这个状态——会让一个版本的一行配上另一个版本的代码。
 
 这条依赖指向的是提交进 `apps/desktop-server/vendor/` 的一个 tarball,而不是归档 URL。pnpm 不为 GitHub 归档 tarball 记录 `integrity`,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——`ERR_PNPM_MISSING_TARBALL_INTEGRITY`,它当场让打包运行失败。提交进来的归档会像注册表版本一样拿到 `integrity` 哈希。安装期什么都不构建:归档里带的是构建好的 `lib/`,也没有声明任何生命周期脚本。作者在注册表发布到所分发版本或更高,就是换回普通版本号的理由。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。"已经指向正确目录"由 `sameLinkTarget` 判定:比较前先剥掉 `\\?\` 扩展长度前缀、归一化尾部分隔符,并把相对读取的结果按链接自身所在目录解析——Windows 读回 junction 的形式与创建它的字符串本就不同,裸比较对一条正确的链接也为假,于是每次启动都会删掉重建。上游 `packages/boot/app-boot/src/profile.ts` 里的 `ensureSymlink` 用的是裸比较,存在同一处缺陷。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
 
-**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop-shell remove <name>` 是用户该做的动作,不是壳该做的。
+**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy @sumomok/dsh-quote-message@0.3.1 shadows the shipped 0.4.0 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop-shell remove <name>` 是用户该做的动作,不是壳该做的。
 
 **过了第一次写入,这里没有任何一处是致命的。**壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断;没有声明 bundle 列表的清单按手写编排对待(往一个不存在的列表里追加两个名字,会得到一个只挂载内置插件、别无其他的 profile);该放链接的位置上是真实目录则如实报告而不是删掉;载荷里没有的插件绝不写进清单——列出却解析不了的 bundle 会让启动硬失败,所以播种只写它看得见的东西。一个因为看不懂 profile 就拒绝启动的壳,比一个少了侧栏的壳更糟。
 
