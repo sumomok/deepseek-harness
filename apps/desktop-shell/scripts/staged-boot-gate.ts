@@ -31,7 +31,9 @@ export const LOAD_FAILURE_MARKERS = ['skipping profile bundle', 'disabling profi
  * them in. `@deepseek-ai/dsh-experimental-auto-review` is a runtime dependency
  * of `@deepseek-ai/dsh` so that upstream's plugin page can offer it; its review
  * runs beside this deployment's own permission gateway rather than in place of
- * it, and nothing in the desktop profile names it.
+ * it. The desktop profile names it in one row only, the one the shell seeds to
+ * keep it off should the plugin page install it (`seedAutoReviewGuard` in
+ * `src/profile-seed.ts`).
  */
 export const WITHHELD_PACKAGES = ['@deepseek-ai/dsh-experimental-auto-review'] as const
 

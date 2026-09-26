@@ -14,10 +14,12 @@ import {
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
+import {
+  initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir,
+} from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, ensureLink,
+  AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, ensureLink,
   MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
   readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
@@ -26,14 +28,31 @@ import {
 /** A report of a run that changed nothing, for the cases that name one field at a time. */
 function nothingHappened(): SeedReport {
   return {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], disabled: [],
-    removed: [], dropped: [], skipped: [], shadowed: [], created: false,
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
+    disabled: [], removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
 }
 
 let root: string
 let home: string
 let serverModules: string
+
+/**
+ * A patch layer with the auto-review guard every launch writes taken back out,
+ * the way it was written: from after the last entry, or from where the `[]` of
+ * an empty layer stood. A layer without it is returned as it is.
+ * @param text - the patch layer as a launch left it.
+ * @returns the text the rest of the run produced.
+ */
+function withoutGuard(text: string): string {
+  const appended = `\n\n${AUTO_REVIEW_GUARD_TEXT}`
+  if (text.endsWith(appended)) {
+    const before = `${text.slice(0, -appended.length)}\n`
+    // Appended only after an entry; a layer of comments had its `[]` replaced.
+    if (before.split('\n').some(line => line.trim().length > 0 && !line.trim().startsWith('#'))) return before
+  }
+  return text.replace(AUTO_REVIEW_GUARD_TEXT, '[]\n')
+}
 
 /** Stage a shipped closure holding `names` as bundle packages at `version`, each with a built `index.js`. */
 function shipPlugins(names: readonly string[], version = '1.0.0'): void {
@@ -212,7 +231,7 @@ describe('seedBuiltinBundles on a home with no profile', () => {
   it('writes the user patch layer and the pnpm settings, which nothing else will', () => {
     seedBuiltinBundles({ home, serverModules })
     const dir = join(home, 'profiles', DESKTOP_PROFILE)
-    expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toContain('[]')
+    expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toContain(AUTO_REVIEW_GUARD_TEXT)
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
   })
 
@@ -227,9 +246,12 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     const upstream = join(root, 'upstream', DESKTOP_PROFILE)
     initProfile(upstream, [...(webTemplate?.bundles ?? []), ...BUILTIN_WEB_BUNDLES])
     const seeded = join(home, 'profiles', DESKTOP_PROFILE)
-    for (const name of ['package.json', PROFILE_PATCH_FILENAME, 'pnpm-workspace.yaml']) {
+    for (const name of ['package.json', 'pnpm-workspace.yaml']) {
       expect(readFileSync(join(seeded, name), 'utf8')).toBe(readFileSync(join(upstream, name), 'utf8'))
     }
+    // The patch layer is the template with its `[]` replaced by the guard row.
+    expect(withoutGuard(readFileSync(join(seeded, PROFILE_PATCH_FILENAME), 'utf8')))
+      .toBe(readFileSync(join(upstream, PROFILE_PATCH_FILENAME), 'utf8'))
   })
 })
 
@@ -268,7 +290,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     expect(report.seeded).toEqual(BUILTIN_WEB_BUNDLES.filter(name => !shippedThen.includes(name)))
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen, ...report.seeded])
     // The patch layer is the user's own file; a new built-in never edits it.
-    expect(readFileSync(patch, 'utf8')).toBe(written)
+    expect(withoutGuard(readFileSync(patch, 'utf8'))).toBe(written)
   })
 
   it('carries dependencies and unknown fields through untouched', () => {
@@ -613,7 +635,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
     writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), rows)
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.copied).toEqual([PROFILE_PATCH_FILENAME])
-    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toBe(rows)
+    expect(withoutGuard(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8'))).toBe(rows)
     expect(describeSeed(report)).toContain(`copied ${PROFILE_PATCH_FILENAME} from the web profile`)
   })
 
@@ -624,7 +646,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
     writeWebProfile([userPlugin])
     writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: hello-world\n  disabled: true\n')
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toBe(mine)
+    expect(withoutGuard(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8'))).toBe(mine)
     expect(report.copied).toEqual([])
     expect(describeSeed(report)).toContain(
       `${PROFILE_PATCH_FILENAME}: the desktop copy is already edited; carry the web profile's rows for ${userPlugin} over by hand`,
@@ -647,7 +669,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
     writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: at-file\n  disabled: true\n')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.copied).toEqual([])
-    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toContain('[]')
+    expect(withoutGuard(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8'))).toContain('[]')
   })
 
   it('migrates a scoped name through the link, the manifest, and the dependencies', () => {
@@ -1026,9 +1048,9 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     if (marker !== 'none') writeMigrationMarker(markerPath(), marker)
   }
 
-  /** The desktop profile's patch layer as it stands now. */
+  /** The desktop profile's patch layer as it stands now, without the auto-review guard every launch writes. */
   function patchNow(): string {
-    return readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')
+    return withoutGuard(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8'))
   }
 
   it('removes both rows, keeps everything else, and records the decision', () => {
@@ -1273,6 +1295,94 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     profileWithPatch(`# my own header\n[]\n${seededRows}`)
     seedBuiltinBundles({ home, serverModules })
     expect(patchNow()).toBe('# my own header\n[]\n')
+  })
+})
+
+describe('seedBuiltinBundles keeping upstream\'s auto-review off', () => {
+  /** The desktop profile's own patch layer. */
+  const patchPath = (): string => join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME)
+
+  /** What the loader composes out of the patch layer as it stands. */
+  const loaded = (): unknown => loadOverlayPatches('test', patchPath())
+
+  it('writes the off row in place of the template\'s [] on a fresh home', () => {
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.guarded).toEqual(['auto-review'])
+    expect(readFileSync(patchPath(), 'utf8')).toContain(AUTO_REVIEW_GUARD_TEXT)
+    expect(readFileSync(patchPath(), 'utf8')).not.toContain('[]')
+    expect(loaded()).toEqual([{ id: 'auto-review', disabled: true }])
+    expect(describeSeed(report)).toContain(`wrote the auto-review off row into ${PROFILE_PATCH_FILENAME}`)
+  })
+
+  it('leaves the row it wrote alone on every later launch', () => {
+    seedBuiltinBundles({ home, serverModules })
+    const before = readFileSync(patchPath(), 'utf8')
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+    expect(readFileSync(patchPath(), 'utf8')).toBe(before)
+  })
+
+  it('appends the row after the last entry of a block sequence', () => {
+    desktopProfileFromAnEarlierBuild()
+    writeFileSync(patchPath(), '# mine\n- id: at-file\n  disabled: true\n')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.guarded).toEqual(['auto-review'])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(`# mine\n- id: at-file\n  disabled: true\n\n${AUTO_REVIEW_GUARD_TEXT}`)
+    expect(loaded()).toEqual([{ id: 'at-file', disabled: true }, { id: 'auto-review', disabled: true }])
+  })
+
+  it('writes it again on the launch after the person deleted it', () => {
+    seedBuiltinBundles({ home, serverModules })
+    writeFileSync(patchPath(), '- id: at-file\n  disabled: true\n')
+    expect(seedBuiltinBundles({ home, serverModules }).guarded).toEqual(['auto-review'])
+    expect(loaded()).toEqual([{ id: 'at-file', disabled: true }, { id: 'auto-review', disabled: true }])
+  })
+
+  it('leaves the row alone once the plugin page turns it on', () => {
+    // The page's enable writes `disabled: false` onto the last row with this
+    // id and keeps the comment above it.
+    seedBuiltinBundles({ home, serverModules })
+    const enabled = readFileSync(patchPath(), 'utf8').replace('  disabled: true\n', '  disabled: false\n')
+    writeFileSync(patchPath(), enabled)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.guarded).toEqual([])
+    expect(report.skipped).toEqual([
+      `${PROFILE_PATCH_FILENAME}: an auto-review row this shell did not write is there; left exactly as it is`,
+    ])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(enabled)
+  })
+
+  it('leaves an auto-review row of the owner\'s own alone, in any form', () => {
+    desktopProfileFromAnEarlierBuild()
+    const own = '- id: auto-review\n  config:\n    reviewer: !!js "pick()"\n'
+    writeFileSync(patchPath(), own)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.guarded).toEqual([])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(own)
+  })
+
+  it('writes nothing into a layer written as a flow sequence, and says so', () => {
+    desktopProfileFromAnEarlierBuild()
+    const flow = '[{ id: at-file, disabled: true }]\n'
+    writeFileSync(patchPath(), flow)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.guarded).toEqual([])
+    expect(report.skipped).toContain(
+      `${PROFILE_PATCH_FILENAME}: not a block sequence; the auto-review off row was not written`,
+    )
+    expect(readFileSync(patchPath(), 'utf8')).toBe(flow)
+  })
+
+  it('still takes the web patch layer over on the first sync after a launch that wrote only the row', () => {
+    // The first launch found no web plugin, so it copied nothing and wrote the
+    // row into the template; the copy on the first sync is not refused for it.
+    seedBuiltinBundles({ home, serverModules })
+    writeWebProfile([userPlugin])
+    const rows = '# mine\n- id: hello-world\n  disabled: true\n'
+    writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), rows)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.copied).toEqual([PROFILE_PATCH_FILENAME])
+    expect(report.guarded).toEqual(['auto-review'])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(`${rows}\n${AUTO_REVIEW_GUARD_TEXT}`)
   })
 })
 
@@ -1699,7 +1809,7 @@ describe('seedBuiltinBundles on a home an earlier build seeded under the old pro
     expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell', private: true })
     expect(readProfile()['dependencies']).toMatchObject({ [userPlugin]: '^1.2.3' })
     const dir = join(home, 'profiles', DESKTOP_PROFILE)
-    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toBe('- id: at-file\n  disabled: true\n')
+    expect(withoutGuard(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8'))).toBe('- id: at-file\n  disabled: true\n')
     expect(migratedNow()).toEqual([userPlugin])
     expect(readlinkSync(migratedLink(userPlugin))).toBe(webPackage(userPlugin))
     // The user's own plugin survives beside every built-in this build ships.
