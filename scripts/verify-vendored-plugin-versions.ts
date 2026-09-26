@@ -9,7 +9,7 @@
  * `THIRD_PARTY_NOTICES.md`, and the built-in plugins table in both
  * `apps/desktop-shell/README.md` and `apps/desktop-shell/README.zh.md` — and none is
  * regenerated when a plugin is re-vendored, so they drift into dead links,
- * wrong version rows, and provenance claims the payload contradicts.
+ * wrong version rows, and source claims the payload contradicts.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -31,19 +31,19 @@ export interface BuiltInPluginDocument {
   /** The `##` heading opening the built-in plugins section in this document's language. */
   heading: string
   /** Text that must follow the version code span in every row's version cell, in this document's language. */
-  provenance: string
+  sourceClause: string
   /** Document contents. */
   text: string
 }
 
 /**
- * The documents carrying the table, each with its own heading and provenance phrase.
+ * The documents carrying the table, each with its own heading and source phrase.
  * Both are checked: the pairing gate's structural signature counts a table's rows
  * and columns but not its cell text, so a version edited on one side alone passes it.
  */
 export const BUILT_IN_PLUGIN_DOCUMENTS: readonly Omit<BuiltInPluginDocument, 'text'>[] = [
-  { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', provenance: ', from a tarball committed in this repository' },
-  { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', provenance: ',来自提交进本仓库的 tarball' },
+  { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', sourceClause: ', from a tarball committed in this repository' },
+  { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', sourceClause: ',来自提交进本仓库的 tarball' },
 ]
 
 /** One built-in plugin, as declared by a `file:` specifier in the desktop-server manifest. */
@@ -113,7 +113,7 @@ export function parseVendoredPlugins(manifest: string): VendoredPluginScan {
 
 /**
  * Read the built-in plugins table out of one document.
- * @param document - the document, its section heading, and its provenance phrase.
+ * @param document - the document, its section heading, and its source phrase.
  * @returns the rows keyed by package name, and a violation per repeated package.
  */
 export function parseBuiltInPluginTable(document: BuiltInPluginDocument): BuiltInPluginTable {
@@ -208,7 +208,7 @@ export function findVendoredPluginViolations(sources: VendoredPluginSources): st
         violations.push(`${document.path} lists ${plugin.name} as ${row.version}; ${plugin.tarball} carries ${plugin.version}.`)
         continue
       }
-      const expected = `\`${plugin.version}\`${document.provenance}`
+      const expected = `\`${plugin.version}\`${document.sourceClause}`
       if (row.cell !== expected) {
         violations.push(`${document.path} row for ${plugin.name} reads ${JSON.stringify(row.cell)}; its version cell must read ${JSON.stringify(expected)}.`)
       }

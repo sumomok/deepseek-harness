@@ -181,7 +181,7 @@ export function uniquePath(path: string, taken: (candidate: string) => boolean):
  * @param urls - the redirect chain, original first.
  * @param serverOrigin - the origin the whole chain must belong to.
  * @returns true when every hop is the server's. An empty chain is false: a
- * download the shell cannot see the provenance of is not one it takes over.
+ * download whose origin the shell cannot see is not one it takes over.
  */
 function servedThroughout(urls: readonly string[], serverOrigin: string): boolean {
   if (urls.length === 0) return false

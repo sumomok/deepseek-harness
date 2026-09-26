@@ -16,8 +16,8 @@ const manifest = JSON.stringify({
   },
 })
 
-const EN_PROVENANCE = ', from a tarball committed in this repository'
-const ZH_PROVENANCE = ',来自提交进本仓库的 tarball'
+const EN_SOURCE_CLAUSE = ', from a tarball committed in this repository'
+const ZH_SOURCE_CLAUSE = ',来自提交进本仓库的 tarball'
 
 function englishReadme(rows: string[], subsection: string[] = []): string {
   return [
@@ -38,13 +38,13 @@ function englishReadme(rows: string[], subsection: string[] = []): string {
 }
 
 const EN_ROWS = [
-  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${EN_PROVENANCE} | At-mentions for files |`,
-  `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${EN_PROVENANCE} | Clickable paths |`,
+  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${EN_SOURCE_CLAUSE} | At-mentions for files |`,
+  `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${EN_SOURCE_CLAUSE} | Clickable paths |`,
 ]
 
 const ZH_ROWS = [
-  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${ZH_PROVENANCE} | 文件 @ 提及 |`,
-  `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${ZH_PROVENANCE} | 可点击路径 |`,
+  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${ZH_SOURCE_CLAUSE} | 文件 @ 提及 |`,
+  `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${ZH_SOURCE_CLAUSE} | 可点击路径 |`,
 ]
 
 function chineseReadme(rows: string[]): string {
@@ -53,8 +53,8 @@ function chineseReadme(rows: string[]): string {
 
 function documents(en = EN_ROWS, zh = ZH_ROWS, subsection: string[] = []): BuiltInPluginDocument[] {
   return [
-    { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', provenance: EN_PROVENANCE, text: englishReadme(en, subsection) },
-    { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', provenance: ZH_PROVENANCE, text: chineseReadme(zh) },
+    { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', sourceClause: EN_SOURCE_CLAUSE, text: englishReadme(en, subsection) },
+    { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', sourceClause: ZH_SOURCE_CLAUSE, text: chineseReadme(zh) },
   ]
 }
 
@@ -101,8 +101,8 @@ describe('parseBuiltInPluginTable', () => {
   it('reads the whole section, stopping only at the next h2', () => {
     const [english] = documents()
     expect([...parseBuiltInPluginTable(english!).rows]).toEqual([
-      ['dsh-at-file', { cell: `\`0.7.0-da602d1\`${EN_PROVENANCE}`, version: '0.7.0-da602d1' }],
-      ['@haoran/dsh-clickable-refs', { cell: `\`0.4.1\`${EN_PROVENANCE}`, version: '0.4.1' }],
+      ['dsh-at-file', { cell: `\`0.7.0-da602d1\`${EN_SOURCE_CLAUSE}`, version: '0.7.0-da602d1' }],
+      ['@haoran/dsh-clickable-refs', { cell: `\`0.4.1\`${EN_SOURCE_CLAUSE}`, version: '0.4.1' }],
     ])
   })
 
@@ -114,7 +114,7 @@ describe('parseBuiltInPluginTable', () => {
   })
 
   it('returns nothing when the section is absent', () => {
-    const document: BuiltInPluginDocument = { path: 'x.md', heading: '## Built-in plugins', provenance: EN_PROVENANCE, text: '# desktop\n\n## Something else\n' }
+    const document: BuiltInPluginDocument = { path: 'x.md', heading: '## Built-in plugins', sourceClause: EN_SOURCE_CLAUSE, text: '# desktop\n\n## Something else\n' }
     expect(parseBuiltInPluginTable(document).rows.size).toBe(0)
   })
 })
@@ -150,15 +150,15 @@ describe('findVendoredPluginViolations', () => {
     ])
   })
 
-  it('rejects a version cell whose provenance no longer says the tarball is committed here', () => {
-    const en = EN_ROWS.map(row => row.replace(`\`0.7.0-da602d1\`${EN_PROVENANCE}`, '`0.7.0-da602d1`, from npm'))
+  it('rejects a version cell whose source clause no longer says the tarball is committed here', () => {
+    const en = EN_ROWS.map(row => row.replace(`\`0.7.0-da602d1\`${EN_SOURCE_CLAUSE}`, '`0.7.0-da602d1`, from npm'))
     expect(findVendoredPluginViolations(sources({ documents: documents(en) }))).toEqual([
       'apps/desktop-shell/README.md row for dsh-at-file reads "`0.7.0-da602d1`, from npm"; its version cell must read "`0.7.0-da602d1`, from a tarball committed in this repository".',
     ])
   })
 
   it('rejects a version cell with no code span', () => {
-    const en = EN_ROWS.map(row => row.replace(`\`0.4.1\`${EN_PROVENANCE}`, 'the latest one'))
+    const en = EN_ROWS.map(row => row.replace(`\`0.4.1\`${EN_SOURCE_CLAUSE}`, 'the latest one'))
     expect(findVendoredPluginViolations(sources({ documents: documents(en) }))).toEqual([
       'apps/desktop-shell/README.md row for @haoran/dsh-clickable-refs has no version code span; its version cell reads "the latest one".',
     ])
@@ -174,14 +174,14 @@ describe('findVendoredPluginViolations', () => {
   })
 
   it('rejects a row for a plugin the manifest no longer vendors', () => {
-    const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_PROVENANCE} | A withdrawn built-in |`
+    const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_SOURCE_CLAUSE} | A withdrawn built-in |`
     expect(findVendoredPluginViolations(sources({ documents: documents([...EN_ROWS, orphan]) }))).toEqual([
       'apps/desktop-shell/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
     ])
   })
 
   it('rejects a row under a subsection of the same section', () => {
-    const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_PROVENANCE} | A withdrawn built-in |`
+    const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_SOURCE_CLAUSE} | A withdrawn built-in |`
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS, ZH_ROWS, [orphan]) }))).toEqual([
       'apps/desktop-shell/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
     ])
