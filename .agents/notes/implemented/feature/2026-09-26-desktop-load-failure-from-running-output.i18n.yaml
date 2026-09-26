@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-26-desktop-load-failure-from-running-output.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-desktop-load-failure-from-running-output.md
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load:
+  en: e54ac2d06c50d5a5
+  zh: ffcd19707b7406aa
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/problem:
+  en: 752105c117fa802b
+  zh: 99ef62bb2b975492
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/decision:
+  en: fc539df27357b376
+  zh: e6dfc2c7d5b587d7
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/alternatives-considered:
+  en: 3fbed3667b9be6f0
+  zh: 1b4658eb884d49d7
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/consequences:
+  en: d2daeec96cfd1eee
+  zh: 6003ede2f3f7a919
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/testing:
+  en: 9a6a5e0328f82c29
+  zh: bb90fc87fedd7252
+/agent-note-the-desktop-shell-records-a-migrated-plugin-the-running-server-did-not-load/related:
+  en: b49a4805c9534ebe
+  zh: bcd0be8bec6d2911

@@ -175,9 +175,9 @@ export interface ServerHandle {
  * Thrown when the server process exited before printing its URL line.
  *
  * {@link output} carries the boot attempt's whole collected stdout and stderr,
- * not the truncated tail {@link Error.message} shows: a boot-failure
- * quarantine pass needs the loader's own `failed to import loader entry` line,
- * which the message's last 15 lines may not include.
+ * not the truncated tail {@link Error.message} shows: a quarantine pass over it
+ * needs the line that names a plugin, which the message's last 15 lines may
+ * not include.
  */
 export class ServerExitedBeforeUrl extends Error {
   /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
@@ -248,13 +248,37 @@ function tailBuffer(maxLines: number): { push: (chunk: string) => void; text: ()
 }
 
 /**
+ * Feed a stream's chunks to `onLine` one complete line at a time, and the
+ * unterminated rest when the stream ends.
+ * @param stream - one of the child's output streams.
+ * @param onLine - receives each line without its newline.
+ */
+function forEachLine(stream: NodeJS.ReadableStream, onLine: (line: string) => void): void {
+  let pending = ''
+  stream.on('data', (chunk: Buffer) => {
+    const lines = (pending + chunk.toString()).split('\n')
+    pending = lines.pop() ?? ''
+    for (const line of lines) onLine(line)
+  })
+  stream.on('end', () => {
+    if (pending !== '') onLine(pending)
+    pending = ''
+  })
+}
+
+/**
  * Start the embedded server and resolve once its UI URL is known.
  * @param spec - launch paths and working directory.
  * @param logSink - receives every server stdout/stderr chunk (for the log file).
+ * @param onLine - receives every line of stdout and of stderr, each stream
+ * split on its own, for as long as the process writes: before the URL line and
+ * after it.
  * @returns the running server handle; rejects when the process exits or stays
  * silent past the startup timeout, with the collected output in the message.
  */
-export async function startServer(spec: ServerSpec, logSink: (chunk: string) => void): Promise<ServerHandle> {
+export async function startServer(
+  spec: ServerSpec, logSink: (chunk: string) => void, onLine?: (line: string) => void,
+): Promise<ServerHandle> {
   // `--profile desktop-shell` rather than the `web` alias: the shell's profile
   // is its own, and the launcher forwards from the first token it does not recognize,
   // so the web app still receives the two flags after it. The shell's own
@@ -313,6 +337,10 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     }
     child.stdout.on('data', onChunk)
     child.stderr.on('data', onChunk)
+    if (onLine !== undefined) {
+      forEachLine(child.stdout, onLine)
+      forEachLine(child.stderr, onLine)
+    }
     child.once('error', (error) => {
       settle(() => { reject(new Error(`dsh server failed to spawn: ${error.message}`)) })
     })
@@ -349,44 +377,60 @@ function tail(collected: string): string {
 }
 
 /**
- * Move a migrated bundle a failed boot's output blames into quarantine, when
- * one is there to blame. Injected, so the retry below is testable without a
+ * Record every migrated bundle a boot's output says did not load, when there is
+ * one to blame. Injected, so the startup paths below are testable without a
  * real profile on disk.
  * @param home - the Harness home for this launch.
- * @param output - the boot attempt's whole collected stdout and stderr.
- * @returns the quarantined name and detail, or undefined when nothing in the output named a plugin to quarantine.
+ * @param output - one line of the boot's output, or its whole collected stdout and stderr.
+ * @returns the first name recorded and its detail, or undefined when nothing in
+ * the output named a plugin to record.
  */
 export type QuarantineLoadFailure = (home: string, output: string) => { name: string; detail: string } | undefined
 
 /**
- * Start the embedded server, retrying once when a boot exits before its URL
- * line and `quarantine` finds a migrated plugin this shell can blame for that
- * boot's own output.
+ * Start the embedded server with every line of its output checked for a
+ * migrated plugin that did not load, and retry once when a boot that named one
+ * exits before its URL line.
  *
  * A migrated package can fail to load in ways manifest-level admission cannot
  * catch — an unbuilt git install with no `lib/` and no `prepare` script is the
- * field case — and the boot must not brick over one. The retry runs with the
- * same spec after `quarantine` has already dropped the blamed name from
- * `dsh.profile.bundles`, exactly once: a second failure, or a first failure
- * `quarantine` finds nothing to blame in, is left for the caller exactly as
- * {@link startServer} would leave it.
+ * field case. The server reports such a package and keeps running without it:
+ * an import failure is a row of its startup audit block, and a package the
+ * launcher or the compatibility check refuses gets a line of its own, and all
+ * of them can arrive after the URL line. `quarantine` sees every line of both
+ * streams for the life of the process and moves the package it blames into
+ * the marker's `defective` list, so this boot runs without it and no later
+ * boot loads it; nothing restarts. A boot that exits before its URL line is
+ * retried once, with the same spec, when a line of it blamed a migrated
+ * package or `quarantine` finds one in its whole output; the server reports a
+ * refused package without exiting, so this retry only runs for a failure
+ * that also ends the process. A second failure, or a first one with nothing
+ * to blame, is left for the caller exactly as {@link startServer} would leave
+ * it.
  * @param spec - launch paths and working directory.
  * @param logSink - receives every server stdout/stderr chunk, from both attempts.
- * @param quarantine - moves a blamed migrated name into quarantine; see {@link QuarantineLoadFailure}.
+ * @param quarantine - records a blamed migrated name; see {@link QuarantineLoadFailure}.
  * @param home - the Harness home, passed to `quarantine` unchanged.
  * @returns the running server handle.
- * @throws the retry's own failure, or the first failure when `quarantine` found nothing to blame in it.
+ * @throws the retry's own failure, or the first failure when nothing blamed a migrated plugin.
  */
 export async function startServerWithQuarantine(
   spec: ServerSpec, logSink: (chunk: string) => void, quarantine: QuarantineLoadFailure, home: string,
 ): Promise<ServerHandle> {
+  let blamed: { name: string; detail: string } | undefined
+  const scan = (line: string): void => {
+    const found = quarantine(home, line)
+    if (found === undefined) return
+    blamed ??= found
+    logSink(`[desktop] disabled migrated ${found.name} after it failed to load (${found.detail}); it stays off from the next launch\n`)
+  }
   try {
-    return await startServer(spec, logSink)
+    return await startServer(spec, logSink, scan)
   } catch (error) {
     if (!(error instanceof ServerExitedBeforeUrl)) throw error
-    const quarantined = quarantine(home, error.output)
+    const quarantined = blamed ?? quarantine(home, error.output)
     if (quarantined === undefined) throw error
     logSink(`[desktop] disabled migrated ${quarantined.name} after it failed to load; retrying startup\n`)
-    return await startServer(spec, logSink)
+    return await startServer(spec, logSink, scan)
   }
 }

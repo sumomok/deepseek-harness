@@ -65,24 +65,28 @@
  * update reaches both. The machines this runs on have no package manager, so
  * nothing here may run an install.
  *
- * **A defective package never aborts the boot.** `loadProfile` resolves every
- * `dsh.profile.bundles` entry and ends the boot on one it cannot import, and a
- * package this shell admits from the `web` profile is user data this shell did
- * not build or vet — an unbuilt git install with no `lib/` and no `prepare`
- * script is a real field case. {@link bundleDefect} is the one predicate every
- * admission, every per-boot revalidation, and the plugin-admin service's own
- * repair routes read, and a defective name never reaches the bundle list: its
- * link is kept (so it stays inspectable and repairable) and it is recorded in
- * the marker's `defective` list instead, visible and disabled rather than
- * silently gone. Deleting the desktop link while the web profile still holds a
+ * **A defective package is kept visible, never silently absent.** The server
+ * skips a `dsh.profile.bundles` entry it cannot load, and writes one stderr
+ * line about it, rather than failing the boot; a package this shell admits
+ * from the `web` profile is user data this shell did not build or vet — an
+ * unbuilt git install with no `lib/` and no `prepare` script is a real field
+ * case — and one that is skipped on every boot, with nothing on screen, looks
+ * to its owner like a feature that disappeared. {@link bundleDefect} is the
+ * one predicate every admission, every per-boot revalidation, and the
+ * plugin-admin service's own repair routes read, and a defective name never
+ * reaches the bundle list: its link is kept (so it stays inspectable and
+ * repairable) and it is recorded in the marker's `defective` list instead,
+ * visible and disabled rather than silently gone. Deleting the desktop link while the web profile still holds a
  * healthy copy tombstones the name into the marker's `removed` list instead of
  * dropping it outright, which is what keeps a plugin the user deliberately took
  * off the desktop from coming back on its own; a name whose web copy is also
- * gone is dropped with nothing left to show. A boot that still fails because a
- * migrated plugin's import throws — the case manifest-level admission cannot
- * catch — is `server.ts` and `main.ts`'s to quarantine from that boot's own
- * output, using {@link quarantineLoadFailureFromOutput} to move the blamed name
- * into `defective` and retry once.
+ * gone is dropped with nothing left to show. A migrated plugin the server
+ * still does not load — an import that throws, which manifest-level admission
+ * cannot catch, or a package its compatibility check refuses — is named in the
+ * server's own output while the server keeps running: `server.ts` passes every
+ * line of it, the ones after the URL line included, to
+ * {@link quarantineLoadFailureFromOutput}, which moves the blamed name into
+ * `defective`; that boot runs without it, and no later one loads it.
  *
  * **The permission rows an earlier build copied in are taken back out, once.**
  * That same first sync carried the `yolo-access` preset table and the gateway
@@ -93,6 +97,10 @@
  * {@link retireSeededPermissionRows} removes a row that is still exactly what
  * was copied, leaves an edited one alone with the reason in the log, and
  * records the decision so no later launch reads the file again.
+ *
+ * **The legacy `settings.yaml` is prepared for the server's one-time import
+ * right after this module runs**, by `settings-migration.ts`, which the launch
+ * calls next: a gateway row the retirement keeps is one it rewrites.
  *
  * **Peer versions are not this module's problem.** A package installed under an
  * older host suits it or it does not: its unmet peers fall through to
@@ -422,13 +430,16 @@ autoInstallPeers: false
 /**
  * Replace a file's contents in one step: write a sibling temporary file, then
  * rename it over the target. A launch interrupted mid-write then leaves the
- * previous manifest intact rather than a truncated one the server cannot parse.
+ * previous contents intact rather than a truncated file the server cannot
+ * parse.
  * @param path - the file to replace.
  * @param content - its new contents; bytes rather than text for a file copied verbatim.
+ * @param mode - the permission bits the new file is created with; the process
+ * umask applies when omitted. The rename carries them onto `path`.
  */
-function writeAtomic(path: string, content: string | Uint8Array): void {
+export function writeAtomic(path: string, content: string | Uint8Array, mode?: number): void {
   const temporary = `${path}.${String(process.pid)}.tmp`
-  writeFileSync(temporary, content)
+  writeFileSync(temporary, content, mode === undefined ? undefined : { mode })
   try {
     renameSync(temporary, path)
   } catch (error) {
@@ -1604,52 +1615,157 @@ function retireSeededPermissionRowsIn(profileDir: string, report: SeedReport): v
 }
 
 /**
- * The loader's own message for one entry it failed to import, matched exactly
- * so a message shaped differently is left for the ordinary failure page rather
- * than parsed loosely: `failed to import loader entry <id> (<module>): <why>`.
+ * One row of the startup audit block the server writes to stderr for an entry
+ * that did not activate, when the entry failed to import:
+ * `<id> (<name>): failed to import`. The block is written for optional entries
+ * and the server keeps running; the import error itself goes to the server's
+ * logger only, so this text is all the detail there is.
  */
-const LOAD_FAILURE_LINE = /failed to import loader entry \S+ \(([^()]+)\):\s*(.+)/
+const AUDIT_IMPORT_FAILURE = /^(\S+) \((.+)\): failed to import$/
 
 /**
- * Move the first migrated bundle a failed boot's output blames into the
- * marker's `defective` list, so a retried boot does not carry it back into the
- * loader.
+ * The line the launcher writes once per start for a profile bundle it could
+ * not load or that the compatibility check refused:
+ * `<bin>: skipping profile bundle "<package>": <reason>`.
+ */
+const SKIPPED_BUNDLE = /^\S+: skipping profile bundle ("(?:[^"\\]|\\.)*"): (.+)$/
+
+/**
+ * The line the compatibility check writes for a row it turned off:
+ * `<bin>: disabling profile plugin row "<id>": <reason>` for a row with an id,
+ * `<bin>: disabling profile plugin <name>: <reason>` for one without, where the
+ * name of a bundle row is its resolved module URL.
+ */
+const DISABLED_ROW = /^\S+: disabling profile plugin (?:row ("(?:[^"\\]|\\.)*")|(\S+)): (.+)$/
+
+/**
+ * The package a loader entry name refers to: the name itself for a package
+ * name, or the package directory after the last `node_modules` in a `file:`
+ * URL, which is what an inserted relative path becomes.
+ * @param name - the entry name as the server printed it.
+ * @returns the package name, or undefined for a URL outside any `node_modules`.
+ */
+function packageNameOf(name: string): string | undefined {
+  if (!name.startsWith('file:')) return name
+  let segments: string[]
+  try {
+    segments = decodeURIComponent(new URL(name).pathname).split('/')
+  } catch {
+    // Not a URL after all: nothing here names a package.
+    return undefined
+  }
+  const at = segments.lastIndexOf('node_modules')
+  const first = at < 0 ? undefined : segments[at + 1]
+  if (first === undefined || first === '') return undefined
+  if (!first.startsWith('@')) return first
+  const second = segments[at + 2]
+  return second === undefined || second === '' ? undefined : `${first}/${second}`
+}
+
+/**
+ * The migrated package whose own bundle layer declares a row id, read from
+ * the link in the desktop profile.
+ * @param profileDir - the desktop profile directory.
+ * @param migrated - the names the marker holds as migrated.
+ * @param id - the row id the server named.
+ * @returns the package, or undefined when no migrated package declares it.
+ */
+function migratedOwnerOfRow(profileDir: string, migrated: readonly string[], id: string): string | undefined {
+  return migrated.find((name) => {
+    const dir = join(profileDir, 'node_modules', name)
+    const manifest = tryReadManifest(join(dir, 'package.json'))
+    const declared = (manifest?.dsh?.bundle as { patch?: unknown } | undefined)?.patch
+    let text: string
+    try {
+      text = readFileSync(join(dir, typeof declared === 'string' ? declared : PROFILE_PATCH_FILENAME), 'utf8')
+    } catch {
+      // No readable bundle layer: this package declares no row.
+      return false
+    }
+    return patchEntries(text.split('\n')).some(entry => entry.value !== undefined && declaredIds(entry.value).includes(id))
+  })
+}
+
+/**
+ * The migrated package one line of server output says did not load, and the
+ * detail to record for it.
+ * @param line - one line of stdout or stderr.
+ * @param profileDir - the desktop profile directory.
+ * @param migrated - the names the marker holds as migrated.
+ * @returns the package and detail, or undefined for a line that blames no migrated package.
+ */
+function blamedByLine(
+  line: string, profileDir: string, migrated: readonly string[],
+): { name: string; detail: string } | undefined {
+  const text = line.trimEnd()
+  let name: string | undefined
+  let detail: string | undefined
+  const audit = AUDIT_IMPORT_FAILURE.exec(text)
+  const skipped = SKIPPED_BUNDLE.exec(text)
+  const disabled = DISABLED_ROW.exec(text)
+  if (audit !== null) {
+    name = packageNameOf(audit[2] ?? '')
+    detail = 'failed to import'
+  } else if (skipped !== null) {
+    name = JSON.parse(skipped[1] ?? '""') as string
+    detail = skipped[2]
+  } else if (disabled !== null) {
+    const id = disabled[1] === undefined ? undefined : JSON.parse(disabled[1]) as string
+    name = id === undefined ? packageNameOf(disabled[2] ?? '') : migratedOwnerOfRow(profileDir, migrated, id)
+    detail = disabled[3]
+  }
+  if (name === undefined || detail === undefined || !migrated.includes(name)) return undefined
+  return { name, detail }
+}
+
+/**
+ * Move every migrated bundle the server's output says did not load into the
+ * marker's `defective` list and out of `dsh.profile.bundles`, so no later boot
+ * carries it into the loader again.
  *
- * Reads {@link MIGRATION_MARKER_FILENAME} straight from disk rather than trust
- * anything carried over from earlier in the same launch: the caller runs this
- * only after the server has already exited, and the marker on disk is the only
- * record left of what this shell migrated.
+ * Three lines blame a package: a row of the startup audit block saying an
+ * entry failed to import, the launcher's `skipping profile bundle`, and the
+ * compatibility check's `disabling profile plugin`. The server keeps running
+ * after all three, so the caller feeds this every line a boot writes, the ones
+ * after its URL line included; the package is absent from that boot and from
+ * the next one on. A name is recorded once: once recorded it is no longer
+ * among the migrated names these lines are checked against.
+ *
+ * Reads {@link MIGRATION_MARKER_FILENAME} straight from disk on every call:
+ * the marker is the only record of what this shell migrated that is shared
+ * between the seeding before the boot and this scan during it.
  * @param home - the Harness home for this launch.
- * @param output - the boot attempt's whole collected stdout and stderr.
- * @returns the quarantined name and the loader's own detail line; undefined
- * when nothing in the output names a plugin this shell migrated, or the
- * profile manifest could not be rewritten.
+ * @param output - one line of server output, or several joined by newlines.
+ * @returns the first name recorded and its detail; undefined when nothing in
+ * the output names a plugin this shell migrated, or the profile manifest could
+ * not be rewritten.
  */
 export function quarantineLoadFailureFromOutput(home: string, output: string): { name: string; detail: string } | undefined {
   const profileDir = profileDirectory(home, DESKTOP_PROFILE)
   const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
-  const marker = readMigrationMarker(markerPath)
-  if (marker === undefined) return undefined
+  let first: { name: string; detail: string } | undefined
   for (const line of output.split('\n')) {
-    const match = LOAD_FAILURE_LINE.exec(line)
-    const name = match?.[1]
-    const detail = match?.[2]?.trim()
-    if (name === undefined || detail === undefined || detail === '' || !marker.migrated.includes(name)) continue
+    // Most lines are none of the three; only those cost a marker read.
+    if (![AUDIT_IMPORT_FAILURE, SKIPPED_BUNDLE, DISABLED_ROW].some(pattern => pattern.test(line.trimEnd()))) continue
+    const marker = readMigrationMarker(markerPath)
+    if (marker === undefined) return first
+    const blamed = blamedByLine(line, profileDir, marker.migrated)
+    if (blamed === undefined) continue
     try {
-      dropBundleNames(join(profileDir, 'package.json'), [name])
+      dropBundleNames(join(profileDir, 'package.json'), [blamed.name])
     } catch {
-      // The manifest could not be rewritten; retrying would carry the same
-      // name into the loader again, so this boot is not one to retry.
-      return undefined
+      // The manifest could not be rewritten, so the name would reach the
+      // loader again; recording it as defective would claim otherwise.
+      return first
     }
     writeMigrationMarker(markerPath, {
       ...marker,
-      migrated: marker.migrated.filter(existing => existing !== name),
-      defective: [...marker.defective, { name, kind: 'load-failed', detail, at: Date.now() }],
+      migrated: marker.migrated.filter(existing => existing !== blamed.name),
+      defective: [...marker.defective, { name: blamed.name, kind: 'load-failed', detail: blamed.detail, at: Date.now() }],
     })
-    return { name, detail }
+    first ??= blamed
   }
-  return undefined
+  return first
 }
 
 /**

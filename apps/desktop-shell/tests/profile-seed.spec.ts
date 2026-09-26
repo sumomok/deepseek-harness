@@ -1346,58 +1346,100 @@ describe('bundleDefect', () => {
 })
 
 describe('quarantineLoadFailureFromOutput', () => {
+  const blamed = '@yuxianglin/dsh-bridge-browser'
+  const other = 'dsh-toolbox'
+
+  /** A desktop profile that migrated `blamed` and `other`, each linked with a bundle layer inserting a row of its own. */
   function stage(): { profileDir: string; markerPath: string } {
     const profileDir = join(home, 'profiles', DESKTOP_PROFILE)
     mkdirSync(profileDir, { recursive: true })
     writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
       name: 'dsh-profile-desktop-shell', private: true, dependencies: {},
-      dsh: { profile: { bundles: [...webTemplate, '@yuxianglin/dsh-bridge-browser'] } },
+      dsh: { profile: { bundles: [...webTemplate, blamed, other] } },
     }, undefined, 2))
+    for (const [name, id] of [[blamed, 'bridge-browser'], [other, 'toolbox']] as const) {
+      const dir = join(profileDir, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, dsh: { bundle: { patch: './bundle.patch.yml' } } }))
+      writeFileSync(join(dir, 'bundle.patch.yml'), `- insert:\n    - id: ${id}\n      name: ${name}\n`)
+    }
     const path = join(profileDir, MIGRATION_MARKER_FILENAME)
-    writeMigrationMarker(path, { from: WEB_PROFILE, migrated: ['@yuxianglin/dsh-bridge-browser'], defective: [], removed: [] })
+    writeMigrationMarker(path, { from: WEB_PROFILE, migrated: [blamed, other], defective: [], removed: [] })
     return { profileDir, markerPath: path }
   }
 
-  /** The verbatim field stderr this mechanism exists for. */
-  const fieldStderr = 'failed to apply loader entry include (cordis:include): failed to import loader entry '
-    + 'bridge-browser (@yuxianglin/dsh-bridge-browser): Cannot find module '
-    + '\'C:\\Users\\field\\.dsh\\profiles\\desktop\\node_modules\\@yuxianglin\\dsh-bridge-browser\\lib\\index.js\' '
-    + 'imported from C:\\Users\\field\\.dsh\\profiles\\desktop\\'
+  /** The startup audit block the server writes to stderr for an optional entry that failed to import. */
+  function auditBlock(name: string): string {
+    return `dsh: warning: 1 entry did not activate\nbridge-browser (${name}): failed to import\n`
+  }
 
-  it('quarantines the migrated name the verbatim field error blames', () => {
-    const { markerPath: path } = stage()
-    const result = quarantineLoadFailureFromOutput(home, fieldStderr)
-    expect(result?.name).toBe('@yuxianglin/dsh-bridge-browser')
-    expect(result?.detail).toContain('Cannot find module')
-    const marker = readMigrationMarker(path)
-    expect(marker?.migrated).toEqual([])
-    expect(marker?.defective).toEqual([{
-      name: '@yuxianglin/dsh-bridge-browser', kind: 'load-failed', detail: result?.detail, at: expect.any(Number) as number,
-    }])
+  /** The bundle list the staged profile manifest declares now. */
+  function listed(profileDir: string): string[] {
+    return (JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) as { dsh: { profile: { bundles: string[] } } }).dsh.profile.bundles
+  }
+
+  it('records the package an audit-block import failure names, with the only detail the block carries', () => {
+    const { profileDir, markerPath } = stage()
+    const result = quarantineLoadFailureFromOutput(home, auditBlock(blamed))
+    expect(result).toEqual({ name: blamed, detail: 'failed to import' })
+    const marker = readMigrationMarker(markerPath)
+    expect(marker?.migrated).toEqual([other])
+    expect(marker?.defective).toEqual([{ name: blamed, kind: 'load-failed', detail: 'failed to import', at: expect.any(Number) as number }])
+    expect(listed(profileDir)).not.toContain(blamed)
   })
 
-  it('drops the quarantined name from dsh.profile.bundles so a retry does not carry it back in', () => {
-    const { profileDir } = stage()
-    quarantineLoadFailureFromOutput(home, fieldStderr)
-    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) as {
-      dsh: { profile: { bundles: string[] } }
-    }
-    expect(manifest.dsh.profile.bundles).not.toContain('@yuxianglin/dsh-bridge-browser')
+  it('reads the package out of a file: URL the audit block names', () => {
+    const { markerPath } = stage()
+    const url = `file:///Users/field/.dsh/profiles/desktop-shell/node_modules/${blamed}/lib/index.js`
+    expect(quarantineLoadFailureFromOutput(home, auditBlock(url))?.name).toBe(blamed)
+    expect(readMigrationMarker(markerPath)?.migrated).toEqual([other])
+  })
+
+  it('records a bundle the launcher skipped, with its reason', () => {
+    const { markerPath } = stage()
+    const line = `dsh: skipping profile bundle ${JSON.stringify(blamed)}: requires @deepseek-ai/dsh >=0.2.0-0\r`
+    expect(quarantineLoadFailureFromOutput(home, line)).toEqual({ name: blamed, detail: 'requires @deepseek-ai/dsh >=0.2.0-0' })
+    expect(readMigrationMarker(markerPath)?.defective.map(entry => entry.name)).toEqual([blamed])
+  })
+
+  it('finds the package that declares a row the compatibility check disabled by id', () => {
+    const { markerPath } = stage()
+    const line = 'dsh: disabling profile plugin row "toolbox": @deepseek-ai/dsh 0.2.0 is outside >=0.1.7-rc.1 <0.2.0-0'
+    expect(quarantineLoadFailureFromOutput(home, line)?.name).toBe(other)
+    expect(readMigrationMarker(markerPath)?.migrated).toEqual([blamed])
+  })
+
+  it('reads the package out of the module URL of a disabled row with no id', () => {
+    stage()
+    const line = `dsh: disabling profile plugin file:///Users/field/.dsh/profiles/web/node_modules/${blamed}/lib/index.js: incompatible`
+    expect(quarantineLoadFailureFromOutput(home, line)?.name).toBe(blamed)
+  })
+
+  it('records every package a whole output blames, each once, and answers the first', () => {
+    const { markerPath } = stage()
+    const output = `${auditBlock(blamed)}dsh: skipping profile bundle ${JSON.stringify(other)}: gone\n${auditBlock(blamed)}`
+    expect(quarantineLoadFailureFromOutput(home, output)?.name).toBe(blamed)
+    expect(readMigrationMarker(markerPath)?.defective.map(entry => entry.name)).toEqual([blamed, other])
+  })
+
+  it('ignores a disabled row id no migrated package declares', () => {
+    stage()
+    expect(quarantineLoadFailureFromOutput(home, 'dsh: disabling profile plugin row "someone-else": incompatible')).toBeUndefined()
   })
 
   it('ignores a name the output blames that this shell never migrated', () => {
     stage()
-    const line = 'failed to import loader entry other (some-other-package): Cannot find module \'x\''
-    expect(quarantineLoadFailureFromOutput(home, line)).toBeUndefined()
+    expect(quarantineLoadFailureFromOutput(home, auditBlock('some-other-package'))).toBeUndefined()
   })
 
   it('answers undefined on a profile with no marker at all', () => {
-    expect(quarantineLoadFailureFromOutput(home, fieldStderr)).toBeUndefined()
+    expect(quarantineLoadFailureFromOutput(home, auditBlock(blamed))).toBeUndefined()
   })
 
-  it('answers undefined when the output names nothing shaped like the loader\'s own message', () => {
+  it('answers undefined when the output names nothing shaped like one of the three lines', () => {
     stage()
-    expect(quarantineLoadFailureFromOutput(home, 'dsh server exited before its URL line (code 1).\nsome other crash\n')).toBeUndefined()
+    const loose = `dsh server exited before its URL line (code 1).\nbridge-browser (${blamed}): apply: boom\nfailed to import loader entry x (${blamed}): gone\n`
+    expect(quarantineLoadFailureFromOutput(home, loose)).toBeUndefined()
   })
 })
 

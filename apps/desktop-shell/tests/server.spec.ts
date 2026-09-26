@@ -5,13 +5,15 @@
  * @module
  */
 
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseDshArgs } from '../../cli/src/args.ts'
-import { DESKTOP_PROFILE } from '../src/profile-seed.ts'
+import {
+  DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, quarantineLoadFailureFromOutput, readMigrationMarker, WEB_PROFILE, writeMigrationMarker,
+} from '../src/profile-seed.ts'
 import {
   type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer, startServerWithQuarantine,
   type ServerHandle,
@@ -32,11 +34,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-/** The verbatim field stderr this whole quarantine mechanism exists for. */
-const FIELD_LOADER_ERROR = 'failed to apply loader entry include (cordis:include): failed to import loader entry '
-  + 'bridge-browser (@yuxianglin/dsh-bridge-browser): Cannot find module '
-  + '\'C:\\Users\\field\\.dsh\\profiles\\desktop\\node_modules\\@yuxianglin\\dsh-bridge-browser\\lib\\index.js\' '
-  + 'imported from C:\\Users\\field\\.dsh\\profiles\\desktop\\'
+/** The startup audit block the server writes to stderr for a migrated plugin that failed to import. */
+const FIELD_LOADER_ERROR = 'dsh: warning: 1 entry did not activate\nbridge-browser (@yuxianglin/dsh-bridge-browser): failed to import'
 
 /**
  * Write a scripted stand-in for the `dsh` CLI entry: on each invocation it
@@ -259,6 +258,35 @@ describe('startServerWithQuarantine', () => {
       startServerWithQuarantine({ nodeBin: bogusNodeBin, entry, cwd: root, env: {} }, () => {}, alwaysQuarantines, root),
     ).rejects.toThrow(/failed to spawn/)
     expect(await attemptCount(attemptsFile)).toBe(0)
+  })
+
+  it('records a migrated plugin the audit block names after the URL line, without restarting the server', async () => {
+    const plugin = '@yuxianglin/dsh-bridge-browser'
+    const profileDir = join(root, 'profiles', DESKTOP_PROFILE)
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({ name: 'p', dsh: { profile: { bundles: [plugin] } } }))
+    const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+    writeMigrationMarker(markerPath, { from: WEB_PROFILE, migrated: [plugin], defective: [], removed: [] })
+    const entry = join(root, 'late-audit.cjs')
+    const attemptsFile = join(root, 'attempts.log')
+    // The URL line first, then the audit block on the other stream a moment
+    // later: the order the server's two independent continuations can take.
+    writeFileSync(entry, `
+      require('node:fs').appendFileSync(${JSON.stringify(attemptsFile)}, 'x\\n')
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      setTimeout(() => { process.stderr.write(${JSON.stringify(`${FIELD_LOADER_ERROR}\n`)}) }, 50)
+      setInterval(() => {}, 1000)
+    `)
+    const lines: string[] = []
+    const handle = await startServerWithQuarantine(
+      { nodeBin: process.execPath, entry, cwd: root, env: {} }, (chunk) => { lines.push(chunk) }, quarantineLoadFailureFromOutput, root,
+    )
+    await vi.waitFor(() => { expect(readMigrationMarker(markerPath)?.defective.map(item => item.name)).toEqual([plugin]) })
+    expect(lines.join('')).toContain(`disabled migrated ${plugin} after it failed to load (failed to import); it stays off from the next launch`)
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) as { dsh: { profile: { bundles: string[] } } }
+    expect(manifest.dsh.profile.bundles).toEqual([])
+    expect(await attemptCount(attemptsFile)).toBe(1)
+    await handle.stop()
   })
 
   it('propagates the retry\'s own failure when it fails again', async () => {
