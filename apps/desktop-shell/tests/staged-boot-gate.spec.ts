@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD_PACKAGES,
+  findWithheldDirectories, loadFailureLines, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
 
 describe('loadFailureLines', () => {
@@ -143,5 +143,24 @@ describe('findWithheldDirectories', () => {
   it('ignores a file of that name', async () => {
     const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+})
+
+describe('stagedBootEnv', () => {
+  it('drops what pnpm and npm injected, NODE_PATH first', () => {
+    expect(stagedBootEnv({
+      NODE_PATH: '/repo/node_modules/.pnpm/node_modules',
+      npm_config_user_agent: 'pnpm/11.7.0',
+      npm_lifecycle_event: 'package',
+      PNPM_SCRIPT_SRC_DIR: '/repo/apps/desktop-shell',
+      pnpm_config_verify_deps_before_run: 'install',
+      PATH: '/usr/bin',
+      DSH_HOME: '/tmp/dsh-desktop-build-x',
+      NODE_OPTIONS: '--max-old-space-size=4096',
+    })).toEqual({ PATH: '/usr/bin', DSH_HOME: '/tmp/dsh-desktop-build-x', NODE_OPTIONS: '--max-old-space-size=4096' })
+  })
+
+  it('keeps names that only contain the prefixes', () => {
+    expect(stagedBootEnv({ MY_NODE_PATH: 'x', XNPM_TOKEN: 'y' })).toEqual({ MY_NODE_PATH: 'x', XNPM_TOKEN: 'y' })
   })
 })

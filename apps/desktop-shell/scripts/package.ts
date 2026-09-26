@@ -37,7 +37,7 @@ import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
-import { findWithheldDirectories, loadFailureLines, verifyDesktopLayer, WITHHELD_PACKAGES } from './staged-boot-gate.ts'
+import { findWithheldDirectories, loadFailureLines, stagedBootEnv, verifyDesktopLayer, WITHHELD_PACKAGES } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
@@ -502,15 +502,19 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   // developer's browser, and the shell declines the same handoff for its own.
   const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: root,
+    env: stagedBootEnv(process.env),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let collected = ''
   let stderr = ''
   child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+  // The load report leads, because a skipped bundle is printed first and the
+  // required-plugin listing that follows it would push it out of the tail.
+  const bootReport = (): string => [...loadFailureLines(stderr), '…', ...collected.split('\n').slice(-20)].join('\n')
   try {
     const url = await new Promise<string>((resolvePromise, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error(`package: staged boot printed no URL line in 90s.\n${collected.split('\n').slice(-20).join('\n')}`))
+        reject(new Error(`package: staged boot printed no URL line in 90s.\n${bootReport()}`))
       }, 90_000)
       const onChunk = (chunk: Buffer): void => {
         collected += chunk.toString()
@@ -524,7 +528,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       child.stderr.on('data', onChunk)
       child.once('exit', (code) => {
         clearTimeout(timer)
-        reject(new Error(`package: staged boot exited (${String(code)}) before its URL line.\n${collected.split('\n').slice(-20).join('\n')}`))
+        reject(new Error(`package: staged boot exited (${String(code)}) before its URL line.\n${bootReport()}`))
       })
     })
     // The URL line carries the launch token; loading it exchanges the token
@@ -565,13 +569,13 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
 }
 
 /**
- * Run the build's Node on a script and collect what it printed.
+ * Run the build's Node on a staged server script, in the [[stagedBootEnv]] environment, and collect what it printed.
  * @param args - the script path and its arguments.
  * @param cwd - the working directory.
  * @returns the exit code (null when a signal ended it) and both output streams.
  */
 async function captureNode(args: string[], cwd: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  const child = spawn(process.execPath, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, args, { cwd, env: stagedBootEnv(process.env), stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = ''
   let stderr = ''
   child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })

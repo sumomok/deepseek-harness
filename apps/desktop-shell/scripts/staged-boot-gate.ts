@@ -67,6 +67,25 @@ export function loadFailureLines(stderr: string): string[] {
   return found
 }
 
+/** Variables the package managers inject into a script's environment, matched case-insensitively. */
+const PACKAGE_MANAGER_ENV = /^(?:NODE_PATH|npm_.*|PNPM_.*)$/i
+
+/**
+ * The environment a staged server is booted with: the build's own, without
+ * what pnpm and npm injected into it.
+ *
+ * pnpm's `.bin` shims export `NODE_PATH` naming the workspace's
+ * `node_modules/.pnpm/node_modules`, and `createRequire().resolve.paths()`
+ * searches `NODE_PATH`. A server inheriting it resolves every package the
+ * payload lacks from the build checkout, so a boot that passes proves nothing
+ * about the payload an installed shell runs, which has no such variable.
+ * @param env - the build process's environment.
+ * @returns a copy without `NODE_PATH`, `npm_*`, and `PNPM_*`; every other variable as given.
+ */
+export function stagedBootEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !PACKAGE_MANAGER_ENV.test(name)))
+}
+
 /**
  * The directories under `root` that carry a withheld package, at any depth.
  *
