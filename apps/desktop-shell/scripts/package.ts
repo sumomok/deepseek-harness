@@ -465,7 +465,7 @@ async function verifyStaging(): Promise<void> {
   // when it is only reached through a profile bundle at boot.
   const unstaged = await missingProductionDependencies(SERVER_STAGING, WITHHELD_PACKAGES)
   if (unstaged.length > 0) {
-    throw new Error(`package: staged server lacks production dependencies of ${INSTALLATION_PACKAGE}:\n  ${unstaged.join('\n  ')}`)
+    throw new Error(`package: staged server lacks production dependencies or required peers of ${INSTALLATION_PACKAGE}:\n  ${unstaged.join('\n  ')}`)
   }
   // Resolution smoke on the staged tree: `--version` imports the launcher
   // graph, so a package the deployer dropped (a link: override the manifest
@@ -798,7 +798,7 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
   // so the finished payload is checked for the scope it keeps whole.
   const unshipped = await missingProductionDependencies(destination, WITHHELD_PACKAGES, name => name.startsWith('@deepseek-ai/'))
   if (unshipped.length > 0) {
-    throw new Error(`package: ${target} payload lacks production dependencies of ${INSTALLATION_PACKAGE}:\n  ${unshipped.join('\n  ')}`)
+    throw new Error(`package: ${target} payload lacks production dependencies or required peers of ${INSTALLATION_PACKAGE}:\n  ${unshipped.join('\n  ')}`)
   }
   // The gate exempts the engine directory a payload leaves out, and an
   // exemption names a directory rather than a direction, so the same entry

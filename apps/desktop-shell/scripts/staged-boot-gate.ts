@@ -108,16 +108,21 @@ function dependencyDir(root: string, from: string, name: string): string | undef
 }
 
 /**
- * The production dependencies of the installation package that a tree lacks,
- * followed through each found dependency's own production dependencies.
+ * The production dependencies and required peers of the installation package
+ * that a tree lacks, followed through each found package's own.
  *
- * Only `dependencies` count: an optional dependency is a platform member a
- * target may leave out, and a peer is supplied by whatever depends on it. A
- * withheld package is neither required nor followed.
+ * `dependencies` and `peerDependencies` count. A peer marked optional in
+ * `peerDependenciesMeta` does not, and neither does an optional dependency,
+ * which is a platform member a target may leave out. Required peers count
+ * because the deploy installs no peers (`auto-install-peers=false`): a Service
+ * Definition package that its implementations name only as a peer reaches the
+ * payload only when something lists it directly. A withheld package is
+ * neither required nor followed.
  * @param root - a staged server tree or a finished payload.
  * @param withheld - package names the payload leaves out on purpose.
  * @param follows - which dependency names count; the finished payload inlines third-party packages, so its check follows one scope.
- * @returns `<dependent> -> <dependency>` for every dependency no `package.json` answers, sorted.
+ * @returns `<dependent> -> <dependency>` for every dependency, and `<dependent> -> <peer> (peer)` for every
+ * required peer, that no `package.json` answers, sorted.
  */
 export async function missingProductionDependencies(
   root: string, withheld: readonly string[], follows: (name: string) => boolean = () => true,
@@ -130,11 +135,20 @@ export async function missingProductionDependencies(
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
     if (visited.has(next.dir)) continue
     visited.add(next.dir)
-    const manifest = JSON.parse(await readFile(join(next.dir, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
-    for (const name of Object.keys(manifest.dependencies ?? {})) {
+    const manifest = JSON.parse(await readFile(join(next.dir, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+    }
+    const peers = Object.keys(manifest.peerDependencies ?? {}).filter(name => manifest.peerDependenciesMeta?.[name]?.optional !== true)
+    const required = [
+      ...Object.keys(manifest.dependencies ?? {}).map(name => ({ name, label: name })),
+      ...peers.map(name => ({ name, label: `${name} (peer)` })),
+    ]
+    for (const { name, label } of required) {
       if (withheld.includes(name) || !follows(name)) continue
       const dir = dependencyDir(root, next.dir, name)
-      if (dir === undefined) missing.add(`${next.name} -> ${name}`)
+      if (dir === undefined) missing.add(`${next.name} -> ${label}`)
       else queue.push({ name, dir })
     }
   }

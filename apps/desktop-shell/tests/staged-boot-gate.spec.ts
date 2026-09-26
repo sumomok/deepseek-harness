@@ -171,20 +171,25 @@ describe('missingProductionDependencies', () => {
     for (const tree of trees.splice(0)) rmSync(tree, { recursive: true, force: true })
   })
 
+  /** What one fixture package declares. */
+  interface Declared { dependencies?: string[]; optional?: string[]; peers?: string[]; optionalPeers?: string[] }
+
   /**
    * A tree of packages, each with its own production dependencies.
    * @param packages - `node_modules`-relative directory against the dependencies its manifest declares.
    * @returns the tree root.
    */
-  function tree(packages: Record<string, { dependencies?: string[]; optional?: string[] }>): string {
+  function tree(packages: Record<string, Declared>): string {
     const root = mkdtempSync(join(tmpdir(), 'staged-closure-'))
     trees.push(root)
-    for (const [dir, { dependencies = [], optional = [] }] of Object.entries(packages)) {
+    for (const [dir, { dependencies = [], optional = [], peers = [], optionalPeers = [] }] of Object.entries(packages)) {
       mkdirSync(join(root, 'node_modules', dir), { recursive: true })
       writeFileSync(join(root, 'node_modules', dir, 'package.json'), JSON.stringify({
         name: dir.split('/node_modules/').at(-1),
         dependencies: Object.fromEntries(dependencies.map(name => [name, '*'])),
         optionalDependencies: Object.fromEntries(optional.map(name => [name, '*'])),
+        peerDependencies: Object.fromEntries([...peers, ...optionalPeers].map(name => [name, '*'])),
+        peerDependenciesMeta: Object.fromEntries(optionalPeers.map(name => [name, { optional: true }])),
       }))
     }
     return root
@@ -193,7 +198,9 @@ describe('missingProductionDependencies', () => {
   const whole = {
     '@deepseek-ai/dsh': { dependencies: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-experimental-auto-review', 'yaml'], optional: ['some-darwin-arm64'] },
     '@deepseek-ai/dsh-base': { dependencies: ['@deepseek-ai/dsh-settings'] },
-    '@deepseek-ai/dsh-settings': { dependencies: ['yaml', 'nested-only'] },
+    '@deepseek-ai/dsh-settings': { dependencies: ['yaml', 'nested-only'], peers: ['@deepseek-ai/dsh-protocol'], optionalPeers: ['@deepseek-ai/dsh-maybe'] },
+    '@deepseek-ai/dsh-protocol': { peers: ['@deepseek-ai/cordis'] },
+    '@deepseek-ai/cordis': {},
     '@deepseek-ai/dsh-settings/node_modules/nested-only': {},
     'yaml': {},
   }
@@ -208,6 +215,15 @@ describe('missingProductionDependencies', () => {
     const { '@deepseek-ai/dsh-settings/node_modules/nested-only': _nested, ...withoutNested } = whole
     expect(await missingProductionDependencies(tree(withoutNested), WITHHELD_PACKAGES))
       .toEqual(['@deepseek-ai/dsh-settings -> nested-only'])
+  })
+
+  it('names a missing required peer, and follows a present one', async () => {
+    const { '@deepseek-ai/dsh-protocol': _protocol, ...withoutPeer } = whole
+    expect(await missingProductionDependencies(tree(withoutPeer), WITHHELD_PACKAGES))
+      .toEqual(['@deepseek-ai/dsh-settings -> @deepseek-ai/dsh-protocol (peer)'])
+    const { '@deepseek-ai/cordis': _cordis, ...withoutPeersPeer } = whole
+    expect(await missingProductionDependencies(tree(withoutPeersPeer), WITHHELD_PACKAGES))
+      .toEqual(['@deepseek-ai/dsh-protocol -> @deepseek-ai/cordis (peer)'])
   })
 
   it('follows only the names it is given', async () => {
