@@ -44,7 +44,7 @@ import { acknowledgeReloadConnectionLoss, launchWebScaffold, seedSession, watchC
 import { expandTurnProcesses, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 const SURFACE_DIR = join(REPO_ROOT, 'packages/experimental/content-surface')
 const COLUMN_DIR = join(REPO_ROOT, 'packages/experimental/content-column')
@@ -126,22 +126,39 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 /**
  * One settled `show_chart` call, as the log records it.
  *
- * A settled result is one identified tool-result message, not a bare content
- * array: the reader rejects a `tool/result` whose `data.message` has no `id`,
- * `role: 'user'`, `source.kind`, or `content` array, so the seed carries the
- * whole message and takes its identity from the fixture's own `{{message:N}}`
- * token space. Ordinals 1-5 belong to the recorded fixture; these continue it.
+ * A format-4 log advertises every call in an assistant message before its
+ * `tool/call`, and settles it with an identified tool-role result message, so
+ * the seed carries both messages and takes their identities from the
+ * fixture's own `{{message:N}}` token space. Ordinals 1-6 belong to the
+ * recorded fixture; these continue it.
  * @param callId - the call id the row is addressed by.
- * @param messageOrdinal - the fixture identity ordinal for the result message.
+ * @param messageOrdinal - the fixture identity ordinal for the advertising
+ * assistant message; the result message takes the next one.
  * @param id - the chart id the call claims.
  * @param title - the chart caption the call carries.
- * @returns the `tool/call` and `tool/result` lines, in log order.
+ * @returns the assistant, `tool/call`, and `tool/result` lines, in log order.
  */
 function chartCall(callId: string, messageOrdinal: number, id: string, title: string): string[] {
+  const args = JSON.stringify({ id, title, option: OPTION })
   return [
     JSON.stringify({
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: `{{message:${String(messageOrdinal)}}}`,
+          role: 'assistant',
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          content: [{ type: 'tool-call', id: callId, name: 'show_chart', arguments: args }],
+        },
+        stream: [],
+      },
+      surfaceOp: 'append',
+    }),
+    JSON.stringify({
       type: 'tool/call',
-      data: { turn: 1, step: 1, callId, name: 'show_chart', arguments: JSON.stringify({ id, title, option: OPTION }) },
+      data: { turn: 1, step: 1, callId, name: 'show_chart', arguments: args },
     }),
     JSON.stringify({
       type: 'tool/result',
@@ -149,15 +166,12 @@ function chartCall(callId: string, messageOrdinal: number, id: string, title: st
         turn: 1,
         step: 1,
         message: {
-          id: `{{message:${messageOrdinal}}}`,
-          role: 'user',
+          id: `{{message:${String(messageOrdinal + 1)}}}`,
+          role: 'tool',
           source: { kind: 'tool', callId },
-          content: [{
-            type: 'tool-result',
-            toolCallId: callId,
-            content: [{ type: 'text', text: `Rendered: ${title}` }],
-            isError: false,
-          }],
+          toolCallId: callId,
+          content: [{ type: 'text', text: `Rendered: ${title}` }],
+          isError: false,
         },
       },
       surfaceOp: 'append',
@@ -310,9 +324,9 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     // call is superseded, and the newest entry a chart.
     await seedSession(scaffold, withEvents(fixture, [
       shownPage('home'),
-      ...chartCall(DEMO_OLD_CALL, 6, 'demo', DEMO_DRAFT_TITLE),
-      ...chartCall(DEMO_NEW_CALL, 7, 'demo', DEMO_NEW_TITLE),
-      ...chartCall(COVERAGE_CALL, 8, 'coverage', COVERAGE_TITLE),
+      ...chartCall(DEMO_OLD_CALL, 7, 'demo', DEMO_DRAFT_TITLE),
+      ...chartCall(DEMO_NEW_CALL, 9, 'demo', DEMO_NEW_TITLE),
+      ...chartCall(COVERAGE_CALL, 11, 'coverage', COVERAGE_TITLE),
     ]), MIXED_SESSION)
     // A second session with a stream of its own, on the other configured page.
     await seedSession(scaffold, withEvents(fixture, [shownPage('reports')]), PAGE_SESSION)

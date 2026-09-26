@@ -72,7 +72,7 @@ export const COMPOSER = '[data-composer-input]'
  * own: a session has to exist for the sidebar to open one, and this is the
  * corpus's smallest complete round.
  */
-const SEED = join(REPO_ROOT, 'snapshots/web/fresh-round-trip/session.jsonl')
+const SEED = join(REPO_ROOT, 'snapshots/web/fresh-round-trip/session.v4.jsonl')
 
 /**
  * Where one scenario's own recording lives, which the corpus fixes.

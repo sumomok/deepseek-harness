@@ -29,7 +29,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./content-show.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 /** Every experimental row the overlay inserts, as package name and source directory. */

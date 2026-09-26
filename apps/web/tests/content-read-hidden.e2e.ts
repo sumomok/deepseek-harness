@@ -39,7 +39,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 const OVERLAY = join(FRAME_DIR, 'overlay/content-column.patch.yml')
 

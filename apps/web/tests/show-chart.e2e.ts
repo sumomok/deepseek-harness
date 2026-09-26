@@ -41,7 +41,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { expandTurnProcesses, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const TOOL_DIR = join(REPO_ROOT, 'packages/experimental/vue2-echarts-tool-poc')
 const OFFICIAL_OVERLAY = join(TOOL_DIR, 'overlay/show-chart.patch.yml')
 const THREE_COLUMN_OVERLAY = join(TOOL_DIR, 'overlay/show-chart-three-column.patch.yml')
@@ -136,18 +136,19 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 /**
  * One settled `show_chart` call, as the log records it.
  *
- * A settled result is one identified tool-result message, not a bare content
- * array: the reader rejects a `tool/result` whose `data.message` has no `id`,
- * `role: 'user'`, `source.kind`, or `content` array, so the seed carries the
- * whole message and takes its identity from the fixture's own `{{message:N}}`
- * token space. Ordinals 1-5 belong to the recorded fixture; these continue it.
+ * A format-4 log advertises every call in an assistant message before its
+ * `tool/call`, and settles it with an identified tool-role result message, so
+ * the seed carries both messages and takes their identities from the
+ * fixture's own `{{message:N}}` token space. Ordinals 1-6 belong to the
+ * recorded fixture; these continue it.
  * @param callId - the call id the row is addressed by.
- * @param messageOrdinal - the fixture identity ordinal for the result message.
+ * @param messageOrdinal - the fixture identity ordinal for the advertising
+ * assistant message; the result message takes the next one.
  * @param title - the chart caption the call carries.
  * @param option - the ECharts option the call carries.
  * @param points - how many data points the result text reports.
  * @param id - the chart id the call claims, when it claims one.
- * @returns the `tool/call` and `tool/result` lines, in log order.
+ * @returns the assistant, `tool/call`, and `tool/result` lines, in log order.
  */
 function chartCall(
   callId: string,
@@ -160,6 +161,21 @@ function chartCall(
   const args = JSON.stringify({ ...id === undefined ? {} : { id }, title, option })
   return [
     JSON.stringify({
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: `{{message:${String(messageOrdinal)}}}`,
+          role: 'assistant',
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          content: [{ type: 'tool-call', id: callId, name: 'show_chart', arguments: args }],
+        },
+        stream: [],
+      },
+      surfaceOp: 'append',
+    }),
+    JSON.stringify({
       type: 'tool/call',
       data: { turn: 1, step: 1, callId, name: 'show_chart', arguments: args },
     }),
@@ -169,15 +185,12 @@ function chartCall(
         turn: 1,
         step: 1,
         message: {
-          id: `{{message:${messageOrdinal}}}`,
-          role: 'user',
+          id: `{{message:${String(messageOrdinal + 1)}}}`,
+          role: 'tool',
           source: { kind: 'tool', callId },
-          content: [{
-            type: 'tool-result',
-            toolCallId: callId,
-            content: [{ type: 'text', text: `Rendered: ${title} — 1 series, ${points} points` }],
-            isError: false,
-          }],
+          toolCallId: callId,
+          content: [{ type: 'text', text: `Rendered: ${title} — 1 series, ${String(points)} points` }],
+          isError: false,
         },
       },
       surfaceOp: 'append',
@@ -198,10 +211,10 @@ function withChartCalls(fixtureText: string): string {
   if (closing === -1) throw new Error('seed fixture has no step/end to splice before')
   return [
     ...lines.slice(0, closing),
-    ...chartCall(BAR_CALL, 6, BAR_TITLE, BAR_OPTION, 5),
-    ...chartCall(PIE_CALL, 7, PIE_TITLE, PIE_OPTION, 3),
-    ...chartCall(DEMO_OLD_CALL, 8, DEMO_OLD_TITLE, DEMO_OLD_OPTION, 3, DEMO_ID),
-    ...chartCall(DEMO_NEW_CALL, 9, DEMO_NEW_TITLE, DEMO_NEW_OPTION, 3, DEMO_ID),
+    ...chartCall(BAR_CALL, 7, BAR_TITLE, BAR_OPTION, 5),
+    ...chartCall(PIE_CALL, 9, PIE_TITLE, PIE_OPTION, 3),
+    ...chartCall(DEMO_OLD_CALL, 11, DEMO_OLD_TITLE, DEMO_OLD_OPTION, 3, DEMO_ID),
+    ...chartCall(DEMO_NEW_CALL, 13, DEMO_NEW_TITLE, DEMO_NEW_OPTION, 3, DEMO_ID),
     ...lines.slice(closing),
   ].join('\n')
 }

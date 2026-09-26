@@ -125,25 +125,26 @@ const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
  */
 const RENAMED_PRESET = '可修改文件'
 /**
- * Every command the console's slash menu lists, in the order `commands.list`
- * sorts them. `permission` is absent by composition rather than by filtering:
+ * Every row the console's slash menu renders, by the text it shows (a
+ * command's label where the menu has one, else its name), in menu order. `permission` is absent by composition rather than by filtering:
  * the overlay isolates `commands` from the `permission-presets` row, so that
  * package's command child never activates. Pinning the whole set rather than
  * the one absence is what also fails on a command this composition gains.
  */
 const CONSOLE_COMMANDS = [
-  'compact',
+  'File',
+  'Goal',
+  'Plan',
+  'Feedback',
+  'Compact',
   'content-navigated',
   'dismiss-content-entry',
-  'feedback',
-  'goal',
-  'plan',
   'select-content-entry',
   'show-content-page',
 ] as const
 
-const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
-const ESTABLISHED_PLACEHOLDER = 'Message or run a task... / commands, @ files or sessions'
+const HERO_PLACEHOLDER = 'Describe what you want to build, / commands, @ files or sessions'
+const ESTABLISHED_PLACEHOLDER = 'Message or run a task, / commands, @ files or sessions'
 
 /**
  * The one composer carrying a given placeholder.
@@ -499,7 +500,7 @@ describe('web e2e: the product-console sidebar', () => {
     const heroRoot = page.locator('[data-phase="hero"]')
     await heroRoot.waitFor({ timeout: 15_000 })
 
-    const headlineText = heroRoot.locator('[class*="headlineText"]')
+    const headlineText = heroRoot.locator('[class*="titleGroup"] > :first-child')
     await headlineText.waitFor()
     await expect(headlineText.evaluate(el => getComputedStyle(el).fontSize)).resolves.toBe('0px')
     // The CSS `::after` swap paints this package's own brand copy; the
@@ -573,11 +574,11 @@ describe('web e2e: the product-console sidebar', () => {
       seedClosedTurn(scaffold, workbenchSessionId)
       await page.getByRole('button', { name: 'Save as workflow' }).waitFor({ timeout: 15_000 })
 
-      // De-terminology: the turns/steps row would show "1 turns · 1 steps"
+      // De-terminology: the turns/steps row would show "1 turns 1 steps"
       // (StatsLine.tsx) now that a closed step is on the log — pin the CSS
       // guard by confirming the row is present in the DOM but not visible,
       // not merely absent for an unrelated reason.
-      const statsRow = page.getByText('1 turns · 1 steps')
+      const statsRow = page.getByText('1 turns 1 steps')
       expect(await statsRow.count()).toBeGreaterThan(0)
       await expect(statsRow.first().isVisible()).resolves.toBe(false)
 
@@ -751,19 +752,13 @@ describe('web e2e: the product-console sidebar', () => {
 
   it('renders no Workspace vocabulary anywhere in the conversation column', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-vocabulary'))
-    // The chip's accessible name, not the column's rendered text: the visible
-    // label collapses to a glyph at narrow composer widths, and which width
-    // this scenario lands on depends on whether the content column is open.
-    // The name is also the half a screen reader announces, so it is the half
-    // that must not say "Workspace".
-    const chipName = await accessChip(page).getAttribute('aria-label')
-    expect(chipName).toBe(`Access mode, current: ${RENAMED_PRESET}`)
-    // Two independent sources, pinned together because both are silent when
-    // they break: the hero chip-and-picker row (hidden by
-    // `terminology-guard.ts`'s class-substring rule, which a renamed CSS
-    // module class would stop matching) and the access chip above, which
-    // reverts to "Workspace Write" the moment the overlay's `permission` row
-    // stops overriding the shipped preset table.
+    // The access chip is `dsh-client-ui-permission-presets`' registration in
+    // `conversation.input.permission`, and this composition disables that row,
+    // so the composer carries no chip whose name could say "Workspace".
+    expect(await accessChip(page).count()).toBe(0)
+    // The hero chip-and-picker row is hidden by `terminology-guard.ts`'s
+    // class-substring rule, which a renamed CSS module class would stop
+    // matching without any other signal.
     expect(await workspaceWordsInChat(page)).toEqual([])
   }, 30_000)
 
@@ -814,11 +809,9 @@ describe('web e2e: the product-console sidebar', () => {
     await page.keyboard.press('Escape')
     await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
 
-    // The chip stays where it was: present, hidden by `terminology-guard.ts`,
-    // and naming the preset the overlay pins, which nothing on this page can
-    // change any more.
-    await expectGuardHides(page.locator('[data-composer-card] [class*="modes"]'), 'trigger')
-    expect(await accessChip(page).getAttribute('aria-label')).toBe(`Access mode, current: ${RENAMED_PRESET}`)
+    // The composer chip is the disabled `ui-permission` row's registration, so
+    // it is absent rather than hidden.
+    expect(await accessChip(page).count()).toBe(0)
   }, 60_000)
 
   it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
@@ -862,7 +855,7 @@ describe('web e2e: the product-console sidebar', () => {
     await laneHead.hover()
     await laneHead.getByRole('button', { name: 'Pin to top' }).click()
     await expect.poll(() => readServerMenu(scaffold).groups[0]?.pinned, { timeout: 10_000 }).toBe(true)
-    await expect(laneHead.getByRole('img', { name: 'Pinned' }).isVisible()).resolves.toBe(true)
+    await expect.poll(() => laneHead.getByRole('img', { name: 'Pinned' }).isVisible(), { timeout: 10_000 }).toBe(true)
     // The pinned lane sorts ahead of the ungrouped rows it now precedes.
     const lanes = section.locator('[class*="lane"][data-pinned]')
     await expect(lanes.first().getAttribute('data-pinned')).resolves.toBe('true')
@@ -989,10 +982,8 @@ describe('web e2e: the product-console sidebar', () => {
     // The composer itself must not be stuck blocked now that no plugin
     // registers `useComposerBlock` (ui-model-selection is disabled).
     await expect(composer(page, ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
-    // The permission-preset chip is `ui-conversation`'s own composer control
-    // with no disable row: the terminology guard hides it in CSS, so it stays
-    // in the DOM and visibility is what this screens. The established
-    // conversation this block rests on is what makes the chip render at all.
+    // No composer control names the pinned preset: the chip belongs to the
+    // disabled `ui-permission` row.
     for (const chip of await page.getByText(RENAMED_PRESET).all()) {
       await expect(chip.isVisible()).resolves.toBe(false)
     }

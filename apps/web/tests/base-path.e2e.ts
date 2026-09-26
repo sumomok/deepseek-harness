@@ -271,9 +271,10 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     const bundles = [...statuses].filter(([url]) => new URL(url).pathname.startsWith(`${PREFIX}plugins/`))
     expect(bundles.filter(([, status]) => status !== 200)).toEqual([])
     expect(bundles.length).toBeGreaterThan(2)
-    // The two the parser acts on before the shell runs: the blocking bootstrap
-    // script and the application batch's preload link. Both are written
-    // relative, which is what the page's base is then applied to; a
+    // The ones the parser acts on before the shell runs: the blocking bootstrap
+    // script and one preload link per application batch (the batch splits
+    // wherever its combo URL would pass the loader's byte limit). All are
+    // written relative, which is what the page's base is then applied to; a
     // root-absolute one would have addressed the origin root.
     const injected = await page.evaluate(() => ({
       scripts: [...document.querySelectorAll('head script[src]')].map(node => node.getAttribute('src') ?? ''),
@@ -281,7 +282,8 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
         .map(node => node.getAttribute('href') ?? ''),
     }))
     expect(injected.scripts.filter(src => src.startsWith('plugins/')).length).toBe(1)
-    expect(injected.preloads.filter(href => href.startsWith('plugins/')).length).toBe(1)
+    expect(injected.preloads.length).toBeGreaterThan(0)
+    expect(injected.preloads.filter(href => !href.startsWith('plugins/'))).toEqual([])
     expect([...injected.scripts, ...injected.preloads].filter(src => src.startsWith('/'))).toEqual([])
 
     // The mirror cookie is scoped to the prefix, not to the whole origin: the

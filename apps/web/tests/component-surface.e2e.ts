@@ -56,7 +56,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { expandOwningTurnProcess, newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./component-surface.overlay.yml', import.meta.url))
 // The one model answer this scenario consumes: the turn a press opens. Written
 // by hand rather than recorded, because the press is what has to be driven and

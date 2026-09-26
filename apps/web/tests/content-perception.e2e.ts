@@ -54,7 +54,7 @@ const ROWS = [
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 
 /** A fresh conversation's composer placeholder — the signal that the workbench opened one. */
-const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
+const HERO_PLACEHOLDER = 'Describe what you want to build, / commands, @ files or sessions'
 
 /** Switcher keys the column mints, as `<kind> <entryId>`. */
 const HOME_ENTRY = 'page home'

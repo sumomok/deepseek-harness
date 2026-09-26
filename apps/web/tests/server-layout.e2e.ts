@@ -41,7 +41,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
 const SHELL_PACKAGE = '@deepseek-ai/dsh-experimental-server-layout'
 const SHELL_DIR = join(REPO_ROOT, 'packages/experimental/server-layout')
 const OVERLAY = join(SHELL_DIR, 'overlay/three-column.patch.yml')
