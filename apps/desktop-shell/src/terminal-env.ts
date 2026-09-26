@@ -351,16 +351,6 @@ function lineText(segment: string): string {
 }
 
 /**
- * The terminator a line ends with.
- * @param segment - one line with its terminator, if any.
- * @returns `\r\n`, `\n`, or the empty string for a last line without one.
- */
-function terminatorOf(segment: string): string {
-  if (segment.endsWith('\r\n')) return '\r\n'
-  return segment.endsWith('\n') ? '\n' : ''
-}
-
-/**
  * Set or remove this module's `DSH_HOME` block in the person's shell profile.
  * A profile that is a symbolic link is written at its target, so a dotfiles
  * checkout keeps its link. The file is copied byte for byte to
@@ -369,13 +359,17 @@ function terminatorOf(segment: string): string {
  *
  * The profile is handled as bytes, not decoded text: every byte outside the
  * block, in whatever encoding the person saved it, is written back unchanged,
- * and only the block itself is UTF-8. The block's lines end the way the
- * file's lines do (CRLF or LF), and its markers are recognized with or
- * without a carriage return. A new block is appended after one line
- * terminator — the separating blank line when the file ends with one, the
- * missing final terminator when it does not — and removing a block that is
- * still the last thing in the file removes that terminator too, so appending
- * and then removing gives back the original bytes.
+ * and only the block itself is UTF-8. The block's lines always end in LF,
+ * whatever the file uses: a shell keeps a carriage return before the newline
+ * as part of the value, so a CRLF block would hand every terminal a data
+ * directory ending in `\r`. A CRLF block found in the file is rewritten as an
+ * LF block, and its markers are recognized with or without the carriage
+ * return. A new block is appended after one LF — the separating blank line
+ * when the file ends with a line terminator, the missing final terminator
+ * when it does not — and removing a block that is still the last thing in
+ * the file removes that one LF too, so appending, changing the value, and
+ * removing give back the original bytes. A block that is no longer last is
+ * removed alone.
  * @param target - home, shell, and `ZDOTDIR`.
  * @param value - the absolute data directory, or `undefined` to remove the block.
  * @returns what was done, or why nothing was written.
@@ -407,25 +401,25 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
     if (ASSIGNMENT.test(line)) places.push({ file: path, line: index + 1 })
   })
   if (places.length > 0) return { kind: 'foreign-assignment', file: path, places }
-  const eol = terminatorOf(segments[start] ?? '') || segments.map(terminatorOf).find(term => term.length > 0) || '\n'
   const assignment = Buffer.from(`export DSH_HOME=${shellQuote(value ?? '')}`, 'utf8').toString('latin1')
   let content: string
   if (start !== -1) {
     const before = segments.slice(0, start)
     const after = segments.slice(end + 1)
     if (value !== undefined) {
-      const block = `${BLOCK_START}${eol}${assignment}${eol}${BLOCK_END}${terminatorOf(segments[end] ?? '')}`
+      const block = `${BLOCK_START}\n${assignment}\n${BLOCK_END}${segments[end]?.endsWith('\n') === true ? '\n' : ''}`
       content = [...before, block, ...after].join('')
     } else {
       const last = before.at(-1)
-      if (after.length === 0 && last !== undefined) before[before.length - 1] = last.slice(0, last.length - terminatorOf(last).length)
+      // Only the LF this module appended before the block, never a carriage return before it.
+      if (after.length === 0 && last?.endsWith('\n') === true) before[before.length - 1] = last.slice(0, -1)
       content = [...before, ...after].join('')
     }
   } else if (value === undefined) {
     content = original
   } else {
-    const separator = original.length > 0 ? eol : ''
-    content = `${original}${separator}${BLOCK_START}${eol}${assignment}${eol}${BLOCK_END}${eol}`
+    const separator = original.length > 0 ? '\n' : ''
+    content = `${original}${separator}${BLOCK_START}\n${assignment}\n${BLOCK_END}\n`
   }
   if (content === original) return { kind: 'unchanged', file: path }
   let backup: string | undefined

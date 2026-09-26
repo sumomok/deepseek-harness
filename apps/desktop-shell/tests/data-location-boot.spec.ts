@@ -542,6 +542,16 @@ describe('settleDataLocation against a real zsh', () => {
     return recorded
   }
 
+  withZsh('confirms the sync through a CRLF ~/.zshrc, the terminal reading the directory with no carriage return', async () => {
+    writeFileSync(join(osHome, '.zshrc'), 'export A=1\r\nexport B=2\r\n')
+    writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data')))
+    const right = dataDir('moved', ID)
+    const settled = await settleDataLocation(zshHost(['choose'], [right]).host, undefined)
+    expect(settled?.terminal).toEqual(expect.objectContaining({ kind: 'synced', value: right }))
+    const read = await readLoginShellDshHome({ shell: '/bin/zsh', env: { HOME: osHome, PATH: '/usr/bin:/bin' }, timeoutMs: 20_000 })
+    expect(read).toEqual({ kind: 'set', value: right, source: 'login-shell' })
+  }, 60_000)
+
   withZsh.each([
     ['a ZDOTDIR set in ~/.zshenv', (old: string) => {
       mkdirSync(join(osHome, 'zd'))

@@ -217,27 +217,38 @@ describe('updateShellProfile', () => {
     ['a byte-order mark', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('export A=1\n')])],
     ['a blank last line', Buffer.from('export A=1\n\n')],
     ['mixed line ends and bytes', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('a\r\n'), Buffer.from([0x80, 0xff]), Buffer.from('\nb')])],
-  ])('gives back the original bytes of a profile with %s once the block is removed', (_name, original) => {
+    ['CRLF and no final line end', Buffer.from('export A=1\r\nexport B=2')],
+    ['a lone carriage return', Buffer.from('export A=1\r')],
+  ])('gives back the original bytes of a profile with %s once the block is written, changed, and removed', (_name, original) => {
     const file = join(home, '.zshrc')
     writeFileSync(file, original)
     expect(updateShellProfile(zsh(), '/data/B').kind).toBe('written')
     expect(readFileSync(`${file}${PROFILE_BACKUP_SUFFIX}`).equals(original)).toBe(true)
     const written = readFileSync(file)
     expect(written.subarray(0, original.length).equals(original)).toBe(true)
+    expect(written.subarray(original.length).toString('latin1')).not.toContain('\r')
+    expect(updateShellProfile(zsh(), '/data/C').kind).toBe('written')
     expect(updateShellProfile(zsh(), undefined).kind).toBe('written')
     expect(readFileSync(file).equals(original)).toBe(true)
   })
 
-  it('ends the block\'s lines the way the file\'s do, and updates a CRLF block in place', () => {
+  it('writes the block in LF even into a CRLF file, and rewrites a CRLF block in place as LF', () => {
     const file = join(home, '.zshrc')
     writeFileSync(file, `export A=1\r\n${BLOCK_START}\r\nexport DSH_HOME='/old'\r\n${BLOCK_END}\r\nexport C=3\r\n`)
     expect(updateShellProfile(zsh(), '/data/B')).toMatchObject({ kind: 'written' })
-    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n${BLOCK_START}\r\nexport DSH_HOME='/data/B'\r\n${BLOCK_END}\r\nexport C=3\r\n`)
+    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n${BLOCK_START}\nexport DSH_HOME='/data/B'\n${BLOCK_END}\nexport C=3\r\n`)
     expect(updateShellProfile(zsh(), undefined)).toMatchObject({ kind: 'written' })
     expect(readFileSync(file, 'utf8')).toBe('export A=1\r\nexport C=3\r\n')
     writeFileSync(file, 'export A=1\r\n')
     updateShellProfile(zsh(), '/data/B')
-    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n\r\n${BLOCK_START}\r\nexport DSH_HOME='/data/B'\r\n${BLOCK_END}\r\n`)
+    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n\n${BLOCK_START}\nexport DSH_HOME='/data/B'\n${BLOCK_END}\n`)
+  })
+
+  withZsh('hands a login zsh the exact value from a CRLF profile, with no carriage return', async () => {
+    writeFileSync(join(home, '.zshrc'), 'export A=1\r\nexport B=2\r\n')
+    updateShellProfile(zsh(), TRICKY)
+    expect(await readLoginShellDshHome({ shell: '/bin/zsh', env: shellEnv(), timeoutMs: 20_000 }))
+      .toEqual({ kind: 'set', value: TRICKY, source: 'login-shell' })
   })
 
   withBash('keeps a login bash reading ~/.profile after the block is written', () => {
