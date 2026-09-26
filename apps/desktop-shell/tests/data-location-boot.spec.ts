@@ -349,6 +349,18 @@ describe('settleDataLocation with a pointer', () => {
     }
   })
 
+  it('logs a profile reached through a dangling link as not written', async () => {
+    writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data')))
+    const right = dataDir('moved', ID)
+    const recorded = recordingHost({
+      answers: ['choose'], folders: [right],
+      terminal: () => ({ kind: 'profile', update: { kind: 'dangling-profile', link: '/h/.bash_profile' } }),
+    })
+    expect((await settleDataLocation(recorded.host, undefined))?.terminal).toMatchObject({ kind: 'not-written' })
+    expect(recorded.log.join('')).toContain('through /h/.bash_profile, a link whose target is missing')
+    expect(recorded.asked).toHaveLength(1)
+  })
+
   it('keeps the pointer when the terminal write throws', async () => {
     writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data')))
     const right = dataDir('moved', ID)

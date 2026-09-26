@@ -132,22 +132,94 @@ describe('updateShellProfile', () => {
   const zsh = (): { home: string; shell: string; zdotdir: undefined } => ({ home, shell: '/bin/zsh', zdotdir: undefined })
 
   it('picks the profile by shell, honoring ZDOTDIR', () => {
-    expect(profileFile({ home: '/h', shell: '/bin/zsh', zdotdir: undefined })).toBe('/h/.zshrc')
-    expect(profileFile({ home: '/h', shell: '/bin/zsh', zdotdir: '/z' })).toBe('/z/.zshrc')
-    expect(profileFile({ home: '/h', shell: '/opt/bin/bash', zdotdir: '/z' })).toBe('/h/.bash_profile')
-    expect(profileFile({ home: '/h', shell: '/usr/local/bin/fish', zdotdir: undefined })).toBeUndefined()
-    expect(profileFile({ home: '/h', shell: undefined, zdotdir: undefined })).toBeUndefined()
+    const missing = (file: string): object => ({ kind: 'file', file, exists: false })
+    expect(profileFile({ home: '/h', shell: '/bin/zsh', zdotdir: undefined })).toEqual(missing('/h/.zshrc'))
+    expect(profileFile({ home: '/h', shell: '/bin/zsh', zdotdir: '/z' })).toEqual(missing('/z/.zshrc'))
+    expect(profileFile({ home: '/h', shell: '/opt/bin/bash', zdotdir: '/z' })).toEqual(missing('/h/.bash_profile'))
+    expect(profileFile({ home: '/h', shell: '/usr/local/bin/fish', zdotdir: undefined })).toEqual({ kind: 'unsupported' })
+    expect(profileFile({ home: '/h', shell: undefined, zdotdir: undefined })).toEqual({ kind: 'unsupported' })
   })
 
-  it('writes the first bash login file that exists, as bash reads only that one', () => {
+  posixOnly('picks the first bash login file that exists, following links and skipping dangling ones, as bash does', () => {
     const bash = { home, shell: '/bin/bash', zdotdir: undefined }
-    expect(profileFile(bash)).toBe(join(home, '.bash_profile'))
+    const found = (name: string): object => ({ kind: 'file', file: join(home, name), exists: true })
+    expect(profileFile(bash)).toEqual({ kind: 'file', file: join(home, '.bash_profile'), exists: false })
     writeFileSync(join(home, '.profile'), '')
-    expect(profileFile(bash)).toBe(join(home, '.profile'))
+    expect(profileFile(bash)).toEqual(found('.profile'))
     writeFileSync(join(home, '.bash_login'), '')
-    expect(profileFile(bash)).toBe(join(home, '.bash_login'))
+    expect(profileFile(bash)).toEqual(found('.bash_login'))
     symlinkSync(join(home, 'dotfiles-gone'), join(home, '.bash_profile'))
-    expect(profileFile(bash)).toBe(join(home, '.bash_profile'))
+    expect(profileFile(bash)).toEqual(found('.bash_login'))
+    writeFileSync(join(home, 'dotfiles-gone'), '')
+    expect(profileFile(bash)).toEqual(found('.bash_profile'))
+  })
+
+  /** What a login bash in the temporary home prints for `$FOO|$DSH_HOME`. */
+  function bashLogin(): string {
+    return execFileSync('/bin/bash', ['-ilc', 'printf "%s|%s" "$FOO" "$DSH_HOME"'], {
+      env: shellEnv(), stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8',
+    })
+  }
+
+  withBash.each([
+    ['only ~/.profile', () => { writeFileSync(join(home, '.profile'), 'export FOO=mark\n') }, '.profile'],
+    ['only ~/.bash_login', () => { writeFileSync(join(home, '.bash_login'), 'export FOO=mark\n') }, '.bash_login'],
+    ['a dangling ~/.bash_profile beside ~/.profile', () => {
+      symlinkSync(join(home, 'unplugged', 'bash_profile'), join(home, '.bash_profile'))
+      writeFileSync(join(home, '.profile'), 'export FOO=mark\n')
+    }, '.profile'],
+    ['~/.bash_profile linked to a dotfiles checkout', () => {
+      writeFileSync(join(home, 'dot'), 'export FOO=mark\n')
+      symlinkSync(join(home, 'dot'), join(home, '.bash_profile'))
+    }, 'dot'],
+  ])('writes where a login bash reads it with %s', (_name, arrange, written) => {
+    arrange()
+    expect(bashLogin()).toBe('mark|')
+    expect(updateShellProfile({ home, shell: '/bin/bash', zdotdir: undefined }, '/data/B'))
+      .toMatchObject({ kind: 'written', file: join(home, written) })
+    expect(bashLogin()).toBe('mark|/data/B')
+  })
+
+  posixOnly('creates nothing through a dangling profile link, for bash or zsh', () => {
+    const link = join(home, '.bash_profile')
+    symlinkSync(join(home, 'unplugged', 'bash_profile'), link)
+    expect(updateShellProfile({ home, shell: '/bin/bash', zdotdir: undefined }, '/data/B')).toEqual({ kind: 'dangling-profile', link })
+    const zshrc = join(home, '.zshrc')
+    symlinkSync(join(home, 'unplugged', 'zshrc'), zshrc)
+    expect(updateShellProfile(zsh(), '/data/B')).toEqual({ kind: 'dangling-profile', link: zshrc })
+    expect(readdirSync(home).sort()).toEqual(['.bash_profile', '.zshrc'])
+  })
+
+  it.each([
+    ['high bytes', Buffer.from([0x65, 0x78, 0x0a, ...Array.from({ length: 128 }, (_, i) => 0x80 + i), 0x0a])],
+    ['invalid UTF-8', Buffer.from([0x23, 0x20, 0xc3, 0x28, 0xa0, 0xa1, 0xe2, 0x28, 0xa1, 0xf0, 0x90, 0x28, 0xbc, 0xff, 0xfe, 0x0a])],
+    ['CRLF', Buffer.from('export A=1\r\nexport B=2\r\n')],
+    ['no final newline', Buffer.from('export A=1\nexport B=2')],
+    ['a final newline', Buffer.from('export A=1\nexport B=2\n')],
+    ['a byte-order mark', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('export A=1\n')])],
+    ['a blank last line', Buffer.from('export A=1\n\n')],
+    ['mixed line ends and bytes', Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('a\r\n'), Buffer.from([0x80, 0xff]), Buffer.from('\nb')])],
+  ])('gives back the original bytes of a profile with %s once the block is removed', (_name, original) => {
+    const file = join(home, '.zshrc')
+    writeFileSync(file, original)
+    expect(updateShellProfile(zsh(), '/data/B').kind).toBe('written')
+    expect(readFileSync(`${file}${PROFILE_BACKUP_SUFFIX}`).equals(original)).toBe(true)
+    const written = readFileSync(file)
+    expect(written.subarray(0, original.length).equals(original)).toBe(true)
+    expect(updateShellProfile(zsh(), undefined).kind).toBe('written')
+    expect(readFileSync(file).equals(original)).toBe(true)
+  })
+
+  it('ends the block\'s lines the way the file\'s do, and updates a CRLF block in place', () => {
+    const file = join(home, '.zshrc')
+    writeFileSync(file, `export A=1\r\n${BLOCK_START}\r\nexport DSH_HOME='/old'\r\n${BLOCK_END}\r\nexport C=3\r\n`)
+    expect(updateShellProfile(zsh(), '/data/B')).toMatchObject({ kind: 'written' })
+    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n${BLOCK_START}\r\nexport DSH_HOME='/data/B'\r\n${BLOCK_END}\r\nexport C=3\r\n`)
+    expect(updateShellProfile(zsh(), undefined)).toMatchObject({ kind: 'written' })
+    expect(readFileSync(file, 'utf8')).toBe('export A=1\r\nexport C=3\r\n')
+    writeFileSync(file, 'export A=1\r\n')
+    updateShellProfile(zsh(), '/data/B')
+    expect(readFileSync(file, 'utf8')).toBe(`export A=1\r\n\r\n${BLOCK_START}\r\nexport DSH_HOME='/data/B'\r\n${BLOCK_END}\r\n`)
   })
 
   withBash('keeps a login bash reading ~/.profile after the block is written', () => {
@@ -174,7 +246,7 @@ describe('updateShellProfile', () => {
     const read = execFileSync('/bin/zsh', ['-c', `. '${file}'; printf %s "$DSH_HOME"`], { env: shellEnv(), encoding: 'utf8' })
     expect(read).toBe(TRICKY)
     updateShellProfile(zsh(), undefined)
-    expect(readFileSync(file).equals(Buffer.concat([original, Buffer.from('\n')]))).toBe(true)
+    expect(readFileSync(file).equals(original)).toBe(true)
   })
 
   it('does not write for fish', () => {

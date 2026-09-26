@@ -240,6 +240,8 @@ export type ProfileUpdate =
   | { kind: 'unsupported-shell'; shell: string }
   | { kind: 'foreign-assignment'; file: string; places: ForeignAssignment[] }
   | { kind: 'damaged-block'; file: string }
+  /** The shell would read a profile through `link`, a link whose target does not exist; nothing is created through it. */
+  | { kind: 'dangling-profile'; link: string }
 
 /** Inputs of {@link updateShellProfile}. */
 export interface ProfileTarget {
@@ -251,45 +253,79 @@ export interface ProfileTarget {
   zdotdir: string | undefined
 }
 
-/** The files a bash login shell reads, in its order; it reads only the first that exists. */
+/**
+ * Which profile file a shell reads.
+ *
+ * - `file`: `file` is the profile; `exists` is false when it is to be created.
+ * - `dangling`: the profile the shell would read is reached through `link`,
+ *   a link whose target does not exist.
+ * - `unsupported`: this module does not write the shell's profile.
+ */
+export type ProfileChoice =
+  | { kind: 'file'; file: string; exists: boolean }
+  | { kind: 'dangling'; link: string }
+  | { kind: 'unsupported' }
+
+/** The files a login bash tries, in its order. */
 const BASH_LOGIN_FILES = ['.bash_profile', '.bash_login', '.profile'] as const
 
 /**
- * Whether a directory entry exists, a dangling link included.
- * @param path - the entry.
- * @returns true when `lstat` finds it.
+ * What a shell finds at a candidate profile, following links as the shell does.
+ * @param path - the candidate.
+ * @returns `exists`, `dangling` for a link whose target is missing, or `absent`.
+ * @throws when the candidate cannot be checked for a reason other than a missing entry.
  */
-function entryExists(path: string): boolean {
+function candidateState(path: string): 'exists' | 'dangling' | 'absent' {
+  try {
+    statSync(path)
+    return 'exists'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
   try {
     lstatSync(path)
-    return true
+    return 'dangling'
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return 'absent'
   }
 }
 
 /**
- * The profile file a shell reads for an interactive terminal. For bash it is
- * the first of `~/.bash_profile`, `~/.bash_login`, and `~/.profile` that
- * exists, because a login bash reads that one and skips the rest; creating
- * `~/.bash_profile` beside an existing `~/.profile` would stop bash reading
- * the `~/.profile`. With none of them it is `~/.bash_profile`.
+ * The profile file a shell reads for an interactive terminal, checked the way
+ * the shell opens it, following links.
+ *
+ * For zsh it is `.zshrc` in `ZDOTDIR` or the home. For bash it is the first of
+ * `~/.bash_profile`, `~/.bash_login`, and `~/.profile` that exists, which is
+ * the order a login bash tries them in: a missing entry, a dangling link
+ * included, is skipped, and the first one that exists is the only one read,
+ * even when it cannot be read. With none of them existing it is
+ * `~/.bash_profile`, to be created, unless one of them is a dangling link:
+ * creating a file beside it, or through it, would take the place of the file
+ * the person keeps on a disk that is not attached.
  * @param target - home, shell, and `ZDOTDIR`.
- * @returns the file, or `undefined` for a shell this module does not write.
- * @throws when a bash candidate cannot be checked for a reason other than its absence.
+ * @returns the file, a dangling link that stands in the way, or `unsupported`.
+ * @throws when a candidate cannot be checked for a reason other than a missing entry.
  */
-export function profileFile(target: ProfileTarget): string | undefined {
+export function profileFile(target: ProfileTarget): ProfileChoice {
   const name = target.shell === undefined ? '' : basename(target.shell)
+  let candidates: string[]
   if (name === 'zsh') {
     const dir = target.zdotdir !== undefined && target.zdotdir.length > 0 ? target.zdotdir : target.home
-    return join(dir, '.zshrc')
+    candidates = [join(dir, '.zshrc')]
+  } else if (name === 'bash') {
+    candidates = BASH_LOGIN_FILES.map(file => join(target.home, file))
+  } else {
+    return { kind: 'unsupported' }
   }
-  if (name === 'bash') {
-    const found = BASH_LOGIN_FILES.map(file => join(target.home, file)).find(entryExists)
-    return found ?? join(target.home, BASH_LOGIN_FILES[0])
+  let dangling: string | undefined
+  for (const candidate of candidates) {
+    const state = candidateState(candidate)
+    if (state === 'exists') return { kind: 'file', file: candidate, exists: true }
+    if (state === 'dangling') dangling ??= candidate
   }
-  return undefined
+  if (dangling !== undefined) return { kind: 'dangling', link: dangling }
+  return { kind: 'file', file: candidates[0] ?? '', exists: false }
 }
 
 /**
@@ -305,57 +341,95 @@ export function shellQuote(value: string): string {
 const ASSIGNMENT = /(^|[\s;&|])(export\s+|typeset\s+-x\s+|declare\s+-x\s+)?DSH_HOME=/
 
 /**
+ * A line without its terminator, and without the carriage return a CRLF file
+ * leaves before the newline.
+ * @param segment - one line with its terminator, if any.
+ * @returns the text of the line.
+ */
+function lineText(segment: string): string {
+  return segment.replace(/\r?\n$/, '')
+}
+
+/**
+ * The terminator a line ends with.
+ * @param segment - one line with its terminator, if any.
+ * @returns `\r\n`, `\n`, or the empty string for a last line without one.
+ */
+function terminatorOf(segment: string): string {
+  if (segment.endsWith('\r\n')) return '\r\n'
+  return segment.endsWith('\n') ? '\n' : ''
+}
+
+/**
  * Set or remove this module's `DSH_HOME` block in the person's shell profile.
  * A profile that is a symbolic link is written at its target, so a dotfiles
  * checkout keeps its link. The file is copied byte for byte to
  * `<file>.dsh-backup` and then replaced atomically with the same permission
- * bits. The profile is handled as bytes, not decoded text: every byte outside
- * the block, in whatever encoding the person saved it, is written back
- * unchanged, and only the block itself is UTF-8.
+ * bits.
+ *
+ * The profile is handled as bytes, not decoded text: every byte outside the
+ * block, in whatever encoding the person saved it, is written back unchanged,
+ * and only the block itself is UTF-8. The block's lines end the way the
+ * file's lines do (CRLF or LF), and its markers are recognized with or
+ * without a carriage return. A new block is appended after one line
+ * terminator — the separating blank line when the file ends with one, the
+ * missing final terminator when it does not — and removing a block that is
+ * still the last thing in the file removes that terminator too, so appending
+ * and then removing gives back the original bytes.
  * @param target - home, shell, and `ZDOTDIR`.
  * @param value - the absolute data directory, or `undefined` to remove the block.
  * @returns what was done, or why nothing was written.
  * @throws when the profile exists but cannot be read, or cannot be written.
  */
 export function updateShellProfile(target: ProfileTarget, value: string | undefined): ProfileUpdate {
-  const file = profileFile(target)
-  if (file === undefined) return { kind: 'unsupported-shell', shell: target.shell ?? '' }
-  let path = file
+  const choice = profileFile(target)
+  if (choice.kind === 'unsupported') return { kind: 'unsupported-shell', shell: target.shell ?? '' }
+  if (choice.kind === 'dangling') return { kind: 'dangling-profile', link: choice.link }
+  let path = choice.file
   // latin1 maps each byte to one code unit and back, so the string operations
   // below see ASCII markers exactly and leave every other byte as it was.
   let original = ''
   let mode = 0o644
-  const exists = entryExists(file)
-  if (exists) {
-    path = realpathSync(file)
+  if (choice.exists) {
+    path = realpathSync(choice.file)
     original = readFileSync(path).toString('latin1')
     mode = statSync(path).mode & 0o777
   }
-  const lines = original.length === 0 ? [] : original.replace(/\n$/, '').split('\n')
-  const start = lines.indexOf(BLOCK_START)
-  const end = lines.indexOf(BLOCK_END)
+  const segments = original.length === 0 ? [] : original.split(/(?<=\n)/)
+  const texts = segments.map(lineText)
+  const start = texts.indexOf(BLOCK_START)
+  const end = texts.indexOf(BLOCK_END)
   if ((start === -1) !== (end === -1) || end < start) return { kind: 'damaged-block', file: path }
   const places: ForeignAssignment[] = []
-  lines.forEach((line, index) => {
+  texts.forEach((line, index) => {
     if (start !== -1 && index >= start && index <= end) return
     if (line.trimStart().startsWith('#')) return
     if (ASSIGNMENT.test(line)) places.push({ file: path, line: index + 1 })
   })
   if (places.length > 0) return { kind: 'foreign-assignment', file: path, places }
+  const eol = terminatorOf(segments[start] ?? '') || segments.map(terminatorOf).find(term => term.length > 0) || '\n'
   const assignment = Buffer.from(`export DSH_HOME=${shellQuote(value ?? '')}`, 'utf8').toString('latin1')
-  const block = value === undefined ? [] : [BLOCK_START, assignment, BLOCK_END]
-  let next: string[]
+  let content: string
   if (start !== -1) {
-    next = [...lines.slice(0, start), ...block, ...lines.slice(end + 1)]
-  } else if (block.length === 0) {
-    next = lines
+    const before = segments.slice(0, start)
+    const after = segments.slice(end + 1)
+    if (value !== undefined) {
+      const block = `${BLOCK_START}${eol}${assignment}${eol}${BLOCK_END}${terminatorOf(segments[end] ?? '')}`
+      content = [...before, block, ...after].join('')
+    } else {
+      const last = before.at(-1)
+      if (after.length === 0 && last !== undefined) before[before.length - 1] = last.slice(0, last.length - terminatorOf(last).length)
+      content = [...before, ...after].join('')
+    }
+  } else if (value === undefined) {
+    content = original
   } else {
-    next = lines.length > 0 && lines.at(-1) !== '' ? [...lines, '', ...block] : [...lines, ...block]
+    const separator = original.length > 0 ? eol : ''
+    content = `${original}${separator}${BLOCK_START}${eol}${assignment}${eol}${BLOCK_END}${eol}`
   }
-  const content = next.length === 0 ? '' : `${next.join('\n')}\n`
   if (content === original) return { kind: 'unchanged', file: path }
   let backup: string | undefined
-  if (exists) {
+  if (choice.exists) {
     backup = `${path}${PROFILE_BACKUP_SUFFIX}`
     copyDurably(path, backup)
   }

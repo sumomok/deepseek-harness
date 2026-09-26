@@ -293,6 +293,9 @@ function report(
         const places = sync.write.update.places.map(place => `${place.file}:${String(place.line)}`).join(', ')
         line(`the shell profile sets DSH_HOME itself at ${places}; that line keeps deciding what a terminal sees`)
       }
+      if (sync.write.kind === 'profile' && sync.write.update.kind === 'dangling-profile') {
+        line(`the shell reads its profile through ${sync.write.update.link}, a link whose target is missing; nothing is created through it`)
+      }
       break
     case 'failed':
       line(`could not update the terminal DSH_HOME: ${sync.detail}`)
