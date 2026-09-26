@@ -125,17 +125,29 @@ describe('a failed load of the served UI', () => {
     expect(failures).toHaveLength(1)
   })
 
-  it('gets a fresh retry after a load of the served UI succeeded', async () => {
+  it('gives up after the retry even though Chromium reports each failed load finished, on its error page', async () => {
     const loader = supervise()
     loader.load(APP_URL)
     contents.failLoad(REFUSED, APP_URL)
+    contents.finishLoad(APP_URL)
     await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
-    contents.finishLoad('http://127.0.0.1:54321/')
-    contents.failLoad(REFUSED, 'http://127.0.0.1:54321/')
+    contents.failLoad(REFUSED, APP_URL)
+    contents.finishLoad(APP_URL)
+    await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 5)
+
+    expect(contents.loads).toEqual([APP_URL, APP_URL])
+    expect(failures).toEqual(['界面没有加载出来:ERR_CONNECTION_REFUSED (-102)'])
+  })
+
+  it('does not reload the URL a failed load was for once a retarget replaced it during the wait', async () => {
+    const loader = supervise()
+    loader.load(APP_URL)
+    contents.failLoad(REFUSED, APP_URL)
+    const rebound = `http://127.0.0.1:60000/?token=${TOKEN}`
+    loader.load(rebound)
     await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
 
-    expect(contents.loads).toEqual([APP_URL, APP_URL, APP_URL])
-    expect(failures).toEqual([])
+    expect(contents.loads).toEqual([APP_URL, rebound])
   })
 
   it('does not retry into a window that was closed meanwhile', async () => {

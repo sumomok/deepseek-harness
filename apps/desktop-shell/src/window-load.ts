@@ -9,7 +9,10 @@
  * `dsh-server.log` after `server ready`. Every one of those events now writes
  * a line. A main-frame load of the served UI that fails is retried once after
  * [[RETRY_DELAY_MS]]; a second failure hands the host a summary to show on the
- * boot page's failure state, so the window is never left blank.
+ * boot page's failure state, so the window is never left blank. Only
+ * [[AppLoader.load]] restores the retry: a load that finished does not, since
+ * a failed load also ends in `did-finish-load`, for the error page Chromium
+ * commits under the same URL.
  *
  * `did-fail-load` fires for a load the network layer could not complete — a
  * refused connection, a reset, a DNS or certificate failure — and not for an
@@ -129,10 +132,10 @@ export function superviseAppLoad(contents: WindowContents, host: LoadHost): AppL
     })
   }
   contents.on('did-finish-load', () => {
+    // Logged only. A finished load does not restore the retry: after a failed
+    // load Chromium commits its error page and reports `did-finish-load` for
+    // the same URL, so restoring here would retry a dead server forever.
     host.log(`[desktop] window loaded ${describeUrl(contents.getURL())}\n`)
-    // A load that succeeded spends nothing: a later failure of the same
-    // served UI, after a reload, gets its own retry.
-    if (target !== undefined && sameOrigin(contents.getURL(), target)) retried = false
   })
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     host.log(`[desktop] window load failed: ${String(errorCode)} ${errorDescription} (${describeUrl(validatedURL)}, ${isMainFrame ? 'main frame' : 'subframe'})\n`)
