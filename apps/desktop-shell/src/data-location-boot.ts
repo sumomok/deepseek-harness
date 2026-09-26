@@ -22,7 +22,7 @@
 
 import { join } from 'node:path'
 import {
-  adoptEnvLocation, checkChosenFolder, commitReady, keepPointerOverEnv, normalizeDshHome, readPointer,
+  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, keepPointerOverEnv, normalizeDshHome, readPointer,
   resolveDataLocation, writePointer,
   type DataLocationPointer, type EnvUnverifiedReason, type Resolution, type UnavailableReason,
 } from './data-location.ts'
@@ -75,10 +75,9 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
       return {
         message: text.envTitle,
         detail: text.env(prompt.reason, prompt.envPath, prompt.current),
-        buttons: [
-          { label: text.keep, answer: 'keep' },
-          { label: text.useNew, answer: 'use-new' },
-        ],
+        buttons: canAdoptEnv(prompt.reason)
+          ? [{ label: text.keep, answer: 'keep' }, { label: text.useNew, answer: 'use-new' }]
+          : [{ label: text.keep, answer: 'keep' }, { label: text.quit, answer: 'quit' }],
         cancelIndex: 0,
       }
     default:
@@ -361,6 +360,10 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
         const current = resolution.pointer.path
         log(`[desktop] data location: ${describeExplicit(explicit)} changed to a folder that is ${resolution.reason}; asking\n`)
         const answer = await host.ask(promptView({ kind: 'confirm-env', reason: resolution.reason, envPath: resolution.envPath, current }, text))
+        if (answer === 'quit') {
+          log('[desktop] data location: the person chose to quit\n')
+          return undefined
+        }
         if (answer === 'use-new') {
           log(`[desktop] data location: the person chose the new location ${resolution.envPath}\n`)
           writePointer(host.userData, adoptEnvLocation(resolution.envPath, resolution.pointer))

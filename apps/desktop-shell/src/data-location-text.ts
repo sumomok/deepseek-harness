@@ -49,12 +49,20 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedOtherData: path => `「${path}」里是另一份 DSH 数据，不是你原来的。请选择原来存放数据的文件夹。`,
     ok: '知道了',
     envTitle: '数据位置被改过了',
-    env: (reason, envPath, current) => [
-      reason === 'missing'
-        ? `系统或终端里把数据位置设成了「${envPath}」，但这个文件夹不存在。`
-        : `系统或终端里把数据位置设成了「${envPath}」，但这个文件夹里没有 DSH 的数据。`,
-      `现在的数据在「${current}」。选择「使用这个新位置」会从空白开始，原来的数据仍留在原处。`,
-    ].join('\n'),
+    env: (reason, envPath, current) => {
+      switch (reason) {
+        case 'missing':
+          return `系统或终端里把数据位置设成了「${envPath}」，但这个文件夹不存在。\n现在的数据在「${current}」。选择「使用这个新位置」会从空白开始，原来的数据仍留在原处。`
+        case 'not-harness-data':
+          return `系统或终端里把数据位置设成了「${envPath}」，但这个文件夹里没有 DSH 的数据。\n现在的数据在「${current}」。选择「使用这个新位置」会从空白开始，原来的数据仍留在原处。`
+        case 'not-a-folder':
+          return `系统或终端里把数据位置设成了「${envPath}」，但那里不是一个能存放数据的文件夹，所以不能改用它。\n现在的数据在「${current}」。`
+        case 'damaged-data':
+          return `系统或终端里把数据位置设成了「${envPath}」，但那里的 DSH 数据已经损坏，认不出是哪一份，所以不能改用它。\n现在的数据在「${current}」。`
+        default:
+          return reason satisfies never
+      }
+    },
     useNew: '使用这个新位置',
     keep: '保持原位置',
   },
@@ -80,12 +88,20 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedOtherData: path => `"${path}" holds a different set of DSH data, not yours. Choose the folder where your data was stored.`,
     ok: 'OK',
     envTitle: 'The data location was changed',
-    env: (reason, envPath, current) => [
-      reason === 'missing'
-        ? `The data location was set to "${envPath}" in the system or a terminal, but that folder does not exist.`
-        : `The data location was set to "${envPath}" in the system or a terminal, but that folder holds no DSH data.`,
-      `Your data is now in "${current}". Choosing "Use the New Location" starts empty; your data stays where it is.`,
-    ].join('\n'),
+    env: (reason, envPath, current) => {
+      switch (reason) {
+        case 'missing':
+          return `The data location was set to "${envPath}" in the system or a terminal, but that folder does not exist.\nYour data is now in "${current}". Choosing "Use the New Location" starts empty; your data stays where it is.`
+        case 'not-harness-data':
+          return `The data location was set to "${envPath}" in the system or a terminal, but that folder holds no DSH data.\nYour data is now in "${current}". Choosing "Use the New Location" starts empty; your data stays where it is.`
+        case 'not-a-folder':
+          return `The data location was set to "${envPath}" in the system or a terminal, but that is not a folder that can hold data, so it cannot be used.\nYour data is now in "${current}".`
+        case 'damaged-data':
+          return `The data location was set to "${envPath}" in the system or a terminal, but the DSH data there is damaged and cannot be recognized, so it cannot be used.\nYour data is now in "${current}".`
+        default:
+          return reason satisfies never
+      }
+    },
     useNew: 'Use the New Location',
     keep: 'Keep the Current Location',
   },

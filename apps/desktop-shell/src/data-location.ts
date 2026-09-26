@@ -280,8 +280,44 @@ export function looksLikeHarnessHome(dir: string): boolean {
 /** Why a pointer's directory cannot be used. */
 export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable'
 
-/** Why an explicit `DSH_HOME` that changed is not followed without asking. */
-export type EnvUnverifiedReason = 'missing' | 'not-harness-data'
+/**
+ * Why an explicit `DSH_HOME` that changed is not followed without asking.
+ * `missing` and `not-harness-data` can be adopted as a new, empty location;
+ * `not-a-folder` (a file, or a path that cannot be reached) and
+ * `damaged-data` (an identity marker that cannot be read) cannot.
+ */
+export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data'
+
+/**
+ * Whether the person may adopt an unverified `DSH_HOME` as a new location.
+ * @param reason - why it was not followed.
+ * @returns true when {@link adoptEnvLocation} can make it a data directory.
+ */
+export function canAdoptEnv(reason: EnvUnverifiedReason): boolean {
+  switch (reason) {
+    case 'missing':
+    case 'not-harness-data':
+      return true
+    case 'not-a-folder':
+    case 'damaged-data':
+      return false
+    default:
+      return reason satisfies never
+  }
+}
+
+/**
+ * What is at a path, following links.
+ * @param path - the path to inspect.
+ * @returns `directory`, `absent` for ENOENT, or `other` for a file or a path that cannot be reached.
+ */
+function pathKind(path: string): 'directory' | 'absent' | 'other' {
+  try {
+    return statSync(path).isDirectory() ? 'directory' : 'other'
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'other'
+  }
+}
 
 /**
  * The decision for this launch.
@@ -335,13 +371,14 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
   if (env !== undefined && env !== pointer.lastSeenEnv) {
     const seen: DataLocationPointer = { ...pointer, lastSeenEnv: env }
     if (env === pointer.path) return verifyPointer(seen, true)
-    if (!isDirectory(env)) return { kind: 'confirm-env', envPath: env, pointer, reason: 'missing' }
+    const kind = pathKind(env)
+    if (kind === 'absent') return { kind: 'confirm-env', envPath: env, pointer, reason: 'missing' }
+    if (kind === 'other') return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-a-folder' }
     const followed: DataLocationPointer = { ...seen, path: env, movedAt: new Date().toISOString() }
     const id = readDataId(env)
     if (id.kind === 'ok') return { kind: 'ready', home: env, via: 'followed-env', pointer: { ...followed, dataId: id.id } }
-    if (id.kind === 'absent' && looksLikeHarnessHome(env)) {
-      return { kind: 'ready', home: env, via: 'followed-env', pointer: followed, adoptId: true }
-    }
+    if (id.kind === 'unreadable') return { kind: 'confirm-env', envPath: env, pointer, reason: 'damaged-data' }
+    if (looksLikeHarnessHome(env)) return { kind: 'ready', home: env, via: 'followed-env', pointer: followed, adoptId: true }
     return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-harness-data' }
   }
   return verifyPointer(pointer, read.from === 'backup')

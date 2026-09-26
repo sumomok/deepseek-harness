@@ -161,6 +161,22 @@ describe('promptView', () => {
     expect(env.detail).toContain('/data')
   })
 
+  it('offers only keep and quit when the new location cannot be used', () => {
+    for (const reason of ['not-a-folder', 'damaged-data'] as const) {
+      for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
+        const view = promptView({ kind: 'confirm-env', reason, envPath: '/set', current: '/data' }, text)
+        expect(view.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
+        expect(view.buttons[view.cancelIndex]?.answer).toBe('keep')
+        expect(view.detail).toContain('/set')
+        expect(view.detail).not.toContain(text.useNew)
+      }
+    }
+    for (const reason of ['missing', 'not-harness-data'] as const) {
+      const view = promptView({ kind: 'confirm-env', reason, envPath: '/set', current: '/data' }, DATA_LOCATION_TEXT.zh)
+      expect(view.buttons.map(button => button.answer)).toEqual(['keep', 'use-new'])
+    }
+  })
+
   it('picks the language by locale', () => {
     expect(dataLocationText('zh-CN')).toBe(DATA_LOCATION_TEXT.zh)
     expect(dataLocationText('en-US')).toBe(DATA_LOCATION_TEXT.en)
@@ -171,7 +187,9 @@ describe('promptView', () => {
       for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable'] as const) {
         expect(text.unavailable(reason, '/p')).not.toMatch(/DSH_HOME|pointer|指针/)
       }
-      expect(text.env('missing', '/a', '/b')).not.toContain('DSH_HOME')
+      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data'] as const) {
+        expect(text.env(reason, '/a', '/b')).not.toMatch(/DSH_HOME|pointer|marker|指针|标记/)
+      }
     }
   })
 })
@@ -361,6 +379,18 @@ describe('settleDataLocation with a pointer', () => {
     const again = recordingHost({ persistent, terminal: foreign })
     expect((await settleDataLocation(again.host, undefined))?.home).toBe(data)
     expect(again.asked).toEqual([])
+  })
+
+  it('quits from the changed-location prompt when the new location cannot be used', async () => {
+    const data = dataDir('DSH-Data', ID)
+    writePointer(userData, pointerAt(data))
+    const file = join(root, 'a-file')
+    writeFileSync(file, 'x')
+    const recorded = recordingHost({ answers: ['quit'], persistent: { kind: 'set', value: file, source: 'login-shell' } })
+    expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+    expect(recorded.asked[0]?.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
+    expect(recorded.terminalWrites).toEqual([])
+    expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: pointerAt(data), from: 'main' })
   })
 
   it('starts a new location the person chose, leaving the old data where it is', async () => {

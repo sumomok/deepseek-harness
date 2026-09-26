@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  adoptEnvLocation, checkChosenFolder, commitReady, DATA_ID_FILENAME, ensureDataId, keepPointerOverEnv,
+  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, DATA_ID_FILENAME, ensureDataId, keepPointerOverEnv,
   looksLikeHarnessHome, normalizeDshHome, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION,
   readDataId, readPointer, resolveDataLocation, writePointer,
   type DataId, type DataLocationPointer,
@@ -228,9 +228,21 @@ describe('resolveDataLocation with a pointer', () => {
     const empty = dataDir('empty')
     expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: empty, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: empty, pointer, reason: 'not-harness-data' })
+  })
+
+  it('asks, without offering to adopt it, about a new DSH_HOME that is a file or holds damaged data', () => {
+    const pointer = pointerAt(dataDir('DSH-Data', { id: ID_A }))
+    const file = join(root, 'a-file')
+    writeFileSync(file, 'x')
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: file, defaultHome }))
+      .toEqual({ kind: 'confirm-env', envPath: file, pointer, reason: 'not-a-folder' })
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: join(file, 'below'), defaultHome }))
+      .toEqual({ kind: 'confirm-env', envPath: join(file, 'below'), pointer, reason: 'not-a-folder' })
     const badMarker = dataDir('bad', { id: 'garbage', structure: true })
-    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: badMarker, defaultHome }).kind)
-      .toBe('confirm-env')
+    expect(resolveDataLocation({ read: { kind: 'ok', pointer, from: 'main' }, env: badMarker, defaultHome }))
+      .toEqual({ kind: 'confirm-env', envPath: badMarker, pointer, reason: 'damaged-data' })
+    expect([canAdoptEnv('missing'), canAdoptEnv('not-harness-data'), canAdoptEnv('not-a-folder'), canAdoptEnv('damaged-data')])
+      .toEqual([true, true, false, false])
   })
 })
 
