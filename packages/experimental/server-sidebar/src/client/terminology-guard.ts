@@ -65,9 +65,11 @@
  *   package also removes its session-header preset label and its Settings
  *   row, which this hero-only rule could not reach.
  *
- * The permission-preset chip (`PermissionSelect`, seated in `InputBar.tsx`'s
- * `modes` row alongside the `conversation.input.plan` seat) renders as soon as
- * a conversation carries the `permissions` projection, and labels itself off
+ * The permission-preset chip (`PermissionSelect`, which
+ * `@deepseek-ai/dsh-client-ui-permission-presets` registers into the
+ * `conversation.input.permission` seat of `InputBar.tsx`'s `modes` row,
+ * alongside the `conversation.input.plan` seat) renders as soon as a
+ * conversation carries the `permissions` projection, and labels itself off
  * the preset's own machine name — `workspace-write` title-cased into
  * "Workspace Write", a string no locale entry and no disable row can reach.
  * The rule scopes on two class substrings under `[data-composer-card]`:
@@ -83,7 +85,10 @@
  * alone: "Plan" is neither banned vocabulary nor internal status, and that
  * chip is the only control that leaves plan mode. `Menu`'s wrapper span around
  * the hidden button survives as a zero-width flex item, and the preset menu it
- * anchors never opens, since the only control that opens it is gone.
+ * anchors never opens, since the only control that opens it is gone. The
+ * console bundle disables that package's `ui-permission` row, so under it the
+ * rule matches nothing; the rule covers a composition that keeps the row, such
+ * as `overlay/sidebar-menu.patch.yml`.
  *
  * This rule closes one permission surface of three. The console offers an end
  * user no permission switch of any kind (product decision, 2026-09-07), and
