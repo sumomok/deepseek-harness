@@ -86,28 +86,46 @@ describe('readLoginShellDshHome', () => {
     expect(await readLoginShellDshHome({ shell: '/bin/zsh', env: shellEnv(), timeoutMs: 10_000 })).toEqual({ kind: 'unset' })
   })
 
-  posixOnly('gives up after the time limit and kills the shell', async () => {
+  posixOnly('gives up after the time limit and kills the shell with everything it started', async () => {
     const bin = join(home, 'bin')
     mkdirSync(bin)
     const pidFile = join(home, 'pid')
+    const childFile = join(home, 'child')
     const shell = join(bin, 'zsh')
-    writeFileSync(shell, `#!/bin/sh\necho $$ > '${pidFile}.tmp'\nmv '${pidFile}.tmp' '${pidFile}'\nexec sleep 30\n`)
+    // A background job of a shell without job control stays in the shell's
+    // process group, which the probe made the shell lead.
+    writeFileSync(shell, [
+      '#!/bin/sh',
+      'sleep 30 &',
+      `echo $! > '${childFile}.tmp'; mv '${childFile}.tmp' '${childFile}'`,
+      `echo $$ > '${pidFile}.tmp'; mv '${pidFile}.tmp' '${pidFile}'`,
+      'exec sleep 30',
+      '',
+    ].join('\n'))
     chmodSync(shell, 0o755)
+    const started: number[] = []
     // The probe's limit runs on a faked clock, advanced only once the shell has
-    // written its pid, so a slow start under load cannot outlast the limit.
+    // written both pids, so a slow start under load cannot outlast the limit.
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
       const pending = readLoginShellDshHome({ shell, env: shellEnv(), timeoutMs: 1500 })
       while (!existsSync(pidFile)) await sleep(10)
-      const pid = Number(readFileSync(pidFile, 'utf8'))
+      started.push(Number(readFileSync(pidFile, 'utf8')), Number(readFileSync(childFile, 'utf8')))
       vi.advanceTimersByTime(1500)
       const read = await pending
       expect(read.kind).toBe('unknown')
       expect(read.kind === 'unknown' && read.detail).toContain('did not answer within 1500ms')
-      // A killed child stays a zombie until Node reaps it; wait for that state.
-      while (isAlive(pid)) await sleep(10)
+      // A killed child stays a zombie until its parent reaps it; wait for that state.
+      for (const pid of started) while (isAlive(pid)) await sleep(10)
     } finally {
       vi.useRealTimers()
+      for (const pid of started) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // ESRCH: already gone, which is the expected state.
+        }
+      }
     }
   })
 
