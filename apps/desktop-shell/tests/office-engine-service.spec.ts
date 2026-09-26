@@ -107,7 +107,8 @@ async function call(handle: OfficeEngineServiceHandle, method: string, path: str
   const response = await fetch(`${handle.endpoint}${path}`, { method, headers: { authorization } })
   const text = await response.text()
   const json = response.headers.get('content-type')?.startsWith('application/json') ?? false
-  return { status: response.status, body: json ? JSON.parse(text) as unknown : text.trim() }
+  const body: unknown = json ? JSON.parse(text) : text.trim()
+  return { status: response.status, body }
 }
 
 /** Let the manager's background steps run. */
