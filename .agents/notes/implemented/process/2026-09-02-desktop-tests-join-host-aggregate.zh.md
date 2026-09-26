@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`apps/desktop-shell/tsconfig.json` 的 include 只有 `src`,而两个聚合面都没有覆盖这个包,于是 `apps/desktop-shell/tests/**` 与 `apps/desktop-shell/scripts/**` 不属于任何 TypeScript 工程。Oxlint 的 type-aware 规则经 tsgolint 执行,而 tsgolint 会把每个文件解析到它所属的工程;对这两个目录它报的是 `Got tsconfig for file …: <none>`,于是在一个降级的默认程序上判断——那里 `../src/*.ts` 的导入解析成 `any` 或 `error`。这些判断与 `tsconfig.base.json` 下的 `tsc` 相悖:`noUncheckedIndexedAccess` 使得被 `typescript/no-unnecessary-type-assertion` 标红的非空断言恰恰是必需的,照 lint 提示改反而编译不过。`ce5929b494` 作为权宜之计给 `apps/desktop-shell/tests/**` 关掉了三条规则,并把纳入工程记为后续项。`apps/desktop-shell/src` 从未受影响:它一直归自己的包工程所有。
+`apps/desktop-shell/tsconfig.json` 的 include 只有 `src`,而两个聚合面都没有覆盖这个包,于是 `apps/desktop-shell/tests/**` 与 `apps/desktop-shell/scripts/**` 不属于任何 TypeScript 工程。Oxlint 的 type-aware 规则经 tsgolint 执行,而 tsgolint 会把每个文件解析到它所属的工程;对这两个目录它报的是 `Got tsconfig for file …: <none>`,于是在一个降级的默认程序上判断——那里 `../src/*.ts` 的导入解析成 `any` 或 `error`。这些判断与 `tsconfig.base.json` 下的 `tsc` 相悖:`noUncheckedIndexedAccess` 使得被 `typescript/no-unnecessary-type-assertion` 标红的非空断言恰恰是必需的,照 lint 提示改反而编译不过。一次 lint 配置改动作为权宜之计给 `apps/desktop-shell/tests/**` 关掉了三条规则,并把纳入工程记为后续项。`apps/desktop-shell/src` 从未受影响:它一直归自己的包工程所有。
 
 ## 决定
 

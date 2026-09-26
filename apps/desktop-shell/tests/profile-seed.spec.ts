@@ -947,7 +947,7 @@ describe('seedBuiltinBundles continuous sync', () => {
 describe('seedBuiltinBundles retiring the permission rows an earlier build copied into the patch layer', () => {
   /**
    * The two rows verbatim out of `cordis.patch.yml` in
-   * `haoran-dsh-llm-permission-gateway-0.1.3.tgz` (commit `1229bc8049`), which
+   * `haoran-dsh-llm-permission-gateway-0.1.3.tgz`, which
    * is the pairing the hand-written `web` patch layer held and the first sync
    * of a `desktop-shell` profile copied over with the rest of that file.
    */

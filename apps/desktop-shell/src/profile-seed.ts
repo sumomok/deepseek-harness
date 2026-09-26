@@ -1383,7 +1383,7 @@ function declaresId(raw: readonly string[], id: string): boolean {
  *
  * All of them are `cordis.patch.yml` inside
  * `apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`, the
- * tarball commit `1229bc8049` vendored for 0.1.0-rc.21 — the pairing a hand
+ * tarball vendored for 0.1.0-rc.21 — the pairing a hand
  * written `~/.dsh/profiles/web/cordis.patch.yml` carried before that release
  * moved it into the package, and which the first sync of the `desktop-shell`
  * profile then copied over verbatim with the rest of that file.
