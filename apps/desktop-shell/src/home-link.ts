@@ -40,6 +40,29 @@ export const NODE_LINK_FS: LinkFs = {
   unlink: (path) => { unlinkSync(path) },
 }
 
+/**
+ * The directory `~/.dsh` links to, when it is a link. A `DSH_HOME` naming
+ * `~/.dsh` means that directory: recording the link itself would make the
+ * pointer name the link this module rewrites, so the data would be taken for
+ * wherever the link points next. Any link there counts, since calibration
+ * re-points every link at `~/.dsh` whoever made it.
+ * @param defaultHome - the default home, `~/.dsh`.
+ * @param fs - the file-system calls; the real ones when absent.
+ * @returns the absolute target, even when it does not exist, or `undefined` when `~/.dsh` is not a link.
+ */
+export function defaultHomeLinkTarget(defaultHome: string, fs: LinkFs = NODE_LINK_FS): string | undefined {
+  let target: string
+  try {
+    if (!fs.lstat(defaultHome).isSymbolicLink()) return undefined
+    target = fs.readlink(defaultHome)
+  } catch {
+    // ENOENT, or anything else that keeps `~/.dsh` from being read as a
+    // link: the value then means the path itself, as it always did.
+    return undefined
+  }
+  return resolve(dirname(defaultHome), target.startsWith('\\\\?\\') ? target.slice(4) : target)
+}
+
 /** What calibration found at `~/.dsh` and did about it. */
 export type HomeLinkOutcome =
   | { kind: 'not-needed' }

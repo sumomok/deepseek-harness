@@ -20,14 +20,14 @@
  * @module @deepseek-ai/dsh-desktop-shell/data-location-boot
  */
 
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, keepPointerOverEnv, normalizeDshHome, readPointer,
   resolveDataLocation, writePointer,
-  type DataLocationPointer, type EnvUnverifiedReason, type Resolution, type UnavailableReason,
+  type DataLocationPointer, type EnvUnverifiedReason, type PointerRead, type Resolution, type UnavailableReason,
 } from './data-location.ts'
 import type { DataLocationText } from './data-location-text.ts'
-import { calibrateHomeLink, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
+import { calibrateHomeLink, defaultHomeLinkTarget, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
 import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite } from './terminal-env.ts'
 
 /** A question the boot window puts to the person. */
@@ -151,6 +151,20 @@ export function exportPointerHome(userData: string, env: NodeJS.ProcessEnv): str
     env[POINTER_HOME_ENV] = read.pointer.path
   }
   return launchEnv
+}
+
+/**
+ * The explicit `DSH_HOME` as the pointer compares and records it: normalized,
+ * and, while a pointer exists, `~/.dsh` replaced by the directory it links to.
+ * @param host - the app.
+ * @param read - what the pointer read found.
+ * @param explicit - the explicit value observed.
+ * @returns the absolute path, or `undefined` when none was set.
+ */
+function pointerEnv(host: DataLocationHost, read: PointerRead, explicit: ExplicitRead): string | undefined {
+  const envPath = explicit.kind === 'set' ? normalizeDshHome(explicit.value, host.osHome) : undefined
+  if (envPath === undefined || read.kind === 'absent' || envPath !== resolve(host.defaultHome)) return envPath
+  return defaultHomeLinkTarget(host.defaultHome, host.linkFs) ?? envPath
 }
 
 /** How an explicit read is described in the log. */
@@ -311,7 +325,7 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
     if (launchEnv !== undefined) explicit = { kind: 'set', value: launchEnv, source: 'process' }
     else if (read.kind === 'absent') explicit = { kind: 'unset' }
     else explicit = persistent ??= await host.readPersistentEnv()
-    const envPath = explicit.kind === 'set' ? normalizeDshHome(explicit.value, host.osHome) : undefined
+    const envPath = pointerEnv(host, read, explicit)
     const resolution = resolveDataLocation({ read, env: decided ? undefined : envPath, defaultHome: host.defaultHome })
     switch (resolution.kind) {
       case 'ready': {

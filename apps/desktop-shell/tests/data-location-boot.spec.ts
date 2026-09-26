@@ -6,7 +6,7 @@
  * @module
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -233,6 +233,29 @@ describe('settleDataLocation with a pointer', () => {
     expect(recorded.persistentReads).toBe(1)
     expect(recorded.env).toEqual({ DSH_HOME: data, [POINTER_HOME_ENV]: data })
     expect(readlinkSync(defaultHome)).toBe(data)
+  })
+
+  posixOnly('takes a DSH_HOME of ~/.dsh for the directory the link names, never the link', async () => {
+    const data = dataDir('Ext/DSH-Data', ID)
+    writePointer(userData, pointerAt(data))
+    await settleDataLocation(recordingHost().host, undefined)
+    expect(readlinkSync(defaultHome)).toBe(data)
+    const recorded = recordingHost({ persistent: { kind: 'set', value: '~/.dsh', source: 'login-shell' } })
+    const settled = await settleDataLocation(recorded.host, undefined)
+    expect(settled).toMatchObject({ home: data, via: 'pointer', link: { kind: 'already-correct' } })
+    expect(recorded.asked).toEqual([])
+    const read = readPointer(userData)
+    expect(read.kind === 'ok' && read.pointer).toMatchObject({ path: data, lastSeenEnv: data })
+    expect(readlinkSync(defaultHome)).toBe(data)
+  })
+
+  posixOnly('reads a DSH_HOME of a dangling ~/.dsh as the unplugged directory it names', async () => {
+    const data = join(root, 'Unplugged', 'DSH-Data')
+    writePointer(userData, pointerAt(data))
+    symlinkSync(data, defaultHome)
+    const recorded = recordingHost({ answers: ['quit'], persistent: { kind: 'set', value: defaultHome, source: 'login-shell' } })
+    expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+    expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailable('missing', data))
   })
 
   it('leaves a real ~/.dsh and says so in the log', async () => {

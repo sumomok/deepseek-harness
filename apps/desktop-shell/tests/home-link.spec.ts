@@ -6,14 +6,14 @@
  */
 
 import {
-  existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DATA_ID_FILENAME, type DataId } from '../src/data-location.ts'
-import { calibrateHomeLink, type LinkFs, type LinkStats } from '../src/home-link.ts'
+import { calibrateHomeLink, defaultHomeLinkTarget, type LinkFs, type LinkStats } from '../src/home-link.ts'
 
 let root: string
 let defaultHome: string
@@ -114,6 +114,35 @@ describe('calibrateHomeLink', () => {
     const refusing: LinkFs = { ...fs, lstat: () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) }, symlink: () => { throw new Error('EPERM') } }
     expect(calibrateHomeLink({ defaultHome, dataHome, dataId: ID, platform: 'darwin', fs: refusing }))
       .toEqual({ kind: 'failed', detail: 'Error: EPERM' })
+  })
+})
+
+describe('defaultHomeLinkTarget', () => {
+  it('is undefined when ~/.dsh is absent or not a link', () => {
+    expect(defaultHomeLinkTarget(defaultHome)).toBeUndefined()
+    mkdirSync(defaultHome)
+    expect(defaultHomeLinkTarget(defaultHome)).toBeUndefined()
+  })
+
+  posixOnly('reads the target of an absolute, a relative, and a dangling link', () => {
+    symlinkSync(dataHome, defaultHome)
+    expect(defaultHomeLinkTarget(defaultHome)).toBe(dataHome)
+    unlinkSync(defaultHome)
+    symlinkSync(join('..', 'Ext', 'DSH-Data'), defaultHome)
+    expect(defaultHomeLinkTarget(defaultHome)).toBe(dataHome)
+    unlinkSync(defaultHome)
+    symlinkSync(join(root, 'Unplugged', 'DSH-Data'), defaultHome)
+    expect(defaultHomeLinkTarget(defaultHome)).toBe(join(root, 'Unplugged', 'DSH-Data'))
+  })
+
+  it('reads a Windows junction back without its extended-length prefix', () => {
+    const fs: LinkFs = {
+      lstat: () => ({ isSymbolicLink: () => true, isDirectory: () => false }),
+      readlink: () => '\\\\?\\E:\\DSH-Data\\',
+      symlink: () => { throw new Error('not called') },
+      unlink: () => { throw new Error('not called') },
+    }
+    expect(defaultHomeLinkTarget('/h/.dsh', fs)).toBe(resolve('/h', 'E:\\DSH-Data\\'))
   })
 })
 
