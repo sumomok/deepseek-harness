@@ -13,6 +13,15 @@
  * view id — an entry the log can replay without the configuration file that
  * produced it.
  *
+ * Every view opens on the click, the one that places `toy.data-page` included.
+ * The click is the user's own decision about a menu row they can read the title of,
+ * and no card in front of it could be more than a second press of the same
+ * button: the page it opens is drawn in the console's own origin, beside the
+ * deployment's other pages, which open on a click too. A model cannot reach
+ * this command — `CommandInvocation` names the user as the source of every
+ * invocation, and the model's own way to place that page, `show_component`,
+ * keeps the approval card it has always been put through.
+ *
  * The command name is a small wire contract the sidebar package keeps a literal
  * copy of rather than importing, mirroring how it already treats this
  * deployment's other client-adjacent plugins: both packages are fork-owned
@@ -22,6 +31,7 @@
  */
 
 import type { CommandDefinition, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { ComponentCall } from './component-call.ts'
 import type { ViewIndex } from './views.ts'
 
 /**
@@ -44,7 +54,7 @@ export const SHOW_CONTENT_VIEW_COMMAND = 'show-content-view'
 const NO_SUCH_VIEW = '没有这个视图。'
 
 /**
- * Build the `show-content-view` command for one deployment's view list.
+ * Build the `show-content-view` command for one deployment's view index.
  * @param views - the validated view index.
  * @returns the definition to hand to `ctx.commands.register`.
  */
@@ -65,7 +75,7 @@ export function showContentViewCommand(views: ViewIndex): CommandDefinition {
     // workbench's blank draft.
     engages: false,
     handler: (invocation): CommandResult => {
-      const view = views.get(invocation.rawInput.trim())
+      const view: ComponentCall | undefined = views.get(invocation.rawInput.trim())
       if (view === undefined) return { kind: 'error', text: NO_SUCH_VIEW }
       // The column is per-session state living in the session log; a command
       // invocation always carries the receiving agent, unlike a tool call.

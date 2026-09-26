@@ -72,7 +72,8 @@ interface VueNode {
  * here can close them. A further popper-bearing component used by a block must
  * be added here in the same change, or it stays on screen after the block it
  * belongs to is hidden — `el-date-picker` is here because the filter bar draws
- * one for an attribute whose values are dates.
+ * one for an attribute whose values are dates, and `el-dropdown` because the
+ * data page's table export is a split button whose menu is one.
  *
  * The sweep runs only for a caller that passes `visible: false`. No placement
  * package in this repository does: the content column unmounts a block that
@@ -86,6 +87,7 @@ const POPPER_CLOSERS: ReadonlyMap<string, string> = new Map([
   ['ElTooltip', 'showPopper'],
   ['ElPopover', 'showPopper'],
   ['ElDatePicker', 'pickerVisible'],
+  ['ElDropdown', 'visible'],
 ])
 
 /** The listener map a component with no events gets, kept stable across commits. */

@@ -33,6 +33,12 @@
       "path": "../../host/webserver"
     },
     {
+      "path": "../biz-backend"
+    },
+    {
+      "path": "../component-surface"
+    },
+    {
       "path": "../vue2-echarts-poc"
     }
   ]

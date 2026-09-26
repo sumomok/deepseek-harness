@@ -20,6 +20,7 @@ import {
 } from '../src/client/bindings.ts'
 import { acceptSurface, holdSteady, type SurfaceBlock } from '../src/client/spec.ts'
 import { CONFIRM_BAR_ID, RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** One table of published values. */
 function published(values: Readonly<Record<string, unknown>>): OutputValues {
@@ -106,7 +107,7 @@ function payload(nodes: readonly unknown[], layout?: unknown): unknown {
 
 /** Read one payload with nothing published against it. */
 function accept(document: unknown, outputs: OutputValues = NO_OUTPUTS) {
-  return acceptSurface(document, outputs, [])
+  return acceptSurface(KIT_CATALOG, document, outputs, [])
 }
 
 describe('reading one entry payload', () => {
@@ -231,8 +232,8 @@ describe('holding a block steady across readings of one payload', () => {
       component: TABLE_ID,
       props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] }, displayValueList: [{ zh_label: '一号站点' }] },
     }, DETAILS])
-    const first = acceptSurface(document, NO_OUTPUTS, [])
-    const again = acceptSurface(document, published({ 't.selectionDetail': DETAIL }), first?.blocks ?? [])
+    const first = acceptSurface(KIT_CATALOG, document, NO_OUTPUTS, [])
+    const again = acceptSurface(KIT_CATALOG, document, published({ 't.selectionDetail': DETAIL }), first?.blocks ?? [])
     expect(again?.blocks[0]).toBe(first?.blocks[0])
     expect(again?.blocks[1]).not.toBe(first?.blocks[1])
     expect(again?.blocks[1]?.node?.props).toEqual({ dataList: DETAIL })

@@ -26,6 +26,7 @@ import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surfac
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
 import { componentExtractor } from '../src/surface.ts'
 import * as ComponentSurfaceInvariant from '../src/invariant.ts'
+import { installKitCatalog, KIT_CATALOG } from './kit-catalog.client.ts'
 
 const SPEC = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { buttons: [{ id: 'ok', label: '确认' }] } }] }
 
@@ -43,11 +44,12 @@ function foreignExtractor(kind: string): ContentSurfaceExtractor<{ entryId: stri
   }
 }
 
-/** One composition: the store, the projection registry, and the router. */
+/** One composition: the store, the projection registry, the router, and the catalog the audit judges against. */
 async function bench(extractor?: ContentSurfaceExtractor<never>): Promise<{ ctx: Context; session: Session }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
+  await installKitCatalog(ctx)
   await ctx.plugin(ContentSurfaceRegistry).await()
   if (extractor !== undefined) ctx.contentSurface.register(extractor)
   await ctx.plugin(InvariantRegistry, { enabled: true })
@@ -91,7 +93,7 @@ describe('the component-entry invariant', () => {
   })
 
   it('accepts a column whose every component entry names an accepted call', async () => {
-    const { ctx, session } = await bench(componentExtractor() as unknown as ContentSurfaceExtractor<never>)
+    const { ctx, session } = await bench(componentExtractor(KIT_CATALOG) as unknown as ContentSurfaceExtractor<never>)
     await ctx.plugin(ComponentSurfaceInvariant).await()
     // An unrelated event in the same log, because the audit walks the whole log
     // and must count only the calls that produced entries.
@@ -117,6 +119,7 @@ describe('the component-entry invariant', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
+    await installKitCatalog(ctx)
     await ctx.plugin(InvariantRegistry, { enabled: true })
     const session = (ctx.get('sessions') as unknown as SessionStore).create()
     await ctx.plugin(ComponentSurfaceInvariant).await()
@@ -142,7 +145,7 @@ describe('the component-entry invariant', () => {
   })
 
   it('counts only calls the tool would have accepted', async () => {
-    const { ctx, session } = await bench(componentExtractor() as unknown as ContentSurfaceExtractor<never>)
+    const { ctx, session } = await bench(componentExtractor(KIT_CATALOG) as unknown as ContentSurfaceExtractor<never>)
     await ctx.plugin(ComponentSurfaceInvariant).await()
     // A refused call is in the log and records no entry, so the audit's two
     // sides stay in step rather than each counting a different thing.
@@ -156,7 +159,7 @@ describe('the component-entry invariant', () => {
 
 describe('a call that opens the data page', () => {
   /** One data page block, whose call is a question before it is an entry. */
-  const PAGE = { nodes: [{ id: 'page', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备台账' } }] }
+  const PAGE = { nodes: [{ id: 'page', component: 'toy.data-page', props: { relatedMeta: 'device', metaLabel: '设备台账' } }] }
 
   /** A producer standing in for a column that drew the page off the call alone, before the user had answered. */
   const early: ContentSurfaceExtractor<{ title: string; spec: unknown }> = {
@@ -167,7 +170,7 @@ describe('a call that opens the data page', () => {
   }
 
   it('records no entry for the call itself, and one for the answer the tool appends', async () => {
-    const { ctx, session } = await bench(componentExtractor() as unknown as ContentSurfaceExtractor<never>)
+    const { ctx, session } = await bench(componentExtractor(KIT_CATALOG) as unknown as ContentSurfaceExtractor<never>)
     await ctx.plugin(ComponentSurfaceInvariant).await()
     const entries = () => ctx.sessionProjections.snapshot(session).values.contentSurface?.entries.map(entry => entry.entryId)
     call(session, 'call-page', { id: 'page', title: '设备', spec: PAGE })

@@ -4,31 +4,34 @@
 #   pnpm run verify-translation-pairing --write packages/experimental/component-surface/README.md
 /:
   en: 85ca5637c2fcc00e
-  zh: d29eb489ed44c382
+  zh: 2eeeac0ea2af34f7
 /deepseek-ai-dsh-experimental-component-surface:
   en: 27c52d19c7afb733
   zh: c9f8e497dfa753b5
 /deepseek-ai-dsh-experimental-component-surface/summary:
-  en: f2a0d92aafd7440a
-  zh: 85a3f3ab10a19ca1
+  en: 06670cc6c23ea439
+  zh: 1a495e6f94426cda
 /deepseek-ai-dsh-experimental-component-surface/table-of-contents:
-  en: fe4a79659565e98c
-  zh: 90839d2d05eba2bf
+  en: b898fa78f821460c
+  zh: 38f5b4c215747bd1
 /deepseek-ai-dsh-experimental-component-surface/composition:
-  en: f7576662067384bc
-  zh: a1b2926afdd67d09
+  en: f81fec53275d850f
+  zh: f7ca0b4f202cc58d
 /deepseek-ai-dsh-experimental-component-surface/configuration:
-  en: 38f9487b212531d8
-  zh: 43660820039c7871
+  en: 092aa1381d62d277
+  zh: 95a54343fb67dcfe
 /deepseek-ai-dsh-experimental-component-surface/views-the-deployment-writes:
-  en: 914eda08b3acdb92
-  zh: 4ef45c189f3912fd
+  en: 392f8ad50d77eaac
+  zh: 00834854bae38837
+/deepseek-ai-dsh-experimental-component-surface/views-the-deployment-writes/views-another-package-ships:
+  en: c055b4c2bcd107f8
+  zh: 25e11f94575de4cd
 /deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data:
   en: 6dc8cca997fafd10
   zh: e566e38a66acd543
 /deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data/the-order-and-what-each-step-costs:
-  en: 306d194149a63938
-  zh: 12bc7e857ac12bfe
+  en: 85df12bf9da95f73
+  zh: f81c2c4dccaf1dd4
 /deepseek-ai-dsh-experimental-component-surface/rows-read-from-the-deployment-s-own-data/what-the-user-is-asked:
   en: 88d959079f309803
   zh: 2b0f426c53041884
@@ -36,11 +39,14 @@
   en: a3d2ea26d7ed70ae
   zh: 130438242fc65c20
 /deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page:
-  en: 4638c78f71520fc7
-  zh: c2f4a83280477918
+  en: aaa39545fbdabe26
+  zh: 5936aa29744a6d36
 /deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/the-order-and-what-each-step-costs:
-  en: 0cebdc551f641734
-  zh: caba5cc27582c7f0
+  en: 44f5d1a010d8802a
+  zh: 30128ebd1deae3b2
+/deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/a-view-may-place-one-and-the-click-opens-it:
+  en: 749f613e1a4a7fc9
+  zh: 07ea3b1f254007d2
 /deepseek-ai-dsh-experimental-component-surface/the-deployment-s-own-data-page/what-the-user-is-asked:
   en: 74a3f35ffbc16d53
   zh: 5b5eb8115e1e744e
@@ -48,8 +54,8 @@
   en: 6eb102f612ec5fe3
   zh: c868b177759d26a6
 /deepseek-ai-dsh-experimental-component-surface/the-catalog:
-  en: ed36048e049fe36a
-  zh: ac68d08a5648e48a
+  en: 36cecf8dd27b8f71
+  zh: cb73b41ae2b7888d
 /deepseek-ai-dsh-experimental-component-surface/what-a-call-is-judged-against:
   en: 2ae6d267bb9e7cbe
   zh: 7c5e1ab5d961f115
@@ -63,8 +69,8 @@
   en: 9a81b75369f2d129
   zh: 44a98ce1cbbf337a
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back:
-  en: 85b3439fe80d21bc
-  zh: 8c4ed52516ce10c6
+  en: 30ec02df81543717
+  zh: 77f33537da202377
 /deepseek-ai-dsh-experimental-component-surface/what-comes-back/what-a-press-is-answered-with:
   en: f74cb3c80354c3cd
   zh: c4a1c6ad02357c45
@@ -102,8 +108,8 @@
   en: 4e85842058c8145d
   zh: 8fb09f2e4683136d
 /deepseek-ai-dsh-experimental-component-surface/model-experience/the-show-component-offer/kv-cache-effect:
-  en: 0e41bba7854d8174
-  zh: 5fe4125620dcf8f9
+  en: 7abc2c3533c10304
+  zh: ae96eae2a60b42c2
 /deepseek-ai-dsh-experimental-component-surface/model-experience/tool-call-result:
   en: 13fed9761967bce9
   zh: 9937e2a13f34f183
@@ -117,8 +123,8 @@
   en: e4850a739d8599af
   zh: 22a192c03b6f7b7b
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work:
-  en: 823fa742abc46480
-  zh: d2732bb1b572581e
+  en: 0594882062d46c61
+  zh: 0bad533dc2a7308c
 /deepseek-ai-dsh-experimental-component-surface/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

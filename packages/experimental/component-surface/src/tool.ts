@@ -13,8 +13,10 @@
  * column exactly as it was.
  *
  * A call that names a `dataSource` is the other half, and it exists only where
- * the deployment composed both a data backend and an approval answerer. It asks
- * the user once, reads the rows with that user's own credential, puts them in,
+ * the deployment composed both a data backend and an approval answerer. It
+ * reads nothing of a table the signed-in person may not read rows of, by the
+ * data backend's own rights judgement; otherwise it asks the user once, reads
+ * the rows with that user's own credential, puts them in,
  * and appends the filled result as `content-component/resolved` — because the
  * rows are not in the `tool/call` and there is nothing else for the column to
  * replay from. Anything that goes wrong after the question is asked leaves the
@@ -37,13 +39,13 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   BINDING_KEY,
   catalogLabels,
-  COMPONENT_CATALOG,
-  CRUD_ID,
-  crudNodes,
+  DATA_PAGE_ID,
+  DATA_PAGE_MODEL_PROP_NAMES,
+  dataPageNodes,
   describeCatalog,
   MATCH_OPERATOR_IDS,
   MAX_COLUMN_ALIAS_LENGTH,
-  MAX_CRUD_REPORTED_COLUMNS,
+  MAX_DATA_PAGE_REPORTED_COLUMNS,
   MAX_ENTRY_ID_LENGTH,
   MAX_FLEX,
   MAX_LAYOUT_DEPTH,
@@ -55,27 +57,30 @@ import {
   TABLE_ID,
   TOKEN_HINT,
   type ComponentCall,
+  type ComponentCatalog,
   type ComponentCatalogEntry,
   type ComponentNode,
 } from './component-call.ts'
 import {
-  crudApprovalReason,
-  crudBesideDataSource,
-  crudLoadedText,
-  crudNotOffered,
-  crudUnreportedText,
-  CRUD_NOT_APPROVED,
-  CRUD_NO_SESSION,
-  judgeCrudNodes,
+  dataPageApprovalReason,
+  dataPageBesideDataSource,
+  dataPageLoadedText,
+  dataPageNotOffered,
+  dataPageUnreportedText,
+  DATA_PAGE_NOT_APPROVED,
+  DATA_PAGE_NO_SESSION,
+  judgeDataPageNodes,
   type PendingLoads,
-} from './crud.ts'
+} from './data-page.ts'
 import {
   applyDataSourceRows,
   dataSourceApprovalReason,
   dataSourceEmpty,
   dataSourceNoDefaultColumns,
+  dataSourceNotReadable,
   dataSourceOversize,
   dataSourceRejected,
+  dataSourceRightsUnread,
   dataSourceSchemeAttribute,
   dataSourceUndrawable,
   dataSourceUnknownAttribute,
@@ -132,14 +137,14 @@ export interface ShowComponentOptions {
   /** Rows one read asks for when the call names no count of its own. */
   readonly defaultPageSize: number
   /**
-   * Whether a call may open the deployment's own data page (`toy.crud`) in
-   * the panel. False wherever the deployment composed no approval answerer,
+   * Whether a call may open the deployment's own data page (`toy.data-page`)
+   * in the panel. False wherever the deployment composed no approval answerer,
    * and the component is then absent from the description — a block nobody
    * can be asked about is one nobody may place.
    */
-  readonly crud: boolean
+  readonly dataPage: boolean
   /** How long a call waits for the opened page to report its columns before answering without them. */
-  readonly crudLoadTimeoutMs: number
+  readonly dataPageLoadTimeoutMs: number
 }
 
 /** What one table's read returned, as the model is told it and the log records it. */
@@ -209,28 +214,48 @@ function describeDataSource(defaultPageSize: number): string {
  * comes back, and no other tool.
  * @returns the paragraph.
  */
-function describeCrud(): string {
-  return `\n\nA ${CRUD_ID} block is this deployment's own full page for one table, opened in the panel with the `
-    + 'user\'s own credential. You choose the table (`relatedMeta`), its name in the user\'s language '
-    + '(`metaLabel`, which is what the user is shown when asked), optional `conditions` the page applies without '
-    + 'showing them, `matchMode`, one `querySort` direction, and `selectMode`; the page itself is read-only, and a '
+function describeDataPage(): string {
+  return `\n\nA ${DATA_PAGE_ID} block is this deployment's own full page for one table, opened in the panel with the `
+    + `user's own credential. You choose ${DATA_PAGE_MODEL_PROP_NAMES.join(', ')} — the table, its name in the user's `
+    + 'language (which is what the user is shown when asked), optional conditions the page applies without showing '
+    + 'them, how they join, one sort direction, whether rows can be ticked, whether the first query runs on its own, '
+    + 'and any row operations you want pressable. How the page is arranged and whether it can be written in are '
+    + 'settled where the page was written down, so a page you place opens read-only with its own arrangement, and a '
     + 'call opens one page. The user is asked once before it opens, and a refused question draws nothing. What comes '
-    + `back to you is the page's first ${MAX_CRUD_REPORTED_COLUMNS} columns once it has loaded — in the result line `
-    + 'when the page loads in time, as a notice otherwise — then each query\'s row count and the row and column of a '
-    + 'cell the user clicks; the rows themselves stay in the panel.'
+    + `back to you is the page's first ${MAX_DATA_PAGE_REPORTED_COLUMNS} columns once it has loaded — in the result `
+    + 'line when the page loads in time, as a notice otherwise — then each query\'s row count, the rows the user '
+    + 'ticks, the cell they click, the side card they open and any row operation they press; the rows themselves stay '
+    + 'in the panel.'
+}
+
+/**
+ * The components one composition registers and will not place.
+ *
+ * The data page needs a question answered before it opens, so a composition
+ * that cannot ask leaves it out of the list a model reads — the same rule the
+ * `dataSource` parameter follows, applied to a component. The one home of that
+ * rule: the tool's description reads it through {@link offeredEntries}, and the
+ * catalog registry is installed with it so everything else asking what this
+ * deployment can draw gets the same answer.
+ * @param options - what this composition offers.
+ * @returns the withheld catalog ids, empty for a composition that offers every registered component.
+ */
+export function withheldComponents(options: ShowComponentOptions): readonly string[] {
+  return options.dataPage ? [] : [DATA_PAGE_ID]
 }
 
 /**
  * The components one composition offers.
- *
- * The data page needs a question answered before it opens, so a composition
- * that cannot ask leaves it out of the list a model reads — the same rule the
- * `dataSource` parameter follows, applied to a component.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
- * @returns the catalog with the components this composition cannot honour left out.
+ * @returns the registered components with the ones this composition cannot honour left out.
  */
-function offeredCatalog(options: ShowComponentOptions): readonly ComponentCatalogEntry[] {
-  return options.crud ? COMPONENT_CATALOG : COMPONENT_CATALOG.filter(entry => entry.id !== CRUD_ID)
+export function offeredEntries(
+  catalog: ComponentCatalog,
+  options: ShowComponentOptions,
+): readonly ComponentCatalogEntry[] {
+  const withheld = new Set(withheldComponents(options))
+  return catalog.entries.filter(entry => !withheld.has(entry.id))
 }
 
 /**
@@ -249,14 +274,15 @@ function offeredCatalog(options: ShowComponentOptions): readonly ComponentCatalo
  * read from another. Which values can be read is not in the paragraph — it is
  * the `outputs:` line of the component that reports them, beside the properties
  * that accept them.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @returns the complete description.
  */
-export function describeShowComponent(options: ShowComponentOptions): string {
+export function describeShowComponent(catalog: ComponentCatalog, options: ShowComponentOptions): string {
   return 'Put a block of interface in the content panel beside the conversation — the area the user sees '
     + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
     + 'while you talk about it.\n\nComponents:\n'
-    + describeCatalog(offeredCatalog(options))
+    + describeCatalog(offeredEntries(catalog, options))
     + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
     + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
     + 'display, reuse that entry\'s id.\n\n'
@@ -279,16 +305,17 @@ export function describeShowComponent(options: ShowComponentOptions): string {
     + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
     + 'question with.'
     + (options.dataSource ? describeDataSource(options.defaultPageSize) : '')
-    + (options.crud ? describeCrud() : '')
+    + (options.dataPage ? describeDataPage() : '')
 }
 
 /**
  * The sentence an accepted call answers with.
+ * @param catalog - every component registered into this deployment.
  * @param call - the call as validation accepted it.
  * @returns the sentence.
  */
-function acceptedText(call: ComponentCall): string {
-  return `Now showing "${call.title}" in the content panel: ${catalogLabels(call.spec.nodes)}. `
+function acceptedText(catalog: ComponentCatalog, call: ComponentCall): string {
+  return `Now showing "${call.title}" in the content panel: ${catalogLabels(catalog, call.spec.nodes)}. `
     + `Call ${SHOW_COMPONENT_TOOL_NAME} with id "${call.id}" again to replace it; `
     + 'a different id adds a second entry beside it.'
 }
@@ -370,6 +397,56 @@ function failureText(meta: string, failure: BizBackendFailure): string {
 }
 
 /**
+ * Say why the signed-in person's permissions could not be read.
+ * @param failure - the classified failure of the permissions read.
+ * @returns the model-facing sentence.
+ */
+function rightsFailureText(failure: BizBackendFailure): string {
+  switch (failure.kind) {
+    case 'unauthenticated': return DATA_SOURCE_UNAUTHENTICATED
+    case 'refused': return dataSourceRightsUnread(`HTTP ${String(failure.status)}`)
+    case 'rejected': {
+      const coded = failure.code === undefined ? '' : `, code ${String(failure.code)}`
+      const said = failure.message === undefined ? '' : `: ${failure.message}`
+      return dataSourceRightsUnread(`HTTP ${String(failure.status)}${coded}${said}`)
+    }
+    case 'unreachable': return dataSourceRightsUnread(failure.detail)
+    /* v8 ignore start -- BizBackendFailure is closed and every member returns above. */
+    default: {
+      const unhandled: never = failure
+      throw new Error(`component-surface: unhandled permissions failure ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
+}
+
+/**
+ * Refuse every table of one call the signed-in person may not read rows of.
+ *
+ * One read of that person's permissions, judged by the data backend's own rule
+ * table, so this row keeps no copy of the rules. Reading a table's dictionary
+ * and its default columns is reading its description, and reading its rows is
+ * reading it, so a table needs both. A permissions read that fails refuses the
+ * whole call: nothing is read on a guess.
+ * @param ctx - the injected context carrying the data backend.
+ * @param targets - the resolved reads, in the order they were written.
+ * @param signal - the execution's own cancellation.
+ * @returns the sentence to refuse with, or `undefined` when every table may be read.
+ */
+async function refuseUnreadable(
+  ctx: Context,
+  targets: readonly DataSourceTarget[],
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const rights = await ctx.bizBackend.userRights(signal)
+  if ('kind' in rights) return rightsFailureText(rights)
+  const permissions = ctx.bizBackend.judge(rights)
+  const barred = targets.find(({ block }) =>
+    !permissions.may(block.meta, 'metadata_read') || !permissions.may(block.meta, 'read'))
+  return barred === undefined ? undefined : dataSourceNotReadable(barred.block.meta)
+}
+
+/**
  * Whether one answer is a failure rather than what was asked for.
  * @param answer - what the seam returned.
  * @returns true when it is a classified failure.
@@ -440,9 +517,9 @@ function checkColumns(
 /**
  * Settle what one block reads, where the call left its columns to the table.
  *
- * After the question, like every other request this row makes: the scheme is
- * read with the visitor's credential, and the credential is not spent before
- * the user has answered. The card such a block is asked about therefore names
+ * After the question, like every read of a table this row makes: the scheme is
+ * read with the visitor's credential, and nothing of a table is requested
+ * before the user has answered. The card such a block is asked about therefore names
  * no column — nothing has been requested when it is drawn.
  * @param ctx - the injected context carrying the data backend.
  * @param target - the resolved read.
@@ -582,11 +659,14 @@ async function readAll(
  * Run one call that names a data source.
  *
  * The order is the whole design: everything judgeable without spending anything
- * is judged first, then the user is asked, then the credential is spent — on
- * the dictionary, on the default columns of a block that named none, and on the
- * rows — then the filled result is judged again by the pass a hand-written call
- * gets. Nothing is appended and nothing is drawn unless that last pass accepts.
+ * is judged first, then the signed-in person's own permissions are read and
+ * every table they may not read is refused, then the user is asked, then the
+ * credential is spent on the tables — on the dictionary, on the default columns
+ * of a block that named none, and on the rows — then the filled result is
+ * judged again by the pass a hand-written call gets. Nothing is appended and
+ * nothing is drawn unless that last pass accepts.
  * @param ctx - the injected context carrying the data backend and the approval service.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param args - the call's arguments, however malformed.
  * @param written - the `dataSource` argument, however malformed.
@@ -596,6 +676,7 @@ async function readAll(
  */
 async function runDataSource(
   ctx: Context,
+  catalog: ComponentCatalog,
   options: ShowComponentOptions,
   args: { readonly id?: unknown; readonly title?: unknown; readonly spec?: unknown },
   written: unknown,
@@ -609,7 +690,7 @@ async function runDataSource(
   // in each table it wants read: everything a call can be refused for that the
   // rows have no part in is settled here, in one judgement rather than a list
   // of ceilings restated beside the read.
-  const judged = validateComponentCall({
+  const judged = validateComponentCall(catalog, {
     id: args.id,
     title: args.title,
     spec: probeDataSourceSpec(args.spec, resolved.nodes, resolved.targets),
@@ -619,8 +700,8 @@ async function runDataSource(
   // deployment that does not offer the page refuses it by name instead, because
   // that is the reason this call cannot open one, and telling the model to move
   // it into a call of its own would send it to write a call refused the same way.
-  if (crudNodes(judged.call.spec).length > 0) {
-    throw new Error((options.crud ? crudBesideDataSource(judged.call.spec) : crudNotOffered(judged.call.spec)).text)
+  if (dataPageNodes(judged.call.spec).length > 0) {
+    throw new Error((options.dataPage ? dataPageBesideDataSource(judged.call.spec) : dataPageNotOffered(catalog, judged.call.spec)).text)
   }
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
@@ -630,6 +711,11 @@ async function runDataSource(
   // slot spends nothing, and a person who allows a read this process cannot
   // perform has answered for nothing.
   if (!ctx.bizBackend.holdsCredential()) throw new Error(DATA_SOURCE_UNAUTHENTICATED)
+  // Before the question for the same reason: a person is never asked to allow a
+  // read of a table the deployment's rules would not let them read. The
+  // permissions read is of their own rights, and requests nothing of a table.
+  const barred = await refuseUnreadable(ctx, resolved.targets, exec.signal)
+  if (barred !== undefined) throw new Error(barred)
   const outcome = await ctx.approval.request({
     agent,
     toolName: SHOW_COMPONENT_TOOL_NAME,
@@ -649,7 +735,7 @@ async function runDataSource(
   if (bytes > MAX_SPEC_BYTES) {
     throw new Error(dataSourceOversize(first.meta, summaries.reduce((count, summary) => count + summary.rows, 0), bytes))
   }
-  const result = validateComponentCall({ id: args.id, title: args.title, spec })
+  const result = validateComponentCall(catalog, { id: args.id, title: args.title, spec })
   if (!result.ok) {
     const { failure } = result
     throw new Error(dataSourceUndrawable(first.meta, failure.text.slice(failure.text.indexOf(failure.path))))
@@ -667,7 +753,7 @@ async function runDataSource(
       columns: [...summary.columns],
     })),
   })
-  return { entryId: result.call.id, text: acceptedText(result.call) + fetchedText(summaries) }
+  return { entryId: result.call.id, text: acceptedText(catalog, result.call) + fetchedText(summaries) }
 }
 
 /**
@@ -681,6 +767,7 @@ async function runDataSource(
  * to report its columns. Nothing is requested of any backend from here: the
  * page reads its table from the browser with the user's own credential.
  * @param ctx - the injected context carrying the approval service.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param call - the call, as validation accepted it.
  * @param page - the one data page block the call places.
@@ -689,8 +776,9 @@ async function runDataSource(
  * @returns the accepted outcome.
  * @throws {Error} carrying the one model-facing sentence for whatever stopped the page.
  */
-async function runCrud(
+async function runDataPage(
   ctx: Context,
+  catalog: ComponentCatalog,
   options: ShowComponentOptions,
   call: ComponentCall,
   page: ComponentNode,
@@ -700,15 +788,15 @@ async function runCrud(
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
   // nowhere to record what was allowed.
-  if (agent === undefined) throw new Error(CRUD_NO_SESSION)
+  if (agent === undefined) throw new Error(DATA_PAGE_NO_SESSION)
   const outcome = await ctx.approval.request({
     agent,
     toolName: SHOW_COMPONENT_TOOL_NAME,
     callId: exec.callId,
-    reason: crudApprovalReason(page),
+    reason: dataPageApprovalReason(page),
     signal: exec.signal,
   })
-  if (outcome !== 'allowed-once') throw new Error(CRUD_NOT_APPROVED)
+  if (outcome !== 'allowed-once') throw new Error(DATA_PAGE_NOT_APPROVED)
   // The same record a read appends, with nothing fetched: the host read
   // nothing, and what the column needs is the spec the user agreed to.
   agent.session.append('content-component/resolved', {
@@ -718,22 +806,36 @@ async function runCrud(
     spec: call.spec,
     fetched: [],
   })
-  const report = await pending.settle(agent.session, call.id, options.crudLoadTimeoutMs, exec.signal)
-  const loaded = report === undefined ? crudUnreportedText(page, options.crudLoadTimeoutMs) : crudLoadedText(page, report)
-  return { entryId: call.id, text: acceptedText(call) + loaded }
+  const report = await pending.settle(agent.session, call.id, options.dataPageLoadTimeoutMs, exec.signal)
+  const loaded = report === undefined
+    ? dataPageUnreportedText(page, options.dataPageLoadTimeoutMs)
+    : dataPageLoadedText(page, report)
+  return { entryId: call.id, text: acceptedText(catalog, call) + loaded }
 }
 
 /**
  * Build the `show_component` tool.
+ *
+ * The catalog is the one in force when the tool is registered rather than a
+ * live read: the description is model-visible and the request header records
+ * it, so a catalog change re-registers the tool and the changed description
+ * reaches the log as a new header rather than silently replacing the one the
+ * model was already given.
  * @param ctx - the context the tool is registered on, carrying the data backend and the approval service wherever the offer includes them.
+ * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
  * @param pending - the table a call opening a data page waits on for that page's report.
  * @returns the definition to hand to `ctx.tools.register`.
  */
-export function showComponentTool(ctx: Context, options: ShowComponentOptions, pending: PendingLoads): ToolDefinition {
+export function showComponentTool(
+  ctx: Context,
+  catalog: ComponentCatalog,
+  options: ShowComponentOptions,
+  pending: PendingLoads,
+): ToolDefinition {
   return defineTool({
     name: SHOW_COMPONENT_TOOL_NAME,
-    description: describeShowComponent(options),
+    description: describeShowComponent(catalog, options),
     parameters: {
       id: {
         type: 'string',
@@ -782,16 +884,16 @@ export function showComponentTool(ctx: Context, options: ShowComponentOptions, p
     },
     execute(args, exec): Promise<ShowComponentValue> {
       const written: unknown = (args as { dataSource?: unknown }).dataSource
-      if (options.dataSource && written !== undefined) return runDataSource(ctx, options, args, written, exec)
-      const result = validateComponentCall(args)
+      if (options.dataSource && written !== undefined) return runDataSource(ctx, catalog, options, args, written, exec)
+      const result = validateComponentCall(catalog, args)
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
-      const page = crudNodes(result.call.spec)[0]
-      if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(result.call) })
-      const refusal = judgeCrudNodes(result.call.spec, options.crud)
+      const page = dataPageNodes(result.call.spec)[0]
+      if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(catalog, result.call) })
+      const refusal = judgeDataPageNodes(catalog, result.call.spec, options.dataPage, false)
       if (refusal !== undefined) throw new Error(refusal.text)
-      return runCrud(ctx, options, result.call, page, exec, pending)
+      return runDataPage(ctx, catalog, options, result.call, page, exec, pending)
     },
     presentCall: (args): GenericCallView => ({
       card: 'generic',

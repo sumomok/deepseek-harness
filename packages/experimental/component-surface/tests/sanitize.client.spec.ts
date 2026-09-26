@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  catalogId,
   catalogEntry,
   CONFIRM_BAR_ID,
   METRIC_ID,
@@ -19,10 +20,11 @@ import {
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 import { sanitizeNodeProps } from '../src/sanitize.ts'
+import { KIT_CATALOG } from './kit-catalog.client.ts'
 
 /** A component declaring one of every schema shape, and one of every tightened reading. */
 const PROBE: ComponentCatalogEntry = {
-  id: 'toy.probe',
+  id: catalogId('toy.probe'),
   label: '探针',
   purpose: 'Sanitized, never placed.',
   propsSchema: {
@@ -93,7 +95,7 @@ function sanitized(props: Record<string, unknown>): Readonly<Record<string, unkn
 
 describe('a component declaring no tightened reading', () => {
   it.each([CONFIRM_BAR_ID, RECORD_DETAIL_ID])('leaves every property of %s as validation accepted it', (id) => {
-    const component = catalogEntry(id)
+    const component = catalogEntry(KIT_CATALOG, id)
     if (component === undefined) throw new Error(`the catalog no longer carries ${id}`)
     const props = id === CONFIRM_BAR_ID
       ? { title: '本月预算', message: '同意后立即生效。', buttons: [{ id: 'ok', label: '确认', tone: 'primary' }] }
@@ -105,7 +107,7 @@ describe('a component declaring no tightened reading', () => {
 describe('the components that do declare one', () => {
   /** One catalog entry's properties after the pass. */
   function realBlock(id: string, props: Record<string, unknown>): Readonly<Record<string, unknown>> {
-    const component = catalogEntry(id)
+    const component = catalogEntry(KIT_CATALOG, id)
     if (component === undefined) throw new Error(`the catalog no longer carries ${id}`)
     return sanitizeNodeProps(component, props)
   }

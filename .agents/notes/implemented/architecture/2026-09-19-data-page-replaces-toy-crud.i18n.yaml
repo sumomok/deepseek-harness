@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-09-19-data-page-replaces-toy-crud.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-data-page-replaces-toy-crud.md
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged:
+  en: 6069ddd2e84f0204
+  zh: 039bd3277973e429
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/problem:
+  en: e772cfbc1740ff1d
+  zh: 88854eace5151487
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/decision:
+  en: b5311a3b046a5d29
+  zh: 420ceadc29fc11bd
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/the-decision-gate:
+  en: 5ff3bf12b8db9a6f
+  zh: 20d56ff1a8c73982
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/the-decision-gate/boundaries:
+  en: e56be610287e2b94
+  zh: 82b172104a40f0b7
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/testing:
+  en: 48aa890ed4a3b852
+  zh: f8d89144bc7894b6
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/alternatives-considered:
+  en: 9cb91b4daa4cecda
+  zh: 6bfb761ee0288f98
+/agent-note-the-data-page-replaces-the-read-only-block-and-a-view-file-is-where-it-is-arranged/consequences:
+  en: c105db45dad536b0
+  zh: d93db87d3b708e89

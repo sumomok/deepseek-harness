@@ -9,16 +9,14 @@
  * composition without the column never declares the slot, and this row must
  * then simply not install rather than fail.
  *
- * The renderer table is a value import across packages, which the client bundle
- * purity gate allows only for a declared module request: the manifest's
- * `dsh.client.external` names the component row's `/client` specifier, and the
- * loader answers the require from that row's own materialized bundle. The
- * modules node half orders the component row ahead of this one.
- *
- * The seat's copy comes from that row's dictionary too — `componentKit` is
- * named at this registration rather than duplicated here, because which
- * components exist is the row's fact and the sentence shown in place of one it
- * does not have belongs with the components.
+ * What the seat draws with is `ctx.componentRenderers`, the browser half of the
+ * catalog seam this row installs here: a component plugin's browser half
+ * registers its definitions and its renderers into it, and a page with none
+ * loaded draws its own "nothing here can draw this block" line rather than
+ * failing to build. That line and the two beside it are this row's copy, in its
+ * own `contentComponent` namespace, because which components exist is a
+ * deployment's runtime fact and the sentence shown in place of a missing one
+ * belongs to whoever does the lookup and misses.
  *
  * This half reads no configuration and serves no route: what it draws is the
  * `contentSurface` and `componentActions` projections the host half contributes
@@ -53,25 +51,49 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { NS } from '@deepseek-ai/dsh-experimental-component-kit/client'
 import { postAction, type PendingPresses } from './action.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
+import { en, NS, zh } from './locales.ts'
+import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow } from './ViewCommandRow.tsx'
 
+export { COMPONENT_KIT_ENTRIES } from '../component-call.ts'
+export { NS } from './locales.ts'
+export { ComponentRendererRegistry } from './registry.ts'
+export type { ContentComponentKey } from './locales.ts'
+export type {
+  BrowserComponent,
+  BrowserContribution,
+  ComponentRendererTable,
+  RegisteredRenderer,
+} from './registry.ts'
+export type {
+  ComponentActionHandler,
+  ComponentActionPayload,
+  ComponentActionState,
+  ComponentOutputHandler,
+  ComponentRenderer,
+  ComponentRendererProps,
+} from './renderer.ts'
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
+export type { ViewCommandRowProps } from './ViewCommandRow.tsx'
 
 /**
- * Required services: the slot registry, the locale registry the component row's
- * dictionary lands in — this seat translates through that dictionary and has
- * none of its own — and remote commands, which is how a gesture inside a block
- * reaches the session.
+ * Required services: the slot registry, the locale registry this row's own
+ * dictionary lands in, and remote commands, which is how a gesture inside a
+ * block reaches the session.
  */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
 
 /**
- * Client plugin body: claim the column's `component` kind, and take over both
- * of this package's commands' chat rows.
+ * Client plugin body: install the renderer registry, register this row's
+ * dictionaries, claim the column's `component` kind, and take over both of this
+ * package's commands' chat rows.
+ *
+ * The registry is installed here and the component plugins that fill it wait
+ * for it through `ctx.inject`, so composition order between this row and any
+ * component row is free.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -79,18 +101,27 @@ export function apply(ctx: ClientContext): void {
   // presses whose records have not come back, and every seat this registration
   // ever mounts reads and writes the same ones.
   const pending: PendingPresses = new Map()
-  ctx.slots.inject('content.surface.kind', () => ctx.slots.register({
-    name: 'content.surface.kind',
-    // The literal, not this package's `COMPONENT_KIND`: the client-slot catalog
-    // generator reads keyed registrations by static string, and an identifier
-    // here drops this row's key from the generated catalog.
-    key: 'component',
-    locale: NS,
-    inject: (): ComponentSurfaceInjected => ({
-      onAction: (sessionId, action) => postAction(ctx, sessionId, action),
-      pending,
-    }),
-  }, ComponentSurface))
+  ctx.plugin(ComponentRendererRegistry)
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'show-component: dictionaries')
+  ctx.inject(['componentRenderers'], (seatCtx) => {
+    seatCtx.slots.inject('content.surface.kind', () => seatCtx.slots.register({
+      name: 'content.surface.kind',
+      // The literal, not this package's `COMPONENT_KIND`: the client-slot catalog
+      // generator reads keyed registrations by static string, and an identifier
+      // here drops this row's key from the generated catalog.
+      key: 'component',
+      locale: NS,
+      inject: (): ComponentSurfaceInjected => ({
+        onAction: (sessionId, action) => postAction(seatCtx, sessionId, action),
+        pending,
+        // The live registry rather than a snapshot of it: a component row loaded
+        // after this seat mounted is drawable at the next render, and one
+        // disposed stops being drawn rather than leaving the seat holding a
+        // renderer nothing registered.
+        components: seatCtx.componentRenderers,
+      }),
+    }, ComponentSurface))
+  })
   ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
     name: 'conversation.chat.commandview',
     // The literal, not this package's own `COMPONENT_ACTION_COMMAND`, for the

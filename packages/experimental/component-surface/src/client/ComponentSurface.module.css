@@ -21,12 +21,20 @@
 /* Scrolls rather than compresses: a block sizes itself to its content, and the
    column's height is solved by the shell rather than by what the call placed.
    How the blocks inside are arranged is the spec's `layout`, drawn by
-   `StackLayout`; this element is only the viewport it scrolls in. */
+   `StackLayout`; this element is only the viewport it scrolls in.
+
+   A flex column with one child, so the arrangement inside it can be told how
+   tall the viewport is: a block that draws a whole page of its own needs a
+   height to resolve its own percentages against, and a viewport whose child is
+   always content-sized can never give it one. What the child does with that is
+   the arrangement's (`StackLayout.module.css`). */
 .stack {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .notice {

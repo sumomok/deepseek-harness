@@ -26,7 +26,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
 import { actionMemory, componentActionCommand, deliverAction } from '../src/command.ts'
-import { PendingLoads } from '../src/crud.ts'
+import { PendingLoads } from '../src/data-page.ts'
 import {
   catalogAction,
   catalogEntry,
@@ -53,6 +53,7 @@ import {
   type ComponentAction,
 } from '../src/component-call.ts'
 import * as ShowComponent from '../src/index.ts'
+import { installKitCatalog, KIT_CATALOG } from './kit-catalog.client.ts'
 
 const contexts: Context[] = []
 
@@ -117,6 +118,7 @@ async function setup(ghost?: { data: unknown }): Promise<Context> {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(ContentSurfaceRegistry)
   await ctx.plugin(ShowComponent)
+  await installKitCatalog(ctx)
   if (ghost !== undefined) {
     // A second extractor claiming one kind is composable — the package's own
     // invariant companion exists for exactly this — and it is the reachable
@@ -230,13 +232,13 @@ describe('the action document', () => {
 
 describe('the catalog of actions', () => {
   it('declares the press the confirmation bar reports, and nothing else', () => {
-    const bar = catalogEntry(CONFIRM_BAR_ID)
+    const bar = catalogEntry(KIT_CATALOG, CONFIRM_BAR_ID)
     expect(bar?.actions.map(action => [action.id, action.report])).toEqual([[CONFIRM_BAR_PRESS_ID, 'wake']])
     expect(Object.keys(bar?.actions[0]?.payloadSchema ?? {})).toEqual(['buttonId'])
   })
 
   it('knows no action a component does not declare', () => {
-    const bar = catalogEntry(CONFIRM_BAR_ID)
+    const bar = catalogEntry(KIT_CATALOG, CONFIRM_BAR_ID)
     expect(bar !== undefined && catalogAction(bar, 'submit')).toBeUndefined()
   })
 })
@@ -417,6 +419,7 @@ describe('the /component-action command', () => {
     const bare = new Context()
     contexts.push(bare)
     await bare.plugin(SessionProjectionRegistry)
+    await installKitCatalog(bare)
     const standalone = componentActionCommand(bare, actionMemory(), new PendingLoads())
 
     expect(standalone.handler({

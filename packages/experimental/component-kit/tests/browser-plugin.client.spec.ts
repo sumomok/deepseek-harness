@@ -2,7 +2,8 @@
 /**
  * component-kit plugin halves: the browser entry's dictionary registration
  * against the real locale plugin (with fiber teardown proving removal — HMR
- * safety), the renderer table it publishes, and the inert node entry.
+ * safety) and the components it contributes to a placement row's browser
+ * registry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -10,10 +11,11 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import { apply, COMPONENT_RENDERERS, inject } from '../src/client/index.ts'
-import { apply as applyNode } from '../src/index.ts'
+import { ComponentRendererRegistry } from '@deepseek-ai/dsh-experimental-component-surface/client'
+import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
+import { apply, componentKitRenderers, inject } from '../src/client/index.ts'
 import { ConfirmBar } from '../src/client/ConfirmBar.tsx'
-import { CrudRenderer } from '../src/client/CrudRenderer.tsx'
+import { DataPageRenderer } from '../src/client/DataPageRenderer.tsx'
 import { COMPONENT_KIT_SETTINGS_ROUTE } from '../src/route.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { TcProcessBallRenderer } from '../src/client/TcProcessBallRenderer.tsx'
@@ -47,6 +49,9 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   // These specs assert the shipped Chinese copy; state the asserted locale
   // rather than resting on the environment's detected one.
   ctx.locale.setLocale('zh')
+  // The placement row's browser registry: this row contributes into it and does
+  // not own it, so the bench stands in for that row and nothing else of it.
+  await ctx.plugin(ComponentRendererRegistry).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber }
@@ -73,31 +78,44 @@ describe('component-kit browser half', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
-  it('publishes every component under the catalog id a block names', () => {
-    expect(COMPONENT_RENDERERS).toEqual({
-      'el.confirm-bar': ConfirmBar,
-      'el.filter-bar': TuQueryCondAdvRenderer,
-      'el.metric': TcProcessBallRenderer,
-      'toy.crud': CrudRenderer,
-      'toy.record': TcFormDetailRenderer,
-      'toy.table': TableDetailRenderer,
-    })
+  it('pairs every definition it registers with the renderer that draws it', () => {
+    expect(componentKitRenderers().map(one => [one.entry.id, one.render])).toEqual([
+      ['el.confirm-bar', ConfirmBar],
+      ['toy.record', TcFormDetailRenderer],
+      ['toy.table', TableDetailRenderer],
+      ['el.filter-bar', TuQueryCondAdvRenderer],
+      ['el.metric', TcProcessBallRenderer],
+      ['toy.data-page', DataPageRenderer],
+    ])
+  })
+
+  it('refuses to contribute a definition nothing in the table draws', () => {
+    expect(() => componentKitRenderers({ 'el.confirm-bar': ConfirmBar }))
+      .toThrow('component-kit: no renderer draws toy.record')
+  })
+
+  it('registers its components into the placement row\'s registry and releases them with the fiber', async () => {
+    const { ctx, fiber } = await bench()
+    expect(ctx.componentRenderers.catalog.entries.map(entry => entry.id))
+      .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id))
+    expect(ctx.componentRenderers.rendererFor('el.confirm-bar')?.render).toBe(ConfirmBar)
+
+    await fiber.dispose()
+    expect(ctx.componentRenderers.catalog.entries).toEqual([])
+    expect(ctx.componentRenderers.rendererFor('el.confirm-bar')).toBeUndefined()
+  })
+
+  it('hands its renderers a translate reading its own dictionary', async () => {
+    const { ctx } = await bench()
+    const registered = ctx.componentRenderers.rendererFor('el.confirm-bar')
+    expect(registered?.t('confirmBar.actions')).toBe(zh['confirmBar.actions'])
+    ctx.locale.setLocale('en')
+    expect(registered?.t('confirmBar.actions')).toBe(en['confirmBar.actions'])
   })
 
   it('starts the one read of the node half\'s settings when it starts, once for the page', async () => {
     await bench()
     await bench()
     expect(settingsReads).toEqual([COMPONENT_KIT_SETTINGS_ROUTE])
-  })
-})
-
-describe('component-kit node half', () => {
-  it('claims no service and serves nothing without a webserver', () => {
-    // The node half's one contribution is a settings route, and it waits for
-    // the webserver rather than requiring it; the route itself is exercised in
-    // `host-settings.client.spec.ts`.
-    const ctx = new Context()
-    expect(() => { applyNode(ctx, {}) }).not.toThrow()
-    expect(ctx.get('webServer')).toBeUndefined()
   })
 })

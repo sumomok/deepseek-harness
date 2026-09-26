@@ -92,6 +92,35 @@
 - id: session-log-download
   disabled: true
 
+# Settings → Plugins, both halves. `ui-settings-plugins` owns the one Plugins
+# navigation entry, the `configurable` tab inside it, and the four cards that
+# tab ships (shell, agent loop, subagent model selection, web search);
+# `ui-settings-plugin-inventory` contributes the read-only Loader inventory as
+# a second tab in the same section. Neither registers anything outside that
+# section, so disabling both rows removes the section and nothing else.
+#
+# A console end user administers no plugins: what this deployment runs is the
+# composition it was delivered with, and every card in that tab names a
+# host-plane subsystem in vendor vocabulary. The inventory tab is the plainer
+# case — it lists Cordis rows by package name.
+#
+# With `ui-settings-plugins` gone the `settings.plugins.tab` slot is never
+# declared, so the inventory row's `ctx.slots.inject('settings.plugins.tab', …)`
+# would simply never fire; the row is disabled as well rather than left to wait,
+# because a composition carrying a plugin whose only contribution can never
+# land is a composition that misstates what it runs.
+#
+# `subagent-model-selection-settings` (the web bundle's host row) stays: it is
+# the settings namespace that tab edited, not the tab, and the preset
+# delegation path still samples it.
+- id: ui-settings-plugins
+  name: '@deepseek-ai/dsh-client-ui-settings-plugins'
+  disabled: true
+
+- id: ui-settings-plugin-inventory
+  name: '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'
+  disabled: true
+
 # The internal-testing notice ("内测声明") is `ui-settings-models`'s own
 # `settings.onboarding` step, shown once per acknowledgement version; the same
 # package registers the Models settings section and the DeepSeek credential
@@ -147,6 +176,50 @@
 # MODULE_NOT_FOUND while the row loads, and the boot fails. The quiet failure is
 # the other one — a resolvable package whose `skills/` is missing or empty mounts
 # a root that lists nothing.
+# The MCP capability, mounted with no server. This row is what makes reaching
+# an external MCP server a deployment's decision rather than a build's: the
+# console always carries the capability, and a deployment adds servers by
+# writing them into this row's `servers` list — an endpoint and the NAME of a
+# credential, never a value, never a package.
+#
+# An empty list is the ordinary state, and it is not idle-by-accident: the row
+# loads, opens no connection, registers no tool, and adds nothing to any model
+# request. A deployment that reaches one server replaces the list here:
+#
+#     config:
+#       servers:
+#         - id: iot
+#           url: https://mcp.example.internal/mcp
+#           auth:
+#             header: Authorization
+#             credential: IOT_MCP_TOKEN
+#             scheme: 'Bearer '
+#
+# `credential` is a reference the credentials seam resolves — an
+# environment-variable name, resolved from `$DSH_HOME/.credentials.yaml`, the
+# process environment, or a `.env` file, whichever the composed provider reads.
+# The value never appears in this file, and a reference nothing has stored a
+# value for fails this row at load naming the reference, rather than producing
+# a server whose every tool call is refused.
+#
+# `id` is the tool namespace: that server's tools reach the model as
+# `mcp__iot__<tool name>`. Two rows claiming one id fail at load.
+#
+# Only Streamable HTTP endpoints are offered here. A stdio server is a local
+# program the host would start outside every sandbox this product applies, and
+# a console deployment does not make that decision through this row.
+#
+# A server reached under THIS deployment's signed-in visitor rather than under a
+# service credential points its `url` at the auth-gate forward instead
+# (`mcpUpstreams` on the `auth-gate` row, and no `auth` here) — see that
+# package's README. The two differ in whose identity the write lands under, so
+# the choice belongs to whoever composes the deployment.
+- insert:
+    - id: console-mcp
+      name: '@deepseek-ai/dsh-experimental-console-mcp'
+      config:
+        servers: []
+
 - insert:
     - id: library-skills
       name: '@deepseek-ai/dsh-skill-filesystem'

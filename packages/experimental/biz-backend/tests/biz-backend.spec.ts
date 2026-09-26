@@ -12,13 +12,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
+  BIZ_OPERATIONS,
   BizBackendService,
+  BizOperationRules,
+  requireBizOperationRules,
+  type BizBackendFailure,
   type BizMetaResult,
+  type BizOperation,
+  type BizUserRights,
   type BizSearchRequest,
   type BizSearchResult,
   type CredentialDropReason,
   type HeldCredential,
 } from '../src/index.ts'
+
+/** The rule table a deployment that writes none gets. */
+const DEFAULT_RULES = BizOperationRules({})
 
 /** A JWT-shaped stand-in; nothing in this seam reads its claims. */
 const TOKEN = 'aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
@@ -119,7 +128,7 @@ function testCredential(initial: string | undefined): TestCredential {
  * @returns the service.
  */
 function backendWith(credential: HeldCredential): BizBackendService {
-  return new BizBackendService(new Context(), BIZ_UPSTREAM, credential)
+  return new BizBackendService(new Context(), BIZ_UPSTREAM, credential, DEFAULT_RULES)
 }
 
 /**
@@ -144,7 +153,7 @@ describe('data-backend read', () => {
     const ctx = new Context()
     await ctx.plugin({
       name: 'biz-backend-fixture',
-      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, testCredential(TOKEN)) },
+      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, testCredential(TOKEN), DEFAULT_RULES) },
     })
     expect(ctx.get('bizBackend')).toBeInstanceOf(BizBackendService)
     // The row that constructed it is the row that owns it: disposing that
@@ -460,7 +469,7 @@ describe('data-backend read', () => {
 })
 
 describe('auth-gate data-backend model description', () => {
-  it('reads both names of every attribute the model declares', async () => {
+  it('reads both names and the stored type of every attribute the model declares', async () => {
     serve(answer({
       code: 0,
       data: {
@@ -474,8 +483,8 @@ describe('auth-gate data-backend model description', () => {
     }))
     expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal())).toEqual({
       attributes: [
-        { attributeEnName: 'int_id', attributeCnName: '唯一标识' },
-        { attributeEnName: 'zh_label', attributeCnName: '名称' },
+        { attributeEnName: 'int_id', attributeCnName: '唯一标识', dataType: 'long' },
+        { attributeEnName: 'zh_label', attributeCnName: '名称', dataType: 'string' },
       ],
     })
     expect(seen[0]?.url).toBe(META_URL)
@@ -614,5 +623,431 @@ describe('auth-gate data-backend default query scheme', () => {
       .toEqual({ kind: 'unauthenticated' })
     expect(await backendWith(testCredential(TOKEN)).describeScheme('Space Layer', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: '"Space Layer" is not a resource model name, so nothing was requested' })
+  })
+})
+
+describe('the deployment\'s own catalog of resource models', () => {
+  it('asks for the stored resource kind and keeps only the fields this seam publishes', async () => {
+    serve(answer({
+      code: 0,
+      data: [{
+        resClassEnName: 'SpaceLayer',
+        resClassCnName: '空间图层',
+        classDiagramType: 'TRANSO',
+        classDiagramTypeCnName: '传输专业',
+        dsTableName: 'SPACE_LAYER',
+        parentClassEnName: 'ResBase',
+        remark: '图层配置',
+        resClassDescription: '更长的说明',
+        // Everything below arrives attached and is dropped at the read.
+        attributes: [{ attributeEnName: 'zh_label' }],
+        attributeObjMap: { zh_label: {} },
+        metaOperationMap: {},
+        metaSchemaMap: {},
+      }],
+    }))
+    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({
+      models: [{
+        resClassEnName: 'SpaceLayer',
+        resClassCnName: '空间图层',
+        classDiagramType: 'TRANSO',
+        classDiagramTypeCnName: '传输专业',
+        dsTableName: 'SPACE_LAYER',
+        parentClassEnName: 'ResBase',
+        remark: '图层配置',
+        resClassDescription: '更长的说明',
+      }],
+    })
+    expect(seen[0]?.url).toBe(
+      'https://biz.example/ini-server/nrms-schema-manage/api/meta/resclassname?resClassCnName=&resClassType=1')
+    expect(seen[0]?.init.method).toBe('GET')
+    expect(seen[0]?.init.headers).toEqual({
+      accept: 'application/json',
+      authorization: `Bearer ${TOKEN}`,
+      CertificationToken: `Bearer ${TOKEN}`,
+    })
+  })
+
+  it('leaves out an entry naming no model, and publishes an unnamed model with an empty shown name', async () => {
+    serve(answer({
+      code: 0,
+      data: [null, 'SpaceLayer', {}, { resClassEnName: '' }, { resClassEnName: 'SITE' }, { resClassEnName: 'CITY', resClassCnName: 7 }],
+    }))
+    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({
+      models: [{ resClassEnName: 'SITE', resClassCnName: '' }, { resClassEnName: 'CITY', resClassCnName: '' }],
+    })
+  })
+
+  it('reads a catalog of no models as an answer rather than as a failure', async () => {
+    serve(answer({ code: 0, data: [] }))
+    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({ models: [] })
+  })
+
+  it('answers unreachable when the payload is not a catalog at all', async () => {
+    const backend = backendWith(testCredential(TOKEN))
+    for (const data of [null, 'SpaceLayer', { models: [] }]) {
+      seen = []
+      serve(answer({ code: 0, data }))
+      expect(await backend.listModels(idleSignal()))
+        .toEqual({ kind: 'unreachable', detail: 'the answer listed no resource models' })
+    }
+  })
+
+  it('classifies its failures exactly as the model reads do', async () => {
+    const credential = testCredential(TOKEN)
+    serve(answer({ code: 0 }, 401))
+    expect(await backendWith(credential).listModels(idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(credential.dropped).toEqual(['refused-by-backend'])
+    expect(await backendWith(testCredential(undefined)).listModels(idleSignal())).toEqual({ kind: 'unauthenticated' })
+  })
+})
+
+describe('one model\'s stored default schemes', () => {
+  it('always names the model, and reads the forms and the table out of every scheme', async () => {
+    serve(answer({
+      code: 0,
+      data: [{
+        schemaType: 2,
+        form: [
+          { formType: 'base', formItems: [
+            { relatedMetaAttr: 'zh_label', alias: '名称', isRequired: '1', isEditable: true, isShow: '1' },
+            { relatedMetaAttr: 'state', relatedDict: [{ key: '1', value: '在用' }, { key: 0, value: '停用' }] },
+          ] },
+          { formType: 'extra', formItems: [{ relatedMetaAttr: 'city_id', relatedTrans: { relatedMeta: 'CITY' } }] },
+        ],
+        grid: { gridItems: [{ relatedMetaAttr: 'zh_label', isShow: '1' }] },
+      }],
+    }))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({
+      schemes: [{
+        schemaType: 2,
+        formItems: [
+          { relatedMetaAttr: 'zh_label', alias: '名称', isRequired: true, isEditable: true, isShow: true },
+          { relatedMetaAttr: 'state', relatedDict: [{ key: '1', value: '在用' }, { key: '0', value: '停用' }] },
+          { relatedMetaAttr: 'city_id', relatedMeta: 'CITY' },
+        ],
+        columns: [{ relatedMetaAttr: 'zh_label', isShow: true }],
+      }],
+    })
+    expect(seen[0]?.url).toBe('https://biz.example/ini-server/nrms-schema-manage/api/schema/schema'
+      + '?schemaType=&metaEnName=SpaceLayer&schemaName=&isDefault=1')
+  })
+
+  it('leaves out what it cannot read, from a scheme with no kind down to a value with no text', async () => {
+    serve(answer({
+      code: 0,
+      data: [
+        null,
+        'a scheme',
+        { form: [] },
+        { schemaType: '2' },
+        { schemaType: 3, form: 'base', grid: {} },
+        {
+          schemaType: 1,
+          form: [null, 'a group', { formItems: 'zh_label' }, { formItems: [
+            null,
+            { alias: '名称' },
+            { relatedMetaAttr: '' },
+            { relatedMetaAttr: 'zh_label', relatedDict: [null, { key: 'a' }, { value: '在用' }, { key: true, value: '停用' }] },
+            { relatedMetaAttr: 'city_id', relatedTrans: 'CITY' },
+            { relatedMetaAttr: 'state', relatedTrans: { relatedMeta: '' } },
+          ] }],
+          grid: 'gridItems',
+        },
+      ],
+    }))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({
+      schemes: [
+        { schemaType: 3, formItems: [], columns: [] },
+        {
+          schemaType: 1,
+          formItems: [{ relatedMetaAttr: 'zh_label' }, { relatedMetaAttr: 'city_id' }, { relatedMetaAttr: 'state' }],
+          columns: [],
+        },
+      ],
+    })
+  })
+
+  it('reads a model with no stored scheme as an answer rather than as a failure', async () => {
+    serve(answer({ code: 0, data: [] }))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({ schemes: [] })
+  })
+
+  it('answers unreachable when the payload is not a scheme list, and refuses a name that is not one segment', async () => {
+    serve(answer({ code: 0, data: { schemes: [] } }))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal()))
+      .toEqual({ kind: 'unreachable', detail: 'the answer listed no schemes' })
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes('../secret', idleSignal()))
+      .toEqual({ kind: 'unreachable', detail: '"../secret" is not a resource model name, so nothing was requested' })
+    expect(await backendWith(testCredential(undefined)).describeSchemes('SpaceLayer', idleSignal()))
+      .toEqual({ kind: 'unauthenticated' })
+    const credential = testCredential(TOKEN)
+    serve(answer({ code: 0 }, 401))
+    expect(await backendWith(credential).describeSchemes('SpaceLayer', idleSignal()))
+      .toEqual({ kind: 'refused', status: 401 })
+    expect(credential.dropped).toEqual(['refused-by-backend'])
+  })
+})
+
+describe('the signed-in person\'s own rights', () => {
+  it('reads the two rights tables and copies no part of the profile beside them', async () => {
+    serve(answer({
+      code: 0,
+      data: {
+        useraccount: 'zhangsan',
+        name: '张三',
+        empid: '10086',
+        mobile: '13900000000',
+        mail: 'zhangsan@example.com',
+        phoneNumber: '0531-00000000',
+        auth: {
+          resclass: [{
+            resclassenname: 'SpaceLayer',
+            search: true,
+            add: true,
+            update: null,
+            delete: null,
+            gridexp: '1',
+            columns: 'zh_label,layer_id',
+          }],
+          rows: [{ resourceName: 'city_id', resourceValue: '531,532' }],
+        },
+      },
+    }))
+    const rights = await backendWith(testCredential(TOKEN)).userRights(idleSignal())
+    expect(rights).toEqual({
+      resclass: [{ resclassenname: 'SpaceLayer', operations: ['add', 'gridexp', 'search'], columns: 'zh_label,layer_id' }],
+      rows: [{ resourceName: 'city_id', resourceValue: '531,532' }],
+    })
+    // The strongest available reading of "the profile never leaves this seam":
+    // none of the five personal fields appears anywhere in what was published.
+    const published = JSON.stringify(rights)
+    for (const personal of ['zhangsan', '张三', '10086', '13900000000', 'example.com', '0531']) {
+      expect(published).not.toContain(personal)
+    }
+    expect(seen[0]?.url).toBe('https://biz.example/ini-server/nrms-auth/api/auth/userinfo')
+    expect(seen[0]?.init.method).toBe('GET')
+  })
+
+  it('reads a row granting nothing, and leaves out a row naming no model or a narrowing missing a half', async () => {
+    serve(answer({
+      code: 0,
+      data: {
+        auth: {
+          resclass: [null, 'SpaceLayer', { search: true }, { resclassenname: 'SITE' }],
+          rows: [null, { resourceName: 'city_id' }, { resourceValue: '531' }, { resourceName: '', resourceValue: '531' }],
+        },
+      },
+    }))
+    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+      .toEqual({ resclass: [{ resclassenname: 'SITE', operations: [] }], rows: [] })
+  })
+
+  it('reads tables this deployment states as something other than lists as empty ones', async () => {
+    serve(answer({ code: 0, data: { auth: { resclass: 'SpaceLayer' } } }))
+    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+      .toEqual({ resclass: [], rows: [] })
+  })
+
+  it('answers unreachable when the answer carries no rights table at all', async () => {
+    const backend = backendWith(testCredential(TOKEN))
+    for (const data of [null, 'auth', { useraccount: 'zhangsan' }, { auth: null }, { auth: 'resclass' }]) {
+      seen = []
+      serve(answer({ code: 0, data }))
+      expect(await backend.userRights(idleSignal()))
+        .toEqual({ kind: 'unreachable', detail: 'the answer carried no rights table' })
+    }
+  })
+
+  it('classifies its failures exactly as the model reads do', async () => {
+    const credential = testCredential(TOKEN)
+    serve(answer({ code: 0 }, 401))
+    expect(await backendWith(credential).userRights(idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(credential.dropped).toEqual(['refused-by-backend'])
+    expect(await backendWith(testCredential(undefined)).userRights(idleSignal())).toEqual({ kind: 'unauthenticated' })
+    serve(textAnswer('<html>gateway</html>', 502))
+    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+      .toEqual({ kind: 'unreachable', detail: 'the HTTP 502 answer was not this backend\'s envelope' })
+  })
+})
+
+describe('what a model description states about one attribute', () => {
+  it('publishes the stored type, the bounds and the two notes beside the two names', async () => {
+    serve(answer({
+      code: 0,
+      data: {
+        attributes: [{
+          attributeEnName: 'zh_label',
+          attributeCnName: '名称',
+          dataType: 'VARCHAR',
+          dataLength: 128,
+          isNull: '0',
+          isPrimaryKey: false,
+          defaultValue: '未命名',
+          attrGrpName: '基本信息',
+          remark: '图层显示名',
+          // Fields this seam never reads.
+          isSearchAttr: '1',
+          showAsPass: '0',
+          dispIndex: 3,
+        }],
+      },
+    }))
+    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal())).toEqual({
+      attributes: [{
+        attributeEnName: 'zh_label',
+        attributeCnName: '名称',
+        dataType: 'VARCHAR',
+        dataLength: 128,
+        isNull: false,
+        isPrimaryKey: false,
+        defaultValue: '未命名',
+        attrGrpName: '基本信息',
+        remark: '图层显示名',
+      }],
+    })
+  })
+
+  it('publishes a field written neither way this backend writes it as unstated', async () => {
+    serve(answer({
+      code: 0,
+      data: {
+        attributes: [{
+          attributeEnName: 'zh_label',
+          attributeCnName: '名称',
+          dataType: '',
+          dataLength: '128',
+          isNull: 1,
+          isPrimaryKey: 'yes',
+        }],
+      },
+    }))
+    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal()))
+      .toEqual({ attributes: [{ attributeEnName: 'zh_label', attributeCnName: '名称' }] })
+  })
+})
+
+/**
+ * Every operation the judgement permits on one model, in {@link BIZ_OPERATIONS} order.
+ * @param rights - the rights read.
+ * @param model - the model asked about.
+ * @param rules - the rule table; the defaults where left out.
+ * @returns the permitted operations.
+ */
+function permitted(
+  rights: BizUserRights | BizBackendFailure,
+  model: string,
+  rules: BizOperationRules = DEFAULT_RULES,
+): readonly BizOperation[] {
+  const backend = new BizBackendService(new Context(), BIZ_UPSTREAM, testCredential(TOKEN), rules)
+  const permissions = backend.judge(rights)
+  return BIZ_OPERATIONS.filter(operation => permissions.may(model, operation))
+}
+
+/**
+ * A rights read holding one row per entry, each granting the named flags.
+ * @param rows - model name to granted flags.
+ * @returns the rights read.
+ */
+function rightsOf(rows: Readonly<Record<string, readonly string[]>>): BizUserRights {
+  return {
+    resclass: Object.entries(rows).map(([resclassenname, operations]) => ({ resclassenname, operations })),
+    rows: [],
+  }
+}
+
+describe('what the signed-in person may do, under the default rules', () => {
+  it('lists the seven operations in the order the backend plans them', () => {
+    expect(BIZ_OPERATIONS).toEqual(['read', 'metadata_read', 'create', 'update', 'delete', 'import', 'export'])
+  })
+
+  it('writes the default rule table out as the backend enforces it today', () => {
+    expect(DEFAULT_RULES).toEqual({
+      read: 'row',
+      metadata_read: 'row',
+      create: ['add'],
+      update: ['update'],
+      delete: ['delete'],
+      import: ['add', 'update'],
+      export: 'row',
+    })
+  })
+
+  it('lets a row granting nothing read, read the description and export, and nothing else', () => {
+    // What every account's row looks like on the real backend for a model it
+    // may only look at: every flag null, so no operation is listed.
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer')).toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('gives create for add, update for update, and delete for delete, each on its own', () => {
+    expect(permitted(rightsOf({ SpaceLayer: ['add'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'create', 'import', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['update'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'update', 'import', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['delete'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'delete', 'export'])
+    expect(permitted(rightsOf({ SpaceLayer: ['add', 'delete', 'update'] }), 'SpaceLayer')).toEqual([...BIZ_OPERATIONS])
+  })
+
+  it('ignores the flags the backend does not enforce', () => {
+    // `search`, `imp`, `exp` and `gridexp` are null for every account on the
+    // real backend; where one does arrive true it widens nothing.
+    expect(permitted(rightsOf({ SpaceLayer: ['exp', 'gridexp', 'imp', 'search'] }), 'SpaceLayer'))
+      .toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('permits nothing on a model the rights table holds no row for', () => {
+    expect(permitted(rightsOf({ SpaceLayer: ['add', 'delete', 'update'] }), 'SITE')).toEqual([])
+  })
+
+  it('permits nothing at all when the rights table names no model', () => {
+    expect(permitted(rightsOf({}), 'SpaceLayer')).toEqual([])
+  })
+
+  it('permits nothing at all when the rights could not be read', () => {
+    const failures: readonly BizBackendFailure[] = [
+      { kind: 'unauthenticated' },
+      { kind: 'refused', status: 401 },
+      // What an account with no grant at all is answered with.
+      { kind: 'rejected', status: 400, code: 1, message: '用户未授权' },
+      { kind: 'unreachable', detail: 'the answer carried no rights table' },
+    ]
+    for (const failure of failures) expect(permitted(failure, 'SpaceLayer')).toEqual([])
+  })
+
+  it('reaches no network to judge', () => {
+    serve(answer({ code: 0 }))
+    permitted(rightsOf({ SpaceLayer: ['add'] }), 'SpaceLayer')
+    expect(seen).toEqual([])
+  })
+})
+
+describe('the rule table a deployment writes', () => {
+  it('switches one operation to a flag without touching the others', () => {
+    const rules = BizOperationRules({ export: ['exp'] })
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read'])
+    expect(permitted(rightsOf({ SpaceLayer: ['exp'] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read', 'export'])
+  })
+
+  it('lets a flag-requiring operation fall back to the row alone', () => {
+    const rules = BizOperationRules({ create: 'row' })
+    expect(permitted(rightsOf({ SpaceLayer: [] }), 'SpaceLayer', rules)).toEqual(['read', 'metadata_read', 'create', 'export'])
+  })
+
+  it('refuses a rule that names no flag, names one that is not a flag name, or is neither form', () => {
+    // Cast: each case is a value `cordis.yml` could hold and the type rules out.
+    expect(() => BizOperationRules({ create: [] })).toThrow()
+    expect(() => BizOperationRules({ create: ['a-b'] })).toThrow()
+    expect(() => BizOperationRules({ create: 'everyone' } as never)).toThrow()
+    expect(() => BizOperationRules({ create: true } as never)).toThrow()
+  })
+
+  it('refuses a table naming an operation there is no rule for', () => {
+    const misspelled = BizOperationRules({ exprot: ['exp'], imports: 'row' } as never)
+    expect(() => requireBizOperationRules(misspelled)).toThrow(
+      'biz-backend: no operation is called "exprot", "imports"; '
+        + 'the rule table names read, metadata_read, create, update, delete, import, export',
+    )
+    expect(requireBizOperationRules(DEFAULT_RULES)).toBe(DEFAULT_RULES)
   })
 })

@@ -21,14 +21,20 @@
  * The token is held in memory and written nowhere — no session event, no
  * settings document, no log line, no diagnostic. It is dropped when the browser
  * half gives it up, which is what the sign-out route is for; when the data
- * backend refuses it; and otherwise when the process ends.
+ * backend refuses it; and otherwise when the process ends. Nothing else in the
+ * process can read it, and nothing else is offered a name derived from it.
  * @module @deepseek-ai/dsh-experimental-auth-gate
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { BizBackendService, type HeldCredential } from '@deepseek-ai/dsh-experimental-biz-backend'
+import {
+  BizBackendService,
+  BizOperationRules,
+  requireBizOperationRules,
+  type HeldCredential,
+} from '@deepseek-ai/dsh-experimental-biz-backend'
 import { answerJson, decodeJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
 import { forwardWithToken, resolveUpstreams } from './proxy.ts'
 import {
@@ -106,6 +112,20 @@ export interface Config {
    */
   bizUpstream?: string
   /**
+   * How the signed-in person's rights become what they may do with each data
+   * model: one rule per operation (`read`, `metadata_read`, `create`, `update`,
+   * `delete`, `import`, `export`), each either `row` — the rights table holds a
+   * row for the model — or a list of the rights table's own flags, at least one
+   * of which that row must grant. Every consumer of `ctx.bizBackend` that hides
+   * or refuses something on this person's behalf judges by this one table.
+   *
+   * The defaults are what this deployment's backend enforces today: `row` for
+   * `read`, `metadata_read` and `export`; `[add]`, `[update]` and `[delete]`
+   * for the three writes; `[add, update]` for `import`. Validated at load
+   * whether or not `bizUpstream` is set, and used only where it is.
+   */
+  bizOperationRules: BizOperationRules
+  /**
    * The deployment's own renewal endpoint, as a path on the page's own origin —
    * `/<the API prefix>/nrms-auth/api/renewal` for a standard install, where the
    * prefix is the frontend's `VUE_APP_BASE_URL`. A browser-side address, like
@@ -139,6 +159,7 @@ export const Config: z<Config> = z.object({
   refreshMarginSeconds: z.natural().required(),
   mcpUpstreams: z.dict(z.string()).required(),
   bizUpstream: z.string(),
+  bizOperationRules: BizOperationRules,
   renewalPath: z.string(),
   renewalIntervalSeconds: z.natural(),
 })
@@ -369,12 +390,14 @@ export function apply(ctx: Context, config: Config): void {
   const bizUpstream = config.bizUpstream === undefined || config.bizUpstream === ''
     ? undefined
     : requireBizUpstream(config.bizUpstream)
+  // A misspelled operation would leave the rule it meant to change at its
+  // default, so the table fails the row here as well.
+  const operationRules = requireBizOperationRules(config.bizOperationRules)
   const credential = holdCredential()
-  if (bizUpstream !== undefined) {
-    // The service installs itself on the context and is withdrawn with this
-    // plugin's fiber, so nothing here holds the instance.
-    new BizBackendService(ctx, bizUpstream, credential)
-  }
+  // The service installs itself on the context and is withdrawn with this
+  // plugin's fiber, so nothing here holds the instance. It exists only where a
+  // data backend is configured.
+  if (bizUpstream !== undefined) new BizBackendService(ctx, bizUpstream, credential, operationRules)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

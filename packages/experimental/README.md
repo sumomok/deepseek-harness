@@ -42,7 +42,7 @@ The experimental group contains prototype capabilities whose contracts can chang
 | [`browser-use-runtime`](browser-use-runtime/README.md) | Session-owned browser resources shared by experimental providers | — |
 | [`auth-gate`](auth-gate/README.md) | Sends a browser without an access token to the deployment's login page, mirrors the one it returns with into a cookie, and injects it into forwarded MCP requests | — |
 | [`biz-backend`](biz-backend/README.md) | Three reads of a deployment's own data backend, made with the visitor's own access token | `ctx.bizBackend` |
-| [`component-kit`](component-kit/README.md) | Component row: the React renderers a placement package draws a validated block with, and the table that names them | — |
+| [`component-kit`](component-kit/README.md) | Component row: the six components it registers into a placement package's catalog, each a host definition and the React renderer that draws it | — |
 | [`component-surface`](component-surface/README.md) | The `show_component` tool and the content column's `component` kind: blocks from a fixed catalog, judged before anything is drawn | — |
 | [`console-profile`](console-profile/README.md) | The customer console as one bundle layer over the Web profile, plus the permission lock applied above the profile patch | — |
 | [`content-column`](content-column/README.md) | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
@@ -53,6 +53,8 @@ The experimental group contains prototype capabilities whose contracts can chang
 | [`server-base`](server-base/README.md) | Tells the browser whether reaching the served page means owning the Host behind it, and carries the nginx sample for a prefixed console | — |
 | [`server-layout`](server-layout/README.md) | Service-line shell: a permanent four-track frame (session, content, chat, details) replacing the shipped one | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.md) | Product console sidebar: a fixed workbench/navigation/workflows console replacing the shipped one, plus the de-terminology layer a customer-form page needs | — |
+| [`skill-pack`](skill-pack/README.md) | Skill provider for a pack root: a pack is offered only once every component plugin part its views place is registered | `ctx.skillPacks` |
+| [`skill-pack-components`](skill-pack-components/README.md) | The adapter a deployment composes between the two: it publishes the components this deployment offers as the parts a pack requires | — |
 | [`tool-agent-team`](tool-agent-team/README.md) | Nine tools that let the model create, message, and coordinate teammates | registers scoped tools on `ctx.tools` |
 | [`vue-ui-poc`](vue-ui-poc/README.md) | Feasibility probe: a Vue 3 component hosted in a React slot through a thin bridge | — |
 | [`vue2-echarts-poc`](vue2-echarts-poc/README.md) | Component library: an ECharts bar chart written as a Vue 2.7 component, bridged into React | — |

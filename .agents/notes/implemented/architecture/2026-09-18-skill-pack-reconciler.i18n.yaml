@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-09-18-skill-pack-reconciler.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-skill-pack-reconciler.md
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered:
+  en: f5d5f26ebdbe6b65
+  zh: f55d22908333813b
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/problem:
+  en: 58511dd79c2e6d67
+  zh: b43ea1bdea47e649
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/decision:
+  en: c6af9d49020d3289
+  zh: c778ff1ce7c9f476
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/the-decision-gate:
+  en: 3e0f89d8d5525cfa
+  zh: 7806006dc633e730
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/the-decision-gate/boundaries:
+  en: d477d197d028625a
+  zh: 94f05e195a84c641
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/testing:
+  en: 76e27e488df3bc2c
+  zh: 011966e8622efb0a
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/the-adapter:
+  en: 457559b75ef0715e
+  zh: 4268dd8a16d13ff2
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/alternatives-considered:
+  en: 0239b6a607d7c7d7
+  zh: 8d6448099af6f875
+/agent-note-skill-packs-are-withheld-until-their-component-parts-are-registered/consequences:
+  en: 2f596f6137a12ebb
+  zh: 8448672991aa74e7

@@ -1,0 +1,70 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/system-map/README.md
+/:
+  en: d10e36cfcf964cfc
+  zh: 9f6609d2ad6cf8c9
+/deepseek-ai-dsh-experimental-system-map:
+  en: e08c9bf40db894a8
+  zh: 93313ad008c2c2da
+/deepseek-ai-dsh-experimental-system-map/summary:
+  en: 000f5fb3b2aa607b
+  zh: 571fac403a6e070c
+/deepseek-ai-dsh-experimental-system-map/table-of-contents:
+  en: 2f58969ce0fc059b
+  zh: aaf67f3f24618d77
+/deepseek-ai-dsh-experimental-system-map/the-three-reads:
+  en: b0ca84b3bf749f36
+  zh: a02492eb43f6d025
+/deepseek-ai-dsh-experimental-system-map/how-a-listing-is-written:
+  en: 51c3cdc9fb6597d6
+  zh: b91940867b1b04c4
+/deepseek-ai-dsh-experimental-system-map/the-ceilings:
+  en: 7ffd81277692e074
+  zh: 3bac973c50b039a3
+/deepseek-ai-dsh-experimental-system-map/composing-the-row:
+  en: 6086104ebc1c259b
+  zh: c7469b5dd6302213
+/deepseek-ai-dsh-experimental-system-map/what-a-failed-read-becomes:
+  en: abe921ac3cf5b5d4
+  zh: 3277eadc92a13840
+/deepseek-ai-dsh-experimental-system-map/model-experience:
+  en: 215e7ba838619b7b
+  zh: 215e7ba838619b7b
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-offers:
+  en: d6873c583e244d2f
+  zh: d6873c583e244d2f
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-offers/what-the-model-sees:
+  en: 9ab4a9a98bc7bdcf
+  zh: 937ace3bb3938dd6
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-offers/token-effect:
+  en: 5ef04ef6469d3e06
+  zh: 1788cc6f39546ba7
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-offers/kv-cache-effect:
+  en: f3f46fc4a8794105
+  zh: 32cd264b506078d6
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results:
+  en: a336e8930652a4b3
+  zh: a336e8930652a4b3
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results/what-the-model-sees:
+  en: 473b93f1e134ffce
+  zh: 56e3f2bab6614425
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results/what-the-model-sees/the-heading-of-a-model-listing:
+  en: 3f9d45225a793fcc
+  zh: 3f9d45225a793fcc
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results/what-the-model-sees/the-line-a-cut-listing-ends-with:
+  en: a1cfd249dc8c0464
+  zh: a1cfd249dc8c0464
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results/token-effect:
+  en: d9bf3bfe5591def0
+  zh: db5546ead39c7744
+/deepseek-ai-dsh-experimental-system-map/model-experience/the-three-results/kv-cache-effect:
+  en: 75cc06b4c44c3d85
+  zh: 425bee6cce3ed56c
+/deepseek-ai-dsh-experimental-system-map/known-limitations-and-deferred-work:
+  en: 00414b301e393e21
+  zh: caa12c4b70af5f96
+/deepseek-ai-dsh-experimental-system-map/known-limitations-and-deferred-work/dev-note:
+  en: 15533a3c330a8107
+  zh: dafd6ba1081903a9

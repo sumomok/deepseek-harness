@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-18-component-catalog-registry.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-component-catalog-registry.md
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill:
+  en: 792ba41eb500835f
+  zh: ea0ed09dc9374882
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill/problem:
+  en: 93a432a79cb6dd13
+  zh: dbc6411b1dbb2785
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill/decision:
+  en: 74b6a360e79a8ff0
+  zh: d0f2592cd9eb88bd
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill/decision/decision-gate:
+  en: 385750b6963fd6e8
+  zh: 1f48ae2be1f0e18d
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill/alternatives-considered:
+  en: b07e0202715d392f
+  zh: bb955e7f780830ab
+/agent-note-the-component-catalog-is-a-registry-component-plugins-fill/consequences:
+  en: f88cd337813c041c
+  zh: 5847a6fc35d5f258

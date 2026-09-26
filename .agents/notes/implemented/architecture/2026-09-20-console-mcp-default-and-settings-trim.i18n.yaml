@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-09-20-console-mcp-default-and-settings-trim.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-20-console-mcp-default-and-settings-trim.md
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files:
+  en: 719937b89780d957
+  zh: 4815c37813e05f81
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/problem:
+  en: 20a2c1b0f82a7a1b
+  zh: 818ba8534395e8e4
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/decision:
+  en: f70b763be50593ce
+  zh: 2f253fbccfd177a2
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/what-the-console-s-approval-settings-do-and-do-not-cover-here:
+  en: 6339f942f4d6a082
+  zh: 7ddfea24b5e83672
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/the-decision-gate:
+  en: 223b116e01cbe82f
+  zh: 128a6232dc0b1bef
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/the-decision-gate/boundaries:
+  en: 0b14320937092331
+  zh: b10125f514ab360c
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/testing:
+  en: f5e1968dbb969095
+  zh: b9feafd8c7d9a675
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/alternatives-considered:
+  en: 5fc4e3b6a3c43601
+  zh: c8c45e97dcce7d22
+/agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/consequences:
+  en: 06ebf03294a4f960
+  zh: 62b7169a18a87a9e

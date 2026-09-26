@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-09-18-skill-pack-views.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-18-skill-pack-views.md
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click:
+  en: 32e07523367fa44a
+  zh: f5c4eff5e4daf4d6
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/problem:
+  en: 301202de146bc977
+  zh: a0a103ef767affdb
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/decision:
+  en: 5261a29a3ae3b523
+  zh: dd6f52ecab44aeb0
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/the-decision-gate:
+  en: f0c2754fbe0cf6fd
+  zh: 17a4a716ac8e8e37
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/the-decision-gate/boundaries:
+  en: 2b159549d13cb14c
+  zh: 3e85f89a8012e45a
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/testing:
+  en: 42ea6dd4daa20678
+  zh: 7f06e1291f732c05
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/alternatives-considered:
+  en: 0d08dd022c47475e
+  zh: 61c778965b45e156
+/agent-note-a-skill-pack-s-views-reach-the-content-column-and-a-view-opens-on-the-user-s-click/consequences:
+  en: 66794f89886368e2
+  zh: f076930be341cc09

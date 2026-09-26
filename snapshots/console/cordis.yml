@@ -175,6 +175,27 @@
         mcpUpstreams: {}
         bizUpstream: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM
 
+    # The console's MCP capability, carrying no server — which is what this row
+    # is here to pin. A console composition always mounts it, so the question a
+    # transcript answers is whether an empty list is really idle: a row that
+    # registered a tool would change this lane's pinned header, and a row that
+    # opened a connection would change how long a scenario takes to settle.
+    # Neither happens, so every fixture below is byte-identical with and without
+    # this row. The credential seam it reads is the base bundle's; with no
+    # server naming a credential, nothing is resolved.
+    - id: console-mcp
+      name: '@deepseek-ai/dsh-experimental-console-mcp'
+      config:
+        servers: []
+    # The three reads that let the agent find its way around the deployment's
+    # own business system. They need the gate above and nothing else: each is a
+    # read of stored configuration and of the signed-in visitor's own rights, so
+    # none of them asks anybody anything and none of them is composed with an
+    # approval row. The ceilings stay at their defaults, which is what the
+    # recorded listing is written under.
+    - id: system-map
+      name: '@deepseek-ai/dsh-experimental-system-map'
+
     # The chart tool. No browser is attached under ACP, so every call answers
     # `unverified` after the deadline — one second here, because the deadline is
     # quoted verbatim in the model-facing result line and the lane pays it in
@@ -184,11 +205,19 @@
       config:
         verdictTimeoutMs: 1000
 
-    # The component tool. Its browser seat and the component row that draws the
-    # blocks are absent here for the same reason the column is: they register
-    # nothing a transcript can see. What this row contributes is the offer
-    # itself — the catalog spliced into the description, the three parameters,
-    # and the result line a call reads back.
+    # The component row, node half. It contributes the six components the tool
+    # offers, and nothing else reaches a transcript from it: its browser seat
+    # and the settings route both wait for seams this lane does not compose.
+    # Without it the catalog is empty and `show_component` is not offered at
+    # all, which is the whole of what the registry buys — which components exist
+    # is a deployment's composition rather than a table in the row below.
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+
+    # The component tool. Its browser seat is absent here for the same reason
+    # the column is: it registers nothing a transcript can see. What this row
+    # contributes is the offer itself — the catalog spliced into the
+    # description, the three parameters, and the result line a call reads back.
     #
     # `views` is the other half of this row, and it is here for what booting
     # proves rather than for what a transcript carries: a deployment's own view
@@ -211,7 +240,7 @@
     # does, because offering to read a backend this composition has no address
     # for would leave the row waiting for a service nothing registers.
     #
-    # The data page is the last of the row's parts: `crud` offers the component that opens
+    # The data page is the last of the row's parts: `dataPage` offers the component that opens
     # the deployment's own full page for one table, which the host reads nothing
     # for and which the user is asked about before it opens. It needs only the
     # approval row above, so it is on unconditionally. No browser attaches under
@@ -222,8 +251,8 @@
       name: '@deepseek-ai/dsh-experimental-component-surface'
       config:
         dataSource: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM !== undefined
-        crud: true
-        crudLoadTimeoutMs: 1000
+        dataPage: true
+        dataPageLoadTimeoutMs: 1000
         homeView: site-overview
         views:
           - id: site-overview

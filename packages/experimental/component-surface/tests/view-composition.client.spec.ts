@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Logger } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -37,6 +37,7 @@ import { COMPONENT_KIND } from '../src/component-call.ts'
 import { COMPONENT_VIEWS_ROUTE } from '../src/route.ts'
 import { SHOW_CONTENT_VIEW_COMMAND } from '../src/view-command.ts'
 import * as ShowComponent from '../src/index.ts'
+import { COMPONENT_PLUGIN_NAME, componentPlugin } from './kit-catalog.client.ts'
 
 /**
  * The configured view the whole file is written against: a table above the
@@ -79,9 +80,17 @@ const VIEWS_BLOCK = [
 let world: string | undefined
 let context: Context | undefined
 
+/** Every error record the booted composition logged, as `[logger name] text`. */
+let errorLog: string[] = []
+
+/** The clause the row's own refusal line carries and no other record does. */
+const CONSEQUENCE = 'this deployment comes up with no components, no views and no show_component tool '
+  + 'until that view is corrected or removed'
+
 afterEach(async () => {
   await context?.fiber.dispose()
   context = undefined
+  errorLog = []
   if (world !== undefined) await rm(world, { recursive: true, force: true })
   world = undefined
 })
@@ -110,6 +119,7 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
     "- name: '@deepseek-ai/dsh-session-projection'",
     "- name: '@deepseek-ai/dsh-commands'",
     "- name: '@deepseek-ai/dsh-experimental-content-surface'",
+    `- name: '${COMPONENT_PLUGIN_NAME}'`,
     '- id: show-component',
     "  name: '@deepseek-ai/dsh-experimental-component-surface'",
     ...config.length === 0 ? [] : ['  config:', ...config],
@@ -118,10 +128,18 @@ async function loadComposition(deployment: Deployment = { views: VIEWS_BLOCK }):
 
   const ctx = new Context()
   context = ctx
+  // The sink a console exporter is: what a row logs while booting is what an
+  // operator reads, so the assertions are made on the rendered text.
+  ctx.logger.exporter({
+    export: (message) => {
+      if (message.type === 'error') errorLog.push(`[${message.name}] ${Logger.format({ export() {} }, message)}`)
+    },
+  })
   ctx.baseUrl = pathToFileURL(world).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    [COMPONENT_PLUGIN_NAME, componentPlugin()],
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
@@ -270,23 +288,53 @@ describe('a click on a configured view', () => {
 })
 
 describe('a deployment whose views the tool would refuse', () => {
-  it('fails the boot, naming the view and the value inside it', async () => {
-    // Loud at load: a view whose spec the tool would refuse is a menu row that
-    // shows an empty column when a user clicks it, with nothing anywhere saying
-    // why. The Loader carries the sentence out of `apply` and the composition
-    // does not come up at all.
-    await expect(loadComposition({
+  it('refuses the contribution that completes the catalog, and offers nothing', async () => {
+    // A view whose spec the tool would refuse is a menu row that shows an empty
+    // column when a user clicks it, so the row refuses it rather than
+    // publishing it. Which components exist is another row's contribution, so
+    // the refusal lands where the catalog was completed: that contribution is
+    // taken back out, the component row carries the sentence, and the
+    // deployment comes up with no components and no tool at all rather than
+    // with a menu row nothing can draw.
+    const ctx = await loadComposition({
       views: [
         '    views:',
         '      - id: site-overview',
         '        title: 站点概览',
         `        spec: ${JSON.stringify({ nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })}`,
       ],
-    })).rejects.toThrow(/component-surface: views\[0\] "site-overview" — spec\.nodes\[0\]\.component — names no component/)
+    })
+    expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
+    expect((await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${COMPONENT_VIEWS_ROUTE}`)).status).not.toBe(200)
   })
 
-  it('fails the boot when homeView names no configured view', async () => {
-    await expect(loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' }))
-      .rejects.toThrow('component-surface: homeView "alerts" names no configured view')
+  it('says so in the process log, naming the view, the whole refusal and what it cost', async () => {
+    // Everything else about this failure is an absence — no tool, no route, no
+    // view — and the refusal itself travels to the registration that completed
+    // the catalog. This line is the only one that tells an operator which view
+    // is wrong and what the deployment lost for it; cordis logs the same
+    // rejection again under the same row with a stack and no consequence,
+    // which is why the assertion is on the row's own sentence.
+    await loadComposition({
+      views: [
+        '    views:',
+        '      - id: site-overview',
+        '        title: 站点概览',
+        `        spec: ${JSON.stringify({ nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })}`,
+      ],
+    })
+    const told = errorLog.filter(line => line.includes(CONSEQUENCE))
+    expect(told).toHaveLength(1)
+    expect(told[0]).toContain('[show-component] ')
+    expect(told[0]).toContain('component-surface: views[0] "site-overview" — spec.nodes[0].component')
+    expect(told[0]).toContain('names no component of this deployment. Available components:')
+  })
+
+  it('refuses a homeView naming no configured view the same way', async () => {
+    const ctx = await loadComposition({ views: VIEWS_BLOCK, homeView: 'alerts' })
+    expect(ctx.tools.schemas().map(schema => schema.name)).not.toContain('show_component')
+    const told = errorLog.filter(line => line.includes(CONSEQUENCE))
+    expect(told).toHaveLength(1)
+    expect(told[0]).toContain('component-surface: homeView "alerts" names no configured view')
   })
 })

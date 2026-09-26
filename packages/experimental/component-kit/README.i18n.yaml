@@ -3,47 +3,47 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/component-kit/README.md
 /:
-  en: ea90b8e105cb49f0
-  zh: 9c39ec5c63279631
+  en: d14728187b8e46dc
+  zh: 1bc627ea630899a7
 /deepseek-ai-dsh-experimental-component-kit:
   en: 66763e7a23af6560
   zh: d49db4f73231abea
 /deepseek-ai-dsh-experimental-component-kit/summary:
-  en: df20f3476a66835c
-  zh: 9a484e8dadbe77dd
+  en: 970585775208ab99
+  zh: 1e631398de4f5f96
 /deepseek-ai-dsh-experimental-component-kit/table-of-contents:
-  en: bd27ae47871369c9
-  zh: bfb5b6ed00b82961
-/deepseek-ai-dsh-experimental-component-kit/the-renderer-table:
-  en: eb750a289b4c6dc9
-  zh: 647bc5e1fcb3c4f0
+  en: 6ed2041dbb9fc9f9
+  zh: 4d947da43610b5ce
+/deepseek-ai-dsh-experimental-component-kit/what-this-row-registers:
+  en: 1e9f5ce59d6d8794
+  zh: 333670f92b85d5fe
 /deepseek-ai-dsh-experimental-component-kit/what-a-renderer-receives:
-  en: 10a354f25722adc7
+  en: c4f9a05be60e54d9
   zh: 6a65beecd51a7d4b
 /deepseek-ai-dsh-experimental-component-kit/copy:
-  en: 8e38a3424ca99554
-  zh: 2e2a8ef151d2ad9b
+  en: bfa4709041150f60
+  zh: 245b482c8724406f
 /deepseek-ai-dsh-experimental-component-kit/components:
-  en: 0a8f2963c3c06106
-  zh: acf31e9d889c86d3
+  en: d3bdcdbc9a06dbb6
+  zh: 236cb0f8903b91b8
 /deepseek-ai-dsh-experimental-component-kit/the-data-page:
-  en: cad97b43545cbe3f
-  zh: 07e255a9ee675304
+  en: a38d95066bfe7a27
+  zh: bf7addaec7ec2725
 /deepseek-ai-dsh-experimental-component-kit/how-the-originals-get-here:
-  en: 107ffc85ffb7bc02
-  zh: 5bb00c211063c44b
+  en: f5b64dbd7e76fa29
+  zh: 996893ff926dc818
 /deepseek-ai-dsh-experimental-component-kit/composition:
-  en: 2ddd3c2962637e1f
-  zh: 5950f435235eb0be
+  en: c191f84ec03c1c8d
+  zh: 562d771cac544663
 /deepseek-ai-dsh-experimental-component-kit/model-experience:
-  en: e22e5494eae976b5
-  zh: e22e5494eae976b5
+  en: 8bb92f0f0ec3d627
+  zh: 6b91b285b7f2a20d
 /deepseek-ai-dsh-experimental-component-kit/model-experience/kv-cache-effect:
   en: ca75c51c89c2c9b0
   zh: ca75c51c89c2c9b0
 /deepseek-ai-dsh-experimental-component-kit/known-limitations-and-deferred-work:
-  en: b507086a0bc7fcc4
-  zh: e553589206c0ddd8
+  en: fc269395062df860
+  zh: b466d9b1976557d9
 /deepseek-ai-dsh-experimental-component-kit/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

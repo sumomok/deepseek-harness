@@ -167,6 +167,12 @@ flowchart LR
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_office["skill-office"]
+  pkg_skill_pack["skill-pack"]
+  pkg_component_surface["component-surface"]
+  svc_componentViews["ctx.componentViews<br/>Content-column view index"]
+  pkg_skill_pack_components["skill-pack-components"]
+  svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
+  svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   svc_agentDefaultModel["ctx.agentDefaultModel<br/>Default Agent model selection"]
@@ -237,11 +243,12 @@ flowchart LR
   pkg_experimental_tool_agent_team["experimental-tool-agent-team"]
   pkg_inspector["inspector"]
   svc_inspector["ctx.inspector<br/>Cross-realm runtime inspection"]
+  svc_componentCatalog["ctx.componentCatalog<br/>Content-panel component catalog"]
+  pkg_component_kit["component-kit"]
   pkg_content_surface["content-surface"]
   svc_contentSurface["ctx.contentSurface<br/>Content-column entry stream"]
   pkg_content_frame["content-frame"]
   pkg_vue2_echarts_tool_poc["vue2-echarts-tool-poc"]
-  pkg_component_surface["component-surface"]
   pkg_biz_backend["biz-backend"]
   svc_bizBackend["ctx.bizBackend<br/>Deployment data-backend reads"]
   pkg_jobs["jobs"]
@@ -312,6 +319,8 @@ flowchart LR
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_basic --> svc_compactionPolicy
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_component_surface --> svc_componentCatalog
+  pkg_component_surface --> svc_componentViews
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
   pkg_content_surface --> svc_contentSurface
@@ -392,6 +401,11 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_skill_pack --> svc_skillPackParts
+  pkg_skill_pack --> svc_skillPacks
+  pkg_skill_pack --> svc_skills
+  pkg_skill_pack_components --> svc_componentViews
+  pkg_skill_pack_components --> svc_skillPackParts
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
@@ -451,6 +465,8 @@ flowchart LR
   svc_clientModules --> pkg_client_hmr
   svc_compaction --> pkg_compaction_basic
   svc_compactionPolicy --> pkg_compaction_basic
+  svc_componentCatalog --> pkg_component_kit
+  svc_componentViews --> pkg_component_surface
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_mcp
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_native
   svc_configEditor --> pkg_agent_default_model
@@ -529,6 +545,7 @@ flowchart LR
   svc_shell --> pkg_tool_pwsh
   svc_shellEnv --> pkg_tool_bash
   svc_shellEnv --> pkg_tool_pwsh
+  svc_skillPackParts --> pkg_skill_pack
   svc_skills --> pkg_tool_skill
   svc_speechToText --> pkg_experimental_api_speech_to_text
   svc_spillStore --> pkg_spill_policy
@@ -641,7 +658,10 @@ flowchart LR
 | `ctx.commands` | `core` | [`commands`](../packages/interaction/commands) | - | - | - | Plugins register direct human commands without sending invocations to the model. |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | Domains register state-driven fold units; the eager drive keeps per-session watermark states and the Session controller serves baselines and pushes changed values. |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points), serves cached projection views, and accelerates prepared-Session projection hydration. |
-| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
+| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office), `skill-pack` | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
+| `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | Holds the views the sidebar lists and /show-content-view shows, from the deployment's own configuration and from any package that registers a source; every view is judged by the pass a show_component call is judged by, and a contributed view the catalog refuses is dropped with one error line rather than failing the console. |
+| `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | Owns one pack root: it judges every pack against the registered component parts, contributes only the active ones to ctx.skills, and publishes each pack's state and unmet requirements on its own route. |
+| `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | Declares what a pack's requirements are judged against — each registered part's id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
@@ -663,6 +683,7 @@ flowchart LR
 | `ctx.speechToText` | `seam` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text) | [`experimental-speech-to-text-sensevoice`](../packages/experimental/speech-to-text-sensevoice) | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | - | Routes explicit recognizers; the browser uses the authenticated Remote and keeps transcripts in the draft until submission. |
 | `ctx.agentTeams` | `core` | [`experimental-agent-team`](../packages/experimental/agent-team) | - | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team) | - | Owns the implicit-root roster, durable peer mailbox, shared task DAG, and continuable-child lifecycle; tool-agent-team contributes model controls. |
 | `ctx.inspector` | `core` | `inspector` | - | - | - | Owns the Worker-hosted CDP target and the transport-independent Host and Client observation and Cordis-tree query API. |
+| `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | Owns which components a `show_component` call may place; a component plugin registers its host definitions here and its renderers into the browser half's matching registry, so a deployment composing none offers no component and is offered no tool. |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | Owns the extractor table and the single `contentSurface` projection folded from it; each content kind registers what it recognizes in the log and content-column draws the selected entry through a keyed slot. |
 | `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | Owns three named reads of a deployment's own data backend, spent with the visitor's access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package's closure. |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | Producers (background bash/pwsh, PTY sends, and subagent delegations) register running work; record-declaring jobs additionally stream raw output for non-consuming observers; tool-jobs is the model-facing controller that reads, lists, and kills it; jobs-local is the process-local registry. |

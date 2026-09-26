@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-24-console-rights-judged-once.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-24-console-rights-judged-once.md
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table:
+  en: a4c69fd2f80c6910
+  zh: df5774dcf7d1c81f
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/problem:
+  en: 914d26c0bac4bbdd
+  zh: 0e7fbac957673e92
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/decision:
+  en: 1c3e72a20337e413
+  zh: c4633627017fa222
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/alternatives-considered:
+  en: 6099724278ba9b32
+  zh: ee7aa34e36b72bb1
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/consequences:
+  en: 7542910418958590
+  zh: 93e0120c6e541384
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/deferred:
+  en: 0ce5ff0a203e3e48
+  zh: 3c316cf7d5c056a1
+/agent-note-the-console-judges-the-signed-in-person-s-rights-once-by-one-rule-table/testing:
+  en: 312a27a6270b880c
+  zh: 3ea2531cf98598f0

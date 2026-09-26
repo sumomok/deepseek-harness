@@ -1,10 +1,10 @@
 /**
  * What one `show_component` call is from outside the tool body, and what one
  * action reported back out of a drawn block is: the wire tool name, the command
- * name the seat reports through, the content kind the call claims, the catalog
- * of components a call may place with the actions each of them reports and the
- * values another block may read from them, the layout tree a call arranges its
- * blocks in, and the protocol ceilings both directions are measured against.
+ * name the seat reports through, the content kind the call claims, what one
+ * component of the catalog declares — the actions it reports and the values
+ * another block may read from it — the layout tree a call arranges its blocks
+ * in, and the protocol ceilings both directions are measured against.
  *
  * One home, because three readers must agree on the same rules. The tool
  * refuses a call the seat could not draw; the content-surface extractor decides
@@ -14,10 +14,21 @@
  * column with nothing said about it, and a ceiling the two halves disagree on
  * is that same failure with an extra round trip in front of it.
  *
- * The module imports nothing, so the node half, the browser bundle, and the
- * session fold all read one copy of the rules.
+ * Which components exist is not decided here. A deployment's catalog is
+ * assembled at runtime from the component plugins it composes
+ * ({@link module:@deepseek-ai/dsh-experimental-component-surface/src/catalog}),
+ * so every reader is handed a {@link ComponentCatalog} rather than reading one
+ * off this module. What this module still owns is the six components
+ * `component-kit` registers ({@link COMPONENT_KIT_ENTRIES}) and every rule the
+ * two halves judge a call by.
+ *
+ * The module's only import is the compile-time brand helper, which carries no
+ * runtime identity, so the node half, the browser bundle, and the session fold
+ * all read one copy of the rules.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/component-call
  */
+
+import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 
 /** The wire tool name this package offers the model. */
 export const SHOW_COMPONENT_TOOL_NAME = 'show_component'
@@ -261,6 +272,17 @@ export interface EnumFieldSchema {
   readonly kind: 'enum'
   /** The accepted values, in the order a refusal lists them. */
   readonly values: readonly (string | number)[]
+  /**
+   * Why a value outside {@link values} is not there; absent where the list
+   * speaks for itself.
+   *
+   * Model-facing, spliced into the refusal after the accepted values, and for
+   * the same reason {@link StringCharset.hint} exists: a set that leaves out a
+   * value somebody has every reason to write is a set whose refusal has to say
+   * what the value would have meant here. It states what this component does
+   * with the values it accepts, and names nothing to do instead.
+   */
+  readonly hint?: string
 }
 
 /**
@@ -431,6 +453,18 @@ export interface PropsField {
    * render.
    */
   readonly unbindable?: string
+  /**
+   * Why a `show_component` call may not set this property; absent for a
+   * property a call may write.
+   *
+   * Model-facing, spliced into the refusal after the path it names. A property
+   * carrying it is also left out of the tool's description, because a
+   * description listing a property every call is refused for is a description
+   * that invites the refusal. What makes a property one of these is that
+   * somebody wrote the block down in a file — a deployment's own view, or a
+   * skill pack's — and what they wrote there is theirs rather than the model's.
+   */
+  readonly viewOnly?: string
 }
 
 /** A component's declared properties, keyed by property name. */
@@ -545,10 +579,31 @@ export interface ComponentOutput {
   readonly shape: PropsFieldSchema
 }
 
+/**
+ * Catalog id of one component, as the registry and both halves of the seam
+ * spell it.
+ *
+ * Branded rather than a union derived from a table: which components exist is a
+ * deployment's runtime fact now, so no closed set of ids exists to derive one
+ * from. The brand is what keeps a node's `component` — model-written text that
+ * has not been looked up yet — from standing where a component this deployment
+ * admits is required.
+ */
+export type CatalogId = Branded<'ComponentCatalogId'>
+
+/**
+ * Admit one id string as a catalog id.
+ * @param id - the id a component plugin declares for its own component.
+ * @returns the same string, branded.
+ */
+export function catalogId(id: string): CatalogId {
+  return brandString<CatalogId>(id)
+}
+
 /** One component a call may place. */
 export interface ComponentCatalogEntry {
   /** Stable id the model writes in `spec.nodes[i].component`. */
-  readonly id: string
+  readonly id: CatalogId
   /** The name the end user reads. Chinese, because it is user-facing copy rather than model-facing text. */
   readonly label: string
   /** One model-facing sentence saying when the component is worth using; spliced into the tool description. */
@@ -564,7 +619,7 @@ export interface ComponentCatalogEntry {
 }
 
 /** Catalog id of the confirmation bar. */
-export const CONFIRM_BAR_ID = 'el.confirm-bar'
+export const CONFIRM_BAR_ID = catalogId('el.confirm-bar')
 
 /** The confirmation bar's declared properties. */
 const CONFIRM_BAR_PROPS: PropsSchema = {
@@ -649,7 +704,7 @@ const CONFIRM_BAR_ACTIONS: readonly ComponentActionDefinition[] = [{
 }]
 
 /** Catalog id of the record detail. */
-export const RECORD_DETAIL_ID = 'toy.record'
+export const RECORD_DETAIL_ID = catalogId('toy.record')
 
 /**
  * The record detail's declared properties.
@@ -763,7 +818,7 @@ const FIELD_NAME: StringFieldSchema = {
 const MAX_RECORD_NUMBER = Number.MAX_SAFE_INTEGER
 
 /** Catalog id of the data table. */
-export const TABLE_ID = 'toy.table'
+export const TABLE_ID = catalogId('toy.table')
 
 /**
  * Largest accepted row count of one table.
@@ -1204,7 +1259,7 @@ const TABLE_OUTPUTS: readonly ComponentOutput[] = [
 ]
 
 /** Catalog id of the filter bar. */
-export const FILTER_BAR_ID = 'el.filter-bar'
+export const FILTER_BAR_ID = catalogId('el.filter-bar')
 
 /** Largest accepted attribute count of one filter bar. */
 export const MAX_FILTER_ATTRIBUTES = 40
@@ -1473,7 +1528,7 @@ const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
 ]
 
 /** Catalog id of the metric ball. */
-export const METRIC_ID = 'el.metric'
+export const METRIC_ID = catalogId('el.metric')
 
 /**
  * The metric ball's declared properties.
@@ -1492,10 +1547,10 @@ const METRIC_PROPS: PropsSchema = {
 }
 
 /** Catalog id of the data page: the deployment's own full page for one table, opened with the user's own credential. */
-export const CRUD_ID = 'toy.crud'
+export const DATA_PAGE_ID = catalogId('toy.data-page')
 
 /** The user-facing name of the data page, as the approval card and every notice about it name it. */
-export const CRUD_LABEL = '完整数据页'
+export const DATA_PAGE_LABEL = '完整数据页'
 
 /**
  * Columns one loaded data page names to the agent before it counts the rest.
@@ -1506,39 +1561,78 @@ export const CRUD_LABEL = '完整数据页'
  * first twenty columns at the widest attribute and header the catalog admits
  * and still fits, which `catalog-actions.client.spec.ts` measures.
  */
-export const MAX_CRUD_REPORTED_COLUMNS = 20
+export const MAX_DATA_PAGE_REPORTED_COLUMNS = 20
 
 /** Largest reported column header, in characters; the seat cuts a longer one. */
-export const MAX_CRUD_HEADER_LENGTH = 24
+export const MAX_DATA_PAGE_HEADER_LENGTH = 24
 
-/** Most cells one clicked row reports: the first drawn columns of the page, in the page's own order. */
-export const MAX_CRUD_REPORTED_CELLS = 16
+/** Most cells one reported row carries: the first drawn columns of the page, in the page's own order. */
+export const MAX_DATA_PAGE_REPORTED_CELLS = 16
 
 /** Largest reported cell value, in characters; the seat cuts a longer one. */
-export const MAX_CRUD_CELL_LENGTH = 40
-
-/** Widest count a data page reports: columns it shows, rows it matched, pages it turned. */
-const MAX_CRUD_COUNT = Number.MAX_SAFE_INTEGER
+export const MAX_DATA_PAGE_CELL_LENGTH = 40
 
 /**
- * One count a data page reports, as all four of them are declared.
+ * Most rights one loaded page names.
+ *
+ * The page's own right keys are eleven, and the record they arrive in is this
+ * deployment's own row rather than a table declared here: the ceiling is what
+ * keeps a backend answering with more keys than that from turning the whole
+ * load into a report the catalog refuses.
+ */
+export const MAX_DATA_PAGE_RIGHTS = 16
+
+/**
+ * Largest reported right key, in characters.
+ *
+ * Shorter than a data field's own ceiling, because a load's whole document is
+ * measured against {@link MAX_ACTION_PAYLOAD_BYTES} alongside twenty columns at
+ * their own widest: sixteen keys at a field's full width would not fit beside
+ * them. The page's own keys are single words, and `catalog-actions.client.spec.ts`
+ * measures the widest load that still fits.
+ */
+export const MAX_DATA_PAGE_RIGHT_LENGTH = 24
+
+/** One right a load names, as this deployment's own rights record spells it. */
+const DATA_PAGE_RIGHT: StringFieldSchema = {
+  kind: 'string',
+  maxLength: MAX_DATA_PAGE_RIGHT_LENGTH,
+  charset: { allowed: FIELD_CHARSET, hint: FIELD_HINT },
+}
+
+/**
+ * Most drawn cells one saved record reports.
+ *
+ * A save answers with the record, which carries the row's key and the
+ * attributes the scheme hides from the table as readily as the ones it draws.
+ * What the agent is told is that a record was saved and what the user can see
+ * of it — the same drawn cells a clicked row reports, and never the form they
+ * filled in. Everything past the eighth drawn cell is left out.
+ */
+export const MAX_DATA_PAGE_SAVED_FIELDS = 8
+
+/** Widest count a data page reports: columns it shows, rows it matched, pages it turned. */
+const MAX_DATA_PAGE_COUNT = Number.MAX_SAFE_INTEGER
+
+/**
+ * One count a data page reports, as all of them are declared.
  *
  * Whole, because every one of them counts something a table either has or does
  * not: a notice reading `1 row shown of 2.5 matching, page 1.5` describes no
  * table a browser can be showing, and the seat's own reader already refuses to
  * build one.
  */
-const CRUD_COUNT: NumberFieldSchema = { kind: 'number', min: 0, max: MAX_CRUD_COUNT, integer: true }
+const DATA_PAGE_COUNT: NumberFieldSchema = { kind: 'number', min: 0, max: MAX_DATA_PAGE_COUNT, integer: true }
 
 /** The page a query answered on, which is the one count that starts at one. */
-const CRUD_PAGE: NumberFieldSchema = { ...CRUD_COUNT, min: 1 }
+const DATA_PAGE_PAGE: NumberFieldSchema = { ...DATA_PAGE_COUNT, min: 1 }
 
 /**
  * Why no property of a data page may be read from another block: every one of
  * them is on the card the user is asked with, and the card is drawn from the
  * call before anything the page resolves exists.
  */
-const CRUD_UNBINDABLE = 'the user is asked about this block before it is drawn, from the properties the call wrote, and a '
+const DATA_PAGE_UNBINDABLE = 'the user is asked about this block before it is drawn, from the properties the call wrote, and a '
   + 'value another block supplies is not in that call.'
 
 /**
@@ -1562,29 +1656,128 @@ export const READ_CONDITION: ObjectFieldSchema = {
   },
 }
 
+/** Whether one of the page's regions is drawn; absent leaves the page's own answer standing. */
+const DATA_PAGE_REGION: PropsField = { required: false, schema: { kind: 'boolean' } }
+
+/**
+ * The toolbar buttons a written-down page may keep.
+ *
+ * The vendored page's own `DATA_PAGE_TOOLBAR_BUTTONS`, value for value and in
+ * its order, which `component-kit` asserts: this list is what the catalog
+ * admits and that one is what the page's prop validator admits, and a view
+ * accepted here and refused there would be a button nobody drew and nothing
+ * reported.
+ */
+export const DATA_PAGE_TOOLBAR_BUTTONS: readonly string[] = ['add', 'exp', 'gridexp', 'search', 'clear']
+
+/** Why a page keeps no import or batch button, stated where a view asking for one is refused. */
+const DATA_PAGE_TOOLBAR_HINT = 'This page draws no import panel and no batch panel, so "imp" and "batch" are not on '
+  + 'the list: either button would draw and answer nothing when it was pressed.'
+
+/** The row operations a written-down page may keep. */
+export const DATA_PAGE_ROW_OPERATIONS: readonly string[] = ['modify']
+
+/** Why a row keeps no delete button, stated where a view asking for one is refused. */
+const DATA_PAGE_ROW_OPERATION_HINT = 'This page draws no delete confirmation, so "delete" is not on the list: the '
+  + 'button would draw and answer nothing when it was pressed.'
+
+/** The sections a written-down page's info card may draw. */
+const DATA_PAGE_INFO_CARD_TABS: readonly string[] = ['wrong-info', 'operation', 'related-stat', 'useage', 'attributes']
+
+/** Most entries one `pageSizes` list offers. */
+const MAX_DATA_PAGE_PAGE_SIZES = 10
+
+/** Largest number of rows one page of the table may hold. */
+const MAX_DATA_PAGE_PAGE_SIZE = 1000
+
+/** Most row operations one call may add to the page's own. */
+const MAX_DATA_PAGE_CUSTOM_OPERATIONS = 5
+
+/**
+ * The properties a `show_component` call may write on a data page block.
+ *
+ * Seven of them are the page's own — which table, narrowed how, joined how,
+ * sorted how, ticked how, queried on arrival or not, and which row operations
+ * to add — and the eighth is the name the user reads on the card they are asked
+ * with, which stops in this package. The seven are the vendored page's own
+ * model-settable list, and `component-kit` pins this table against it.
+ */
+export const DATA_PAGE_MODEL_PROP_NAMES: readonly string[] = [
+  'relatedMeta',
+  'metaLabel',
+  'conditions',
+  'matchMode',
+  'querySort',
+  'selectMode',
+  'isInitQuery',
+  'customOperations',
+]
+
+/**
+ * The properties only whoever writes a page down may set.
+ *
+ * They decide which regions the page holds, which buttons it keeps, how it
+ * pages, and whether it can be written in at all — a layout a person arranged
+ * and a permission a deployment granted, neither of which is a choice a call
+ * makes about a table. A call carrying one is refused by
+ * {@link module:@deepseek-ai/dsh-experimental-component-surface/src/data-page},
+ * so a page a call placed opens with the vendored page's own defaults, which
+ * include being read-only.
+ *
+ * Seven of them are the vendored page's own layout list, which `component-kit`
+ * pins this table against; `readOnly` is that page's own host-decided property
+ * and is here because whether a page can be written in is settled in the same
+ * file its layout is.
+ */
+export const DATA_PAGE_VIEW_PROP_NAMES: readonly string[] = [
+  'regions',
+  'toolbarButtons',
+  'rowOperations',
+  'queryExpanded',
+  'pageSize',
+  'pageSizes',
+  'infoCardTabs',
+  'readOnly',
+]
+
+/**
+ * Why a call may not arrange the page it opens.
+ *
+ * Model-facing, and it states the rule rather than a way round it: a call names
+ * the table and how to narrow it, and the arrangement is settled where the page
+ * was written down. Leaving the property out is not a workaround — it is the
+ * whole of what a call may send — so the sentence says what the page will then
+ * be instead of sending the model somewhere else.
+ */
+const DATA_PAGE_VIEW_ONLY = 'is settled where this page was written down rather than by a call. A call names what the page '
+  + `is opened on (${DATA_PAGE_MODEL_PROP_NAMES.join(', ')}); leave the rest out and the page opens read-only with its `
+  + 'own arrangement.'
+
+/** One property of the page's arrangement: only a written-down page sets it, and no block may read it. */
+const DATA_PAGE_ARRANGED = { unbindable: DATA_PAGE_UNBINDABLE, viewOnly: DATA_PAGE_VIEW_ONLY }
+
 /**
  * The data page's declared properties.
  *
- * What the model chooses is what the page is opened on — which table, under
- * which name on the card, narrowed by which hidden conditions, sorted how, and
- * whether rows can be ticked — and nothing about what the page can do: the
- * page is read-only by the properties the host writes dead beside these, which
- * no call carries. Every property here is on the card the user answers, so
- * none may be read from another block.
+ * Two groups in one table, because one catalog judges both a call and a written
+ * view: {@link DATA_PAGE_MODEL_PROP_NAMES} is what the page is opened on, and
+ * {@link DATA_PAGE_VIEW_PROP_NAMES} is how it is arranged and whether it can be
+ * written in. Every property here is on the card the user answers, so none may
+ * be read from another block.
  */
-const CRUD_PROPS: PropsSchema = {
-  relatedMeta: { required: true, schema: FIELD_NAME, unbindable: CRUD_UNBINDABLE },
+const DATA_PAGE_PROPS: PropsSchema = {
+  relatedMeta: { required: true, schema: FIELD_NAME, unbindable: DATA_PAGE_UNBINDABLE },
   metaLabel: {
     required: true,
     schema: { kind: 'string', maxLength: MAX_META_LABEL_LENGTH, charset: { allowed: CARD_TEXT_CHARSET, hint: CARD_TEXT_HINT } },
-    unbindable: CRUD_UNBINDABLE,
+    unbindable: DATA_PAGE_UNBINDABLE,
   },
   conditions: {
     required: false,
     schema: { kind: 'array', minItems: 1, maxItems: MAX_READ_CONDITIONS, item: READ_CONDITION },
-    unbindable: CRUD_UNBINDABLE,
+    unbindable: DATA_PAGE_UNBINDABLE,
   },
-  matchMode: { required: false, schema: { kind: 'enum', values: MATCH_MODES }, unbindable: CRUD_UNBINDABLE },
+  matchMode: { required: false, schema: { kind: 'enum', values: MATCH_MODES }, unbindable: DATA_PAGE_UNBINDABLE },
   querySort: {
     required: false,
     schema: {
@@ -1594,28 +1787,188 @@ const CRUD_PROPS: PropsSchema = {
         desc: { required: false, schema: FIELD_NAME },
       },
     },
-    unbindable: CRUD_UNBINDABLE,
+    unbindable: DATA_PAGE_UNBINDABLE,
   },
-  selectMode: { required: false, schema: { kind: 'enum', values: ['checkbox', 'radio'] }, unbindable: CRUD_UNBINDABLE },
-  isExpandQuery: { required: false, schema: { kind: 'boolean' }, unbindable: CRUD_UNBINDABLE },
-  isInitQuery: { required: false, schema: { kind: 'boolean' }, unbindable: CRUD_UNBINDABLE },
+  selectMode: { required: false, schema: { kind: 'enum', values: ['checkbox', 'radio'] }, unbindable: DATA_PAGE_UNBINDABLE },
+  isInitQuery: { required: false, schema: { kind: 'boolean' }, unbindable: DATA_PAGE_UNBINDABLE },
+  customOperations: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 1,
+      maxItems: MAX_DATA_PAGE_CUSTOM_OPERATIONS,
+      item: {
+        kind: 'object',
+        fields: {
+          name: { required: true, schema: FIELD_NAME },
+          label: { required: true, schema: { kind: 'string', maxLength: MAX_FIELD_NAME_LENGTH } },
+        },
+      },
+    },
+    unbindable: DATA_PAGE_UNBINDABLE,
+  },
+  regions: {
+    required: false,
+    schema: {
+      kind: 'object',
+      fields: {
+        query: DATA_PAGE_REGION,
+        toolbar: DATA_PAGE_REGION,
+        table: DATA_PAGE_REGION,
+        operate: DATA_PAGE_REGION,
+        pagination: DATA_PAGE_REGION,
+        infoCard: DATA_PAGE_REGION,
+        addForm: DATA_PAGE_REGION,
+        modifyForm: DATA_PAGE_REGION,
+      },
+    },
+    ...DATA_PAGE_ARRANGED,
+  },
+  toolbarButtons: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 0,
+      maxItems: DATA_PAGE_TOOLBAR_BUTTONS.length,
+      item: { kind: 'enum', values: DATA_PAGE_TOOLBAR_BUTTONS, hint: DATA_PAGE_TOOLBAR_HINT },
+    },
+    ...DATA_PAGE_ARRANGED,
+  },
+  rowOperations: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 0,
+      maxItems: DATA_PAGE_ROW_OPERATIONS.length,
+      item: { kind: 'enum', values: DATA_PAGE_ROW_OPERATIONS, hint: DATA_PAGE_ROW_OPERATION_HINT },
+    },
+    ...DATA_PAGE_ARRANGED,
+  },
+  queryExpanded: { required: false, schema: { kind: 'boolean' }, ...DATA_PAGE_ARRANGED },
+  pageSize: {
+    required: false,
+    schema: { kind: 'number', min: 1, max: MAX_DATA_PAGE_PAGE_SIZE, integer: true },
+    ...DATA_PAGE_ARRANGED,
+  },
+  pageSizes: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 1,
+      maxItems: MAX_DATA_PAGE_PAGE_SIZES,
+      item: { kind: 'number', min: 1, max: MAX_DATA_PAGE_PAGE_SIZE, integer: true },
+    },
+    ...DATA_PAGE_ARRANGED,
+  },
+  infoCardTabs: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 0,
+      maxItems: DATA_PAGE_INFO_CARD_TABS.length,
+      item: { kind: 'enum', values: DATA_PAGE_INFO_CARD_TABS },
+    },
+    ...DATA_PAGE_ARRANGED,
+  },
+  readOnly: { required: false, schema: { kind: 'boolean' }, ...DATA_PAGE_ARRANGED },
 }
 
 /** Action id the data page reports its loaded columns under. */
-export const CRUD_LOAD_ID = 'load'
+export const DATA_PAGE_LOAD_ID = 'load'
+
+/** Action id the data page reports a table this user's account is not granted under. */
+export const DATA_PAGE_DENIED_ID = 'denied'
+
+/** Action id the data page reports a sign-in this deployment refused under. */
+export const DATA_PAGE_AUTH_FAILED_ID = 'auth-failed'
 
 /** Action id the data page reports one answered query under. */
-export const CRUD_QUERY_ID = 'query'
+export const DATA_PAGE_QUERY_ID = 'query'
 
 /** Action id the data page reports a clicked cell under. */
-export const CRUD_CELL_CLICK_ID = 'cell-click'
+export const DATA_PAGE_CELL_CLICK_ID = 'cell-click'
+
+/** Action id the data page reports a change of ticked rows under. */
+export const DATA_PAGE_SELECT_ID = 'select'
+
+/** Action id the data page reports an opened side card under. */
+export const DATA_PAGE_CARD_OPEN_ID = 'card-open'
+
+/** Action id the data page reports a closed side card under. */
+export const DATA_PAGE_CARD_CLOSE_ID = 'card-close'
+
+/** Action id the data page reports a saved new record under. */
+export const DATA_PAGE_ADDED_ID = 'added'
+
+/** Action id the data page reports a saved edit under. */
+export const DATA_PAGE_MODIFIED_ID = 'modified'
+
+/** Action id the data page reports a pressed row operation under. */
+export const DATA_PAGE_OPERATION_ID = 'operation'
+
+/** Action id the data page reports a submitted export task under. */
+export const DATA_PAGE_EXPORTED_ID = 'exported'
+
+/** The two exports the page's toolbar submits, as the page's own event names them. */
+const DATA_PAGE_EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
+
+/**
+ * The two judgements that refuse a page, as the page's own event names them.
+ *
+ * Both of them keep the page from opening, and they are two different things to
+ * tell the person: one is about this table, the other is about their account
+ * and holds for every table.
+ */
+const DATA_PAGE_DENIED_REASONS: readonly string[] = ['no-row', 'no-rights-table']
+
+/** What each refusal reason is called where a gesture is accounted for. */
+const DATA_PAGE_DENIED_REASON_NAMES: Readonly<Record<string, NoticePhrase>> = {
+  'no-row': {
+    agent: 'that table is not among the permissions this deployment holds for this user',
+    user: '这张表不在当前账号的权限里',
+  },
+  'no-rights-table': {
+    agent: 'the permissions this deployment holds for this user could not be obtained, so no table opens for them',
+    user: '取不到当前账号的权限，这一页没打开',
+  },
+}
+
+/** What a refusal says where the page named a judgement this catalog does not declare. */
+const DATA_PAGE_DENIED_UNNAMED: NoticePhrase = {
+  agent: 'this deployment did not grant this user that table',
+  user: '当前账号没有权限查看这张表',
+}
+
+/**
+ * Widest answer code a refused sign-in reports: zero where the page had no
+ * sign-in to present and sent nothing, and the refusing answer's own code
+ * otherwise.
+ */
+export const MAX_DATA_PAGE_AUTH_STATUS = 599
+
+/** Largest reported business code, in characters; the seat leaves a longer one out rather than cutting it. */
+export const MAX_DATA_PAGE_AUTH_CODE_LENGTH = 24
+
+/** What each export mode is called where a gesture is accounted for, in the toolbar key the arrangement keeps it by. */
+const DATA_PAGE_EXPORT_NAMES: Readonly<Record<string, NoticePhrase>> = {
+  excel: { agent: 'a template export (exp)', user: '模板导出' },
+  grid_csv: { agent: 'a table export (gridexp)', user: '表格导出' },
+}
 
 /** One column a loaded page reports, as validation accepted it. */
-export interface CrudColumn {
+export interface DataPageColumn {
   /** The attribute the column reads its cell out of. */
   readonly attr: string
   /** The header the page draws over it, where the scheme wrote one. */
   readonly alias?: string
+}
+
+/** One row operation a call added to the page, as validation accepted it. */
+interface DataPageOperation {
+  /** The id a press reports. */
+  readonly name: string
+  /** The operation's user-facing text. */
+  readonly label: string
 }
 
 /**
@@ -1626,8 +1979,17 @@ export interface CrudColumn {
  * @param node - the drawn node, as validation accepted it.
  * @returns the table's name in the backend.
  */
-export function crudMeta(node: ComponentNode): string {
+export function dataPageMeta(node: ComponentNode): string {
   return node.props['relatedMeta'] as string
+}
+
+/**
+ * The row operations one data page block added to the page's own.
+ * @param node - the drawn node, as validation accepted it.
+ * @returns the operations the call declared, empty where it declared none.
+ */
+function dataPageOperations(node: ComponentNode): readonly DataPageOperation[] {
+  return (node.props['customOperations'] as readonly DataPageOperation[] | undefined) ?? []
 }
 
 /**
@@ -1643,34 +2005,72 @@ export function crudMeta(node: ComponentNode): string {
  * @param column - one reported column.
  * @returns the phrase.
  */
-export function crudColumnPhrase(column: CrudColumn): string {
+export function dataPageColumnPhrase(column: DataPageColumn): string {
   return column.alias === undefined ? column.attr : `${plainLine(column.alias)} (${column.attr})`
 }
 
 /**
- * Name one clicked row the way the user sees it: by what the first reported
+ * Name one reported row the way the user sees it: by what the first reported
  * cell shows, and as "a row" where the page reported no readable cell.
  * @param row - the reported cells, in the page's own column order.
  * @returns the two namings.
  */
-function nameCrudRow(row: Readonly<Record<string, unknown>>): NoticePhrase {
+function nameDataPageRow(row: Readonly<Record<string, unknown>>): NoticePhrase {
   const first = Object.values(row)[0]
   if (typeof first === 'number') return quote(String(first))
   if (typeof first === 'string' && first.length > 0) return quote(first)
   return { agent: 'a row', user: '一行' }
 }
 
+/** One row's drawn cells, as every action that reports a row declares them. */
+const DATA_PAGE_ROW: RecordFieldSchema = {
+  kind: 'record',
+  key: FIELD_NAME,
+  maxKeys: MAX_DATA_PAGE_REPORTED_CELLS,
+  maxValueLength: MAX_DATA_PAGE_CELL_LENGTH,
+  minValue: -MAX_RECORD_NUMBER,
+  maxValue: MAX_RECORD_NUMBER,
+}
+
+/** What one save reports of the record it wrote: the row's drawn cells, and no more of the form. */
+const DATA_PAGE_SAVED_RECORD: RecordFieldSchema = { ...DATA_PAGE_ROW, maxKeys: MAX_DATA_PAGE_SAVED_FIELDS }
+
 /**
- * The three things a data page reports, all of them `context`.
+ * Account for one saved record, in the words the two saves share.
+ * @param context - the entry, the node, the catalog entry, and the accepted payload.
+ * @param written - whether the record is new or an edit of one that existed.
+ * @returns the two accounts.
+ */
+function describeDataPageSave(context: ComponentActionContext, written: 'added' | 'modified'): ComponentActionNotice {
+  const record = context.payload['record'] as Readonly<Record<string, unknown>>
+  const name = nameDataPageRow(record)
+  const fields = Object.entries(record).map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')
+  return {
+    text: `The user saved ${written === 'added' ? 'a new record' : 'an edit'} in ${place(context)}: ${name.agent}`
+      + `${fields.length === 0 ? '' : ` (${fields})`}.`,
+    summary: `用户在「${entryName(context)}」里${written === 'added' ? '新增' : '改'}了「${name.user}」`,
+  }
+}
+
+/**
+ * The twelve things a data page reports, all of them `context`.
  *
  * None is the answer the block was placed for: the page was placed to be used,
- * and what comes back is what the agent needs to talk about it — the columns
- * once the page has loaded, how many rows each query matched, and the row and
- * column the user clicked. None wakes the agent, because none of them is a
- * question the user is waiting on an answer to; a click is the user working.
+ * and what comes back is what the agent needs to talk about it — what the page
+ * loaded and what this deployment grants this user on it, or which of the two
+ * judgements refused the table to this user's account, or that this deployment
+ * refused the sign-in the page presented, how many rows each
+ * query matched,
+ * which rows the user ticked, which cell they clicked, which side card they
+ * opened, what they saved, which row operation they pressed, and which export
+ * they submitted. None wakes the agent, because none of them is a question the
+ * user is waiting on an answer to; working in a page is the user working.
  *
- * The rows themselves are never in a payload. A query reports three counts, a
- * click reports the one row's drawn cells, and a load reports column names —
+ * No result set is ever in a payload. A query reports three counts, a selection
+ * reports how many rows are ticked and what the first few of them are called, a
+ * click and a row operation report one row's drawn cells, a save reports the
+ * saved row's drawn cells, a load reports column names, and an export reports
+ * which of the two toolbar exports was submitted and in which file type —
  * which is what keeps the page's data out of the log and out of the
  * conversation while the agent still knows what the page is showing.
  *
@@ -1679,9 +2079,9 @@ function nameCrudRow(row: Readonly<Record<string, unknown>>): NoticePhrase {
  * drew, and a block replaced by a later call under the same ids is a different
  * table's page.
  */
-const CRUD_ACTIONS: readonly ComponentActionDefinition[] = [
+const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
   {
-    id: CRUD_LOAD_ID,
+    id: DATA_PAGE_LOAD_ID,
     report: 'context',
     payloadSchema: {
       meta: { required: true, schema: FIELD_NAME },
@@ -1690,75 +2090,121 @@ const CRUD_ACTIONS: readonly ComponentActionDefinition[] = [
         schema: {
           kind: 'array',
           minItems: 0,
-          maxItems: MAX_CRUD_REPORTED_COLUMNS,
+          maxItems: MAX_DATA_PAGE_REPORTED_COLUMNS,
           uniqueBy: 'attr',
           item: {
             kind: 'object',
             fields: {
               attr: { required: true, schema: FIELD_NAME },
-              alias: { required: false, schema: { kind: 'string', maxLength: MAX_CRUD_HEADER_LENGTH } },
+              alias: { required: false, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_HEADER_LENGTH } },
             },
           },
         },
       },
-      total: { required: true, schema: CRUD_COUNT },
+      total: { required: true, schema: DATA_PAGE_COUNT },
+      rights: {
+        required: true,
+        schema: { kind: 'array', minItems: 0, maxItems: MAX_DATA_PAGE_RIGHTS, item: DATA_PAGE_RIGHT },
+      },
     },
     describe: (context) => {
       const meta = context.payload['meta']
-      if (meta !== crudMeta(context.node)) return undefined
-      const columns = context.payload['columns'] as readonly CrudColumn[]
+      if (meta !== dataPageMeta(context.node)) return undefined
+      const columns = context.payload['columns'] as readonly DataPageColumn[]
       const total = context.payload['total'] as number
-      const named = columns.map(crudColumnPhrase).join(', ')
+      const rights = context.payload['rights'] as readonly string[]
+      const named = columns.map(dataPageColumnPhrase).join(', ')
       const rest = total > columns.length ? ` and ${total - columns.length} more` : ''
       const shown = columns.length === 0 ? 'no columns' : `${total} column${total === 1 ? '' : 's'}: ${named}${rest}`
+      // The rights record is what this deployment answered for this user, not
+      // what the page drew: a page opened read-only still reports the read
+      // rights the backend grants, and every write it draws no button for.
+      const granted = rights.length === 0 ? '' : ` This deployment grants this user: ${rights.join(', ')}.`
       return {
-        text: `The data page of "${meta}" has loaded in ${place(context)}; it shows ${shown}.`,
+        text: `The data page of "${meta}" has loaded in ${place(context)}; it shows ${shown}.${granted}`,
         summary: `「${entryName(context)}」的数据页已打开`,
       }
     },
   },
   {
-    id: CRUD_QUERY_ID,
+    id: DATA_PAGE_DENIED_ID,
+    report: 'context',
+    // The reason and nothing else. The table a denial is about is `relatedMeta`
+    // on the node the call itself wrote, so a payload carrying it would be the
+    // host reading its own value back off a page whose whole report is that it
+    // fetched nothing; and a payload carrying the user or the permission table
+    // it was judged against is what this gesture exists to keep out of the
+    // conversation. The reason is neither: it is which judgement the page made,
+    // and the two say different things to the person.
+    payloadSchema: {
+      reason: { required: false, schema: { kind: 'enum', values: DATA_PAGE_DENIED_REASONS } },
+    },
+    describe: (context) => {
+      const why = DATA_PAGE_DENIED_REASON_NAMES[context.payload['reason'] as string] ?? DATA_PAGE_DENIED_UNNAMED
+      return {
+        text: `The data page of "${dataPageMeta(context.node)}" did not open in ${place(context)}: ${why.agent}. `
+          + 'The page drew nothing and sent no query, so no columns, no counts and no rows are coming from it.',
+        summary: `「${entryName(context)}」${why.user}`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_AUTH_FAILED_ID,
     report: 'context',
     payloadSchema: {
-      total: { required: true, schema: CRUD_COUNT },
-      rows: { required: true, schema: CRUD_COUNT },
-      page: { required: true, schema: CRUD_PAGE },
+      status: { required: true, schema: { kind: 'number', min: 0, max: MAX_DATA_PAGE_AUTH_STATUS, integer: true } },
+      code: { required: false, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_AUTH_CODE_LENGTH } },
+    },
+    describe: (context) => {
+      const status = context.payload['status'] as number
+      const code = context.payload['code'] as string | undefined
+      // The code is this deployment's own text, so it is read back as data
+      // rather than spliced into the sentence as words.
+      const named = code === undefined ? '' : `, code ${quote(code).agent}`
+      const refused = status === 0
+        ? 'this user has no sign-in on this deployment for the page to present'
+        : `this deployment refused this user's sign-in with ${status}${named}`
+      return {
+        text: `The data page of "${dataPageMeta(context.node)}" in ${place(context)} is empty because ${refused}. `
+          + 'It drew no columns and sent no query, and nothing comes from it until this person is signed in to this '
+          + 'deployment again. Any other data page on screen reports the same thing, because this is about this '
+          + "person's sign-in rather than about one table.",
+        summary: `「${entryName(context)}」的数据页${status === 0 ? '没有登录' : `登录没通过（${status}）`}，页面是空的`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_QUERY_ID,
+    report: 'context',
+    payloadSchema: {
+      total: { required: true, schema: DATA_PAGE_COUNT },
+      rows: { required: true, schema: DATA_PAGE_COUNT },
+      page: { required: true, schema: DATA_PAGE_PAGE },
     },
     describe: (context) => {
       const total = context.payload['total'] as number
       const rows = context.payload['rows'] as number
       const page = context.payload['page'] as number
       return {
-        text: `The data page of "${crudMeta(context.node)}" in ${place(context)} answered a query: `
+        text: `The data page of "${dataPageMeta(context.node)}" in ${place(context)} answered a query: `
           + `${rows} row${rows === 1 ? '' : 's'} shown of ${total} matching, page ${page}.`,
         summary: `「${entryName(context)}」的数据页查到了 ${total} 条`,
       }
     },
   },
   {
-    id: CRUD_CELL_CLICK_ID,
+    id: DATA_PAGE_CELL_CLICK_ID,
     report: 'context',
     payloadSchema: {
       attr: { required: true, schema: FIELD_NAME },
-      label: { required: true, schema: { kind: 'string', maxLength: MAX_CRUD_HEADER_LENGTH } },
-      row: {
-        required: true,
-        schema: {
-          kind: 'record',
-          key: FIELD_NAME,
-          maxKeys: MAX_CRUD_REPORTED_CELLS,
-          maxValueLength: MAX_CRUD_CELL_LENGTH,
-          minValue: -MAX_RECORD_NUMBER,
-          maxValue: MAX_RECORD_NUMBER,
-        },
-      },
+      label: { required: true, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_HEADER_LENGTH } },
+      row: { required: true, schema: DATA_PAGE_ROW },
     },
     describe: (context) => {
       const attr = context.payload['attr'] as string
       const label = quote(context.payload['label'] as string)
       const row = context.payload['row'] as Readonly<Record<string, unknown>>
-      const name = nameCrudRow(row)
+      const name = nameDataPageRow(row)
       const cells = Object.entries(row).map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')
       return {
         text: `The user clicked ${label.agent} (${attr}) on row ${name.agent} in ${place(context)}; `
@@ -1767,21 +2213,131 @@ const CRUD_ACTIONS: readonly ComponentActionDefinition[] = [
       }
     },
   },
+  {
+    id: DATA_PAGE_SELECT_ID,
+    report: 'context',
+    payloadSchema: {
+      count: { required: true, schema: { kind: 'number', min: 0, max: MAX_SELECTED_ROWS, integer: true } },
+      names: {
+        required: true,
+        schema: {
+          kind: 'array',
+          minItems: 0,
+          maxItems: MAX_NAMED_ROWS,
+          item: { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH },
+        },
+      },
+    },
+    describe: (context) => {
+      const count = context.payload['count'] as number
+      const named = (context.payload['names'] as readonly string[]).map(name => quote(name))
+      const where = place(context)
+      if (count === 0) {
+        return {
+          text: `The user cleared the selection in ${where}.`,
+          summary: `用户在「${entryName(context)}」里取消了选择`,
+        }
+      }
+      const hidden = count - named.length
+      return {
+        text: `The user ticked ${count} row${count === 1 ? '' : 's'} in ${where}: `
+          + `${named.map(name => name.agent).join(', ')}${hidden <= 0 ? '' : ` and ${hidden} more`}.`,
+        summary: `用户在「${entryName(context)}」里选中了 ${count} 行：`
+          + `${named.map(name => name.user).join('、')}${hidden <= 0 ? '' : ` 等 ${count} 行`}`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_CARD_OPEN_ID,
+    report: 'context',
+    payloadSchema: {
+      name: { required: true, schema: { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH } },
+    },
+    describe: (context) => {
+      const name = quote(context.payload['name'] as string)
+      return {
+        text: `The user opened the side card of ${name.agent} in ${place(context)}.`,
+        summary: `用户在「${entryName(context)}」里打开了「${name.user}」的卡片`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_CARD_CLOSE_ID,
+    report: 'context',
+    payloadSchema: {},
+    describe: context => ({
+      text: `The user closed the side card in ${place(context)}.`,
+      summary: `用户在「${entryName(context)}」里关掉了卡片`,
+    }),
+  },
+  {
+    id: DATA_PAGE_ADDED_ID,
+    report: 'context',
+    payloadSchema: { record: { required: true, schema: DATA_PAGE_SAVED_RECORD } },
+    describe: context => describeDataPageSave(context, 'added'),
+  },
+  {
+    id: DATA_PAGE_MODIFIED_ID,
+    report: 'context',
+    payloadSchema: { record: { required: true, schema: DATA_PAGE_SAVED_RECORD } },
+    describe: context => describeDataPageSave(context, 'modified'),
+  },
+  {
+    id: DATA_PAGE_OPERATION_ID,
+    report: 'context',
+    payloadSchema: {
+      opId: { required: true, schema: FIELD_NAME },
+      row: { required: true, schema: DATA_PAGE_ROW },
+    },
+    describe: (context) => {
+      const opId = context.payload['opId'] as string
+      const operation = dataPageOperations(context.node).find(one => one.name === opId)
+      if (operation === undefined) return undefined
+      const row = context.payload['row'] as Readonly<Record<string, unknown>>
+      const name = nameDataPageRow(row)
+      const label = quote(operation.label)
+      return {
+        text: `The user pressed ${label.agent} (${opId}) on row ${name.agent} in ${place(context)}.`,
+        summary: `用户在「${entryName(context)}」里对「${name.user}」按了「${label.user}」`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_EXPORTED_ID,
+    report: 'context',
+    payloadSchema: {
+      mode: { required: true, schema: { kind: 'enum', values: DATA_PAGE_EXPORT_MODES } },
+      fileType: { required: false, schema: FIELD_NAME },
+    },
+    describe: (context) => {
+      const export_ = DATA_PAGE_EXPORT_NAMES[context.payload['mode'] as string] as NoticePhrase
+      const fileType = context.payload['fileType'] as string | undefined
+      return {
+        text: `The user submitted ${export_.agent}${fileType === undefined ? '' : ` as ${fileType}`} from the data page `
+          + `of "${dataPageMeta(context.node)}" in ${place(context)}. This deployment's backend queued it as a task, `
+          + 'and the file is collected from that deployment\'s own task list; nothing was downloaded here, and this '
+          + 'block reports neither the rows the export covers nor where the file ends up.',
+        summary: `用户在「${entryName(context)}」里提交了${export_.user}任务，文件要到这套系统自己的任务列表里取`,
+      }
+    },
+  },
 ]
 
 /**
- * Every component a call may place.
+ * The six components `@deepseek-ai/dsh-experimental-component-kit` registers.
  *
- * A static table rather than a registry service, because one package owns every
- * entry: the seat that draws a kind and the schema that admits it ship
- * together. `as const` is what keeps the ids literal, so {@link CatalogId} is
- * derived from this table instead of restated beside it, and the seat's
- * `satisfies Record<CatalogId, ComponentRenderer>` turns "a catalog entry with
- * no renderer" into a compile error rather than a blank block at runtime.
- * Replace it with a registered seam when a package this one does not own needs
- * to contribute a component.
+ * A library value, not a catalog: nothing reads it to decide what a call may
+ * place. The component row imports it and hands it to
+ * `ctx.componentCatalog.register()` on both halves, so a deployment that
+ * composes no component plugin offers no component at all, and the definitions
+ * and the renderers that draw them are contributed by one package in one act.
+ *
+ * They live here rather than in that row because moving them costs the
+ * judgement modules their one-import rule — the
+ * [Agent Note](../../../../.agents/notes/implemented/architecture/2026-09-18-component-catalog-registry.md)
+ * records the move as the follow-up.
  */
-export const COMPONENT_CATALOG = [
+export const COMPONENT_KIT_ENTRIES = [
   {
     id: CONFIRM_BAR_ID,
     label: '确认条',
@@ -1825,13 +2381,13 @@ export const COMPONENT_CATALOG = [
     sanitize: { background: 'color', borderColor: 'color', pointColor: 'color' },
   },
   {
-    id: CRUD_ID,
-    label: CRUD_LABEL,
+    id: DATA_PAGE_ID,
+    label: DATA_PAGE_LABEL,
     purpose: 'This deployment\'s own full data page for one table, opened with the user\'s own credential once '
       + 'they agree: they query, page and sort in it themselves, and you are told its columns, each query\'s row '
-      + 'count, and the row and column of a cell they click — no row they do not click.',
-    propsSchema: CRUD_PROPS,
-    actions: CRUD_ACTIONS,
+      + 'count, the rows they tick, and the row and column of a cell they click — no row they do not touch.',
+    propsSchema: DATA_PAGE_PROPS,
+    actions: DATA_PAGE_ACTIONS,
     outputs: [],
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
@@ -1844,20 +2400,12 @@ export const COMPONENT_CATALOG = [
  * column until the user has answered — so the two cannot disagree about which
  * calls are the ones a question stands in front of.
  * @param spec - the spec, as validation accepted it.
- * @returns the nodes naming {@link CRUD_ID}, in the order the call wrote them.
+ * @returns the nodes naming {@link DATA_PAGE_ID}, in the order the call wrote them.
  */
-export function crudNodes(spec: ComponentSpec): readonly ComponentNode[] {
-  return spec.nodes.filter(node => node.component === CRUD_ID)
+export function dataPageNodes(spec: ComponentSpec): readonly ComponentNode[] {
+  return spec.nodes.filter(node => node.component === DATA_PAGE_ID)
 }
 
-/**
- * Every id {@link COMPONENT_CATALOG} declares, as a union.
- *
- * Derived from the table rather than written beside it: adding a component
- * widens this union in the same edit, which is what makes the seat's renderer
- * table fail to compile until that component has a renderer.
- */
-export type CatalogId = (typeof COMPONENT_CATALOG)[number]['id']
 
 /** Levels a spec spends before a declared property's value: the spec object, `nodes`, one node, and its `props`. */
 const SPEC_FRAME_DEPTH = 4
@@ -1905,12 +2453,12 @@ function schemaDepth(schema: PropsSchema): number {
  * documents a component declares as legal and the depth a spec is refused at
  * cannot drift apart: a component declaring a nested property widens the
  * ceiling by exactly what that property needs. The layout tree is the spec's
- * other deep document and is measured separately, in {@link MAX_SPEC_DEPTH}.
- * @param catalog - the components a call may place.
+ * other deep document and is measured separately, in {@link LAYOUT_SPEC_DEPTH}.
+ * @param entries - the components a call may place.
  * @returns levels the deepest legal node of that catalog occupies.
  */
-export function maxSpecDepthOf(catalog: readonly ComponentCatalogEntry[]): number {
-  return SPEC_FRAME_DEPTH + catalog.reduce((deepest, entry) => Math.max(deepest, schemaDepth(entry.propsSchema)), 0)
+export function maxSpecDepthOf(entries: readonly ComponentCatalogEntry[]): number {
+  return SPEC_FRAME_DEPTH + entries.reduce((deepest, entry) => Math.max(deepest, schemaDepth(entry.propsSchema)), 0)
 }
 
 /** Levels a spec spends before a layout's own children: the spec object, and the stack it starts with. */
@@ -1920,22 +2468,58 @@ const LAYOUT_FRAME_DEPTH = 2
 const LAYOUT_LEVEL_DEPTH = 2
 
 /**
- * Deepest accepted nesting inside `spec` for this deployment's catalog.
+ * Deepest nesting the layout tree alone makes legal, whatever the catalog holds.
  *
- * The deeper of the two documents a spec carries — a node's properties, and the
- * layout tree over those nodes — plus one layout level of slack. The slack is
- * what lets a layout that opens one stack too many be refused at the stack that
- * opened it, rather than answered with a sentence about how deep `spec` may
- * nest, which names nothing the model can act on. Anything past this is
- * malformed regardless of which component it names, and refusing it before
- * anything else bounds the work every later walk does — the byte measurement
- * included, which is why the depth walk is the one that stops at a ceiling by
- * construction.
+ * The layout is the spec's other deep document, and it carries one level of
+ * slack: that slack is what lets a layout that opens one stack too many be
+ * refused at the stack that opened it, rather than answered with a sentence
+ * about how deep `spec` may nest, which names nothing the model can act on.
+ * It is also the floor an empty catalog is measured against, so a deployment
+ * with no component registered still refuses a malformed document by depth
+ * rather than by division.
  */
-export const MAX_SPEC_DEPTH = Math.max(
-  maxSpecDepthOf(COMPONENT_CATALOG),
-  LAYOUT_FRAME_DEPTH + LAYOUT_LEVEL_DEPTH * (MAX_LAYOUT_DEPTH + 1),
-)
+export const LAYOUT_SPEC_DEPTH = LAYOUT_FRAME_DEPTH + LAYOUT_LEVEL_DEPTH * (MAX_LAYOUT_DEPTH + 1)
+
+/**
+ * The components one deployment offers, with everything derivable from them
+ * already derived.
+ *
+ * Built once per catalog change rather than recomputed per call: the id index
+ * and the depth ceiling are pure functions of the entries, and a call is judged
+ * against both on every node it places.
+ */
+export interface ComponentCatalog {
+  /** The components a call may place, in the order they were registered. */
+  readonly entries: readonly ComponentCatalogEntry[]
+  /** Those components by id, which is how a node's `component` is resolved. */
+  readonly byId: ReadonlyMap<string, ComponentCatalogEntry>
+  /**
+   * Deepest accepted nesting inside `spec` for this catalog.
+   *
+   * The deeper of the two documents a spec carries — a node's properties, and
+   * the layout tree over those nodes. Anything past it is malformed regardless
+   * of which component it names, and refusing it before anything else bounds
+   * the work every later walk does — the byte measurement included, which is
+   * why the depth walk is the one that stops at a ceiling by construction.
+   */
+  readonly maxSpecDepth: number
+}
+
+/**
+ * Derive one deployment's catalog from the components registered into it.
+ * @param entries - the registered components, in registration order.
+ * @returns the catalog every judgement reads.
+ */
+export function readCatalog(entries: readonly ComponentCatalogEntry[]): ComponentCatalog {
+  return {
+    entries,
+    byId: new Map(entries.map(entry => [entry.id as string, entry])),
+    maxSpecDepth: Math.max(maxSpecDepthOf(entries), LAYOUT_SPEC_DEPTH),
+  }
+}
+
+/** A catalog with no component in it, which is what a deployment composing no component plugin judges against. */
+export const EMPTY_CATALOG: ComponentCatalog = readCatalog([])
 
 /**
  * Look one action up on the component that declares it.
@@ -1949,11 +2533,12 @@ export function catalogAction(component: ComponentCatalogEntry, actionId: unknow
 
 /**
  * Look one component up by the id a call named.
+ * @param catalog - the components this deployment offers.
  * @param id - the `component` value, however malformed.
  * @returns the catalog entry, or `undefined` when the deployment has no such component.
  */
-export function catalogEntry(id: unknown): ComponentCatalogEntry | undefined {
-  return COMPONENT_CATALOG.find(entry => entry.id === id)
+export function catalogEntry(catalog: ComponentCatalog, id: unknown): ComponentCatalogEntry | undefined {
+  return typeof id === 'string' ? catalog.byId.get(id) : undefined
 }
 
 /**
@@ -1979,12 +2564,13 @@ export function catalogOutput(component: ComponentCatalogEntry, outputId: unknow
  *
  * Read off the catalog rather than off the document, so the browser seat and
  * the session fold decide it the same way from the same table.
+ * @param catalog - the components this deployment offers.
  * @param componentId - the `componentId` an action document carried, however malformed.
  * @param actionId - the `actionId` it carried, however malformed.
  * @returns true when that component declares that action as a `wake`.
  */
-export function answersBlock(componentId: unknown, actionId: unknown): boolean {
-  const component = catalogEntry(componentId)
+export function answersBlock(catalog: ComponentCatalog, componentId: unknown, actionId: unknown): boolean {
+  const component = catalogEntry(catalog, componentId)
   if (component === undefined) return false
   return catalogAction(component, actionId)?.report === 'wake'
 }
@@ -2117,6 +2703,7 @@ function describeField(
  */
 function describeProps(schema: PropsSchema, rules: SanitizeRules | undefined): string {
   return Object.entries(schema)
+    .filter(([, field]) => field.viewOnly === undefined)
     .map(([name, field]) => `${name}${field.required ? '' : '?'}${describeField(field.schema, rules, rules?.[name])}`)
     .join(', ')
 }
@@ -2165,11 +2752,11 @@ function describeOutputs(outputs: readonly ComponentOutput[]): string {
  * reports and in what form, for the same reason: a binding is refused unless
  * the output exists and the property accepts its form, and both of those are
  * facts of this table.
- * @param catalog - the components a call may place.
+ * @param entries - the components a call may place.
  * @returns two lines per component — `- id — label — purpose`, then its properties — and a third for its outputs.
  */
-export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): string {
-  return catalog
+export function describeCatalog(entries: readonly ComponentCatalogEntry[]): string {
+  return entries
     .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
       + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`
       + (entry.outputs.length === 0 ? '' : `\n  outputs: ${describeOutputs(entry.outputs)}`))
@@ -2179,11 +2766,12 @@ export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): stri
 /**
  * Name the components one validated spec places, in the wording the end user
  * sees on screen.
+ * @param catalog - the components this deployment offers.
  * @param nodes - the spec's nodes, in order.
  * @returns the labels joined for a result line; a node naming no catalog entry contributes its raw id.
  */
-export function catalogLabels(nodes: readonly ComponentNode[]): string {
-  return nodes.map(node => catalogEntry(node.component)?.label ?? node.component).join('、')
+export function catalogLabels(catalog: ComponentCatalog, nodes: readonly ComponentNode[]): string {
+  return nodes.map(node => catalogEntry(catalog, node.component)?.label ?? node.component).join('、')
 }
 
 /** One block a call places: which component, and the properties it is given. */

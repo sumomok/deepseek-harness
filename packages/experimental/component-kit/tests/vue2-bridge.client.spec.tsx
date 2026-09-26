@@ -71,6 +71,13 @@ const DatePickerProbe = defineComponent({
   render: () => h('span', { attrs: { 'data-testid': 'picker' } }, 'picker'),
 })
 
+/** Stands in for `el-dropdown`: the split button whose menu the data page's table export opens. */
+const DropdownProbe = defineComponent({
+  name: 'ElDropdown',
+  data: () => ({ visible: true }),
+  render: () => h('span', { attrs: { 'data-testid': 'dropdown' } }, 'dropdown'),
+})
+
 /** Stands in for `el-select`: a focusable control whose dropdown escapes the host. */
 const SelectProbe = defineComponent({
   name: 'ElSelect',
@@ -79,6 +86,7 @@ const SelectProbe = defineComponent({
     create('input', { attrs: { 'data-testid': 'select-input' } }),
     create(TooltipProbe),
     create(DatePickerProbe),
+    create(DropdownProbe),
     create(PlainProbe),
     create(AnonymousProbe),
   ]),
@@ -206,6 +214,7 @@ describe('VueBridge', () => {
     expect(instances.get('ElSelect')?.visible).toBe(true)
     expect(instances.get('ElTooltip')?.showPopper).toBe(true)
     expect(instances.get('ElDatePicker')?.pickerVisible).toBe(true)
+    expect(instances.get('ElDropdown')?.visible).toBe(true)
 
     rerender(<VueBridge component={PopperProbe} props={{}} visible={false} />)
     await Promise.resolve()
@@ -213,6 +222,7 @@ describe('VueBridge', () => {
     // Two levels down from the root: the sweep walks the whole tree.
     expect(instances.get('ElTooltip')?.showPopper).toBe(false)
     expect(instances.get('ElDatePicker')?.pickerVisible).toBe(false)
+    expect(instances.get('ElDropdown')?.visible).toBe(false)
     // A component the table does not name keeps whatever state it had, whether
     // it declared a name of its own or none.
     expect(instances.get('PlainChild')?.showPopper).toBe(true)

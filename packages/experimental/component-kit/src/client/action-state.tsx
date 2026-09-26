@@ -17,7 +17,8 @@
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/action-state
  */
 import css from './action-state.module.css'
-import type { ComponentActionState, ComponentKitTranslate } from './renderer.ts'
+import type { ComponentKitTranslate } from './locales.ts'
+import type { ComponentActionState } from './renderer.ts'
 
 /**
  * The line each state is said with. A closed table, so a state added to the

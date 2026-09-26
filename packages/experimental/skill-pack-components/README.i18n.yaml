@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/skill-pack-components/README.md
+/:
+  en: 189c244d0679a7bb
+  zh: f830e76fea801f67
+/deepseek-ai-dsh-experimental-skill-pack-components:
+  en: a6e6373c42f2fa0a
+  zh: f88e129515b452ea
+/deepseek-ai-dsh-experimental-skill-pack-components/summary:
+  en: f4522c558ad6f71a
+  zh: db9dfd99fe5e3697
+/deepseek-ai-dsh-experimental-skill-pack-components/table-of-contents:
+  en: 875e443dc07fb756
+  zh: 75542f6f30769f18
+/deepseek-ai-dsh-experimental-skill-pack-components/mount-it:
+  en: 137bcadcb56c7347
+  zh: 7611983946ef8667
+/deepseek-ai-dsh-experimental-skill-pack-components/what-one-part-carries:
+  en: 594d149a5a873c70
+  zh: 8a0985e8d2795769
+/deepseek-ai-dsh-experimental-skill-pack-components/offered-not-registered:
+  en: 1eb6ef79e2198188
+  zh: d236c18882742faa
+/deepseek-ai-dsh-experimental-skill-pack-components/judging-a-pack-s-views:
+  en: efa937de8921e4d0
+  zh: a6a5f18871c7dc50
+/deepseek-ai-dsh-experimental-skill-pack-components/placing-them:
+  en: 01028ac6123ca7de
+  zh: 1bf3061d55308f35
+/deepseek-ai-dsh-experimental-skill-pack-components/model-experience:
+  en: d1244250543db80d
+  zh: ce18b097bf8d07fb
+/deepseek-ai-dsh-experimental-skill-pack-components/model-experience/kv-cache-effect:
+  en: 914318190abd250c
+  zh: 75b61bf9936a66c9
+/deepseek-ai-dsh-experimental-skill-pack-components/known-limitations-and-deferred-work:
+  en: 6d240d2b73b7103b
+  zh: 52ac183e37c39d20
+/deepseek-ai-dsh-experimental-skill-pack-components/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 9c6918ce849f6c93

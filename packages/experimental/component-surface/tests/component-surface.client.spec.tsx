@@ -14,8 +14,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import { en } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
+import { en as kitEn } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
 import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
+import { en } from '../src/client/locales.ts'
+import { kitRendererTable } from './renderer-table.client.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import type { ComponentActionRecord } from '../src/action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from '../src/client/action.ts'
@@ -26,6 +28,9 @@ import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID, RECORD_DETAIL_ID, TABLE_ID } from
 beforeAll(installElementUI)
 
 const t: ComponentSurfaceProps['t'] = makeTranslate(en)
+
+/** The components this page draws, as the component row registers them. */
+const components = kitRendererTable()
 
 /** One confirmation-bar block, as a validated spec carries it. */
 function confirmBar(id: string, title: string, buttons: readonly Record<string, unknown>[]): Record<string, unknown> {
@@ -91,6 +96,7 @@ function mount(seat: Seat): Mounted {
       entry: next.entry,
       useSessions: sessionsHook(next.recorded ?? {}),
       onAction,
+      components,
       pending,
       t,
     } as unknown as ComponentSurfaceProps} />
@@ -185,7 +191,7 @@ describe('component content seat', () => {
   it('says a press is on its way until the log carries it — the record is a round trip away', () => {
     const view = mount({ entry: ASK })
     fireEvent.click(view.getByText('Approve'))
-    expect(stateLine(view)).toBe(en['confirmBar.sending'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sending'])
     expect(disabled(view)).toEqual([true, true])
   })
 
@@ -203,9 +209,9 @@ describe('component content seat', () => {
 
   it('says what the log says became of the press', () => {
     for (const [outcome, line] of [
-      ['sent', en['confirmBar.sent']],
-      ['queued', en['confirmBar.queued']],
-      ['refused', en['confirmBar.refused']],
+      ['sent', kitEn['confirmBar.sent']],
+      ['queued', kitEn['confirmBar.queued']],
+      ['refused', kitEn['confirmBar.refused']],
     ] as const) {
       const view = mount({ entry: ASK, recorded: recordedPress(outcome) })
       expect(stateLine(view)).toBe(line)
@@ -219,11 +225,11 @@ describe('component content seat', () => {
     // own click would come back untouched and take the decision twice.
     const recorded = recordedPress('sent')
     const first = mount({ entry: ASK, recorded })
-    expect(stateLine(first)).toBe(en['confirmBar.sent'])
+    expect(stateLine(first)).toBe(kitEn['confirmBar.sent'])
     cleanup()
 
     const again = mount({ entry: ASK, recorded })
-    expect(stateLine(again)).toBe(en['confirmBar.sent'])
+    expect(stateLine(again)).toBe(kitEn['confirmBar.sent'])
     expect(disabled(again)).toEqual([true, true])
     fireEvent.click(again.getByText('Approve'))
     expect(again.onAction).not.toHaveBeenCalled()
@@ -236,7 +242,7 @@ describe('component content seat', () => {
     expect(view.onAction).toHaveBeenCalledTimes(1)
     // The log still holds only the refused press, so the block says the newer
     // one is on its way rather than repeating the older answer.
-    expect(stateLine(view)).toBe(en['confirmBar.sending'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sending'])
     expect(disabled(view)).toEqual([true, true])
   })
 
@@ -244,7 +250,7 @@ describe('component content seat', () => {
     const view = mount({ entry: ASK, recorded: recordedPress('refused', 20) })
     fireEvent.click(view.getByText('Approve'))
     view.show({ entry: ASK, recorded: recordedPress('sent', 30) })
-    expect(stateLine(view)).toBe(en['confirmBar.sent'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sent'])
   })
 
   it('lets the block be answered again when the press reached no log at all', async () => {
@@ -255,8 +261,8 @@ describe('component content seat', () => {
     // session.
     const view = mount({ entry: ASK, dispatch: 'failed' })
     fireEvent.click(view.getByText('Approve'))
-    expect(stateLine(view)).toBe(en['confirmBar.sending'])
-    await waitFor(() => { expect(stateLine(view)).toBe(en['confirmBar.refused']) })
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sending'])
+    await waitFor(() => { expect(stateLine(view)).toBe(kitEn['confirmBar.refused']) })
     expect(disabled(view)).toEqual([false, false])
     // And the page keeps no row for a press that is not on its way anywhere.
     expect(view.pending.size).toBe(0)
@@ -272,10 +278,10 @@ describe('component content seat', () => {
     // is a guess that lasts exactly until the log has one.
     const view = mount({ entry: ASK, dispatch: 'failed' })
     fireEvent.click(view.getByText('Approve'))
-    await waitFor(() => { expect(stateLine(view)).toBe(en['confirmBar.refused']) })
+    await waitFor(() => { expect(stateLine(view)).toBe(kitEn['confirmBar.refused']) })
 
     view.show({ entry: ASK, recorded: recordedPress('sent', 30) })
-    expect(stateLine(view)).toBe(en['confirmBar.sent'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sent'])
     expect(disabled(view)).toEqual([true, true])
   })
 
@@ -291,7 +297,7 @@ describe('component content seat', () => {
     cleanup()
 
     const again = mount({ entry: ASK, pending })
-    expect(stateLine(again)).toBe(en['confirmBar.sending'])
+    expect(stateLine(again)).toBe(kitEn['confirmBar.sending'])
     expect(disabled(again)).toEqual([true, true])
     fireEvent.click(again.getByText('Approve'))
     expect(again.onAction).not.toHaveBeenCalled()
@@ -307,7 +313,7 @@ describe('component content seat', () => {
     const pending: PendingPresses = new Map()
     const view = mount({ entry: ASK, pending })
     fireEvent.click(view.getByText('Approve'))
-    expect(stateLine(view)).toBe(en['confirmBar.sending'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sending'])
 
     view.show({ entry: ASK, sessionId: 'b' })
     expect(stateLine(view)).toBeUndefined()
@@ -323,7 +329,7 @@ describe('component content seat', () => {
 
     // And the first session's press is still where it was left.
     view.show({ entry: ASK })
-    expect(stateLine(view)).toBe(en['confirmBar.sending'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sending'])
     expect(disabled(view)).toEqual([true, true])
   })
 
@@ -335,7 +341,7 @@ describe('component content seat', () => {
 
     view.show({ entry: ASK, recorded: recordedPress('sent', 30) })
     await waitFor(() => { expect(pending.size).toBe(0) })
-    expect(stateLine(view)).toBe(en['confirmBar.sent'])
+    expect(stateLine(view)).toBe(kitEn['confirmBar.sent'])
     expect(disabled(view)).toEqual([true, true])
   })
 
@@ -365,7 +371,7 @@ describe('component content seat', () => {
     expect(view.onAction).not.toHaveBeenCalled()
     // Nothing was recorded and nothing is coming, so the block settles itself
     // rather than waiting on a log entry no one wrote.
-    await waitFor(() => { expect(stateLine(view)).toBe(en['confirmBar.refused']) })
+    await waitFor(() => { expect(stateLine(view)).toBe(kitEn['confirmBar.refused']) })
     expect(view.pending.size).toBe(0)
   })
 

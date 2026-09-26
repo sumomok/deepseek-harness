@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/console-mcp/README.md
+/:
+  en: 6e29d1b29ffd94dd
+  zh: ba9c7604d94df948
+/deepseek-ai-dsh-experimental-console-mcp:
+  en: b5ac49fde3d941f3
+  zh: 488106509d42891b
+/deepseek-ai-dsh-experimental-console-mcp/summary:
+  en: 8855510d2ab2a392
+  zh: d1c8df5a77567913
+/deepseek-ai-dsh-experimental-console-mcp/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-experimental-console-mcp/use-this-package:
+  en: 2e3c2bf474af3027
+  zh: efcb8582e66e5fd1
+/deepseek-ai-dsh-experimental-console-mcp/use-this-package/name-a-server:
+  en: 638e55be153e69b3
+  zh: a6103c3ca5e18d2f
+/deepseek-ai-dsh-experimental-console-mcp/use-this-package/where-the-secret-lives:
+  en: c7a53f1b30d1c3a4
+  zh: c865840f4b66760a
+/deepseek-ai-dsh-experimental-console-mcp/use-this-package/two-ways-a-request-is-identified:
+  en: 7df39f71c062d003
+  zh: 915050c477740685
+/deepseek-ai-dsh-experimental-console-mcp/use-this-package/what-fails-and-when:
+  en: d74a3ae0c42d1776
+  zh: a21d415e81a1dfc0
+/deepseek-ai-dsh-experimental-console-mcp/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 38c4460200090fb3
+/deepseek-ai-dsh-experimental-console-mcp/understand-the-implementation/why-a-row-rather-than-one-dsh-mcp-client-row-per-server:
+  en: c2a66c10c66aada6
+  zh: 98710034101bacb7
+/deepseek-ai-dsh-experimental-console-mcp/understand-the-implementation/request-and-spec:
+  en: 561caf6300394153
+  zh: dae92e0315ce07a7
+/deepseek-ai-dsh-experimental-console-mcp/understand-the-implementation/only-streamable-http:
+  en: c30bcf80ba310062
+  zh: f38a3ba5e976a037
+/deepseek-ai-dsh-experimental-console-mcp/further-exploration:
+  en: 13cc76e674b3e737
+  zh: 70d7c977a112bc41
+/deepseek-ai-dsh-experimental-console-mcp/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-console-mcp/model-experience/bridged-mcp-tools:
+  en: 838e04f20981a440
+  zh: d07bf5fa69ac1781
+/deepseek-ai-dsh-experimental-console-mcp/model-experience/bridged-mcp-tools/what-the-model-sees:
+  en: 435ff557e0a86da3
+  zh: 4c46af4d47884509
+/deepseek-ai-dsh-experimental-console-mcp/model-experience/bridged-mcp-tools/token-effect:
+  en: 640eaba492b42845
+  zh: 57e0e5e26fc14a71
+/deepseek-ai-dsh-experimental-console-mcp/model-experience/bridged-mcp-tools/kv-cache-effect:
+  en: 0463dea03892f0b3
+  zh: b3d5cf7a966bed75
+/deepseek-ai-dsh-experimental-console-mcp/known-limitations-and-deferred-work:
+  en: fc0ddcc0e709773f
+  zh: 0b3a88ec34706077
+/deepseek-ai-dsh-experimental-console-mcp/known-limitations-and-deferred-work/dev-note:
+  en: ff88c5662c26b131
+  zh: 01ac0c87f1c0f471

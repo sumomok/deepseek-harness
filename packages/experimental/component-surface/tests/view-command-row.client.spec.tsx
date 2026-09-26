@@ -5,34 +5,32 @@
  *
  * The lifecycle node is the chat view's own currency, built here the way the
  * conversation snapshot folds it. What a successful click shows the user is the
- * block arriving in the column beside the conversation; the refusal is the one
- * thing nobody else says, because a person who clicked a menu row and watched
- * nothing happen has no other way to learn why.
+ * block arriving in the column beside the conversation, so the one thing this
+ * row draws is the sentence nobody else says.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
+import { ViewCommandRow, type ViewCommandRowProps } from '../src/client/ViewCommandRow.tsx'
 
 /** The refusal a click naming no configured view earns, as `view-command.ts` writes it. */
 const NO_SUCH_VIEW = '没有这个视图。'
 
 /** One folded `show-content-view` lifecycle node with the settlement under test. */
-function commandNode(outcome: CommandRowProps['node']['outcome']): CommandRowProps['node'] {
+function commandNode(outcome: ViewCommandRowProps['node']['outcome']): ViewCommandRowProps['node'] {
   return {
     kind: 'command',
     seq: 7,
     time: 0,
-    commandId: 'cmd-1' as CommandRowProps['node']['commandId'],
+    commandId: 'cmd-1' as ViewCommandRowProps['node']['commandId'],
     name: 'show-content-view',
-    args: ' site-overview',
+    args: ' layers',
     outcome,
   }
 }
 
 /** Render the row for one settlement. */
-function mount(outcome: CommandRowProps['node']['outcome']): ReturnType<typeof render> {
-  return render(<ViewCommandRow {...{ node: commandNode(outcome) } as CommandRowProps} />)
+function mount(outcome: ViewCommandRowProps['node']['outcome']): ReturnType<typeof render> {
+  return render(<ViewCommandRow {...{ node: commandNode(outcome) } as ViewCommandRowProps} />)
 }
 
 afterEach(cleanup)

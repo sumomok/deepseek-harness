@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/biz-backend/README.md
 /:
-  en: 235e97c4b9fe7109
-  zh: b004e91a7feab706
+  en: 3e07cfcfc577d0ba
+  zh: 436b86c197544cdf
 /deepseek-ai-dsh-experimental-biz-backend:
   en: 31a5a48ab579d81b
   zh: 322e9a99190939fc
 /deepseek-ai-dsh-experimental-biz-backend/summary:
-  en: 878d5d6472aad3a9
-  zh: 968e63646ccd02c7
+  en: d4c70765a6454cdc
+  zh: 30eb72303feef08c
 /deepseek-ai-dsh-experimental-biz-backend/table-of-contents:
-  en: bd33d2d6d7ab3e65
-  zh: 1bdb2d289f0f5328
+  en: e71a88845f517c5c
+  zh: e7acb6e20d750a2e
 /deepseek-ai-dsh-experimental-biz-backend/installing-the-service:
-  en: 3ff96e100893e0e0
-  zh: ee29a5ed32646d28
-/deepseek-ai-dsh-experimental-biz-backend/the-three-reads:
-  en: 691676686504b260
-  zh: 272e3298dd90c3e1
+  en: b2957db36850de06
+  zh: 32b77b376226b186
+/deepseek-ai-dsh-experimental-biz-backend/the-six-reads:
+  en: ca90b3d018b9560e
+  zh: f0f608d01b77f7e5
 /deepseek-ai-dsh-experimental-biz-backend/how-the-credential-is-spent:
   en: 47c2be658ef41945
   zh: 65264feb59d9abae
@@ -27,14 +27,14 @@
   en: 67893849b2de8d93
   zh: 86ad60c7346b9097
 /deepseek-ai-dsh-experimental-biz-backend/model-experience:
-  en: b19d06434abc2a6a
-  zh: b19d06434abc2a6a
+  en: 045bf3a9dc7a896a
+  zh: 045bf3a9dc7a896a
 /deepseek-ai-dsh-experimental-biz-backend/model-experience/kv-cache-effect:
   en: e921a9b9b9eb6c92
   zh: c007086febe00c01
 /deepseek-ai-dsh-experimental-biz-backend/known-limitations-and-deferred-work:
-  en: 9c53ef2c4f567678
-  zh: 3f299f96acf50df3
+  en: c829a0307fafcd4d
+  zh: 9cd7136a413504cd
 /deepseek-ai-dsh-experimental-biz-backend/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

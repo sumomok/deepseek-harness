@@ -548,6 +548,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
+        signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
+        description: 'Judge one rights read by this deployment\'s rules.\n\nReaches no network: a caller reads BizBackendService.userRights once and asks about as many models as it holds. A failed read, and a rights table naming no model, permit nothing.',
+        parameters: [{ name: 'rights', description: 'what one {@link BizBackendService.userRights} call answered.' }],
+        returns: 'the permissions that read grants.',
+      },
+      {
         signature: 'holdsCredential(): boolean',
         description: 'Whether a token is held for the signed-in visitor at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
         parameters: [],
@@ -570,6 +576,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one resource model\'s default query scheme — the columns this deployment\'s own resource list opens that model with.\n\nThe same request the deployment\'s frontend makes before it draws a resource list: the model\'s stored schemes, narrowed to the resource-list kind and to the one marked default. A caller that has no column list of its own gets the deployment\'s own choice of columns and their headers, rather than guessing attribute names.',
         parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the scheme\'s columns in its own order, or why they could not be read.',
+      },
+      {
+        signature: 'async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
+        description: 'Read this deployment\'s own catalog of resource models.\n\nOne request and one answer: this endpoint lists the whole catalog rather than a page of it, so a caller is never left holding part of it and believing it has all of it. Every model\'s description arrives attached and none of it is kept — BizModelSummary is the whole of what a caller receives.',
+        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the catalog, or why it could not be read.',
+      },
+      {
+        signature: 'async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
+        description: 'Read one resource model\'s stored default schemes — the forms and the table this deployment\'s own pages open that model with.\n\nThe request always names the model. The same endpoint answers with every scheme this deployment stores when it is asked without one, which is tens of megabytes and no caller\'s question.',
+        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the model\'s default schemes, or why they could not be read.',
+      },
+      {
+        signature: 'async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
+        description: 'Read what the signed-in person may do in this deployment.\n\nThe endpoint also answers with that person\'s profile. This read never copies it: BizUserRights is built out of the rights subtree alone, so no account name, employee number, telephone or mail address leaves this seam for a caller to put in front of a model or into a session log.',
+        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the rights, or why they could not be read.',
       },
     ],
   },
@@ -715,6 +739,51 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Share of the model\'s context window (0–1) at which the next step compacts first.',
         parameters: [],
         returns: 'the live threshold ratio; a value outside (0, 1], or one the retained tail would not clear, is refused and the configured ratio governs instead.',
+      },
+    ],
+  },
+  {
+    key: 'componentCatalog',
+    summary: '`ctx.componentCatalog`: the components a `show_component` call may place.',
+    description: '`ctx.componentCatalog`: the components a `show_component` call may place.\n\nRegistration is an effect on the calling context\'s fiber, so disposing the component row takes its components out of the catalog and every reader — the tool\'s description included — is rebuilt without them.',
+    methods: [
+      {
+        signature: 'register(contribution: ComponentContribution): () => void',
+        description: 'Register one package\'s components.',
+        parameters: [{ name: 'contribution', description: 'the components, and the package contributing them.' }],
+        returns: 'the exact disposer that unregisters this contribution.',
+        throws: ['{Error} when the contribution repeats an id within itself or claims one another package already registered; the refusal names both packages and nothing of the contribution is registered.'],
+      },
+      {
+        signature: 'onChange(listener: (catalog: ComponentCatalog) => void): () => void',
+        description: 'Watch the catalog for as long as the calling fiber lives.\n\nA subscription rather than a Cordis event because a refusal has to travel: a listener that rejects the catalog a contribution makes refuses that contribution, and a dispatched event contains its listeners\' failures by design. Subscribers are called in registration order, one after another, with the catalog as it stands after the change — so the first one to refuse it stops the rest, and the contribution is withdrawn before any of them is told again.',
+        parameters: [{ name: 'listener', description: 'called on every change, never for the current catalog; read {@link catalog} for that.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
+      },
+    ],
+  },
+  {
+    key: 'componentViews',
+    summary: '`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.',
+    description: '`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.',
+    methods: [
+      {
+        signature: 'judge(view: ContributedView): ViewJudgement',
+        description: 'Judge one view against the catalog as it stands, without registering it.\n\nWhat a source asks before it contributes, so a view that cannot be drawn is refused where the file it came from can be named rather than dropped here with one log line.',
+        parameters: [{ name: 'view', description: 'the view as its writer wrote it.' }],
+        returns: 'the accepted call, or the value that stopped it.',
+      },
+      {
+        signature: 'register(source: ComponentViewSource): () => void',
+        description: 'Offer one package\'s views for as long as the calling fiber lives.',
+        parameters: [{ name: 'source', description: 'the contributing package and the views it offers now.' }],
+        returns: 'the exact disposer that withdraws them.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Watch the index for as long as the calling fiber lives.',
+        parameters: [{ name: 'listener', description: 'called on every change, never for the current index; read {@link index} for that.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
       },
     ],
   },
@@ -2639,6 +2708,56 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'skillPackParts',
+    summary: 'The component surface, as a pack\'s requirements read it: `ctx.skillPackParts`.',
+    description: 'The component surface, as a pack\'s requirements read it: `ctx.skillPackParts`.\n\nBoth questions come from one catalog and change together, so they are one key: a deployment that could mount the part list without the judgement would have a state where a pack\'s parts are known and its views are unjudged, and the pack would be offered with a view nobody can draw — which is the state this package exists to prevent.\n\nThis package declares the key and consumes it; the row that implements it over the real component catalog is separate wiring. Until a provider of the key is mounted every pack sees an empty part list, so a pack that requires any part stays inactive.',
+    methods: [
+      {
+        signature: 'list(): readonly ProvidedPart[]',
+        description: 'The parts registered right now.',
+        parameters: [],
+        returns: 'every registered part, in no guaranteed order.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Observe registrations and withdrawals.',
+        parameters: [{ name: 'listener', description: 'called after the registered set changes; it reads {@link PartsSource.list} for the new set.' }],
+        returns: 'the disposer that stops the notifications.',
+      },
+      {
+        signature: 'judgeView(view: PackView): PackViewRefusal | undefined',
+        description: 'Judge one view file against the surface that would draw it.\n\nThe judgement is the component surface\'s own, so a view a pack ships and a block the model places are accepted on identical terms. This package reads neither the spec nor the params it hands over.\n\nA view id the deployment\'s own configuration already claims is refused here, because the deployment\'s views own their ids. Two packs claiming one id is settled by the pack root instead, which withholds both of them.',
+        parameters: [{ name: 'view', description: 'the parsed view file.' }],
+        returns: 'the refusal, or `undefined` when the view can be drawn here.',
+      },
+    ],
+  },
+  {
+    key: 'skillPacks',
+    summary: '`ctx.skillPacks`: the pack root\'s skill provider, and the reader of what it decided.',
+    description: '`ctx.skillPacks`: the pack root\'s skill provider, and the reader of what it decided.\n\nBoth reads answer from the pack root and the parts source as they stand at the moment of the call rather than from a retained snapshot, so a caller cannot observe a state that the skill catalog has already moved past.',
+    methods: [
+      {
+        signature: 'async statuses(): Promise<PackStatus[]>',
+        description: 'Judge every pack in the root as it stands now.',
+        parameters: [],
+        returns: 'one status per pack, active and inactive alike, in skill-name order.',
+      },
+      {
+        signature: 'onChange(listener: () => void): () => void',
+        description: 'Watch for a change in what this root offers, for as long as the calling fiber lives.\n\nWhat a caller placing a pack\'s views needs: the answer is recomputed on every read rather than cached, so the only way to learn that it moved is to be told. A listener is called after the invalidation, so the read it makes sees the new state.',
+        parameters: [{ name: 'listener', description: 'called on every change; it reads {@link SkillPackRegistry.activeViews} or {@link SkillPackRegistry.statuses} for the new answer.' }],
+        returns: 'the disposer that stops the watch, which the calling fiber also runs.',
+      },
+      {
+        signature: 'async activeViews(): Promise<ActivePackView[]>',
+        description: 'The views of every active pack, in pack order and then manifest order. An inactive pack contributes none, including views that read cleanly.',
+        parameters: [],
+        returns: 'each active pack\'s declared views, carrying the pack that declared them.',
+      },
+    ],
+  },
+  {
     key: 'skills',
     summary: 'Layered registry of skill providers, the host+per-scope shape the tools registry established.',
     description: 'Layered registry of skill providers, the host+per-scope shape the tools registry established. A registration files into the layer of its calling context\'s scope (scopeOf): host rows and repository plugins land in the global layer, while a plugin mounted by an agent preset\'s standing composition lands in that preset\'s layer. A read merges the global layer with the viewing scope\'s chain — the nearest layer\'s entry wins a duplicate name outright, and the rank order decides duplicates only within one layer. It exposes sorted invocation-neutral summaries and loads full skill bodies on demand.',
@@ -4444,6 +4563,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AccountWallet {\n    readonly currency: \'CNY\' | \'USD\';\n    readonly balance: string;\n}',
   },
   {
+    name: 'ActionReport',
+    declaration: 'export type ActionReport = \'silent\' | \'context\' | \'wake\';',
+  },
+  {
+    name: 'ActivePackView',
+    declaration: 'export interface ActivePackView extends PackView {\n    readonly pack: string;\n}',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -4542,6 +4669,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ArchiveSessionOptions',
     declaration: 'export interface ArchiveSessionOptions {\n    readonly stopActivity?: boolean;\n}',
+  },
+  {
+    name: 'ArrayFieldSchema',
+    declaration: 'export interface ArrayFieldSchema {\n    readonly kind: \'array\';\n    readonly item: PropsFieldSchema;\n    readonly minItems: number;\n    readonly maxItems: number;\n    readonly uniqueBy?: string;\n}',
   },
   {
     name: 'AskUserQuestionAnswer',
@@ -4696,16 +4827,56 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BizCondition {\n    readonly key: string;\n    readonly op: string;\n    readonly value: string | number | boolean | readonly (string | number)[];\n}',
   },
   {
+    name: 'BizDictionaryValue',
+    declaration: 'export interface BizDictionaryValue {\n    readonly key: string;\n    readonly value: string;\n}',
+  },
+  {
     name: 'BizMetaAttribute',
-    declaration: 'export interface BizMetaAttribute {\n    readonly attributeEnName: string;\n    readonly attributeCnName: string;\n}',
+    declaration: 'export interface BizMetaAttribute {\n    readonly attributeEnName: string;\n    readonly attributeCnName: string;\n    readonly dataType?: string;\n    readonly dataLength?: number;\n    readonly isNull?: boolean;\n    readonly isPrimaryKey?: boolean;\n    readonly defaultValue?: string;\n    readonly attrGrpName?: string;\n    readonly remark?: string;\n}',
   },
   {
     name: 'BizMetaResult',
     declaration: 'export interface BizMetaResult {\n    readonly attributes: readonly BizMetaAttribute[];\n}',
   },
   {
+    name: 'BizModelListResult',
+    declaration: 'export interface BizModelListResult {\n    readonly models: readonly BizModelSummary[];\n}',
+  },
+  {
+    name: 'BizModelRights',
+    declaration: 'export interface BizModelRights {\n    readonly resclassenname: string;\n    readonly operations: readonly string[];\n    readonly columns?: string;\n}',
+  },
+  {
+    name: 'BizModelSchemes',
+    declaration: 'export interface BizModelSchemes {\n    readonly schemes: readonly BizScheme[];\n}',
+  },
+  {
+    name: 'BizModelSummary',
+    declaration: 'export interface BizModelSummary {\n    readonly resClassEnName: string;\n    readonly resClassCnName: string;\n    readonly classDiagramType?: string;\n    readonly classDiagramTypeCnName?: string;\n    readonly dsTableName?: string;\n    readonly parentClassEnName?: string;\n    readonly remark?: string;\n    readonly resClassDescription?: string;\n}',
+  },
+  {
+    name: 'BizOperation',
+    declaration: 'export type BizOperation = \'read\' | \'metadata_read\' | \'create\' | \'update\' | \'delete\' | \'import\' | \'export\';',
+  },
+  {
+    name: 'BizPermissions',
+    declaration: 'export interface BizPermissions {\n    may(model: string, operation: BizOperation): boolean;\n}',
+  },
+  {
+    name: 'BizRowRight',
+    declaration: 'export interface BizRowRight {\n    readonly resourceName: string;\n    readonly resourceValue: string;\n}',
+  },
+  {
+    name: 'BizScheme',
+    declaration: 'export interface BizScheme {\n    readonly schemaType: number;\n    readonly formItems: readonly BizSchemeFormItem[];\n    readonly columns: readonly BizSchemeColumn[];\n}',
+  },
+  {
     name: 'BizSchemeColumn',
     declaration: 'export interface BizSchemeColumn {\n    readonly relatedMetaAttr: string;\n    readonly alias?: string;\n    readonly isShow?: boolean;\n    readonly isSortable?: boolean;\n}',
+  },
+  {
+    name: 'BizSchemeFormItem',
+    declaration: 'export interface BizSchemeFormItem {\n    readonly relatedMetaAttr: string;\n    readonly alias?: string;\n    readonly isRequired?: boolean;\n    readonly isEditable?: boolean;\n    readonly isShow?: boolean;\n    readonly relatedDict?: readonly BizDictionaryValue[];\n    readonly relatedMeta?: string;\n}',
   },
   {
     name: 'BizSchemeResult',
@@ -4718,6 +4889,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BizSearchResult',
     declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
+  },
+  {
+    name: 'BizUserRights',
+    declaration: 'export interface BizUserRights {\n    readonly resclass: readonly BizModelRights[];\n    readonly rows: readonly BizRowRight[];\n}',
+  },
+  {
+    name: 'BooleanFieldSchema',
+    declaration: 'export interface BooleanFieldSchema {\n    readonly kind: \'boolean\';\n}',
   },
   {
     name: 'Branded',
@@ -4738,6 +4917,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BundleRowInfo',
     declaration: 'export interface BundleRowInfo {\n    rowId: string;\n    moduleName: string;\n    meta?: PluginLocalizedMeta;\n    entryId?: PluginEntryId;\n}',
+  },
+  {
+    name: 'CatalogId',
+    declaration: 'export type CatalogId = Branded<\'ComponentCatalogId\'>;',
   },
   {
     name: 'ChangeResult',
@@ -4806,6 +4989,54 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CompactionTrigger',
     declaration: 'export type CompactionTrigger = \'pressure\' | \'context-overflow\';',
+  },
+  {
+    name: 'ComponentActionContext',
+    declaration: 'export interface ComponentActionContext {\n    readonly entryId: string;\n    readonly entryTitle: string;\n    readonly node: ComponentNode;\n    readonly component: ComponentCatalogEntry;\n    readonly payload: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'ComponentActionDefinition',
+    declaration: 'export interface ComponentActionDefinition {\n    readonly id: string;\n    readonly report: ActionReport;\n    readonly payloadSchema: PropsSchema;\n    readonly describe: (context: ComponentActionContext) => ComponentActionNotice | undefined;\n}',
+  },
+  {
+    name: 'ComponentActionNotice',
+    declaration: 'export interface ComponentActionNotice {\n    readonly text: string;\n    readonly summary: string;\n}',
+  },
+  {
+    name: 'ComponentCall',
+    declaration: 'export interface ComponentCall {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: ComponentSpec;\n}',
+  },
+  {
+    name: 'ComponentCatalog',
+    declaration: 'export interface ComponentCatalog {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly byId: ReadonlyMap<string, ComponentCatalogEntry>;\n    readonly maxSpecDepth: number;\n}',
+  },
+  {
+    name: 'ComponentCatalogEntry',
+    declaration: 'export interface ComponentCatalogEntry {\n    readonly id: CatalogId;\n    readonly label: string;\n    readonly purpose: string;\n    readonly propsSchema: PropsSchema;\n    readonly actions: readonly ComponentActionDefinition[];\n    readonly outputs: readonly ComponentOutput[];\n    readonly sanitize?: SanitizeRules;\n}',
+  },
+  {
+    name: 'ComponentContribution',
+    declaration: 'export interface ComponentContribution {\n    readonly entries: readonly ComponentCatalogEntry[];\n    readonly source: ComponentSource;\n}',
+  },
+  {
+    name: 'ComponentNode',
+    declaration: 'export interface ComponentNode {\n    readonly id: string;\n    readonly component: string;\n    readonly props: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'ComponentOutput',
+    declaration: 'export interface ComponentOutput {\n    readonly id: string;\n    readonly shape: PropsFieldSchema;\n}',
+  },
+  {
+    name: 'ComponentSource',
+    declaration: 'export interface ComponentSource {\n    readonly package: string;\n    readonly version: string;\n}',
+  },
+  {
+    name: 'ComponentSpec',
+    declaration: 'export interface ComponentSpec {\n    readonly nodes: readonly ComponentNode[];\n    readonly layout?: LayoutNode;\n}',
+  },
+  {
+    name: 'ComponentViewSource',
+    declaration: 'export interface ComponentViewSource {\n    readonly owner: string;\n    readonly views: readonly ContributedView[];\n}',
   },
   {
     name: 'CompositionRowEnablement',
@@ -4900,6 +5131,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContentSurfaceResolved {\n    readonly title: string;\n    readonly payload: unknown;\n}',
   },
   {
+    name: 'ContentView',
+    declaration: 'export interface ContentView {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: unknown;\n}',
+  },
+  {
     name: 'ContinuableCreateRequest',
     declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
   },
@@ -4918,6 +5153,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContinuableSubagentDescriptorData',
     declaration: 'export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly agentReasoningEffort?: ReasoningEffortId;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
+  },
+  {
+    name: 'ContributedView',
+    declaration: 'export interface ContributedView extends ContentView {\n    readonly params?: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'CordisDynamicPackageId',
@@ -5194,6 +5433,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Entry',
     declaration: 'export interface Entry {\n    readonly el: Element | undefined;\n    readonly line: () => string;\n}',
+  },
+  {
+    name: 'EnumFieldSchema',
+    declaration: 'export interface EnumFieldSchema {\n    readonly kind: \'enum\';\n    readonly values: readonly (string | number)[];\n    readonly hint?: string;\n}',
   },
   {
     name: 'EpochHeader',
@@ -5608,6 +5851,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KvUnitDescriptor {\n    readonly name: string;\n    readonly version: number;\n    readonly tables: readonly string[];\n    readonly hasGlobal: boolean;\n    readonly layout?: \'single\' | \'per-record\';\n    readonly compatibleVersions?: readonly number[];\n}',
   },
   {
+    name: 'LayoutBlock',
+    declaration: 'export interface LayoutBlock {\n    readonly node: \'component\';\n    readonly id: string;\n    readonly flex?: number;\n}',
+  },
+  {
+    name: 'LayoutChild',
+    declaration: 'export type LayoutChild = LayoutBlock | LayoutStack;',
+  },
+  {
+    name: 'LayoutDirection',
+    declaration: 'export type LayoutDirection = \'row\' | \'col\';',
+  },
+  {
+    name: 'LayoutGap',
+    declaration: 'export type LayoutGap = \'sm\' | \'md\' | \'lg\';',
+  },
+  {
+    name: 'LayoutNode',
+    declaration: 'export type LayoutNode = LayoutStack;',
+  },
+  {
+    name: 'LayoutStack',
+    declaration: 'export interface LayoutStack {\n    readonly node: \'stack\';\n    readonly dir: LayoutDirection;\n    readonly gap?: LayoutGap;\n    readonly wrap?: boolean;\n    readonly flex?: number;\n    readonly children: readonly LayoutChild[];\n}',
+  },
+  {
     name: 'LlmAdapter',
     declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
@@ -5876,6 +6143,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface NotFutureError {\n    readonly code: \'not_future\';\n    readonly message: string;\n}',
   },
   {
+    name: 'NumberFieldSchema',
+    declaration: 'export interface NumberFieldSchema {\n    readonly kind: \'number\';\n    readonly min: number;\n    readonly max: number;\n    readonly integer?: true;\n}',
+  },
+  {
+    name: 'ObjectFieldSchema',
+    declaration: 'export interface ObjectFieldSchema {\n    readonly kind: \'object\';\n    readonly fields: PropsSchema;\n}',
+  },
+  {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
@@ -5922,6 +6197,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PackageResult',
     declaration: 'export interface PackageResult {\n    exitCode: number;\n    output: string;\n    truncated: boolean;\n    logPath: string;\n    kind?: PluginInstallFailureKind;\n    timedOut?: boolean;\n    incompatible?: IncompatiblePlugin[];\n}',
+  },
+  {
+    name: 'PackMissing',
+    declaration: 'export type PackMissing = {\n    readonly kind: \'manifest-invalid\';\n    readonly field: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'platform-version\';\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'plugin-absent\';\n    readonly plugin: string;\n    readonly range: string;\n} | {\n    readonly kind: \'plugin-version\';\n    readonly plugin: string;\n    readonly range: string;\n    readonly present: string;\n} | {\n    readonly kind: \'part-absent\';\n    readonly part: string;\n} | {\n    readonly kind: \'view-format\';\n    readonly stated?: number;\n    readonly reads: readonly number[];\n} | {\n    readonly kind: \'view-unreadable\';\n    readonly view: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-refused\';\n    readonly view: string;\n    readonly path: string;\n    readonly reason: string;\n} | {\n    readonly kind: \'view-id-conflict\';\n    readonly id: string;\n    readonly pack: string;\n};',
+  },
+  {
+    name: 'PackStatus',
+    declaration: 'export interface PackStatus {\n    readonly skill: string;\n    readonly version?: string;\n    readonly state: \'active\' | \'inactive\';\n    readonly missing: readonly PackMissing[];\n}',
+  },
+  {
+    name: 'PackView',
+    declaration: 'export interface PackView {\n    readonly id: string;\n    readonly title: string;\n    readonly spec: unknown;\n    readonly params: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'PackViewRefusal',
+    declaration: 'export interface PackViewRefusal {\n    readonly path: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'PeerAdmission',
@@ -6116,6 +6407,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PromptSectionOrderName = keyof typeof SECTION_ORDERS;',
   },
   {
+    name: 'PropsField',
+    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n    readonly viewOnly?: string;\n}',
+  },
+  {
+    name: 'PropsFieldSchema',
+    declaration: 'export type PropsFieldSchema = StringFieldSchema | NumberFieldSchema | BooleanFieldSchema | ScalarFieldSchema | EnumFieldSchema | ObjectFieldSchema | RecordFieldSchema | ArrayFieldSchema;',
+  },
+  {
+    name: 'PropsSchema',
+    declaration: 'export type PropsSchema = Readonly<Record<string, PropsField>>;',
+  },
+  {
+    name: 'ProvidedPart',
+    declaration: 'export interface ProvidedPart {\n    readonly id: string;\n    readonly plugin: string;\n    readonly version: string;\n}',
+  },
+  {
     name: 'ProviderRequestId',
     declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
   },
@@ -6190,6 +6497,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'RecordFieldSchema',
+    declaration: 'export interface RecordFieldSchema {\n    readonly kind: \'record\';\n    readonly key: StringFieldSchema;\n    readonly maxKeys: number;\n    readonly maxValueLength: number;\n    readonly minValue: number;\n    readonly maxValue: number;\n    readonly sanitize?: SanitizeRules;\n}',
   },
   {
     name: 'RecurringScheduleRecord',
@@ -6320,6 +6631,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
   },
   {
+    name: 'SanitizeClass',
+    declaration: 'export type SanitizeClass = \'path\' | \'color\' | \'related-component\';',
+  },
+  {
+    name: 'SanitizeRules',
+    declaration: 'export type SanitizeRules = Readonly<Record<string, SanitizeClass>>;',
+  },
+  {
     name: 'SaveFileAttachment',
     declaration: 'export interface SaveFileAttachment {\n    data: Uint8Array;\n    name?: string;\n}',
   },
@@ -6334,6 +6653,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SaveTextSpill',
     declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+  },
+  {
+    name: 'ScalarFieldSchema',
+    declaration: 'export interface ScalarFieldSchema {\n    readonly kind: \'scalar\';\n    readonly maxLength: number;\n    readonly maxItems: number;\n}',
   },
   {
     name: 'ScheduleCatalogEntry',
@@ -7248,6 +7571,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: ToolCallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: ReplayEnvelope;\n};',
   },
   {
+    name: 'StringCharset',
+    declaration: 'export interface StringCharset {\n    readonly allowed: RegExp;\n    readonly hint: string;\n}',
+  },
+  {
+    name: 'StringFieldSchema',
+    declaration: 'export interface StringFieldSchema {\n    readonly kind: \'string\';\n    readonly maxLength: number;\n    readonly charset?: StringCharset;\n}',
+  },
+  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly agentOptions: boolean;\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -7862,6 +8193,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VerifiedWebhookDelivery',
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
+  },
+  {
+    name: 'ViewJudgement',
+    declaration: 'export type ViewJudgement = {\n    readonly ok: true;\n    readonly call: ComponentCall;\n} | {\n    readonly ok: false;\n    readonly refusal: ViewRefusal;\n};',
+  },
+  {
+    name: 'ViewRefusal',
+    declaration: 'export interface ViewRefusal {\n    readonly path: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'WebBootBatch',

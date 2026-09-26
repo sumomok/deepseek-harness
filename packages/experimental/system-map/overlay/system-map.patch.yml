@@ -1,0 +1,35 @@
+# The agent finds its way around the deployment's own business system.
+#
+# Layered over the console composition in
+# `../../server-sidebar/overlay/customer.patch.yml`, which is what already
+# composes the sign-on gate this row reads through. Apply both, console first:
+#
+#   dsh --profile web \
+#     --patch packages/experimental/server-sidebar/overlay/customer.patch.yml \
+#     --patch packages/experimental/system-map/overlay/system-map.patch.yml
+#
+# It is a file of its own rather than a row in the console overlay for the
+# reason `customer.patch.yml` states about the rows it leaves out: whether a
+# console lets the agent read its deployment's own configuration with the
+# signed-in visitor's credential is that deployment's decision, and the console
+# is complete without it. No shipped profile composes this row.
+#
+# - `auth-gate` configured with a `bizUpstream` is the whole prerequisite: it is
+#   what constructs `ctx.bizBackend`, and this row injects that service, so a
+#   composition without it offers no read at all rather than three that refuse
+#   every call. The gate's base is the deployment's own API prefix, ending in
+#   `/`; the standard one is `https://<host>/ini-server/`.
+# - No approval row is needed and none is asked. Every read here is of the
+#   deployment's stored configuration and of the signed-in person's own rights,
+#   writes nothing, and puts no question to anybody.
+# - The three ceilings below are the deployment's, and all three are left at
+#   their defaults here: what one listing may cost is a function of how many
+#   data models a deployment keeps, and this file knows none of them. The
+#   package README's "The ceilings" section is the whole of how to set them.
+#
+# Every package must be resolvable from the profile directory, which for an
+# out-of-tree plugin means `dsh plugin --profile web add <path>` or an
+# equivalent link — release bundles must not declare an experimental package.
+- insert:
+    - id: system-map
+      name: '@deepseek-ai/dsh-experimental-system-map'

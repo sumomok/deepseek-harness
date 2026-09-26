@@ -42,7 +42,7 @@ kind: "package-group"
 | [`browser-use-runtime`](browser-use-runtime/README.zh.md) | 实验性提供方共享的 Session 浏览器资源 | — |
 | [`auth-gate`](auth-gate/README.zh.md) | 把没有 access token 的浏览器送去部署方的登录页，把带回来的那一枚镜像进 cookie，并注入到转发出去的 MCP 请求里 | — |
 | [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的三次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
-| [`component-kit`](component-kit/README.zh.md) | 组件行：落位包用来画出一块已校验内容的 React 渲染器，以及给它们命名的那张表 | — |
+| [`component-kit`](component-kit/README.zh.md) | 组件行：它注册进落位包目录的六个组件，每个都由一份主机侧定义和画它的 React 渲染器组成 | — |
 | [`component-surface`](component-surface/README.zh.md) | `show_component` 工具与 content 栏的 `component` 类型：来自固定目录的内容块，在画出来之前先判定 | — |
 | [`console-profile`](console-profile/README.zh.md) | 客户控制台：叠在 Web profile 上的一个 bundle 层，外加一份叠在 profile 补丁之上的权限锁 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
@@ -53,6 +53,8 @@ kind: "package-group"
 | [`server-base`](server-base/README.zh.md) | 告诉浏览器：够得着这个被服务出去的页面是否意味着拥有背后的宿主，并携带前缀控制台的 nginx 样例 | — |
 | [`server-layout`](server-layout/README.zh.md) | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.zh.md) | 产品控制台侧边栏：用固定的工作台/导航/工作流控制台替换出厂侧边栏，并承载客户表单页所需的去术语层 | — |
+| [`skill-pack`](skill-pack/README.zh.md) | 技能包根目录的技能提供方：只有某个技能包的视图所摆放的每个组件插件部件都已注册，它才会被交出去 | `ctx.skillPacks` |
+| [`skill-pack-components`](skill-pack-components/README.zh.md) | 一套部署组合在两者之间的适配器：它把这套部署交出去的组件发布成技能包所要求的部件 | — |
 | [`tool-agent-team`](tool-agent-team/README.zh.md) | 让模型创建、发消息与协调 teammate 的九个工具 | 按作用域注册工具到 `ctx.tools` |
 | [`vue-ui-poc`](vue-ui-poc/README.zh.md) | 可行性验证：通过一座薄桥把 Vue 3 组件挂进 React slot | — |
 | [`vue2-echarts-poc`](vue2-echarts-poc/README.zh.md) | 组件库：以 Vue 2.7 组件写成、经桥接入 React 的 ECharts 柱状图 | — |

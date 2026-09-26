@@ -146,6 +146,7 @@
     { "path": "./packages/experimental/content-column" },
     { "path": "./packages/experimental/component-kit" },
     { "path": "./packages/experimental/component-surface" },
+    { "path": "./packages/experimental/skill-pack-components" },
     { "path": "./packages/experimental/vue-ui-poc" },
     { "path": "./packages/experimental/vue2-echarts-poc" },
     { "path": "./packages/experimental/vue2-echarts-tool-poc" },

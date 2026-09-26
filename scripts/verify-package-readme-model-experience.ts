@@ -147,6 +147,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/experimental/console-profile': { kind: 'indirect', reason: 'The bundle composes and disables rows; the composed plugins own every model-visible contribution.' },
   'packages/experimental/content-column': { kind: 'none', reason: 'Browser-side content column and its kind seats; registers nothing model-facing.' },
   'packages/experimental/component-kit': { kind: 'none', reason: 'Browser-side React renderers drawn by a placement package; registers nothing model-facing.' },
+  'packages/experimental/skill-pack': { kind: 'indirect', reason: 'The package contributes skills to ctx.skills and registers no prompt, schema, or result of its own; dsh-tool-skill owns the catalog line and the loaded body a model reads.' },
+  'packages/experimental/skill-pack-components': { kind: 'indirect', reason: 'The row adapts two services to each other and registers no prompt, schema, or result of its own; which skills a model is offered is dsh-experimental-skill-pack\'s own effect through dsh-tool-skill.' },
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-browse': { kind: 'none', reason: 'Browser-side directory-browsing surface; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-native': { kind: 'none', reason: 'Browser-side surface driving the local Desktop or Host OS chooser; registers nothing model-facing.' },

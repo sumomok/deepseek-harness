@@ -169,6 +169,12 @@ flowchart LR
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_office["skill-office"]
+  pkg_skill_pack["skill-pack"]
+  pkg_component_surface["component-surface"]
+  svc_componentViews["ctx.componentViews<br/>Content-column view index"]
+  pkg_skill_pack_components["skill-pack-components"]
+  svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
+  svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   svc_agentDefaultModel["ctx.agentDefaultModel<br/>Default Agent model selection"]
@@ -239,11 +245,12 @@ flowchart LR
   pkg_experimental_tool_agent_team["experimental-tool-agent-team"]
   pkg_inspector["inspector"]
   svc_inspector["ctx.inspector<br/>Cross-realm runtime inspection"]
+  svc_componentCatalog["ctx.componentCatalog<br/>Content-panel component catalog"]
+  pkg_component_kit["component-kit"]
   pkg_content_surface["content-surface"]
   svc_contentSurface["ctx.contentSurface<br/>Content-column entry stream"]
   pkg_content_frame["content-frame"]
   pkg_vue2_echarts_tool_poc["vue2-echarts-tool-poc"]
-  pkg_component_surface["component-surface"]
   pkg_biz_backend["biz-backend"]
   svc_bizBackend["ctx.bizBackend<br/>Deployment data-backend reads"]
   pkg_jobs["jobs"]
@@ -314,6 +321,8 @@ flowchart LR
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_basic --> svc_compactionPolicy
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
+  pkg_component_surface --> svc_componentCatalog
+  pkg_component_surface --> svc_componentViews
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
   pkg_content_surface --> svc_contentSurface
@@ -394,6 +403,11 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_skill_pack --> svc_skillPackParts
+  pkg_skill_pack --> svc_skillPacks
+  pkg_skill_pack --> svc_skills
+  pkg_skill_pack_components --> svc_componentViews
+  pkg_skill_pack_components --> svc_skillPackParts
   pkg_spill --> svc_spillStore
   pkg_spill_local --> svc_spillStore
   pkg_ssh --> svc_ssh
@@ -453,6 +467,8 @@ flowchart LR
   svc_clientModules --> pkg_client_hmr
   svc_compaction --> pkg_compaction_basic
   svc_compactionPolicy --> pkg_compaction_basic
+  svc_componentCatalog --> pkg_component_kit
+  svc_componentViews --> pkg_component_surface
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_mcp
   svc_computerUse --> pkg_experimental_computer_use_cua_driver_native
   svc_configEditor --> pkg_agent_default_model
@@ -531,6 +547,7 @@ flowchart LR
   svc_shell --> pkg_tool_pwsh
   svc_shellEnv --> pkg_tool_bash
   svc_shellEnv --> pkg_tool_pwsh
+  svc_skillPackParts --> pkg_skill_pack
   svc_skills --> pkg_tool_skill
   svc_speechToText --> pkg_experimental_api_speech_to_text
   svc_spillStore --> pkg_spill_policy
@@ -643,7 +660,10 @@ flowchart LR
 | `ctx.commands` | `core` | [`commands`](../packages/interaction/commands) | - | - | - | 插件注册直接面向人的命令，而不会把调用发送给模型。 |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | 各领域注册由状态驱动的折叠单元；主动驱动过程维护每个会话的水位状态，Session controller 提供 baseline 并推送发生变化的值。 |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference) | - | 按会话持久保存投影单元状态的检查点（节流检查点，以及轮次／结束／分离时的必选检查点），提供缓存投影视图，并加速 prepared Session 的投影恢复。 |
-| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office) | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
+| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office), `skill-pack` | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
+| `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | 装着侧栏列出、`/show-content-view` 打开的那些视图，来源是这套部署自己的配置和任何注册了来源的包；每个视图都由一次 show_component 调用所走的同一道判定来判，而组件目录拒绝的那些被贡献视图会被丢掉并留下一行 error，而不是让控制台起不来。 |
+| `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | 拥有一个技能包根目录：它拿每个技能包去对已注册的组件部件做判定，只把其中激活的那些贡献给 ctx.skills，并在它自己的路由上公布每个技能包的状态与未满足的要求。 |
+| `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | 声明技能包的要求拿什么来判——每个已注册部件的 id、拥有它的插件包名和版本——外加一条变更通知；没挂上 Provider 时部件表为空，于是每个点名了部件的技能包都被摁在未激活。 |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | 拥有实时 Agent 句柄、创建／恢复工厂 seam，以及进程本地的发起方传播。 |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | 唯一的具体循环插件；扩展包依赖 dsh-agent 的事件和服务，而不依赖此包。 |
@@ -665,6 +685,7 @@ flowchart LR
 | `ctx.speechToText` | `seam` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text) | [`experimental-speech-to-text-sensevoice`](../packages/experimental/speech-to-text-sensevoice) | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | - | 路由显式选择的识别器；浏览器使用带认证的 Remote，并在提交前将转写保留在草稿中。 |
 | `ctx.agentTeams` | `core` | [`experimental-agent-team`](../packages/experimental/agent-team) | - | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team) | - | 负责隐式 Root roster、持久 peer mailbox、共享任务 DAG 与 continuable child 生命周期；tool-agent-team 提供模型控制工具。 |
 | `ctx.inspector` | `core` | `inspector` | - | - | - | 负责 Worker 托管的 CDP target，以及独立于传输的 Host 和 Client observation 与 Cordis tree query API。 |
+| `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | 负责一次 `show_component` 调用可以落位哪些组件；组件插件把宿主侧定义注册到这里，把渲染器注册到浏览器半边同名的注册表，所以一个组件插件都不组合的部署既没有组件，也拿不到这个工具。 |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | 负责 extractor 表与由它折叠出的那一条 `contentSurface` projection；每种内容 kind 注册自己在日志里认得什么，content-column 再通过按 key 索引的槽把选中的 entry 画出来。 |
 | `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | 负责对本部署自有数据后端的三次具名读取，花的是访客的访问令牌；auth-gate 用它校验过的基址和它持有的令牌构造这个服务，于是凭据留在那个包的闭包里。 |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | 生产方（后台 bash/pwsh、PTY 发送和 subagent 委派）登记正在运行的工作；声明 record 的 job 还为非消费观察者流式提供原始输出；tool-jobs 是面向模型的控制器，用于读取、列出和终止这些工作；jobs-local 是进程本地注册表。 |

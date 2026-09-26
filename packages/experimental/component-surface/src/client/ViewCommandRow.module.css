@@ -1,5 +1,5 @@
-/* The one thing a view click can draw in the chat, where the emptied command
-   row would have been: the host's refusal. Tokens only. */
+/* What a view click can draw in the chat, where the emptied command row would
+   have been: the host's refusal. Tokens only. */
 
 .refusal {
   margin: 0;

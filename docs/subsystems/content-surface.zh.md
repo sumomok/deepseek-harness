@@ -98,6 +98,79 @@ projection registry 在注册那一刻固定一个 unit 的 `apply`、`view` 与
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxcomponentcatalog--componentcatalogregistry"></a>
+
+### `ctx.componentCatalog` — `ComponentCatalogRegistry`
+
+`ctx.componentCatalog`: the components a `show_component` call may place.
+
+Registration is an effect on the calling context's fiber, so disposing the component row takes its components out of the catalog and every reader — the tool's description included — is rebuilt without them.
+
+```ts cordis-catalog
+/**
+ * Register one package's components.
+ * @param contribution - the components, and the package contributing them.
+ * @returns the exact disposer that unregisters this contribution.
+ * @throws {Error} when the contribution repeats an id within itself or claims
+ * one another package already registered; the refusal names both packages and
+ * nothing of the contribution is registered.
+ */
+register(contribution: ComponentContribution): () => void
+
+/**
+ * Watch the catalog for as long as the calling fiber lives.
+ *
+ * A subscription rather than a Cordis event because a refusal has to travel:
+ * a listener that rejects the catalog a contribution makes refuses that
+ * contribution, and a dispatched event contains its listeners' failures by
+ * design. Subscribers are called in registration order, one after another,
+ * with the catalog as it stands after the change — so the first one to refuse
+ * it stops the rest, and the contribution is withdrawn before any of them is
+ * told again.
+ * @param listener - called on every change, never for the current catalog;
+ *   read {@link catalog} for that.
+ * @returns the disposer that stops the watch, which the calling fiber also runs.
+ */
+onChange(listener: (catalog: ComponentCatalog) => void): () => void
+```
+
+Source: [`packages/experimental/component-surface/src/catalog.ts`](../../packages/experimental/component-surface/src/catalog.ts)
+
+<a id="ctxcomponentviews--componentviewregistry"></a>
+
+### `ctx.componentViews` — `ComponentViewRegistry`
+
+`ctx.componentViews`: the views the sidebar lists and `/show-content-view` shows, judged against the catalog as it stands.
+
+```ts cordis-catalog
+/**
+ * Judge one view against the catalog as it stands, without registering it.
+ *
+ * What a source asks before it contributes, so a view that cannot be drawn is
+ * refused where the file it came from can be named rather than dropped here
+ * with one log line.
+ * @param view - the view as its writer wrote it.
+ * @returns the accepted call, or the value that stopped it.
+ */
+judge(view: ContributedView): ViewJudgement
+
+/**
+ * Offer one package's views for as long as the calling fiber lives.
+ * @param source - the contributing package and the views it offers now.
+ * @returns the exact disposer that withdraws them.
+ */
+register(source: ComponentViewSource): () => void
+
+/**
+ * Watch the index for as long as the calling fiber lives.
+ * @param listener - called on every change, never for the current index; read {@link index} for that.
+ * @returns the disposer that stops the watch, which the calling fiber also runs.
+ */
+onChange(listener: () => void): () => void
+```
+
+Source: [`packages/experimental/component-surface/src/component-views.ts`](../../packages/experimental/component-surface/src/component-views.ts)
+
 <a id="ctxcontentsurface--contentsurfaceregistry"></a>
 
 ### `ctx.contentSurface` — `ContentSurfaceRegistry`

@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-09-19-skill-pack-view-checks.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-19-skill-pack-view-checks.md
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id:
+  en: fcce9541b8afeaea
+  zh: fed9ec7c61fb09e4
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/problem:
+  en: 5aab5f3ad6b054f1
+  zh: b94de4e9fc4dc005
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/decision:
+  en: 58a0209141fe34d8
+  zh: 478ad49794b82e97
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/the-decision-gate:
+  en: e63f9edc173ffaae
+  zh: 96b951e3ca52179d
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/the-decision-gate/boundaries:
+  en: b3244310d5eec206
+  zh: effc4d2b1dd2385f
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/testing:
+  en: a199e4c810b485f7
+  zh: c2a74354fa2d1e61
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/alternatives-considered:
+  en: 5cc65ef9b2e2fa8f
+  zh: 13b60e6a9d928d25
+/agent-note-a-pack-s-views-are-versioned-checked-at-install-and-never-share-an-id/consequences:
+  en: a88f7417f838cf69
+  zh: f2a7abb5d8908ba9

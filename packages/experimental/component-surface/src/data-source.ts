@@ -5,8 +5,8 @@
  * Everything here is pure, and it is everything a read is judged and described
  * by: the parameter's own rules, the sentence the user is asked the question
  * with, the rows a backend answer becomes, and every sentence the model is
- * refused with. The requests themselves — the approval, the two backend calls,
- * the session event — are `tool.ts`'s, so what a read costs the user can be
+ * refused with. The requests themselves — the permissions read, the approval,
+ * the backend reads, the session event — are `tool.ts`'s, so what a read costs the user can be
  * read and tested without a backend anywhere near it.
  *
  * Host-only, and deliberately not part of `component-call.ts`: the browser seat
@@ -931,6 +931,33 @@ export const DATA_SOURCE_NO_SESSION
 export const DATA_SOURCE_UNAUTHENTICATED
   = `${SHOW_COMPONENT_TOOL_NAME}: no signed-in credential is held for this session, so nothing could be read from the `
     + 'data source. Nothing on the panel changed.'
+
+/**
+ * Refusal for a table the signed-in person may not read rows of.
+ *
+ * One sentence whether or not this deployment has a data model of that name,
+ * so a refusal says nothing about a model this person may not look at — not
+ * even that it exists.
+ * @param meta - the table the call named.
+ * @returns the sentence.
+ */
+export function dataSourceNotReadable(meta: string): string {
+  return `${SHOW_COMPONENT_TOOL_NAME}: no data model whose rows the signed-in person may read is called "${meta}", `
+    + 'so nothing was read from the data source. Nothing on the panel changed.'
+}
+
+/**
+ * Refusal for a call whose reader's permissions could not be read.
+ *
+ * Nothing is read on a guess: without the permissions no table counts as one
+ * this person may read.
+ * @param detail - what the permissions read answered, without the credential.
+ * @returns the sentence.
+ */
+export function dataSourceRightsUnread(detail: string): string {
+  return `${SHOW_COMPONENT_TOOL_NAME}: the signed-in person's permissions could not be read (${detail}), so no data `
+    + 'model may be read from the data source and nothing was read. Nothing on the panel changed.'
+}
 
 /**
  * Refusal for a read the user did not allow.

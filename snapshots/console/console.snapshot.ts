@@ -54,6 +54,12 @@ const META_PATH = `${API_PREFIX}/nrms-schema-manage/api/meta/resclass/SpaceLayer
 /** The stored-scheme endpoint, which a call that names no columns of its own is drawn from. */
 const SCHEME_PATH = `${API_PREFIX}/nrms-schema-manage/api/schema/schema`
 
+/** The catalog endpoint, which the subject-area and model listings are built from. */
+const CATALOG_PATH = `${API_PREFIX}/nrms-schema-manage/api/meta/resclassname`
+
+/** The sign-on endpoint the signed-in person's own rights are read from. */
+const RIGHTS_PATH = `${API_PREFIX}/nrms-auth/api/auth/userinfo`
+
 /**
  * A JWT-shaped stand-in for the visitor's access token. Nothing verifies it:
  * the gate accepts a token on its shape alone, and the fake backend below reads
@@ -99,6 +105,101 @@ const SCHEME_COLUMNS = [
 ]
 
 /**
+ * Three models across two subject areas, as this deployment's catalog lists
+ * them: enough for one subject area to hold more than one model and for a
+ * listing of a subject area to leave the other one out.
+ */
+const CATALOG_MODELS = [
+  {
+    resClassEnName: 'SpaceLayer',
+    resClassCnName: '图层配置',
+    classDiagramType: 'TRANSO',
+    classDiagramTypeCnName: '传输专业',
+    dsTableName: 'SPACE_LAYER',
+    remark: '每个图层的配置与归属专题',
+    // Attached by the catalog and dropped at the read, which is what keeps a
+    // catalog of a thousand models from being carried around whole.
+    attributes: ATTRIBUTES,
+    attributeObjMap: {},
+    metaOperationMap: {},
+  },
+  { resClassEnName: 'SITE', resClassCnName: '站点', classDiagramType: 'TRANSO', classDiagramTypeCnName: '传输专业', dsTableName: 'SITE' },
+  { resClassEnName: 'CITY', resClassCnName: '地市', classDiagramType: 'COMMON', classDiagramTypeCnName: '公共专业', dsTableName: 'CITY' },
+]
+
+/**
+ * The signed-in visitor's own rights, and the profile the same answer carries
+ * beside them.
+ *
+ * The profile is here because the point of the fixture is that none of it comes
+ * out the other end: the read keeps the rights subtree and copies no part of
+ * the rest, so nothing below `auth` may appear in the recorded transcript.
+ */
+const USER_INFO = {
+  useraccount: 'zhangsan',
+  name: '张三',
+  empid: '10086',
+  mobile: '13900000000',
+  mail: 'zhangsan@example.com',
+  auth: {
+    resclass: [
+      { resclassenname: 'SpaceLayer', search: true, add: true, update: true, delete: null, gridexp: true, columns: 'zh_label,layer_id' },
+      { resclassenname: 'CITY', search: true, add: null, update: null, delete: null },
+    ],
+    rows: [],
+  },
+}
+
+/**
+ * The reference model's four stored default schemes, as the schema service
+ * answers when a read names the model.
+ */
+const MODEL_SCHEMES = [
+  {
+    schemaType: 1,
+    isDefault: 1,
+    form: [{ formType: 'base', formItems: [
+      { relatedMetaAttr: 'zh_label', alias: '名称' },
+      { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', relatedTrans: { relatedMeta: 'MapTopic' } },
+    ] }],
+    grid: { gridItems: SCHEME_COLUMNS },
+  },
+  {
+    schemaType: 2,
+    isDefault: 1,
+    form: [{ formType: 'base', formItems: [
+      { relatedMetaAttr: 'zh_label', alias: '名称', isRequired: '1', isEditable: '1' },
+      { relatedMetaAttr: 'layer_id', alias: '图层id', isRequired: '1' },
+      { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', relatedTrans: { relatedMeta: 'MapTopic' } },
+    ] }],
+    grid: { gridItems: [] },
+  },
+  {
+    schemaType: 3,
+    isDefault: 1,
+    form: [{ formType: 'base', formItems: [
+      { relatedMetaAttr: 'zh_label', alias: '名称', isRequired: '1' },
+      { relatedMetaAttr: 'layer_id', alias: '图层id', isEditable: '0' },
+    ] }],
+    grid: { gridItems: [] },
+  },
+  {
+    schemaType: 4,
+    isDefault: 1,
+    form: [{ formType: 'base', formItems: [{ relatedMetaAttr: 'int_id', alias: '唯一标识' }] }],
+    grid: { gridItems: [] },
+  },
+]
+
+/** The reference model's attributes, with everything the description states about each. */
+const DESCRIBED_ATTRIBUTES = [
+  { attributeEnName: 'int_id', attributeCnName: '唯一标识', dataType: 'VARCHAR', dataLength: 32, isPrimaryKey: '1', isNull: '0' },
+  { attributeEnName: 'zh_label', attributeCnName: '名称', dataType: 'VARCHAR', dataLength: 128, isNull: '0', attrGrpName: '基本信息' },
+  { attributeEnName: 'layer_id', attributeCnName: '图层id', dataType: 'VARCHAR', dataLength: 64, isNull: '1' },
+  { attributeEnName: 'belong_map_topic', attributeCnName: '所属地图主题', dataType: 'VARCHAR', dataLength: 32, isNull: '1', attrGrpName: '归属' },
+]
+
+/**
  * The environment every scenario runs with: the fake backend's base, filled in
  * once it is listening. The object is handed to the suite at collection time
  * and read when a scenario runs, so filling it in `beforeAll` is what gets the
@@ -126,6 +227,9 @@ const DEFAULT_COLUMNS_ENV: NodeJS.ProcessEnv = {}
 
 /** @see DATA_ENV */
 const EMPTY_ENV: NodeJS.ProcessEnv = {}
+
+/** @see DATA_ENV */
+const SYSTEM_MAP_ENV: NodeJS.ProcessEnv = {}
 
 let backend: Server | undefined
 
@@ -189,12 +293,28 @@ async function serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
     res.end(JSON.stringify({ code: 3, msg: 'token invalid' }))
     return
   }
+  if (req.method === 'GET' && path === CATALOG_PATH) {
+    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: CATALOG_MODELS })
+    return
+  }
+  if (req.method === 'GET' && path === RIGHTS_PATH) {
+    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: USER_INFO })
+    return
+  }
   if (req.method === 'GET' && path === META_PATH) {
-    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: { resClassEnName: 'SpaceLayer', attributes: ATTRIBUTES } })
+    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: { resClassEnName: 'SpaceLayer', attributes: DESCRIBED_ATTRIBUTES } })
     return
   }
   if (req.method === 'GET' && path === SCHEME_PATH) {
-    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: [{ schemaId: 'sc-1', schemaType: 1, isDefault: 1, grid: { gridItems: SCHEME_COLUMNS } }] })
+    // One read narrows the schemes to the resource-list kind and one takes all
+    // four; the query string says which, and both land on this one endpoint.
+    const narrowed = (req.url ?? '').includes('schemaType=1')
+    answer(res, {
+      code: 0,
+      msg: 'success',
+      traceId: 'fake',
+      data: narrowed ? [{ schemaId: 'sc-1', schemaType: 1, isDefault: 1, grid: { gridItems: SCHEME_COLUMNS } }] : MODEL_SCHEMES,
+    })
     return
   }
   if (req.method === 'POST' && path === SEARCH_PATH) {
@@ -245,7 +365,7 @@ beforeAll(async () => {
   const { port } = backend.address() as { port: number }
   const base = `http://127.0.0.1:${String(port)}${API_PREFIX}/`
   SHARED_ENV.DSH_CONSOLE_BIZ_UPSTREAM = base
-  for (const env of [DATA_ENV, REFUSE_ENV, DEFAULT_COLUMNS_ENV, EMPTY_ENV]) {
+  for (const env of [DATA_ENV, REFUSE_ENV, DEFAULT_COLUMNS_ENV, EMPTY_ENV, SYSTEM_MAP_ENV]) {
     env.DSH_CONSOLE_BIZ_UPSTREAM = base
     env.DSH_CONSOLE_HTTP_PORT = String(await freePort())
   }
@@ -340,7 +460,18 @@ const AGENT = {
  * for, so its log carries the sentence a model reads when its conditions matched
  * nothing rather than one saying the data source could not be read.
  *
- * `show-crud-turn` is the other path that asks the user a question. It opens the
+ * `system-map-turn` is the perception path: three reads of this deployment's
+ * own business system that ask nobody anything. It posts the visitor's token
+ * like the data-source scenarios do — a read with no credential answers that
+ * nobody is signed in, which would pin the refusal instead of the account — and
+ * its `session.jsonl` carries the listing a subject area read answers with, the
+ * whole of one model's attributes with what the schemes say about each, and the
+ * line stating what that person may do with it. What the fixture also pins is
+ * an absence: the same backend answer carries that person's account name,
+ * employee number, telephone and mail, and none of it is anywhere in the
+ * transcript.
+ *
+ * `show-data-page-turn` is the other path that asks the user a question. It opens the
  * deployment's own full data page for one table, which the host reads nothing
  * for: the card, the `allow_once`, and the `content-component/resolved` that
  * carries the spec the user agreed to with nothing fetched are in its log, and
@@ -374,11 +505,18 @@ const CONTROLLER_CASES: readonly { readonly name: string, readonly env: NodeJS.P
   { name: 'refuse-datasource-turn', env: REFUSE_ENV },
   { name: 'show-default-columns-turn', env: DEFAULT_COLUMNS_ENV },
   { name: 'empty-datasource-turn', env: EMPTY_ENV },
-  { name: 'show-crud-turn', env: SHARED_ENV },
+  { name: 'show-data-page-turn', env: SHARED_ENV },
+  { name: 'system-map-turn', env: SYSTEM_MAP_ENV },
 ] as const
 
 /** The scenarios that must hold the visitor's token before their model turn. */
-const TOKEN_HOLDERS = new Set(['show-datasource-turn', 'refuse-datasource-turn', 'show-default-columns-turn', 'empty-datasource-turn'])
+const TOKEN_HOLDERS = new Set([
+  'show-datasource-turn',
+  'refuse-datasource-turn',
+  'show-default-columns-turn',
+  'empty-datasource-turn',
+  'system-map-turn',
+])
 
 const SCENARIOS: Scenario[] = CONTROLLER_CASES.map((controller) => {
   const manifestPath = join(corpusDir, controller.name, 'snapshot.yml')

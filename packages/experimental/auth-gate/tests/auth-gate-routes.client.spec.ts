@@ -29,7 +29,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
-import { BizBackendService } from '@deepseek-ai/dsh-experimental-biz-backend'
+import { BizBackendService, BizOperationRules } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as AuthGate from '../src/index.ts'
 import { requesterFor, resolveUpstreams, upstreamUrlFor } from '../src/proxy.ts'
 import {
@@ -559,12 +559,14 @@ describe('auth-gate configuration', () => {
     bizUpstream?: string | undefined
     renewalPath?: string | undefined
     renewalIntervalSeconds?: number | undefined
+    bizOperationRules?: BizOperationRules
   } = {}): AuthGate.Config {
     return {
       loginUrl: fields.loginUrl ?? '/toy-proxy/toy-login/#/',
       cookieName: fields.cookieName ?? 'accessToken',
       refreshMarginSeconds: 300,
       mcpUpstreams: fields.mcpUpstreams ?? {},
+      bizOperationRules: fields.bizOperationRules ?? BizOperationRules({}),
       ...fields.bizUpstream === undefined ? {} : { bizUpstream: fields.bizUpstream },
       ...fields.renewalPath === undefined ? {} : { renewalPath: fields.renewalPath },
       ...fields.renewalIntervalSeconds === undefined ? {} : { renewalIntervalSeconds: fields.renewalIntervalSeconds },
@@ -663,6 +665,24 @@ describe('auth-gate configuration', () => {
       // missing name reported, rather than reading through one that always fails.
       expect(applyGate(gateConfig({ bizUpstream })).ctx.get('bizBackend')).toBeUndefined()
     }
+  })
+
+  it('hands the service the rule table this row was configured with', () => {
+    const rights = { resclass: [{ resclassenname: 'SpaceLayer', operations: [] }], rows: [] }
+    const defaults = applyGate(gateConfig({ bizUpstream: 'https://biz.example/ini-server/' })).ctx.get('bizBackend') as BizBackendService
+    expect(defaults.judge(rights).may('SpaceLayer', 'export')).toBe(true)
+    const configured = applyGate(gateConfig({
+      bizUpstream: 'https://biz.example/ini-server/',
+      bizOperationRules: BizOperationRules({ export: ['exp'] }),
+    })).ctx.get('bizBackend') as BizBackendService
+    expect(configured.judge(rights).may('SpaceLayer', 'export')).toBe(false)
+  })
+
+  it('fails the row when the rule table names an operation there is no rule for', () => {
+    // Cast: a misspelling `cordis.yml` can hold and the type rules out.
+    const misspelled = BizOperationRules({ exprot: ['exp'] } as never)
+    expect(() => applyGate(gateConfig({ bizUpstream: 'https://biz.example/ini-server/', bizOperationRules: misspelled })))
+      .toThrow('biz-backend: no operation is called "exprot"')
   })
 
   it('accepts a base written as an origin alone, which an install without an API prefix publishes at', () => {

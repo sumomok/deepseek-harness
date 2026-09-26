@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for skill-pack.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/skill-pack.md
+/skill-packs:
+  en: 2eaa84dcc7722620
+  zh: ead26160b5dc198d
+/skill-packs/withholding-can-only-live-in-the-provider:
+  en: 80fe9a3d3b1a8fb9
+  zh: a377e244330bac5d
+/skill-packs/activation-is-whole-pack:
+  en: 89b986cef72ff8b6
+  zh: 981f809d7fc9ea41
+/skill-packs/an-absent-parts-source-is-an-answer-not-a-degradation:
+  en: b8bfeede4c770ce3
+  zh: 98d0f80d4677cf56

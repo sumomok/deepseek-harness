@@ -851,7 +851,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-auth-gate`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/auth-gate/src/index.ts:62`](../packages/experimental/auth-gate/src/index.ts)
+- `refs`: [`BizOperationRules`](../packages/experimental/biz-backend/src/index.ts)
+- `source`: [`packages/experimental/auth-gate/src/index.ts:68`](../packages/experimental/auth-gate/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
@@ -901,6 +902,20 @@ export interface Config {
    * silent, rather than by registering reads that always fail.
    */
   bizUpstream?: string
+  /**
+   * How the signed-in person's rights become what they may do with each data
+   * model: one rule per operation (`read`, `metadata_read`, `create`, `update`,
+   * `delete`, `import`, `export`), each either `row` — the rights table holds a
+   * row for the model — or a list of the rights table's own flags, at least one
+   * of which that row must grant. Every consumer of `ctx.bizBackend` that hides
+   * or refuses something on this person's behalf judges by this one table.
+   *
+   * The defaults are what this deployment's backend enforces today: `row` for
+   * `read`, `metadata_read` and `export`; `[add]`, `[update]` and `[delete]`
+   * for the three writes; `[add, update]` for `import`. Validated at load
+   * whether or not `bizUpstream` is set, and used only where it is.
+   */
+  bizOperationRules: BizOperationRules
   /**
    * The deployment's own renewal endpoint, as a path on the page's own origin —
    * `/<the API prefix>/nrms-auth/api/renewal` for a standard install, where the
@@ -1008,13 +1023,13 @@ export interface StagehandModelConfig {
 
 ## `@deepseek-ai/dsh-experimental-component-kit`
 
-- `source`: [`packages/experimental/component-kit/src/index.ts:34`](../packages/experimental/component-kit/src/index.ts)
+- `source`: [`packages/experimental/component-kit/src/index.ts:66`](../packages/experimental/component-kit/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the data page's requests go. */
 export interface Config {
   /**
-   * Root-absolute path prefix the `toy.crud` data page requests its table
+   * Root-absolute path prefix the `toy.data-page` component requests its table
    * under, such as `/` or `/nrms-server/`; a trailing `/` is added where
    * missing. The page requests from the browser, so the prefix names a path on
    * the shell's own origin — the reverse proxy in front of the console is what
@@ -1033,7 +1048,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-component-surface`
 
 - `inject`: `tools`
-- `source`: [`packages/experimental/component-surface/src/index.ts:91`](../packages/experimental/component-surface/src/index.ts)
+- `source`: [`packages/experimental/component-surface/src/index.ts:115`](../packages/experimental/component-surface/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
@@ -1076,7 +1091,7 @@ export interface Config {
   dataDefaultPageSize?: number
   /**
    * Whether a call may open this deployment's own full data page for one
-   * table (`toy.crud`) in the panel. Off by default, because the page reads
+   * table (`toy.data-page`) in the panel. Off by default, because the page reads
    * its table from the browser with the signed-in visitor's own credential and
    * a deployment has to say that it wants that.
    *
@@ -1086,7 +1101,7 @@ export interface Config {
    * kind; what the page requests, it requests from the browser under the base
    * path `@deepseek-ai/dsh-experimental-component-kit` is configured with.
    */
-  crud?: boolean
+  dataPage?: boolean
   /**
    * How long a call that opened a data page waits for the browser to report
    * the page's columns before answering without them, in milliseconds. The
@@ -1094,7 +1109,7 @@ export interface Config {
    * composition no browser attaches to sets it low, because every such call
    * pays the whole deadline.
    */
-  crudLoadTimeoutMs?: number
+  dataPageLoadTimeoutMs?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -1141,6 +1156,51 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-console-mcp -->
+<a id="deepseek-aidsh-experimental-console-mcp"></a>
+
+## `@deepseek-ai/dsh-experimental-console-mcp`
+
+- `inject`: `credentials`
+- `source`: [`packages/experimental/console-mcp/src/index.ts:51`](../packages/experimental/console-mcp/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: which external MCP servers this deployment reaches. */
+export interface Config {
+  /**
+   * The servers, in the order they are written. An empty list — the default —
+   * is a console that carries the capability and reaches nothing, which is
+   * what a deployment gets before anyone has chosen a server.
+   */
+  servers: ServerRequest[]
+}
+
+/** One server as a deployment writes it. */
+export interface ServerRequest {
+  /** Tool namespace: this server's tools register as `mcp__<id>__<rawName>`. */
+  id: string
+  /** Streamable HTTP endpoint. */
+  url: string
+  /** Credential attached to every request; omitted for an endpoint that needs none. */
+  auth?: ServerAuthRequest
+  /** Per-tool-call timeout in milliseconds; omitted leaves the bridge's own default. */
+  toolCallTimeoutMs?: number
+  /** Whether a failed first connection fails the boot; omitted leaves the bridge's own default. */
+  failOnStartupError?: boolean
+}
+
+/** One server's credential, named rather than carried. */
+export interface ServerAuthRequest {
+  /** Request header the credential is spent on, such as `Authorization`. */
+  header: string
+  /** Credential reference — an environment-variable name, never a value. */
+  credential: string
+  /** Text placed before the resolved value, such as `Bearer `. */
+  scheme: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-console-mcp -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-content-frame -->
 <a id="deepseek-aidsh-experimental-content-frame"></a>
@@ -1634,6 +1694,41 @@ export type NavSnapshotKind = 'page' | 'view'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-server-sidebar -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-skill-pack -->
+<a id="deepseek-aidsh-experimental-skill-pack"></a>
+
+## `@deepseek-ai/dsh-experimental-skill-pack`
+
+- `inject`: `skills`
+- `source`: [`packages/experimental/skill-pack/src/index.ts:152`](../packages/experimental/skill-pack/src/index.ts)
+
+```ts config-catalog
+/** Where the packs are, which platform version they are judged against, whether the root is watched, and where a delivery arrives. */
+export interface Config {
+  /** Absolute path of the pack root: one directory per pack. */
+  root: string
+  /** The console platform's own exact version, which a pack's `pack.platform` range is matched against. */
+  platformVersion: string
+  /** Whether the pack root is watched, so a pack arriving or leaving takes effect without a restart. */
+  watch?: boolean
+  /** Where a delivery archive is dropped; absent where a deployment installs its packs some other way. */
+  deliveries?: PackDeliveryDirectory
+}
+
+/** Where a deployment's delivery archives are dropped, and the limits one is read under. */
+export interface PackDeliveryDirectory {
+  /** Absolute path of the directory a delivery archive is copied into. */
+  directory: string
+  /** Largest archive that is read at all, in bytes. Raise it for a deployment whose packs carry large pictures. */
+  maxArchiveBytes: number
+  /** Largest single file an archive may carry, in bytes. */
+  maxFileBytes: number
+  /** Most entries an archive may carry, its manifest among them. */
+  maxFiles: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-skill-pack -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text -->
 <a id="deepseek-aidsh-experimental-speech-to-text"></a>
 
@@ -1711,6 +1806,33 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-speech-to-text-sensevoice -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-system-map -->
+<a id="deepseek-aidsh-experimental-system-map"></a>
+
+## `@deepseek-ai/dsh-experimental-system-map`
+
+- `inject`: `tools` · `bizBackend`
+- `source`: [`packages/experimental/system-map/src/index.ts:55`](../packages/experimental/system-map/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: the ceilings one deployment's answers are built under. */
+export interface Config {
+  /**
+   * Most characters one listing's lines may spend between them.
+   *
+   * The whole answer is this plus its heading, which is a sentence of fixed
+   * shape plus the names this deployment gives the subject area or model and at
+   * most one note of {@link Config.noteChars} characters.
+   */
+  listingChars: number
+  /** Most fixed values one attribute contributes before the rest are only counted. */
+  valuesPerAttribute: number
+  /** Most characters one of this deployment's recorded notes contributes. */
+  noteChars: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-system-map -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-tool-agent-team -->
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
@@ -4967,6 +5089,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-experimental-content-column` | — | [`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-content-surface` | — | [`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-server-layout` | — | [`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-skill-pack-components` | `componentCatalog` · `componentViews` · `skillPacks` | [`packages/experimental/skill-pack-components/src/index.ts`](../packages/experimental/skill-pack-components/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-vue-ui-poc` | — | [`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-vue2-echarts-poc` | — | [`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts) |
 | `@deepseek-ai/dsh-fs-observation-policy` | — | [`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts) |
