@@ -79,6 +79,6 @@ ripgrep 那次说明了为什么光靠包名差集不够。`PLATFORM_DIR_RULES` 
 
 读差集的那几条也随上游漂移，这正是它们不作主判据的原因。`@img/sharp-darwin-arm64` 在今天这棵树上是静态可达的，因为 `sharp/dist/sharp.cjs` 在一个平台分支里 require 了它；在发现第二行那批删除的那棵树上并非如此。死规则检查不随之移动。
 
-`payload-gate.ts` 里的 `EXEMPTIONS` 按检查逐项收豁免，每项配一句写下来的理由，理由为空在加载时就失败。`platform-variant` 收了三个 LibreOffice 引擎目录，它们原生所属的那份载荷有意不带，因为桌面不提供 Office 预览；其余三张表是空的。这条豁免点名的是目录而不是方向，所以引擎混进另一目标的载荷时它同样放行；因此 `package.ts` 在任何深度发现引擎目录都会让那份成品载荷失败。每条生效的豁免都会在每次构建开始时打印，于是理由已经过期的那条会一直显眼，而不会变成门禁的常态。
+`payload-gate.ts` 里的 `EXEMPTIONS` 按检查逐项收豁免，每项配一句写下来的理由，理由为空在加载时就失败。`platform-variant` 收了三个 LibreOffice 引擎目录，它们原生所属的那份载荷有意不带，因为桌面不提供 Office 预览（[决策](2026-09-26-desktop-payload-on-the-rc2-base.zh.md)）；其余三张表是空的。这条豁免点名的是目录而不是方向，所以引擎混进另一目标的载荷时它同样放行；因此 `package.ts` 在任何深度发现引擎目录都会让那份成品载荷失败。每条生效的豁免都会在每次构建开始时打印，于是理由已经过期的那条会一直显眼，而不会变成门禁的常态。
 
 有一处宿主差异是已知且未豁免的。`stageWindowsVariants` 在任何宿主上都会取来平台分包家族的 win32 成员（LibreOffice 引擎除外），所以 macOS 上的暂存树两个平台都有；Windows 宿主的树里没有 darwin 成员，那时 Windows 那侧的规则会什么都不丢、读起来像死规则。失败信息会列出该 parent 的实际条目，这正是它与"规则写错地址"的区别所在，而 `EXEMPTIONS['dead-rule']` 就是 Windows 宿主构建记录这件事的地方。
