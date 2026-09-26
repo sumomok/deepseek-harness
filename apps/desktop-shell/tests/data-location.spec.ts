@@ -5,7 +5,7 @@
  * @module
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -241,6 +241,20 @@ describe('resolveDataLocation with a pointer', () => {
     const badMarker = dataDir('bad', { id: 'garbage', structure: true })
     expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env: badMarker, defaultHome }))
       .toEqual({ kind: 'confirm-env', envPath: badMarker, pointer, reason: 'damaged-data' })
+    if (process.platform !== 'win32') {
+      const dangling = join(root, 'dangling')
+      symlinkSync(join(root, 'Unplugged', 'DSH-Data'), dangling)
+      for (const env of [dangling, join(dangling, 'below')]) {
+        expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env, defaultHome }))
+          .toEqual({ kind: 'confirm-env', envPath: env, pointer, reason: 'not-a-folder' })
+      }
+      const linked = join(root, 'linked')
+      symlinkSync(dataDir('real'), linked)
+      for (const env of [join(root, 'new', 'place'), join(linked, 'new')]) {
+        expect(resolveDataLocation({ read: { kind: 'ok', pointer }, env, defaultHome }))
+          .toEqual({ kind: 'confirm-env', envPath: env, pointer, reason: 'missing' })
+      }
+    }
     expect([canAdoptEnv('missing'), canAdoptEnv('not-harness-data'), canAdoptEnv('not-a-folder'), canAdoptEnv('damaged-data')])
       .toEqual([true, true, false, false])
   })

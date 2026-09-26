@@ -27,9 +27,9 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync,
+  closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync,
 } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 /** File name of the pointer under Electron's user-data directory. */
 export const POINTER_FILENAME = 'data-location.json'
@@ -290,7 +290,7 @@ export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable'
 /**
  * Why an explicit `DSH_HOME` that changed is not followed without asking.
  * `missing` and `not-harness-data` can be adopted as a new, empty location;
- * `not-a-folder` (a file, or a path that cannot be reached) and
+ * `not-a-folder` (a file, a dangling link, or a path that cannot be reached) and
  * `damaged-data` (an identity marker that cannot be read) cannot.
  */
 export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data'
@@ -314,15 +314,30 @@ export function canAdoptEnv(reason: EnvUnverifiedReason): boolean {
 }
 
 /**
- * What is at a path, following links.
- * @param path - the path to inspect.
- * @returns `directory`, `absent` for ENOENT, or `other` for a file or a path that cannot be reached.
+ * What is at a path, following links. A path that does not resolve because it,
+ * or the nearest entry above it that exists, is a dangling link is `other`,
+ * not `absent`: creating a directory through a dangling link fails with
+ * ENOENT, so such a path cannot become a data directory.
+ * @param path - the absolute path to inspect.
+ * @returns `directory`, `absent` when it can be created, or `other` for a file or a path that cannot be reached or created.
  */
 function pathKind(path: string): 'directory' | 'absent' | 'other' {
   try {
     return statSync(path).isDirectory() ? 'directory' : 'other'
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'other'
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return 'other'
+  }
+  for (let entry = path; ; entry = dirname(entry)) {
+    try {
+      lstatSync(entry)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return 'other'
+      if (dirname(entry) === entry) return 'absent'
+      continue
+    }
+    // The nearest entry that exists: a directory, or a link to one, can hold
+    // the new directory; a dangling link cannot.
+    return isDirectory(entry) ? 'absent' : 'other'
   }
 }
 

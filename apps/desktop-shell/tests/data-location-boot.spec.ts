@@ -424,6 +424,18 @@ describe('settleDataLocation with a pointer', () => {
     expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: pointerAt(data) })
   })
 
+  posixOnly('offers only keep and quit for a DSH_HOME that is a dangling link, and keeps the launch going', async () => {
+    const data = dataDir('DSH-Data', ID)
+    writePointer(userData, pointerAt(data))
+    const dangling = join(root, 'dangling')
+    symlinkSync(join(root, 'Unplugged', 'DSH-Data'), dangling)
+    const recorded = recordingHost({ answers: ['keep'], persistent: { kind: 'set', value: dangling, source: 'login-shell' } })
+    expect((await settleDataLocation(recorded.host, undefined))?.home).toBe(data)
+    expect(recorded.asked[0]?.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
+    expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.env('not-a-folder', dangling, data))
+    expect(existsSync(join(root, 'Unplugged'))).toBe(false)
+  })
+
   it('starts a new location the person chose, leaving the old data where it is', async () => {
     const data = dataDir('DSH-Data', ID)
     writePointer(userData, pointerAt(data))
