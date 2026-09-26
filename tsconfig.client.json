@@ -54,10 +54,17 @@
   // belongs to the host aggregate, which excludes this program's `*.client.*`
   // in turn. `exclude` wins over `include`, so the test glob above stays broad.
   "exclude": [
-    "packages/client/*/tests/**/*.host.spec.ts"
+    "packages/client/*/tests/**/*.host.spec.ts",
+    // Specs that reach Vue 2's global JSX augmentation typecheck in
+    // tsconfig.vue2-tests.json instead.
+    "packages/experimental/component-kit/tests/**",
+    "packages/experimental/vue2-echarts-poc/tests/**",
+    "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts",
+    "packages/experimental/component-surface/tests/renderer-coverage.client.spec.ts"
   ],
   "references": [
     { "path": "./tsconfig.desktop-keyboard-tests.json" },
+    { "path": "./tsconfig.vue2-tests.json" },
     { "path": "./apps/desktop/tsconfig.client.json" },
     { "path": "./packages/experimental/client-ui-voice-input" },
 

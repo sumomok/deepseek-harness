@@ -1,0 +1,36 @@
+{
+  // Specs whose imports reach Vue 2's type declarations. `vue/types/jsx.d.ts`
+  // augments the global `JSX.IntrinsicAttributes` with Vue's `ref`, which
+  // breaks React `ref` props across the Client aggregate, so these specs
+  // typecheck in their own program and tsconfig.client.json excludes them.
+  "extends": "./tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "lib/vue2-test-types",
+    "emitDeclarationOnly": true,
+    "rewriteRelativeImportExtensions": false,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/experimental/component-kit/src/css-modules.d.ts",
+    "packages/experimental/component-surface/src/css-modules.d.ts",
+    "packages/experimental/vue2-echarts-poc/src/css-modules.d.ts",
+    "packages/experimental/component-kit/tests/**/*.client.spec.ts",
+    "packages/experimental/component-kit/tests/**/*.client.spec.tsx",
+    "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.ts",
+    "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.tsx",
+    "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts",
+    "packages/experimental/component-surface/tests/renderer-coverage.client.spec.ts"
+  ],
+  "references": [
+    { "path": "./packages/client/locale/tsconfig.client.json" },
+    { "path": "./packages/client/store" },
+    { "path": "./packages/client/ui-renderer" },
+    { "path": "./packages/experimental/component-kit" },
+    { "path": "./packages/experimental/component-surface" },
+    { "path": "./packages/experimental/content-column" },
+    { "path": "./packages/experimental/vue2-echarts-poc" },
+    { "path": "./packages/host/webserver" },
+    { "path": "./packages/test-support/client-runtime" }
+  ]
+}

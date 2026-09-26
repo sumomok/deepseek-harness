@@ -13,6 +13,8 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { NS } from '@deepseek-ai/dsh-experimental-component-kit/client'
+// Type-only: pulls the content column's `content.surface.kind` SlotMap declaration this bench declares.
+import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
