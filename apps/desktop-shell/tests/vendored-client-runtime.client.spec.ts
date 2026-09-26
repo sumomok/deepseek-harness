@@ -34,7 +34,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Inject, type Context, type Plugin } from '@deepseek-ai/cordis'
 import * as clientModules from '@deepseek-ai/dsh-client-modules/client'
 import type {
   ClientBundleRegistration, ClientModuleCreateOptions, ClientModuleLoaderTarget, ClientModuleSystem,
@@ -42,7 +42,7 @@ import type {
 } from '@deepseek-ai/dsh-client-modules/client'
 import { orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import { getStaticModules } from '@deepseek-ai/dsh-client-web'
-import { SlotTestRuntime, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import * as gatewayClient from '@deepseek-ai/dsh-api-gateway/client'
 import * as typertRegistryClient from '@deepseek-ai/dsh-typert-registry/client'
@@ -199,7 +199,7 @@ function moduleSystem(rows: readonly BuiltinRow[]): ClientModuleSystem {
  * own through the same registrar to publish `remote.session`. No vendored half
  * calls a method on it while applying.
  */
-const HOST_SESSION_NAMESPACE = {
+const HOST_SESSION_NAMESPACE: TypertRemoteContribution = {
   package: 'apps/desktop-shell/tests/vendored-client-runtime',
   descriptors: [{
     id: 'apps/desktop-shell/tests/vendored-client-runtime#session/ping',
@@ -211,15 +211,20 @@ const HOST_SESSION_NAMESPACE = {
     result: {
       mode: 'strict',
       typeSymbol: 'apps/desktop-shell/tests/vendored-client-runtime#Ping',
-      schema: { parse: (value: unknown) => value },
+      create: () => ({ parse: (value: unknown) => value }),
     },
   }],
-} as unknown as TypertRemoteContribution
+}
 
 /** One assembled page: the runtime plus the teardown that unwinds it. */
 interface Page {
-  /** The slot runtime carrying the Cordis root every half mounts on. */
+  /** The slot runtime carrying the Cordis root. */
   readonly runtime: SlotTestRuntime
+  /**
+   * Mount one vendored half on the page's `remote`-isolated Context.
+   * @param half - the plugin the half's module exports.
+   */
+  mount(half: Plugin): Promise<void>
   /** Unwind the page; feature fibers fall before the Host namespaces they injected. */
   dispose(): Promise<void>
 }
@@ -246,23 +251,35 @@ function connectionStub(): unknown {
  * Assemble the page a vendored half mounts on: the production slot runtime,
  * the Typert registry, the Client Remote service, the locale runtime, the input
  * trigger service, and the Conversation assembly.
+ *
+ * The slot runtime registers its own `TestRemote` as `remote` on its root, and
+ * that double rejects `$mount`, which most vendored halves call during apply.
+ * The page therefore works on a child Context isolated on `remote`, where the
+ * real Client Remote service registers without colliding with the double.
  * @returns the assembled page.
  */
 async function page(): Promise<Page> {
   const runtime = await SlotTestRuntime.create()
-  const ctx: Context = runtime.ctx
+  const ctx: Context = runtime.ctx.isolate('remote')
   ctx.provide('connection', connectionStub() as never)
   await ctx.plugin(typertRegistryClient).await()
   await ctx.plugin(gatewayClient).await()
-  // The Host settings document: the locale runtime binds one namespace on it
-  // during apply and reads the snapshot, never the wire.
-  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope, describe: () => ({}) } as never)
+  // The Host settings forms: the locale runtime reads one form during apply
+  // and reads its snapshot, never the wire.
+  ctx.provide('configForms', { get: () => stubConfigForm().scope } as never)
   await ctx.plugin(localeClient).await()
   await ctx.plugin(inputTriggerClient).await()
   new UiConversation(ctx, runtime.sessions)
   const unmountSession = await ctx.remote.$mount(HOST_SESSION_NAMESPACE)
   return {
     runtime,
+    mount: async (half) => {
+      // A missing service would park the fiber instead of failing the case.
+      const required = Object.keys(Inject.resolve((half as { inject?: Inject }).inject))
+      const missing = required.filter(name => ctx.get(name) === undefined)
+      if (missing.length > 0) throw new Error(`mount would suspend: missing service(s) ${missing.join(', ')}`)
+      await ctx.plugin(half).await()
+    },
     dispose: async () => {
       await runtime.dispose()
       await unmountSession()
@@ -302,7 +319,7 @@ describe('vendored built-in client halves', () => {
     const mounted = await page()
     open = mounted
     mounted.runtime.ctx.provide('modules', modules as never)
-    await mounted.runtime.mount(half as never)
+    await mounted.mount(half as never)
   })
 
   it('applies the whole seeded set on one page', async () => {
@@ -311,7 +328,7 @@ describe('vendored built-in client halves', () => {
     open = mounted
     mounted.runtime.ctx.provide('modules', modules as never)
     for (const row of ROWS) {
-      await mounted.runtime.mount(await modules.import(row.id) as never)
+      await mounted.mount(await modules.import(row.id) as never)
     }
   })
 })
