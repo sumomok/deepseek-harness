@@ -203,9 +203,9 @@ describe('the composed telemetry rows', () => {
   it('composes every DeepSeek-bound reporter off, through every bundle layer', () => {
     expect(entry(desktop, 'session-telemetry-otel').disabled).toBe(true)
     expect(entry(desktop, 'plugin-package-inventory-deepseek').disabled).toBe(true)
-    // Mounted rather than disabled: its request contribution is opt-in in its
-    // own schema, and an absent config is what leaves the opt-in unanswered.
-    expect(entry(desktop, 'session-log-deepseek').config).toBeUndefined()
+    // Mounted rather than disabled: its own `enabled: false` makes `apply()`
+    // return before it registers the request contribution.
+    expect(entry(desktop, 'session-log-deepseek').config).toEqual({ enabled: false })
   })
 })
 
@@ -243,10 +243,10 @@ describe('the desktop composition layer as a whole', () => {
   // one this payload carries, and whose test suite no gate here runs — so the
   // shipped row is pinned against the shipped adapter here instead.
   it('restates the adapter\'s own deepseek-flash row, naming only the label', () => {
-    const factory = DeepSeekConfig({}) as { models: DeepSeekCatalogModel[]; defaultContextWindow: number }
+    const factory = DeepSeekConfig({})
     const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
     expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
-    const shipped = factory.models.find(row => row.id === 'deepseek-flash')
+    const shipped = factory.models.get().find(row => row.id === 'deepseek-flash')
     if (shipped === undefined) throw new Error('the shipped adapter carries no deepseek-flash row')
     // `description` is the one key the row adds; everything else the adapter
     // declares must be present, and `name` is the only one allowed to differ.
@@ -273,7 +273,7 @@ describe('the desktop composition layer as a whole', () => {
       imagePixelBudget: composed[0]?.imagePixelBudget,
       imageMaxBytes: composed[0]?.imageMaxBytes,
     }).toEqual({ contextWindow: 1_000_000, imagePixelBudget: 640_000, imageMaxBytes: 1_048_576 })
-    expect(factory.defaultContextWindow).toBe(1_000_000)
+    expect(factory.defaultContextWindow.get()).toBe(1_000_000)
     expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
   })
 })

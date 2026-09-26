@@ -223,10 +223,9 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     // list, so every byte upstream writes is a byte the seed must write.
     const webTemplate = PROFILE_TEMPLATES['web']
     expect(webTemplate?.bundles).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
-    expect(webTemplate?.patchReload).toBe('live')
     seedBuiltinBundles({ home, serverModules })
     const upstream = join(root, 'upstream', DESKTOP_PROFILE)
-    initProfile(upstream, [...(webTemplate?.bundles ?? []), ...BUILTIN_WEB_BUNDLES], webTemplate?.patchReload)
+    initProfile(upstream, [...(webTemplate?.bundles ?? []), ...BUILTIN_WEB_BUNDLES])
     const seeded = join(home, 'profiles', DESKTOP_PROFILE)
     for (const name of ['package.json', PROFILE_PATCH_FILENAME, 'pnpm-workspace.yaml']) {
       expect(readFileSync(join(seeded, name), 'utf8')).toBe(readFileSync(join(upstream, name), 'utf8'))
