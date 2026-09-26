@@ -822,6 +822,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: workspace:*
         version: link:../../packages/client/ui-sidebar
+      '@deepseek-ai/dsh-client-ui-sidebar-documentpreview':
+        specifier: workspace:*
+        version: link:../../packages/client/ui-sidebar-documentpreview
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../../packages/client/ui-slots
@@ -1113,6 +1116,9 @@ importers:
       '@haoran/dsh-mcp-servers':
         specifier: file:./vendor/haoran-dsh-mcp-servers-0.2.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-mcp-client@packages+mcp+mcp-client)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-user-approval@packages+interaction+user-approval)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@haoran/dsh-office-preview-notice':
+        specifier: file:./vendor/haoran-dsh-office-preview-notice-0.1.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-sidebar-documentpreview@packages+client+ui-sidebar-documentpreview)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
       '@haoran/dsh-screenshot':
         specifier: file:./vendor/haoran-dsh-screenshot-0.6.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)
@@ -1144,6 +1150,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:*
         version: link:../../packages/boot/app-boot
+      '@deepseek-ai/dsh-client-ui-sidebar-documentpreview':
+        specifier: workspace:*
+        version: link:../../packages/client/ui-sidebar-documentpreview
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -16275,6 +16284,30 @@ packages:
       react-dom:
         optional: true
 
+  '@haoran/dsh-office-preview-notice@file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz':
+    resolution: {integrity: sha512-5HNyCRUNFmk69M7JLh6zmSRAd7KHh9n/5B4XwTV3pc7m7aKuVjA5uc8njDQ0lA1+ypy4AiFG/bECe2r0s4nKrg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz}
+    version: 0.1.0
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.3
+      '@deepseek-ai/dsh-client-locale': '>=0.1.7-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.7-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-sidebar-documentpreview': '>=0.1.7-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.7-rc.1 <0.2.0-0'
+      react: ^18.2.0
+    peerDependenciesMeta:
+      '@deepseek-ai/cordis':
+        optional: true
+      '@deepseek-ai/dsh-client-locale':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-sidebar-documentpreview':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-slots':
+        optional: true
+      react:
+        optional: true
+
   '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz':
     resolution: {integrity: sha512-CA7E+k2RMeK3+OjfprJRrg3cB9GiRGAisnVovM+sghfnCxu+meBSuRpLlxa13oNCq2jR5IkdBDdkuF5nrmiH5A==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz}
     version: 0.6.0
@@ -23998,6 +24031,15 @@ snapshots:
       '@deepseek-ai/dsh-user-approval': link:packages/interaction/user-approval
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  '@haoran/dsh-office-preview-notice@file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-sidebar-documentpreview@packages+client+ui-sidebar-documentpreview)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
+    optionalDependencies:
+      '@deepseek-ai/cordis': link:vendor/cordis
+      '@deepseek-ai/dsh-client-locale': link:packages/client/locale
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-sidebar-documentpreview': link:packages/client/ui-sidebar-documentpreview
+      '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
+      react: 18.3.1
 
   '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)':
     dependencies:

@@ -23,6 +23,7 @@
   "devDependencies": {
     "7zip-bin": "^5.2.0",
     "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-sidebar-documentpreview": "workspace:*",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "builder-util-runtime": "9.7.0",

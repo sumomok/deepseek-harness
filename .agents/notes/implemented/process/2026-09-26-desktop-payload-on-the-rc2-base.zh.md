@@ -36,7 +36,7 @@ Status: implemented
 
 ## 后果
 
-桌面上右侧边栏的文档标签页没有 Office 渲染。用户在自己的 patch 层里重新启用 `office-to-pdf` 行，会启动一个转换必然失败的提供者，因为载荷里没有可供 kit 解析的引擎。
+桌面上右侧边栏的文档标签页没有 Office 渲染。内置的 `@haoran/dsh-office-preview-notice` 为 Word 与 PowerPoint 的四个后缀注册了一项排在预览自带 Office 渲染器之上的实现,所以打开这类文件时显示的是一行请用户用 Office 或 WPS 打开的说明,而不是那个渲染器关于启用预览服务的提示;在查看方式菜单里手动选那个渲染器,仍会看到那段提示。用户在自己的 patch 层里重新启用 `office-to-pdf` 行，会启动一个转换必然失败的提供者，因为载荷里没有可供 kit 解析的引擎。
 
 启动闸只认 `LOAD_FAILURE_MARKERS` 点名的那几段文字。上游改了这些行的措辞，闸门会悄无声息地放行，直到标记清单跟上；桌面层的 dump 仍能抓住最可能的后果，也就是最后一层没进来。
 

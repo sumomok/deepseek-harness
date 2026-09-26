@@ -36,7 +36,7 @@ The base skips a `dsh.profile.bundles` name it cannot resolve or admit, writes o
 
 ## Consequences
 
-The document tab in the right Sidebar has no Office rendering on the desktop. An `office-to-pdf` row a user re-enables in their own patch layer starts a provider whose conversions fail, because the payload holds no engine for the kit to resolve.
+The document tab in the right Sidebar has no Office rendering on the desktop. The built-in `@haoran/dsh-office-preview-notice` registers the four Word and PowerPoint suffixes above the preview's own Office renderer, so opening such a file shows a line telling the user to open it with Office or WPS instead of that renderer's message about enabling a preview service; picking the renderer by hand from the viewer menu still shows that message. An `office-to-pdf` row a user re-enables in their own patch layer starts a provider whose conversions fail, because the payload holds no engine for the kit to resolve.
 
 The boot gate reads only the fragments `LOAD_FAILURE_MARKERS` names. An upstream rewording of those lines passes it silently until the marker list follows; the desktop-layer dump still catches the most likely consequence, a missing last layer.
 

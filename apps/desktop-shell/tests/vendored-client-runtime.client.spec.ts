@@ -30,10 +30,13 @@
  * `console.error`, and the half goes on to register its footer chip, its spend
  * rows, and its settings page.
  *
- * The page declares the two settings slots the halves register into, because
- * the SlotRegistry runs a `slots.inject` callback only once its slot is
- * declared, and an undeclared slot would leave every settings registration
- * unrun and unchecked. A registration runs inside a child fiber whose failure
+ * The page declares the two settings slots and the document tab's keyed body
+ * slot the halves register into, because the SlotRegistry runs a
+ * `slots.inject` callback only once its slot is declared, and an undeclared
+ * slot would leave every such registration unrun and unchecked. The document
+ * preview's `documentPreviews` registry is the preview package's own class,
+ * provided the way that package's apply provides it, without the rest of that
+ * package. A registration runs inside a child fiber whose failure
  * the fiber only logs, so every case also fails on an error-level log.
  *
  * The HTML `__ModuleLoader__` facade is rebuilt here as a plain object instead
@@ -60,6 +63,7 @@ import * as typertRegistryClient from '@deepseek-ai/dsh-typert-registry/client'
 import * as localeClient from '@deepseek-ai/dsh-client-locale/client'
 import * as inputTriggerClient from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { DocumentPreviewRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/registry.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 // The deploy root whose `node_modules` becomes the payload's server closure:
@@ -233,10 +237,21 @@ const SETTINGS_SLOTS = {
   'settings.general.item': { kind: 'list', scope: 'root' },
 } as const
 
+/**
+ * The document tab's keyed body slot, which the preview package declares as a
+ * child of its tab body and a half registers a preview body into by
+ * implementation id.
+ */
+const DOCUMENT_SLOTS = {
+  'sidebar.right.tab.document': { kind: 'keyed', scope: 'session' },
+} as const
+
 /** One assembled page: the runtime plus the teardown that unwinds it. */
 interface Page {
   /** The slot runtime carrying the Cordis root. */
   readonly runtime: SlotTestRuntime
+  /** The `documentPreviews` registry the page provides. */
+  readonly previews: DocumentPreviewRegistry
   /** Every error-level message the page's logger received, formatted. */
   readonly errors: readonly string[]
   /**
@@ -297,8 +312,10 @@ async function page(): Promise<Page> {
       if (message.type === 'error') errors.push(`${message.name}: ${message.args.map(String).join(' ')}`)
     },
   })
-  await runtime.declare(SETTINGS_SLOTS)
+  await runtime.declare({ ...SETTINGS_SLOTS, ...DOCUMENT_SLOTS })
   const ctx: Context = runtime.ctx.isolate('remote')
+  const previews = new DocumentPreviewRegistry()
+  ctx.provide('documentPreviews', previews as never)
   ctx.provide('connection', connectionStub() as never)
   await ctx.plugin(typertRegistryClient).await()
   await ctx.plugin(gatewayClient).await()
@@ -316,6 +333,7 @@ async function page(): Promise<Page> {
   const unmountSession = await ctx.remote.$mount(HOST_SESSION_NAMESPACE)
   return {
     runtime,
+    previews,
     errors,
     mount: async (half) => {
       // A missing service would park the fiber instead of failing the case.
@@ -396,5 +414,10 @@ describe('vendored built-in client halves', () => {
     ])
     // `language` is the locale runtime's own row, which the page mounts.
     expect(registered(mounted, 'settings.general.item')).toEqual(['auto-compact', 'language'])
+    // The Office notice: its preview entry, and its body under the same id.
+    const notice = '@haoran/dsh-office-preview-notice/notice'
+    expect(mounted.previews.getSnapshot().map(definition => definition.id)).toEqual([notice])
+    expect(mounted.previews.candidates('reports/Q3.docx').map(definition => definition.id)).toEqual([notice])
+    expect(mounted.runtime.slots.entries('sidebar.right.tab.document').map(entry => entry.options.key)).toEqual([notice])
   })
 })

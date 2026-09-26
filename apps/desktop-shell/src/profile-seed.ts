@@ -173,7 +173,8 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
-  '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', DESKTOP_COMPOSITION_BUNDLE,
+  '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
+  DESKTOP_COMPOSITION_BUNDLE,
 ]
 
 /**
