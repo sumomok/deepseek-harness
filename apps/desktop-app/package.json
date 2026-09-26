@@ -14,7 +14,8 @@
   "files": [
     "cordis.patch.yml",
     "lib/index.js",
-    "lib/client.js"
+    "lib/client.js",
+    "lib/client.js.map"
   ],
   "scripts": {
     "bundle": "tsx build.ts"
