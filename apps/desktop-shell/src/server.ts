@@ -130,7 +130,9 @@ export interface ServerSpec {
   /**
    * Variables added to the inherited environment for this child alone — the
    * endpoint and token of each loopback service the shell lends it, the
-   * renderer and the update service, and the path of the pnpm launcher. They
+   * renderer, the update service, and the Office engine service, the path of
+   * the pnpm launcher, and the `NODE_PATH` entry the Office engine is
+   * resolved through. They
    * are deliberately not put on the shell's own `process.env`, because every
    * other process the shell starts would inherit them from there.
    */
