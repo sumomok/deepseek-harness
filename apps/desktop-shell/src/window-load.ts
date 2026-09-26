@@ -14,6 +14,11 @@
  * a failed load also ends in `did-finish-load`, for the error page Chromium
  * commits under the same URL.
  *
+ * A `did-finish-load` that follows a main-frame failure, with no navigation
+ * started in between, is the error page Chromium commits for the failed URL;
+ * it is logged as `window showed the error page`, so `window loaded` means a
+ * page that loaded.
+ *
  * `did-fail-load` fires for a load the network layer could not complete — a
  * refused connection, a reset, a DNS or certificate failure — and not for an
  * HTTP error status, which loads as a page. `ERR_ABORTED` (-3) is a load that
@@ -39,6 +44,14 @@ export interface RenderProcessGoneDetails {
   exitCode: number
 }
 
+/** What `did-start-navigation` says about the navigation, as Electron reports it on its event object. */
+export interface NavigationStart {
+  /** Whether the main frame is navigating. */
+  isMainFrame: boolean
+  /** Whether the navigation stays in the current document (a fragment or History API change). */
+  isSameDocument: boolean
+}
+
 /** The part of Electron's `WebContents` the supervisor uses. */
 export interface WindowContents {
   /**
@@ -55,6 +68,7 @@ export interface WindowContents {
     event: unknown, errorCode: number, errorDescription: string, validatedURL: string, isMainFrame: boolean,
   ) => void): unknown
   on(event: 'render-process-gone', listener: (event: unknown, details: RenderProcessGoneDetails) => void): unknown
+  on(event: 'did-start-navigation', listener: (details: NavigationStart) => void): unknown
   on(event: 'did-finish-load' | 'unresponsive' | 'responsive', listener: () => void): unknown
 }
 
@@ -124,6 +138,11 @@ function sameOrigin(url: string, target: string): boolean {
 export function superviseAppLoad(contents: WindowContents, host: LoadHost): AppLoader {
   let target: string | undefined
   let retried = false
+  // Whether the main frame's current navigation failed. Chromium then commits
+  // its error page and reports `did-finish-load` for it, which must not read
+  // as the page having loaded. Every load, `load` and the retry included,
+  // starts a main-frame navigation, which clears it.
+  let failedSinceStart = false
   const start = (url: string): void => {
     if (contents.isDestroyed()) return
     contents.loadURL(url).catch(() => {
@@ -131,14 +150,19 @@ export function superviseAppLoad(contents: WindowContents, host: LoadHost): AppL
       // and decides what follows; nothing else awaits this load.
     })
   }
+  contents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) failedSinceStart = false
+  })
   contents.on('did-finish-load', () => {
     // Logged only. A finished load does not restore the retry: after a failed
     // load Chromium commits its error page and reports `did-finish-load` for
     // the same URL, so restoring here would retry a dead server forever.
-    host.log(`[desktop] window loaded ${describeUrl(contents.getURL())}\n`)
+    const shown = describeUrl(contents.getURL())
+    host.log(failedSinceStart ? `[desktop] window showed the error page for ${shown}\n` : `[desktop] window loaded ${shown}\n`)
   })
   contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     host.log(`[desktop] window load failed: ${String(errorCode)} ${errorDescription} (${describeUrl(validatedURL)}, ${isMainFrame ? 'main frame' : 'subframe'})\n`)
+    if (isMainFrame && errorCode !== ERR_ABORTED) failedSinceStart = true
     if (!isMainFrame || errorCode === ERR_ABORTED || target === undefined || !sameOrigin(validatedURL, target)) return
     const failed = target
     if (!retried) {

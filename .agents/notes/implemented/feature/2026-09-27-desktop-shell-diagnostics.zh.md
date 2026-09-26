@@ -14,7 +14,7 @@ Status: implemented
 
 ### 加载服务出来的 UI
 
-服务出来的 UI 每一次载入应用窗口都经过这个窗口来自 `src/window-load.ts` 的 `AppLoader`:第一次加载、重开窗口的那次、服务器换绑后的重新指向。loader 记下 `did-finish-load`、`did-fail-load`、`render-process-gone`、`unresponsive` 与 `responsive`,URL 只记源与路径,因为服务出来的 UI 的 URL 带着启动令牌。对该 UI 所在源的主框架加载失败时,1 秒后用同一个 URL 重试一次;再失败就调用启动视图的 `fail`,它在服务出来的 UI 已替换掉启动页之后,会把失败烘焙进启动页(`bootPage` 的 `failure` 参数,和更新回执一样)重新加载,「连接界面」阶段标为失败。`ERR_ABORTED` 是被另一次导航替换掉的加载,不重试。只有换了新目标才恢复重试机会:Chromium 会在失败的 URL 下提交一张错误页并为它报 `did-finish-load`,若加载完成就恢复重试,对一个死掉的服务器会每秒重试一次、永不停止。`did-fail-load` 对 HTTP 错误状态码不触发,而上面那个现场案例一行错误都没有,所以能区分「框架从没加载出来」和「UI 加载出来之后卡住」的,是 `window loaded` 这一行。
+服务出来的 UI 每一次载入应用窗口都经过这个窗口来自 `src/window-load.ts` 的 `AppLoader`:第一次加载、重开窗口的那次、服务器换绑后的重新指向。loader 记下 `did-finish-load`、`did-fail-load`、`render-process-gone`、`unresponsive` 与 `responsive`,URL 只记源与路径,因为服务出来的 UI 的 URL 带着启动令牌。对该 UI 所在源的主框架加载失败时,1 秒后用同一个 URL 重试一次;再失败就调用启动视图的 `fail`,它在服务出来的 UI 已替换掉启动页之后,会把失败烘焙进启动页(`bootPage` 的 `failure` 参数,和更新回执一样)重新加载,「连接界面」阶段标为失败。`ERR_ABORTED` 是被另一次导航替换掉的加载,不重试。只有换了新目标才恢复重试机会:Chromium 会在失败的 URL 下提交一张错误页并为它报 `did-finish-load`,若加载完成就恢复重试,对一个死掉的服务器会每秒重试一次、永不停止。`did-fail-load` 对 HTTP 错误状态码不触发,而上面那个现场案例一行错误都没有,所以能区分「框架从没加载出来」和「UI 加载出来之后卡住」的,是 `window loaded` 这一行。主框架失败之后、没有新导航开始之前的 `did-finish-load`,是 Chromium 为失败的 URL 提交的错误页,记为 `window showed the error page for …`,所以错误页永远不会产生 `window loaded` 这一行。
 
 ### 服务器进程的崩溃记录
 

@@ -29,6 +29,7 @@ class FakeContents extends EventEmitter {
 
   loadURL(url: string): Promise<void> {
     this.loads.push(url)
+    this.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
     return Promise.reject(new Error('ERR_CONNECTION_REFUSED (-102) loading ' + url))
   }
 
@@ -188,6 +189,33 @@ describe('a failure that is not the served UI failing', () => {
 })
 
 describe('the log lines', () => {
+  it('names the error page Chromium commits after a failed load, not a loaded page', async () => {
+    const loader = supervise()
+    loader.load(APP_URL)
+    contents.failLoad(REFUSED, APP_URL)
+    contents.finishLoad(APP_URL)
+    // A subframe or same-document navigation does not start a new page load.
+    contents.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false })
+    contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    contents.finishLoad(APP_URL)
+    await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
+    contents.finishLoad(APP_URL)
+
+    expect(lines.filter(line => line.includes('window loaded') || line.includes('error page'))).toEqual([
+      '[desktop] window showed the error page for http://127.0.0.1:54321/\n',
+      '[desktop] window showed the error page for http://127.0.0.1:54321/\n',
+      '[desktop] window loaded http://127.0.0.1:54321/\n',
+    ])
+  })
+
+  it('counts an aborted load as no failure of the page that replaced it', () => {
+    const loader = supervise()
+    loader.load(APP_URL)
+    contents.failLoad(ERR_ABORTED, APP_URL)
+    contents.finishLoad(APP_URL)
+    expect(lines.at(-1)).toBe('[desktop] window loaded http://127.0.0.1:54321/\n')
+  })
+
   it('names every event, and the served UI by origin and path only', async () => {
     const loader = supervise()
     loader.load(APP_URL)
