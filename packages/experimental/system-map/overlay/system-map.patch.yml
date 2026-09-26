@@ -1,15 +1,13 @@
 # The agent finds its way around the deployment's own business system.
 #
-# Layered over the console composition in
-# `../../server-sidebar/overlay/customer.patch.yml`, which is what already
-# composes the sign-on gate this row reads through. Apply both, console first:
+# A deployment row, composed over the console bundle
+# (`packages/experimental/console-profile`) beside the `auth-gate` row this row
+# reads through: copy it into the deployment's own bundle layer, which stacks
+# after the console bundle (that package's README, "Add the deployment's own
+# rows").
 #
-#   dsh --profile web \
-#     --patch packages/experimental/server-sidebar/overlay/customer.patch.yml \
-#     --patch packages/experimental/system-map/overlay/system-map.patch.yml
-#
-# It is a file of its own rather than a row in the console overlay for the
-# reason `customer.patch.yml` states about the rows it leaves out: whether a
+# It is a file of its own rather than a row in the console bundle for the
+# reason the console bundle gives about the rows it leaves out: whether a
 # console lets the agent read its deployment's own configuration with the
 # signed-in visitor's credential is that deployment's decision, and the console
 # is complete without it. No shipped profile composes this row.

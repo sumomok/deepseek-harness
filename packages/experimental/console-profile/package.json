@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-command-compact": "workspace:*",
     "@deepseek-ai/dsh-compaction-basic": "workspace:*",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:*",
+    "@deepseek-ai/dsh-experimental-console-mcp": "workspace:*",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:*",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:*",
     "@deepseek-ai/dsh-experimental-library-skills": "workspace:*",

@@ -101,6 +101,7 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
   ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
   ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
+  ['@deepseek-ai/dsh-experimental-console-mcp', join(REPO_ROOT, 'packages/experimental/console-mcp')],
 ] as const
 /**
  * Identical to {@link OVERLAY}, plus the component rows and one configured
@@ -886,6 +887,20 @@ describe('web e2e: the product-console sidebar', () => {
     await expect(scaffold.ctx.settings.update('permission', { defaultPreset: 'danger-full-access' }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
     await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
+  })
+
+  it('mounts the MCP capability with no server, and offers no settings form that could add one', async () => {
+    // `servers` is ordinary Config of a bundle-layer row: the settings service
+    // projects no form for it and refuses a write, so no admitted browser can
+    // add a server. The empty list opens no connection and registers no tool,
+    // which the exact tool catalog below also pins.
+    const row = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'console-mcp')
+    expect(row?.options).toMatchObject({ name: '@deepseek-ai/dsh-experimental-console-mcp', config: { servers: [] } })
+    // Rethrows the activation error of a row that failed to load.
+    await row?.fiber?.await()
+    expect(scaffold.ctx.settings.describe().map(form => form.ns)).not.toContain('console-mcp')
+    await expect(scaffold.ctx.settings.update('console-mcp', { servers: [{ id: 'iot', url: 'https://mcp.example.test/mcp' }] }))
+      .rejects.toThrow('Plugin entry "console-mcp" has no volatile fields')
   })
 
   it('runs a new session under the `console` preset, whose default no settings write can move', async () => {

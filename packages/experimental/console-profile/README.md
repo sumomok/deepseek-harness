@@ -48,9 +48,11 @@ The console bundle composes these changes over the shipped Web profile:
 |---|---|
 | `server-layout`, `content-surface`, `content-column` | Inserted: the four-track service shell and its content column |
 | `server-sidebar` | Inserted with `displayNameClaim: login_uname`; its menu is saved into the profile patch |
+| `console-mcp` | Inserted with `servers: []`: the MCP capability, idle until a deployment names a server |
 | `library-skills` | Inserted: an isolated `skill-filesystem` provider over `@deepseek-ai/dsh-experimental-library-skills` |
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
 | `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission` | Disabled: internal vocabulary, official branding, and developer surfaces |
+| `ui-settings-plugins`, `ui-settings-plugin-inventory` | Disabled: Settings → Plugins, both tabs; the settings shell `ui-settings-general` stays |
 | `preset-console` | Inserted: the `console` Agent preset — persona, `tool-fs`, `skill-filesystem`, `tool-skill`, the compaction group, `tool-ask-user`, and `tool-todo`; no shell, search, job, goal, plan, delegation, web, or `present` row |
 | `preset-standard`, `preset-ptc`, `preset-minimal`, `preset-cordis` | Disabled: they carry the shell and the other developer rows, `cordis` also mounts `tool-cordis` and a skill that lists every workspace package, and `session.create` accepts an `agentPreset` over RPC, so hiding the picker is not enough; `console` is the only preset a session can run under |
 
@@ -70,7 +72,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 
 | File | Role |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, library skills, the `console` Agent preset, and every disable row |
+| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, MCP capability, library skills, the `console` Agent preset, and every disable row |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission` and `agent-preset-registry` rows, applied above the profile patch |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the two patch files are the runtime content |
 | — | No runtime invariant companion is published; the package owns no mutable relationship. Loader and the profile's patch files own the composition. |
@@ -92,7 +94,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
+Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction. The `console-mcp` row offers each configured server's tools as `mcp__<server id>__<tool>` and nothing while its list is empty. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
 
 #### KV Cache effect
 
@@ -103,6 +105,7 @@ None beyond the composed plugins' own; the skill catalog is prefix-stable while 
 <a id="known-limitations-and-deferred-work"></a>
 
 - **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, and a `defaultPreset` any settings write can change. Its Agent-preset default is the Web bundle's `standard`, which this bundle disables, so every new session fails with `agent-preset/not-found`.
+- **The MCP server list is deployment Config, not a setting.** `console-mcp.servers` sits in the bundle layer like the sidebar's menu, but it is not a `.volatile()` field: the settings service projects no form for it and refuses a write with `Plugin entry "console-mcp" has no volatile fields`, so no browser the deployment admits can add a server. A deployment names its servers by patching the row's `config` in its own layer, and a changed list takes effect when the row reloads. A bridged MCP tool declares no approval gate, so it runs under every access preset, under the credential the row's `auth` names.
 - **The `console` preset keeps the file tools.** `tool-fs` lets the agent write the skills it distils into `<workspace>/.dsh/skills`, and it also lets it write any other file the `permission` preset's sandbox admits.
 
 <a id="dev-note"></a>

@@ -16,7 +16,7 @@ Status: implemented
 
 ## Decision
 
-**控制台组合携带 MCP 能力，部署只携带清单。** 新增一行 `@deepseek-ai/dsh-experimental-console-mcp`，由 [`customer.patch.yml`](../../../../packages/experimental/server-sidebar/overlay/customer.patch.yml) 以 `servers: []` 挂载。它接受一份清单，并为每一项挂载一个 `dsh-mcp-client` 桥接。空清单就是交付状态，并且在强意义上空闲：该行照常加载，不建立连接，不注册任何工具，不向任何模型请求添加内容。在 overlay 里写出 `servers: []` 而不是交给模式默认值，是刻意的——这样部署方自己的清单就是对一个它已经看得见的值的编辑。
+**控制台组合携带 MCP 能力，部署只携带清单。** 新增一行 `@deepseek-ai/dsh-experimental-console-mcp`，由 [`customer.patch.yml`](../../../../packages/experimental/console-profile/cordis.patch.yml) 以 `servers: []` 挂载。它接受一份清单，并为每一项挂载一个 `dsh-mcp-client` 桥接。空清单就是交付状态，并且在强意义上空闲：该行照常加载，不建立连接，不注册任何工具，不向任何模型请求添加内容。在 overlay 里写出 `servers: []` 而不是交给模式默认值，是刻意的——这样部署方自己的清单就是对一个它已经看得见的值的编辑。
 
 **服务器被点名，而不被携带。** 每一项是一个端点加上一个凭据的**名字**，透过 `ctx.credentials` 解析。值绝不进入组合文件；若引用的名字下没有存过值，该行会在加载时失败，并只点出引用名、不点出值。这正是 `!!js process.env.X` 那种写法做不到的：缺失的环境变量会产生一个什么也没带的请求头，而第一个症状是一次被服务器拒绝的工具调用。
 

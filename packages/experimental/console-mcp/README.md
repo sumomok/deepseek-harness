@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-The console overlay ([`customer.patch.yml`](../server-sidebar/overlay/customer.patch.yml)) already mounts this row with `servers: []`. A deployment that reaches an MCP server edits that list; nothing else changes.
+The console bundle ([`cordis.patch.yml`](../console-profile/cordis.patch.yml)) already mounts this row with `servers: []`. A deployment that reaches an MCP server patches that list in its own layer; nothing else changes.
 
 ### Name a server
 

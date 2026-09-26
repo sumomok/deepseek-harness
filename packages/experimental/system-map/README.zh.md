@@ -84,7 +84,7 @@ Cut after 77 of 400; pass "Model076" as `after` to continue.
   name: '@deepseek-ai/dsh-experimental-system-map'
 ```
 
-这一行注入 `tools` 与 `bizBackend`。后者是部署方要安排的：`ctx.bizBackend` 由 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 构造，且只在那道门配了 `bizUpstream` 时才构造，所以没配的组合根本拿不到读，而不是拿到三个每次调用都拒绝的读。`overlay/system-map.patch.yml` 是这一行的 overlay 形态，按控制台 overlay 对它留白那些行所给的同一条理由，不塞进控制台 overlay：控制台让不让智能体读本部署自己的配置，是那个部署自己的决定。任何出厂 profile 都不组合它。
+这一行注入 `tools` 与 `bizBackend`。后者是部署方要安排的：`ctx.bizBackend` 由 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 构造，且只在那道门配了 `bizUpstream` 时才构造，所以没配的组合根本拿不到读，而不是拿到三个每次调用都拒绝的读。`overlay/system-map.patch.yml` 是这一行作为部署层行的形态，按[控制台 bundle](../console-profile/README.zh.md) 对它留白那些行所给的同一条理由，不塞进控制台 bundle：控制台让不让智能体读本部署自己的配置，是那个部署自己的决定。任何出厂 profile 都不组合它。
 
 不需要审批行，也不问任何人。三个读同样是刻意不进审查网关只读名单的：它们确实离开本机，而[分类笔记](../../../.agents/notes/implemented/architecture/2026-09-06-content-tools-review-gate-classification.zh.md)正是把这种情况暂缓到判官成本实测超预算之时。
 

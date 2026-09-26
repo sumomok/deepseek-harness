@@ -48,9 +48,11 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 |---|---|
 | `server-layout`、`content-surface`、`content-column` | 插入：四轨服务外壳及其内容栏 |
 | `server-sidebar` | 带 `displayNameClaim: login_uname` 插入；它的菜单保存进 profile 补丁 |
+| `console-mcp` | 带 `servers: []` 插入：MCP 能力，在部署点名服务器之前不做任何事 |
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission` | 禁用：内部术语、官方品牌与开发者界面 |
+| `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
 | `preset-console` | 插入：`console` Agent 预设——persona、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`；没有 shell、搜索、后台任务、目标、计划、委派、web 与 `present` 行 |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；`console` 是会话唯一能运行其下的预设 |
 
@@ -70,7 +72,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 
 | 文件 | 作用 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、库技能、`console` Agent 预设，以及全部禁用行 |
+| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、MCP 能力、库技能、`console` Agent 预设，以及全部禁用行 |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission` 行与 `agent-preset-registry` 行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
 | — | 不发布运行时 invariant 伴生插件；本包不拥有任何可变关系。组合由 Loader 与 profile 的补丁文件拥有。 |
@@ -92,7 +94,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
@@ -103,6 +105,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="known-limitations-and-deferred-work"></a>
 
 - **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，以及一个任何设置写入都能改的 `defaultPreset`。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
+- **MCP 服务器列表是部署 Config，不是设置。** `console-mcp.servers` 和侧栏菜单一样位于 bundle 层，但它不是 `.volatile()` 字段：设置服务不为它投影表单，写入时以 `Plugin entry "console-mcp" has no volatile fields` 拒绝，所以部署放行的任何浏览器都加不了服务器。部署在自己的层里给这一行打 `config` 补丁来点名服务器，改过的列表在这一行重新加载时生效。桥接进来的 MCP 工具不声明审批闸门，所以在每个访问预设下都会直接运行，用的是这一行 `auth` 点名的凭据。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
 <a id="dev-note"></a>

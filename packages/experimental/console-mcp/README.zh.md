@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-控制台 overlay（[`customer.patch.yml`](../server-sidebar/overlay/customer.patch.yml)）已经以 `servers: []` 挂好了这一行。需要接入 MCP 服务器的部署只改这份清单，其余不动。
+控制台 bundle（[`cordis.patch.yml`](../console-profile/cordis.patch.yml)）已经以 `servers: []` 挂好了这一行。需要接入 MCP 服务器的部署在自己的层里给这份清单打补丁，其余不动。
 
 ### 写明一个服务器
 

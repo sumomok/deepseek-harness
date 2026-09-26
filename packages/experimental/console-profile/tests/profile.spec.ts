@@ -86,6 +86,16 @@ const PRESET_KNOBS = [
   { sandbox: 'workspace-write', approval: 'ask' },
   { sandbox: 'danger-full-access', approval: 'never' },
 ] as const
+/**
+ * The two rows that draw Settings → Plugins: the section with its configurable
+ * cards, and the read-only Loader inventory tab inside it. A console end user
+ * administers no plugins, and every card in that section names a host-plane
+ * subsystem in vendor vocabulary.
+ */
+const PLUGIN_SETTINGS_ROWS = [
+  ['ui-settings-plugins', '@deepseek-ai/dsh-client-ui-settings-plugins'],
+  ['ui-settings-plugin-inventory', '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'],
+] as const
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
@@ -150,6 +160,7 @@ describe('the console bundle manifest', () => {
       '@deepseek-ai/dsh-command-compact',
       '@deepseek-ai/dsh-compaction-basic',
       '@deepseek-ai/dsh-compaction-tool-result-pruner',
+      '@deepseek-ai/dsh-experimental-console-mcp',
       '@deepseek-ai/dsh-experimental-content-column',
       '@deepseek-ai/dsh-experimental-content-surface',
       '@deepseek-ai/dsh-experimental-library-skills',
@@ -187,8 +198,8 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(warnings).toEqual([])
   })
 
-  it('inserts the shell, the sidebar, and the library-skills provider at stable ids', () => {
-    for (const id of ['server-layout', 'content-surface', 'content-column', 'server-sidebar', 'library-skills']) {
+  it('inserts the shell, the sidebar, the MCP capability, and the library-skills provider at stable ids', () => {
+    for (const id of ['server-layout', 'content-surface', 'content-column', 'server-sidebar', 'console-mcp', 'library-skills']) {
       expect(byId.has(id)).toBe(true)
       expect(byId.get(id)?.disabled).not.toBe(true)
     }
@@ -217,9 +228,38 @@ describe('the console layer over the shipped Web bundles', () => {
     for (const id of [
       'ui-layout', 'ui-sidebar', 'ui-agent-preset', 'ui-brand-official', 'ui-cordis', 'ui-trajectory',
       'ui-model-selection', 'session-log-download', 'ui-settings-models', 'ui-permission',
+      'ui-settings-plugins', 'ui-settings-plugin-inventory',
     ]) {
       expect(byId.get(id)?.disabled).toBe(true)
     }
+  })
+
+  it('removes Settings → Plugins by id, both halves, while the shipped Web bundles still compose them', () => {
+    // The disable belongs to the console, not to the product: without this
+    // layer the two rows are composed and enabled, so a row retired upstream
+    // surfaces as a warning above rather than as dead configuration here.
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    for (const [id, name] of PLUGIN_SETTINGS_ROWS) {
+      expect(rowOf(CONSOLE_PATCH, id)).toEqual({ id, disabled: true })
+      expect(shipped.get(id)).toMatchObject({ name })
+      expect(shipped.get(id)?.disabled).not.toBe(true)
+    }
+  })
+
+  it('leaves the settings shell composed, since it draws everything else on the page', () => {
+    // `ui-settings-general` owns the panel, the navigation, and the General
+    // section. The open-configuration-file action it also registers is hidden
+    // by `terminology-guard.ts` instead.
+    expect(idsOf(CONSOLE_PATCH)).not.toContain('ui-settings-general')
+    expect(byId.get('ui-settings-general')?.disabled).not.toBe(true)
+  })
+
+  it('mounts the MCP capability by package name with an empty server list it states rather than defaults', () => {
+    const mcp = byId.get('console-mcp')
+    expect(mcp).toMatchObject({ name: '@deepseek-ai/dsh-experimental-console-mcp' })
+    // A deployment's own list is then an edit to a value it can already see.
+    expect(mcp?.config).toEqual({ servers: [] })
+    expect(mcp?.disabled).not.toBe(true)
   })
 })
 
