@@ -620,10 +620,12 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
  */
 async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
-  // alpha.2 serves client modules through combo URLs — `/plugins/??a/client.js,b/client.js&rev=…`
+  // Client modules are served through combo URLs — `plugins/??a/client.js,b/client.js&rev=…`
   // (HTML-attribute occurrences carry `&amp;`) — so module names are the
-  // `<name>/client.js` segments inside each URL, not URL path prefixes.
-  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)]
+  // `<name>/client.js` segments inside each URL, not URL path prefixes. The
+  // index writes them relative to its `<base href="./">`, and an older index
+  // wrote them from the root, so both `"plugins/` and `/plugins/` count.
+  const paths = [...new Set([...index.matchAll(/(?<=["'/])plugins\/[^"']+?client\.js[^"']*/g)]
     .map(match => match[0].replaceAll('&amp;', '&')))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
   const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
