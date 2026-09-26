@@ -2,11 +2,12 @@
  * The `DSH_HOME` a terminal `dsh` sees, read and written from the desktop
  * shell, so a data location set in either place reaches the other.
  *
- * Reading follows one precedence. A non-blank `DSH_HOME` in this process's own
- * environment wins, unless it is the value the shell itself exported from the
- * pointer ({@link POINTER_HOME_ENV} records that value, and it survives a
- * relaunch the way every exported variable does). Otherwise the persistent
- * source is asked: on macOS the person's login shell, since an app opened from
+ * Reading has two sources. {@link processDshHome} reads a non-blank `DSH_HOME`
+ * in this process's own environment, unless it is the value the shell itself
+ * exported from the pointer ({@link POINTER_HOME_ENV} records that value, and
+ * it survives a relaunch the way every exported variable does); the caller
+ * gives it precedence. {@link readPersistentDshHome} asks the persistent
+ * source: on macOS the person's login shell, since an app opened from
  * Finder does not inherit what the shell profile exports; on Windows the user
  * environment in `HKCU\Environment`. A source that cannot be read counts as
  * "not known", never as "unset".
@@ -414,7 +415,7 @@ function renameOver(temporary: string, file: string): void {
   }
 }
 
-/** Everything {@link readExplicitDshHome} and {@link writeTerminalDshHome} need from the host. */
+/** Everything {@link readPersistentDshHome} and {@link writeTerminalDshHome} need from the host. */
 export interface TerminalEnvHost {
   platform: NodeJS.Platform
   /** This process's environment. */
@@ -428,13 +429,13 @@ export interface TerminalEnvHost {
 }
 
 /**
- * Read the explicit `DSH_HOME` by the precedence in the module comment.
+ * Read `DSH_HOME` from the persistent source, never from this process's
+ * environment: what a terminal opened now would see. A write is confirmed
+ * this way, since a value this process was started with says nothing about it.
  * @param host - platform, environment, and runners.
  * @returns the value with where it came from, `unset`, or `unknown`.
  */
-export async function readExplicitDshHome(host: TerminalEnvHost): Promise<ExplicitRead> {
-  const own = processDshHome(host.env)
-  if (own !== undefined) return { kind: 'set', value: own, source: 'process' }
+export async function readPersistentDshHome(host: TerminalEnvHost): Promise<ExplicitRead> {
   if (host.platform === 'win32') return await readWindowsUserDshHome(host.powershell)
   if (host.platform === 'darwin') {
     return await readLoginShellDshHome({ shell: host.env['SHELL'], env: host.env, timeoutMs: host.shellTimeoutMs })

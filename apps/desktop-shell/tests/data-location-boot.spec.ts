@@ -6,7 +6,7 @@
  * @module
  */
 
-import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +20,9 @@ import {
   type DataId, type DataLocationPointer,
 } from '../src/data-location.ts'
 import { DATA_LOCATION_TEXT, dataLocationText } from '../src/data-location-text.ts'
-import { POINTER_HOME_ENV, type ExplicitRead, type TerminalWrite } from '../src/terminal-env.ts'
+import {
+  POINTER_HOME_ENV, readLoginShellDshHome, shellQuote, updateShellProfile, type ExplicitRead, type TerminalWrite,
+} from '../src/terminal-env.ts'
 
 let root: string
 let osHome: string
@@ -30,6 +32,7 @@ let defaultHome: string
 const ID = '11111111-2222-4333-8444-555555555555' as DataId
 const OTHER = '99999999-8888-4777-8666-555555555555'
 const posixOnly = process.platform === 'win32' ? it.skip : it
+const withZsh = existsSync('/bin/zsh') ? it : it.skip
 
 beforeEach(async () => {
   root = realpathSync(await mkdtemp(join(tmpdir(), 'dsh-data-location-boot-')))
@@ -67,11 +70,16 @@ interface Recorded {
   log: string[]
 }
 
-/** A host answering prompts, folder picks, and persistent reads from queues. */
+/**
+ * A host answering prompts and folder picks from queues. The persistent
+ * source reports `persistent` until a terminal write goes through, and then
+ * what `afterWrite` says, by default the value written.
+ */
 function recordingHost(options: {
   answers?: LocationAnswer[]
   folders?: Array<string | undefined>
   persistent?: ExplicitRead
+  afterWrite?: (value: string) => ExplicitRead
   terminal?: (value: string) => TerminalWrite | Error
   onAsk?: (view: PromptView) => void
   env?: NodeJS.ProcessEnv
@@ -84,17 +92,21 @@ function recordingHost(options: {
   const terminalWrites: string[] = []
   const env = options.env ?? {}
   const counters = { persistentReads: 0 }
+  let persistent: ExplicitRead = options.persistent ?? { kind: 'unset' }
   const host: DataLocationHost = {
     userData, defaultHome, osHome, platform: process.platform, env, text: DATA_LOCATION_TEXT.zh,
     log: (line) => { log.push(line) },
     readPersistentEnv: async () => {
       counters.persistentReads += 1
-      return options.persistent ?? { kind: 'unset' }
+      return persistent
     },
     writeTerminalEnv: async (value) => {
       terminalWrites.push(value)
       const result = options.terminal?.(value) ?? { kind: 'user-environment' }
       if (result instanceof Error) throw result
+      if (result.kind === 'user-environment' || (result.kind === 'profile' && (result.update.kind === 'written' || result.update.kind === 'unchanged'))) {
+        persistent = options.afterWrite?.(value) ?? { kind: 'set', value, source: 'user-environment' }
+      }
       return result
     },
     ask: async (view) => {
@@ -269,6 +281,25 @@ describe('settleDataLocation with a pointer', () => {
     expect(read.kind === 'ok' && read.pointer.lastSeenEnv).toBe(right)
   })
 
+  it('records what the terminal reports after the write, and claims no sync it did not see', async () => {
+    const cases: Array<{ afterWrite: ExplicitRead; sync: string; lastSeenEnv: string | undefined }> = [
+      { afterWrite: { kind: 'set', value: '/still/old', source: 'login-shell' }, sync: 'overridden', lastSeenEnv: '/still/old' },
+      { afterWrite: { kind: 'unset' }, sync: 'overridden', lastSeenEnv: undefined },
+      { afterWrite: { kind: 'unknown', detail: 'timed out' }, sync: 'unconfirmed', lastSeenEnv: '/before' },
+    ]
+    for (const [index, { afterWrite, sync, lastSeenEnv }] of cases.entries()) {
+      writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data'), { lastSeenEnv: '/before' }))
+      const right = dataDir(`moved-${String(index)}`, ID)
+      const recorded = recordingHost({ answers: ['choose'], folders: [right], afterWrite: () => afterWrite })
+      const settled = await settleDataLocation(recorded.host, undefined)
+      expect(settled?.terminal?.kind).toBe(sync)
+      const read = readPointer(userData)
+      expect(read.kind === 'ok' && read.pointer.path).toBe(right)
+      expect(read.kind === 'ok' && read.pointer.lastSeenEnv).toBe(lastSeenEnv)
+      expect(recorded.log.join('')).toMatch(sync === 'overridden' ? /not synced/ : /not confirmed/)
+    }
+  })
+
   it('keeps the pointer when the terminal write throws', async () => {
     writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data')))
     const right = dataDir('moved', ID)
@@ -332,4 +363,42 @@ describe('settleDataLocation with a pointer', () => {
     expect((await settleDataLocation(recorded.host, undefined))?.home).toBe(picked)
     expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailable('pointer-unreadable', undefined))
   })
+})
+
+describe('settleDataLocation against a real zsh', () => {
+  /** A host whose terminal is zsh in the temporary home, as an app opened from Finder sees it. */
+  function zshHost(answers: LocationAnswer[], folders: string[]): Recorded {
+    const recorded = recordingHost({ answers, folders })
+    recorded.host.readPersistentEnv = async () => await readLoginShellDshHome({
+      shell: '/bin/zsh', env: { HOME: osHome, PATH: '/usr/bin:/bin' }, timeoutMs: 20_000,
+    })
+    recorded.host.writeTerminalEnv = async value => ({
+      kind: 'profile', update: updateShellProfile({ home: osHome, shell: '/bin/zsh', zdotdir: undefined }, value),
+    })
+    return recorded
+  }
+
+  withZsh.each([
+    ['a ZDOTDIR set in ~/.zshenv', (old: string) => {
+      mkdirSync(join(osHome, 'zd'))
+      writeFileSync(join(osHome, '.zshenv'), 'export ZDOTDIR="$HOME/zd"\n')
+      writeFileSync(join(osHome, 'zd', '.zshrc'), `export DSH_HOME=${shellQuote(old)}\n`)
+    }],
+    ['an assignment in ~/.zlogin', (old: string) => {
+      writeFileSync(join(osHome, '.zlogin'), `export DSH_HOME=${shellQuote(old)}\n`)
+    }],
+  ])('does not follow the old value back when %s outlives the written block', async (_name, arrange) => {
+    const old = dataDir('Old/DSH-Data', OTHER)
+    arrange(old)
+    writePointer(userData, pointerAt(join(root, 'Ext', 'DSH-Data'), { lastSeenEnv: old }))
+    const right = dataDir('moved', ID)
+    const first = zshHost(['choose'], [right])
+    const settled = await settleDataLocation(first.host, undefined)
+    expect(settled?.home).toBe(right)
+    expect(settled?.terminal).toMatchObject({ kind: 'overridden', value: right, reported: old })
+    expect(readFileSync(join(osHome, '.zshrc'), 'utf8')).toContain(shellQuote(right))
+    const again = zshHost([], [])
+    expect(await settleDataLocation(again.host, undefined)).toMatchObject({ home: right, via: 'pointer' })
+    expect(again.asked).toEqual([])
+  }, 60_000)
 })

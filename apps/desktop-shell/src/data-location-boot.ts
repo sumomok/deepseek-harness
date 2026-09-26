@@ -100,7 +100,7 @@ export interface DataLocationHost {
   /** The sentence set for this locale. */
   text: DataLocationText
   log: (line: string) => void
-  /** Read `DSH_HOME` from the login shell or the Windows user environment. */
+  /** Read `DSH_HOME` from the login shell or the Windows user environment, never from this process's environment. */
   readPersistentEnv: () => Promise<ExplicitRead>
   /** Make terminals opened from now on see this `DSH_HOME`. */
   writeTerminalEnv: (value: string) => Promise<TerminalWrite>
@@ -125,6 +125,8 @@ export interface SettledLocation {
   explicit: ExplicitRead
   /** What happened to `~/.dsh`, when a pointer names another directory. */
   link?: HomeLinkOutcome
+  /** What the last write of the terminal's `DSH_HOME` this launch came to, when there was one. */
+  terminal?: TerminalSync
 }
 
 /**
@@ -184,32 +186,102 @@ function describeLink(outcome: HomeLinkOutcome, defaultHome: string, home: strin
 }
 
 /**
- * Make terminals see the pointer's directory and record what they now see as
- * the value last seen, so the next launch does not take it for a change.
+ * What writing the terminal's `DSH_HOME` came to, as the login shell or the
+ * Windows user environment reported it afterwards.
+ *
+ * - `synced`: the persistent source now reports `value`.
+ * - `overridden`: the write went through, but the source reports something
+ *   else — `reported`, or no value at all when it is `undefined` — because a
+ *   file read after the one written, or a `ZDOTDIR` the app does not see,
+ *   decides what a terminal gets.
+ * - `unconfirmed`: the write went through and the source could not be read back.
+ * - `not-written`: the store refused the write, for the reason `write` names.
+ * - `failed`: the write threw.
+ */
+export type TerminalSync =
+  | { kind: 'synced'; value: string; write: TerminalWrite }
+  | { kind: 'overridden'; value: string; write: TerminalWrite; reported: string | undefined }
+  | { kind: 'unconfirmed'; value: string; write: TerminalWrite; detail: string }
+  | { kind: 'not-written'; value: string; write: TerminalWrite }
+  | { kind: 'failed'; value: string; detail: string }
+
+/**
+ * Make terminals see the pointer's directory, read back what they now see,
+ * and record that as the value last seen, so the next launch neither takes
+ * the directory for a change nor follows a value the write did not replace.
  * @param host - the app.
  * @param pointer - the pointer about to be written.
  * @param observed - the explicit `DSH_HOME` observed this launch.
- * @returns the pointer with `lastSeenEnv` set accordingly.
+ * @returns the pointer with `lastSeenEnv` set accordingly, and what the write came to.
  */
 async function syncTerminal(
   host: DataLocationHost, pointer: DataLocationPointer, observed: string | undefined,
-): Promise<DataLocationPointer> {
-  let written: TerminalWrite
+): Promise<{ pointer: DataLocationPointer; sync: TerminalSync }> {
+  const value = pointer.path
+  const seenBefore = observed === undefined ? pointer : { ...pointer, lastSeenEnv: observed }
+  let write: TerminalWrite
   try {
-    written = await host.writeTerminalEnv(pointer.path)
+    write = await host.writeTerminalEnv(value)
   } catch (error) {
-    host.log(`[desktop] data location: could not update the terminal DSH_HOME: ${String(error)}\n`)
-    return observed === undefined ? pointer : { ...pointer, lastSeenEnv: observed }
+    return report(host, { pointer: seenBefore, sync: { kind: 'failed', value, detail: String(error) } })
   }
-  const took = written.kind === 'user-environment'
-    || (written.kind === 'profile' && (written.update.kind === 'written' || written.update.kind === 'unchanged'))
-  host.log(`[desktop] data location: terminal DSH_HOME update: ${JSON.stringify(written)}\n`)
-  if (written.kind === 'profile' && written.update.kind === 'foreign-assignment') {
-    const places = written.update.places.map(place => `${place.file}:${String(place.line)}`).join(', ')
-    host.log(`[desktop] data location: the shell profile sets DSH_HOME itself at ${places}; that line keeps deciding what a terminal sees\n`)
+  const took = write.kind === 'user-environment'
+    || (write.kind === 'profile' && (write.update.kind === 'written' || write.update.kind === 'unchanged'))
+  if (!took) return report(host, { pointer: seenBefore, sync: { kind: 'not-written', value, write } })
+  const reread = await host.readPersistentEnv()
+  switch (reread.kind) {
+    case 'unknown':
+      return report(host, { pointer, sync: { kind: 'unconfirmed', value, write, detail: reread.detail } })
+    case 'unset': {
+      const unseen = { ...pointer }
+      delete unseen.lastSeenEnv
+      return report(host, { pointer: unseen, sync: { kind: 'overridden', value, write, reported: undefined } })
+    }
+    case 'set': {
+      const reported = normalizeDshHome(reread.value, host.osHome) ?? reread.value
+      if (reported === value) return report(host, { pointer: { ...pointer, lastSeenEnv: value }, sync: { kind: 'synced', value, write } })
+      return report(host, { pointer: { ...pointer, lastSeenEnv: reported }, sync: { kind: 'overridden', value, write, reported } })
+    }
+    default:
+      return reread satisfies never
   }
-  if (took) return { ...pointer, lastSeenEnv: pointer.path }
-  return observed === undefined ? pointer : { ...pointer, lastSeenEnv: observed }
+}
+
+/**
+ * Log what a terminal sync came to.
+ * @param host - the app.
+ * @param result - the pointer and the sync outcome.
+ * @returns `result`, unchanged.
+ */
+function report(
+  host: DataLocationHost, result: { pointer: DataLocationPointer; sync: TerminalSync },
+): { pointer: DataLocationPointer; sync: TerminalSync } {
+  const { sync } = result
+  const line = (text: string): void => { host.log(`[desktop] data location: ${text}\n`) }
+  switch (sync.kind) {
+    case 'synced':
+      line(`terminal DSH_HOME set to ${sync.value} and confirmed: ${JSON.stringify(sync.write)}`)
+      break
+    case 'overridden':
+      line(`terminal DSH_HOME written as ${sync.value} (${JSON.stringify(sync.write)}), but a terminal still gets ${sync.reported ?? 'no value'}; something the shell reads later, or a ZDOTDIR the app does not see, decides it; not synced`)
+      break
+    case 'unconfirmed':
+      line(`terminal DSH_HOME written as ${sync.value} (${JSON.stringify(sync.write)}); reading it back failed (${sync.detail}); not confirmed`)
+      break
+    case 'not-written':
+      line(`terminal DSH_HOME not written: ${JSON.stringify(sync.write)}`)
+      if (sync.write.kind === 'profile' && sync.write.update.kind === 'foreign-assignment') {
+        const places = sync.write.update.places.map(place => `${place.file}:${String(place.line)}`).join(', ')
+        line(`the shell profile sets DSH_HOME itself at ${places}; that line keeps deciding what a terminal sees`)
+      }
+      break
+    case 'failed':
+      line(`could not update the terminal DSH_HOME: ${sync.detail}`)
+      break
+    default:
+      return sync satisfies never
+  }
+  return result
 }
 
 /**
@@ -226,6 +298,7 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
   // Once the person has decided, the value observed this launch is part of
   // that decision; comparing it again would reopen the question it answered.
   let decided = false
+  let terminal: TerminalSync | undefined
   for (;;) {
     const read = readPointer(host.userData)
     let explicit: ExplicitRead
@@ -258,7 +331,7 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
           ...host.linkFs === undefined ? {} : { fs: host.linkFs },
         })
         log(`[desktop] data location: ${describeLink(link, host.defaultHome, resolution.home)}\n`)
-        return { home: resolution.home, via: resolution.via, pointer, explicit, link }
+        return { home: resolution.home, via: resolution.via, pointer, explicit, link, ...terminal === undefined ? {} : { terminal } }
       }
       case 'unavailable': {
         const path = resolution.pointer?.path
@@ -278,7 +351,9 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
           continue
         }
         log(`[desktop] data location: the person pointed the app at ${checked.pointer.path}\n`)
-        writePointer(host.userData, await syncTerminal(host, checked.pointer, envPath))
+        const synced = await syncTerminal(host, checked.pointer, envPath)
+        terminal = synced.sync
+        writePointer(host.userData, synced.pointer)
         decided = true
         continue
       }

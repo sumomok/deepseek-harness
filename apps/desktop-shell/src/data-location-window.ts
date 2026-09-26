@@ -10,7 +10,7 @@ import { app, dialog, type BrowserWindow } from 'electron'
 import { defaultHarnessHome, type DataLocationHost } from './data-location-boot.ts'
 import { dataLocationText } from './data-location-text.ts'
 import {
-  LOGIN_SHELL_TIMEOUT_MS, readExplicitDshHome, systemPowerShell, writeTerminalDshHome, type TerminalEnvHost,
+  LOGIN_SHELL_TIMEOUT_MS, readPersistentDshHome, systemPowerShell, writeTerminalDshHome, type TerminalEnvHost,
 } from './terminal-env.ts'
 
 /** Milliseconds one PowerShell run may take before it is killed. */
@@ -43,7 +43,7 @@ export function appDataLocationHost(
     env: process.env,
     text,
     log,
-    readPersistentEnv: async () => await readExplicitDshHome(terminal),
+    readPersistentEnv: async () => await readPersistentDshHome(terminal),
     writeTerminalEnv: async value => await writeTerminalDshHome(terminal, value),
     ask: async (view) => {
       block(view.message)

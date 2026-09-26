@@ -16,7 +16,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   BLOCK_END, BLOCK_START, POINTER_HOME_ENV, PROFILE_BACKUP_SUFFIX, processDshHome, profileFile,
-  READ_USER_ENV_SCRIPT, readExplicitDshHome, readLoginShellDshHome, readWindowsUserDshHome, shellQuote,
+  READ_USER_ENV_SCRIPT, readLoginShellDshHome, readPersistentDshHome, readWindowsUserDshHome, shellQuote,
   updateShellProfile, WRITE_USER_ENV_SCRIPT, WRITE_VALUE_ENV, writeTerminalDshHome, writeWindowsUserDshHome,
   type PowerShellRunner, type TerminalEnvHost,
 } from '../src/terminal-env.ts'
@@ -316,24 +316,20 @@ describe('platform dispatch', () => {
     }
   }
 
-  it('prefers the person\'s own process DSH_HOME on every platform', async () => {
-    expect(await readExplicitDshHome(host('win32', { DSH_HOME: 'D:\\x' }))).toEqual({ kind: 'set', value: 'D:\\x', source: 'process' })
-  })
-
-  it('asks the user environment on Windows when the process value is the shell\'s own', async () => {
+  it('asks the user environment on Windows, whatever this process was started with', async () => {
     const run: PowerShellRunner = async () => ({ code: 0, stdout: 'set:E:\\y' })
-    expect(await readExplicitDshHome(host('win32', { DSH_HOME: 'D:\\x', [POINTER_HOME_ENV]: 'D:\\x' }, run)))
+    expect(await readPersistentDshHome(host('win32', { DSH_HOME: 'D:\\x' }, run)))
       .toEqual({ kind: 'set', value: 'E:\\y', source: 'user-environment' })
   })
 
-  withZsh('asks the login shell on macOS', async () => {
+  withZsh('asks the login shell on macOS, whatever this process was started with', async () => {
     writeFileSync(join(home, '.zshrc'), 'export DSH_HOME=/z\n')
-    expect(await readExplicitDshHome(host('darwin', { ...shellEnv(), SHELL: '/bin/zsh' })))
+    expect(await readPersistentDshHome(host('darwin', { ...shellEnv(), SHELL: '/bin/zsh', DSH_HOME: '/from-process' })))
       .toEqual({ kind: 'set', value: '/z', source: 'login-shell' })
   })
 
   it('has no persistent source elsewhere', async () => {
-    expect((await readExplicitDshHome(host('linux', {}))).kind).toBe('unknown')
+    expect((await readPersistentDshHome(host('linux', {}))).kind).toBe('unknown')
     expect(await writeTerminalDshHome(host('linux', {}), '/x')).toEqual({ kind: 'unsupported-platform', platform: 'linux' })
   })
 
