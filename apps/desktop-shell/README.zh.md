@@ -13,7 +13,7 @@ pnpm exec tsx apps/desktop-shell/scripts/package.ts --mac        # zip + dmg (ar
 pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installer (x64), cross-packaged from macOS
 ```
 
-产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 Windows x64 成员(名字里写 `win32-x64`,或像 sherpa-onnx 那样写 `win-x64`;以版本范围声明的成员,取本机已装成员的版本),再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
+产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 Windows x64 成员(名字里写 `win32-x64`,或像 sherpa-onnx 那样写 `win-x64`;以版本范围声明的成员,取本机已装成员的版本),再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。仓库构建由 `scripts/client-build.ts` 执行而不是 `pnpm run build`：它以桌面自己的客户端取值跑同样的步骤——`DSH_CLIENT_TITLE=北冥` 作为所有界面语言下的浏览器标题，`DSH_CLIENT_VERSION` 取本包的版本号，于是设置 → 通用里的当前版本和侧栏品牌显示桌面发行版本而不是仓库版本——再打包 `@deepseek-ai/dsh-desktop-app`；客户端产物缺少其中任一取值时，运行在暂存之前停下，`--skip-repo-build` 也一样。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
 
 **一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里、非空、而且**是本次运行开始之后写下的**,打印通过校验的清单,并点名其中缺失、为空或属于遗留的文件。`dist-app` 从不清空,过去每个版本的产物都还在;而修完一个问题重打同一个版本时,该版本自己的文件早已顶着完全相同的名字躺在那里:光看「在不在」分不出「某个平台压根没构建」和「某个平台的产物是上一次运行留下的」。期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
 
