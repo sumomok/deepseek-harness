@@ -204,13 +204,15 @@
     transcriptView: compact
 
 # The product name in the sidebar brand row: 北冥 in Chinese, Beiming in
-# English, with the desktop release version under it. This package's browser
+# English, with the client build's version under it. This package's browser
 # half occupies `sidebar.brand.name`, which dsh-web-app leaves to ui-sidebar's
 # local-build fallback because its own `ui-brand-official` row registers only
 # under the `official` client build profile, one this application never
-# builds. The version is the `DSH_CLIENT_VERSION` that
-# `apps/desktop-shell/scripts/client-build.ts` embeds when it packages the
-# desktop release; the host half is an empty apply.
+# builds. The version is the `DSH_CLIENT_VERSION` of the repository build,
+# which `apps/desktop-shell/scripts/client-build.ts` hands the package's own
+# bundle. The same half shadows Settings → General's current-version row, since
+# the desktop's release version is on the update settings page. The host half
+# is an empty apply.
 - insert:
     - id: desktop-brand
       name: '@deepseek-ai/dsh-desktop-app'

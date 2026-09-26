@@ -1,5 +1,5 @@
 /**
- * Sidebar product name for the desktop application, with the desktop release
+ * Sidebar product name for the desktop application, with the client build's
  * version stacked under it.
  * @module @deepseek-ai/dsh-desktop-app/client/BrandName
  */
@@ -41,8 +41,8 @@ const VERSION: CSSProperties = {
 }
 
 /**
- * Render the localized product name, and under it the release version the
- * desktop packaging build embeds as `DSH_CLIENT_VERSION`. A build without that
+ * Render the localized product name, and under it the `DSH_CLIENT_VERSION` the
+ * client build embeds, which is the repository version. A build without that
  * value shows the name alone.
  * @param props - localized copy.
  * @returns the brand-name occupant.
