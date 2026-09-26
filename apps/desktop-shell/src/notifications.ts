@@ -160,13 +160,18 @@ export function reconnectDelayMs(attempt: number): number {
   return Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * RECONNECT_BACKOFF_FACTOR ** (attempt - 1))
 }
 
+/** The constructor overload Node's (undici) `WebSocket` adds: an init carrying `headers`. */
+type NodeWebSocketConstructor = typeof WebSocket & (new (url: string, init: { headers: Record<string, string> }) => WebSocket)
+
 /**
- * The main process's `WebSocket` is Node's (undici), whose constructor takes
- * an init with `headers`; this program compiles against the DOM declaration,
- * which admits protocols only, so the constructor is re-typed for the one
- * call that needs the header.
+ * Whether `ctor` is Node's (undici) `WebSocket`, which is the global in any
+ * process with a Node runtime, such as this main process.
+ * @param ctor - the global `WebSocket` constructor.
+ * @returns true when a Node runtime is present.
  */
-const NodeWebSocket = WebSocket as unknown as new (url: string, init: { headers: Record<string, string> }) => WebSocket
+function isNodeWebSocket(ctor: typeof WebSocket): ctor is NodeWebSocketConstructor {
+  return typeof process.versions.node === 'string' && typeof ctor === 'function'
+}
 
 /** How much of a question is quoted in a notification before it is cut. */
 const BODY_LIMIT = 120
@@ -767,7 +772,8 @@ function subscribe(generation: Generation, host: NotifyHost, attempt = 1): void 
 function open(generation: Generation, url: string, host: NotifyHost, attempt: number, cookie: string): void {
   let socket: WebSocket
   try {
-    socket = new NodeWebSocket(url, { headers: { cookie } })
+    if (!isNodeWebSocket(WebSocket)) throw new Error('WebSocket is not the Node runtime implementation')
+    socket = new WebSocket(url, { headers: { cookie } })
   } catch (error) {
     // A constructor that throws (a runtime without the `headers` init, say)
     // would otherwise end the notifier for good with nothing in the log.
