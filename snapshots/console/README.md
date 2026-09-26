@@ -36,7 +36,7 @@ Each scenario owns these fixtures:
 |---|---|
 | `snapshot.yml` | The profile, composition, header class, and recording policy the corpus gate reads |
 | `input.json` | The ACP protocol script: the initialize/newSession/prompt steps and any permission answers |
-| `session.jsonl` | The persisted log — replay input and expected output at once, including the arguments the call recorded and the result text the model reads back |
+| `session[.vN].jsonl` | The persisted log — replay input and expected output at once, including the arguments the call recorded and the result text the model reads back. Replay and refresh select the highest committed generation; refresh writes the current writer's `session.vN.jsonl` beside older generations |
 | `stdout.expected.jsonl` | The ACP JSON-RPC the client sees |
 | `tool-schemas.expected.json` | Both tools whole — each description, the deployment ceilings and the component catalog quoted into those descriptions, and every parameter description. Owned by `show-chart-turn` and read for the whole class |
 | `system-prompt.expected.md` | The assembled prompt, including `content-surface`'s on-display section. Owned by `show-chart-turn` |

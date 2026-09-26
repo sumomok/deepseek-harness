@@ -36,7 +36,7 @@ ACP 进程里没有浏览器接入，两把工具也都不需要浏览器才能�
 |---|---|
 | `snapshot.yml` | 语料门禁要读的剖面、组合、表头类与录制策略 |
 | `input.json` | ACP 协议脚本：initialize/newSession/prompt 各步，以及可能有的审批答复 |
-| `session.jsonl` | 持久化日志——同时是回放输入与预期输出，含本次调用记下的参数与模型读回的结果文本 |
+| `session[.vN].jsonl` | 持久化日志——同时是回放输入与预期输出，含本次调用记下的参数与模型读回的结果文本。回放与刷新选用已提交的最高世代；刷新把当前写入器的 `session.vN.jsonl` 写在旧世代旁边 |
 | `stdout.expected.jsonl` | 客户端看到的 ACP JSON-RPC |
 | `tool-schemas.expected.json` | 两把工具的完整 schema——各自的工具描述、描述里引用的部署上限与组件目录、每个参数的描述。归 `show-chart-turn` 所有，供整个类读取 |
 | `system-prompt.expected.md` | 装配后的系统提示词，含 `content-surface` 的「已展示内容」段落。归 `show-chart-turn` 所有 |

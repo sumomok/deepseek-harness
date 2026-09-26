@@ -25,7 +25,7 @@ import {
  * description — and `system-prompt.expected.md` carries `content-surface`'s
  * on-display section, so an edit to any of it shows up as a reviewed fixture
  * diff instead of reaching a model unnoticed. `stdout.expected.jsonl` and
- * `session.jsonl` carry the arguments each call recorded and the result text the
+ * the session log carry the arguments each call recorded and the result text the
  * model reads back.
  *
  * Fixtures live under `snapshots/console/<name>/`;
@@ -327,7 +327,7 @@ const AGENT = {
  * The next four are the data-source half, the path here that asks the user a
  * question, spends a credential, and appends a record of its own.
  * `show-datasource-turn` posts the visitor's token to the gate before its turn,
- * answers the approval `allow_once`, and its `session.jsonl` therefore carries
+ * answers the approval `allow_once`, and its session log therefore carries
  * the question the user was asked, the `content-component/resolved` holding the
  * rows the fake backend answered with, and the result line counting them — the
  * whole assembled account of one read. `refuse-datasource-turn` answers the same
