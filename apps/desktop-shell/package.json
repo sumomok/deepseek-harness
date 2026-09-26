@@ -21,9 +21,10 @@
   },
   "devDependencies": {
     "7zip-bin": "^5.2.0",
-    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:*",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "builder-util-runtime": "9.7.0",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
     "esbuild": "^0.28.1",

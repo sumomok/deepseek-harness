@@ -231,6 +231,7 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
 | [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`app-builder-lib`](https://github.com/electron-userland/electron-builder) | MIT |
+| [`builder-util-runtime`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`cos-nodejs-sdk-v5`](https://github.com/tencentyun/cos-nodejs-sdk-v5) | ISC |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |
 | [`cytoscape-cose-bilkent`](https://github.com/cytoscape/cytoscape.js-cose-bilkent) | MIT |
