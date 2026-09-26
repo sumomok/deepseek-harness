@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
@@ -56,7 +57,7 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const SEEDED_SESSION = 'content-read-hidden-web-e2e'
 
 /** The id of the one read the scripted turn asks for. */
-const CALL_ID = 'content-read-hidden-probe'
+const CALL_ID = ToolCallId('content-read-hidden-probe')
 
 /** What the user asks; the scripted answer does not depend on it. */
 const PROMPT = 'Read the page in the content column.'
