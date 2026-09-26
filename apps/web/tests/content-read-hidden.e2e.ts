@@ -8,11 +8,12 @@
  * the frame here is pointed at the real route, loads a real document, and is
  * walked by a real layout engine.
  *
- * Zero model calls, and no recording of its own. The call the seat answers is
- * spliced into the seeded log — which is what the `contentAccess` projection
- * folds and publishes to every browser — and the host's own wait for it is
- * opened by running the tool directly, under the same call id. What the
- * assertions read is the value that call settled as.
+ * No recording of its own. The seeded log shows the page, and one scripted
+ * model turn asks for the read: the loop logs its `tool/call` — which is what
+ * the `contentAccess` projection folds and publishes to every browser — and
+ * runs the tool, whose wait the seat answers. A format-4 log cannot hold a
+ * call left open inside a closed step, so the call is opened live rather than
+ * seeded. What the assertions read is the result that call settled as.
  *
  * Playwright launches Chromium with `--disable-background-timer-throttling`,
  * `--disable-backgrounding-occluded-windows` and `--disable-renderer-
@@ -25,18 +26,17 @@
  * `healProfilesModuleFallback`.
  */
 
-import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
 const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.v4.jsonl', import.meta.url))
@@ -55,8 +55,37 @@ const ROWS = [
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const SEEDED_SESSION = 'content-read-hidden-web-e2e'
 
-/** The id the spliced call and the executed tool share; one call, one wait. */
-const CALL_ID = ToolCallId('content-read-hidden-probe')
+/** The id of the one read the scripted turn asks for. */
+const CALL_ID = 'content-read-hidden-probe'
+
+/** What the user asks; the scripted answer does not depend on it. */
+const PROMPT = 'Read the page in the content column.'
+
+/**
+ * The two model answers the turn consumes: the read, then a closing line once
+ * its result is in.
+ */
+const SCRIPT: ReplayOverrideDoc = [
+  {
+    kind: 'chunks',
+    chunks: [
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CALL_ID, name: 'content_read', arguments: '{}' } },
+      { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ],
+  },
+  {
+    kind: 'chunks',
+    chunks: [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'Read.' },
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'Read.' } },
+      { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ],
+  },
+]
 
 /**
  * The route a seat bids on, and the wait a seat whose tab is not in front pays
@@ -88,28 +117,16 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 }
 
 /**
- * Seed a log that shows a page and holds one open read of it.
- *
- * The page is shown before the turn closes, and the read is spliced inside the
- * last open step, which is where a `tool/call` belongs. No result follows it,
- * so the projection publishes the call as open for as long as the session
- * lives — which is what a browser claims.
+ * Seed a log that shows a page.
  * @param fixtureText - the committed seed fixture.
  * @returns the fixture text to seed.
  */
-function withShownPageAndOpenRead(fixtureText: string): string {
+function withShownPage(fixtureText: string): string {
   const lines = fixtureText.split('\n')
-  const lastStepEnd = lines.findLastIndex(line => line.includes('"type":"step/end"'))
   const closing = lines.findIndex(line => line.includes('"type":"turn/end"'))
-  if (lastStepEnd === -1 || closing === -1) throw new Error('seed fixture has no step/end and turn/end to splice between')
-  const step = JSON.parse(lines[lastStepEnd] as string) as { data: { turn: number; step: number } }
+  if (closing === -1) throw new Error('seed fixture has no turn/end to splice before')
   return [
-    ...lines.slice(0, lastStepEnd),
-    JSON.stringify({
-      type: 'tool/call',
-      data: { turn: step.data.turn, step: step.data.step, callId: CALL_ID, name: 'content_read', arguments: '{}' },
-    }),
-    ...lines.slice(lastStepEnd, closing),
+    ...lines.slice(0, closing),
     JSON.stringify({ type: 'content/shown', data: { page: 'home' } }),
     ...lines.slice(closing),
   ].join('\n')
@@ -121,25 +138,6 @@ async function openSession(page: Page, index: number): Promise<void> {
   await row.waitFor({ timeout: 15_000 })
   await row.click()
   await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
-}
-
-/**
- * Wait for the console's own agent for one session.
- *
- * Opening a session in the console resolves its agent, and it does so over the
- * connection rather than in the click: the read below runs through that agent,
- * so it is waited for rather than read once.
- * @param scaffold - the running Web scaffold.
- * @param sessionId - the session the console opened.
- * @returns that session's live agent.
- */
-async function liveAgent(scaffold: WebScaffold, sessionId: SessionId): Promise<Agent> {
-  for (let waited = 0; waited < 30_000; waited += 250) {
-    const agent = scaffold.ctx.agents.get(sessionId)
-    if (agent !== undefined) return agent
-    await new Promise<void>((resolve) => { setTimeout(resolve, 250) })
-  }
-  throw new Error(`the console opened "${sessionId}" and no agent for it became live`)
 }
 
 /**
@@ -165,10 +163,11 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
   let harnessHome: string
   let seeded: SessionId
   let tripwire: ReturnType<typeof watchConsole>
-  /** When the console was told to open the seeded session, which is the first render that could bid. */
-  let opened = 0
-  /** When the first bid for the seeded call reached the host, as the browser sent it. */
+  /** When the prompt that asks for the read was sent, which precedes the first render that could bid. */
+  let asked = 0
+  /** When the first bid for the read reached the host, as the browser sent it. */
   let firstBid: number | undefined
+  const sessionEvents: SessionEvent[] = []
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
@@ -176,8 +175,13 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     // The overlay's `!!js` expression resolves against this process, which is
     // where the scaffold runs the Loader.
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
-    seeded = await seedSession(scaffold, withShownPageAndOpenRead(await readFile(SEED, 'utf8')), SEEDED_SESSION)
+    const script = join(harnessHome, 'replay.override.json')
+    await writeFile(script, JSON.stringify(SCRIPT))
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: script, replayOverride: script })
+    seeded = await seedSession(scaffold, withShownPage(await readFile(SEED, 'utf8')), SEEDED_SESSION)
+    scaffold.ctx.on('session/event', (session, event: SessionEvent) => {
+      if (session.id === seeded) sessionEvents.push(event)
+    })
 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -187,14 +191,12 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     })
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.locator('[data-shell-column="content"]').waitFor({ state: 'attached', timeout: 30_000 })
-    // Hidden before the seat can see the call, which is what puts the grace on
-    // the path: no session is current yet, so the reader holds no column and
-    // has bid for nothing. Hiding it after the first bid would leave the seat's
-    // one and only claim for this call already sent from a visible tab.
+    // Hidden before the call exists, which is what puts the grace on the path:
+    // hiding it after the first bid would leave the seat's one and only claim
+    // for this call already sent from a visible tab.
     await hideTab(page)
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()
-    opened = Date.now()
     await openSession(page, 1)
     await page.frameLocator('iframe[data-content-frame][data-content-active]')
       .locator('#fixture-heading').waitFor({ timeout: 30_000 })
@@ -208,25 +210,26 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
   })
 
-  it('answers the open read from a tab that is not in front', async () => {
+  it('answers the read from a tab that is not in front', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-hidden'))
-    const agent = await liveAgent(scaffold, seeded)
+    const input = page.locator(COMPOSER).first()
+    await writeComposerDraft(page, input, PROMPT)
+    asked = Date.now()
+    await page.keyboard.press('Enter')
 
-    const result = await scaffold.ctx.tools.execute({
-      signal: AbortSignal.timeout(60_000),
-      callId: CALL_ID,
-      name: 'content_read',
-      arguments: {},
-      agent,
-    })
-    const text = result.content
+    const settled = (): SessionEvent | undefined => sessionEvents.find(event =>
+      event.type === 'tool/result' && event.data.message.source.callId === CALL_ID)
+    await expect.poll(() => settled() !== undefined, { timeout: 60_000 }).toBe(true)
+    const result = settled()
+    if (result?.type !== 'tool/result') throw new Error('the read settled with no result')
+    const text = result.data.message.content
       .map(block => (block.type === 'text' ? block.text : ''))
       .join('')
     // The listing of the document the hidden tab walked, carrying the header
     // line the tool composes around whatever the seat returned — and not the
     // sentence a claim window that passed with no browser in it composes.
     expect({
-      isError: result.isError,
+      isError: result.data.message.isError,
       listing: text.startsWith('Page: Home — the app is at /content-app/'),
       unclaimed: text.includes('is showing this session\'s content column'),
       // Still hidden when the answer arrived: nothing brought the tab back.
@@ -234,10 +237,10 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     }).toEqual({ isError: false, listing: true, unclaimed: false, hidden: 'hidden' })
     expect(text).toContain('Hosted content app')
 
-    // And the grace was paid. The click that opened the session precedes the
-    // render that let the seat see the call, so this understates the wait the
-    // seat took and can only fail where the seat did not take one at all.
-    expect(firstBid ?? 0).toBeGreaterThanOrEqual(opened + HIDDEN_CLAIM_GRACE_MS)
+    // And the grace was paid. Sending the prompt precedes the render that let
+    // the seat see the call, so this understates the wait the seat took and
+    // can only fail where the seat did not take one at all.
+    expect(firstBid ?? 0).toBeGreaterThanOrEqual(asked + HIDDEN_CLAIM_GRACE_MS)
   }, 120_000)
 
   it('leaves the console clean', () => {
