@@ -206,7 +206,7 @@ pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --n
   disabled: true
 ```
 
-改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。`@` 提及文件与会话不是内置插件:那是上游的 `ui-reference` 一行,在同一个文件里用同样的办法禁用。
+改为从 `dsh.profile.bundles` 里删掉名字(插件页的停用做的就是这件事)则只能维持到下次启动,届时会被重新播种。`@` 提及文件与会话不是内置插件:那是上游的 `ui-reference` 一行,在同一个文件里用同样的办法禁用。
 
 **网关是唯一一个不该单独禁用其行的内置插件。**它的 patch 层贡献了两行——门本身,以及那张加入自动审查的预设表——单独禁用门这一行,会让那一行留在控件里而背后空无一物:一个以审查命名的方式,做的却是把沙箱关掉而什么都不审,严格差于完全权限——后者至少还有 `never` 这条审批策略,把沙箱本会提出的申请直接拒掉。先把会话切到别的访问方式;若还想让它从控件里消失,就在你自己的 `cordis.patch.yml` 里重述 `permission` 行的 `presets` 而不带 `yolo-access`——以 id 为目标的 patch 会替换整个 `config`,所以那次重述必须把你要保留的预设一并写全。
 
@@ -368,5 +368,6 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop-shell add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
 - 上游的插件页没有逐包更新的操作,也没有撤回。经 `web` profile 来的插件用 `dsh plugin --profile web add <包>@latest` 更新,借同步维护的那条链接到达桌面。
 - 壳停用或打了墓碑的迁移插件,只在 `dsh-server.log` 里被点名一次,界面上哪里都没有。
-- 只有桌面层的网关行参与组合时,`plugin_manager` 才会交给人。profile 自己的补丁层里已有的网关行——0.1.0-rc.34 之前在网关设置里保存过、或 `src/settings-migration.ts` 写下的——会替换它,并保留网关默认的 `alwaysAsk`,其中没有 `plugin_manager`。
+- 只有网关组合出来的 `config` 里带着桌面层的 `alwaysAsk` 时,`plugin_manager` 才会交给人。profile 自己的补丁层里 `config` 自带 `alwaysAsk` 的网关行会替换这张表,`src/settings-migration.ts` 对这样的行原样不动。
+- 在插件页停用内置插件,只到下一次启动为止:下一次启动会把它的名字播种回来;按「内置插件」一节关掉它那一行,才会一直生效。
 - 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。

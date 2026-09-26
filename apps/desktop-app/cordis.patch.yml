@@ -148,8 +148,9 @@
 # one-time import of an older `settings.yaml` section, write the row's whole
 # composed config into `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`,
 # which applies after every bundle layer. A write made while this row composes
-# carries `alwaysAsk` with it; a gate row the profile layer already held keeps
-# the gate's default map, without `plugin_manager`. From then on a change to
+# carries `alwaysAsk` with it. `apps/desktop-shell/src/settings-migration.ts`
+# restates the map below as `GATEWAY_ALWAYS_ASK` and adds it to a gate row the
+# profile layer already held whose `config` has none. From then on a change to
 # the values below reaches only fresh installs and machines that never saved
 # or imported a gate setting.
 - id: llm-permission-gateway

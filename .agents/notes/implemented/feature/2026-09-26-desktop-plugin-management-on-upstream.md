@@ -38,6 +38,10 @@ Turning upstream's pair on raises three problems of its own. `pnpmCommand` names
 
 **Disable the cordis preset's `tool-plugin-manager` row instead of asking.** Rejected: that row sits inside `preset-cordis`'s `config.plugins`, which no id-targeted patch reaches. Asking also keeps the tool usable when a person wants it.
 
+**Turn `preset-cordis` off whole.** One id-targeted `disabled: true` row reaches it and takes `plugin_manager` away with it. Rejected: it also takes the cordis preset away, and that preset stays available on the desktop.
+
+**Have the gateway step aside when upstream's Auto is mounted (Q-G5).** Not taken: the seeded `auto-review` off row in the profile layer does that job from composition, so the gateway carries no such check. The row is the only thing that keeps the two reviewers apart. A person who changes it to `disabled: false`, which is what the Plugins page's enable writes, mounts Auto beside the gateway, and every call is then reviewed twice with no message saying so.
+
 ## Consequences
 
 The desktop gains upstream's install, enable, disable, and remove actions, its compatibility refusals, and whatever its plugin manager gains later. It loses the Updates tab: upstream's page has no per-package "update to newest" action and no one-step rollback, and no native modal confirms an install. `$DSH_HOME/dsh-plugin-updates/last-update.json` stays on a machine that used the old tab, and nothing reads it.
@@ -46,7 +50,9 @@ A migrated plugin that is disabled or tombstoned is visible only in `dsh-server.
 
 `--dump-config` on a profile without auto-review installed writes `patch: entry "auto-review" not found` to stderr, and `web` writes nothing for it. Neither line carries a `LOAD_FAILURE_MARKERS` fragment or matches `quarantineLoadFailureFromOutput`, probed on a `mkdtemp` home.
 
-`alwaysAsk` reaches a machine only while this layer's row composes. A gateway save from the settings page, `/review`, or the one-time `settings.yaml` import writes the whole composed row into the profile layer, so a save made on this build keeps `plugin_manager`. A gateway row the profile layer already held keeps the gate's default map, without `plugin_manager`. That includes an id-targeted row `settings-migration.ts` rewrote from a kept `insert`.
+`alwaysAsk` reaches a machine only while the gateway's composed `config` carries this layer's map. A gateway save from the settings page, `/review`, or the one-time `settings.yaml` import writes the whole composed row into the profile layer, so a save made on this build keeps `plugin_manager`. `settings-migration.ts` gives the same map to the id-targeted row it rewrites from a kept `insert`, and to any id-targeted gateway row whose `config` has no `alwaysAsk`. A profile-layer row whose `config` sets its own `alwaysAsk` replaces the map.
+
+The Plugins page disables a bundle by taking its name out of `dsh.profile.bundles`. For a built-in that lasts until the next launch: the seeding inserts the name again, before `@deepseek-ai/dsh-desktop-app` so that layer's rows still find the rows the plugin inserts. Turning a built-in off for good takes a `disabled: true` row in the profile layer.
 
 No real Windows install has run the Windows launcher yet. Execa 10 runs a `.cmd` as `cmd.exe /d /s /c` with every argument escaped for the batch file's `%*`, and `killDescendants` has to reach `node.exe` through that `cmd.exe` when a run is cancelled or goes silent. Both need a real Windows machine to confirm.
 

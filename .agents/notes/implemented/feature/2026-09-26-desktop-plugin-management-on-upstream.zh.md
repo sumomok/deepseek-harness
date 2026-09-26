@@ -38,6 +38,10 @@ Status: implemented
 
 **关掉 cordis 预设里的 `tool-plugin-manager` 行，而不是去问人。**不采纳：那一行在 `preset-cordis` 的 `config.plugins` 里，按 id 的 patch 够不到。去问人也让这个工具在有人想用时仍然可用。
 
+**整体关掉 `preset-cordis`。**一条按 id 的 `disabled: true` 行就够得到它，`plugin_manager` 也随之消失。不采纳：它把 cordis 预设也一起拿掉了，而这个预设在桌面上要保持可用。
+
+**让网关在上游 Auto 挂载时自己让路（Q-G5）。**没有采用：profile 层里播种的 `auto-review` 关闭行从组合层面做了这件事，所以网关里没有这样的检查。把两个审查者隔开的只有这一行。有人把它改成 `disabled: false`（插件页的启用写的正是这个）后，Auto 就挂在网关旁边，之后每次调用都被审两遍，没有任何提示。
+
 ## 后果
 
 桌面得到上游的安装、启用、停用、移除操作和兼容拒绝，以及上游插件管理器以后新增的一切。它失去了「更新」标签页：上游页面没有逐包「更新到最新」的操作，也没有一步撤回，安装也不再经过原生模态框确认。用过旧标签页的机器上会留着 `$DSH_HOME/dsh-plugin-updates/last-update.json`，没有任何东西读它。
@@ -46,7 +50,9 @@ Status: implemented
 
 在没装 auto-review 的 profile 上，`--dump-config` 往 stderr 写一行 `patch: entry "auto-review" not found`，`web` 不为它写任何东西。在 `mkdtemp` 出来的 home 上实测，这两处都不含 `LOAD_FAILURE_MARKERS` 的任何片段，也不匹配 `quarantineLoadFailureFromOutput`。
 
-`alwaysAsk` 只在本层这一行参与组合时才到得了一台机器。网关在设置页、`/review` 或一次性 `settings.yaml` 导入里保存时，会把整行组合后的 config 写进 profile 层，所以在本构建上保存的会保留 `plugin_manager`。profile 层里原本就有的网关行保留网关的默认表，没有 `plugin_manager`。这包括 `settings-migration.ts` 从留下来的 `insert` 改写出来的那条按 id 的行。
+`alwaysAsk` 只在网关组合出来的 `config` 带着本层这张表时才到得了一台机器。网关在设置页、`/review` 或一次性 `settings.yaml` 导入里保存时，会把整行组合后的 config 写进 profile 层，所以在本构建上保存的会保留 `plugin_manager`。`settings-migration.ts` 把同一张表补给它从留下来的 `insert` 改写出来的那条按 id 的行，以及 `config` 里没有 `alwaysAsk` 的任何按 id 的网关行。profile 层里 `config` 自带 `alwaysAsk` 的行会替换这张表。
+
+插件页停用一个 bundle 的做法，是把它的名字从 `dsh.profile.bundles` 里删掉。对内置插件来说这只维持到下一次启动：播种会把名字重新插回去，插在 `@deepseek-ai/dsh-desktop-app` 之前，让那一层的行仍然找得到这个插件插入的行。要一直关掉某个内置插件，得在 profile 层写一条 `disabled: true` 行。
 
 Windows 启动脚本还没有在真实安装上跑过。Execa 10 以 `cmd.exe /d /s /c` 运行 `.cmd`，每个参数都按批处理文件的 `%*` 转义；取消运行或运行静默超时时，`killDescendants` 要穿过这个 `cmd.exe` 才能杀到 `node.exe`。两者都要在真实的 Windows 机器上确认。
 

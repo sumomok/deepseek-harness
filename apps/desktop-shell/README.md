@@ -206,7 +206,7 @@ An older marker with only `from` and `migrated` reads as if `defective` and `rem
   disabled: true
 ```
 
-Deleting the name from `dsh.profile.bundles` instead only lasts until the next launch, which seeds it again. `@` mentions of files and sessions are no built-in: they are upstream's `ui-reference` row, which the same file disables the same way.
+Deleting the name from `dsh.profile.bundles` instead, which is what the Plugins page's disable does, only lasts until the next launch, which seeds it again. `@` mentions of files and sessions are no built-in: they are upstream's `ui-reference` row, which the same file disables the same way.
 
 **The gateway is the one built-in whose row you should not disable on its own.** Its patch layer contributes two rows — the gate, and the preset table that adds 自动审查 — and disabling the gate leaves that row in the control with nothing behind it: a mode named for review that turns the sandbox off and reviews nothing, which is strictly worse than 完全权限, where the `never` approval policy at least refuses what the sandbox would have raised. Select another access mode first, and restate the `permission` row's `presets` in your own `cordis.patch.yml` without `yolo-access` if you want it gone from the control as well; an id-targeted patch replaces the whole `config`, so that restatement has to carry the presets you keep.
 
@@ -368,5 +368,6 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - A built-in plugin cannot be pinned to another version from the profile. Installing the same name with `dsh plugin --profile desktop-shell add` puts a copy in the profile's own `node_modules`, which the Loader finds first, while `resolveBundleDir` still reads the patch layer from the installation — the row would then come from one version and the code from another.
 - Upstream's Plugins page has no per-package update action and no undo. A plugin that arrived through the `web` profile updates with `dsh plugin --profile web add <package>@latest`, which reaches the desktop through the link the sync keeps.
 - A migrated plugin the shell disabled or tombstoned is named once in `dsh-server.log` and nowhere on screen.
-- `plugin_manager` reaches a person only while the desktop layer's gateway row composes. A gateway row already in the profile's own patch layer, which a gateway settings save made before 0.1.0-rc.34 or `src/settings-migration.ts` wrote, replaces it and keeps the gateway's default `alwaysAsk`, without `plugin_manager`.
+- `plugin_manager` reaches a person only while the gateway's composed `config` carries the desktop layer's `alwaysAsk`. A gateway row in the profile's own patch layer whose `config` sets an `alwaysAsk` of its own replaces that map, and `src/settings-migration.ts` leaves such a row as it is.
+- Disabling a built-in plugin on the Plugins page lasts until the next launch, which seeds its name back; disabling its row, as described under Built-in plugins, is what lasts.
 - The bundled pnpm is a version pinned at build time and updated only when the repository's own `packageManager` moves. It adds about 19 MB to each platform's payload, natives for all four of its platforms included, because it publishes as one tarball.

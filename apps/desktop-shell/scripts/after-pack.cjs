@@ -93,7 +93,7 @@ module.exports = async function afterPack(context) {
   // DSH_DESKTOP_PNPM. The file names restate PNPM_LAUNCHERS in
   // src/pnpm-launcher.ts, which this CommonJS hook cannot import;
   // scripts/package.ts stages both under these names.
-  const launcherName = isMac ? 'dsh-pnpm' : 'dsh-pnpm.cmd'
+  const launcherName = context.electronPlatformName === 'win32' ? 'dsh-pnpm.cmd' : 'dsh-pnpm'
   const launcherSource = join(__dirname, '..', 'staging', 'pnpm-launchers', launcherName)
   if (!existsSync(launcherSource)) throw new Error(`after-pack: no staged pnpm launcher at ${launcherSource}`)
   const launcher = join(resources, 'runtime', launcherName)
