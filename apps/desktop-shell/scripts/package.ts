@@ -43,7 +43,7 @@ import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
   type PayloadPlatform, type PayloadSnapshot,
 } from './payload-gate.ts'
-import { isOfficeEngine, officeEnginePackages, platformDirRules, type PayloadTarget } from './platform-dir-rules.ts'
+import { isOfficeEngine, namesWindowsX64, officeEnginePackages, pinnedVariantVersion, platformDirRules, type PayloadTarget } from './platform-dir-rules.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = resolve(APP_DIR, '..', '..')
@@ -265,9 +265,10 @@ async function prunePlatformBuilds(): Promise<void> {
 }
 
 /**
- * Report every staged native artifact and fetch the win32-x64 members of
- * platform-split optional-dependency families the macOS install skipped
- * (`node-addon-require-builtin-*` style), except the Office engines no payload
+ * Report every staged native artifact and fetch the Windows x64 members
+ * ([[namesWindowsX64]]) of platform-split optional-dependency families the
+ * macOS install skipped (`node-addon-require-builtin-*` style), each at the
+ * version [[pinnedVariantVersion]] picks, except the Office engines no payload
  * carries ([[isOfficeEngine]]). Nothing is silently dropped: every fetch, every
  * engine left unfetched, and every remaining platform-specific artifact is
  * printed.
@@ -292,15 +293,21 @@ async function stageWindowsVariants(): Promise<void> {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       optionalDependencies?: Record<string, string>
     }
-    for (const [dependency, version] of Object.entries(manifest.optionalDependencies ?? {})) {
-      const isWin = dependency.includes('win32-x64')
-      if (!isWin) continue
+    const optional = manifest.optionalDependencies ?? {}
+    for (const [dependency, spec] of Object.entries(optional)) {
+      if (!namesWindowsX64(dependency)) continue
       if (existsSync(join(nodeModules, dependency))) continue
       if (isOfficeEngine(dependency)) {
-        console.log(`package: not staging Windows variant ${dependency}@${version}: no payload carries an Office engine`)
+        console.log(`package: not staging Windows variant ${dependency}@${spec}: no payload carries an Office engine`)
         continue
       }
-      wanted.set(dependency, version)
+      const installedSiblings: string[] = []
+      for (const sibling of Object.keys(optional)) {
+        const siblingManifest = join(nodeModules, sibling, 'package.json')
+        if (sibling === dependency || !existsSync(siblingManifest)) continue
+        installedSiblings.push((JSON.parse(await readFile(siblingManifest, 'utf8')) as { version: string }).version)
+      }
+      wanted.set(dependency, pinnedVariantVersion(dependency, spec, installedSiblings))
     }
   }
   for (const [dependency, version] of [...wanted.entries()].sort()) {

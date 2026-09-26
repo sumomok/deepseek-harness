@@ -4,8 +4,16 @@
  * @module
  */
 
-import { describe, expect, it } from 'vitest'
-import { specifierFor } from '../scripts/bundle-closure.ts'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { bundleClosure, specifierFor } from '../scripts/bundle-closure.ts'
+
+const roots: string[] = []
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
 
 describe('specifierFor', () => {
   it('matches a specifier a bundler would follow', () => {
@@ -48,5 +56,23 @@ describe('specifierFor', () => {
       '{"name": "open"}',
       'throw new Error(\'open\')',
     ]) expect(specifierFor('open').test(text)).toBe(false)
+  })
+})
+
+describe('bundleClosure', () => {
+  it('keeps both platforms\' sherpa-onnx members, which only a relative require reaches', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const members = [`sherpa-onnx-darwin-${process.arch}`, 'sherpa-onnx-win-x64']
+    for (const name of ['sherpa-onnx-node', ...members, 'unreferenced']) {
+      mkdirSync(join(payload, 'node_modules', name), { recursive: true })
+      writeFileSync(join(payload, 'node_modules', name, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+    }
+    writeFileSync(join(payload, 'node_modules', 'sherpa-onnx-node', 'index.js'),
+      `module.exports = require('../sherpa-onnx-darwin-${process.arch}/sherpa-onnx.node')`)
+    const result = await bundleClosure(payload)
+    for (const name of ['sherpa-onnx-node', ...members]) expect(existsSync(join(payload, 'node_modules', name))).toBe(true)
+    expect(existsSync(join(payload, 'node_modules', 'unreferenced'))).toBe(false)
+    expect(result.removed).toBe(1)
   })
 })
