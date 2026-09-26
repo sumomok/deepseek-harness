@@ -12,6 +12,8 @@ Status: implemented
 
 **工作台/工作流菜单是 server-sidebar 这一行自己 Config 里的三个 volatile 字段。** `workflows`、`groups` 与 `workbenchSessionId` 在这一行上声明为 `.volatile()`，server-menu 路由用 `ctx.settings.update(<entry id>, fields)` 写入补丁，与 `speech-to-text` 写自己偏好的方式相同。路由在写入前把每个被补丁的字段过一遍各自的 schema，并用 `validateServerMenu` 检查合并后的菜单；这一行在加载时再检查一次已提交的菜单。这一行注册 `configure({ auto: false })`，因为侧边栏就是这些字段的编辑器，自动生成的页面会成为第二个、未经校验的编辑器。条目 id 保持 `server-sidebar`：settings 服务会把早先版本 `settings.yaml` 的每个分区导入同名 id 的条目，因此存在该分区下的菜单无需产品自己的导入器就能到达这一行。invariant 伴生插件被移除——它监听的 `settings/updated` 已不存在，而已提交的值是 Loader Config，没有第二个能与之分歧的观察点。
 
+**控制台是一个 bundle 层；它的 `permission` 行是叠在 profile 补丁之上的锁。** settings 服务把 volatile 字段保存进当前 profile 的 `cordis.patch.yml`，而当某行的有效配置来自该补丁之上的层——`--patch` overlay 或 home 补丁——时，config-editor 会拒绝写入。控制台原先以 `dsh --profile web --patch <overlay>` 组装，因此每一次菜单写入都失败。现在 `@deepseek-ai/dsh-experimental-console-profile` 把原来的 `server-sidebar/overlay/customer.patch.yml` 作为自己的 `dsh.bundle.patch` 携带，用 `dsh plugin --profile web add` 安装在 `dsh-base` 与 `dsh-web-app` 之后；部署自己的行（页面与视图目录、登录门、`trustedHosts`）放进部署自己的第二个本地 bundle。`permission` 行则反方向移动，进入该包的 `permission-lock.patch.yml`，由部署以 `--patch` 或 home 补丁应用：`permission.defaultPreset` 同样是 volatile，`remote.settings` 回应任何被放行的浏览器，放在 bundle 层里时一次写入就会压过钉住的 `workspace-write`。
+
 **外壳声明出厂的子槽，并保留自己的 `content` 座位。** `server-layout` 仍然替换 `ui-layout` 的 root 注册。chat 栏按选中面板所指的 key 渲染 `main`（默认是 `conversation`）；右栏把 owner 份额交给 `rightbar`（`width` 是固定的 360px details 宽度），并在占用者通过 `openRightbar(true, …)` 报告占用轨道时预留 details 轨道；`shell.leading` 已声明但从不挂载，因为本外壳从不把 session 栏整个隐藏。root effect 创建框架渲染所用的那一个 panel store 实例，把 `ILayout` 面（`panelInfo`、`selectPanel`、`beginNavigation`、`toggleSidebar`、`openRightbar`、`closeRightbar`）绑到它的 actions 上，把 `usePanelInfo` 作为 root 标准 hook 提供，并在某个 `main` 条目注销时清掉指向它的选择——与 `ui-layout` 用的是同一套接线，因此 `ui-workspace`、`ui-conversation` 与 `ui-sidebar-right` 零改动注册。
 
 **屏幕上的会话就是 `mainView` 那一行。** 原先每一处读 `current` 的地方，现在都读 `retainedBy.mainView` 计数为正的那一行，与上游自己的消费方用的是同一个表达式；每一处 `sessions.open(id)` 都换成 `ctx.uiWorkspace.openSession(id)`，它还会经 `ILayout.selectPanel` 中止一次挂起的导航。绿点读取 `useSessionStatus` 的 `completionUnread`。
@@ -30,11 +32,15 @@ Status: implemented
 
 **给 `ui-layout` 打补丁保留 `conversation`/`details`。** 基座为了 `main` 与 `rightbar` 移除了它们；在核心里恢复它们会成为一个与上游选定方向相悖的永久补丁，而外壳完全可以从自己的包里占用新的槽。
 
+**让控制台保持为一份 `--patch` overlay。** settings 服务必须保存的每一行都会留在 profile 补丁之上，config-editor 会继续拒绝菜单写入。
+
+**把控制台的每一行（包括 `permission`）都移进 bundle 层。** 菜单能保存了，经 `remote.settings` 发来的 `defaultPreset` 也同样能保存；2026-09-07 那条「终端用户不能改预设」的决策就不再成立。
+
 **让 Vue spec 留在聚合程序里，改动上游那四个 spec。** 那四处 `ref` prop 是正确的 React 写法；问题出在一个 React 程序本不该看见的包所带来的全局声明。
 
 ## Consequences
 
-控制台重新带着侧边栏启动，菜单在重启后存活于 profile 补丁中，而不是一个旁路文件里。被手工改进 profile 补丁、违反某条跨元素约束的菜单会让这一行在加载时失败，而不是等到下一次写入。`settings.yaml` 里以改版前 `navSnapshot` 字符串形式存下的分区会被导入拒收，留在 `settings.yaml.imported` 里；用 `convert-nav-snapshot` 转换该文件并改名回去，下次启动就会再导入一次，连同其中的其他所有分区。
+控制台重新带着侧边栏启动，菜单在重启后存活于 profile 补丁中，而不是一个旁路文件里。部署启动 profile 时装好控制台 bundle 与自己的 bundle，并带上 `--patch permission-lock.patch.yml`；仍以旧 overlay 作 `--patch` 启动的部署能起来，但存不下菜单；不带锁启动的部署会让钉住的预设变得可写。被手工改进 profile 补丁、违反某条跨元素约束的菜单会让这一行在加载时失败，而不是等到下一次写入。`settings.yaml` 里以改版前 `navSnapshot` 字符串形式存下的分区会被导入拒收，留在 `settings.yaml.imported` 里；用 `convert-nav-snapshot` 转换该文件并改名回去，下次启动就会再导入一次，连同其中的其他所有分区。
 
 右栏现在是 root scope，会话切换不再让它重挂；它的占用者自己绑定会话。旧基座上 `details` 装的是工具详情；`rightbar` 装的是 `ui-sidebar-right` 渲染的东西。
 

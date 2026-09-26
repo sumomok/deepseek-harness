@@ -460,6 +460,7 @@
     { "path": "./packages/experimental/content-surface" },
     { "path": "./packages/experimental/server-base" },
     { "path": "./packages/experimental/library-skills" },
+    { "path": "./packages/experimental/console-profile" },
     { "path": "./packages/workflow/workflow" },
     { "path": "./packages/workflow/workflow-ptc" },
     { "path": "./packages/workflow/tool-workflow" },

@@ -1,14 +1,18 @@
 # `show_component` under the service-line console: the agent places a block of
 # interface in the content column while it talks about it.
 #
-# Layered over the console composition in
-# `../../server-sidebar/overlay/customer.patch.yml`, which already disables
+# Layered over the console bundle `@deepseek-ai/dsh-experimental-console-profile`
+# (`../../console-profile/cordis.patch.yml`), which already disables
 # `ui-layout` and inserts `server-layout`, `content-surface`, and
-# `content-column`. Apply both, console first:
+# `content-column`. Install the bundle, then apply this file:
 #
+#   dsh plugin --profile web add packages/experimental/console-profile
 #   dsh --profile web \
-#     --patch packages/experimental/server-sidebar/overlay/customer.patch.yml \
 #     --patch packages/experimental/component-surface/overlay/component-surface.patch.yml
+#
+# None of this file's rows carries a field the settings service writes, so it
+# may stay a `--patch` overlay; a deployment may equally carry it in its own
+# bundle layer.
 #
 # - `content-surface` folds the session's logged `show_component` calls into the
 #   entry stream and `content-column` routes the column by entry kind. Both must

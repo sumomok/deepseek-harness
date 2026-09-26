@@ -39,9 +39,7 @@ const OVERLAY = fileURLToPath(new URL('./library-skills.overlay.yml', import.met
 const ROW_SOURCES = [
   OVERLAY,
   join(PACKAGE_DIR, 'cordis.patch.yml'),
-  join(REPO_ROOT, 'packages/experimental/server-sidebar/overlay/customer.patch.yml'),
-  fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url)),
-  fileURLToPath(new URL('./server-sidebar-homepage.overlay.yml', import.meta.url)),
+  join(REPO_ROOT, 'packages/experimental/console-profile/cordis.patch.yml'),
 ]
 /** The placeholder skill this package ships; slice 1 replaces it with real library knowledge. */
 const SKILL_NAME = 'library-skills-placeholder'

@@ -560,6 +560,7 @@
 - **状态**：在役（`product/server-console`）。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：同版本确认记录已补为本线新文件 `docs/persistence-changes/2026-09-26-console-content-events.*`，kind 名保持裸名；提取器只看到 `content-surface` 一种来源，`content-frame`、`content-component` 的 `MessageSourceMap` 声明在 `tsconfig.host.json` 之外的 client 聚合包里，未进记录。`tsconfig.client.json` 增加对 `tsconfig.vue2-tests.json` 的引用并排除其中的 spec（见上条退役记录）；`tsconfig.base.json` 删掉 `server-sidebar` 已移除的 `invariant` 别名。`packages.md` 核查：console 叠加层之下的 web 配置装配了 web-app 包的 `cordis` 预设（`tool-cordis` + 挂 `agent-preset/skills` 的 `skill-filesystem`），叠加层没有移除它；默认预设是 `standard`，`ui-agent-preset` 下拉与其设置行被叠加层禁用，控制台界面上选不到它。本轮不改。
+- **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：新增本线包 `console-profile`（客户控制台的 bundle 层）：`tsconfig.base.json` 手写一条 `paths` 别名（包名带 `experimental-` 前缀，生成器不覆盖）、`tsconfig.host.json` 加一条引用、`packages/experimental/README.*` 加一行；`scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 为它登记 `permission-lock.patch.yml`，这份锁 overlay 不在 `dsh.bundle.patch` 里，但要随包发布。`scripts/verify-package-readme-model-experience.ts` 为它加一条 `indirect` 的审计条目。
 - **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
 ## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
@@ -635,6 +636,7 @@
 - **要达到的效果**：上游发布与 npm 基线门禁照常覆盖全工作区，本线包按上游自己的例外机制排除，不改门禁逻辑。
 - **退役条件**：本线包移出本仓（仓外 tarball 引入），或上游让包以自身元数据声明不发布。
 - **状态**：在役（`product/server-console`）。
+- **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：表中加 `packages/experimental/console-profile`，共十五个目录。
 - **路径**：`scripts/check-workspace-constraints.spec.ts` `scripts/experimental-package-policy.ts`
 
 ## unknown-casts-product-baseline — 本线既有 `as unknown` 断言进上游基线

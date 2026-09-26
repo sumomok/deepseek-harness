@@ -1,15 +1,31 @@
-# The full customer/service-line composition (decisions ①–⑧): the
-# four-track service shell, this product console sidebar, and decision ②'s
-# de-terminology layer — every shipped surface that would otherwise leak
-# session/workspace vocabulary or model-internal status to an end user.
+# The customer console as one bundle layer (decisions ①–⑧): the four-track
+# service shell, the product console sidebar, and decision ②'s de-terminology
+# layer — every shipped surface that would otherwise leak session/workspace
+# vocabulary, model-internal status, or developer tooling to an end user.
 #
-# Compose the two navigation catalogs separately, the same way
-# `overlay/sidebar-menu.patch.yml` already documents — this file assumes
-# neither: `dsh-experimental-content-frame` (with its deployment-specific
-# `pages`/`root` config) and `dsh-experimental-component-surface` (with its
-# `views`/`homeView` config). The sidebar's navigation group merges whichever
-# of the two is present, and configuring an automatic home in both fails at
-# load.
+# This is a bundle layer rather than a `--patch` overlay because the sidebar's
+# menu (`workflows`, `groups`, `workbenchSessionId`) is volatile Config of the
+# `server-sidebar` row, and the settings service saves it into the profile's
+# own `cordis.patch.yml`. That write only succeeds when the row is inserted
+# below the profile patch; a row a `--patch` overlay or the home patch inserts
+# or configures outranks the saved value, and config-editor refuses the write.
+# Install it with `dsh plugin --profile <name> add <this directory>` so it
+# stacks after `dsh-base` and `dsh-web-app` in `dsh.profile.bundles`.
+#
+# The console's `permission` row is the opposite case: no caller may change it,
+# so it lives in this package's `permission-lock.patch.yml`, which the
+# deployment applies above the profile patch (`--patch` or the home patch).
+#
+# Rows that disable a shipped entry address it by id alone: a bundle's rows
+# resolve through the bundle's own dependencies, and a disable row loads
+# nothing.
+#
+# Compose the two navigation catalogs separately, in the deployment's own
+# bundle layer — this file assumes neither: `dsh-experimental-content-frame`
+# (with its deployment-specific `pages`/`root` config) and
+# `dsh-experimental-component-surface` (with its `views`/`homeView` config).
+# The sidebar's navigation group merges whichever of the two is present, and
+# configuring an automatic home in both fails at load.
 #
 # Compose `dsh-experimental-auth-gate` separately as well: it is what the
 # sidebar footer's sign-out button needs. Without that row the button still
@@ -18,13 +34,11 @@
 #
 # 'root' and 'sidebar' are each a single slot, so their shipped occupants are
 # disabled outright rather than composed alongside the replacements (the same
-# pattern `server-layout`'s and this package's own minimal overlay use).
+# pattern `server-layout`'s and `server-sidebar`'s own minimal overlays use).
 - id: ui-layout
-  name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
 
 - id: ui-sidebar
-  name: '@deepseek-ai/dsh-client-ui-sidebar'
   disabled: true
 
 # `@deepseek-ai/dsh-client-ui-workspace` is composed here, not disabled, even
@@ -44,7 +58,6 @@
 # hiding its hero chip — see terminology-guard.ts's `heroWorkspaceRow` rule)
 # also removes its session-header preset label and its Settings row.
 - id: ui-agent-preset
-  name: '@deepseek-ai/dsh-client-ui-agent-preset'
   disabled: true
 
 # Only relevant to an official build (`DSH_CLIENT_BUILD_PROFILE==='official'`
@@ -53,7 +66,6 @@
 # which this customer-form composition replaces with its own copy (see
 # ServerSidebarRoot.tsx and client/index.ts's hero brand-mark takeover).
 - id: ui-brand-official
-  name: '@deepseek-ai/dsh-client-ui-brand-official'
   disabled: true
 
 # ui-cordis's runtime-introspection panel has no counterpart in a customer
@@ -61,7 +73,6 @@
 # customer-facing product exposes); disabling the row is the whole change —
 # its own node half carries no other behavior this composition depends on.
 - id: ui-cordis
-  name: '@deepseek-ai/dsh-client-ui-cordis'
   disabled: true
 
 # Trajectory and the model selector are internal/debug surfaces with no
@@ -73,15 +84,12 @@
 # with the selector gone, since nothing here replaces its "choose a model"
 # affordance).
 - id: ui-trajectory
-  name: '@deepseek-ai/dsh-client-ui-trajectory'
   disabled: true
 
 - id: ui-model-selection
-  name: '@deepseek-ai/dsh-client-ui-model-selection'
   disabled: true
 
 - id: session-log-download
-  name: '@deepseek-ai/dsh-session-log-export'
   disabled: true
 
 # The internal-testing notice ("内测声明") is `ui-settings-models`'s own
@@ -91,24 +99,20 @@
 # deployment layer and must never show a DeepSeek-internal notice, so the whole
 # row goes; with no step registered, `settings.onboarding` renders nothing.
 - id: ui-settings-models
-  name: '@deepseek-ai/dsh-client-ui-settings-models'
   disabled: true
 
 # The Settings → General "Permission" row: the default preset for new sessions,
 # and the last user-facing permission control once the composer chip is hidden
 # (`terminology-guard.ts`) and `/permission` is isolated on the `permission` row
-# below. The same package's only other registration is the `/permission` popup
-# decoration, which has no host command left to decorate.
+# in `permission-lock.patch.yml`. The same package's only other registration is
+# the `/permission` popup decoration, which has no host command left to
+# decorate.
 #
-# Disabling this row closes the last surface that writes
-# `permission.defaultPreset`; it does not erase a value already written. That
-# field is volatile Config of the `permission` row below: the settings service
-# writes it into the active profile's patch, an earlier release's
-# `settings.yaml` value was imported there once, and which layer wins over the
-# `defaultPreset` this file sets follows the Loader's layer order (see
-# `packages/settings/settings/README.md`).
+# Disabling this row removes the page's control for `permission.defaultPreset`;
+# the `remote.settings` method still accepts a write, which is why the
+# `permission` row itself is composed above the profile patch by
+# `permission-lock.patch.yml` rather than in this layer.
 - id: ui-permission
-  name: '@deepseek-ai/dsh-client-ui-permission-presets'
   disabled: true
 
 - insert:
@@ -125,65 +129,6 @@
         # person's display name, shown in the sidebar's footer; toy-core's
         # sign-on writes it as `login_uname`.
         displayNameClaim: login_uname
-
-# Decision ②: the shipped preset table names its rows in vendor vocabulary —
-# "workspace-write" renders as "Workspace Write" on the composer's access chip
-# (`dsh-client-ui-conversation`'s `PermissionSelect`). That is not CSS chrome
-# this package could rename, and it is not reachable from a dictionary: the
-# label belongs to `dsh-client-ui-conversation`'s own locale namespace, which
-# no other plugin may register into.
-#
-# The preset table itself is the seam. The chip resolves its label from the
-# host-supplied `name`: one that still matches the built-in default renders the
-# vendor's product label, anything else passes through verbatim
-# (`PermissionSelect.tsx`'s `permissionLabel`). Renaming the rows here
-# therefore replaces the vocabulary with no patch to an upstream package.
-#
-# All three shipped presets are restated, knob values (`sandbox`, `approval`)
-# unchanged: this row replaces the whole table, so omitting one drops that
-# preset rather than inheriting it. With no switch offered, the only surface
-# these names still reach is the hidden chip's `aria-label`;
-# `packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts`
-# asserts the table, and `apps/web/tests/server-sidebar.e2e.ts` reads the
-# effective preset's name off that label.
-- id: permission
-  name: '@deepseek-ai/dsh-permission-presets'
-  # No permission switch reaches an end user (product decision, 2026-09-07).
-  # `commands` resolves inside this entry to a realm nothing implements, so the
-  # row's `ctx.inject(['commands'], …)` child never activates: `/permission` is
-  # never registered, `commands.list` never names it, and the slash menu has no
-  # row to filter. Isolation is per entry, so the registry the base bundle
-  # composes is untouched — the switcher strip's tab and close buttons, the
-  # sidebar's navigation rows, `show_component`'s press return path, and
-  # `SessionFace.command()` all keep the `commands` they inject.
-  isolate:
-    commands: true
-  config:
-    # The composition `base` for the preset a new session is pinned to: what
-    # this table derives today from the composed sandbox and approval defaults
-    # (workspace-write + ask, `packages/bundle/base/cordis.patch.yml`). A
-    # stored `permission.defaultPreset` may outrank it — see the
-    # `ui-permission` row above.
-    defaultPreset: workspace-write
-    presets:
-      read-only:
-        sandbox: read-only
-        approval: ask
-        name: 只读
-        description: 只查看和分析文件，不做任何改动。
-        glyph: read-only
-      workspace-write:
-        sandbox: workspace-write
-        approval: ask
-        name: 可修改文件
-        description: 可以在当前项目目录里新建和修改文件；超出范围的操作会先征求同意。
-        glyph: workspace-write
-      danger-full-access:
-        sandbox: danger-full-access
-        approval: never
-        name: 完全放开
-        description: 可以修改任何文件，且不再逐次征求同意。
-        glyph: danger-full-access
 
 # The bundled library-knowledge layer: one isolated `skill-filesystem` provider
 # over `@deepseek-ai/dsh-experimental-library-skills`'s own `skills/` directory.

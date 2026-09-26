@@ -44,6 +44,7 @@ The experimental group contains prototype capabilities whose contracts can chang
 | [`biz-backend`](biz-backend/README.md) | Three reads of a deployment's own data backend, made with the visitor's own access token | `ctx.bizBackend` |
 | [`component-kit`](component-kit/README.md) | Component row: the React renderers a placement package draws a validated block with, and the table that names them | — |
 | [`component-surface`](component-surface/README.md) | The `show_component` tool and the content column's `component` kind: blocks from a fixed catalog, judged before anything is drawn | — |
+| [`console-profile`](console-profile/README.md) | The customer console as one bundle layer over the Web profile, plus the permission lock applied above the profile patch | — |
 | [`content-column`](content-column/README.md) | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
 | [`content-frame`](content-frame/README.md) | Serves one operator-configured static web application and contributes it as the content column's `page` kind | — |
 | [`content-surface`](content-surface/README.md) | Host half of the content surface: extractors fold logged events into a per-session stream of typed content entries | `ctx.contentSurface` |

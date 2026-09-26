@@ -330,6 +330,7 @@
       "@deepseek-ai/dsh-experimental-component-surface": ["./packages/experimental/component-surface/src"],
       "@deepseek-ai/dsh-experimental-component-surface/client": ["./packages/experimental/component-surface/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-component-surface/invariant": ["./packages/experimental/component-surface/src/invariant.ts"],
+      "@deepseek-ai/dsh-experimental-console-profile": ["./packages/experimental/console-profile/src"],
       "@deepseek-ai/dsh-experimental-content-column": ["./packages/experimental/content-column/src"],
       "@deepseek-ai/dsh-experimental-content-column/client": ["./packages/experimental/content-column/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-content-frame": ["./packages/experimental/content-frame/src"],

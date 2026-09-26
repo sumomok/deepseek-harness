@@ -62,7 +62,7 @@ kind: "package-reference"
         ownsHost: true
 ```
 
-用 `dsh --profile web --patch <path>` 应用。每个包都必须能从 profile 目录解析到，对仓外插件而言这意味着 `dsh plugin --profile web add <path>` 或等价的链接——发布 bundle 不得声明实验性包。只在[声明宿主归属](#claiming-the-host)所述条件下设 `ownsHost`。
+在普通界面之上，用 `dsh --profile web --patch <path>` 应用。客户控制台不同：它由 [`@deepseek-ai/dsh-experimental-console-profile`](../console-profile/README.zh.md) bundle 加上部署自己的一个部署 bundle 组成，这一行放进那个部署 bundle。用 `--patch` 组装的控制台存不下侧栏菜单，因为 settings 服务把菜单写进 profile 补丁，而对由该补丁之上的层组合的行，config-editor 会拒绝写入。每个包都必须能从 profile 目录解析到，对仓外插件而言这意味着 `dsh plugin --profile web add <path>` 或等价的链接——发布 bundle 不得声明实验性包。只在[声明宿主归属](#claiming-the-host)所述条件下设 `ownsHost`。
 
 <a id="the-proxy-half"></a>
 ## 代理那一半

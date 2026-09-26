@@ -62,7 +62,7 @@ This package is in no shipped bundle. A deployment inserts the row over any surf
         ownsHost: true
 ```
 
-`dsh --profile web --patch <path>` applies it. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package. Set `ownsHost` only under the conditions [Claiming the Host](#claiming-the-host) states.
+Over a plain surface, `dsh --profile web --patch <path>` applies it. The customer console is different: it is the [`@deepseek-ai/dsh-experimental-console-profile`](../console-profile/README.md) bundle plus a deployment bundle of the deployment's own, and this row goes into that deployment bundle. A console assembled with `--patch` cannot save its sidebar menu, because the settings service writes the menu into the profile patch and config-editor refuses a row that a layer above that patch composes. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package. Set `ownsHost` only under the conditions [Claiming the Host](#claiming-the-host) states.
 
 <a id="the-proxy-half"></a>
 ## The proxy half

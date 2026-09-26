@@ -260,6 +260,7 @@ flowchart TD
     pkg_experimental_component_surface["experimental-component-surface"]
     pkg_experimental_computer_use_cua_driver_mcp["experimental-computer-use-cua-driver-mcp"]
     pkg_experimental_computer_use_cua_driver_native["experimental-computer-use-cua-driver-native"]
+    pkg_experimental_console_profile["experimental-console-profile"]
     pkg_experimental_content_column["experimental-content-column"]
     pkg_experimental_content_frame["experimental-content-frame"]
     pkg_experimental_content_surface["experimental-content-surface"]
@@ -1559,6 +1560,7 @@ flowchart TD
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-biz-backend`](../packages/experimental/biz-backend) | `experimental` | — |
+| [`experimental-console-profile`](../packages/experimental/console-profile) | `experimental` | — |
 | [`experimental-library-skills`](../packages/experimental/library-skills) | `experimental` | — |
 | [`experimental-voice-input-bundle`](../packages/experimental/voice-input-bundle) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |

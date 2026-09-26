@@ -44,6 +44,7 @@ kind: "package-group"
 | [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的三次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
 | [`component-kit`](component-kit/README.zh.md) | 组件行：落位包用来画出一块已校验内容的 React 渲染器，以及给它们命名的那张表 | — |
 | [`component-surface`](component-surface/README.zh.md) | `show_component` 工具与 content 栏的 `component` 类型：来自固定目录的内容块，在画出来之前先判定 | — |
+| [`console-profile`](console-profile/README.zh.md) | 客户控制台：叠在 Web profile 上的一个 bundle 层，外加一份叠在 profile 补丁之上的权限锁 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |
 | [`content-surface`](content-surface/README.zh.md) | content surface 的宿主半边：extractor 把已记录事件折叠成每会话一条按类型分列的内容 entry 流 | `ctx.contentSurface` |

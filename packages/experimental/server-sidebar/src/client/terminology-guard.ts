@@ -7,8 +7,9 @@
  * have a regular composition-level channel and need no code at all —
  * `ui-trajectory`, `ui-model-selection`, and
  * `@deepseek-ai/dsh-session-log-export`'s `session-log-download` row are
- * ordinary bundle rows a customer overlay disables outright (see the package
- * README's Composition section and `overlay/customer.patch.yml`).
+ * ordinary bundle rows the console bundle disables outright (see the package
+ * README's Composition section and `@deepseek-ai/dsh-experimental-console-profile`'s
+ * `cordis.patch.yml`).
  *
  * The turns/steps stats row (`dsh-client-ui-chat`'s `StatsLine`,
  * mounted on the composer's `conversation.composer.dock` list) has neither: no
@@ -59,8 +60,8 @@
  *   put both back on screen, which is why an e2e scenario asserts the row is
  *   present and renders nothing, rather than trusting the selector.
  *   `conversation.hero.agentPreset`, the row's other seat, is emptied at the
- *   composition level instead (`ui-agent-preset` disabled outright — see
- *   `overlay/customer.patch.yml`), not by this CSS: disabling the whole
+ *   composition level instead (`ui-agent-preset` disabled outright by the
+ *   console bundle), not by this CSS: disabling the whole
  *   package also removes its session-header preset label and its Settings
  *   row, which this hero-only rule could not reach.
  *
@@ -87,7 +88,7 @@
  * This rule closes one permission surface of three. The console offers an end
  * user no permission switch of any kind (product decision, 2026-09-07), and
  * the other two are closed at the composition level rather than here:
- * `overlay/customer.patch.yml` disables the `ui-permission` row, which is the
+ * the console bundle disables the `ui-permission` row, which is the
  * Settings → General default-preset control, and sets
  * `isolate: { commands: true }` on the `permission-presets` row, so that
  * package's command child never activates and `/permission` is never

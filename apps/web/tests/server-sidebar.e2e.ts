@@ -41,9 +41,15 @@
  * profile links the loader resolves the rows through are created here rather
  * than by `healProfilesModuleFallback` (the same approach `content-show.e2e.ts`
  * uses for its own experimental rows).
+ *
+ * The console is installed the way a deployment installs it: the
+ * `dsh-experimental-console-profile` bundle and a generated deployment layer,
+ * both enabled after the shipped Web bundles. The settings service saves the
+ * sidebar's menu into the profile patch, which only works for a row composed
+ * below that patch; a `--patch` overlay composes above it.
  */
 
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,15 +66,30 @@ import {
 } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
+/**
+ * The customer console's own bundle layer, installed into the scenario's
+ * profile the way a deployment installs it (see its README): the sidebar row
+ * must sit below the profile patch for the settings service to save its menu.
+ */
+const CONSOLE_BUNDLE = join(REPO_ROOT, 'packages/experimental/console-profile')
+/**
+ * The console's `permission` row, which a deployment composes above the
+ * profile patch. The scaffold moves an `extraOverlayPath` row's `permission`
+ * config into a bundle layer (its editable form defaults), so these scenarios
+ * compose the lock as the home patch, the other layer above the profile patch.
+ */
+const PERMISSION_LOCK = join(CONSOLE_BUNDLE, 'permission-lock.patch.yml')
+/** The deployment layer installed beside {@link CONSOLE_BUNDLE}: the content column's page catalog. */
 const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url))
 /** Identical to {@link OVERLAY}, plus content-frame's `homePage` config. */
 const HOMEPAGE_OVERLAY = fileURLToPath(new URL('./server-sidebar-homepage.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 /**
- * Every experimental package the overlay's rows need resolvable, as package name
- * and source directory. Most are inserted by name; `library-skills` is instead
- * named by the `bundledSkillDir` expression of the overlay's `skill-filesystem`
- * row, which resolves it from the profile the same way.
+ * Every experimental package the console bundle's and the deployment layer's
+ * rows need resolvable, as package name and source directory. Most are inserted
+ * by name; `library-skills` is instead named by the `bundledSkillDir`
+ * expression of the bundle's `skill-filesystem` row, which resolves it from the
+ * profile the same way.
  */
 const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
@@ -90,7 +111,7 @@ const VIEW_ROWS = [
   ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
   ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
 ] as const
-/** The hosted application this scenario serves; the overlay reads it from the environment. */
+/** The hosted application this scenario serves; the deployment layer reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 /** A workflow naming a session nobody ever created — seeded before the browser ever reads it (decision ⑧). */
 const GHOST_SESSION_ID = 'server-sidebar-e2e-ghost-session'
@@ -115,19 +136,18 @@ const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
 
 /**
- * The customer-facing name of the preset the overlay pins as `defaultPreset`,
- * and the only preset name a console renders: the composition offers no
- * permission switch at all (see the scenario below), so the hidden chip's
- * `aria-label` settles on this one and never moves. The overlay's whole
- * `permission` row — its three ids, their names, the `isolate` key, and the
- * pinned default — is owned by
- * `packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts`.
+ * The customer-facing name of the preset the console bundle pins as
+ * `defaultPreset`. The composition offers no permission switch and no chip
+ * (see the scenario below), so no visible control may carry it. The bundle's
+ * whole `permission` row — its three ids, their names, the `isolate` key, and
+ * the pinned default — is owned by
+ * `packages/experimental/console-profile/tests/profile.spec.ts`.
  */
 const RENAMED_PRESET = '可修改文件'
 /**
  * Every row the console's slash menu renders, by the text it shows (a
  * command's label where the menu has one, else its name), in menu order. `permission` is absent by composition rather than by filtering:
- * the overlay isolates `commands` from the `permission-presets` row, so that
+ * the console bundle isolates `commands` from the `permission-presets` row, so that
  * package's command child never activates. Pinning the whole set rather than
  * the one absence is what also fails on a command this composition gains.
  */
@@ -196,6 +216,30 @@ async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string]
     await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
   }
   return home
+}
+
+/**
+ * Launch the scaffold over a profile carrying the console bundle and one
+ * deployment layer, both enabled in `dsh.profile.bundles` after the shipped
+ * Web bundles, with {@link PERMISSION_LOCK} as the home patch. The deployment
+ * layer is a generated package whose one patch is `deployment`, the same form
+ * a deployment's own rows take.
+ * @param harnessHome - the harness home from {@link harnessHomeWithRowLinks}.
+ * @param deployment - the deployment layer's patch file.
+ * @returns the launched scaffold.
+ */
+async function launchConsole(harnessHome: string, deployment: string): Promise<WebScaffold> {
+  const dir = join(harnessHome, 'console-e2e-deployment')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'package.json'), JSON.stringify({
+    name: 'console-e2e-deployment', version: '1.0.0', dsh: { bundle: { patch: 'cordis.patch.yml' } },
+  }))
+  await copyFile(deployment, join(dir, 'cordis.patch.yml'))
+  await copyFile(PERMISSION_LOCK, join(harnessHome, 'cordis.patch.yml'))
+  return await launchWebScaffold({
+    harnessHome,
+    profile: { packages: [{ dir: CONSOLE_BUNDLE, enabled: true }, { dir, enabled: true }] },
+  })
 }
 
 const sidebar = (page: Page): Locator => page.locator('[data-server-sidebar]')
@@ -398,10 +442,10 @@ describe('web e2e: the product-console sidebar', () => {
 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
-    // The overlay's `!!js` expression resolves against this process, which is
+    // The deployment layer's `!!js` expression resolves against this process, which is
     // where the scaffold runs the Loader.
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    scaffold = await launchConsole(harnessHome, OVERLAY)
     // Seed one ghost workflow before the browser ever loads: the live menu
     // fields of the server-sidebar row this composition just loaded. Its `homeSessionId` names a session that
     // never existed — decision ⑧'s degrade path, exercised below.
@@ -536,7 +580,7 @@ describe('web e2e: the product-console sidebar', () => {
       await workbenchButton(page).click()
       await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
-      // No homePage is configured in this overlay: a blank workbench draft
+      // No homePage is configured in this deployment layer: a blank workbench draft
       // shows nothing in the content column, so the shell collapses it
       // (`dsh-experimental-server-layout`'s own content-empty read) and chat
       // absorbs the reclaimed share instead.
@@ -814,6 +858,16 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await accessChip(page).count()).toBe(0)
   }, 60_000)
 
+  it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
+    // `remote.settings` answers any browser the deployment admits, so the
+    // pinned preset holds only because the lock composes above the profile
+    // patch. The sidebar row sits in the bundle layer below it, which is what
+    // lets the same service save the menu (`beforeAll` wrote it).
+    await expect(scaffold.ctx.settings.update('permission' as SettingsNamespace, { defaultPreset: 'danger-full-access' }))
+      .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+    await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
+  })
+
   it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-groups'))
     const section = workflowsSection(page)
@@ -1009,7 +1063,7 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: HOMEPAGE_OVERLAY })
+    scaffold = await launchConsole(harnessHome, HOMEPAGE_OVERLAY)
     // A workbench click resolves against a connected Workspace (see
     // `session-resolution.ts`); with none connected there is nowhere to
     // create the session into, and the click is a contained no-op.
@@ -1041,7 +1095,7 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
 
       await expectShown(page, '/content-app/')
       await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
-      // Contrast the un-configured overlay's own workbench test: with a home
+      // Contrast the un-configured deployment layer's own workbench test: with a home
       // page configured, a blank draft is never actually empty, so the
       // content column stays expanded rather than collapsing.
       await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBeGreaterThan(0)
@@ -1121,7 +1175,7 @@ describe('web e2e: the product-console sidebar over both content catalogs', () =
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks(VIEW_ROWS)
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: VIEWS_OVERLAY })
+    scaffold = await launchConsole(harnessHome, VIEWS_OVERLAY)
     const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-views-workspace')
     await mkdir(workspaceDir, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)
@@ -1289,7 +1343,7 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    scaffold = await launchConsole(harnessHome, OVERLAY)
     // Deliberately no `workspaceRegistry.create`: this is the fresh-install
     // state the other two describes set up past.
     browser = await chromium.launch()
