@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop-app/README.md
 /deepseek-ai-dsh-desktop-app:
-  en: ceca4b86f2ace504
-  zh: f60172c47866f705
+  en: 4a54c0d9cd716c17
+  zh: e93c49ac4f7da938
