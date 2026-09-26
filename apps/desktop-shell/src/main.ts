@@ -35,7 +35,8 @@ import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement } from './office-engine.ts'
 import {
-  ENDPOINT_ENV as OFFICE_ENGINE_ENDPOINT_ENV, INSTALL_TIMEOUT_MS, OfficeEngineManager, startOfficeEngineService,
+  confirmDialogOptions, DECLINE_COOLDOWN_MS, ENDPOINT_ENV as OFFICE_ENGINE_ENDPOINT_ENV, INSTALL_TIMEOUT_MS, OfficeEngineManager,
+  startOfficeEngineService,
   TOKEN_ENV as OFFICE_ENGINE_TOKEN_ENV, type EngineConfirmRequest, type OfficeEngineServiceHandle,
 } from './office-engine-service.ts'
 import {
@@ -407,16 +408,7 @@ async function startUpdateForServer(host: UpdateHost, log: (chunk: string) => vo
  * @returns true when the person chose the download button.
  */
 async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boolean> {
-  const options = {
-    type: 'question' as const,
-    title: request.title,
-    message: request.message,
-    detail: request.detail,
-    buttons: [request.confirmLabel, request.cancelLabel],
-    defaultId: 0,
-    // Dismissing the dialog downloads nothing.
-    cancelId: 1,
-  }
+  const options = confirmDialogOptions(request)
   const window = mainWindow()
   const answer = window === undefined
     ? await dialog.showMessageBox(options)
@@ -459,6 +451,7 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
     confirm: confirmOfficeEngine,
     log,
     installTimeoutMs: INSTALL_TIMEOUT_MS,
+    declineCooldownMs: DECLINE_COOLDOWN_MS,
   })
   const engineEnv = requirement.ok ? engineServerEnv(root, requirement.requirement, process.env.NODE_PATH) : {}
   if (requirement.ok) log(`[desktop] office engine: ${requirement.requirement.name}@${requirement.requirement.version} under ${root} (${manager.snapshot().phase})\n`)

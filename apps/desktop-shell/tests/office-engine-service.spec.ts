@@ -13,8 +13,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { EngineRequirement, InstallOutcome, InstallSpec, RequirementResult } from '../src/office-engine.ts'
 import {
-  CANCEL_PATH, confirmRequest, ENDPOINT_ENV, INSTALL_PATH, OfficeEngineManager, startOfficeEngineService, STATE_PATH,
-  TOKEN_ENV, type EngineConfirmRequest, type OfficeEngineServiceHandle,
+  CANCEL_PATH, confirmDialogOptions, confirmRequest, DECLINE_COOLDOWN_MS, ENDPOINT_ENV, INSTALL_PATH, OfficeEngineManager,
+  startOfficeEngineService, STATE_PATH, TOKEN_ENV, type EngineConfirmRequest, type OfficeEngineServiceHandle,
 } from '../src/office-engine-service.ts'
 
 const REQUIREMENT: EngineRequirement = {
@@ -58,7 +58,12 @@ interface Harness {
   installs: InstallSpec[]
   finish: (outcome: InstallOutcome) => void
   log: string[]
+  /** Move the cooldown's clock forward. */
+  advance: (ms: number) => void
 }
+
+/** The cooldown every harness runs with. */
+const COOLDOWN_MS = 30_000
 
 /**
  * Start one service over an injected confirmation and installer. The
@@ -73,6 +78,7 @@ async function start(requirement: RequirementResult = { ok: true, requirement: R
   const log: string[] = []
   let answer = deferred<boolean>()
   let finish = deferred<InstallOutcome>()
+  let clock = 1_000_000
   const manager = new OfficeEngineManager({
     requirement,
     root,
@@ -85,6 +91,8 @@ async function start(requirement: RequirementResult = { ok: true, requirement: R
     },
     log: (line) => { log.push(line) },
     installTimeoutMs: 1000,
+    declineCooldownMs: COOLDOWN_MS,
+    now: () => clock,
     install: async (spec) => {
       installs.push(spec)
       spec.signal.addEventListener('abort', () => { finish.resolve({ ok: false, cancelled: true, reason: 'cancelled' }) })
@@ -99,6 +107,7 @@ async function start(requirement: RequirementResult = { ok: true, requirement: R
     root, manager, handle: service, asked, installs, log,
     answer: (yes) => { answer.resolve(yes) },
     finish: (outcome) => { finish.resolve(outcome) },
+    advance: (ms) => { clock += ms },
   }
 }
 
@@ -139,14 +148,14 @@ describe('the office engine protocol', () => {
     const { handle, root } = await start()
     placeEngine(root)
     expect((await call(handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'installed', version: '0.1.1', downloadBytes: 66_711_287 })
-    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: 'the preview engine is already installed' })
+    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'installed', message: 'the preview component is already installed' } })
   })
 
   it('reports a host with no engine, and refuses every command there', async () => {
     const { handle } = await start({ ok: false, reason: 'no LibreOffice engine is built for linux-x64' })
     expect((await call(handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'unsupported', reason: 'no LibreOffice engine is built for linux-x64' })
-    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: 'no LibreOffice engine is built for linux-x64' })
-    expect((await call(handle, 'POST', CANCEL_PATH)).status).toBe(409)
+    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'unsupported', message: 'no LibreOffice engine is built for linux-x64' } })
+    expect(await call(handle, 'POST', CANCEL_PATH)).toMatchObject({ status: 409, body: { code: 'not-running' } })
   })
 })
 
@@ -158,7 +167,7 @@ describe('a download', () => {
     await settle()
     expect(harness.asked).toEqual([confirmRequest(REQUIREMENT)])
     expect(harness.installs).toEqual([])
-    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: 'a download of the preview engine is already being confirmed or running' })
+    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'confirming', message: 'the download is waiting for the person to confirm it' } })
 
     harness.answer(true)
     await settle()
@@ -168,6 +177,8 @@ describe('a download', () => {
     })
     harness.installs[0]?.onProgress({ transferredBytes: 1234, totalBytes: 5000 })
     expect((await call(handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'installing', transferredBytes: 1234, totalBytes: 5000 })
+
+    expect(await call(handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'installing', message: 'the preview component is already downloading' } })
 
     harness.finish({ ok: true })
     await settle()
@@ -185,13 +196,33 @@ describe('a download', () => {
     expect(readdirSync(harness.root)).toEqual(['0.1.1'])
   })
 
-  it('downloads nothing when the person declines, and can be asked again', async () => {
+  it('downloads nothing when the person declines, and asks again only once the cooldown has passed', async () => {
     const harness = await start()
     await call(harness.handle, 'POST', INSTALL_PATH)
     harness.answer(false)
     await settle()
     expect(harness.installs).toEqual([])
     expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'absent' })
+    expect(await call(harness.handle, 'POST', INSTALL_PATH)).toEqual({
+      status: 409, body: { code: 'declined-recently', message: 'the download was just declined; it can be asked for again in a moment' },
+    })
+    harness.advance(COOLDOWN_MS - 1)
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(409)
+    await settle()
+    expect(harness.asked).toHaveLength(1)
+    harness.advance(1)
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(202)
+    await settle()
+    expect(harness.asked).toHaveLength(2)
+  })
+
+  it('starts no cooldown when the confirmation is accepted, or when a running download is cancelled', async () => {
+    const harness = await start()
+    await call(harness.handle, 'POST', INSTALL_PATH)
+    harness.answer(true)
+    await settle()
+    expect((await call(harness.handle, 'POST', CANCEL_PATH)).status).toBe(202)
+    await settle()
     expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(202)
   })
 
@@ -203,10 +234,13 @@ describe('a download', () => {
       confirm: () => Promise.reject(new Error('no display')),
       log: () => {},
       installTimeoutMs: 1000,
+      declineCooldownMs: COOLDOWN_MS,
     })
     expect(manager.requestInstall()).toBeUndefined()
     await settle()
     expect(manager.snapshot().phase).toBe('absent')
+    // A dialog that never showed was not declined.
+    expect(manager.requestInstall()).toBeUndefined()
   })
 
   it('reports a failure with its reason, and offers the download again', async () => {
@@ -229,9 +263,9 @@ describe('a download', () => {
 
   it('stops on cancel, reports absent rather than failed, and refuses a cancel with nothing running', async () => {
     const harness = await start()
-    expect(await call(harness.handle, 'POST', CANCEL_PATH)).toEqual({ status: 409, body: 'no download of the preview engine is running' })
+    expect(await call(harness.handle, 'POST', CANCEL_PATH)).toEqual({ status: 409, body: { code: 'not-running', message: 'no download of the preview component is running' } })
     await call(harness.handle, 'POST', INSTALL_PATH)
-    expect((await call(harness.handle, 'POST', CANCEL_PATH)).status).toBe(409)
+    expect(await call(harness.handle, 'POST', CANCEL_PATH)).toMatchObject({ status: 409, body: { code: 'not-running' } })
     harness.answer(true)
     await settle()
     expect((await call(harness.handle, 'POST', CANCEL_PATH)).status).toBe(202)
@@ -259,6 +293,21 @@ describe('a download', () => {
     harness.answer(true)
     await settle()
     expect(harness.installs).toEqual([])
+  })
+})
+
+describe('confirmDialogOptions', () => {
+  it('makes the cancelling button the default, and the answer Escape and closing give', () => {
+    const request = confirmRequest(REQUIREMENT)
+    const options = confirmDialogOptions(request)
+    expect(options.buttons).toEqual(['下载', '取消'])
+    expect(options.defaultId).toBe(options.buttons.indexOf(request.cancelLabel))
+    expect(options.cancelId).toBe(options.buttons.indexOf(request.cancelLabel))
+    expect(options).toMatchObject({ type: 'question', title: request.title, message: request.message, detail: request.detail })
+  })
+
+  it('refuses a repeated request for thirty seconds by default', () => {
+    expect(DECLINE_COOLDOWN_MS).toBe(30_000)
   })
 })
 

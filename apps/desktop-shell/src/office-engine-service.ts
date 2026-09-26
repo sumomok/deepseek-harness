@@ -18,16 +18,19 @@
  * | Route | Answer |
  * |---|---|
  * | `GET /state` | `200` — the {@link EngineSnapshot} |
- * | `POST /install` | `202` — the snapshot, now `confirming`; `409` when nothing can be installed or an install is under way |
- * | `POST /cancel` | `202` — the snapshot; `409` when no download is running |
+ * | `POST /install` | `202` — the snapshot, now `confirming`; `409` — an {@link EngineRefusal} |
+ * | `POST /cancel` | `202` — the snapshot; `409` — an {@link EngineRefusal} |
  *
  * Every other path and method is `404`, decided before the token is read. A
  * missing or wrong token is `401`.
  *
  * **Nothing downloads without the person at the keyboard.** `POST /install`
  * puts a native confirmation up and answers at once; the download starts only
- * when the person chooses the confirming button there. A native modal is the
- * one window a page in the app cannot draw over or answer for. A caller names
+ * when the person chooses the confirming button there, which is not the
+ * dialog's default button. A native modal is the one window a page in the app
+ * cannot draw over or answer for. After the person declines, `POST /install`
+ * is refused for {@link DECLINE_COOLDOWN_MS} without asking again, so a page
+ * cannot put the question back up the moment it is answered. A caller names
  * nothing: the package and version are the ones the shipped kit declares, read
  * by the shell, so no request can make this service install anything else.
  * @module @deepseek-ai/dsh-desktop-shell/office-engine-service
@@ -58,6 +61,30 @@ export const CANCEL_PATH = '/cancel'
 
 /** How long one package-manager run may take before it is stopped; a cold download on a slow link is the case it is scaled to. */
 export const INSTALL_TIMEOUT_MS = 30 * 60_000
+
+/** How long `POST /install` is refused after the person declines the confirmation. */
+export const DECLINE_COOLDOWN_MS = 30_000
+
+/**
+ * Why a command was refused, the `code` of a `409` body.
+ *
+ * - `unsupported` — this launch offers no engine.
+ * - `installed` — the engine is already installed.
+ * - `confirming` — the confirmation is on screen.
+ * - `installing` — a download is running.
+ * - `declined-recently` — the person declined the confirmation less than
+ *   {@link DECLINE_COOLDOWN_MS} ago.
+ * - `not-running` — a cancel arrived with no download running.
+ */
+export type EngineRefusalCode = 'unsupported' | 'installed' | 'confirming' | 'installing' | 'declined-recently' | 'not-running'
+
+/** The `409` body: the refusal's code, and a sentence for logs and tooltips. */
+export interface EngineRefusal {
+  /** Why the command was refused. */
+  code: EngineRefusalCode
+  /** The same, as one plain sentence. */
+  message: string
+}
 
 /**
  * Where the engine stands.
@@ -124,8 +151,12 @@ export interface OfficeEngineSpec {
   log: (line: string) => void
   /** Wall-clock budget for one package-manager run. */
   installTimeoutMs: number
+  /** How long `POST /install` is refused after the person declines; {@link DECLINE_COOLDOWN_MS} in production. */
+  declineCooldownMs: number
   /** The installer; {@link installEngine} when omitted. */
   install?: RunInstall
+  /** The clock the cooldown reads; `Date.now` when omitted. */
+  now?: () => number
 }
 
 /**
@@ -144,10 +175,49 @@ export function confirmRequest(requirement: EngineRequirement): EngineConfirmReq
   }
 }
 
+/** The fields of a native message box, as Electron's `showMessageBox` takes them. */
+export interface ConfirmDialogOptions {
+  /** Always `question`. */
+  type: 'question'
+  /** The dialog's title. */
+  title: string
+  /** The question. */
+  message: string
+  /** The line under it. */
+  detail: string
+  /** The button labels, confirming first. */
+  buttons: [string, string]
+  /** The button Return chooses. */
+  defaultId: number
+  /** The answer Escape or closing the dialog gives. */
+  cancelId: number
+}
+
+/**
+ * The native message box for one confirmation. Return, Escape, and closing
+ * the dialog all choose the cancelling button; only choosing the confirming
+ * button downloads.
+ * @param request - what to ask.
+ * @returns the message box fields; the confirming button is index 0.
+ */
+export function confirmDialogOptions(request: EngineConfirmRequest): ConfirmDialogOptions {
+  return {
+    type: 'question',
+    title: request.title,
+    message: request.message,
+    detail: request.detail,
+    buttons: [request.confirmLabel, request.cancelLabel],
+    defaultId: 1,
+    cancelId: 1,
+  }
+}
+
 /** The engine's state machine: what it reports, and the one install it may run at a time. */
 export class OfficeEngineManager {
   private readonly spec: OfficeEngineSpec
   private readonly run: RunInstall
+  private readonly now: () => number
+  private declinedAt: number | undefined
   private phase: 'idle' | 'confirming' | 'installing' = 'idle'
   private failure: string | undefined
   private progress: { transferredBytes: number; totalBytes?: number } | undefined
@@ -161,6 +231,7 @@ export class OfficeEngineManager {
   constructor(spec: OfficeEngineSpec) {
     this.spec = spec
     this.run = spec.install ?? installEngine
+    this.now = spec.now ?? Date.now
   }
 
   /**
@@ -192,13 +263,18 @@ export class OfficeEngineManager {
 
   /**
    * Ask the person, then download. Returns once the question is on screen.
-   * @returns undefined when the confirmation went up, or the sentence the 409 carries.
+   * @returns undefined when the confirmation went up, or the refusal the 409 carries.
    */
-  requestInstall(): string | undefined {
+  requestInstall(): EngineRefusal | undefined {
     const found = this.spec.requirement
-    if (!found.ok) return found.reason
-    if (this.phase !== 'idle') return 'a download of the preview engine is already being confirmed or running'
-    if (engineInstalled(this.spec.root, found.requirement)) return 'the preview engine is already installed'
+    if (!found.ok) return { code: 'unsupported', message: found.reason }
+    if (this.phase === 'confirming') return { code: 'confirming', message: 'the download is waiting for the person to confirm it' }
+    if (this.phase === 'installing') return { code: 'installing', message: 'the preview component is already downloading' }
+    if (engineInstalled(this.spec.root, found.requirement)) return { code: 'installed', message: 'the preview component is already installed' }
+    if (this.declinedAt !== undefined && this.now() - this.declinedAt < this.spec.declineCooldownMs) {
+      return { code: 'declined-recently', message: 'the download was just declined; it can be asked for again in a moment' }
+    }
+    this.declinedAt = undefined
     this.phase = 'confirming'
     this.running = this.confirmThenInstall(found.requirement)
     return undefined
@@ -206,10 +282,10 @@ export class OfficeEngineManager {
 
   /**
    * Stop the running download.
-   * @returns undefined when a download was stopped, or the sentence the 409 carries.
+   * @returns undefined when a download was stopped, or the refusal the 409 carries.
    */
-  cancel(): string | undefined {
-    if (this.phase !== 'installing' || this.controller === undefined) return 'no download of the preview engine is running'
+  cancel(): EngineRefusal | undefined {
+    if (this.phase !== 'installing' || this.controller === undefined) return { code: 'not-running', message: 'no download of the preview component is running' }
     this.controller.abort()
     return undefined
   }
@@ -244,6 +320,7 @@ export class OfficeEngineManager {
     }
     if (!confirmed || this.closed) {
       this.phase = 'idle'
+      if (!confirmed) this.declinedAt = this.now()
       return
     }
     this.phase = 'installing'
@@ -333,7 +410,7 @@ export async function startOfficeEngineService(manager: OfficeEngineManager): Pr
     }
     const refusal = route === 'install' ? manager.requestInstall() : manager.cancel()
     if (refusal !== undefined) {
-      sendText(response, 409, refusal)
+      sendJson(response, 409, refusal)
       return
     }
     sendJson(response, 202, manager.snapshot())
