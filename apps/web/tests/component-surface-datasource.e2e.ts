@@ -78,6 +78,12 @@ const API_PREFIX = '/ini-server'
 /** The stored-scheme endpoint, which a call that names no columns of its own is drawn from. */
 const SCHEME_PATH = `${API_PREFIX}/nrms-schema-manage/api/schema/schema`
 
+/** The signed-in person's rights, which a data-source call reads before it asks anything. */
+const RIGHTS_PATH = `${API_PREFIX}/nrms-auth/api/auth/userinfo`
+
+/** What {@link RIGHTS_PATH} answers: a rights row for `SpaceLayer`, which the default rules take as `read` and `metadata_read`. */
+const USER_INFO = { auth: { resclass: [{ resclassenname: 'SpaceLayer', search: null }], rows: [] } }
+
 /** Base64url, the way a JWT carries a segment. */
 function segment(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
@@ -223,6 +229,10 @@ async function startBackend(): Promise<FakeBackend> {
     }
     if (req.method === 'GET' && path === `${API_PREFIX}/nrms-schema-manage/api/meta/resclass/SpaceLayer`) {
       answer({ code: 0, msg: 'success', data: { resClassEnName: 'SpaceLayer', attributes: ATTRIBUTES } })
+      return
+    }
+    if (req.method === 'GET' && path === RIGHTS_PATH) {
+      answer({ code: 0, msg: 'success', data: USER_INFO })
       return
     }
     if (req.method === 'GET' && path === SCHEME_PATH) {
@@ -382,9 +392,10 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     expect(asked).not.toContain('belong_map_topic')
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-card.png'), fullPage: true })
 
-    // Nothing has been read yet: the question comes before the credential is
-    // spent, and the fake backend has seen no request at all.
-    expect(backend.seen).toEqual([])
+    // No row, dictionary, or scheme has been read yet: the question comes
+    // before the credential is spent on the table. The one request already
+    // made is the rights read that judged whether this person may read it.
+    expect(backend.seen.map(request => request.path)).toEqual([RIGHTS_PATH])
 
     await panel.getByRole('button', { name: 'Allow once' }).click()
 
@@ -407,9 +418,10 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     ).toEqual(['', '名称', '图层id', '所属地图主题'])
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-table.png'), fullPage: true })
 
-    // What went out: the description first, then the read, both under the
-    // deployment's API prefix and both carrying the same bearer value twice.
+    // What went out: the rights, the description, then the read, all under the
+    // deployment's API prefix and all carrying the same bearer value twice.
     expect(backend.seen.map(request => `${request.method} ${request.path}`)).toEqual([
+      `GET ${RIGHTS_PATH}`,
       `GET ${API_PREFIX}/nrms-schema-manage/api/meta/resclass/SpaceLayer`,
       `POST ${API_PREFIX}/nrms-datamanagement/api/resources/SpaceLayer/_search`,
     ])
@@ -467,9 +479,9 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     // The card says the read takes the table's own default columns and names
     // none of them, because nothing has been asked of the backend yet.
     expect(await panel.innerText()).toContain(CARD_DEFAULT_COLUMNS)
-    // Not one request has gone out, the scheme included: the credential is not
-    // spent before the person whose credential it is has answered.
-    expect(backend.seen.slice(beforeTurn)).toEqual([])
+    // Only the rights read has gone out, the scheme not: the credential is not
+    // spent on the table before the person whose credential it is has answered.
+    expect(backend.seen.slice(beforeTurn).map(request => request.path)).toEqual([RIGHTS_PATH])
     expect(backend.seen.map(request => request.path)).not.toContain(SCHEME_PATH)
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-default-card.png'), fullPage: true })
 
