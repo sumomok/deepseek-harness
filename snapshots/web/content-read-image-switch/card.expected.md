@@ -1,20 +1,16 @@
 - region "当前模型看不了图片，换一个能看图的模型吗？":
   - text: 内容区的图
   - heading "当前模型看不了图片，换一个能看图的模型吗？" [level=2]
-  - button "Collapse the question card" [expanded]:
-    - img
-  - button "Dismiss all questions":
-    - img
+  - button "Collapse the question card" [expanded]
+  - button "Dismiss all questions"
   - paragraph: 换过之后，这次对话接下来都用你选的那个模型；你随时可以自己换回来。
   - radiogroup:
-    - radio "DeepSeek：DeepSeek-V4-Flash-Vision-Exp": 1 DeepSeek：DeepSeek-V4-Flash-Vision-Exp
+    - radio "DeepSeek：DeepSeek-V41-Flash": 1 DeepSeek：DeepSeek-V41-Flash
     - radio "先不换": 2 先不换 这次就不看这张图了
     - textbox "Type your answer"
-  - button "Previous question" [disabled]:
-    - img
+  - button "Previous question" [disabled]
   - text: 1 / 1
-  - button "Next question" [disabled]:
-    - img
+  - button "Next question" [disabled]
   - status
-  - button "Skip this question"
+  - button "Skip"
   - button "Submit" [disabled]
