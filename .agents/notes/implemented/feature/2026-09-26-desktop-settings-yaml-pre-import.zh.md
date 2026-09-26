@@ -21,13 +21,15 @@ rc.33 客户端的文件在好几处撞上这两条规则。`agent-presets` 没�
 - **`at-file`** 映射到接替它的两个条目。`enabled: false` 把 `ui-reference` 写成 `disabled: true`。全局忽略列表与 at-file 自己的默认列表不同时,其中的精确名字接在 `file-reference-local` 的 `excludedDirectories` 默认十五个名字之后;空名字和含路径分隔符的名字被删掉,因为该条目的 `validateConfig` 遇到它们会抛错。正则、大小写敏感、按工作区的列表和 `ignorePastedMentions` 没有对应字段,记录后丢弃。然后删掉这一段。
 - **四个插件段**只留下各插件的 volatile 键,而且每个值都要是该插件 schema 接受的值;其余逐键删掉,一个坏值不再拖着整张价格表或整个服务器列表一起失败。允许的键和值检查是壳自己的表;`tests/settings-migration-whitelist.spec.ts` 让它与 vendored 包保持一致。
 - **`llm-deepseek.baseURL`** 的 host 是 `api.deepseek.com` 时,不论路径一律删掉,改用适配器自己的 Messages 地址。其他 host 保留,用户会在载入后的窗口上看到一次对话框,提示这个地址可能需要更换。
-- **重复的审查网关 `- insert:` 行**(权限行退役因为它被改过而保留下来的那种)改写成带同样 config 的按 id 定位的行:网关自己的 bundle 层已经插入了这个 id,再插入一次会让网关的设置页挂不上、`/review` 报错。
+- **重复的审查网关 `- insert:` 行**(权限行退役因为它被改过而保留下来的那种)改写成带同样 config 的按 id 定位的行:网关自己的 bundle 层已经插入了这个 id,再插入一次会让网关的设置页挂不上、`/review` 报错。这一行,以及 `config` 映射里没有 `alwaysAsk` 的每一个按 id 定位的网关行,都补上 `GATEWAY_ALWAYS_ASK`,也就是桌面层那份带 `plugin_manager` 的表,因为这一行的 `config` 会替换桌面层的;有一个用例让这个常量与 `apps/desktop-app/cordis.patch.yml` 保持一致。
 
 壳只对没有 required 字段的目标条目直接写 profile 行(`ui-theme`、`ui-reference`、`file-reference-local`),因为按 id 定位的行会整份替换目标的 `config`。`agent-preset-registry` 要求 `default`,所以这一段走导入器,由它合并到合成后的 config 上。
 
 读写 `settings.yaml` 用的是 `yaml` 2 的 `parseDocument`、`deleteIn` 和 `toString`,与 rc.33 的 settings 文件和导入器是同一个库、同一套 YAML 1.2 core schema,所以不带引号的 `prices.asOf: 2026-09-10`、数字、布尔值和注释都原样保留。profile 的 patch 层按配置编辑器的方式编辑,`!!js` 标量保留为带标签的文本。
 
-`profiles/desktop-shell/settings-migration.json` 记下每个被删掉的值及原因、写了哪些条目、网关行改写前后的原文以及 base URL 的处置。它与 `web-migration.json` 分开:后者是否存在决定 web profile 同步是不是第一次,它的字段 `@haoran/dsh-plugin-updates` 也在读。`state` 从第一处改动之前到最后一处改动之后是 `pending`,然后是 `done`,之后每次启动都整段跳过。第一次运行把文件复制成 `settings.yaml.pre-rc34`,之后从不覆盖;遇到 `pending` 的运行从这份副本重新计算所有改写,已经写好、字段相同的条目算作自己写的。marker 不存在、`settings.yaml` 不存在而 `settings.yaml.imported` 存在时,说明另一个 profile 的服务端先导入过,壳把它复制回来一次,让这个 profile 也导入一遍。`settings.yaml`、它的备份、复制回来的文件、marker 和 patch 层都以 0600 写入,因为这些设置里有 MCP 服务器的环境变量和请求头的值。
+`profiles/desktop-shell/settings-migration.json` 记下每个被删掉的值及原因、写了哪些条目、网关行改写前后的原文以及 base URL 的处置。它与 `web-migration.json` 分开:后者是否存在决定 web profile 同步是不是第一次,它的字段 `@haoran/dsh-plugin-updates` 也在读。`state` 从第一处改动之前到最后一处改动之后是 `pending`,然后是 `done`,之后每次启动都整段跳过,只有下面两处延后的部分除外。第一次运行把文件复制成 `settings.yaml.pre-rc34`,之后从不覆盖;遇到 `pending` 的运行从这份副本重新计算所有改写,已经写好、字段相同的条目算作自己写的。marker 不存在、`settings.yaml` 不存在而 `settings.yaml.imported` 存在时,说明另一个 profile 的服务端先导入过,壳把它复制回来一次,让这个 profile 也导入一遍。`settings.yaml`、它的备份、复制回来的文件、marker 和 patch 层都以 0600 写入,因为这些设置里有 MCP 服务器的环境变量和请求头的值。
+
+有四种启动情形单独处理。运行中途抛错会留下 `pending`,服务端随后导入并改名那份没整理过的文件;下一次运行发现 `settings.yaml` 不在,就从 `settings.yaml.pre-rc34` 写出整理好的副本,如果上次在做备份之前就停了,则从 `settings.yaml.imported` 写,让服务端再导入一遍。导入器把每一段合并进它的条目,所以第一次导入写进条目、而整理时删掉的值会留在那个条目里。base URL 的提示记在 marker 的 `notices` 里,直到窗口显示过、用户关掉它,再由 `acknowledgeSettingsMigrationNotices` 清掉,所以被强制更新闸门拦下、或服务端启动失败的那次启动,会在下一次启动时再提示。存在却读不了的 marker 不当作不存在:它可能代表一次已经完成的运行,所以不从 `settings.yaml.imported` 或 `settings.yaml.pre-rc34` 复制回任何东西,只记一行日志。网关这一步只在 `web-migration.json` 记下 `permissionPatch`、或者根本没有 patch 层时才运行;在那之前 marker 带着 `gatewayDeferred`,其余部分照常运行,之后第一次播种记下退役的启动再运行这一步。改成整段跳过迁移,会让服务端原样导入 rc.33 的文件。
 
 ## Alternatives considered
 

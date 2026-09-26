@@ -36,17 +36,34 @@
  * `config` has no `alwaysAsk`, gets {@link GATEWAY_ALWAYS_ASK}: its `config`
  * replaces the desktop layer's, which is where `plugin_manager` joins the map.
  *
+ * The gateway rows are left alone until the seeding has retired the permission
+ * rows an older build copied into the patch layer (`permissionPatch` in
+ * `web-migration.json`): both steps are one-time, and a seeded gateway row
+ * rewritten or completed first would no longer be the copy the retirement
+ * recognizes. The rest of the run goes ahead, because without it the server
+ * imports `settings.yaml` as an rc.33 client left it; the gateway step waits,
+ * marked `gatewayDeferred`, for the first launch whose seeding has recorded
+ * that retirement.
+ *
  * {@link SETTINGS_MIGRATION_MARKER} records every decision and makes the whole
  * run happen once. It is written `pending` before the first change and `done`
  * after the last; a run that finds `pending` starts over from
- * `settings.yaml.pre-rc34`, the untouched copy the first run made.
+ * `settings.yaml.pre-rc34`, the untouched copy the first run made. A run cut
+ * short leaves the server free to import `settings.yaml` as it stood; the next
+ * run finds the file renamed, and writes the migrated copy from
+ * `settings.yaml.pre-rc34`, or from `settings.yaml.imported` when it stopped
+ * before making that copy, for the server to import again. That import merges
+ * each section into its row, so a value the first import wrote and the
+ * migration drops stays in the row. A marker that exists and cannot be read
+ * restores nothing: it may stand for a finished run, whose import already
+ * happened.
  * @module @deepseek-ai/dsh-desktop-shell/settings-migration
  */
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Document, isMap, isSeq, parseDocument, YAMLMap } from 'yaml'
-import { writeAtomic } from './profile-seed.ts'
+import { MIGRATION_MARKER_FILENAME, readMigrationMarker, writeAtomic } from './profile-seed.ts'
 
 /** The migration's record inside the desktop profile directory; distinct from the sync's `web-migration.json`. */
 export const SETTINGS_MIGRATION_MARKER = 'settings-migration.json'
@@ -85,8 +102,16 @@ export interface DroppedSetting {
 export interface SettingsMigrationMarker {
   /** `pending` from the first change until the last; `done` makes every later launch skip the run. */
   state: 'pending' | 'done'
-  /** True when `settings.yaml` was copied back from `settings.yaml.imported` that another profile's import left. */
+  /**
+   * True when `settings.yaml` was copied back from `settings.yaml.imported`:
+   * another profile's import left it, or this profile's server imported the
+   * file after a run stopped before copying it to `settings.yaml.pre-rc34`.
+   */
   restoredImported?: boolean
+  /** True while the gateway step waits for the seeding to record its permission-row retirement. */
+  gatewayDeferred?: boolean
+  /** The messages for the user that no window has shown yet; cleared by {@link acknowledgeSettingsMigrationNotices}. */
+  notices?: string[]
   /** The duplicate gateway insert row as it stood before the rewrite, and the id-targeted row after it. */
   gatewayRow?: { before: string; after?: string }
   /** The legacy gateway `mode` value, which no build reads any more. */
@@ -273,8 +298,9 @@ export const GATEWAY_ALWAYS_ASK: Readonly<Record<string, string>> = {
 const DEEPSEEK_API_HOST = 'api.deepseek.com'
 
 /**
- * Run the migration once for this Harness home, or return at once when the
- * marker says it is done.
+ * Run the migration once for this Harness home, or, when the marker says it is
+ * done, finish a deferred gateway step and return the notices no window has
+ * shown yet.
  *
  * Never throws: a fault leaves the marker `pending`, so the next launch runs
  * it again, and becomes one log line naming it.
@@ -288,8 +314,47 @@ export function migrateLegacySettings(home: string, profileDir: string): Setting
     runMigration(home, profileDir, report)
   } catch (error) {
     report.lines.push(`settings migration stopped and will run again next launch: ${String(error)}`)
+    // The run that finishes records its own notices; showing these now would show them twice.
+    report.notices.length = 0
   }
   return report
+}
+
+/**
+ * Record that a window has shown every notice the marker holds, so no later
+ * launch shows them again.
+ * @param profileDir - the desktop profile directory, holding the marker.
+ * @throws when the marker cannot be replaced.
+ */
+export function acknowledgeSettingsMigrationNotices(profileDir: string): void {
+  const path = join(profileDir, SETTINGS_MIGRATION_MARKER)
+  const read = readMarker(path)
+  if (read.kind !== 'marker' || read.marker.notices === undefined) return
+  const marker = { ...read.marker }
+  delete marker.notices
+  writeMarker(path, marker)
+}
+
+/** What reading {@link SETTINGS_MIGRATION_MARKER} found. */
+type MarkerRead =
+  | { kind: 'absent' }
+  | { kind: 'corrupt'; detail: string }
+  | { kind: 'marker'; marker: SettingsMigrationMarker }
+
+/**
+ * Read the marker, telling a file that is not there from one that cannot be read.
+ * @param path - the marker path.
+ * @returns what the path holds.
+ */
+function readMarker(path: string): MarkerRead {
+  if (!existsSync(path)) return { kind: 'absent' }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (error) {
+    return { kind: 'corrupt', detail: String(error) }
+  }
+  return isSettingsMigrationMarker(parsed) ? { kind: 'marker', marker: parsed } : { kind: 'corrupt', detail: 'not a settings migration marker' }
 }
 
 /**
@@ -299,14 +364,8 @@ export function migrateLegacySettings(home: string, profileDir: string): Setting
  * @returns the marker.
  */
 export function readSettingsMigrationMarker(path: string): SettingsMigrationMarker | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // Absent or unreadable: either way no run has finished here.
-    return undefined
-  }
-  return isSettingsMigrationMarker(parsed) ? parsed : undefined
+  const read = readMarker(path)
+  return read.kind === 'marker' ? read.marker : undefined
 }
 
 /** Whether parsed JSON holds the fields every marker this module writes carries. */
@@ -323,40 +382,51 @@ function writeMarker(path: string, marker: SettingsMigrationMarker): void {
 /** The body {@link migrateLegacySettings} guards. */
 function runMigration(home: string, profileDir: string, report: SettingsMigrationReport): void {
   const markerPath = join(profileDir, SETTINGS_MIGRATION_MARKER)
-  const previous = readSettingsMigrationMarker(markerPath)
-  if (previous?.state === 'done') return
+  const read = readMarker(markerPath)
+  const previous = read.kind === 'marker' ? read.marker : undefined
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  if (previous?.state === 'done') {
+    report.notices.push(...(previous.notices ?? []))
+    if (previous.gatewayDeferred !== true || !permissionRowsSettled(profileDir, patchPath)) return
+    try {
+      finishDeferredGatewayStep(markerPath, previous, patchPath, report)
+    } catch (error) {
+      report.lines.push(`the deferred llm-permission-gateway step stopped and will run again next launch: ${String(error)}`)
+    }
+    return
+  }
   const settingsPath = join(home, SETTINGS_FILENAME)
   const importedPath = `${settingsPath}${IMPORTED_SUFFIX}`
   const backupPath = `${settingsPath}${BACKUP_SUFFIX}`
-  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
 
   const marker: SettingsMigrationMarker = { state: 'pending', rows: [], dropped: [], skipped: [] }
-  // S5: another profile's import renamed the file before this one ever ran.
-  if (previous === undefined && !existsSync(settingsPath) && existsSync(importedPath)) {
+  if (read.kind === 'corrupt') {
+    report.lines.push(`${SETTINGS_MIGRATION_MARKER} cannot be read (${read.detail}); only a ${SETTINGS_FILENAME} still in place is migrated, and nothing is restored from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} or ${SETTINGS_FILENAME}${BACKUP_SUFFIX}`)
+  }
+  const pending = previous?.state === 'pending'
+  // S5, and a run cut short before its backup: the only original is the file an import renamed.
+  if (!existsSync(settingsPath) && existsSync(importedPath) && (read.kind === 'absent' || (pending && !existsSync(backupPath)))) {
     writeAtomic(settingsPath, readFileSync(importedPath), PRIVATE_FILE_MODE)
     marker.restoredImported = true
     report.lines.push(`restored ${SETTINGS_FILENAME} from ${SETTINGS_FILENAME}${IMPORTED_SUFFIX} for this profile's import`)
   } else if (previous?.restoredImported === true) marker.restoredImported = true
+  // A run cut short after its backup, whose file the server has since imported and renamed.
+  const resumed = pending && !existsSync(settingsPath) && existsSync(backupPath)
+  if (resumed) {
+    report.lines.push(`the server imported ${SETTINGS_FILENAME} before the last run finished; writing the migrated copy from ${SETTINGS_FILENAME}${BACKUP_SUFFIX} for it to import again`)
+  }
 
-  const gatewayBefore = previous?.gatewayRow?.before ?? duplicateGatewayRowText(patchPath)
-  if (gatewayBefore !== undefined) marker.gatewayRow = { before: gatewayBefore }
-  const alwaysAskAdded = previous?.alwaysAskAdded ?? gatewayRowsWithoutAlwaysAsk(patchPath)
-  if (alwaysAskAdded > 0) marker.alwaysAskAdded = alwaysAskAdded
+  const gatewayReady = permissionRowsSettled(profileDir, patchPath)
+  if (gatewayReady) planGatewayStep(patchPath, previous, marker)
+  else {
+    marker.gatewayDeferred = true
+    report.lines.push(`left the llm-permission-gateway rows in ${PROFILE_PATCH_FILENAME} for a launch whose seeding has retired the copied permission rows`)
+  }
   writeMarker(markerPath, marker)
 
-  const hasSettings = existsSync(settingsPath)
-  if (hasSettings && !existsSync(backupPath)) writeAtomic(backupPath, readFileSync(settingsPath), PRIVATE_FILE_MODE)
-
-  const rewritten = rewriteDuplicateGatewayRow(patchPath)
-  if (rewritten !== undefined) {
-    report.lines.push(`rewrote the duplicate llm-permission-gateway insert row in ${PROFILE_PATCH_FILENAME} as an id-targeted row`)
-  }
-  if (addGatewayAlwaysAsk(patchPath) > 0) {
-    report.lines.push(`added the desktop alwaysAsk map to ${String(alwaysAskAdded)} llm-permission-gateway row(s) in ${PROFILE_PATCH_FILENAME}`)
-  }
-  // A run resumed from `pending` finds the row already rewritten.
-  const after = targetedGatewayRowText(patchPath)
-  if (marker.gatewayRow !== undefined && after !== undefined) marker.gatewayRow.after = after
+  const hasSettings = resumed || existsSync(settingsPath)
+  if (existsSync(settingsPath) && !existsSync(backupPath)) writeAtomic(backupPath, readFileSync(settingsPath), PRIVATE_FILE_MODE)
+  if (gatewayReady) applyGatewayStep(patchPath, marker, report)
 
   if (hasSettings) {
     const document = parseDocument(readFileSync(backupPath, 'utf8'))
@@ -375,12 +445,66 @@ function runMigration(home: string, profileDir: string, report: SettingsMigratio
   }
 
   marker.state = 'done'
+  if (report.notices.length > 0) marker.notices = [...report.notices]
   writeMarker(markerPath, marker)
   if (marker.rows.length > 0) report.lines.push(`wrote ${marker.rows.join(', ')} into ${PROFILE_PATCH_FILENAME} from ${SETTINGS_FILENAME}`)
   if (marker.dropped.length > 0) {
     report.lines.push(`dropped ${marker.dropped.map(entry => (entry.key === undefined ? entry.section : `${entry.section}.${entry.key}`)).join(', ')} from ${SETTINGS_FILENAME}; recorded in ${SETTINGS_MIGRATION_MARKER}`)
   }
   for (const line of marker.skipped) report.lines.push(`skipped ${line}`)
+}
+
+/**
+ * Whether the seeding's permission-row retirement, which the gateway step
+ * must follow, has run for this profile: it has recorded `permissionPatch`,
+ * or there is no patch layer for either step to change.
+ * @param profileDir - the desktop profile directory.
+ * @param patchPath - the profile's `cordis.patch.yml`.
+ * @returns true when the gateway step may change the patch layer.
+ */
+function permissionRowsSettled(profileDir: string, patchPath: string): boolean {
+  return !existsSync(patchPath) || readMigrationMarker(join(profileDir, MIGRATION_MARKER_FILENAME))?.permissionPatch !== undefined
+}
+
+/**
+ * Record, before any change, what the gateway step will change: the duplicate
+ * insert row's text and how many rows get {@link GATEWAY_ALWAYS_ASK}. A run
+ * resumed from `pending` keeps what the first run recorded.
+ */
+function planGatewayStep(patchPath: string, previous: SettingsMigrationMarker | undefined, marker: SettingsMigrationMarker): void {
+  const before = previous?.gatewayRow?.before ?? duplicateGatewayRowText(patchPath)
+  if (before !== undefined) marker.gatewayRow = { before }
+  const alwaysAskAdded = previous?.alwaysAskAdded ?? gatewayRowsWithoutAlwaysAsk(patchPath)
+  if (alwaysAskAdded > 0) marker.alwaysAskAdded = alwaysAskAdded
+}
+
+/** S3 and the `alwaysAsk` completion, recording the id-targeted row they leave. */
+function applyGatewayStep(patchPath: string, marker: SettingsMigrationMarker, report: SettingsMigrationReport): void {
+  if (rewriteDuplicateGatewayRow(patchPath) !== undefined) {
+    report.lines.push(`rewrote the duplicate llm-permission-gateway insert row in ${PROFILE_PATCH_FILENAME} as an id-targeted row`)
+  }
+  if (addGatewayAlwaysAsk(patchPath) > 0) {
+    report.lines.push(`added the desktop alwaysAsk map to ${String(marker.alwaysAskAdded ?? 0)} llm-permission-gateway row(s) in ${PROFILE_PATCH_FILENAME}`)
+  }
+  // A run resumed from `pending` finds the row already rewritten.
+  const after = targetedGatewayRowText(patchPath)
+  if (marker.gatewayRow !== undefined && after !== undefined) marker.gatewayRow.after = after
+}
+
+/**
+ * Run the gateway step a finished migration deferred. The plan is written
+ * first, still marked deferred, so a launch that stops partway records what
+ * the first attempt found.
+ */
+function finishDeferredGatewayStep(
+  markerPath: string, previous: SettingsMigrationMarker, patchPath: string, report: SettingsMigrationReport,
+): void {
+  const marker: SettingsMigrationMarker = { ...previous }
+  planGatewayStep(patchPath, previous, marker)
+  writeMarker(markerPath, marker)
+  applyGatewayStep(patchPath, marker, report)
+  delete marker.gatewayDeferred
+  writeMarker(markerPath, marker)
 }
 
 /** A section of the document as plain data, or undefined when it is absent. */

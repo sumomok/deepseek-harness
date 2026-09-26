@@ -36,7 +36,7 @@ import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
-import { migrateLegacySettings } from './settings-migration.ts'
+import { acknowledgeSettingsMigrationNotices, migrateLegacySettings } from './settings-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
@@ -564,6 +564,23 @@ interface BootView {
 }
 
 /**
+ * Show the settings migration's notices on the app window, one after another,
+ * then record them as shown. A window closed before the last one is dismissed
+ * leaves them all in the marker for the next launch.
+ * @param window - the app window, with the served UI loaded.
+ * @param notices - the messages, in order.
+ * @param profileDir - the desktop profile directory, holding the marker.
+ * @returns once the last notice is dismissed and recorded, or the window is gone.
+ */
+async function showSettingsNotices(window: BrowserWindow, notices: readonly string[], profileDir: string): Promise<void> {
+  for (const notice of notices) {
+    if (window.isDestroyed()) return
+    await dialog.showMessageBox(window, { type: 'info', message: notice, buttons: ['知道了'] })
+  }
+  acknowledgeSettingsMigrationNotices(profileDir)
+}
+
+/**
  * Tell the user a download they agreed to did not arrive.
  *
  * Attached to the app's own window, like every other dialog this module puts
@@ -806,12 +823,12 @@ if (!locked) {
         serverModules: spec.builtinModules,
       }))
       if (seeded !== undefined) sink(seeded)
-      // After the seeding, whose permission-row retirement decides which
-      // gateway row is left to rewrite, and before the server whose settings
-      // import this prepares.
-      const settingsMigration = migrateLegacySettings(
-        resolveHarnessHome(), profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE),
-      )
+      // After the seeding, whose permission-row retirement the gateway step
+      // waits for (the migration reads its record, so a seeding that stopped
+      // early defers that step), and before the server whose settings import
+      // this prepares.
+      const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
+      const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
       for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
       // Before the spawn, because the address and token reach the server as
       // environment variables of that child and of nothing else.
@@ -844,10 +861,12 @@ if (!locked) {
       attachSupervision()
       view.showApp(server.authenticatedUrl)
       // Over the loaded app rather than the boot page, so the message sits on
-      // the window it is about; the migration that produced it never repeats.
-      for (const notice of settingsMigration.notices) {
-        if (view.window.isDestroyed()) break
-        void dialog.showMessageBox(view.window, { type: 'info', message: notice, buttons: ['知道了'] })
+      // the window it is about. The marker keeps a notice until it has been
+      // dismissed there, so a launch that never gets this far shows it next time.
+      if (settingsMigration.notices.length > 0) {
+        void showSettingsNotices(view.window, settingsMigration.notices, desktopProfileDir).catch((error: unknown) => {
+          sink(`[desktop] settings migration: could not show or record its notices: ${String(error)}\n`)
+        })
       }
     } catch (error) {
       clearInterval(ticker)
