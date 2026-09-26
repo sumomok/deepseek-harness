@@ -201,7 +201,8 @@ const id = name + '@' + version
 if (mode !== 'no-lockfile') {
   // JSON is YAML; the record is keyed by the spec asked for, as pnpm keys it.
   const recorded = mode === 'bad-integrity' ? 'sha512-' + 'A'.repeat(86) + '==' : integrity
-  writeFileSync(join(process.cwd(), 'pnpm-lock.yaml'), JSON.stringify({ lockfileVersion: '9.0', packages: { [spec]: { resolution: { integrity: recorded } } } }))
+  const key = mode === 'other-record' ? name + '@0.1.0' : spec
+  writeFileSync(join(process.cwd(), 'pnpm-lock.yaml'), JSON.stringify({ lockfileVersion: '9.0', packages: { [key]: { resolution: { integrity: recorded } } } }))
 }
 if (mode === 'fail') {
   process.stderr.write(JSON.stringify({ level: 'error', name: 'pnpm', err: { message: 'GET https://registry.example/x.tgz: Not Found - 404' } }) + '\\n')
@@ -309,14 +310,16 @@ describe('installEngine', () => {
     expect(readdirSync(root)).toEqual([])
   })
 
-  it('refuses a run that left no lockfile to compare, and leaves nothing behind', async () => {
-    const { outcome, root } = await install('no-lockfile')
-    expect(outcome).toEqual({
-      ok: false,
-      cancelled: false,
-      reason: 'the package manager finished, but recorded no integrity for @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1',
-    })
-    expect(readdirSync(root)).toEqual([])
+  it('refuses a run whose lockfile records nothing for the version asked for, and leaves nothing behind', async () => {
+    for (const mode of ['no-lockfile', 'other-record']) {
+      const { outcome, root } = await install(mode)
+      expect(outcome, mode).toEqual({
+        ok: false,
+        cancelled: false,
+        reason: 'the package manager finished, but recorded no integrity for @deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1',
+      })
+      expect(readdirSync(root), mode).toEqual([])
+    }
   })
 
   it('refuses an engine missing its manifest or its executable, or of another version, and leaves nothing behind', async () => {
