@@ -36,7 +36,8 @@
  * slot would leave every such registration unrun and unchecked. The document
  * preview's `documentPreviews` registry is the preview package's own class,
  * provided the way that package's apply provides it, without the rest of that
- * package. A registration runs inside a child fiber whose failure
+ * package; the whole-set case also runs that package's own Office
+ * registration, the built-in renderer a vendored Office half has to outrank. A registration runs inside a child fiber whose failure
  * the fiber only logs, so every case also fails on an error-level log.
  *
  * The HTML `__ModuleLoader__` facade is rebuilt here as a plain object instead
@@ -65,6 +66,8 @@ import * as inputTriggerClient from '@deepseek-ai/dsh-client-ui-input-trigger/cl
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { documentTabInfoFactory } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/contract.ts'
 import { DocumentPreviewRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/document/registry.ts'
+import { apply as registerOffice } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/client/office/index.ts'
+import { Config as DocumentPreviewConfig } from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/src/config.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 // The deploy root whose `node_modules` becomes the payload's server closure:
@@ -402,6 +405,11 @@ describe('vendored built-in client halves', () => {
     const mounted = await page()
     open = mounted
     mounted.runtime.ctx.provide('modules', modules as never)
+    // The preview package's own Office renderer, registered the way its apply registers it.
+    await mounted.mount({
+      name: 'builtin-office', inject: ['documentPreviews', 'locale', 'slots'],
+      apply: (ctx: Context) => { registerOffice(ctx, DocumentPreviewConfig({ office: {}, excel: {} }).office) },
+    } as never)
     for (const row of ROWS) {
       await mounted.mount(await modules.import(row.id) as never)
     }
@@ -415,10 +423,12 @@ describe('vendored built-in client halves', () => {
     ])
     // `language` is the locale runtime's own row, which the page mounts.
     expect(registered(mounted, 'settings.general.item')).toEqual(['auto-compact', 'language'])
-    // The Office notice: its preview entry, and its body under the same id.
+    // The Office notice: its preview entry, ranked ahead of the built-in Office
+    // renderer for the same suffixes, and its body under the same id.
     const notice = '@haoran/dsh-office-preview-notice/notice'
-    expect(mounted.previews.getSnapshot().map(definition => definition.id)).toEqual([notice])
-    expect(mounted.previews.candidates('reports/Q3.docx').map(definition => definition.id)).toEqual([notice])
-    expect(mounted.runtime.slots.entries('sidebar.right.tab.document').map(entry => entry.options.key)).toEqual([notice])
+    const office = '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/office'
+    expect(mounted.previews.getSnapshot().map(definition => definition.id)).toEqual([office, notice])
+    expect(mounted.previews.candidates('reports/Q3.docx').map(definition => definition.id)).toEqual([notice, office])
+    expect(mounted.runtime.slots.entries('sidebar.right.tab.document').map(entry => entry.options.key)).toEqual([office, notice])
   })
 })
