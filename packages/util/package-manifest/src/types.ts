@@ -75,6 +75,11 @@ export interface DshBundleManifest {
 export interface DshProfileManifest {
   /** Ordered bundle layer list, using installed package names. */
   bundles?: string[]
+  /**
+   * Bundle names the application that launches this profile supplies from its own payload, written by that
+   * launcher. The plugin manager lists each one whether or not `bundles` selects it and never offers to remove it.
+   */
+  shipped?: string[]
 }
 
 /** Client module declaration read by client-modules and the client build. */

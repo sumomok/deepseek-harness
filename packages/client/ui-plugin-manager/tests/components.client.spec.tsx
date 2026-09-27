@@ -33,6 +33,7 @@ function pkg(overrides: Partial<PackageView> = {}): PackageView {
     version: '0.16.0',
     installed: true,
     optional: false,
+    shipped: false,
     enabled: true,
     rows: [],
     ...overrides,
@@ -288,6 +289,32 @@ describe('PluginManagerPage', () => {
       '@deepseek-ai/dsh-experimental-agent-team-profile', '@acme/dsh-base', 'dsh-better-sidebar',
     ])
     expect([...document.querySelectorAll('[data-plugin-count]')].map(count => count.textContent)).toEqual(['1', '2'])
+  })
+
+  it('lists the bundles the launching application ships among the installed ones, tagged built-in, on or off', () => {
+    const { actions } = renderTab({
+      packages: [
+        pkg({ name: '@haoran/dsh-screenshot', version: '0.6.0', installed: false, shipped: true }),
+        pkg({ name: '@sumomok/dsh-balance', version: '0.6.1', installed: false, shipped: true, enabled: false }),
+        // A selected layer the launcher does not name as shipped stays off the page, as before.
+        pkg({ name: '@acme/dsh-composition', installed: false }),
+        pkg({ name: 'dsh-better-sidebar' }),
+      ],
+    })
+    const group = document.querySelector('[data-plugin-group="bundles"]') as HTMLElement
+    expect(within(group).getAllByRole('listitem').map(card => card.getAttribute('data-plugin-package'))).toEqual([
+      '@haoran/dsh-screenshot', '@sumomok/dsh-balance', 'dsh-better-sidebar',
+    ])
+    expect(within(group).getAllByRole('listitem').map(card => card.getAttribute('data-plugin-status'))).toEqual(['running', 'disabled', 'running'])
+    expect(within(group).getAllByText(en.statusShipped)).toHaveLength(2)
+    fireEvent.click(screen.getByRole('switch', { name: en.enableToggle.replace('{name}', '@sumomok/dsh-balance') }))
+    expect(actions.setEnabled).toHaveBeenCalledExactlyOnceWith('@sumomok/dsh-balance', true)
+    // Its page carries the tag and the version and offers no uninstall.
+    fireEvent.click(screen.getByRole('button', { name: en.openDetail.replace('{name}', '@haoran/dsh-screenshot') }))
+    const detail = document.querySelector('[data-plugin-detail]') as HTMLElement
+    expect(within(detail).getByText(en.statusShipped)).toBeTruthy()
+    expect(within(detail).getByText(en.versionTag.replace('{version}', '0.6.0'))).toBeTruthy()
+    expect(within(detail).queryByRole('button', { name: en.uninstallLabel.replace('{name}', '@haoran/dsh-screenshot') })).toBeNull()
   })
 
   it.each([false, true])('shows an empty list for built-in bundles with errors and installed=%s', (installed) => {
@@ -718,7 +745,7 @@ describe('PluginManagerPage', () => {
     })
 
     it('leaves the version out of a bundle the Host reports none for', () => {
-      const unversioned: PackageView = { name: 'dsh-better-sidebar', installed: true, optional: false, enabled: true, rows: [] }
+      const unversioned: PackageView = { name: 'dsh-better-sidebar', installed: true, optional: false, shipped: false, enabled: true, rows: [] }
       renderTab({ packages: [unversioned] }, {}, bodies)
       fireEvent.click(screen.getByRole('button', { name: en.openDetail.replace('{name}', 'dsh-better-sidebar') }))
       expect(subjects.at(-1)).toEqual({ kind: 'bundle', pkg: { name: 'dsh-better-sidebar', installed: true, enabled: true, rows: [] } })

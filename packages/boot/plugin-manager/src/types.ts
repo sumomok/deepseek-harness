@@ -60,6 +60,11 @@ export interface BundleInfo {
    * held by the installation's dependencies, selected by no shipped template, and never removable.
    */
   optional: boolean
+  /**
+   * Whether the profile manifest's `dsh.profile.shipped` names the bundle: supplied from the payload of the application
+   * that launches the profile, listed while switched off, and never removable.
+   */
+  shipped: boolean
   removable: boolean
   readOnlyReason?: ReadOnlyReason
   error?: ManagementError
