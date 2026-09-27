@@ -153,8 +153,8 @@ vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit)
     answersRead += 1
     return response
   }
-  const json = response.json.bind(response)
-  response.json = async () => {
+  const json: () => Promise<unknown> = response.json.bind(response)
+  response.json = async (): Promise<unknown> => {
     try {
       return await json()
     } finally {
