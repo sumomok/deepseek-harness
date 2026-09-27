@@ -34,6 +34,7 @@
     // builtins only and therefore belongs to neither Context face.
     "apps/desktop-shell/tests/**/*.client.spec.ts",
     "apps/desktop-shell/src/profile-seed.ts",
+    "apps/desktop-shell/src/link-target.ts",
     // Client package outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
