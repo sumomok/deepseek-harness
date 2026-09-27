@@ -225,9 +225,10 @@ describe('verifyTree', () => {
     await copyTree(req)
     const link = join(req.dest, 'profiles', 'desktop-shell', 'node_modules', 'clsx')
     unlinkSync(link)
-    symlinkSync(join(fixture.home, 'profiles'), link)
+    // Dangling: nothing on disk to resolve, so only the text shows where it points.
+    symlinkSync(join(fixture.home, 'gone'), link)
     expect((await verifyTree(check(fixture, 'none'))).problems).toContainEqual({
-      kind: 'link-into-old-root', rel: 'profiles/desktop-shell/node_modules/clsx', resolved: join(fixture.home, 'profiles'),
+      kind: 'link-into-old-root', rel: 'profiles/desktop-shell/node_modules/clsx', resolved: join(fixture.home, 'gone'),
     })
     const alias = join(fixture.root, 'alias')
     symlinkSync(fixture.home, alias)
