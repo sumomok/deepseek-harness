@@ -17,8 +17,12 @@
  *   rebind, whole-app relaunch, or the stop dialog — then starts from a state
  *   where no launch asks for the dead port and no request carries a cookie.
  * - A crash rebind starts on a port the system picks.
- * - A quit removes the cookies with a short bound, then stops the server; the
- *   stop is sent whether or not the removal finished.
+ * - A quit first records that the stop is intentional, for the crash-resume
+ *   plugin ([[@deepseek-ai/dsh-desktop-shell/crash-resume-sentinel]]), then
+ *   removes the cookies with a short bound, then stops the server; the stop is
+ *   sent whether or not the removal finished. The stop a mandatory update
+ *   forces at launch records the same first. An unexpected exit records
+ *   nothing.
  * - Reopening the window while quitting does nothing, so no new token
  *   exchange issues a cookie for a server about to be gone.
  * - An install that failed after the quit began undoes the quit: it clears
@@ -96,6 +100,8 @@ export async function rebindOnNewPort(
 
 /** What a quit's server stop needs. */
 export interface StopHooks {
+  /** Record, synchronously, that the coming stop is intentional; never throws. */
+  markIntentional: () => void
   /** Terminate the server; resolves once it exited. */
   stop: () => Promise<void>
   /** Remove the served UI's sign-in cookies. */
@@ -107,14 +113,15 @@ export interface StopHooks {
 }
 
 /**
- * Stop the server for a quit: remove the cookies, waiting at most
- * [[COOKIE_CLEAR_BOUND_MS]] for that, then send the stop and wait at most
- * `timeoutMs` for it. A removal that fails or never answers delays the stop by
- * the bound and does not prevent it.
+ * Stop the server for a quit: record that the stop is intentional, remove the
+ * cookies, waiting at most [[COOKIE_CLEAR_BOUND_MS]] for that, then send the
+ * stop and wait at most `timeoutMs` for it. A removal that fails or never
+ * answers delays the stop by the bound and does not prevent it.
  * @param hooks - the effects and the stop deadline.
  * @returns `stopped`, or `timeout` when the stop did not finish in time.
  */
 export async function stopForQuit(hooks: StopHooks): Promise<'stopped' | 'timeout'> {
+  hooks.markIntentional()
   if (await bounded(hooks.clearCookies(), COOKIE_CLEAR_BOUND_MS) === 'timeout') {
     hooks.log(`[desktop] cookie removal did not finish within ${String(COOKIE_CLEAR_BOUND_MS)}ms; stopping the server anyway\n`)
   }
@@ -124,6 +131,25 @@ export async function stopForQuit(hooks: StopHooks): Promise<'stopped' | 'timeou
     return 'timeout'
   }
   return 'stopped'
+}
+
+/** What the stop a mandatory update forces at launch needs. */
+export interface UpdateStopHooks {
+  /** Record, synchronously, that the coming stop is intentional; never throws. */
+  markIntentional: () => void
+  /** Terminate the server; resolves once it exited. */
+  stop: () => Promise<void>
+}
+
+/**
+ * Stop the server a launch started because a mandatory update blocks the app:
+ * record that the stop is intentional, then stop it.
+ * @param hooks - the effects.
+ * @returns once the server exited.
+ */
+export async function stopForMandatoryUpdate(hooks: UpdateStopHooks): Promise<void> {
+  hooks.markIntentional()
+  await hooks.stop()
 }
 
 /** What bringing the app to the front needs. */

@@ -29,6 +29,7 @@ import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
+import { writeIntentionalStop } from './crash-resume-sentinel.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
@@ -51,7 +52,9 @@ import {
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, isPortFree, startOnPort } from './server-port.ts'
-import { rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForQuit } from './server-lifecycle.ts'
+import {
+  rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate, stopForQuit,
+} from './server-lifecycle.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -186,15 +189,19 @@ const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
 /**
  * Stop the server for a quit, giving up after `STOP_TIMEOUT_MS`. The caller
  * exits either way; a stop that timed out leaves an orphan for the next launch
- * to sweep, which is recoverable, while waiting forever is not. The sign-in
- * cookies are removed first, within a short bound
+ * to sweep, which is recoverable, while waiting forever is not. The
+ * intentional-stop sentinel is written first, and the sign-in cookies are
+ * removed within a short bound before the stop
  * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  * @returns resolves when the server stopped or the deadline passed.
  */
 async function stopServerBounded(): Promise<void> {
   const handle = server
   if (handle === undefined) return
-  await stopForQuit({ stop: handle.stop, clearCookies: clearAuthCookies, log: logLine, timeoutMs: STOP_TIMEOUT_MS })
+  await stopForQuit({
+    markIntentional: () => { writeIntentionalStop(resolveHarnessHome(), 'quit', logLine) },
+    stop: handle.stop, clearCookies: clearAuthCookies, log: logLine, timeoutMs: STOP_TIMEOUT_MS,
+  })
 }
 
 /**
@@ -842,7 +849,10 @@ if (!locked) {
         // server goes down with it, so nothing here is usable until the
         // update the updater is now driving has been installed.
         sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await server.stop()
+        await stopForMandatoryUpdate({
+          markIntentional: () => { writeIntentionalStop(resolveHarnessHome(), 'update', sink) },
+          stop: server.stop,
+        })
         server = undefined
         return
       }

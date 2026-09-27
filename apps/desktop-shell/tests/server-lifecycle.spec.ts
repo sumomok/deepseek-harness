@@ -7,14 +7,36 @@
  * @module
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SENTINEL_DIRECTORY, SENTINEL_FILE, writeIntentionalStop } from '../src/crash-resume-sentinel.ts'
 import {
-  COOKIE_CLEAR_BOUND_MS, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForQuit,
+  COOKIE_CLEAR_BOUND_MS, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
+  stopForQuit,
 } from '../src/server-lifecycle.ts'
 import type { ServerHandle, ServerSpec } from '../src/server.ts'
 
-afterEach(() => { vi.useRealTimers() })
+let home: string | undefined
+
+afterEach(() => {
+  vi.useRealTimers()
+  if (home !== undefined) rmSync(home, { recursive: true, force: true })
+  home = undefined
+})
+
+/**
+ * A fresh Harness home under the system temporary directory, and where the
+ * sentinel would land in it.
+ * @returns the home and the sentinel path.
+ */
+function sentinelHome(): { home: string; sentinel: string } {
+  const created = mkdtempSync(join(tmpdir(), 'dsh-lifecycle-'))
+  expect(created.startsWith(tmpdir())).toBe(true)
+  home = created
+  return { home: created, sentinel: join(created, SENTINEL_DIRECTORY, SENTINEL_FILE) }
+}
 
 /** A removal that never settles, as a cookie store that stopped answering. */
 const never = (): Promise<never> => new Promise(() => {})
@@ -72,12 +94,13 @@ describe('stopForQuit', () => {
   it('removes the cookies, then sends the stop', async () => {
     const steps: string[] = []
     const outcome = await stopForQuit({
+      markIntentional: () => { steps.push('marked') },
       clearCookies: async () => { await Promise.resolve(); steps.push('cleared') },
       stop: async () => { steps.push('stop') },
       log: () => {},
       timeoutMs: 1_000,
     })
-    expect(steps).toEqual(['cleared', 'stop'])
+    expect(steps).toEqual(['marked', 'cleared', 'stop'])
     expect(outcome).toBe('stopped')
   })
 
@@ -86,7 +109,8 @@ describe('stopForQuit', () => {
     let stopped = false
     const lines: string[] = []
     const done = stopForQuit({
-      clearCookies: never, stop: async () => { stopped = true }, log: (line) => { lines.push(line) }, timeoutMs: 1_000,
+      markIntentional: () => {}, clearCookies: never, stop: async () => { stopped = true },
+      log: (line) => { lines.push(line) }, timeoutMs: 1_000,
     })
     await vi.advanceTimersByTimeAsync(COOKIE_CLEAR_BOUND_MS - 1)
     expect(stopped).toBe(false)
@@ -98,17 +122,45 @@ describe('stopForQuit', () => {
 
   it('sends the stop after a removal that failed', async () => {
     let stopped = false
-    await stopForQuit({ clearCookies: async () => { throw new Error('store gone') }, stop: async () => { stopped = true }, log: () => {}, timeoutMs: 1_000 })
+    await stopForQuit({ markIntentional: () => {}, clearCookies: async () => { throw new Error('store gone') }, stop: async () => { stopped = true }, log: () => {}, timeoutMs: 1_000 })
     expect(stopped).toBe(true)
   })
 
   it('gives up on a stop that outlasts the deadline', async () => {
     vi.useFakeTimers()
     const lines: string[] = []
-    const done = stopForQuit({ clearCookies: async () => {}, stop: never, log: (line) => { lines.push(line) }, timeoutMs: 1_000 })
+    const done = stopForQuit({
+      markIntentional: () => {}, clearCookies: async () => {}, stop: never, log: (line) => { lines.push(line) }, timeoutMs: 1_000,
+    })
     await vi.advanceTimersByTimeAsync(1_000)
     expect(await done).toBe('timeout')
     expect(lines.join('')).toContain('did not stop within 1000ms')
+  })
+
+  it('has the sentinel on disk by the time the stop is sent', async () => {
+    const { home: target, sentinel } = sentinelHome()
+    let presentAtStop = false
+    await stopForQuit({
+      markIntentional: () => { writeIntentionalStop(target, 'quit', () => {}) },
+      clearCookies: async () => {},
+      stop: async () => { presentAtStop = existsSync(sentinel) },
+      log: () => {},
+      timeoutMs: 1_000,
+    })
+    expect(presentAtStop).toBe(true)
+  })
+})
+
+describe('stopForMandatoryUpdate', () => {
+  it('has the sentinel on disk by the time the stop is sent', async () => {
+    const { home: target, sentinel } = sentinelHome()
+    let presentAtStop = false
+    await stopForMandatoryUpdate({
+      markIntentional: () => { writeIntentionalStop(target, 'update', () => {}) },
+      stop: async () => { presentAtStop = existsSync(sentinel) },
+    })
+    expect(presentAtStop).toBe(true)
+    expect(JSON.parse(readFileSync(sentinel, 'utf8'))).toMatchObject({ by: 'shell', reason: 'update' })
   })
 })
 
@@ -174,12 +226,31 @@ describe('main.ts', () => {
     expect(body('handleUnexpectedServerExit')).toMatch(/respondToCrash\(\{\s+forgetPort: forgetServerPort,\s+clearCookies: clearAuthCookies,/u)
     expect(body('handleUnexpectedServerExit')).toContain('ladder: () => runRecoveryLadder(')
     expect(body('performRebind')).toContain('await rebindOnNewPort(spec, startEmbeddedServer, logLine)')
-    expect(body('stopServerBounded')).toContain('await stopForQuit({ stop: handle.stop, clearCookies: clearAuthCookies,')
+    expect(body('stopServerBounded')).toMatch(/await stopForQuit\(\{\s+markIntentional: .+\n\s+stop: handle\.stop, clearCookies: clearAuthCookies,/u)
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([
       'resumeAfterFailedInstall: \\(blocking: boolean\\) => resumeAfterFailedInstall\\(\\{\\s+blocking,',
       '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
     ].join(''), 'u'))
     expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
+  })
+
+  it('writes the intentional-stop sentinel before a quit\'s stop and the mandatory-update stop, and nowhere else', () => {
+    expect(body('stopServerBounded')).toMatch(/stopForQuit\(\{\s+markIntentional: \(\) => \{ writeIntentionalStop\(resolveHarnessHome\(\), 'quit', logLine\) \},/u)
+    expect(source).toMatch(new RegExp([
+      'await stopForMandatoryUpdate\\(\\{\\s+markIntentional: \\(\\) => \\{ writeIntentionalStop\\(resolveHarnessHome\\(\\), \'update\', sink\\) \\},',
+      '\\s+stop: server\\.stop,',
+    ].join(''), 'u'))
+    expect(source.match(/writeIntentionalStop\(/gu)).toHaveLength(2)
+    // The server's own stop paths: the startup-timeout kill and the orphan sweep.
+    expect(readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')).not.toContain('crash-resume-sentinel')
+  })
+})
+
+describe('an unexpected exit', () => {
+  it('leaves no sentinel, so the next start continues the interrupted turns', async () => {
+    const { sentinel } = sentinelHome()
+    await respondToCrash({ forgetPort: () => {}, clearCookies: async () => {}, ladder: async () => 'relaunch', log: () => {} })
+    expect(existsSync(sentinel)).toBe(false)
   })
 })

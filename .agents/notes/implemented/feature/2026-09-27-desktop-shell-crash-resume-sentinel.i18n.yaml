@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-shell-crash-resume-sentinel.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-shell-crash-resume-sentinel.md
+/agent-note-desktop-shell-the-intentional-stop-sentinel-for-crash-resume:
+  en: 582358f95ca765fe
+  zh: 352fd87781f5e74b
+/agent-note-desktop-shell-the-intentional-stop-sentinel-for-crash-resume/problem:
+  en: 58891afe2eaf32b6
+  zh: b2ea58c784c3264a
+/agent-note-desktop-shell-the-intentional-stop-sentinel-for-crash-resume/decision:
+  en: 86ffeb15ca42f978
+  zh: b313099fd3e536a0
+/agent-note-desktop-shell-the-intentional-stop-sentinel-for-crash-resume/alternatives-considered:
+  en: 30b425c70999dc8c
+  zh: d3d88e7a1b076f52
+/agent-note-desktop-shell-the-intentional-stop-sentinel-for-crash-resume/consequences:
+  en: c9a3a7ccdb2efea4
+  zh: f263167cf258a769
