@@ -7,11 +7,14 @@
  * @module
  */
 
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DataId } from '../src/data-location.ts'
-import { moveDir, type MoveStart } from '../src/move/journal.ts'
-import { nodeMoveEffects, readHomeLinkBefore, readPointerFiles, type MoveEffects } from '../src/move/run.ts'
+import { calibrateHomeLink } from '../src/home-link.ts'
+import { moveDir, readJournal, type MoveStart } from '../src/move/journal.ts'
+import {
+  advanceMove, nodeMoveEffects, readHomeLinkBefore, readPointerFiles, recordHealth, type MoveEffects,
+} from '../src/move/run.ts'
 import type { ExplicitRead } from '../src/terminal-env.ts'
 
 /** Identity written into the fixture home's marker (same as the fixture's). */
@@ -109,4 +112,39 @@ export function harnessEffects(setup: MoveSetup): MoveEffects {
  */
 export function terminalValue(setup: MoveSetup): string {
   return readFileSync(setup.terminalFile, 'utf8')
+}
+
+/**
+ * Drive a started move to its end the way the application does: advance, and
+ * on `switched` point `~/.dsh` at the target (the next launch's calibration)
+ * and record the health check, then advance again.
+ * @param setup - the move.
+ * @param target - the target directory.
+ * @param healthy - the health check's verdict.
+ * @param effects - the effects.
+ * @param event - called after the calibration and after the health record, for the crash child's numbering.
+ * @returns how the move ended, or `none` when no move was recorded.
+ */
+export async function driveMove(
+  setup: MoveSetup, target: string, healthy: boolean, effects: MoveEffects, event: (label: string) => void = () => {},
+): Promise<string> {
+  const { dir } = setup
+  if (!readdirSync(dir).includes('journal.json')) return 'none'
+  for (;;) {
+    const outcome = await advanceMove(dir, effects, { pid: process.pid })
+    switch (outcome.kind) {
+      case 'switched':
+        calibrateHomeLink({ defaultHome: setup.defaultHome, dataHome: target, dataId: HARNESS_ID, platform: process.platform })
+        event('calibrateHomeLink')
+        if (readJournal(dir)?.phase === 'switched') recordHealth(dir, healthy, 'health check failed in the test')
+        event('recordHealth')
+        break
+      case 'cleanup-incomplete':
+        break
+      case 'ended':
+        return outcome.result.outcome
+      default:
+        return outcome satisfies never
+    }
+  }
 }
