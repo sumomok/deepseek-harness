@@ -132,8 +132,15 @@ export const MOVE_MARKERS: readonly string[] = [
   DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME, GENERATION_FILENAME, LOCK_FILENAME,
 ]
 
+/**
+ * The markers and their AppleDouble companions (`._<marker>`), which macOS
+ * writes beside a file on a file system without extended attributes (exFAT,
+ * FAT, SMB): what a move neither copies, prints, nor checks.
+ */
+export const MOVE_MARKER_ENTRIES: readonly string[] = [...MOVE_MARKERS, ...MOVE_MARKERS.map(name => `._${name}`)]
+
 /** What a print of the target leaves out: what the server rebuilds, and the markers. */
-export const PRINT_EXCLUDE: readonly string[] = [...REBUILDABLE_ENTRIES, ...MOVE_MARKERS]
+export const PRINT_EXCLUDE: readonly string[] = [...REBUILDABLE_ENTRIES, ...MOVE_MARKER_ENTRIES]
 
 /**
  * The target's print now.
@@ -496,7 +503,7 @@ export function copyRequestOf(journal: MoveJournal, dir: string, platform: NodeJ
   return {
     source: journal.source,
     dest: journal.partial,
-    exclude: [...REBUILDABLE_ENTRIES, ...MOVE_MARKERS],
+    exclude: [...REBUILDABLE_ENTRIES, ...MOVE_MARKER_ENTRIES],
     links: linkMoveOf(journal, platform),
     doneLog: join(dir, DONE_LOG_FILENAME),
   }

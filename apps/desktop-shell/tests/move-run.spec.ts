@@ -28,6 +28,7 @@ import {
   rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
+import { LOCK_FILENAME } from '../src/move/lock.ts'
 import { keptFolderName } from '../src/move/names.ts'
 import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
@@ -728,6 +729,17 @@ describe('a directory a terminal made at the old path', () => {
     expect(resolveBlocked(setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
     await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
     expect(readAbandonedCopies(setup.dir).map(copy => copy.path)).toEqual([join(realpathSync(f.targetParent), 'DSH-Data')])
+  })
+
+  posixOnly('never copies, prints, or checks the AppleDouble companions of the markers', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    for (const name of [`._${LOCK_FILENAME}`, '._.dsh-data-id']) writeFileSync(join(s.f.home, name), 'apple double')
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    expect(readdirSync(s.target).filter(name => name.startsWith('._'))).toEqual([])
+    const fs = nodeMoveFs(() => undefined)
+    const before = fs.fingerprint(s.target, PRINT_EXCLUDE)
+    writeFileSync(join(s.target, `._${GENERATION_FILENAME}`), 'apple double')
+    expect(fs.fingerprint(s.target, PRINT_EXCLUDE)).toBe(before)
   })
 
   it('never copies or prints the generation file: the copy gets its own number', () => {
