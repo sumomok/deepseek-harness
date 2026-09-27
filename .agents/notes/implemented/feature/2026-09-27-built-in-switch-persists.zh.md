@@ -36,4 +36,4 @@ Status: implemented
 
 - 重新打开的内置插件在下一次启动重排清单之前，排在组合层之后运行。
 - 某个构建没带的内置插件会从记录里掉出去，之后重新带上它的构建会把它以打开状态加回来。
-- `launcher-shipped-bundles` 并入 `develop` 之前，这份记录没有读者，插件页不显示内置插件的卡片。
+- 本改动不能在没有核心补丁 `launcher-shipped-bundles` 的发版里单独发出。没有它时插件页不列任何内置插件，而 `plugin_manager` 的 `set_bundle` 带 `enabled: false` 仍能关掉一个；本改动随后每次启动都让它保持关闭，界面上没有任何入口能再打开它。先经 `core-patches` 把 `launcher-shipped-bundles` 并入 `develop`，或与本改动同一次发版。

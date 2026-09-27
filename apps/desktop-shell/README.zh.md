@@ -382,6 +382,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 上游的插件页没有逐包更新的操作,也没有撤回。经 `web` profile 来的插件用 `dsh plugin --profile web add <包>@latest` 更新,借同步维护的那条链接到达桌面。
 - 壳停用或打了墓碑的迁移插件,只在 `dsh-server.log` 里被点名一次,界面上哪里都没有。
 - 只有网关组合出来的 `config` 里带着桌面层的 `alwaysAsk` 时,`plugin_manager` 才会交给人。profile 自己的补丁层里 `config` 自带 `alwaysAsk` 的网关行会替换这张表,`src/settings-migration.ts` 对这样的行原样不动。
+- 关掉的内置插件保持关闭,依赖核心补丁 `launcher-shipped-bundles` 让插件页列出内置插件。没有这个补丁的构建不列任何内置插件,而 `plugin_manager` 的 `set_bundle` 带 `enabled: false` 仍能关掉一个,那个内置插件随后一直关着,界面上没有入口能再打开;两者必须一起发。
 - 在插件页重新打开的内置插件会追加在组合层之后,所以组合层针对它的那些行要到下一次启动把组合层挪到它之后才生效。
 - 某个构建没带某个内置插件时,它会从 `dsh.profile.shipped` 里掉出去;之后重新带上它的构建会把它以打开状态加回来,即使用户之前关掉过它。
 - Windows 的语音输入运行时只打了包、核对了在不在。`sherpa-onnx.node` 能不能在 `sherpa-onnx-win-x64` 里找到它的 DLL,要在真实 Windows 机器上录一次音才知道。

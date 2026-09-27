@@ -36,4 +36,4 @@ Migration: a profile seeded by an earlier build has no record. Its missing built
 
 - A built-in switched back on runs after the composition layer until the next launch reorders the list.
 - A built-in that one build does not carry drops out of the record, and the next build that carries it adds it back switched on.
-- Until `launcher-shipped-bundles` reaches `develop`, the record has no reader and the Plugins page shows no built-in card.
+- This change must not ship in a release without the core patch `launcher-shipped-bundles`. Without it the Plugins page lists no built-in, while `plugin_manager` `set_bundle` with `enabled: false` still switches one off; this change then keeps it off on every launch, and nothing on screen can switch it back on. Merge `launcher-shipped-bundles` into `develop` through `core-patches` first, or in the same release.
