@@ -55,7 +55,7 @@ import {
   type MoveJournal, type MovePhase, type MoveResult, type MoveStart, type PointerBefore, type TargetPrint,
 } from './journal.ts'
 import { rewriteInPlace, type InPlaceRewrite, type LinkMove, type RewriteOutcome } from './links.ts'
-import { REMOVE_ATTEMPTS, REMOVE_FIRST_DELAY_MS, removeTree, type RemoveReport } from './remove.ts'
+import { NODE_REMOVE_FS, REMOVE_ATTEMPTS, REMOVE_FIRST_DELAY_MS, removeTree, type RemoveFs, type RemoveReport } from './remove.ts'
 import { keptFolderName, type KeptFolderKind, type NameLocale } from './names.ts'
 import { fingerprintTree, isIgnorableName, meaningfulNames, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES, scanTree } from './tree.ts'
 import { verifyTree, type VerifyProblem, type VerifyRequest } from './verify.ts'
@@ -1015,10 +1015,29 @@ export function restoreHomeLink(defaultHome: string, before: HomeLinkBefore, pla
 }
 
 /**
+ * Directory operations that report each call before making it, so a watcher
+ * can tell a slow move from one blocked in a call that never returns.
+ * @param fs - the operations.
+ * @param activity - called before each operation.
+ * @returns the reporting operations.
+ */
+export function reportingMoveFs(fs: MoveFs, activity: () => void): MoveFs {
+  const wrap = <A extends unknown[], R>(call: (...args: A) => R) => (...args: A): R => {
+    activity()
+    return call(...args)
+  }
+  return {
+    kind: wrap(fs.kind), readText: wrap(fs.readText), readdir: wrap(fs.readdir), writeFile: wrap(fs.writeFile), rename: wrap(fs.rename),
+    unlink: wrap(fs.unlink), mkdir: wrap(fs.mkdir), rmdir: wrap(fs.rmdir), fingerprint: wrap(fs.fingerprint),
+  }
+}
+
+/**
  * The real effects of a move, except the ones only the application knows
- * (the terminal) and the ones it may run elsewhere (the copy and the check on
- * a worker thread; in process by default).
- * @param input - user data, `~/.dsh`, the platform, and the terminal calls.
+ * (the terminal). With `activity`, every directory operation, copied or
+ * checked entry, and removed entry reports itself first (the executor's
+ * heartbeat on its worker thread).
+ * @param input - user data, `~/.dsh`, the platform, the terminal calls, and the heartbeat.
  * @returns the effects.
  */
 export function nodeMoveEffects(input: {
@@ -1029,19 +1048,29 @@ export function nodeMoveEffects(input: {
   locale: NameLocale
   syncTerminal: MoveEffects['syncTerminal']
   restoreTerminal: MoveEffects['restoreTerminal']
+  /** Called before each unit of work; absent in process. */
+  activity?: () => void
 }): MoveEffects {
+  const activity = input.activity
+  const removeFs: RemoveFs | undefined = activity === undefined ? undefined : {
+    lstat: async (path) => { activity(); return await NODE_REMOVE_FS.lstat(path) },
+    readdir: async (path) => { activity(); return await NODE_REMOVE_FS.readdir(path) },
+    unlink: async (path) => { activity(); await NODE_REMOVE_FS.unlink(path) },
+    rmdir: async (path) => { activity(); await NODE_REMOVE_FS.rmdir(path) },
+    chmod: async (path, mode) => { activity(); await NODE_REMOVE_FS.chmod(path, mode) },
+  }
   return {
     platform: input.platform,
-    fs: NODE_MOVE_FS,
-    copy: async (request, signal, onProgress) => { await copyTree(request, signal, onProgress) },
-    verify: async (request, signal, onProgress) => (await verifyTree(request, signal, onProgress)).problems,
+    fs: activity === undefined ? NODE_MOVE_FS : reportingMoveFs(NODE_MOVE_FS, activity),
+    copy: async (request, signal, onProgress) => { await copyTree(request, signal, onProgress, activity) },
+    verify: async (request, signal, onProgress) => (await verifyTree(request, signal, onProgress, activity)).problems,
     repair: async (request, extras, forget) => {
       for (const rel of extras) await removeExtra(request.dest, rel, input.platform)
       forgetDone(request.doneLog, forget)
     },
-    remove: path => removeTree(path, { platform: input.platform }),
+    remove: path => removeTree(path, { platform: input.platform, ...removeFs === undefined ? {} : { fs: removeFs } }),
     scanLinks: async (source) => {
-      const scan = await scanTree(source, { exclude: [] })
+      const scan = await scanTree(source, { exclude: [], onActivity: activity })
       return scan.entries.flatMap(entry => entry.kind === 'link' ? [{ rel: entry.rel, target: entry.target }] : [])
     },
     rewriteLink: (root, rewrite) => rewriteInPlace(root, rewrite, input.platform),
@@ -1054,7 +1083,10 @@ export function nodeMoveEffects(input: {
     restoreTerminal: input.restoreTerminal,
     restoreHomeLink: (before) => { restoreHomeLink(input.defaultHome, before, input.platform) },
     keptFolderName: (kind, date, attempt) => keptFolderName(input.locale, kind, date, attempt),
-    sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
+    sleep: (ms) => {
+      activity?.()
+      return new Promise((resolve) => { setTimeout(resolve, ms) })
+    },
     now: () => new Date(),
   }
 }
