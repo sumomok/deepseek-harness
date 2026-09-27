@@ -33,6 +33,11 @@ const MODE = webSnapshotMode()
 const LONG_PROMPT = (label: string): string => `${label} ${'event sourcing keeps every change as an event. '.repeat(2_000)}`
 const SECOND_PROMPT = 'Read notes.txt and summarize it.'
 const SUMMARIZER_FAILURE = 'summarizer unavailable'
+// The status bar shows `· N tok/s` only when the summed first-token →
+// assembled-message time is above zero; a burst replay lands both in the same
+// millisecond on some runs, so each chunk is paced to give every step a
+// measurable decode time.
+const PACE_MS = 120
 
 function textReply(text: string, inputTokens: number): ReplayEntry {
   return {
@@ -100,7 +105,9 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     await writeFile(overridePath, JSON.stringify(replay))
 
     const sessionEvents: SessionEvent[] = []
-    const live = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false })
+    const live = await launchWebScaffold({
+      replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false, paceMs: PACE_MS,
+    })
     scaffold = live
     live.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
