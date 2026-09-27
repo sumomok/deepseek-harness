@@ -262,6 +262,36 @@ describe('compactNow for a running agent', () => {
     }
   })
 
+  for (const boundary of ['turn/end:1', 'turn/start:2'] as const) {
+    it(`compacts at the queued turn's first step when turn-end is requested at ${boundary}`, async () => {
+      const answer = hold()
+      const b = await bench([{ kind: 'text', hold: answer.promise }, { kind: 'text' }])
+      try {
+        let request: Promise<unknown> | undefined
+        b.ctx.on('session/event', (_session, event) => {
+          if (request !== undefined) return
+          if (`${event.type}:${'turn' in event.data ? String(event.data.turn) : ''}` !== boundary) return
+          request = outcome(requestFor(b, 'turn-end'))
+        })
+        prompt(b.agent, LONG)
+        await b.adapter.started(0)
+        prompt(b.agent, 'queued question')
+        answer.release()
+        await b.adapter.started(1)
+        await b.agent.whenIdle()
+        expect(await request).toMatchObject({ sourceCommandId: COMMAND })
+        expect(b.log).toEqual([
+          'turn/start:1', 'step/start:1.1', 'turn/end:1',
+          'turn/start:2', `compaction/start:2:${COMMAND}`, `compaction/end:2:${COMMAND}`,
+          'step/start:2.1', 'turn/end:2',
+        ])
+        expect(sawCheckpoint(b.adapter.requests[1])).toBe(true)
+      } finally {
+        await b.ctx.fiber.dispose()
+      }
+    })
+  }
+
   it('compacts after a turn that ends in an error', async () => {
     const failing = hold()
     const b = await bench([{ kind: 'text' }, { kind: 'fail', hold: failing.promise }])

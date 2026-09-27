@@ -19,7 +19,11 @@ export interface WaitingCompaction {
   /** The request's own cancellation, covering the wait and the compaction. */
   readonly signal: AbortSignal
   readonly sourceCommandId: CommandId | undefined
-  /** Set once a `turn/end` that did not abort has been appended after the request. */
+  /**
+   * Set once a `turn/end` that did not abort has been appended after the
+   * request, or at registration when no step has started since the last
+   * `turn/end` or `turn/start`.
+   */
   turnEnded: boolean
 }
 
@@ -32,6 +36,8 @@ interface Entry {
 /** Session-keyed registry of waiting manual compaction requests. */
 export class WaitingCompactions {
   private readonly entries = new Map<Session, Entry>()
+  /** Sessions whose latest turn boundary has no `step/start` after it. */
+  private readonly beforeFirstStep = new WeakSet<Session>()
 
   /**
    * Register one waiting request for a running agent.
@@ -51,7 +57,10 @@ export class WaitingCompactions {
     if (this.entries.has(agent.session)) {
       throw new ManualCompactionError('busy', 'manual compaction: another request is already waiting for this turn')
     }
-    const request: WaitingCompaction = { agent, whileBusy, signal, sourceCommandId, turnEnded: false }
+    // A request registered before the next turn's first step has no running
+    // step history to protect: it is due at that first step boundary.
+    const turnEnded = this.beforeFirstStep.has(agent.session)
+    const request: WaitingCompaction = { agent, whileBusy, signal, sourceCommandId, turnEnded }
     const settle = Promise.withResolvers<CompactionResult | null>()
     const onAbort = (): void => {
       this.take(agent.session)
@@ -83,6 +92,7 @@ export class WaitingCompactions {
    * @param aborted - whether the turn ended aborted.
    */
   turnEnded(session: Session, aborted: boolean): void {
+    this.beforeFirstStep.add(session)
     const entry = this.entries.get(session)
     if (entry === undefined) return
     if (!aborted) {
@@ -91,6 +101,22 @@ export class WaitingCompactions {
     }
     this.take(session)
     entry.settle.reject(new ManualCompactionError('cancelled', 'manual compaction was cancelled with its turn'))
+  }
+
+  /**
+   * Record one appended `turn/start`: its first step has not started yet.
+   * @param session - the Session the event was appended to.
+   */
+  turnStarted(session: Session): void {
+    this.beforeFirstStep.add(session)
+  }
+
+  /**
+   * Record one appended `step/start`: the turn now has step history.
+   * @param session - the Session the event was appended to.
+   */
+  stepStarted(session: Session): void {
+    this.beforeFirstStep.delete(session)
   }
 
   /**

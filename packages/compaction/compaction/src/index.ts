@@ -173,8 +173,10 @@ export abstract class CompactionEngine extends Service {
    * with a bracket owned by that turn; `next-step` without a later boundary in
    * that turn, and `turn-end`, compact once the turn ends — at the first step
    * boundary of a turn the loop chains without going idle, else as the idle
-   * task above. One request waits per agent. A turn that ends aborted
-   * cancels the waiting request.
+   * task above. A `turn-end` request made after a `turn/end` or `turn/start`
+   * and before that turn's first `step/start` is due at once and compacts at
+   * the next step boundary. One request waits per agent. A turn that ends
+   * aborted cancels the waiting request.
    *
    * @param agent - agent whose durable history should be compacted.
    * @param signal - cancellation scoped to this compaction request, including its wait.

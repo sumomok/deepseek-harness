@@ -180,8 +180,19 @@ export class BasicCompactionEngine extends CompactionEngine {
     })
 
     ctx.on('session/event', (session, event) => {
-      if (event.type !== 'turn/end') return
-      this.waiting.turnEnded(session, event.data.reason.kind === 'aborted')
+      switch (event.type) {
+        case 'turn/start':
+          this.waiting.turnStarted(session)
+          return
+        case 'step/start':
+          this.waiting.stepStarted(session)
+          return
+        case 'turn/end':
+          this.waiting.turnEnded(session, event.data.reason.kind === 'aborted')
+          return
+        // Other events do not move a waiting request's boundary.
+        default:
+      }
     })
 
     // A turn that ends without a later step boundary reaches here; the
