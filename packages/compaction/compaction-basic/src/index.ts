@@ -7,7 +7,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, CompactionTrigger, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 // Type-only: the `ctx.sessionProjections` Context merge behind the declared injection.
@@ -31,6 +31,8 @@ import {
   selectCompactableRange,
 } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
+import { WaitingCompactions } from './waiting.ts'
+import type { WaitingCompaction } from './waiting.ts'
 import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
@@ -147,11 +149,59 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly warnedPolicyThresholdTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
+  private readonly waiting = new WaitingCompactions()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
     this.config = resolveConfig(config)
+    this._registerWaitingCompaction()
     if (this.config.auto) this._registerAutomaticCompaction()
+  }
+
+  /**
+   * Serve manual requests that wait for a running turn. These listeners are
+   * independent of `auto`: they run only what a person asked for. The
+   * step-boundary listener is registered before the automatic pressure
+   * listener, so a waiting request compacts first and pressure is measured
+   * on its result.
+   */
+  private _registerWaitingCompaction(): void {
+    const { ctx } = this
+    ctx.effect(() => () => { this.waiting.cancelAll() }, 'compaction-basic: waiting manual requests')
+
+    ctx.on('agent/pre-step', async ({ agent, signal }, next): Promise<PreStepDecision> => {
+      const request = this.waiting.peek(agent)
+      if (request !== undefined && !signal.aborted
+        && (request.whileBusy === 'next-step' || request.turnEnded)) {
+        // Settles the request and never rejects, so the chain always continues.
+        await this.waiting.serve(agent, waiting => this.compactAtStep(waiting, signal))
+      }
+      return next()
+    })
+
+    ctx.on('session/event', (session, event) => {
+      switch (event.type) {
+        case 'turn/start':
+          this.waiting.turnStarted(session)
+          return
+        case 'step/start':
+          this.waiting.stepStarted(session)
+          return
+        case 'turn/end':
+          this.waiting.turnEnded(session, event.data.reason.kind === 'aborted')
+          return
+        // Other events do not move a waiting request's boundary.
+        default:
+      }
+    })
+
+    // A turn that ends without a later step boundary reaches here; the
+    // listener starts the idle task synchronously, before a queued prompt
+    // can open the next turn.
+    ctx.on('agent/status', ({ agent, status }) => {
+      if (status !== 'idle') return
+      void this.waiting.serve(agent, waiting => this.compactIdle(agent, waiting.signal, waiting.sourceCommandId))
+    })
   }
 
   /**
@@ -472,62 +522,54 @@ export class BasicCompactionEngine extends CompactionEngine {
       start,
       end,
       agent,
-      { owner: 'current-turn', stability: 'whole-surface' },
+      { owner: 'current-turn', stability: 'whole-surface', manual: false },
       signal,
     )
   }
 
   /**
-   * Force one useful idle-session compaction below the pressure threshold, and
-   * resolve only after its standalone marker pair is durably checkpointed.
-   * @param agent - idle agent whose next-turn admission this call reserves.
-   * @param signal - cancellation scoped to this compaction request.
+   * Force one useful compaction below the pressure threshold. An idle agent
+   * compacts now as agent maintenance with a standalone bracket; a running
+   * agent with `whileBusy` waits for the requested boundary. Either way the
+   * call resolves only after the closed bracket is durably checkpointed.
+   * @param agent - agent whose history is compacted and whose next-turn admission an idle compaction reserves.
+   * @param signal - cancellation scoped to this compaction request, including its wait.
    * @param sourceCommandId - initiating command identity for presentation correlation.
+   * @param whileBusy - timing for a running agent; omitted refuses it as `busy`.
    * @returns the committed result, or `null` when no safe useful range exists.
    */
   override compactNow(
     agent: Agent,
     signal: AbortSignal,
     sourceCommandId?: CommandId,
+    whileBusy?: ManualCompactionWhileBusy,
   ): Promise<CompactionResult | null> {
     signal.throwIfAborted()
+    if (whileBusy === undefined || agent.status === 'idle') return this.compactIdle(agent, signal, sourceCommandId)
+    return this.waiting.add(agent, whileBusy, signal, sourceCommandId)
+  }
+
+  /**
+   * Run one manual compaction as idle-agent maintenance with a standalone bracket.
+   * @param agent - idle agent whose next-turn admission this call reserves.
+   * @param signal - cancellation scoped to this compaction request.
+   * @param sourceCommandId - initiating command identity.
+   * @returns the committed result, or `null` when no safe useful range exists.
+   * @throws {@link ManualCompactionError} `busy`, synchronously, when the agent is not idle.
+   */
+  private compactIdle(
+    agent: Agent,
+    signal: AbortSignal,
+    sourceCommandId: CommandId | undefined,
+  ): Promise<CompactionResult | null> {
     try {
       return agent.runMaintenance(async (agentSignal) => {
         const operationSignal = AbortSignal.any([agentSignal, signal])
         try {
           operationSignal.throwIfAborted()
-          const range = selectCompactableRange(
-            agent.session,
-            this.ctx.tokenMeter.measure(agent.session),
-            0,
-          )
-          if (range === null) return null
-          return await compactSurfaceRegion(
-            this.regionDependencies(),
-            agent.session,
-            range.start,
-            range.end,
-            agent,
-            {
-              owner: null,
-              stability: 'selected-span',
-              ...sourceCommandId === undefined ? {} : { sourceCommandId },
-              flush: async () => {
-                await this.ctx.sessions.flush(agent.session)
-              },
-            },
-            operationSignal,
-          )
+          return await this.compactManualRange(agent, null, sourceCommandId, operationSignal)
         } catch (error: unknown) {
-          if (agentSignal.aborted && operationSignal.reason === agentSignal.reason) {
-            throw new ManualCompactionError(
-              'cancelled',
-              'manual compaction was cancelled',
-              { cause: error },
-            )
-          }
-          operationSignal.throwIfAborted()
-          throw error
+          throw manualCancellation(error, agentSignal, operationSignal)
         }
       })
     } catch (error: unknown) {
@@ -537,6 +579,62 @@ export class BasicCompactionEngine extends CompactionEngine {
         { cause: error },
       )
     }
+  }
+
+  /**
+   * Run one waiting manual request at a step boundary of the open turn, with
+   * a bracket that turn owns. Stop aborts the turn signal and cancels it.
+   * @param request - the request being served.
+   * @param turnSignal - the open turn's cancellation signal.
+   * @returns the committed result, or `null` when no safe useful range exists.
+   */
+  private async compactAtStep(request: WaitingCompaction, turnSignal: AbortSignal): Promise<CompactionResult | null> {
+    const operationSignal = AbortSignal.any([turnSignal, request.signal])
+    try {
+      return await this.compactManualRange(request.agent, 'current-turn', request.sourceCommandId, operationSignal)
+    } catch (error: unknown) {
+      throw manualCancellation(error, turnSignal, operationSignal)
+    }
+  }
+
+  /**
+   * Select every compactable node and replace it through one manual
+   * transaction that is checkpointed before it settles.
+   * @param agent - agent whose Session is compacted.
+   * @param owner - `null` for a standalone bracket, `current-turn` for one the open turn owns.
+   * @param sourceCommandId - initiating command identity.
+   * @param signal - cancellation of this compaction.
+   * @returns the committed result, or `null` when no safe useful range exists.
+   */
+  private async compactManualRange(
+    agent: Agent,
+    owner: 'current-turn' | null,
+    sourceCommandId: CommandId | undefined,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    const range = selectCompactableRange(
+      agent.session,
+      this.ctx.tokenMeter.measure(agent.session),
+      0,
+    )
+    if (range === null) return null
+    return compactSurfaceRegion(
+      this.regionDependencies(),
+      agent.session,
+      range.start,
+      range.end,
+      agent,
+      {
+        owner,
+        stability: owner === null ? 'selected-span' : 'whole-surface',
+        manual: true,
+        ...sourceCommandId === undefined ? {} : { sourceCommandId },
+        flush: async () => {
+          await this.ctx.sessions.flush(agent.session)
+        },
+      },
+      signal,
+    )
   }
 
   /** Bind the effective token meter and dynamically dispatched summarizer hook. */
@@ -552,6 +650,21 @@ export class BasicCompactionEngine extends CompactionEngine {
       }, () => false),
     }
   }
+}
+
+/**
+ * Map a failed manual compaction to its reported error: cancellation by the
+ * agent's own signal is `cancelled`, the request's own abort keeps its reason.
+ * @param error - the failure.
+ * @param agentSignal - the maintenance or turn signal the agent owns.
+ * @param operationSignal - that signal combined with the request's own.
+ * @returns the error to reject with.
+ */
+function manualCancellation(error: unknown, agentSignal: AbortSignal, operationSignal: AbortSignal): unknown {
+  if (agentSignal.aborted && operationSignal.reason === agentSignal.reason) {
+    return new ManualCompactionError('cancelled', 'manual compaction was cancelled', { cause: error })
+  }
+  return operationSignal.aborted ? operationSignal.reason : error
 }
 
 export default BasicCompactionEngine

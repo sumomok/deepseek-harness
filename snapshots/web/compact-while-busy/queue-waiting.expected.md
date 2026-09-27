@@ -1,0 +1,19 @@
+- banner:
+  - navigation "Session hierarchy": Read notes.txt and summarize it.
+  - text: Standard mode
+  - button "More actions"
+  - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: {{long-prompt}}{{clock}}
+- button "Copy"
+- status: Deep diving...
+- button "Deep diving for {{duration}}" [disabled]
+- text: "Running compact Waiting to compact… Failed compact Compaction is unavailable: another compaction is running or waiting, or the agent is not idle."
+- textbox "Message or run a task, / commands, @ files or sessions":
+  - paragraph
+- button "Add files or run commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
+- button "Stop generating"
