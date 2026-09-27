@@ -109,7 +109,7 @@ describe('starting a data move', () => {
     expect(await beginDataMove(request, probes)).toEqual({ kind: 'refused', refusal: { kind: 'locked', lock: { kind: 'held', owner: elsewhere } } })
     const gone = (await setup(SNAPSHOT, () => false)).probes
     expect(await beginDataMove(request, gone))
-      .toEqual({ kind: 'refused', refusal: { kind: 'locked', lock: { kind: 'unfinished', owner: elsewhere } } })
+      .toEqual({ kind: 'refused', refusal: { kind: 'locked', lock: { kind: 'unfinished', owner: elsewhere, path: join(f.home, LOCK_FILENAME) } } })
     expect(existsSync(join(moveDir(request.userData), JOURNAL_FILENAME))).toBe(false)
     writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ ...elsewhere, userData: request.userData, pid: 99 }))
     expect((await beginDataMove(request, probes)).kind).toBe('started')
