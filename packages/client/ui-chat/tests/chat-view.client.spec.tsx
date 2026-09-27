@@ -39,7 +39,7 @@ import { en, zh } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
+  CompactionFailureNodeView, CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
@@ -364,6 +364,8 @@ function makeHarness(
         return <CompactionNodeView {...nodeProps} node={nodeOwner.node} />
       case 'compaction-running':
         return <CompactionRunningNodeView t={nodeProps.t} />
+      case 'compaction-failure':
+        return <CompactionFailureNodeView node={nodeOwner.node} t={nodeProps.t} />
       case 'model-retry':
         return <RetryNodeView {...nodeProps} node={nodeOwner.node} />
       case 'turn-error':
@@ -852,6 +854,30 @@ describe('ChatView', () => {
     expect(card.closest('[data-chat-group-key]')).toBeNull()
     expect(card.closest('[hidden]')).toBeNull()
     expect(card.textContent).toContain(refusal)
+  })
+
+  it('keeps a failed automatic compaction inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: { reason: 'summarizer unavailable' },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [failed]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-failure"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain('上下文压缩失败')
   })
 
   it.each([

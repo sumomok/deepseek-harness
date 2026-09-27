@@ -136,6 +136,7 @@
     "tests/clickable-links-gallery.e2e.ts",
     "tests/queue-actions.e2e.ts",
     "tests/compact-busy.e2e.ts",
+    "tests/compaction-failure-row.e2e.ts",
     "tests/idle-submission-handoff.e2e.ts",
     "tests/cold-blank-session.e2e.ts",
     "tests/blank-writer-reuse.e2e.ts",

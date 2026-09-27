@@ -1,0 +1,45 @@
+- banner:
+  - navigation "Session hierarchy": First event sourcing keeps every
+  - text: Standard mode
+  - button "More actions"
+  - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- navigation "Turn navigation":
+  - button "Jump to turn 1"
+  - button "Jump to turn 2"
+  - button "Jump to turn 3"
+- text: {{first-prompt}}{{clock}}
+- button "Copy"
+- status: Worked
+- button "Took {{duration}}" [disabled]
+- paragraph: READY
+- button "Copy"
+- button "Good response"
+- button "Bad response"
+- button "Branch into a new conversation"
+- text: {{clock}} {{second-prompt}}{{clock}}
+- button "Copy"
+- status: Worked
+- button "Took {{duration}}" [disabled]
+- paragraph: READY
+- button "Copy"
+- button "Good response"
+- button "Bad response"
+- button "Branch into a new conversation"
+- text: {{clock}} Read notes.txt and summarize it. {{clock}}
+- button "Copy"
+- status: Deep diving...
+- button "Deep diving for {{duration}}" [disabled] [expanded]
+- button "Read files"
+- status: Context compaction failed The summary could not be written this time. It will be tried again.
+- paragraph: partial
+- textbox "Message or run a task, / commands, @ files or sessions"
+- button "Add files or run commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
+- button "Stop generating"
+- button "3 turns 3 steps · {{throughput}} tok/s"
+- button "120K tok · Cache hit 0%"
+- button "94% of context used": 94%
