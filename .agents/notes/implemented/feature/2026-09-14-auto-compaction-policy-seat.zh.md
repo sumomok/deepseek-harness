@@ -48,7 +48,7 @@ export interface CompactionPolicy {
 
 渲染器沿用 max-tokens 提示的形状——一行 `role="status"`、一个警告圆点、一条 locale 标题、一行详情——因为它就是这种东西：一条持久的、有位置的提示，说明一件用户没有要求过的事没有做成。原因是后端自己的文本，所以它是数据不是文案；它以 `text-overflow: ellipsis` 保持单行，完整字符串放在 `title` 上，让一条很长的收敛失败链仍然可达而不会把转录撑开。
 
-轮次内的失败落在该轮的过程内容中间，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时折叠过程组。因此 `process-groups.ts` 把 `compaction-failure` 列入独立根，与 `compaction-running`、`manual-compaction` 并列，组折叠时这一行照样可见。已完成轮次的整轮折叠仍会盖住它，与盖住所有过程行一样。
+轮次内的失败落在该轮的过程内容中间，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时折叠过程组。因此 `process-groups.ts` 把 `compaction-failure` 列入独立根，与 `compaction-running`、`manual-compaction` 并列，组折叠时这一行照样可见。`contract/turn-process.ts` 还把它与 `manual-compaction` 并列，列入已完成轮次整轮折叠之外的类别，所以轮次收起成用时控件后这一行仍然可见。
 
 手动 `/compact` 的失败不会走到这张卡，也不应该走。`command-compact` 调用的是同一个标记对，因此标记对内的手动失败写下同样出错的 `compaction/end`——但每一条手动生命周期事件都带 `sourceCommandId`，而 `compactionDefinition.match` 一向排除它，把它交给 `commandDefinition` 与那张已经渲染 `command/done` 失败文本的命令卡。一次失败出两张卡比一张更糟。标记对之前的手动失败（`busy`：agent 不空闲，或已有活动压缩）根本不写事件，同样经命令结果抵达用户。
 

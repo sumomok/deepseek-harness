@@ -3,8 +3,7 @@
 // replay reports enough prompt usage after a tool step that the next step's
 // pressure check opens a compaction bracket, and the summarizer call fails;
 // the failure row must stay visible outside the Turn's collapsed process group
-// while the Turn runs. A completed Turn's whole-Turn fold still covers it, as
-// it covers every process row; this scenario parks the next model call instead.
+// while the Turn runs, and outside the whole-Turn fold once the Turn completes.
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -26,6 +25,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/compaction-failure-row', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/session.v3.jsonl', import.meta.url))
 const FAILED_EXPECTED = join(SNAPSHOT_DIR, 'failed.expected.md')
+const COMPLETED_EXPECTED = join(SNAPSHOT_DIR, 'completed.expected.md')
 const MODE = webSnapshotMode()
 
 // Two long earlier prompts give the pressure path a compactable span older
@@ -83,16 +83,19 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     if (failures.length > 1) throw new AggregateError(failures, 'compaction-failure-row teardown failed')
   })
 
-  it.skipIf(MODE === 'record')('keeps the failure row outside the collapsed process group', async () => {
-    overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-compaction-failure-'))
+  /** Boot, seed two long Turns, and send the Turn whose pressure compaction fails. */
+  async function failInsideTurn(
+    last: ReplayEntry,
+    readyFile?: string,
+  ): Promise<{ live: WebScaffold; events: SessionEvent[]; settled: Promise<unknown> }> {
+    overrideDir ??= await mkdtemp(join(tmpdir(), 'dsh-web-compaction-failure-'))
     const overridePath = join(overrideDir, 'replay.override.json')
-    const readyFile = join(overrideDir, '.hang-ready')
     const replay: ReplayEntry[] = [
       textReply('READY', 200),
       textReply('READY', 200),
       readCall(120_000),
       { kind: 'throw', chunks: [], message: SUMMARIZER_FAILURE, code: 'INVALID_REQUEST' },
-      { kind: 'hang', readyFile },
+      last,
     ]
     await writeFile(overridePath, JSON.stringify(replay))
 
@@ -102,7 +105,6 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     live.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
-    const tripwire = watchConsole(page)
     await page.goto(live.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, live.workspaceCwd)
@@ -116,12 +118,24 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
       await input.press('Enter')
       await settled
     }
-    const parked = live.whenTurnSettled()
+    const settled = live.whenTurnSettled()
     await input.fill(SECOND_PROMPT)
     await input.press('Enter')
-    await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    if (readyFile !== undefined) await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    return { live, events: sessionEvents, settled }
+  }
 
-    const ends = sessionEvents.filter(event => event.type === 'compaction/end')
+  const aria = (live: WebScaffold): Promise<string> => captureStableAria(page, '[class*="centerCol"]', live.workspaceCwd, {
+    replacements: [[LONG_PROMPT('First'), '{{first-prompt}}'], [LONG_PROMPT('Second'), '{{second-prompt}}']],
+  })
+
+  it.skipIf(MODE === 'record')('keeps the failure row outside the collapsed process group', async () => {
+    overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-compaction-failure-'))
+    const readyFile = join(overrideDir, '.hang-ready')
+    const { live, events, settled } = await failInsideTurn({ kind: 'hang', readyFile }, readyFile)
+    const tripwire = watchConsole(page)
+
+    const ends = events.filter(event => event.type === 'compaction/end')
     expect(ends).toHaveLength(1)
     expect(ends[0]!.data.sourceCommandId).toBeUndefined()
     expect(ends[0]!.data.turn).not.toBeNull()
@@ -131,17 +145,27 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     expect(await group.locator('[data-step-process-body]').first().evaluate(element => element.hasAttribute('hidden'))).toBe(true)
     expect(await row.evaluate(element => element.closest('[data-chat-group-key]') === null)).toBe(true)
     expect(await row.evaluate(element => element.closest('[hidden]') === null)).toBe(true)
-    const failed = await captureStableAria(page, '[class*="centerCol"]', live.workspaceCwd, {
-      replacements: [[LONG_PROMPT('First'), '{{first-prompt}}'], [LONG_PROMPT('Second'), '{{second-prompt}}']],
-    })
-    await compareOrRefreshGolden(FAILED_EXPECTED, failed, MODE)
+    await compareOrRefreshGolden(FAILED_EXPECTED, await aria(live), MODE)
     await page.getByRole('button', { name: 'Stop generating' }).click()
-    await parked
+    await settled
+    expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
+
+  it.skipIf(MODE === 'record')('keeps the failure row visible after the completed Turn folds', async () => {
+    const { live, settled } = await failInsideTurn(textReply('notes.txt says event sourcing stores changes as events.', 200))
+    const tripwire = watchConsole(page)
+    await settled
+    await page.getByRole('button', { name: /^Took / }).last().waitFor({ timeout: 15_000 })
+    const row = page.locator('[data-chat-flow-kind="compaction-failure"]')
+    await row.waitFor({ timeout: 10_000 })
+    expect(await row.evaluate(element => element.closest('[data-turn-process-member]') === null)).toBe(true)
+    expect(await row.evaluate(element => element.closest('[hidden]') === null)).toBe(true)
+    await compareOrRefreshGolden(COMPLETED_EXPECTED, await aria(live), MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps its snapshot inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['failed.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['completed.expected.md', 'failed.expected.md'])
     expect(await readFile(join(SNAPSHOT_DIR, 'snapshot.yml'), 'utf8')).toContain('scenario: compaction-failure-row')
   })
 })

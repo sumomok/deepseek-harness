@@ -882,7 +882,7 @@ describe('ChatView', () => {
     expect(card.textContent).toContain('上下文压缩失败')
   })
 
-  it('keeps a manual compaction card visible after a completed Turn folds', () => {
+  it('keeps manual compaction cards and the failure row visible after a completed Turn folds', () => {
     const first = {
       ...assistant(2, 'earlier reply', 1, 1),
       blocks: [
@@ -910,10 +910,15 @@ describe('ChatView', () => {
         waiting: false,
       },
     }
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location, visibility: 'visible',
+      data: { reason: 'summarizer unavailable' },
+    }
     const builder = new ChatSnapshotBuilder()
     const groups = new ConversationGroupStore<ProcessGroupData>()
     const state = new ProcessState()
-    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [waited]) })
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [waited, failed]) })
     h.setGrouped(groups)
     const view = render(<h.ChatView {...h.props} />)
     const toggle = view.getByRole('button', { name: '用时 4秒' })
@@ -921,7 +926,7 @@ describe('ChatView', () => {
     const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
     expect(members.length).toBeGreaterThan(0)
     expect(members.every(member => member.getAttribute('hidden') === 'until-found')).toBe(true)
-    for (const kind of ['manual-compaction']) {
+    for (const kind of ['manual-compaction', 'compaction-failure']) {
       const row = view.container.querySelector<HTMLElement>(`[data-chat-flow-kind="${kind}"]`)!
       expect(row.closest('[data-turn-process-member]')).toBeNull()
       expect(row.closest('[hidden]')).toBeNull()
