@@ -79,7 +79,8 @@ export function prepareMove(input: {
       pointerBefore: readPointerFiles(userData),
       ...lastSeenEnvBefore === undefined ? {} : { lastSeenEnvBefore },
       terminalBefore,
-      terminalSnapshot: { kind: 'unknown', detail: 'the harness keeps the terminal in a file' },
+      // The harness keeps the terminal in a file of its own, which it writes back itself.
+      terminalSnapshot: { kind: 'unsupported-platform', platform: 'harness' },
       homeLinkBefore: readHomeLinkBefore(defaultHome),
       baseline: { sessions: 1, workspaces: 0, quarantined: [] },
       originalGeneration: readGeneration(input.home),
@@ -113,7 +114,8 @@ export function harnessEffects(setup: MoveSetup, faults: Faults = {}): MoveEffec
       writeFileSync(setup.terminalFile, target)
       return target
     },
-    restoreTerminal: async (before) => {
+    restoreTerminal: async () => {
+      const before = setup.start.terminalBefore
       writeFileSync(setup.terminalFile, before.kind === 'set' ? before.value : '')
     },
   })

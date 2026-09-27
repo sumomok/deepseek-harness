@@ -111,7 +111,7 @@ const effects: MoveEffects = {
     event('syncTerminal')
     return seen
   },
-  restoreTerminal: async (before) => { await real.restoreTerminal(before); event('restoreTerminal') },
+  restoreTerminal: async (snapshot) => { await real.restoreTerminal(snapshot); event('restoreTerminal') },
   restoreHomeLink: (before) => { real.restoreHomeLink(before); event('restoreHomeLink') },
 }
 

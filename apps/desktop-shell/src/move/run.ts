@@ -45,7 +45,7 @@ import {
   POINTER_VERSION, withGeneration, writePointer, type DataLocationPointer,
 } from '../data-location.ts'
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
-import type { ExplicitRead } from '../terminal-env.ts'
+import type { TerminalSnapshot } from '../terminal-env.ts'
 import { copyTree, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
 import {
   ABANDONED_FILENAME, abandonedCopiesText, CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS,
@@ -190,8 +190,8 @@ export interface MoveEffects {
    * @returns the `lastSeenEnv` the pointer records afterwards; `undefined` for none.
    */
   syncTerminal: (target: string) => Promise<string | undefined>
-  /** Put the terminal's `DSH_HOME` back as it was read before the move. */
-  restoreTerminal: (before: ExplicitRead) => Promise<void>
+  /** Put the terminal's `DSH_HOME` setting back from the snapshot taken before the move. */
+  restoreTerminal: (snapshot: TerminalSnapshot) => Promise<void>
   /** Put `~/.dsh` back: remove the link to the target, recreate a link that was there. */
   restoreHomeLink: (before: HomeLinkBefore) => void
   /** The name of a visible folder the move leaves for the person ({@link keptFolderName} in the system's language). */
@@ -754,7 +754,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       save({ ...journal, pointerWritten: false })
       return undefined
     case 'restore-terminal':
-      await effects.restoreTerminal(journal.terminalBefore)
+      await effects.restoreTerminal(journal.terminalSnapshot)
       save({ ...journal, terminalWritten: false })
       return undefined
     case 'finish':

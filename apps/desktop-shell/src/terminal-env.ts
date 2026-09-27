@@ -350,6 +350,44 @@ function lineText(segment: string): string {
   return segment.replace(/\r?\n$/, '')
 }
 
+/** A profile's text (latin1, one code unit per byte) cut around this module's block. */
+export type ProfileBlocks =
+  | { kind: 'none' }
+  | { kind: 'damaged' }
+  | { kind: 'block'; before: string[]; block: string[]; after: string[] }
+
+/**
+ * Find this module's block in a profile's text: the lines from
+ * {@link BLOCK_START} through {@link BLOCK_END}, markers recognized with or
+ * without a carriage return.
+ * @param text - the profile's bytes as latin1.
+ * @returns the lines before, of, and after the block; `none` without one; `damaged` when only one marker is there or they are out of order.
+ */
+export function findProfileBlock(text: string): ProfileBlocks {
+  const segments = text.length === 0 ? [] : text.split(/(?<=\n)/)
+  const texts = segments.map(lineText)
+  const start = texts.indexOf(BLOCK_START)
+  const end = texts.indexOf(BLOCK_END)
+  if (start === -1 && end === -1) return { kind: 'none' }
+  if (start === -1 || end < start) return { kind: 'damaged' }
+  return { kind: 'block', before: segments.slice(0, start), block: segments.slice(start, end + 1), after: segments.slice(end + 1) }
+}
+
+/**
+ * A profile's text with this module's block removed, the way
+ * {@link updateShellProfile} removes it: a block that is the last thing in the
+ * file takes the one LF before it along, the one appending it added.
+ * @param found - what {@link findProfileBlock} found.
+ * @returns the text without the block.
+ */
+export function withoutProfileBlock(found: Extract<ProfileBlocks, { kind: 'block' }>): string {
+  const before = [...found.before]
+  const last = before.at(-1)
+  // Only the LF this module appended before the block, never a carriage return before it.
+  if (found.after.length === 0 && last?.endsWith('\n') === true) before[before.length - 1] = last.slice(0, -1)
+  return [...before, ...found.after].join('')
+}
+
 /**
  * Set or remove this module's `DSH_HOME` block in the person's shell profile.
  * A profile that is a symbolic link is written at its target, so a dotfiles
@@ -410,10 +448,7 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
       const block = `${BLOCK_START}\n${assignment}\n${BLOCK_END}${segments[end]?.endsWith('\n') === true ? '\n' : ''}`
       content = [...before, block, ...after].join('')
     } else {
-      const last = before.at(-1)
-      // Only the LF this module appended before the block, never a carriage return before it.
-      if (after.length === 0 && last?.endsWith('\n') === true) before[before.length - 1] = last.slice(0, -1)
-      content = [...before, ...after].join('')
+      content = withoutProfileBlock({ kind: 'block', before, block: segments.slice(start, end + 1), after })
     }
   } else if (value === undefined) {
     content = original
