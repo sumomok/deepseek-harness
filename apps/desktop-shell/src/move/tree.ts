@@ -123,18 +123,34 @@ export function isInsidePath(path: string, root: string, platform: NodeJS.Platfo
 }
 
 /**
- * Names the operating system's file browser drops into any folder it shows.
- * A folder holding only these counts as empty, and they are deleted with it.
+ * Names the operating system's file browser drops into any folder it shows
+ * (Finder's `.DS_Store` and `.localized`, Explorer's `desktop.ini` and
+ * `Thumbs.db`). A folder holding only these counts as empty, and they are
+ * deleted with it.
  */
-export const IGNORABLE_NAMES: readonly string[] = ['.DS_Store', 'desktop.ini', 'Thumbs.db']
+export const IGNORABLE_NAMES: readonly string[] = ['.DS_Store', '.localized', 'desktop.ini', 'Thumbs.db']
+
+/**
+ * Whether a name is one of {@link IGNORABLE_NAMES}. macOS and Windows file
+ * systems ignore letter case, so there `THUMBS.DB` is `Thumbs.db`.
+ * @param name - a directory entry's name.
+ * @param platform - whose name rules apply.
+ * @returns true for a file browser's own file.
+ */
+export function isIgnorableName(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'darwin' && platform !== 'win32') return IGNORABLE_NAMES.includes(name)
+  const folded = name.toLowerCase()
+  return IGNORABLE_NAMES.some(ignorable => ignorable.toLowerCase() === folded)
+}
 
 /**
  * The names of a directory listing that are not {@link IGNORABLE_NAMES}.
  * @param names - the listing.
+ * @param platform - whose name rules apply.
  * @returns the names that make the folder non-empty.
  */
-export function meaningfulNames(names: readonly string[]): string[] {
-  return names.filter(name => !IGNORABLE_NAMES.includes(name))
+export function meaningfulNames(names: readonly string[], platform: NodeJS.Platform = process.platform): string[] {
+  return names.filter(name => !isIgnorableName(name, platform))
 }
 
 /**

@@ -11,9 +11,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFil
 import { join } from 'node:path'
 import type { DataId } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
-import { moveDir, readJournal, type MoveStart } from '../src/move/journal.ts'
+import { moveDir, readJournal, type BlockedChoice, type MoveStart } from '../src/move/journal.ts'
 import {
-  advanceMove, nodeMoveEffects, readHomeLinkBefore, readPointerFiles, recordHealth, type MoveEffects,
+  advanceMove, nodeMoveEffects, readHomeLinkBefore, readPointerFiles, recordHealth, resolveBlocked, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import type { ExplicitRead } from '../src/terminal-env.ts'
 
@@ -152,11 +152,13 @@ export function terminalValue(setup: MoveSetup): string {
  * @param target - the target directory.
  * @param healthy - the health check's verdict.
  * @param effects - the effects.
- * @param event - called after the calibration and after the health record, for the crash child's numbering.
+ * @param event - called after the calibration, the health record, and a choice, for the crash child's numbering.
+ * @param choose - the person's choice on a blocked move; the drive stops at a block when it gives none.
  * @returns how the move ended, `blocked` when it is blocked, or `none` when no move was recorded.
  */
 export async function driveMove(
   setup: MoveSetup, target: string, healthy: boolean, effects: MoveEffects, event: (label: string) => void = () => {},
+  choose: (outcome: Extract<MoveOutcome, { kind: 'blocked' }>) => BlockedChoice | undefined = () => undefined,
 ): Promise<string> {
   const { dir } = setup
   if (!readdirSync(dir).includes('journal.json')) return 'none'
@@ -166,13 +168,17 @@ export async function driveMove(
       case 'switched':
         calibrateHomeLink({ defaultHome: setup.defaultHome, dataHome: target, dataId: HARNESS_ID, platform: process.platform })
         event('calibrateHomeLink')
-        if (readJournal(dir)?.phase === 'switched') recordHealth(dir, healthy, 'health check failed in the test')
+        if (readJournal(dir)?.phase === 'switched') recordHealth(dir, healthy, 'health check failed in the test', effects.fs)
         event('recordHealth')
         break
       case 'cleanup-incomplete':
         break
-      case 'blocked':
-        return 'blocked'
+      case 'blocked': {
+        const choice = choose(outcome)
+        if (choice === undefined || resolveBlocked(dir, choice, outcome.reason, effects.fs) !== 'applied') return 'blocked'
+        event(`resolve ${choice}`)
+        break
+      }
       case 'ended':
         return outcome.result.outcome
       default:

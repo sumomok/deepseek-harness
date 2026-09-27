@@ -99,9 +99,10 @@ export function inspectTarget(path: string): TargetState {
 export function resolveMoveTarget(
   chosen: string,
   inspect: (path: string) => TargetState = inspectTarget,
-  isVolumeRoot: (path: string) => boolean = isVolumeRootOnDisk,
+  isVolumeRoot: (path: string) => boolean | undefined = isVolumeRootOnDisk,
 ): MoveTarget {
-  if (inspect(chosen) === 'empty' && !isVolumeRoot(chosen)) return { target: chosen, parent: dirname(chosen), preexisting: true }
+  // A folder whose volume cannot be told is treated as a volume root; preflight refuses it anyway.
+  if (inspect(chosen) === 'empty' && isVolumeRoot(chosen) === false) return { target: chosen, parent: dirname(chosen), preexisting: true }
   const target = join(chosen, DATA_DIR_NAME)
   return { target, parent: chosen, preexisting: inspect(target) === 'empty' }
 }
@@ -110,15 +111,15 @@ export function resolveMoveTarget(
  * Whether a folder is the root of a volume: it has no parent, or its parent
  * lies on another device.
  * @param path - an existing absolute folder.
- * @returns true for a drive root or a mount point; false when it cannot be read.
+ * @returns true for a drive root or a mount point, false for an ordinary folder, `undefined` when it or its parent cannot be read.
  */
-export function isVolumeRootOnDisk(path: string): boolean {
+export function isVolumeRootOnDisk(path: string): boolean | undefined {
   if (dirname(path) === path) return true
   try {
     return statSync(path).dev !== statSync(dirname(path)).dev
   } catch {
-    // ENOENT or EACCES: nothing to compare; `inspect` reports the folder itself.
-    return false
+    // ENOENT, EACCES, EPERM: the devices cannot be compared, so it cannot be told.
+    return undefined
   }
 }
 
@@ -163,6 +164,11 @@ export interface PreflightFacts {
   source: string
   target: MoveTarget
   targetState: TargetState
+  /**
+   * Whether it could not be told if the picked folder is the root of a volume
+   * (it or its parent could not be read), so where the copy would live is unknown.
+   */
+  chosenUnreadable: boolean
   /** Whether the target's parent is a directory. When false, the probes below were not run. */
   parentExists: boolean
   /** The target with its parent's real path, for comparisons with other real paths. */
@@ -181,6 +187,7 @@ export interface PreflightFacts {
 /** One reason a move is refused. */
 export type PreflightRefusal =
   | { kind: 'parent-missing' }
+  | { kind: 'folder-unreadable' }
   | { kind: 'inside-source' }
   | { kind: 'contains-source' }
   | { kind: 'inside-install' }
@@ -264,6 +271,7 @@ export function evaluatePreflight(facts: PreflightFacts): PreflightResult {
     default:
       facts.targetState satisfies never
   }
+  if (facts.chosenUnreadable) refusals.push({ kind: 'folder-unreadable' })
   if (!facts.parentExists) {
     refusals.push({ kind: 'parent-missing' })
     return result()
@@ -512,7 +520,7 @@ export interface PreflightProbes {
   fileSystem: (dir: string) => Promise<FileSystemInfo | undefined>
   capabilities: (dir: string) => CapabilityReport
   inspect: (path: string) => TargetState
-  isVolumeRoot: (path: string) => boolean
+  isVolumeRoot: (path: string) => boolean | undefined
   scan: (source: string) => Promise<TreeScan>
 }
 
@@ -598,6 +606,7 @@ export async function gatherPreflightFacts(request: PreflightRequest, probes: Pr
   const { platform } = request
   const source = probes.realpath(request.source)
   const target = resolveMoveTarget(request.chosen, probes.inspect, probes.isVolumeRoot)
+  const chosenUnreadable = probes.isVolumeRoot(request.chosen) === undefined
   const real = (path: string): string => realPathOf(path, probes.realpath, platform)
   const forbidden: ForbiddenPlaces = {
     install: request.forbidden.install.map(real),
@@ -616,6 +625,7 @@ export async function gatherPreflightFacts(request: PreflightRequest, probes: Pr
   }
   const base = {
     platform, source, target, targetState: probes.inspect(target.target), realTarget: real(target.target), scan, forbidden,
+    chosenUnreadable,
   }
   if (!parentExists) {
     return {

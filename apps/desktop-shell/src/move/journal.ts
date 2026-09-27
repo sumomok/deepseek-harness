@@ -80,6 +80,24 @@ export interface MoveBaseline {
   quarantined: string[]
 }
 
+/** A summary of a directory tree that changes whenever a file in it is added, removed, or written. */
+export interface Fingerprint {
+  files: number
+  bytes: number
+  /** The latest modification time of any file or directory, in milliseconds. */
+  maxMtimeMs: number
+}
+
+/**
+ * Whether two fingerprints are the same.
+ * @param a - one.
+ * @param b - the other.
+ * @returns true when every field is equal.
+ */
+export function sameFingerprint(a: Fingerprint, b: Fingerprint): boolean {
+  return a.files === b.files && a.bytes === b.bytes && a.maxMtimeMs === b.maxMtimeMs
+}
+
 /** Something a removal could not delete, recorded so the move can finish. */
 export interface JournalLeftover {
   path: string
@@ -124,6 +142,23 @@ export interface MoveJournal {
   /** Set once `~/.dsh` has been put back during a rollback. */
   homeLinkRestored: boolean
   cleanupAttempts: number
+  /**
+   * The move stopped as blocked while rolling back; it goes on only after the
+   * person chooses (see `resolveBlocked`), even once the obstruction is gone.
+   */
+  awaitingChoice: boolean
+  /** The person chose to keep the new location after the move was blocked. */
+  keepTarget: boolean
+  /** The original is kept, not deleted, at the end (kept by choice after a failed health check). */
+  keepOriginal: boolean
+  /** The person chose to roll back without the copy, whose disk is not attached; it stays where it is. */
+  targetAbandoned: boolean
+  /**
+   * The target's session data when the health check failed. A rollback
+   * deletes the target only while its session data still matches, so work
+   * written there afterwards is never deleted without the person choosing.
+   */
+  targetFingerprint?: Fingerprint
   leftovers: JournalLeftover[]
   /** Why the move is being given up or rolled back. */
   failure?: { phase: MovePhase; detail: string }
@@ -178,6 +213,10 @@ export function newJournal(start: MoveStart, options: { pid: number; now: Date; 
     terminalWritten: false,
     homeLinkRestored: false,
     cleanupAttempts: 0,
+    awaitingChoice: false,
+    keepTarget: false,
+    keepOriginal: false,
+    targetAbandoned: false,
     leftovers: [],
     startedAt: options.now.toISOString(),
   }
@@ -301,6 +340,10 @@ export function validateJournal(value: unknown): MoveJournal {
     terminalWritten: flag('terminalWritten'),
     homeLinkRestored: flag('homeLinkRestored'),
     cleanupAttempts: count('cleanupAttempts'),
+    awaitingChoice: flag('awaitingChoice'),
+    keepTarget: flag('keepTarget'),
+    keepOriginal: flag('keepOriginal'),
+    targetAbandoned: flag('targetAbandoned'),
     leftovers,
     startedAt: text('startedAt'),
   }
@@ -308,6 +351,13 @@ export function validateJournal(value: unknown): MoveJournal {
   if (lastSeenEnvBefore !== undefined) {
     if (typeof lastSeenEnvBefore !== 'string' || !isAbsolute(lastSeenEnvBefore)) return fail('lastSeenEnvBefore')
     journal.lastSeenEnvBefore = lastSeenEnvBefore
+  }
+  const fingerprint = r['targetFingerprint']
+  if (fingerprint !== undefined) {
+    const fp = typeof fingerprint === 'object' && fingerprint !== null ? fingerprint as Record<string, unknown> : {}
+    const { files, bytes, maxMtimeMs } = fp
+    if (typeof files !== 'number' || typeof bytes !== 'number' || typeof maxMtimeMs !== 'number') return fail('targetFingerprint')
+    journal.targetFingerprint = { files, bytes, maxMtimeMs }
   }
   const failure = r['failure']
   if (failure !== undefined) {
@@ -409,25 +459,38 @@ export interface MoveFacts {
   partial: DirFacts
   target: DirFacts
   hidden: DirFacts
+  /** The target's session data now; read only while a rollback compares it with {@link MoveJournal.targetFingerprint}. */
+  targetSessions?: Fingerprint
 }
 
 /** Why a move can neither go on nor be undone without the person. */
 export type BlockedReason =
-  /**
-   * Something that is not this data now occupies the data directory's old
-   * path (a terminal `dsh` recreated `~/.dsh`, say), so the original cannot be
-   * put back there, or its rename could not be completed.
-   */
+  /** Something that is not this data now occupies the data directory's old path (a terminal `dsh` recreated `~/.dsh`, say). */
   | 'source-occupied'
   /** The original is neither at its old path nor hidden beside it: its disk is not attached, or it was removed. */
-  | 'source-missing'
+  | 'original-missing'
+  /** The copy at the new location cannot be found: its disk is not attached. */
+  | 'target-missing'
+  /** Something that is not this move's copy now occupies the new location's path. */
+  | 'target-occupied'
+  /** Files at the new location changed after the health check failed; rolling back would delete them. */
+  | 'target-changed'
+  /** The obstruction is gone, and the move waits for the person to choose how to go on. */
+  | 'choice-needed'
+
+/** What the person can choose on a blocked move. */
+export type BlockedChoice =
+  /** Use the new location: finish the move forward, with the copy there. */
+  | 'keep-target'
+  /** Go back to the old location: continue the rollback. */
+  | 'rollback'
 
 /** One step. */
 export type MoveAction =
   | { kind: 'abandon'; detail: string }
   | { kind: 'roll-back'; detail: string }
   | { kind: 'cancel' }
-  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[] }
+  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[]; choices: BlockedChoice[] }
   | { kind: 'keep-unmarked'; path: string }
   | { kind: 'plan-links' }
   | { kind: 'set-phase'; phase: MovePhase }
@@ -480,23 +543,78 @@ function leftBehind(journal: MoveJournal, path: string): boolean {
  * @returns the directories holding the data.
  */
 export function dataLocations(journal: MoveJournal, facts: MoveFacts): string[] {
-  const { source, target, hidden } = facts
+  const { source, hidden } = facts
   const found: string[] = []
   if (source.exists && (source.dataId === 'ours' || source.movedId)) found.push(journal.source)
   if (hidden.exists && hidden.state === 'ours') found.push(journal.hidden)
-  const copyComplete = !journal.sameVolume && !CANCELLABLE_PHASES.has(journal.phase)
-  if (target.exists && (target.dataId === 'ours' || (copyComplete && target.state === 'ours'))) found.push(journal.target)
+  if (targetIsComplete(journal, facts)) found.push(journal.target)
   return found
 }
+
+/** Phases after the copy was checked and put in place. */
+const COPY_IN_PLACE: ReadonlySet<MovePhase> = new Set(['hiding-source', 'switching', 'switched', 'cleanup', 'rolling-back'])
+
+/**
+ * Whether the target holds a complete copy of the data: the identity, or,
+ * on another volume once the checked copy was renamed into place, this move's
+ * marker. A folder that is neither (someone else's, at the same path) is not.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns true when the person could keep the target as the data.
+ */
+export function targetIsComplete(journal: MoveJournal, facts: MoveFacts): boolean {
+  const { target } = facts
+  if (!target.exists) return false
+  if (target.dataId === 'ours') return true
+  return !journal.sameVolume && COPY_IN_PLACE.has(journal.phase) && target.state === 'ours'
+}
+
+/**
+ * The choices a blocked move offers. Keeping the target needs a complete
+ * copy there. Rolling back needs the move to have got as far as hiding the
+ * source, the original to be found, and nothing in its way at its old path.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @param reason - why the move is blocked.
+ * @returns the choices, in the order to show them.
+ */
+export function blockedChoices(journal: MoveJournal, facts: MoveFacts, reason: BlockedReason): BlockedChoice[] {
+  const choices: BlockedChoice[] = []
+  if (targetIsComplete(journal, facts)) choices.push('keep-target')
+  const { source, hidden, target } = facts
+  // On one volume the original is what was renamed to the target.
+  const original = (source.exists && (source.dataId === 'ours' || source.movedId)) || (hidden.exists && hidden.state === 'ours')
+    || (journal.sameVolume && target.exists && target.dataId === 'ours')
+  const inPlace = journal.phase === 'rolling-back' || journal.phase === 'hiding-source'
+  if (original && inPlace && ROLLBACK_CHOOSABLE.has(reason)) choices.push('rollback')
+  return choices
+}
+
+/**
+ * Reasons a rollback can go on from once the person chooses it: the choice
+ * itself settles them. An occupied or missing original is settled only by the
+ * person moving the folder or attaching the disk.
+ */
+const ROLLBACK_CHOOSABLE: ReadonlySet<BlockedReason> = new Set(['choice-needed', 'target-missing', 'target-changed', 'target-occupied'])
 
 /**
  * The blocked step.
  * @param journal - the journal.
  * @param facts - what is on disk now.
- * @returns a `blocked` action naming why and where the data is.
+ * @param reason - why.
+ * @returns a `blocked` action naming why, where the data is, and what the person can choose.
  */
-function blocked(journal: MoveJournal, facts: MoveFacts): MoveAction {
-  return { kind: 'blocked', reason: facts.source.exists ? 'source-occupied' : 'source-missing', dataAt: dataLocations(journal, facts) }
+function blocked(journal: MoveJournal, facts: MoveFacts, reason: BlockedReason): MoveAction {
+  return { kind: 'blocked', reason, dataAt: dataLocations(journal, facts), choices: blockedChoices(journal, facts, reason) }
+}
+
+/**
+ * Why the original cannot be reached: something else at its path, or nothing.
+ * @param facts - what is on disk now.
+ * @returns the reason.
+ */
+function sourceReason(facts: MoveFacts): BlockedReason {
+  return facts.source.exists ? 'source-occupied' : 'original-missing'
 }
 
 /**
@@ -512,12 +630,27 @@ function removeIfMarked(dir: DirFacts, path: string, remove: MoveAction): MoveAc
 }
 
 /**
+ * Whether the application may start the server while this journal is on
+ * disk. Only a move that has switched to the new location (to run its health
+ * check) or is deleting the old copy lets the server run: in every other
+ * phase the move finishes, is undone, or waits for the person first, and a
+ * server running on either location could write data a later step deletes.
+ * @param journal - the journal, or `undefined` when no move is recorded.
+ * @returns true when the server may start.
+ */
+export function mayStartServer(journal: MoveJournal | undefined): boolean {
+  if (journal === undefined) return true
+  return journal.phase === 'switched' || journal.phase === 'cleanup'
+}
+
+/**
  * Decide the next step.
  *
  * The original is never given up for a path that does not hold it: a
  * directory at the source path that is not this data (no identity, no retired
  * identity) stops the move as `blocked`, with the journal kept, and no copy is
- * deleted while the original is not back at its path.
+ * deleted while the original is not back at its path. A rollback that was
+ * blocked goes on only after the person chooses.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @param cancelRequested - whether the person asked to cancel.
@@ -551,11 +684,14 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
     case 'hiding-source':
       return journal.sameVolume ? hideByRename(journal, facts, emptyPreexisting) : hideBeside(journal, facts)
     case 'switching':
+      // The target may have gone or changed since it was named: switch only to our data.
+      if (!(target.exists && target.dataId === 'ours' && target.state !== 'ours')) return { kind: 'roll-back', detail: 'the new location is no longer this data' }
       return journal.pointerWritten ? { kind: 'sync-terminal' } : { kind: 'write-pointer' }
     case 'switched':
       return { kind: 'await-health' }
     case 'cleanup':
       if (!journal.sameVolume && hidden.exists && !leftBehind(journal, journal.hidden)) {
+        if (journal.keepOriginal) return { kind: 'keep-unmarked', path: journal.hidden }
         return removeIfMarked(hidden, journal.hidden, { kind: 'remove-hidden' })
       }
       return { kind: 'finish', outcome: 'moved' }
@@ -563,7 +699,7 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
     case 'abandoning':
       if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
       if (target.exists && target.state === 'ours' && target.dataId !== 'ours' && !leftBehind(journal, journal.target)) {
-        return sourceIsOurs ? { kind: 'remove-target' } : blocked(journal, facts)
+        return sourceIsOurs ? { kind: 'remove-target' } : blocked(journal, facts, sourceReason(facts))
       }
       if (journal.targetPreexisting && !target.exists) return { kind: 'recreate-empty-target' }
       return { kind: 'finish', outcome: phase === 'cancelling' ? 'cancelled' : 'failed' }
@@ -578,7 +714,8 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
  * The next step of hiding the source on another volume: the source retires
  * its identity, takes this move's marker, and is renamed beside itself; only
  * then does the target get the identity. Once the source is hidden, whatever
- * appears at its old path is ignored.
+ * appears at its old path is ignored. After the person chose to keep the
+ * target, a missing or occupied old path no longer stops it.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @returns the step.
@@ -588,9 +725,11 @@ function hideBeside(journal: MoveJournal, facts: MoveFacts): MoveAction {
   if (!(hidden.exists && hidden.state === 'ours')) {
     if (source.exists && source.dataId === 'ours') return { kind: 'retire-source-id' }
     if (source.exists && source.movedId) return source.state === 'ours' ? { kind: 'rename-source-to-hidden' } : { kind: 'mark-source' }
-    return blocked(journal, facts)
+    if (!journal.keepTarget) return blocked(journal, facts, sourceReason(facts))
   }
-  if (!target.exists) return { kind: 'roll-back', detail: 'the copy is gone' }
+  if (!target.exists) return journal.keepTarget ? blocked(journal, facts, 'target-missing') : { kind: 'roll-back', detail: 'the copy is gone' }
+  // Only the checked copy (marked as this move) or this data may be named; never someone else's folder at that path.
+  if (target.dataId !== 'ours' && target.state !== 'ours') return blocked(journal, facts, 'target-occupied')
   if (target.dataId !== 'ours') return { kind: 'write-target-id' }
   if (target.state === 'ours') return { kind: 'clear-target-state' }
   return { kind: 'set-phase', phase: 'switching' }
@@ -611,40 +750,79 @@ function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: 
     return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target' }
   }
   if (target.exists && target.dataId === 'ours') return { kind: 'rewrite-links' }
-  return blocked(journal, facts)
+  return blocked(journal, facts, sourceReason(facts))
 }
 
 /**
  * The next rollback step (plan S8′): `~/.dsh` first; then, only once the
  * original can go back to its path, the target is made unusable and the
- * original is put back; only after that is any copy deleted; the pointer and
- * the terminal last.
+ * original is put back; only after that, and only while the target's session
+ * data is what it was when the health check failed, is the copy deleted; the
+ * pointer and the terminal last.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @returns the step.
  */
 function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
-  const { source, partial, target, hidden } = facts
+  const { source, partial, target } = facts
+  if (journal.awaitingChoice) {
+    return blocked(journal, facts, obstruction(journal, facts) ?? (targetChanged(journal, facts) ? 'target-changed' : 'choice-needed'))
+  }
   if (!journal.homeLinkRestored) return { kind: 'restore-home-link' }
+  const reason = obstruction(journal, facts)
+  if (reason !== undefined) return blocked(journal, facts, reason)
   const sourceIsOurs = source.exists && source.dataId === 'ours'
   if (journal.sameVolume) {
-    if (target.exists && target.dataId === 'ours') return source.exists ? blocked(journal, facts) : { kind: 'return-target-to-source' }
-    if (!sourceIsOurs) return blocked(journal, facts)
+    if (target.exists && target.dataId === 'ours') return { kind: 'return-target-to-source' }
   } else {
-    const hiddenIsOurs = hidden.exists && hidden.state === 'ours'
-    if (source.exists && !sourceIsOurs && !source.movedId) return blocked(journal, facts)
-    if (!source.exists && !hiddenIsOurs) return blocked(journal, facts)
     if (target.exists && target.dataId === 'ours' && target.state !== 'ours') return { kind: 'mark-target' }
     if (target.exists && target.dataId === 'ours') return { kind: 'unlink-target-id' }
     if (!source.exists) return { kind: 'rename-hidden-to-source' }
     if (source.movedId && source.dataId === 'none') return { kind: 'restore-source-id' }
     if (source.state === 'ours') return { kind: 'clear-source-state' }
-    if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target)) return { kind: 'remove-target' }
+    if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target)) {
+      return targetChanged(journal, facts) ? blocked(journal, facts, 'target-changed') : { kind: 'remove-target' }
+    }
     if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
-    if (!sourceIsOurs) return blocked(journal, facts)
   }
+  if (!sourceIsOurs) return blocked(journal, facts, sourceReason(facts))
   if (journal.targetPreexisting && !target.exists) return { kind: 'recreate-empty-target' }
   if (journal.pointerWritten) return { kind: 'restore-pointer' }
   if (journal.terminalWritten) return { kind: 'restore-terminal' }
   return { kind: 'finish', outcome: 'failed' }
+}
+
+/**
+ * Whether the target's session data differs from what it was when the health
+ * check failed, so deleting the target would delete work done since.
+ * @param journal - the journal, with the fingerprint taken at the failure.
+ * @param facts - what is on disk now.
+ * @returns true when they differ; false when either is unknown.
+ */
+function targetChanged(journal: MoveJournal, facts: MoveFacts): boolean {
+  return journal.targetFingerprint !== undefined && facts.targetSessions !== undefined
+    && !sameFingerprint(journal.targetFingerprint, facts.targetSessions)
+}
+
+/**
+ * What stops a rollback from going on, before anything is changed: the old
+ * path occupied, the original nowhere, or (on another volume) the copy not
+ * reachable, so it could not be made unusable. The last one is waived once
+ * the person chose to roll back without it.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns the reason, or `undefined` when the rollback can go on.
+ */
+function obstruction(journal: MoveJournal, facts: MoveFacts): BlockedReason | undefined {
+  const { source, target, hidden } = facts
+  const sourceIsOurs = source.exists && source.dataId === 'ours'
+  if (journal.sameVolume) {
+    if (target.exists && target.dataId === 'ours') return source.exists ? 'source-occupied' : undefined
+    return sourceIsOurs ? undefined : sourceReason(facts)
+  }
+  if (source.exists && !sourceIsOurs && !source.movedId) return 'source-occupied'
+  if (!source.exists && !(hidden.exists && hidden.state === 'ours')) return 'original-missing'
+  // Before the original is put back, the copy must be made unusable; it cannot be while its disk is away.
+  if (!target.exists && !journal.targetAbandoned && !source.exists) return 'target-missing'
+  return undefined
 }

@@ -44,6 +44,7 @@ function facts(overrides: Partial<PreflightFacts> = {}): PreflightFacts {
     source: '/Users/p/.dsh',
     target: { target: '/Volumes/Ext/DSH-Data', parent: '/Volumes/Ext', preexisting: false },
     targetState: 'absent',
+    chosenUnreadable: false,
     parentExists: true,
     realTarget: '/Volumes/Ext/DSH-Data',
     sameVolume: false,
@@ -222,7 +223,7 @@ describe('the target folder', () => {
     scratch = await scratchDir('dsh-preflight-')
     expect(isVolumeRootOnDisk('/')).toBe(true)
     expect(isVolumeRootOnDisk(scratch)).toBe(false)
-    expect(isVolumeRootOnDisk(join(scratch, 'none'))).toBe(false)
+    expect(isVolumeRootOnDisk(join(scratch, 'none'))).toBeUndefined()
   })
 
   it('probes the volume the target folder is on when it is a mount point', async () => {
@@ -250,11 +251,25 @@ describe('the target folder', () => {
     expect(probed).toEqual([usb])
   })
 
+  it('refuses a picked folder whose volume cannot be told, and never takes it as the target itself', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const picked = join(fixture.root, 'picked')
+    mkdirSync(picked)
+    const probes: PreflightProbes = { ...nodePreflightProbes(process.platform), isVolumeRoot: () => undefined }
+    const gathered = await gatherPreflightFacts(
+      { platform: process.platform, source: fixture.home, chosen: picked, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      probes,
+    )
+    expect(gathered.target.target).toBe(join(picked, DATA_DIR_NAME))
+    expect(evaluatePreflight(gathered).refusals).toContainEqual({ kind: 'folder-unreadable' })
+  })
+
   it('counts a folder holding only a file browser\'s files as empty', async () => {
     scratch = await scratchDir('dsh-preflight-')
     mkdirSync(join(scratch, 'finder'))
     writeFileSync(join(scratch, 'finder', '.DS_Store'), '')
     writeFileSync(join(scratch, 'finder', 'desktop.ini'), '')
+    writeFileSync(join(scratch, 'finder', '.localized'), '')
     expect(inspectTarget(join(scratch, 'finder'))).toBe('empty')
   })
 

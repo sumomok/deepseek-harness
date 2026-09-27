@@ -8,7 +8,7 @@ import { linkSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'no
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ESTIMATED_BLOCK_BYTES, isInsidePath, meaningfulNames, nativePath, REBUILDABLE_ENTRIES, scanTree } from '../src/move/tree.ts'
+import { ESTIMATED_BLOCK_BYTES, isIgnorableName, isInsidePath, meaningfulNames, nativePath, REBUILDABLE_ENTRIES, scanTree } from '../src/move/tree.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
 
 let fixture: Fixture | undefined
@@ -85,7 +85,17 @@ describe('scanTree', () => {
   })
 
   it('leaves a file browser\'s files out of what makes a folder non-empty', () => {
-    expect(meaningfulNames(['.DS_Store', 'Thumbs.db', 'desktop.ini', 'a'])).toEqual(['a'])
+    expect(meaningfulNames(['.DS_Store', 'Thumbs.db', 'desktop.ini', '.localized', 'a'])).toEqual(['a'])
+  })
+
+  it('matches a file browser\'s files without regard to case on macOS and Windows only', () => {
+    expect(isIgnorableName('THUMBS.DB', 'win32')).toBe(true)
+    expect(isIgnorableName('.ds_store', 'darwin')).toBe(true)
+    expect(isIgnorableName('Desktop.INI', 'win32')).toBe(true)
+    expect(isIgnorableName('THUMBS.DB', 'linux')).toBe(false)
+    expect(isIgnorableName('Thumbs.db', 'linux')).toBe(true)
+    expect(isIgnorableName('notes.txt', 'darwin')).toBe(false)
+    expect(meaningfulNames(['THUMBS.DB'], 'win32')).toEqual([])
   })
 
   it('reports the longest relative path', async () => {

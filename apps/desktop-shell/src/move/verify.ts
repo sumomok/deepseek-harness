@@ -24,7 +24,7 @@ import { DATA_ID_FILENAME } from '../data-location.ts'
 import { fromExtendedLengthPath } from '../link-target.ts'
 import { hashFile, planLinkResolved, readDoneLog, type ByteProgress, type CopyRequest } from './copier.ts'
 import { linkCreation, sameTarget } from './links.ts'
-import { IGNORABLE_NAMES, isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
+import { isIgnorableName, isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
 
 /** One way the copy differs from the source. */
 export type VerifyProblem =
@@ -195,7 +195,7 @@ export async function verifyTree(
     for (const name of destKinds.keys()) {
       // A file browser may drop its own files into the copy while it is open;
       // they are not data and are not reported.
-      if (IGNORABLE_NAMES.includes(name) && !sourceKinds.has(name)) continue
+      if (isIgnorableName(name, platform) && !sourceKinds.has(name)) continue
       if (sourceKinds.get(name) === undefined || sourceKinds.get(name) === 'other') {
         report.problems.push({ kind: 'extra', rel: atRoot ? name : `${rel}/${name}` })
       }
