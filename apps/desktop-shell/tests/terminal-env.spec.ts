@@ -464,9 +464,12 @@ describe('the terminal setting recorded before a move', () => {
   const zsh = (): { home: string; shell: string; zdotdir: undefined } => ({ home, shell: '/bin/zsh', zdotdir: undefined })
 
   it('records that the profile did not exist, rather than an empty one', () => {
-    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile', file: join(home, '.zshrc'), hadBlock: false })
+    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile', file: join(home, '.zshrc'), hadBlock: false, backupExisted: false })
     writeFileSync(join(home, '.zshrc'), '')
-    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile', file: realpathSync(join(home, '.zshrc')), content: '', hadBlock: false })
+    chmodSync(join(home, '.zshrc'), 0o600)
+    expect(snapshotShellProfile(zsh())).toEqual({
+      kind: 'profile', file: realpathSync(join(home, '.zshrc')), content: '', mode: 0o600, hadBlock: false, backupExisted: false,
+    })
   })
 
   it('records the profile byte for byte, at its real path, and whether our block is in it', () => {
@@ -475,10 +478,24 @@ describe('the terminal setting recorded before a move', () => {
     writeFileSync(real, bytes)
     symlinkSync(real, join(home, '.zshrc'))
     const before = snapshotShellProfile(zsh())
-    expect(before).toEqual({ kind: 'profile', file: realpathSync(real), content: bytes.toString('base64'), hadBlock: false })
+    expect(before).toEqual({
+      kind: 'profile', file: realpathSync(real), content: bytes.toString('base64'), mode: statSync(real).mode & 0o777, hadBlock: false,
+      backupExisted: false,
+    })
     expect(Buffer.from(before.kind === 'profile' ? before.content ?? '' : '', 'base64').equals(bytes)).toBe(true)
     updateShellProfile(zsh(), '/data')
-    expect(snapshotShellProfile(zsh())).toMatchObject({ kind: 'profile', hadBlock: true })
+    expect(snapshotShellProfile(zsh())).toMatchObject({ kind: 'profile', hadBlock: true, backupExisted: true })
+  })
+
+  it('records our block\'s own bytes, CRLF markers included, and no block when a marker is missing', () => {
+    const block = '# >>> DSH data location >>>\r\nexport DSH_HOME=/old\r\n# <<< DSH data location <<<\r\n'
+    writeFileSync(join(home, '.zshrc'), `alias a=b\r\n${block}export Y=2\r\n`)
+    const snapshot = snapshotShellProfile(zsh())
+    expect(snapshot).toMatchObject({ kind: 'profile', hadBlock: true, block: Buffer.from(block, 'latin1').toString('base64') })
+    writeFileSync(join(home, '.zshrc'), '# >>> DSH data location >>>\nexport DSH_HOME=/old\n')
+    const damaged = snapshotShellProfile(zsh())
+    expect(damaged).toMatchObject({ kind: 'profile', hadBlock: true })
+    expect(damaged.kind === 'profile' ? damaged.block : 'x').toBeUndefined()
   })
 
   it('records why no profile would be written', () => {
@@ -514,12 +531,16 @@ describe('the terminal setting recorded before a move', () => {
       mac, linux, { kind: 'unknown', detail: 'x' },
       { kind: 'user-environment', value: { kind: 'set', type: 'ExpandString', raw: '' } },
       { kind: 'user-environment', value: { kind: 'unset' } },
-      { kind: 'profile', file: '/p', content: 'AA==', hadBlock: true },
+      { kind: 'profile', file: '/p', content: 'AA==', mode: 0o644, hadBlock: true, block: 'AA==', backupExisted: true },
+      { kind: 'profile', file: '/p', hadBlock: false, backupExisted: false },
       { kind: 'profile-unavailable', reason: 'dangling-profile', detail: '/l' },
     ]) {
       expect(parseTerminalSnapshot(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot)
     }
-    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: 'yes' })).toBeUndefined()
+    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: 'yes', backupExisted: false })).toBeUndefined()
+    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: false })).toBeUndefined()
+    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: false, backupExisted: false, mode: -1 })).toBeUndefined()
+    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: false, backupExisted: false, block: 1 })).toBeUndefined()
     expect(parseTerminalSnapshot({ kind: 'user-environment', value: { kind: 'set', type: 'MultiString', raw: '' } })).toBeUndefined()
   })
 })

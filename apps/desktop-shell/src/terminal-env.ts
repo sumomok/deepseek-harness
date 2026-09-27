@@ -29,7 +29,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { copyDurably, writeDurably } from './durable-file.ts'
 
@@ -491,8 +491,11 @@ export async function writeTerminalDshHome(host: TerminalEnvHost, value: string 
  * recorded so a rollback puts back exactly what was there.
  *
  * - `profile`: the shell profile this module would edit (its real path).
- *   `content` is the file's bytes, base64; absent when the file did not
- *   exist. `hadBlock` says whether this module's block was in it.
+ *   `content` is the file's bytes, base64, and `mode` its permission bits;
+ *   both absent when the file did not exist. `hadBlock` says whether this
+ *   module's block was in it, and `block` holds that block's bytes, base64,
+ *   from its first marker line through its last, when both markers were
+ *   there. `backupExisted` says whether `<file>.dsh-backup` existed.
  * - `profile-unavailable`: no profile would be edited (an unsupported shell,
  *   or a profile reached through a dangling link).
  * - `user-environment`: the Windows user variable, `unset`, or `set` with its
@@ -502,7 +505,7 @@ export async function writeTerminalDshHome(host: TerminalEnvHost, value: string 
  * - `unsupported-platform`: nothing is written on this platform.
  */
 export type TerminalSnapshot =
-  | { kind: 'profile'; file: string; content?: string; hadBlock: boolean }
+  | { kind: 'profile'; file: string; content?: string; mode?: number; hadBlock: boolean; block?: string; backupExisted: boolean }
   | { kind: 'profile-unavailable'; reason: 'unsupported-shell' | 'dangling-profile'; detail: string }
   | { kind: 'user-environment'; value: { kind: 'unset' } | { kind: 'set'; type: 'String' | 'ExpandString'; raw: string } }
   | { kind: 'unknown'; detail: string }
@@ -552,11 +555,20 @@ export function snapshotShellProfile(target: ProfileTarget): TerminalSnapshot {
   const choice = profileFile(target)
   if (choice.kind === 'unsupported') return { kind: 'profile-unavailable', reason: 'unsupported-shell', detail: target.shell ?? '' }
   if (choice.kind === 'dangling') return { kind: 'profile-unavailable', reason: 'dangling-profile', detail: choice.link }
-  if (!choice.exists) return { kind: 'profile', file: choice.file, hadBlock: false }
+  if (!choice.exists) {
+    return { kind: 'profile', file: choice.file, hadBlock: false, backupExisted: existsSync(`${choice.file}${PROFILE_BACKUP_SUFFIX}`) }
+  }
   const file = realpathSync(choice.file)
   const bytes = readFileSync(file)
-  const hadBlock = bytes.toString('latin1').split(/\r?\n/).includes(BLOCK_START)
-  return { kind: 'profile', file, content: bytes.toString('base64'), hadBlock }
+  const mode = statSync(file).mode & 0o777
+  const backupExisted = existsSync(`${file}${PROFILE_BACKUP_SUFFIX}`)
+  const segments = bytes.toString('latin1').split(/(?<=\n)/)
+  const texts = segments.map(lineText)
+  const start = texts.indexOf(BLOCK_START)
+  const end = texts.indexOf(BLOCK_END)
+  const snapshot: TerminalSnapshot = { kind: 'profile', file, content: bytes.toString('base64'), mode, hadBlock: start !== -1, backupExisted }
+  if (start === -1 || end < start) return snapshot
+  return { ...snapshot, block: Buffer.from(segments.slice(start, end + 1).join(''), 'latin1').toString('base64') }
 }
 
 /**
@@ -583,10 +595,17 @@ export function parseTerminalSnapshot(value: unknown): TerminalSnapshot | undefi
   const r = value as Record<string, unknown>
   switch (r['kind']) {
     case 'profile': {
-      const { file, content, hadBlock } = r
-      if (typeof file !== 'string' || typeof hadBlock !== 'boolean') return undefined
+      const { file, content, mode, hadBlock, block, backupExisted } = r
+      if (typeof file !== 'string' || typeof hadBlock !== 'boolean' || typeof backupExisted !== 'boolean') return undefined
       if (content !== undefined && typeof content !== 'string') return undefined
-      return typeof content === 'string' ? { kind: 'profile', file, content, hadBlock } : { kind: 'profile', file, hadBlock }
+      if (block !== undefined && typeof block !== 'string') return undefined
+      if (mode !== undefined && (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o7777)) return undefined
+      return {
+        kind: 'profile', file, hadBlock, backupExisted,
+        ...typeof content === 'string' ? { content } : {},
+        ...typeof mode === 'number' ? { mode } : {},
+        ...typeof block === 'string' ? { block } : {},
+      }
     }
     case 'profile-unavailable': {
       const { reason, detail } = r
