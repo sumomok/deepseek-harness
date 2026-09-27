@@ -38,7 +38,7 @@ import { carryMove, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage } from './move-page.ts'
 import { beginDataMove, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
 import { moveText } from './move-text.ts'
-import { appMoveMainEffects, openMoveWindow } from './move-window.ts'
+import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import { moveDir } from './move/journal.ts'
 import { inspectMoveLock, processIsAlive } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
@@ -446,23 +446,9 @@ function relaunchOnto(home: string): void {
  * @returns once the application is on its way out.
  */
 async function runMoveToEnd(log: (line: string) => void, replacing: BrowserWindow | undefined): Promise<void> {
-  const text = moveText(app.getLocale())
-  const moveWindow = openMoveWindow(text, log)
+  const moveWindow = openMoveWindow(moveText(app.getLocale()), log)
   replacing?.destroy()
-  const dir = moveDir(app.getPath('userData'))
-  const flow = carryMove({
-    request: {
-      dir, userData: app.getPath('userData'), defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform,
-      locale: nameLocale(app.getLocale()), pid: process.pid,
-    },
-    main: appMoveMainEffects(moveWindow.window, dir, log),
-    ui: moveWindow,
-    text,
-    locale: nameLocale(app.getLocale()),
-    abandoned: appDataLocationHost(moveWindow.window, () => undefined, log),
-    log,
-    now: () => new Date(),
-  })
+  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log))
   moving = { cancel: moveWindow.requestCancel, ended: flow }
   let end: MoveFlowEnd
   try {
@@ -507,8 +493,6 @@ async function stopForMove(title: string, sentence: string, replacing: BrowserWi
  * @param window - the app window, for the launch prompts' parent.
  */
 function cleanUpMoveInBackground(window: BrowserWindow): void {
-  const text = moveText(app.getLocale())
-  const dir = moveDir(app.getPath('userData'))
   const silent: MoveUi = {
     cancel: new AbortController().signal,
     showProgress: () => undefined,
@@ -517,19 +501,7 @@ function cleanUpMoveInBackground(window: BrowserWindow): void {
       return Promise.resolve({ kind: 'quit' })
     },
   }
-  void carryMove({
-    request: {
-      dir, userData: app.getPath('userData'), defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform,
-      locale: nameLocale(app.getLocale()), pid: process.pid,
-    },
-    main: appMoveMainEffects(window, dir, logLine),
-    ui: silent,
-    text,
-    locale: nameLocale(app.getLocale()),
-    abandoned: appDataLocationHost(window, () => undefined, logLine),
-    log: logLine,
-    now: () => new Date(),
-  }).then(
+  void carryMove(appMoveFlowDeps(window, silent, logLine)).then(
     (end) => { logLine(`[desktop] data move: cleanup ${JSON.stringify(end)}\n`) },
     (error: unknown) => { logLine(`[desktop] data move: cleanup failed, retried next launch: ${String(error)}\n`) },
   )

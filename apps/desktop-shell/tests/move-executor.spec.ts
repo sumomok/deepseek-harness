@@ -146,18 +146,18 @@ describe('watching the worker', () => {
       syncTerminal: () => new Promise((resolve) => { release = () => { resolve('/t') } }),
       restoreTerminal: async () => undefined,
     }
-    const run = runMoveExecutor(request, slow, { stallMs: 40, start: () => thread })
-    const beat = setInterval(() => { thread.send({ type: 'alive' }) }, 10)
-    await new Promise((resolve) => { setTimeout(resolve, 80) })
+    const run = runMoveExecutor(request, slow, { stallMs: 200, start: () => thread })
+    const beat = setInterval(() => { thread.send({ type: 'alive' }) }, 25)
+    await new Promise((resolve) => { setTimeout(resolve, 400) })
     clearInterval(beat)
     thread.send({ type: 'call', id: 7, call: { effect: 'syncTerminal', target: '/t' } })
     // A report that arrives while the effect runs does not restart the clock either.
-    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    await new Promise((resolve) => { setTimeout(resolve, 25) })
     thread.send({ type: 'alive' })
     // Longer than the stall limit, with the worker silent: it is waiting for this process.
-    await new Promise((resolve) => { setTimeout(resolve, 120) })
+    await new Promise((resolve) => { setTimeout(resolve, 600) })
     release?.()
-    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    await new Promise((resolve) => { setTimeout(resolve, 25) })
     expect(thread.commands).toContainEqual({ type: 'reply', id: 7, ok: true, value: '/t' })
     thread.send({ type: 'done', outcome: { kind: 'switched' } })
     expect(await run).toEqual({ kind: 'switched' })

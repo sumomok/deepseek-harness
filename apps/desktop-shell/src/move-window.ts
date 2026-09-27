@@ -9,15 +9,18 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-window
  */
 
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { syncTerminal } from './data-location-boot.ts'
 import { appDataLocationHost } from './data-location-window.ts'
 import { POINTER_VERSION, type DataLocationPointer } from './data-location.ts'
-import type { MoveUi } from './move-flow.ts'
+import { defaultHarnessHome } from './data-location-boot.ts'
+import type { MoveFlowDeps, MoveUi } from './move-flow.ts'
+import { moveText } from './move-text.ts'
+import { nameLocale } from './move/names.ts'
 import { pageDocument, parseMoveLink, progressDocument, type MoveLink, type MovePage, type ProgressView } from './move-page.ts'
 import type { MoveText } from './move-text.ts'
 import type { MainEffects } from './move/executor.ts'
-import { readJournal } from './move/journal.ts'
+import { moveDir, readJournal } from './move/journal.ts'
 import { systemPowerShell } from './terminal-env.ts'
 import { restoreTerminal } from './terminal-restore.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -141,5 +144,29 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
     restoreTerminal: async (snapshot) => {
       log(`[desktop] data move: terminal restored: ${await restoreTerminal(snapshot, powershell)}\n`)
     },
+  }
+}
+
+/**
+ * Everything a move flow needs in the app, for the move recorded under this
+ * installation's user data.
+ * @param window - the window the terminal and launch prompts are parented on.
+ * @param ui - the windows the flow shows (the move's window, or none for a background cleanup).
+ * @param log - the desktop log sink.
+ * @returns the flow's dependencies.
+ */
+export function appMoveFlowDeps(window: BrowserWindow, ui: MoveUi, log: (line: string) => void): MoveFlowDeps {
+  const userData = app.getPath('userData')
+  const dir = moveDir(userData)
+  const locale = nameLocale(app.getLocale())
+  return {
+    request: { dir, userData, defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform, locale, pid: process.pid },
+    main: appMoveMainEffects(window, dir, log),
+    ui,
+    text: moveText(app.getLocale()),
+    locale,
+    abandoned: appDataLocationHost(window, () => undefined, log),
+    log,
+    now: () => new Date(),
   }
 }
