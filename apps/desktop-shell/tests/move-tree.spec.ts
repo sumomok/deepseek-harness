@@ -35,7 +35,7 @@ describe('scanTree', () => {
     fixture = await buildFixture({ bigBytes: 1000 })
     const scan = await scanTree(fixture.home, { exclude: [] })
     const outside = scan.entries.find(entry => entry.rel === 'profiles/desktop-shell/node_modules/outside')
-    expect(outside).toEqual({ kind: 'link', rel: 'profiles/desktop-shell/node_modules/outside', target: expect.stringContaining('sentinel') })
+    expect(outside).toEqual({ kind: 'link', rel: 'profiles/desktop-shell/node_modules/outside', target: fixture.sentinel })
     expect(scan.entries.some(entry => entry.rel.startsWith('profiles/desktop-shell/node_modules/outside/'))).toBe(false)
     expect(scan.links).toBe(4)
   })
