@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  CommandNode, CompactionSummaryNode, ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
+  CommandNode, CompactionSummaryNode, ConversationLocation, ConversationMatch, ConversationNodeContext,
+  ConversationNodeDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { CompactionCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
 import type {} from '@deepseek-ai/dsh-compaction/types'
@@ -132,6 +133,19 @@ function compactSummary(match: ConversationMatch | undefined, checkpoint: Conver
   }
 }
 
+/**
+ * Whether a command ran inside a turn that crash recovery closed: agent-loop
+ * resume appends, and session-query cold reads synthesize, a `turn/end`
+ * with reason `interrupted` for a log whose last turn never ended; the loop
+ * never emits that reason live.
+ * @param location - the command/run Match's resolved Location.
+ * @returns true when its turn ended `interrupted`.
+ */
+function inInterruptedTurn(location: ConversationLocation | undefined): boolean {
+  if (location?.kind !== 'turn' && location?.kind !== 'step') return false
+  return location.turn.end?.data.reason.kind === 'interrupted'
+}
+
 function fallbackState(context: ConversationNodeContext<CommandState>): CommandState | undefined {
   const done = context.matches.find(match => match.event.type === 'command/done')
   const checkpoint = context.matches.find(match => compactSource(match.event) !== undefined)
@@ -213,8 +227,11 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     const compaction = state.checkpoint === undefined
       ? null
       : compactSummary(state.summary, state.checkpoint)
-    const waiting = state.started !== true && compaction === null && state.command.outcome === null
-    const data: ManualCompactionChatData = { command: state.command, compaction, waiting }
+    const unsettled = state.started !== true && compaction === null && state.command.outcome === null
+    // A request still waiting when the Host process died never receives a
+    // command/done; the recovered turn's closer is the only record of that.
+    const exited = unsettled && inInterruptedTurn(context.start?.location)
+    const data: ManualCompactionChatData = { command: state.command, compaction, waiting: unsettled && !exited, exited }
     return chatNode(context, 'manual-compaction', compaction?.seq ?? state.command.seq, data)
   },
 }

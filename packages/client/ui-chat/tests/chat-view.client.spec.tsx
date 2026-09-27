@@ -841,6 +841,7 @@ describe('ChatView', () => {
         }),
         compaction: null,
         waiting: false,
+        exited: false,
       },
     }
     const builder = new ChatSnapshotBuilder()
@@ -908,6 +909,7 @@ describe('ChatView', () => {
         }),
         compaction: null,
         waiting: false,
+        exited: false,
       },
     }
     const failed: ChatNode<'compaction-failure'> = {
@@ -936,17 +938,18 @@ describe('ChatView', () => {
     expect(view.getByText('final answer')).toBeTruthy()
   })
 
-  it('labels a manual compaction that waits for the running Turn', () => {
+  it('labels a manual compaction that waits for the running Turn, and one whose Host exited', () => {
     const fixture = chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)], turnTimings: new Map([[1, { startTime: 0 }]]) })
     const turn = fixture.timeline.turns.get(1)
     if (turn === undefined) throw new Error('expected an open Turn')
-    const pending = (waiting: boolean): ChatNode<'manual-compaction'> => ({
+    const pending = (waiting: boolean, exited = false): ChatNode<'manual-compaction'> => ({
       key: 'fixture:manual-compaction:2', id: '2', target: 'chat', kind: 'manual-compaction',
       anchorSeq: 2, location: { kind: 'turn', turn }, visibility: 'visible',
       data: {
         command: command({ seq: 2, commandId: 'cmd-wait' as CommandNode['commandId'], name: 'compact', args: null, outcome: null }),
         compaction: null,
         waiting,
+        exited,
       },
     })
     const h = makeHarness({ chat: chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)] }) }, { running: true })
@@ -958,6 +961,9 @@ describe('ChatView', () => {
     expect(card().textContent).toContain(zh['message.compaction.waiting'])
     act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false)]) }) })
     expect(card().textContent).toContain(zh['message.compaction.running'])
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false, true)]) }) })
+    expect(card().textContent).toContain(zh['message.compaction.exited'])
+    expect(card().textContent).not.toContain(zh['message.compaction.running'])
   })
 
   it.each([

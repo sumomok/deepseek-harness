@@ -56,6 +56,12 @@ export interface ManualCompactionChatData {
    * the request is waiting for a running turn's step boundary or end.
    */
   readonly waiting: boolean
+  /**
+   * The command is unsettled, its compaction never opened a bracket, and the
+   * turn it ran in was closed as `interrupted` by crash recovery: the Host
+   * process exited while the request waited.
+   */
+  readonly exited: boolean
 }
 
 /**

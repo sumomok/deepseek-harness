@@ -11,10 +11,12 @@ interface CompactionCommandCardProps extends CommandRowOwnerProps {
   t: ChatViewSlotProps['t']
   /** The request waits for a running turn and has not started compacting. */
   waiting?: boolean
+  /** The Host process exited while the request waited; no command/done will come. */
+  exited?: boolean
 }
 
 /** Render one manual compaction lifecycle without duplicating its checkpoint marker. */
-export function CompactionCommandCard({ node, compaction, waiting = false, t }: CompactionCommandCardProps) {
+export function CompactionCommandCard({ node, compaction, waiting = false, exited = false, t }: CompactionCommandCardProps) {
   if (compaction !== undefined) {
     return (
       <CompactionItem
@@ -26,6 +28,9 @@ export function CompactionCommandCard({ node, compaction, waiting = false, t }: 
     )
   }
   if (node.outcome !== null) return <GenericCommandCard node={localizedOutcome(node, t)} t={t} />
+  if (exited) {
+    return <GenericCommandCard node={{ ...node, outcome: { kind: 'error', text: t('message.compaction.exited') } }} t={t} />
+  }
   return (
     <GenericCommandCard
       node={node}
