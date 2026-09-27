@@ -5,7 +5,8 @@
  * point, together with a seeded sample of progress reports.
  *
  * After each kill: at most one of the four directories is this data (its
- * identity marker and no move marker); a pointer that names a directory names
+ * identity marker and no move marker), and the partial copy carries no
+ * identity marker at all; a pointer that names a directory names
  * one that is this data, except while a rollback is undoing it; the source is
  * untouched until it is hidden; the sentinel behind a link is untouched. After
  * the resumed run: the move either finished on the target with every data
@@ -186,6 +187,7 @@ function checkAtKill(p: Prepared, sentinel: readonly string[]): string[] {
   // `~/.dsh` may be a link to the target once the launch has calibrated it; one directory, two names.
   const ours = [...new Set(dirs.filter(isOurData).map(dir => realpathSync(dir)))]
   if (ours.length > 1) violations.push(`more than one directory is this data: ${ours.join(', ')}`)
+  if (existsSync(join(p.partial, '.dsh-data-id'))) violations.push('the partial copy carries an identity marker')
   let journal: MoveJournal | undefined
   try {
     journal = readJournal(p.setup.dir)
