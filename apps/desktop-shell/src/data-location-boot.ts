@@ -31,7 +31,8 @@ import type { DataLocationText } from './data-location-text.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
 import { writeDurably } from './durable-file.ts'
 import {
-  ABANDONED_FILENAME, abandonedCopiesText, JournalError, moveDir, readAbandonedCopies, type AbandonedCopy,
+  ABANDONED_FILENAME, abandonedCopiesAsideName, abandonedCopiesText, JournalError, moveDir, readAbandonedCopies,
+  setAbandonedCopiesAside, type AbandonedCopy,
 } from './move/journal.ts'
 import { samePathText } from './path-text.ts'
 import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite } from './terminal-env.ts'
@@ -43,11 +44,14 @@ export type LocationPrompt =
   | { kind: 'confirm-use'; path: string }
   /** The record of abandoned copies cannot be read; the launch cannot tell a copy from the data. */
   | { kind: 'abandoned-unreadable'; path: string; platform: NodeJS.Platform }
+  /** The person asked to set the unreadable record aside; `name` is what it will be renamed to. */
+  | { kind: 'confirm-move-aside'; path: string; name: string }
   | { kind: 'confirm-env'; reason: EnvUnverifiedReason; envPath: string; current: string }
 
 /** The answers a {@link LocationPrompt} offers. */
 export type LocationAnswer =
   | 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep' | 'reveal' | 'use-anyway' | 'confirm' | 'cancel'
+  | 'move-aside'
 
 /** A prompt rendered for a message box. */
 export interface PromptView {
@@ -88,10 +92,21 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
       }
     }
     case 'abandoned-unreadable': {
-      // No button starts DSH: there is no safe way on without the record.
-      const buttons: PromptView['buttons'] = [{ label: text.reveal(prompt.platform), answer: 'reveal' }, { label: text.quit, answer: 'quit' }]
-      return { message: text.abandonedUnreadableTitle, detail: text.abandonedUnreadable(prompt.path), buttons, cancelIndex: 1 }
+      // Going on without the record is behind a confirmation that says what it loses.
+      const buttons: PromptView['buttons'] = [
+        { label: text.reveal(prompt.platform), answer: 'reveal' },
+        { label: text.moveAside, answer: 'move-aside' },
+        { label: text.quit, answer: 'quit' },
+      ]
+      return { message: text.abandonedUnreadableTitle, detail: text.abandonedUnreadable(prompt.path), buttons, cancelIndex: 2 }
     }
+    case 'confirm-move-aside':
+      return {
+        message: text.confirmMoveAsideTitle,
+        detail: text.confirmMoveAside(prompt.path, prompt.name),
+        buttons: [{ label: text.cancel, answer: 'cancel' }, { label: text.confirmMoveAsideButton, answer: 'confirm' }],
+        cancelIndex: 0,
+      }
     case 'confirm-use':
       return {
         message: text.confirmUseTitle(prompt.path),
@@ -496,9 +511,11 @@ function makeFolderCurrent(host: DataLocationHost, folder: string, read: Pointer
 
 /**
  * Read the record of abandoned copies. While it cannot be read the launch
- * does not go on: without it an abandoned copy cannot be told from the data,
- * so the person is told where the file is, may show it, and may quit; after
- * showing it the file is read again.
+ * does not go on by itself: without it some abandoned copies cannot be told
+ * from the data, so the person is told where the file is and may show it
+ * (then it is read again), quit, or, after a confirmation, have it renamed
+ * aside ({@link setAbandonedCopiesAside}) and go on with the folders'
+ * generations alone.
  * @param host - the app.
  * @returns the copies, or `undefined` when the person quit.
  * @throws what reading throws other than a {@link JournalError}.
@@ -517,7 +534,29 @@ async function readAbandonedOrAsk(host: DataLocationHost): Promise<readonly Aban
       host.log('[desktop] data location: the person chose to quit\n')
       return undefined
     }
-    host.reveal(path)
+    if (answer === 'move-aside') await moveAbandonedAside(host)
+    else host.reveal(path)
+  }
+}
+
+/**
+ * Confirm, then rename the unreadable record of abandoned copies aside. A
+ * failed rename is logged and the record is read again, which asks again.
+ * @param host - the app.
+ */
+async function moveAbandonedAside(host: DataLocationHost): Promise<void> {
+  const dir = moveDir(host.userData)
+  const name = abandonedCopiesAsideName(dir, new Date())
+  const path = join(dir, ABANDONED_FILENAME)
+  const answer = await host.ask(promptView({ kind: 'confirm-move-aside', path, name }, host.text))
+  if (answer !== 'confirm') return
+  try {
+    const moved = setAbandonedCopiesAside(dir, name)
+    host.log(moved
+      ? `[desktop] data location: set the unreadable ${path} aside as ${name}\n`
+      : `[desktop] data location: ${path} became readable; left in place\n`)
+  } catch (error) {
+    host.log(`[desktop] data location: could not set ${path} aside: ${String(error)}\n`)
   }
 }
 

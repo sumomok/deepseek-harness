@@ -6,7 +6,9 @@
  * @module
  */
 
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync,
+} from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +22,10 @@ import {
   writePointer,
   type DataId, type DataLocationPointer,
 } from '../src/data-location.ts'
-import { ABANDONED_FILENAME, abandonedCopiesText, moveDir, readAbandonedCopies, type MoveId } from '../src/move/journal.ts'
+import {
+  ABANDONED_FILENAME, abandonedCopiesAsideName, abandonedCopiesText, JournalError, moveDir, readAbandonedCopies, setAbandonedCopiesAside,
+  type MoveId,
+} from '../src/move/journal.ts'
 import { DATA_LOCATION_TEXT, dataLocationText } from '../src/data-location-text.ts'
 import {
   POINTER_HOME_ENV, readLoginShellDshHome, shellQuote, updateShellProfile, type ExplicitRead, type TerminalWrite,
@@ -196,11 +201,11 @@ describe('promptView', () => {
 
   it('names the file browser of each platform on the damaged-record prompt', () => {
     const mac = promptView({ kind: 'abandoned-unreadable', path: '/u/abandoned-copies.json', platform: 'darwin' }, DATA_LOCATION_TEXT.zh)
-    expect(mac.buttons.map(button => button.label)).toEqual(['在访达中显示', '退出'])
+    expect(mac.buttons.map(button => button.label)).toEqual(['在访达中显示', '移开这个文件并继续', '退出'])
     const win = promptView({ kind: 'abandoned-unreadable', path: 'C:\\u\\abandoned-copies.json', platform: 'win32' }, DATA_LOCATION_TEXT.zh)
-    expect(win.buttons.map(button => button.label)).toEqual(['在资源管理器中显示', '退出'])
+    expect(win.buttons.map(button => button.label)).toEqual(['在资源管理器中显示', '移开这个文件并继续', '退出'])
     const en = promptView({ kind: 'abandoned-unreadable', path: 'C:\\u\\abandoned-copies.json', platform: 'win32' }, DATA_LOCATION_TEXT.en)
-    expect(en.buttons.map(button => button.label)).toEqual(['Show in File Explorer', 'Quit'])
+    expect(en.buttons.map(button => button.label)).toEqual(['Show in File Explorer', 'Move This File Aside and Continue', 'Quit'])
     expect(en.detail).toContain('C:\\u\\abandoned-copies.json')
   })
 
@@ -263,7 +268,7 @@ describe('settleDataLocation and folders a data move set aside', () => {
     const view = quitting.asked[0]
     expect(view?.message).toBe(DATA_LOCATION_TEXT.zh.abandonedUnreadableTitle)
     expect(view?.detail).toBe(DATA_LOCATION_TEXT.zh.abandonedUnreadable(record))
-    expect(view?.buttons.map(button => button.answer)).toEqual(['reveal', 'quit'])
+    expect(view?.buttons.map(button => button.answer)).toEqual(['reveal', 'move-aside', 'quit'])
     expect(view?.buttons[view.cancelIndex]?.answer).toBe('quit')
     // Nothing was decided or written while the record was unreadable.
     expect(readPointer(userData)).toEqual({ kind: 'absent' })
@@ -271,6 +276,104 @@ describe('settleDataLocation and folders a data move set aside', () => {
     // Once the person fixes the file, the launch goes on.
     const fixing = recordingHost({ answers: ['reveal'], onReveal: () => { writeFileSync(record, abandonedCopiesText([])) } })
     expect(await settleDataLocation(fixing.host, undefined)).toMatchObject({ home: defaultHome, via: 'default' })
+  })
+})
+
+describe('setting an unreadable record of abandoned copies aside', () => {
+  /** A default home and an unreadable record; returns the record's path. */
+  function damagedRecord(): string {
+    mkdirSync(defaultHome)
+    mkdirSync(moveDir(userData))
+    const record = join(moveDir(userData), ABANDONED_FILENAME)
+    writeFileSync(record, '{')
+    return record
+  }
+
+  /** The files in the move directory named like a set-aside record. */
+  function asideFiles(): string[] {
+    return readdirSync(moveDir(userData)).filter(name => /^abandoned-copies\.corrupt-[0-9T-]+Z(-\d+)?\.json$/.test(name))
+  }
+
+  it('asks first, and cancelling leaves the record where it is', async () => {
+    const record = damagedRecord()
+    const recorded = recordingHost({ answers: ['move-aside', 'cancel', 'quit'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+    const confirm = recorded.asked[1]
+    expect(confirm?.message).toBe(DATA_LOCATION_TEXT.zh.confirmMoveAsideTitle)
+    expect(confirm?.buttons.map(button => button.answer)).toEqual(['cancel', 'confirm'])
+    expect(confirm?.buttons[confirm.cancelIndex]?.answer).toBe('cancel')
+    const name = /改名为「([^」]+)」/.exec(confirm?.detail ?? '')?.[1]
+    expect(confirm?.detail).toBe(DATA_LOCATION_TEXT.zh.confirmMoveAside(record, name ?? ''))
+    expect(readFileSync(record, 'utf8')).toBe('{')
+    expect(asideFiles()).toEqual([])
+  })
+
+  it('renames the record aside, keeps its bytes, and goes on', async () => {
+    const record = damagedRecord()
+    const recorded = recordingHost({ answers: ['move-aside', 'confirm'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toMatchObject({ home: defaultHome, via: 'default' })
+    const aside = asideFiles()
+    expect(aside).toHaveLength(1)
+    expect(recorded.asked[1]?.detail).toContain(aside[0])
+    expect(readFileSync(join(moveDir(userData), aside[0] ?? ''), 'utf8')).toBe('{')
+    expect(existsSync(record)).toBe(false)
+    expect(readAbandonedCopies(moveDir(userData))).toEqual([])
+  })
+
+  it('never overwrites an earlier set-aside record', async () => {
+    damagedRecord()
+    await settleDataLocation(recordingHost({ answers: ['move-aside', 'confirm'] }).host, undefined)
+    const first = asideFiles()
+    writeFileSync(join(moveDir(userData), ABANDONED_FILENAME), '[')
+    // The same second on a fast machine gives the same time; the name must still differ.
+    const recorded = recordingHost({ answers: ['move-aside', 'confirm'] })
+    await settleDataLocation(recorded.host, undefined)
+    expect(asideFiles()).toHaveLength(2)
+    expect(asideFiles()).toEqual(expect.arrayContaining(first))
+    expect(new Set(asideFiles().map(name => readFileSync(join(moveDir(userData), name), 'utf8')))).toEqual(new Set(['{', '[']))
+  })
+
+  it('leaves a record that was repaired while the confirmation was open', async () => {
+    const record = damagedRecord()
+    const repaired = abandonedCopiesText([])
+    const recorded = recordingHost({
+      answers: ['move-aside', 'confirm'],
+      onAsk: (view) => { if (view.message === DATA_LOCATION_TEXT.zh.confirmMoveAsideTitle) writeFileSync(record, repaired) },
+    })
+    expect(await settleDataLocation(recorded.host, undefined)).toMatchObject({ home: defaultHome })
+    expect(readFileSync(record, 'utf8')).toBe(repaired)
+    expect(asideFiles()).toEqual([])
+  })
+
+  it('names the set-aside file by the time, with a number when that name is taken', () => {
+    const record = damagedRecord()
+    const dir = moveDir(userData)
+    const at = new Date('2026-09-28T01:02:03.456Z')
+    expect(abandonedCopiesAsideName(dir, at)).toBe('abandoned-copies.corrupt-2026-09-28T01-02-03-456Z.json')
+    writeFileSync(join(dir, 'abandoned-copies.corrupt-2026-09-28T01-02-03-456Z.json'), 'earlier')
+    expect(abandonedCopiesAsideName(dir, at)).toBe('abandoned-copies.corrupt-2026-09-28T01-02-03-456Z-2.json')
+    expect(() => setAbandonedCopiesAside(dir, 'abandoned-copies.corrupt-2026-09-28T01-02-03-456Z.json')).toThrow(JournalError)
+    expect(readFileSync(join(dir, 'abandoned-copies.corrupt-2026-09-28T01-02-03-456Z.json'), 'utf8')).toBe('earlier')
+    expect(readFileSync(record, 'utf8')).toBe('{')
+  })
+
+  posixOnly('asks again when the rename fails, and does not start', async () => {
+    const record = damagedRecord()
+    chmodSync(moveDir(userData), 0o500)
+    try {
+      const recorded = recordingHost({ answers: ['move-aside', 'confirm', 'quit'] })
+      expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+      expect(recorded.asked.map(view => view.message)).toEqual([
+        DATA_LOCATION_TEXT.zh.abandonedUnreadableTitle,
+        DATA_LOCATION_TEXT.zh.confirmMoveAsideTitle,
+        DATA_LOCATION_TEXT.zh.abandonedUnreadableTitle,
+      ])
+      expect(recorded.log.some(line => line.includes('could not set'))).toBe(true)
+    } finally {
+      chmodSync(moveDir(userData), 0o700)
+    }
+    expect(readFileSync(record, 'utf8')).toBe('{')
+    expect(readPointer(userData)).toEqual({ kind: 'absent' })
   })
 })
 

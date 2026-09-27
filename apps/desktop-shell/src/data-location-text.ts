@@ -25,6 +25,11 @@ export interface DataLocationText {
   abandonedUnreadableTitle: string
   /** The record of abandoned copies cannot be read, so the launch does not go on. */
   abandonedUnreadable: (path: string) => string
+  /** The button that renames the unreadable record aside, after {@link DataLocationText.confirmMoveAside}. */
+  moveAside: string
+  confirmMoveAsideTitle: string
+  confirmMoveAside: (path: string, name: string) => string
+  confirmMoveAsideButton: string
   /** The button that shows a file in the platform's file browser. */
   reveal: (platform: NodeJS.Platform) => string
   /** The button that makes a set-aside folder the data again. */
@@ -68,7 +73,11 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedOtherData: path => `「${path}」里是另一份 DSH 数据，不是你原来的。请选择数据所在的文件夹。`,
     refusedSetAside: path => `「${path}」是搬运数据时留下的文件夹，DSH 不再使用它。请选择数据所在的文件夹。`,
     abandonedUnreadableTitle: 'DSH 暂时不能启动',
-    abandonedUnreadable: path => `记录搬运数据时留下的文件夹的文件「${path}」读不出来了。DSH 没法分辨哪些文件夹是留下的副本，为了不把副本当成你的数据，在这个文件修好之前不会启动。`,
+    abandonedUnreadable: path => `记录搬运数据时留下的文件夹的文件「${path}」读不出来了。DSH 没法确定哪些文件夹是留下的副本，为了不把副本当成你的数据，在这个文件修好或移开之前不会启动。`,
+    moveAside: '移开这个文件并继续',
+    confirmMoveAsideTitle: '移开这个文件并继续启动？',
+    confirmMoveAside: (path, name) => `DSH 会把「${path}」改名为「${name}」，留在原来的文件夹里，然后继续启动。这个文件记着搬运数据时留下的文件夹。移开之后，其中大多数 DSH 仍能从文件夹本身认出来，但不能保证每一个都认得出；认不出的那个，如果被设成了数据位置，可能会被当成你的数据使用。`,
+    confirmMoveAsideButton: '移开并继续',
     reveal: platform => platform === 'win32' ? '在资源管理器中显示' : '在访达中显示',
     useAnyway: '这就是我要用的数据，改用它',
     confirmUseTitle: path => `改用「${path}」里的数据？`,
@@ -124,7 +133,11 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedOtherData: path => `"${path}" holds a different set of DSH data, not yours. Choose the folder that holds your data.`,
     refusedSetAside: path => `"${path}" was left behind by moving your data, and DSH no longer uses it. Choose the folder that holds your data.`,
     abandonedUnreadableTitle: 'DSH cannot start',
-    abandonedUnreadable: path => `The file that records folders left behind by moving your data, "${path}", cannot be read. DSH cannot tell which folders are left-behind copies, so to avoid taking a copy for your data it does not start until this file is fixed.`,
+    abandonedUnreadable: path => `The file that records folders left behind by moving your data, "${path}", cannot be read. DSH cannot be sure which folders are left-behind copies, so to avoid taking a copy for your data it does not start until this file is fixed or moved aside.`,
+    moveAside: 'Move This File Aside and Continue',
+    confirmMoveAsideTitle: 'Move this file aside and continue?',
+    confirmMoveAside: (path, name) => `DSH will rename "${path}" to "${name}", keep it in the same folder, and continue starting. The file records folders left behind by moving your data. After it is moved aside, DSH still recognizes most of those folders from the folders themselves, but it cannot promise to recognize every one; one it does not recognize could be used as your data if it is set as the data location.`,
+    confirmMoveAsideButton: 'Move Aside and Continue',
     reveal: platform => platform === 'win32' ? 'Show in File Explorer' : 'Show in Finder',
     useAnyway: 'This Is My Data — Use It',
     confirmUseTitle: path => `Use the data in "${path}"?`,

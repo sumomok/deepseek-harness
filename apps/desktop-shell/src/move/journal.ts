@@ -30,7 +30,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { writeDurably } from '../durable-file.ts'
 import type { DataId } from '../data-location.ts'
@@ -564,6 +564,46 @@ export function readAbandonedCopies(dir: string): AbandonedCopy[] {
     }
     return { path, dataId: dataId as DataId, moveId: moveId as MoveId, abandonedAt }
   })
+}
+
+/**
+ * A free name, in the move directory, for setting an unreadable record of
+ * abandoned copies aside: `abandoned-copies.corrupt-<time>.json`, with `-2`,
+ * `-3`, … before `.json` when that name is taken.
+ * @param dir - the move directory.
+ * @param now - the time the name carries.
+ * @returns the file name, not yet used in `dir`.
+ */
+export function abandonedCopiesAsideName(dir: string, now: Date): string {
+  const stem = `abandoned-copies.corrupt-${now.toISOString().replace(/[:.]/g, '-')}`
+  for (let n = 1; ; n += 1) {
+    const name = n === 1 ? `${stem}.json` : `${stem}-${n}.json`
+    if (!existsSync(join(dir, name))) return name
+  }
+}
+
+/**
+ * Rename an unreadable record of abandoned copies to `name` in the same
+ * directory, so the launch can go on without it. A record that has become
+ * readable (or absent) since is left where it is, so a repaired file is never
+ * set aside.
+ * @param dir - the move directory.
+ * @param name - from {@link abandonedCopiesAsideName}.
+ * @returns whether the file was renamed.
+ * @throws what renaming throws; a {@link JournalError} when `name` has been taken since.
+ */
+export function setAbandonedCopiesAside(dir: string, name: string): boolean {
+  try {
+    readAbandonedCopies(dir)
+    return false
+  } catch (error) {
+    if (!(error instanceof JournalError)) throw error
+  }
+  // renameSync replaces an existing target on every platform we ship; the
+  // check keeps an earlier set-aside file from being overwritten.
+  if (existsSync(join(dir, name))) throw new JournalError(`abandoned copies: ${name} already exists`)
+  renameSync(join(dir, ABANDONED_FILENAME), join(dir, name))
+  return true
 }
 
 /**
