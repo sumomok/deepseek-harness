@@ -22,16 +22,15 @@ import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import { HARNESS_ID, harnessEffects, prepareMove, terminalValue, type MoveSetup, type Start } from './move-harness.ts'
 
-let fixture: Fixture | undefined
+const fixtures: Fixture[] = []
 
 afterEach(async () => {
-  if (fixture !== undefined) {
+  for (const fixture of fixtures.splice(0)) {
     for (const line of listTree(fixture.root)) {
       if (line.startsWith('dir ')) chmodSync(join(fixture.root, line.slice(4)), 0o700)
     }
     await rm(fixture.root, { recursive: true, force: true })
   }
-  fixture = undefined
 })
 
 const posixOnly = process.platform === 'win32' ? it.skip : it
@@ -53,7 +52,7 @@ interface Scenario {
  */
 async function scenario(options: { sameVolume: boolean; start: Start; targetPreexisting?: boolean }): Promise<Scenario> {
   const f = await buildFixture({ bigBytes: 200_000 })
-  fixture = f
+  fixtures.push(f)
   const target = join(f.targetParent, 'DSH-Data')
   const setup = prepareMove({ root: f.root, home: f.home, target, ...options })
   startMove(setup.dir, setup.start, { pid: PID, now: new Date() })
