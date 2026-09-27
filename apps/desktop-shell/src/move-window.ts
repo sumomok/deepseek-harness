@@ -169,7 +169,7 @@ export function appMoveFlowDeps(
   const locale = nameLocale(app.getLocale())
   return {
     request: {
-      dir, userData, defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform, locale, pid: process.pid,
+      dir, userData, defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform, locale, pid: process.pid, lockSelf,
       ...before === undefined ? {} : { before },
     },
     main: appMoveMainEffects(window, dir, log),
@@ -179,6 +179,5 @@ export function appMoveFlowDeps(
     abandoned: appDataLocationHost(window, () => undefined, log),
     log,
     now: () => new Date(),
-    lockSelf,
   }
 }

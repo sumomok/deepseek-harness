@@ -9,7 +9,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,8 +19,8 @@ import { carryMove, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, 
 import { lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
-import { ABANDONED_FILENAME, readJournal } from '../src/move/journal.ts'
-import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes } from '../src/move/lock.ts'
+import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal } from '../src/move/journal.ts'
+import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { recordHealth, startMove } from '../src/move/run.ts'
 import { buildFixture, type Fixture } from './move-fixture.ts'
 import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
@@ -41,7 +41,17 @@ async function started(start: Start = 'pointer'): Promise<{ setup: MoveSetup; f:
   const target = join(f.targetParent, 'DSH-Data')
   const setup = prepareMove({ root: f.root, home: f.home, target, sameVolume: false, start })
   startMove(setup.dir, setup.start, { pid: process.pid, now: new Date() })
+  await acquireMoveLock(f.home, selfOf(setup), LOCK_PROBES)
   return { setup, f, target }
+}
+
+/**
+ * This installation and process, as the move lock names them.
+ * @param setup - the move.
+ * @returns the lock's owner fields.
+ */
+function selfOf(setup: MoveSetup): LockSelf {
+  return { userData: setup.userData, pid: process.pid, startedAt: '' }
 }
 
 /** A recording stand-in for the windows, answering pages from a queue. */
@@ -80,10 +90,12 @@ function abandonedHost(setup: MoveSetup, answers: LocationAnswer[]): AbandonedRe
 /** The flow's dependencies for a setup. */
 function depsOf(setup: MoveSetup, ui: MoveUi, extra: Partial<MoveFlowDeps> = {}): MoveFlowDeps {
   return {
-    request: { dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid },
+    request: {
+      dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid,
+      lockSelf: selfOf(setup),
+    },
     main: { syncTerminal: async target => target, restoreTerminal: async () => undefined },
-    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(),
-    lockSelf: { userData: setup.userData, pid: process.pid, startedAt: '' }, ...extra,
+    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(), ...extra,
   }
 }
 
@@ -192,7 +204,9 @@ describe('a move that cannot go on', () => {
 
   it('keeps the move lock\'s heartbeat while the move runs, in the place the lock is, and stops with the move', async () => {
     const { setup, f } = await started()
+    // A move resumed after a relaunch: the journal and the lock both name the earlier process.
     writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ userData: setup.userData, pid: 999, startedAt: '', heartbeatAt: '2026-01-01T00:00:00Z' }))
+    writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'copying', pid: 999 }))
     const thread = new ScriptedThread()
     setTimeout(() => { thread.emit('message', { type: 'done', outcome: { kind: 'switched' } }) }, 80)
     let clock = 0
@@ -257,6 +271,25 @@ describe('a move that cannot go on', () => {
     const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x' } } })
     expect(end).toEqual({ kind: 'relaunch', home: target })
     expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x' }, undefined])
+  })
+
+  it('stops a resumed move whose lock was discarded before starting the worker, and one the worker found without its lock', async () => {
+    const { setup, f } = await started()
+    writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'copying' }))
+    unlinkSync(join(f.home, LOCK_FILENAME))
+    let starts = 0
+    const ui = recordingUi([{ kind: 'quit' }])
+    const end = await carryMove(depsOf(setup, ui, { start: () => { starts += 1; return new ScriptedThread() } }))
+    expect(end).toEqual({ kind: 'quit' })
+    expect(starts).toBe(0)
+    expect(ui.pages[0]).toMatchObject({ title: text.lockLostTitle, paragraphs: [text.lockLost] })
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+    expect(readJournal(setup.dir)?.phase).toBe('copying')
+    const again = await started()
+    const thread = new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'no lock' })
+    const stopped = recordingUi([{ kind: 'quit' }])
+    expect(await carryMove(depsOf(again.setup, stopped, { start: () => thread }))).toEqual({ kind: 'quit' })
+    expect(stopped.pages[0]).toMatchObject({ title: text.lockLostTitle })
   })
 
   it('shows any other failure with its detail and quits', async () => {

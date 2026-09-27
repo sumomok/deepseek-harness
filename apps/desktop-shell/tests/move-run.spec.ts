@@ -25,10 +25,10 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
-  rolledBackPointer, startMove,
+  lockExpectedAt, rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
-import { LOCK_FILENAME } from '../src/move/lock.ts'
+import { acquireMoveLock, checkOwnLock, LOCK_FILENAME, MoveLockLostError } from '../src/move/lock.ts'
 import { keptFolderName } from '../src/move/names.ts'
 import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
@@ -731,6 +731,33 @@ describe('a directory a terminal made at the old path', () => {
     expect(readAbandonedCopies(setup.dir).map(copy => copy.path)).toEqual([join(realpathSync(f.targetParent), 'DSH-Data')])
   })
 
+  posixOnly('stops before the next step once another installation discarded the lock, hiding and deleting nothing', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const self = { userData: s.setup.userData, pid: PID, startedAt: '' }
+    await acquireMoveLock(s.f.home, self, { startTimeOf: async () => undefined, now: () => new Date() })
+    const real = harnessEffects(s.setup)
+    // Discarded while the copy runs: the copy only writes the partial folder.
+    const effects: MoveEffects = {
+      ...real, copy: async (...args) => { await real.copy(...args); unlinkSync(join(s.f.home, LOCK_FILENAME)) },
+    }
+    const seen: string[][] = []
+    const guard = (journal: Parameters<typeof lockExpectedAt>[0], facts: Parameters<typeof lockExpectedAt>[1]): void => {
+      seen.push(lockExpectedAt(journal, facts))
+      const check = checkOwnLock(lockExpectedAt(journal, facts), self, journal.pid)
+      if (check.kind === 'lost') throw new MoveLockLostError(check.detail)
+    }
+    const before = listTree(s.f.home).filter(line => !line.includes(LOCK_FILENAME))
+    await expect(advanceMove(s.setup.dir, effects, { pid: PID, guard })).rejects.toThrow(MoveLockLostError)
+    expect(seen[0]).toEqual([])
+    expect(seen.at(-1)).toEqual([s.f.home])
+    const journal = readJournal(s.setup.dir)
+    expect(journal?.phase).toBe('verifying')
+    expect(listTree(s.f.home)).toEqual(before)
+    expect(existsSync(journal?.hidden ?? '')).toBe(false)
+    expect(existsSync(journal?.partial ?? '')).toBe(true)
+    expect(existsSync(s.target)).toBe(false)
+  })
+
   posixOnly('never copies, prints, or checks the AppleDouble companions of the markers', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     for (const name of [`._${LOCK_FILENAME}`, '._.dsh-data-id']) writeFileSync(join(s.f.home, name), 'apple double')
@@ -1001,6 +1028,19 @@ describe('nextAction', () => {
   })
   const facts = (changes: Partial<MoveFacts>): MoveFacts => ({ source: dir(), partial: dir(), target: dir(), hidden: dir(), ...changes })
   const ours = dir({ exists: true, dataId: 'ours' })
+
+  it('expects the lock wherever the original data is, and nowhere while only requested or cleaning up', () => {
+    const across = journal({ phase: 'copying' })
+    expect(lockExpectedAt(across, facts({ source: ours }))).toEqual(['/s'])
+    expect(lockExpectedAt(across, facts({ source: dir({ exists: true, movedId: true }) }))).toEqual(['/s'])
+    // Something else at the old path, or the original's drive away: nothing to check there.
+    expect(lockExpectedAt(across, facts({ source: dir({ exists: true, dataId: 'other' }) }))).toEqual([])
+    expect(lockExpectedAt({ ...across, phase: 'switching' }, facts({ hidden: dir({ exists: true }), target: ours }))).toEqual(['/h'])
+    const one = journal({ phase: 'switching', sameVolume: true })
+    expect(lockExpectedAt(one, facts({ target: ours, hidden: dir({ exists: true }) }))).toEqual(['/t'])
+    expect(lockExpectedAt({ ...across, phase: 'requested' }, facts({ source: ours }))).toEqual([])
+    expect(lockExpectedAt({ ...across, phase: 'cleanup' }, facts({ hidden: dir({ exists: true }) }))).toEqual([])
+  })
 
   it('hides the source before it names the target, one step at a time', () => {
     const hiding = journal({ phase: 'hiding-source', targetGeneration: 1 })

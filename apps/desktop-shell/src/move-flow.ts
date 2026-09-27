@@ -20,9 +20,9 @@ import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
+import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockCheck, type LockState } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
-import type { MoveOutcome } from './move/run.ts'
+import { lockExpectedNow, NODE_MOVE_FS, type MoveOutcome } from './move/run.ts'
 
 /** The windows a move shows. */
 export interface MoveUi {
@@ -50,8 +50,6 @@ export interface MoveFlowDeps {
   abandoned: AbandonedRecordHost
   log: (line: string) => void
   now: () => Date
-  /** This installation and process, for the move lock's heartbeat. */
-  lockSelf: LockSelf
   /** Milliseconds between two heartbeats; {@link HEARTBEAT_INTERVAL_MS} when absent. */
   heartbeatMs?: number
   /** Starts the executor's worker; the real one when absent. */
@@ -76,22 +74,44 @@ export type MoveFlowEnd =
  * @throws when the journal cannot be read, or a choice cannot be recorded.
  */
 export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
-  const beat = (): void => {
-    const journal = readJournal(deps.request.dir)
-    if (journal === undefined) return
+  const { request } = deps
+  const beat = (): LockCheck => {
+    const journal = readJournal(request.dir)
+    if (journal === undefined) return { kind: 'ours' }
     try {
-      refreshMoveLock(lockPlaces(journal), deps.lockSelf, deps.now())
+      return refreshMoveLock(lockExpectedNow(NODE_MOVE_FS, journal), request.lockSelf, deps.now(), journal.pid)
     } catch (error) {
       deps.log(`[desktop] data move: could not refresh the move lock: ${String(error)}\n`)
+      return { kind: 'ours' }
     }
   }
-  beat()
-  const heartbeat = setInterval(beat, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS)
+  const first = beat()
+  if (first.kind === 'lost') return await stopForLostLock(deps, first.detail)
+  const heartbeat = setInterval(() => {
+    const check = beat()
+    if (check.kind === 'ours') return
+    // The worker checks the lock before its next step and stops there.
+    deps.log(`[desktop] data move: the move lock is no longer this move's: ${check.detail}\n`)
+    clearInterval(heartbeat)
+  }, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS)
   try {
     return await carry(deps)
   } finally {
     clearInterval(heartbeat)
   }
+}
+
+/**
+ * Tell the person the move stopped because its lock was discarded or taken,
+ * and quit; the journal stays.
+ * @param deps - the windows, the sentences, and the log.
+ * @param detail - where the lock was lost.
+ * @returns `quit`.
+ */
+async function stopForLostLock(deps: MoveFlowDeps, detail: string): Promise<MoveFlowEnd> {
+  deps.log(`[desktop] data move: stopped: the move lock is no longer this move's: ${detail}\n`)
+  await deps.ui.showPage(stopPage(deps.text.lockLostTitle, deps.text.lockLost, deps.text, { platform: deps.request.platform }))
+  return { kind: 'quit' }
 }
 
 /**
@@ -127,6 +147,7 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
       })
     } catch (error) {
       if (!(error instanceof ExecutorError)) throw error
+      if (error.name === 'MoveLockLostError') return await stopForLostLock(deps, error.message)
       log(`[desktop] data move: ${error.stalled ? 'stalled' : 'failed'}: ${error.name}: ${error.message}\n`)
       if (error.name === 'JournalError' && error.message.startsWith('abandoned copies')) {
         // The record the move reads and writes cannot be read: the same page as at launch, then the move goes on.
@@ -151,7 +172,7 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         continue
       }
       case 'ended':
-        releaseMoveLock(lockPlaces(journal, outcome.result), deps.lockSelf)
+        releaseMoveLock(lockPlaces(journal, outcome.result), request.lockSelf)
         if (journal.phase === 'cleanup') return { kind: 'done', outcome }
         return { kind: 'relaunch', home: relaunchHome(journal, outcome) ?? journal.source }
       case 'switched':

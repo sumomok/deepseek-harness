@@ -240,6 +240,33 @@ export interface AdvanceOptions {
   onProgress?: (progress: MoveProgress) => void
   /** The running process, recorded in the journal. */
   pid: number
+  /**
+   * Checked before each step past `requested`, outside the step, so what it
+   * throws stops the move with nothing more done (the executor checks that
+   * the move still holds its lock, {@link lockExpectedAt}).
+   */
+  guard?: (journal: MoveJournal, facts: MoveFacts) => void
+}
+
+/**
+ * Where a move's lock must be now: in the original data wherever it is — at
+ * the old path, hidden beside it, or, on one volume, renamed to the new
+ * location. A place whose data is not this move's (its drive away, or
+ * something else there) is not checked. None while the move is only
+ * requested, or cleaning up (the cleanup deletes the hidden original, lock
+ * included).
+ * @param journal - the journal.
+ * @param facts - what is on disk now at the old path, the hidden original, and the new location.
+ * @returns the directories.
+ */
+export function lockExpectedAt(journal: MoveJournal, facts: Pick<MoveFacts, 'source' | 'hidden' | 'target'>): string[] {
+  if (journal.phase === 'requested' || journal.phase === 'cleanup') return []
+  const places: string[] = []
+  // `.dsh-data-id.moved` marks the original between giving up its identity and being hidden.
+  if (facts.source.exists && (facts.source.dataId === 'ours' || facts.source.movedId)) places.push(journal.source)
+  if (!journal.sameVolume && facts.hidden.exists) places.push(journal.hidden)
+  if (journal.sameVolume && facts.target.exists && facts.target.dataId === 'ours') places.push(journal.target)
+  return places
 }
 
 /** Thrown when a step changes nothing, so repeating it would never end. */
@@ -393,6 +420,21 @@ function dirFacts(fs: MoveFs, path: string, journal: MoveJournal): DirFacts {
 }
 
 /**
+ * {@link lockExpectedAt} from what is on disk now, looking only at the three
+ * places the lock may be (never printing the target).
+ * @param fs - the directory operations.
+ * @param journal - the journal.
+ * @returns the directories.
+ */
+export function lockExpectedNow(fs: MoveFs, journal: MoveJournal): string[] {
+  return lockExpectedAt(journal, {
+    source: dirFacts(fs, journal.source, journal),
+    hidden: dirFacts(fs, journal.hidden, journal),
+    target: dirFacts(fs, journal.target, journal),
+  })
+}
+
+/**
  * Look at the four directories, and at the folders chosen for an unused copy
  * or a kept original. The target is printed only while a rollback waits for
  * the person's choice.
@@ -455,6 +497,7 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
   for (;;) {
     const current: MoveJournal = journal
     const facts = observeMove(fs, current)
+    options.guard?.(current, facts)
     const action = nextAction(current, facts, cancel.aborted)
     const key = JSON.stringify({ current, facts, action })
     if (key === previous) throw new MoveStuckError(`${current.phase}: ${action.kind}`)

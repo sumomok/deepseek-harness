@@ -273,34 +273,71 @@ export async function acquireMoveLock(
   throw new Error(`the move lock in ${dir} kept changing while this process tried to take it`)
 }
 
+/** Whether this move still holds its lock where the data is. */
+export type LockCheck = { kind: 'ours' } | { kind: 'lost'; detail: string }
+
 /**
- * Refresh the heartbeat of this installation's lock, where the lock is now,
- * recording this process as its holder (a move resumed after a relaunch takes
- * its lock over this way). A directory without it is left alone, so the
- * refresh never recreates a lock at a path the data has left.
- * @param dirs - where the data may be now.
- * @param self - this installation and process.
- * @param now - the time to record.
- * @returns the directories whose lock was refreshed.
+ * Thrown when a move no longer holds its lock where the data is: another
+ * installation discarded it or took the data over, so the move stops.
  */
-export function refreshMoveLock(dirs: readonly string[], self: LockSelf, now: Date): string[] {
-  const refreshed: string[] = []
+export class MoveLockLostError extends Error {
+  /** @param detail - which place lost the lock, and how. */
+  constructor(detail: string) {
+    super(`data move: the move lock is no longer this move's: ${detail}`)
+    this.name = 'MoveLockLostError'
+  }
+}
+
+/**
+ * Check that each place where the data is holds this move's lock: this
+ * installation's, written by this process (the same id and start time) or by
+ * the process the journal records.
+ * @param dirs - where the lock must be (see `lockExpectedAt`).
+ * @param self - this installation and process.
+ * @param recordedPid - the process the journal records.
+ * @returns `ours`, or `lost` naming the first place that does not hold it.
+ */
+export function checkOwnLock(dirs: readonly string[], self: LockSelf, recordedPid: number): LockCheck {
   for (const dir of dirs) {
     let lock: LockRead
     try {
       lock = readLock(dir)
-    } catch {
-      // The directory cannot be read (its drive is away): no lock of ours to refresh there now.
-      continue
+    } catch (error) {
+      return { kind: 'lost', detail: `${dir}: the lock cannot be read: ${String(error)}` }
     }
-    if (lock.kind !== 'lock' || lock.owner.userData !== self.userData) continue
+    if (lock.kind === 'none') return { kind: 'lost', detail: `${dir}: no lock` }
+    if (lock.kind === 'unreadable') return { kind: 'lost', detail: `${dir}: ${lock.detail}` }
+    const owner = lock.owner
+    if (owner.userData !== self.userData) return { kind: 'lost', detail: `${dir}: held by ${owner.userData}` }
+    const thisProcess = owner.pid === self.pid && owner.startedAt === self.startedAt
+    if (!thisProcess && owner.pid !== recordedPid) return { kind: 'lost', detail: `${dir}: held by process ${String(owner.pid)}` }
+  }
+  return { kind: 'ours' }
+}
+
+/**
+ * Refresh the heartbeat of this move's lock in each place where the data is,
+ * recording this process as its holder (a move resumed after a relaunch takes
+ * its lock over this way). A place that does not hold this move's lock
+ * ({@link checkOwnLock}) stops the refresh before anything is written: the
+ * lock was discarded or taken, and the move must stop.
+ * @param dirs - where the lock must be.
+ * @param self - this installation and process.
+ * @param now - the time to record.
+ * @param recordedPid - the process the journal records.
+ * @returns `ours` once every place was refreshed, or `lost`.
+ * @throws when a lock cannot be written.
+ */
+export function refreshMoveLock(dirs: readonly string[], self: LockSelf, now: Date, recordedPid: number): LockCheck {
+  const check = checkOwnLock(dirs, self, recordedPid)
+  if (check.kind === 'lost') return check
+  for (const dir of dirs) {
     const path = join(dir, LOCK_FILENAME)
     const temporary = `${path}.${String(process.pid)}.tmp`
     writeFileSync(temporary, lockText({ ...self, heartbeatAt: now.toISOString() }), { mode: 0o600 })
     renameSync(temporary, path)
-    refreshed.push(dir)
   }
-  return refreshed
+  return check
 }
 
 /**

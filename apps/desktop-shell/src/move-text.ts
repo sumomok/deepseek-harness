@@ -53,6 +53,9 @@ export interface MoveText {
   confirmDiscard: (path: string, owner: string) => string
   confirmDiscardButton: string
   back: string
+  lockLostTitle: string
+  /** A move stopped because its lock was discarded or taken. */
+  lockLost: string
   /** Why a move asked for in Settings did not start: the server could not be confirmed stopped. */
   serverStillRunning: string
   /** The notice after a launch withdrew a move that was asked for and never started copying. */
@@ -104,9 +107,11 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     lockUnreadable: path => `文件「${path}」表示有一个 DSH 正在搬运这份数据，但这个文件读不出来，分不清是哪一个 DSH。为了不在搬运途中使用这份数据，DSH 不会启动。确认没有别的 DSH 在搬运这份数据之后，可以删掉这个文件，再打开 DSH。`,
     discardMove: '那个 DSH 已经不在了，放弃它的搬运',
     confirmDiscardTitle: '放弃另一个 DSH 的搬运？',
-    confirmDiscard: (path, owner) => `DSH 只会删掉文件「${path}」，不会动你的任何数据。如果那个 DSH（「${owner}」）其实还在，它这次没做完的搬运可能会因此出错。`,
+    confirmDiscard: (path, owner) => `DSH 只会删掉文件「${path}」，不会动你的任何数据。如果那个 DSH（「${owner}」）其实还在运行，它发现锁没了就会停下这次搬运，什么也不会删除。`,
     confirmDiscardButton: '放弃它的搬运',
     back: '返回',
+    lockLostTitle: '另一个 DSH 可能接手了这份数据',
+    lockLost: '这份数据上的搬运锁不见了，或者已经换了主人，可能是另一个 DSH 接手了这份数据。所以这次搬运已经停下，之后没有再动这份数据。请重新打开 DSH。',
     serverStillRunning: 'DSH 没能确认后台服务和它启动的程序都已经停下，所以这次没有开始搬运，你的数据还在原来的位置，一切照旧。请稍后再试；如果一直这样，重新启动电脑后再搬。',
     requestWithdrawn: '上次的数据搬运没有开始，你的数据还在原来的位置。需要的话，可以在设置里重新搬运。',
     understood: '知道了',
@@ -152,9 +157,11 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     lockUnreadable: path => `The file "${path}" says a DSH is moving this data, but it cannot be read, so it is not clear which one. To avoid using the data in the middle of a move, DSH does not start. Once you are sure no other DSH is moving this data, you can delete this file and open DSH again.`,
     discardMove: 'That DSH is gone — discard its move',
     confirmDiscardTitle: 'Discard the other DSH\'s move?',
-    confirmDiscard: (path, owner) => `DSH will delete only the file "${path}" and will not touch any of your data. If that DSH ("${owner}") still exists, the move it has not finished may break.`,
+    confirmDiscard: (path, owner) => `DSH will delete only the file "${path}" and will not touch any of your data. If that DSH ("${owner}") is still running, it stops its move when it notices, and nothing is deleted.`,
     confirmDiscardButton: 'Discard its move',
     back: 'Back',
+    lockLostTitle: 'Another DSH may have taken over this data',
+    lockLost: 'The move lock on this data is gone or now belongs to someone else, so another DSH may have taken over the data. This move has stopped and has not touched the data since. Please open DSH again.',
     serverStillRunning: 'DSH could not confirm that its background service and the programs it started have stopped, so the move did not start. Your data is still in its original location, and nothing has changed. Try again later; if this keeps happening, restart your computer and then move the data.',
     requestWithdrawn: 'The last data move did not start, and your data is still in its original location. You can move it again in Settings.',
     understood: 'OK',

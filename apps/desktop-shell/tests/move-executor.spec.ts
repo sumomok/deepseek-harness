@@ -7,7 +7,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -15,6 +15,7 @@ import {
   ExecutorError, runMoveExecutor, type ExecutorCommand, type ExecutorMessage, type ExecutorThread, type MainEffects,
 } from '../src/move/executor.ts'
 import { readJournal } from '../src/move/journal.ts'
+import { acquireMoveLock, LOCK_FILENAME, type LockSelf } from '../src/move/lock.ts'
 import { copyRequestOf, nodeMoveEffects, recordHealth, startMove, type MoveProgress } from '../src/move/run.ts'
 import type { TerminalSnapshot } from '../src/terminal-env.ts'
 import { buildFixture, type Fixture } from './move-fixture.ts'
@@ -37,6 +38,7 @@ async function started(): Promise<{ setup: MoveSetup; target: string; f: Fixture
   const target = join(f.targetParent, 'DSH-Data')
   const setup = prepareMove({ root: f.root, home: f.home, target, sameVolume: false, start: 'pointer' })
   startMove(setup.dir, setup.start, { pid: process.pid, now: new Date() })
+  await acquireMoveLock(f.home, selfOf(setup), { startTimeOf: async () => undefined, now: () => new Date() })
   return { setup, target, f }
 }
 
@@ -52,9 +54,17 @@ function terminal(): MainEffects & { synced: string[]; restored: TerminalSnapsho
   }
 }
 
+/** This installation and process, as the move lock names them. */
+function selfOf(setup: MoveSetup): LockSelf {
+  return { userData: setup.userData, pid: process.pid, startedAt: '' }
+}
+
 /** The worker request for a setup. */
 function requestOf(setup: MoveSetup): Parameters<typeof runMoveExecutor>[0] {
-  return { dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid }
+  return {
+    dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid,
+    lockSelf: selfOf(setup),
+  }
 }
 
 describe('the data move on a worker thread', () => {
@@ -71,6 +81,16 @@ describe('the data move on a worker thread', () => {
     recordHealth(setup.dir, true)
     expect(await runMoveExecutor(requestOf(setup), main)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
     expect(readJournal(setup.dir)).toBeUndefined()
+  })
+
+  posixOnly('stops on the worker, before copying ends in anything, when the lock was discarded', async () => {
+    const { setup, f } = await started()
+    unlinkSync(join(f.home, LOCK_FILENAME))
+    const error = await runMoveExecutor(requestOf(setup), terminal()).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ name: 'MoveLockLostError' })
+    expect(readJournal(setup.dir)?.phase).toBe('copying')
+    expect(existsSync(join(f.home, '.dsh-data-id'))).toBe(true)
+    expect(existsSync(readJournal(setup.dir)?.hidden ?? '')).toBe(false)
   })
 
   posixOnly('rolls back on the worker and hands the snapshot to this process to restore the terminal', async () => {
@@ -136,7 +156,9 @@ class FakeThread extends EventEmitter implements ExecutorThread {
 }
 
 describe('watching the worker', () => {
-  const request = { dir: '/d', userData: '/u', defaultHome: '/h', platform: process.platform, locale: 'en' as const, pid: 1 }
+  const request = {
+    dir: '/d', userData: '/u', defaultHome: '/h', platform: process.platform, locale: 'en' as const, pid: 1, lockSelf: { userData: '/u', pid: 1, startedAt: '' },
+  }
   const idle: MainEffects = { syncTerminal: async () => undefined, restoreTerminal: async () => undefined }
 
   it('gives a silent worker up as hung and asks it to stop', async () => {

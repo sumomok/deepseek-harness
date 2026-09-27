@@ -10,7 +10,10 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, MainCall } from './executor.ts'
 import { readJournal } from './journal.ts'
-import { advanceMove, nodeMoveEffects, recordHealth, resolveBlocked, type MoveEffects, type ResolveOutcome } from './run.ts'
+import { checkOwnLock, MoveLockLostError } from './lock.ts'
+import {
+  advanceMove, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, type MoveEffects, type ResolveOutcome,
+} from './run.ts'
 import { PROGRESS_INTERVAL_MS } from './worker.ts'
 
 const port = parentPort
@@ -93,6 +96,10 @@ Promise.resolve().then(() => {
   if (prepared !== undefined) post({ type: 'prepared', prepared: { result: prepared, journal: readJournal(request.dir) } })
   return advanceMove(request.dir, effects, {
     pid: request.pid,
+    guard: (journal, facts) => {
+      const check = checkOwnLock(lockExpectedAt(journal, facts), request.lockSelf, journal.pid)
+      if (check.kind === 'lost') throw new MoveLockLostError(check.detail)
+    },
     cancel: cancel.signal,
     onProgress: (progress) => {
       const now = Date.now()

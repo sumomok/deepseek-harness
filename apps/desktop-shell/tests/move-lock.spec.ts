@@ -8,13 +8,14 @@
  * @module
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  acquireMoveLock, claimLock, createByExclusiveWrite, HEARTBEAT_STALE_MS, holderIsAlive, inspectMoveLock, LOCK_FILENAME, refreshMoveLock,
+  acquireMoveLock, checkOwnLock, claimLock, createByExclusiveWrite, HEARTBEAT_STALE_MS, holderIsAlive, inspectMoveLock, LOCK_FILENAME,
+  refreshMoveLock,
   releaseMoveLock, START_TIME_UNKNOWN, type LockOwner, type LockProbes,
 } from '../src/move/lock.ts'
 import { MOVE_MARKERS } from '../src/move/run.ts'
@@ -110,15 +111,29 @@ describe('the move lock', () => {
     expect(readFileSync(path, 'utf8')).toBe('a\n')
   })
 
-  it('refreshes the heartbeat only where the lock is, taking it over for this process', () => {
-    const away = join(dir, 'away')
-    writeFileSync(join(dir, LOCK_FILENAME), JSON.stringify({ ...self, pid: 999, heartbeatAt: '2026-01-01T00:00:00Z' }))
-    expect(refreshMoveLock([dir, away], self, NOW)).toEqual([dir])
+  it('refreshes the heartbeat where the lock must be, taking it over from the recorded process, and stops where it is not this move\'s', () => {
+    const path = join(dir, LOCK_FILENAME)
+    writeFileSync(path, JSON.stringify({ ...self, pid: 999, startedAt: 'earlier', heartbeatAt: '2026-01-01T00:00:00Z' }))
+    expect(refreshMoveLock([dir], self, NOW, 999)).toEqual({ kind: 'ours' })
     expect(lockFile()).toEqual({ ...self, heartbeatAt: NOW.toISOString() })
-    expect(existsSync(away)).toBe(false)
-    writeFileSync(join(dir, LOCK_FILENAME), JSON.stringify(other))
-    expect(refreshMoveLock([dir], self, NOW)).toEqual([])
+    // Discarded by another installation: the refresh never recreates it.
+    rmSync(path)
+    expect(refreshMoveLock([dir], self, NOW, self.pid)).toMatchObject({ kind: 'lost' })
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, JSON.stringify(other))
+    expect(refreshMoveLock([dir], self, NOW, self.pid)).toMatchObject({ kind: 'lost' })
     expect(lockFile()).toEqual(other)
+    // This installation, but a process that is neither this one nor the one the journal records.
+    writeFileSync(path, JSON.stringify({ ...self, pid: 555, heartbeatAt: NOW.toISOString() }))
+    expect(checkOwnLock([dir], self, 999)).toMatchObject({ kind: 'lost' })
+    writeFileSync(path, JSON.stringify({ ...self, startedAt: 'another boot', heartbeatAt: NOW.toISOString() }))
+    expect(checkOwnLock([dir], self, 999)).toMatchObject({ kind: 'lost' })
+    writeFileSync(path, '{')
+    expect(checkOwnLock([dir], self, self.pid)).toMatchObject({ kind: 'lost' })
+    // Another installation's, even one naming this process id and start time.
+    writeFileSync(path, JSON.stringify({ ...self, userData: '/u/other', heartbeatAt: NOW.toISOString() }))
+    expect(checkOwnLock([dir], self, self.pid)).toMatchObject({ kind: 'lost', detail: `${dir}: held by /u/other` })
+    expect(checkOwnLock([], self, self.pid)).toEqual({ kind: 'ours' })
   })
 
   it('releases only its own lock, in every place the data may be', async () => {

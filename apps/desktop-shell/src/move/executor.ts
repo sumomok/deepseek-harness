@@ -22,6 +22,7 @@
 
 import { Worker } from 'node:worker_threads'
 import type { TerminalSnapshot } from '../terminal-env.ts'
+import type { LockSelf } from './lock.ts'
 import type { NameLocale } from './names.ts'
 import type { BlockedChoice, MoveJournal } from './journal.ts'
 import type { BlockedView, MoveOutcome, MoveProgress, ResolveOutcome } from './run.ts'
@@ -37,6 +38,8 @@ export interface ExecutorRequest {
   locale: NameLocale
   /** The application's process id, recorded in the journal. */
   pid: number
+  /** This installation and process, as the move lock names them; the worker stops the move when the lock is no longer this. */
+  lockSelf: LockSelf
   /**
    * A step the worker takes before carrying the move on, because it prints
    * the new location, which can take long on a large tree: the person's
