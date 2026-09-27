@@ -13,7 +13,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   bootMove, checkHealth, countSessions, lockPlaces, quarantinedPlugins, relaunchHome,
 } from '../src/move-boot.ts'
-import { beginDataMove, handOverToMove, withdrawRequestedMove, type MoveRequest, type MoveStartProbes } from '../src/move-start.ts'
+import {
+  beginDataMove, handOverToMove, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest, type MoveStartProbes,
+} from '../src/move-start.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, moveDir, readJournal, type MoveJournal } from '../src/move/journal.ts'
 import { LOCK_FILENAME } from '../src/move/lock.ts'
 import { nodePreflightProbes } from '../src/move/preflight.ts'
@@ -129,6 +131,23 @@ describe('starting a data move', () => {
     expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
   })
 
+  it('withdraws at launch a move that never started copying, lock included, and leaves any other move alone', async () => {
+    const { f, request, probes } = await setup()
+    const dir = moveDir(request.userData)
+    expect(withdrawRequestAtBoot(bootMove(dir), request)).toEqual({ kind: 'none' })
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
+    expect(withdrawRequestAtBoot(bootMove(dir), request)).toEqual({ kind: 'none' })
+    expect(readJournal(dir)).toBeUndefined()
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+    const again = await beginDataMove(request, probes)
+    if (again.kind !== 'started') throw new Error(again.kind)
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...again.journal, phase: 'copying' }))
+    expect(withdrawRequestAtBoot(bootMove(dir), request)).toMatchObject({ kind: 'resume' })
+    expect(readJournal(dir)?.phase).toBe('copying')
+  })
+
   it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {
     const { f, request, probes } = await setup()
     const first = await beginDataMove(request, probes)
@@ -188,6 +207,8 @@ describe('a launch with a move on disk', () => {
     const dir = moveDir(request.userData)
     expect(bootMove(dir)).toEqual({ kind: 'none' })
     await beginDataMove(request, probes)
+    expect(bootMove(dir)).toMatchObject({ kind: 'requested' })
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(dir), phase: 'copying' }))
     expect(bootMove(dir)).toMatchObject({ kind: 'resume' })
     const journal = JSON.parse(readFileSync(join(dir, JOURNAL_FILENAME), 'utf8')) as MoveJournal
     writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'switched' }))

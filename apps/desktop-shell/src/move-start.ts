@@ -16,7 +16,7 @@
 import { realpathSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readDataId, readGeneration, readPointer } from './data-location.ts'
-import { countSessions, quarantinedPlugins } from './move-boot.ts'
+import { countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import {
   ABANDONED_FILENAME, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, moveDir, readAbandonedCopies, readJournal, type MoveJournal,
 } from './move/journal.ts'
@@ -170,6 +170,20 @@ export function withdrawRequestedMove(journal: MoveJournal, request: Pick<MoveRe
   }
   for (const name of [JOURNAL_FILENAME, DONE_LOG_FILENAME]) rmSync(join(dir, name), { force: true })
   releaseMoveLock([journal.source], { userData: request.userData })
+}
+
+/**
+ * At launch, withdraw a move that was asked for and never started copying
+ * ({@link withdrawRequestedMove}); the launch then goes on as without a move.
+ * @param boot - what {@link bootMove} found.
+ * @param request - this installation and process.
+ * @returns `none` for a withdrawn move, otherwise `boot` unchanged.
+ * @throws when the move cannot be withdrawn.
+ */
+export function withdrawRequestAtBoot(boot: BootMove, request: Pick<MoveRequest, 'userData' | 'pid'>): BootMove {
+  if (boot.kind !== 'requested') return boot
+  withdrawRequestedMove(boot.journal, request)
+  return { kind: 'none' }
 }
 
 /**

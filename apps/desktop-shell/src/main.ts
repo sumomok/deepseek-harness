@@ -36,7 +36,9 @@ import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { bootMove, checkHealth, countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import { carryMove, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { lockPage, stopPage } from './move-page.ts'
-import { beginDataMove, handOverToMove, lockSelf, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
+import {
+  beginDataMove, handOverToMove, lockSelf, withdrawRequestAtBoot, type MoveRequest, type MoveStartOutcome,
+} from './move-start.ts'
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import type { ExecutorBefore } from './move/executor.ts'
@@ -1036,8 +1038,11 @@ if (!locked) {
     try {
       // The data move comes first: while one is recorded in a phase that does not allow the server, nothing
       // below may read or write either location.
-      const pendingMove: BootMove = bootMove(moveDir(app.getPath('userData')))
-      if (pendingMove.kind !== 'none') sink(`[desktop] data move on disk: ${pendingMove.kind}\n`)
+      const found: BootMove = bootMove(moveDir(app.getPath('userData')))
+      if (found.kind !== 'none') sink(`[desktop] data move on disk: ${found.kind}\n`)
+      // A move that never started copying is withdrawn: after a crash, processes the server started may still write to the data.
+      const pendingMove = withdrawRequestAtBoot(found, { userData: app.getPath('userData'), pid: process.pid })
+      if (found.kind === 'requested') sink('[desktop] data move: withdrawn at launch before copying anything\n')
       if (pendingMove.kind === 'unreadable') {
         clearInterval(ticker)
         const text = moveText(app.getLocale())
@@ -1137,6 +1142,12 @@ if (!locked) {
       attachSupervision()
       view.showApp(server.authenticatedUrl)
       if (cleanUp) cleanUpMoveInBackground(view.window)
+      if (found.kind === 'requested') {
+        const text = moveText(app.getLocale())
+        dialog.showMessageBox(view.window, { type: 'info', message: text.requestWithdrawn, buttons: [text.understood] }).catch((error: unknown) => {
+          sink(`[desktop] data move: could not show the withdrawal notice: ${String(error)}\n`)
+        })
+      }
       // Over the loaded app rather than the boot page, so the message sits on
       // the window it is about. The marker keeps a notice until it has been
       // dismissed there, so a launch that never gets this far shows it next time.

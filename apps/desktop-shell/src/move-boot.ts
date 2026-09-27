@@ -32,6 +32,12 @@ export type BootMove =
   | { kind: 'health-check'; journal: MoveJournal }
   | { kind: 'cleanup'; journal: MoveJournal }
   | { kind: 'resume'; journal: MoveJournal }
+  /**
+   * A move asked for that had not started copying. A crash can leave it with
+   * processes the server started still running, which the move never
+   * checked, so the launch withdraws it instead of resuming it.
+   */
+  | { kind: 'requested'; journal: MoveJournal }
 
 /**
  * Decide what this launch does about the move recorded in `dir`.
@@ -48,6 +54,7 @@ export function bootMove(dir: string): BootMove {
     return { kind: 'unreadable', path: join(dir, JOURNAL_FILENAME), detail: error.message }
   }
   if (journal === undefined) return { kind: 'none' }
+  if (journal.phase === 'requested') return { kind: 'requested', journal }
   if (!mayStartServer(journal)) return { kind: 'resume', journal }
   return journal.phase === 'switched' ? { kind: 'health-check', journal } : { kind: 'cleanup', journal }
 }
