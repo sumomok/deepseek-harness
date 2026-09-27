@@ -21,6 +21,7 @@ import { pageDocument, parseMoveLink, progressDocument, type MoveLink, type Move
 import type { MoveText } from './move-text.ts'
 import type { MainEffects } from './move/executor.ts'
 import { moveDir, readJournal } from './move/journal.ts'
+import type { LockSelf } from './move/lock.ts'
 import { systemPowerShell } from './terminal-env.ts'
 import { restoreTerminal } from './terminal-restore.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -153,9 +154,10 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
  * @param window - the window the terminal and launch prompts are parented on.
  * @param ui - the windows the flow shows (the move's window, or none for a background cleanup).
  * @param log - the desktop log sink.
+ * @param lockSelf - this installation and process, as the move lock records them.
  * @returns the flow's dependencies.
  */
-export function appMoveFlowDeps(window: BrowserWindow, ui: MoveUi, log: (line: string) => void): MoveFlowDeps {
+export function appMoveFlowDeps(window: BrowserWindow, ui: MoveUi, log: (line: string) => void, lockSelf: LockSelf): MoveFlowDeps {
   const userData = app.getPath('userData')
   const dir = moveDir(userData)
   const locale = nameLocale(app.getLocale())
@@ -168,5 +170,6 @@ export function appMoveFlowDeps(window: BrowserWindow, ui: MoveUi, log: (line: s
     abandoned: appDataLocationHost(window, () => undefined, log),
     log,
     now: () => new Date(),
+    lockSelf,
   }
 }

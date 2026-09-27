@@ -44,6 +44,9 @@ export interface MoveText {
   journalUnreadable: (path: string) => string
   lockedTitle: string
   locked: (home: string, owner: string) => string
+  unfinishedTitle: string
+  unfinished: (home: string, owner: string) => string
+  lockUnreadable: (path: string) => string
   /** Why a move asked for in Settings did not start: the server could not be confirmed stopped. */
   serverStillRunning: string
 }
@@ -86,6 +89,9 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     journalUnreadable: path => `记录这次搬运进度的文件「${path}」读不出来了。为了不把只搬了一半的数据当成你的数据，DSH 在这个文件修好之前不会启动。`,
     lockedTitle: '另一个 DSH 正在搬运这份数据',
     locked: (home, owner) => `另一个 DSH（「${owner}」）正在搬运「${home}」里的数据。等它搬完之后再打开这个 DSH。`,
+    unfinishedTitle: '另一个 DSH 的数据搬运还没做完',
+    unfinished: (home, owner) => `另一个 DSH（「${owner}」）搬运「${home}」里的数据时停在了一半。请先打开那个 DSH，让它把这次搬运做完或退回，再打开这个 DSH。在那之前，这个 DSH 不会使用这份数据。`,
+    lockUnreadable: path => `文件「${path}」表示有一个 DSH 正在搬运这份数据，但这个文件读不出来，分不清是哪一个 DSH。为了不在搬运途中使用这份数据，DSH 不会启动。确认没有别的 DSH 在搬运这份数据之后，可以删掉这个文件，再打开 DSH。`,
     serverStillRunning: 'DSH 没能确认后台服务和它启动的程序都已经停下，所以这次没有开始搬运，你的数据还在原来的位置，一切照旧。请稍后再试；如果一直这样，重新启动电脑后再搬。',
   },
   en: {
@@ -124,6 +130,9 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     journalUnreadable: path => `The file that records this data move's progress, "${path}", cannot be read. To avoid taking half-moved data for your data, DSH does not start until this file is fixed.`,
     lockedTitle: 'Another DSH is moving this data',
     locked: (home, owner) => `Another DSH ("${owner}") is moving the data in "${home}". Open this DSH again once that move has finished.`,
+    unfinishedTitle: 'Another DSH has not finished moving this data',
+    unfinished: (home, owner) => `Another DSH ("${owner}") stopped partway through moving the data in "${home}". Open that DSH first so it can finish or undo the move, then open this one. Until then this DSH does not use this data.`,
+    lockUnreadable: path => `The file "${path}" says a DSH is moving this data, but it cannot be read, so it is not clear which one. To avoid using the data in the middle of a move, DSH does not start. Once you are sure no other DSH is moving this data, you can delete this file and open DSH again.`,
     serverStillRunning: 'DSH could not confirm that its background service and the programs it started have stopped, so the move did not start. Your data is still in its original location, and nothing has changed. Try again later; if this keeps happening, restart your computer and then move the data.',
   },
 }

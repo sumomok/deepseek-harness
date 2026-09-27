@@ -35,17 +35,17 @@ import { mainWindow, revealMainWindow } from './main-window.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { bootMove, checkHealth, countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import { carryMove, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
-import { stopPage } from './move-page.ts'
-import { beginDataMove, handOverToMove, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
+import { lockPage, stopPage } from './move-page.ts'
+import { beginDataMove, handOverToMove, lockSelf, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import { moveDir } from './move/journal.ts'
-import { inspectMoveLock, processIsAlive } from './move/lock.ts'
+import { inspectMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
 import { nodePreflightProbes } from './move/preflight.ts'
 import { nodeMoveEffects, recordHealth, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
-import { nodeProcessProbes, stopServerTree, type ProcessEntry } from './process-tree.ts'
+import { nodeLockProbes, nodeProcessProbes, stopServerTree, type ProcessEntry } from './process-tree.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
@@ -470,7 +470,7 @@ function relaunchOnto(home: string): void {
 async function runMoveToEnd(log: (line: string) => void, replacing: BrowserWindow | undefined): Promise<void> {
   const moveWindow = openMoveWindow(moveText(app.getLocale()), log)
   replacing?.destroy()
-  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log))
+  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log, await thisLockSelf()))
   moving = { cancel: moveWindow.requestCancel, ended: flow }
   let end: MoveFlowEnd
   try {
@@ -509,6 +509,14 @@ async function stopForMove(title: string, sentence: string, replacing: BrowserWi
 }
 
 /**
+ * This installation and process as the move lock records them.
+ * @returns the lock's owner fields.
+ */
+async function thisLockSelf(): Promise<LockSelf> {
+  return await lockSelf({ userData: app.getPath('userData'), pid: process.pid }, nodeLockProbes(process.platform))
+}
+
+/**
  * Delete the old copy of a move that switched and passed its health check,
  * in the background once the interface is shown; a failure is logged and
  * retried on the next launch.
@@ -523,7 +531,7 @@ function cleanUpMoveInBackground(window: BrowserWindow): void {
       return Promise.resolve({ kind: 'quit' })
     },
   }
-  void carryMove(appMoveFlowDeps(window, silent, logLine)).then(
+  void thisLockSelf().then(self => carryMove(appMoveFlowDeps(window, silent, logLine, self))).then(
     (end) => { logLine(`[desktop] data move: cleanup ${JSON.stringify(end)}\n`) },
     (error: unknown) => { logLine(`[desktop] data move: cleanup failed, retried next launch: ${String(error)}\n`) },
   )
@@ -568,7 +576,7 @@ export async function startDataMoveFromSettings(input: Pick<MoveRequest, 'chosen
     preflight: nodePreflightProbes(process.platform, terminal.powershell),
     snapshotTerminal: () => snapshotTerminal(terminal),
     readTerminal: () => readPersistentDshHome(terminal),
-    isAlive: processIsAlive,
+    lock: nodeLockProbes(process.platform),
   })
   if (outcome.kind === 'refused') return outcome
   logLine(`[desktop] data move: requested to ${outcome.journal.target}; stopping the server and every process it started\n`)
@@ -1045,15 +1053,18 @@ if (!locked) {
         app.quit()
         return
       }
-      if (pendingMove.kind === 'none') {
-        const lock = inspectMoveLock(location.home, { userData: app.getPath('userData'), pid: process.pid }, processIsAlive)
-        if (lock.kind === 'held') {
-          clearInterval(ticker)
-          const text = moveText(app.getLocale())
-          await stopForMove(text.lockedTitle, text.locked(location.home, lock.owner.userData), view.window)
-          return
-        }
+      const lock = await inspectMoveLock(location.home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
+      if (lock.kind !== 'none' && lock.kind !== 'ours') {
+        // Another installation is moving this data, or stopped partway through moving it: its journal is not ours to read,
+        // so nothing here may touch the data until that installation has finished.
+        sink(`[desktop] data move: ${location.home} has another installation's move lock (${lock.kind})\n`)
+        clearInterval(ticker)
+        const page = lockPage(moveText(app.getLocale()), lock, location.home)
+        await stopForMove(page.title, page.sentence, view.window, page.reveal)
+        return
       }
+      // Our own lock without a journal is left from a move that ended before it could remove it.
+      if (lock.kind === 'ours' && pendingMove.kind === 'none') releaseMoveLock([location.home], { userData: app.getPath('userData') })
       if (pendingMove.kind === 'none' || pendingMove.kind === 'cleanup') await retireReturnedCopies(location.home)
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.

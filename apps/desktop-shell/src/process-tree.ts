@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { START_TIME_UNKNOWN, type LockProbes } from './move/lock.ts'
 
 /** One running process. */
 export interface ProcessEntry {
@@ -193,4 +194,27 @@ export async function stopServerTree(input: ServerTreeStop): Promise<ProcessEntr
   await input.stop()
   await input.sweep()
   return ensureTreeGone(recorded, input.probes)
+}
+
+/**
+ * A process's start time, for telling a lock's holder from a later process
+ * that reused its id.
+ * @param pid - the process.
+ * @param probes - the process list.
+ * @returns its start time; `undefined` when no such process runs; `unknown` when the list is empty (the system could not be asked).
+ */
+export async function startTimeOf(pid: number, probes: Pick<ProcessProbes, 'list'>): Promise<string | undefined> {
+  const entries = await probes.list()
+  if (entries.length === 0) return START_TIME_UNKNOWN
+  return entries.find(entry => entry.pid === pid)?.startedAt
+}
+
+/**
+ * The real probes the move lock needs.
+ * @param platform - the running platform.
+ * @returns the start-time lookup and the clock.
+ */
+export function nodeLockProbes(platform: NodeJS.Platform): LockProbes {
+  const processes = nodeProcessProbes(platform)
+  return { startTimeOf: pid => startTimeOf(pid, processes), now: () => new Date() }
 }

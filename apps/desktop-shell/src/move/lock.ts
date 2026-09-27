@@ -1,54 +1,76 @@
 /**
  * The move lock: `.dsh-move.lock` in the data directory while a data move
- * runs, created exclusively and naming the app installation (its user-data
- * directory) and the process that holds it. The journal's process id only
- * keeps a second instance of the same installation away; another
- * installation (a development build, a second install) sharing the same
- * `~/.dsh` sees this file instead, and neither starts nor begins a move of
- * its own while a live process holds it.
+ * runs, naming the app installation (its user-data directory), the process
+ * that holds it with that process's start time, and a heartbeat the holder
+ * refreshes. The journal lives in the installation's own user data, so
+ * another installation (a development build, a second install) sharing the
+ * same `~/.dsh` cannot see it; it sees this file instead.
  *
- * A lock whose process is gone is stale and is taken over. A lock the same
- * installation holds belongs to its unfinished move, which a relaunch resumes.
+ * Only the installation that wrote a lock may take it over: its journal
+ * decides what happens next. Another installation's lock stands for a move
+ * that installation has not finished, whether its process still runs
+ * (`held`) or not (`unfinished`), and that data is not used until the other
+ * installation has finished the move. A process is taken for the holder only
+ * when its id and start time both match, so a later process that reused the
+ * id is not; when the system cannot be asked, a heartbeat younger than
+ * {@link HEARTBEAT_STALE_MS} counts as alive.
+ *
+ * A lock is written complete before it appears: created through a hard link
+ * to a finished temporary file (or, on a file system without hard links,
+ * written exclusively and read back), taken over by renaming it away first so
+ * only one process can claim it, and refreshed by an atomic rename.
  * @module @deepseek-ai/dsh-desktop-shell/move/lock
  */
 
-import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { linkSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** The lock file's name, in the data directory being moved. */
 export const LOCK_FILENAME = '.dsh-move.lock'
 
-/** Who holds a lock. */
-export interface LockOwner {
+/** How often the holder refreshes its heartbeat. */
+export const HEARTBEAT_INTERVAL_MS = 30_000
+
+/** A heartbeat older than this does not by itself keep a holder alive. */
+export const HEARTBEAT_STALE_MS = 120_000
+
+/** This installation and process, as a lock records them. */
+export interface LockSelf {
   /** The installation's user-data directory. */
   userData: string
   pid: number
+  /** The process's start time as {@link LockProbes.startTimeOf} reports it; empty when the system could not be asked. */
+  startedAt: string
+}
+
+/** Who holds a lock. */
+export interface LockOwner extends LockSelf {
+  /** When the holder last refreshed the lock, ISO 8601. */
+  heartbeatAt: string
 }
 
 /** What is at a data directory's lock. */
 export type LockState =
   | { kind: 'none' }
-  /** This installation holds it: its own move, possibly from a process that has since exited. */
+  /** This installation wrote it: its own move, possibly from a process that has since exited. */
   | { kind: 'ours'; owner: LockOwner }
-  /** Another installation's live process holds it. */
+  /** Another installation's process that is still running holds it. */
   | { kind: 'held'; owner: LockOwner }
-  /** Another installation held it, and its process is gone (or the file cannot be read). */
-  | { kind: 'stale'; detail: string }
+  /** Another installation holds it and its process is gone: that installation has a move it has not finished. */
+  | { kind: 'unfinished'; owner: LockOwner }
+  /** The file cannot be read as a lock; nothing tells whose it is. */
+  | { kind: 'unreadable'; path: string; detail: string }
 
-/**
- * Whether a process is running.
- * @param pid - the process id.
- * @returns false only when the system says there is no such process.
- */
-export function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    // ESRCH: no such process. EPERM: it exists but belongs to someone else, which still counts as alive.
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
+/** What deciding whether a holder lives needs from the system; replaced in tests. */
+export interface LockProbes {
+  /** A process's start time; `undefined` when no such process runs, `unknown` when the system cannot be asked. */
+  startTimeOf: (pid: number) => Promise<string | undefined>
+  now: () => Date
 }
+
+/** What {@link LockProbes.startTimeOf} returns when the system cannot be asked. */
+export const START_TIME_UNKNOWN = 'unknown'
 
 /**
  * Parse a lock file's text.
@@ -60,88 +82,224 @@ function parseLock(text: string): LockOwner | undefined {
   try {
     value = JSON.parse(text)
   } catch {
-    // SyntaxError: a lock cut short by a crash reads as no owner.
+    // SyntaxError: text that is not JSON is not a lock.
     return undefined
   }
   if (typeof value !== 'object' || value === null) return undefined
-  const { userData, pid } = value as Record<string, unknown>
+  const { userData, pid, startedAt, heartbeatAt } = value as Record<string, unknown>
   if (typeof userData !== 'string' || typeof pid !== 'number' || !Number.isSafeInteger(pid) || pid <= 0) return undefined
-  return { userData, pid }
+  if (typeof startedAt !== 'string' || typeof heartbeatAt !== 'string') return undefined
+  return { userData, pid, startedAt, heartbeatAt }
 }
 
 /**
- * Read a data directory's lock.
+ * The lock's text for an owner.
+ * @param owner - the owner.
+ * @returns the text.
+ */
+function lockText(owner: LockOwner): string {
+  return `${JSON.stringify(owner)}\n`
+}
+
+/** A lock as read, before anything is decided about it. */
+type LockRead = { kind: 'lock'; owner: LockOwner } | { kind: 'none' } | { kind: 'unreadable'; path: string; detail: string }
+
+/**
+ * Read a lock without deciding anything.
  * @param dir - the data directory.
- * @param self - this installation.
- * @param isAlive - whether a process runs ({@link processIsAlive} in the app).
- * @returns what holds it.
+ * @returns the owner, `none`, or why it cannot be read.
  * @throws when the file exists but cannot be read for a reason other than its absence.
  */
-export function inspectMoveLock(dir: string, self: LockOwner, isAlive: (pid: number) => boolean): LockState {
+function readLock(dir: string): LockRead {
+  const path = join(dir, LOCK_FILENAME)
   let text: string
   try {
-    text = readFileSync(join(dir, LOCK_FILENAME), 'utf8')
+    text = readFileSync(path, 'utf8')
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'none' }
     throw error
   }
   const owner = parseLock(text)
-  if (owner === undefined) return { kind: 'stale', detail: 'the lock file is not readable' }
-  if (owner.userData === self.userData) return { kind: 'ours', owner }
-  if (isAlive(owner.pid)) return { kind: 'held', owner }
-  return { kind: 'stale', detail: `process ${String(owner.pid)} of ${owner.userData} is gone` }
+  return owner === undefined ? { kind: 'unreadable', path, detail: 'the file is not a move lock' } : { kind: 'lock', owner }
 }
 
 /**
- * Take a data directory's lock: create it exclusively, or take over this
- * installation's own lock or a stale one.
- * @param dir - the data directory.
- * @param self - this installation and process.
- * @param isAlive - whether a process runs.
- * @returns `taken`, or the live owner that holds it.
- * @throws when the lock cannot be written, or other processes keep taking it.
+ * Whether the process a lock names still runs.
+ * @param owner - the lock's owner.
+ * @param probes - the process start times and the clock.
+ * @returns true when its id and start time match a running process, or the system cannot be asked and its heartbeat is recent.
  */
-export function acquireMoveLock(
-  dir: string, self: LockOwner, isAlive: (pid: number) => boolean,
-): { kind: 'taken' } | { kind: 'held'; owner: LockOwner } {
-  const path = join(dir, LOCK_FILENAME)
-  const text = `${JSON.stringify(self)}\n`
-  // One takeover at most: a second EEXIST means another process took it in between.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+export async function holderIsAlive(owner: LockOwner, probes: LockProbes): Promise<boolean> {
+  const started = await probes.startTimeOf(owner.pid)
+  if (started === undefined) return false
+  if (started !== START_TIME_UNKNOWN && owner.startedAt !== '') return started === owner.startedAt
+  const beat = Date.parse(owner.heartbeatAt)
+  return Number.isFinite(beat) && probes.now().getTime() - beat < HEARTBEAT_STALE_MS
+}
+
+/**
+ * Read a data directory's lock and decide what it stands for.
+ * @param dir - the data directory.
+ * @param self - this installation.
+ * @param probes - the process start times and the clock.
+ * @returns what holds it.
+ * @throws when the file exists but cannot be read for a reason other than its absence.
+ */
+export async function inspectMoveLock(dir: string, self: Pick<LockSelf, 'userData'>, probes: LockProbes): Promise<LockState> {
+  const lock = readLock(dir)
+  if (lock.kind !== 'lock') return lock
+  if (lock.owner.userData === self.userData) return { kind: 'ours', owner: lock.owner }
+  return await holderIsAlive(lock.owner, probes) ? { kind: 'held', owner: lock.owner } : { kind: 'unfinished', owner: lock.owner }
+}
+
+/**
+ * Create the lock file only if none exists, complete from its first byte.
+ * @param path - the lock file.
+ * @param text - its content.
+ * @returns whether this call created it.
+ * @throws when it cannot be written.
+ */
+function createExclusively(path: string, text: string): boolean {
+  const temporary = `${path}.${String(process.pid)}.${randomBytes(4).toString('hex')}.tmp`
+  writeFileSync(temporary, text, { mode: 0o600 })
+  try {
+    linkSync(temporary, path)
+    return true
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EEXIST') return false
+    // A file system without hard links: an exclusive write, then a read-back that must match.
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EOPNOTSUPP' && code !== 'ENOSYS') throw error
+    return createByExclusiveWrite(path, text)
+  } finally {
+    unlinkIfPresent(temporary)
+  }
+}
+
+/**
+ * Create the lock file by an exclusive write and read it back.
+ * @param path - the lock file.
+ * @param text - its content.
+ * @returns whether this call created it and it reads back as written.
+ * @throws when it cannot be written.
+ */
+export function createByExclusiveWrite(path: string, text: string): boolean {
+  try {
+    writeFileSync(path, text, { flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  }
+  return readFileSync(path, 'utf8') === text
+}
+
+/**
+ * Remove this installation's old lock so a new one can be created, only if
+ * it is still the lock that was read: it is renamed to a name no other
+ * process uses, and a lock that changed in between (another process took it
+ * over first) is linked back into place and kept.
+ * @param path - the lock file.
+ * @param expected - the lock that was read.
+ * @returns `claimed` when the old lock was removed, `changed` when another lock was put back, `gone` when there was none.
+ * @throws when the lock cannot be renamed or read.
+ */
+export function claimOwnLock(path: string, expected: LockOwner): 'claimed' | 'changed' | 'gone' {
+  const claim = `${path}.claim-${String(process.pid)}-${randomBytes(4).toString('hex')}`
+  try {
+    renameSync(path, claim)
+  } catch (error) {
+    // ENOENT: another process renamed it first.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'gone'
+    throw error
+  }
+  try {
+    const found = parseLock(readFileSync(claim, 'utf8'))
+    if (found !== undefined && lockText(found) === lockText(expected)) return 'claimed'
     try {
-      writeFileSync(path, text, { flag: 'wx', mode: 0o600 })
-      return { kind: 'taken' }
+      linkSync(claim, path)
     } catch (error) {
+      // EEXIST: yet another lock appeared meanwhile; it stays, and the caller looks again.
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
-    const state = inspectMoveLock(dir, self, isAlive)
-    if (state.kind === 'held') return state
-    if (state.kind === 'ours' && state.owner.pid === self.pid) return { kind: 'taken' }
-    unlinkIfPresent(path)
+    return 'changed'
+  } finally {
+    unlinkIfPresent(claim)
   }
-  const state = inspectMoveLock(dir, self, isAlive)
-  if (state.kind === 'held') return state
-  throw new Error(`the move lock in ${dir} was taken and released while this process tried to take it`)
+}
+
+/**
+ * Take a data directory's lock: create it, or take over this installation's
+ * own lock by renaming it away first, so two processes never both claim it.
+ * Another installation's lock, or one that cannot be read, is never taken.
+ * @param dir - the data directory.
+ * @param self - this installation and process.
+ * @param probes - the process start times and the clock.
+ * @returns `taken`, or what holds it.
+ * @throws when the lock cannot be written, or other processes keep changing it.
+ */
+export async function acquireMoveLock(
+  dir: string, self: LockSelf, probes: LockProbes,
+): Promise<{ kind: 'taken' } | Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>> {
+  const path = join(dir, LOCK_FILENAME)
+  const text = lockText({ ...self, heartbeatAt: probes.now().toISOString() })
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (createExclusively(path, text)) return { kind: 'taken' }
+    const state = await inspectMoveLock(dir, self, probes)
+    if (state.kind === 'none') continue
+    if (state.kind !== 'ours') return state
+    claimOwnLock(path, state.owner)
+  }
+  throw new Error(`the move lock in ${dir} kept changing while this process tried to take it`)
+}
+
+/**
+ * Refresh the heartbeat of this installation's lock, where the lock is now,
+ * recording this process as its holder (a move resumed after a relaunch takes
+ * its lock over this way). A directory without it is left alone, so the
+ * refresh never recreates a lock at a path the data has left.
+ * @param dirs - where the data may be now.
+ * @param self - this installation and process.
+ * @param now - the time to record.
+ * @returns the directories whose lock was refreshed.
+ */
+export function refreshMoveLock(dirs: readonly string[], self: LockSelf, now: Date): string[] {
+  const refreshed: string[] = []
+  for (const dir of dirs) {
+    let lock: LockRead
+    try {
+      lock = readLock(dir)
+    } catch {
+      // The directory cannot be read (its drive is away): no lock of ours to refresh there now.
+      continue
+    }
+    if (lock.kind !== 'lock' || lock.owner.userData !== self.userData) continue
+    const path = join(dir, LOCK_FILENAME)
+    const temporary = `${path}.${String(process.pid)}.tmp`
+    writeFileSync(temporary, lockText({ ...self, heartbeatAt: now.toISOString() }), { mode: 0o600 })
+    renameSync(temporary, path)
+    refreshed.push(dir)
+  }
+  return refreshed
 }
 
 /**
  * Remove this installation's lock from each directory that has it. A lock
- * another installation holds is left alone.
+ * another installation holds, or one that cannot be read, is left alone.
  * @param dirs - where the data may be now (the source, the target, the hidden original).
  * @param self - this installation.
  * @throws when a lock of ours cannot be removed.
  */
-export function releaseMoveLock(dirs: readonly string[], self: LockOwner): void {
+export function releaseMoveLock(dirs: readonly string[], self: Pick<LockSelf, 'userData'>): void {
   for (const dir of dirs) {
-    let state: LockState
+    let lock: LockRead
     try {
-      state = inspectMoveLock(dir, self, () => true)
+      lock = readLock(dir)
     } catch {
       // The directory cannot be read (its drive is away): there is no lock of ours to remove there now.
       continue
     }
-    if (state.kind === 'ours') unlinkIfPresent(join(dir, LOCK_FILENAME))
+    if (lock.kind === 'lock' && lock.owner.userData === self.userData) unlinkIfPresent(join(dir, LOCK_FILENAME))
   }
 }
 

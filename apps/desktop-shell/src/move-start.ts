@@ -20,7 +20,7 @@ import { countSessions, quarantinedPlugins } from './move-boot.ts'
 import {
   ABANDONED_FILENAME, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, moveDir, readAbandonedCopies, readJournal, type MoveJournal,
 } from './move/journal.ts'
-import { acquireMoveLock, releaseMoveLock, type LockOwner } from './move/lock.ts'
+import { acquireMoveLock, releaseMoveLock, START_TIME_UNKNOWN, type LockProbes, type LockSelf, type LockState } from './move/lock.ts'
 import {
   evaluatePreflight, gatherPreflightFacts, type ForbiddenPlaces, type PreflightProbes, type PreflightResult,
 } from './move/preflight.ts'
@@ -51,7 +51,8 @@ export interface MoveStartProbes {
   snapshotTerminal: () => Promise<TerminalSnapshot>
   /** What a terminal opened now sees as `DSH_HOME`. */
   readTerminal: () => Promise<ExplicitRead>
-  isAlive: (pid: number) => boolean
+  /** Process start times and the clock, for the move lock. */
+  lock: LockProbes
 }
 
 /** Why a move did not start. */
@@ -61,7 +62,8 @@ export type MoveRefusal =
   | { kind: 'terminal-unreadable'; detail: string }
   | { kind: 'in-progress' }
   | { kind: 'no-identity'; detail: string }
-  | { kind: 'locked'; owner: LockOwner }
+  /** Another installation holds the lock, or it cannot be read. */
+  | { kind: 'locked'; lock: Exclude<LockState, { kind: 'none' } | { kind: 'ours' }> }
   /** The server, or a process it started, could not be confirmed stopped; the move was withdrawn before anything was copied. */
   | { kind: 'server-still-running'; pids: number[] }
 
@@ -104,9 +106,9 @@ export async function beginDataMove(request: MoveRequest, probes: MoveStartProbe
   const id = readDataId(source)
   if (id.kind !== 'ok') return refused({ kind: 'no-identity', detail: id.kind === 'unreadable' ? id.detail : 'no identity marker' })
   const terminalBefore = await probes.readTerminal()
-  const self: LockOwner = { userData: request.userData, pid: request.pid }
-  const lock = acquireMoveLock(source, self, probes.isAlive)
-  if (lock.kind === 'held') return refused({ kind: 'locked', owner: lock.owner })
+  const self = await lockSelf(request, probes.lock)
+  const lock = await acquireMoveLock(source, self, probes.lock)
+  if (lock.kind !== 'taken') return refused({ kind: 'locked', lock })
   try {
     const pointer = readPointer(request.userData)
     const aliases = [source, request.home]
@@ -138,6 +140,17 @@ export async function beginDataMove(request: MoveRequest, probes: MoveStartProbe
 }
 
 /**
+ * This installation and process as the move lock records them.
+ * @param request - the installation and the process.
+ * @param probes - the process start times.
+ * @returns the lock's owner fields; an empty start time when the system could not be asked.
+ */
+export async function lockSelf(request: Pick<MoveRequest, 'userData' | 'pid'>, probes: LockProbes): Promise<LockSelf> {
+  const started = await probes.startTimeOf(request.pid)
+  return { userData: request.userData, pid: request.pid, startedAt: started === undefined || started === START_TIME_UNKNOWN ? '' : started }
+}
+
+/**
  * Take back a move that has only been requested: nothing was copied, renamed,
  * or written anywhere but its journal and its lock, so both go and the move
  * leaves no result behind.
@@ -152,7 +165,7 @@ export function withdrawRequestedMove(journal: MoveJournal, request: Pick<MoveRe
     throw new JournalError(`journal: move ${journal.moveId} is no longer only requested (phase ${String(current?.phase)})`)
   }
   for (const name of [JOURNAL_FILENAME, DONE_LOG_FILENAME]) rmSync(join(dir, name), { force: true })
-  releaseMoveLock([journal.source], { userData: request.userData, pid: request.pid })
+  releaseMoveLock([journal.source], { userData: request.userData })
 }
 
 /**

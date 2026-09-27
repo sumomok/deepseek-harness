@@ -15,7 +15,7 @@ import { blockedPage, progressView, stopPage, type MoveLink, type MovePage, type
 import type { MoveText } from './move-text.ts'
 import { ExecutorError, type ExecutorOptions, type ExecutorRequest, type MainEffects, runMoveExecutor } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { releaseMoveLock, type LockOwner } from './move/lock.ts'
+import { HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
 import { resolveBlocked, type MoveOutcome } from './move/run.ts'
 
@@ -44,6 +44,10 @@ export interface MoveFlowDeps {
   abandoned: AbandonedRecordHost
   log: (line: string) => void
   now: () => Date
+  /** This installation and process, for the move lock's heartbeat. */
+  lockSelf: LockSelf
+  /** Milliseconds between two heartbeats; {@link HEARTBEAT_INTERVAL_MS} when absent. */
+  heartbeatMs?: number
   /** Starts the executor's worker; the real one when absent. */
   start?: ExecutorOptions['start']
   stallMs?: number
@@ -66,6 +70,30 @@ export type MoveFlowEnd =
  * @throws when the journal cannot be read, or a choice cannot be recorded.
  */
 export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
+  const beat = (): void => {
+    const journal = readJournal(deps.request.dir)
+    if (journal === undefined) return
+    try {
+      refreshMoveLock(lockPlaces(journal), deps.lockSelf, deps.now())
+    } catch (error) {
+      deps.log(`[desktop] data move: could not refresh the move lock: ${String(error)}\n`)
+    }
+  }
+  beat()
+  const heartbeat = setInterval(beat, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS)
+  try {
+    return await carry(deps)
+  } finally {
+    clearInterval(heartbeat)
+  }
+}
+
+/**
+ * {@link carryMove} without the lock's heartbeat.
+ * @param deps - the move, the terminal effects, the windows, and the sentences.
+ * @returns what the application does next.
+ */
+async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
   const { request, ui, text, log } = deps
   const clock: ProgressClock = { startedAt: Date.now(), stage: undefined }
   let refreshed = false
@@ -106,7 +134,7 @@ export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         continue
       }
       case 'ended':
-        releaseMoveLock(lockPlaces(journal, outcome.result), lockOwner(request))
+        releaseMoveLock(lockPlaces(journal, outcome.result), deps.lockSelf)
         if (journal.phase === 'cleanup') return { kind: 'done', outcome }
         return { kind: 'relaunch', home: relaunchHome(journal, outcome) ?? journal.source }
       case 'switched':
@@ -117,13 +145,4 @@ export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         return outcome satisfies never
     }
   }
-}
-
-/**
- * The lock owner a move's request stands for.
- * @param request - the move.
- * @returns this installation and process.
- */
-function lockOwner(request: ExecutorRequest): LockOwner {
-  return { userData: request.userData, pid: request.pid }
 }

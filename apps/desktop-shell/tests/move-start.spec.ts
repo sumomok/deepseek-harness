@@ -55,7 +55,10 @@ async function setup(snapshot: TerminalSnapshot = SNAPSHOT, isAlive = (): boolea
     preflight: nodePreflightProbes(process.platform),
     snapshotTerminal: async () => snapshot,
     readTerminal: async () => ({ kind: 'unset' }),
-    isAlive,
+    lock: {
+      startTimeOf: async pid => pid === process.pid ? 'Mon Sep 28 09:00:00 2026' : isAlive() ? 'Mon Sep 28 08:00:00 2026' : undefined,
+      now: () => request.now,
+    },
   }
   return { f, request, probes }
 }
@@ -71,7 +74,9 @@ describe('starting a data move', () => {
       terminalBefore: { kind: 'unset' }, baseline: { sessions: countSessions(f.home), workspaces: 3, quarantined: [] },
     })
     expect(countSessions(f.home)).toBeGreaterThan(0)
-    expect(JSON.parse(readFileSync(join(f.home, LOCK_FILENAME), 'utf8'))).toEqual({ userData: request.userData, pid: process.pid })
+    expect(JSON.parse(readFileSync(join(f.home, LOCK_FILENAME), 'utf8'))).toEqual({
+      userData: request.userData, pid: process.pid, startedAt: 'Mon Sep 28 09:00:00 2026', heartbeatAt: request.now.toISOString(),
+    })
   })
 
   it('refuses without a readable terminal setting, and writes nothing', async () => {
@@ -91,16 +96,20 @@ describe('starting a data move', () => {
     expect(readFileSync(record, 'utf8')).toBe('{')
   })
 
-  it('refuses a second move, a location the preflight refuses, and another installation\'s live lock', async () => {
+  it('refuses a second move, a location the preflight refuses, and another installation\'s lock, running or not', async () => {
     const { f, request, probes } = await setup()
     expect((await beginDataMove({ ...request, chosen: join(f.home, 'sessions') }, probes)))
       .toMatchObject({ kind: 'refused', refusal: { kind: 'preflight' } })
-    writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ userData: '/elsewhere', pid: 7 }))
-    expect(await beginDataMove(request, probes)).toEqual({ kind: 'refused', refusal: { kind: 'locked', owner: { userData: '/elsewhere', pid: 7 } } })
+    const elsewhere = { userData: '/elsewhere', pid: 7, startedAt: 'Mon Sep 28 08:00:00 2026', heartbeatAt: '2026-01-01T00:00:00Z' }
+    writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify(elsewhere))
+    expect(await beginDataMove(request, probes)).toEqual({ kind: 'refused', refusal: { kind: 'locked', lock: { kind: 'held', owner: elsewhere } } })
+    const gone = (await setup(SNAPSHOT, () => false)).probes
+    expect(await beginDataMove(request, gone))
+      .toEqual({ kind: 'refused', refusal: { kind: 'locked', lock: { kind: 'unfinished', owner: elsewhere } } })
     expect(existsSync(join(moveDir(request.userData), JOURNAL_FILENAME))).toBe(false)
-    const stale = { ...probes, isAlive: () => false }
-    expect((await beginDataMove(request, stale)).kind).toBe('started')
-    expect(await beginDataMove(request, stale)).toEqual({ kind: 'refused', refusal: { kind: 'in-progress' } })
+    writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ ...elsewhere, userData: request.userData, pid: 99 }))
+    expect((await beginDataMove(request, probes)).kind).toBe('started')
+    expect(await beginDataMove(request, probes)).toEqual({ kind: 'refused', refusal: { kind: 'in-progress' } })
   })
 
   it('takes back a move that was only requested, and refuses once it went further', async () => {

@@ -9,7 +9,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,7 +20,7 @@ import type { MoveLink, MovePage, ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, readJournal } from '../src/move/journal.ts'
-import { acquireMoveLock, inspectMoveLock } from '../src/move/lock.ts'
+import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockProbes } from '../src/move/lock.ts'
 import { recordHealth, startMove } from '../src/move/run.ts'
 import { buildFixture, type Fixture } from './move-fixture.ts'
 import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
@@ -28,6 +28,7 @@ import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-h
 const fixtures: Fixture[] = []
 const posixOnly = process.platform === 'win32' ? it.skip : it
 const text = MOVE_TEXT.en
+const LOCK_PROBES: LockProbes = { startTimeOf: async () => undefined, now: () => new Date() }
 
 afterEach(async () => {
   for (const fixture of fixtures.splice(0)) await rm(fixture.root, { recursive: true, force: true })
@@ -81,7 +82,8 @@ function depsOf(setup: MoveSetup, ui: MoveUi, extra: Partial<MoveFlowDeps> = {})
   return {
     request: { dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid },
     main: { syncTerminal: async target => target, restoreTerminal: async () => undefined },
-    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(), ...extra,
+    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(),
+    lockSelf: { userData: setup.userData, pid: process.pid, startedAt: '' }, ...extra,
   }
 }
 
@@ -96,11 +98,11 @@ describe('carrying a data move', () => {
 
   posixOnly('relaunches onto the original after a failed health check, and gives the lock back', async () => {
     const { setup, f } = await started()
-    acquireMoveLock(f.home, { userData: setup.userData, pid: process.pid }, () => true)
+    await acquireMoveLock(f.home, { userData: setup.userData, pid: process.pid, startedAt: '' }, LOCK_PROBES)
     await carryMove(depsOf(setup, recordingUi([])))
     recordHealth(setup.dir, false)
     expect(await carryMove(depsOf(setup, recordingUi([])))).toEqual({ kind: 'relaunch', home: f.home })
-    expect(inspectMoveLock(f.home, { userData: setup.userData, pid: process.pid }, () => true)).toEqual({ kind: 'none' })
+    expect(await inspectMoveLock(f.home, { userData: setup.userData }, LOCK_PROBES)).toEqual({ kind: 'none' })
   })
 
   posixOnly('shows a move stopped partway, redraws it after a choice it no longer offers, and applies one it does', async () => {
@@ -173,6 +175,25 @@ describe('a move that cannot go on', () => {
     const thread = new ScriptedThread({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' })
     const end = await carryMove(depsOf(setup, recordingUi([]), { start: () => thread, abandoned: abandonedHost(setup, ['quit']) }))
     expect(end).toEqual({ kind: 'quit' })
+  })
+
+  it('keeps the move lock\'s heartbeat while the move runs, in the place the lock is, and stops with the move', async () => {
+    const { setup, f } = await started()
+    writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ userData: setup.userData, pid: 999, startedAt: '', heartbeatAt: '2026-01-01T00:00:00Z' }))
+    const thread = new ScriptedThread()
+    setTimeout(() => { thread.emit('message', { type: 'done', outcome: { kind: 'switched' } }) }, 80)
+    let clock = 0
+    const end = await carryMove(depsOf(setup, recordingUi([]), {
+      start: () => thread, heartbeatMs: 10, now: () => new Date(Date.UTC(2026, 8, 28, 0, 0, clock += 1)),
+    }))
+    expect(end.kind).toBe('relaunch')
+    const lock = JSON.parse(readFileSync(join(f.home, LOCK_FILENAME), 'utf8')) as { pid: number; heartbeatAt: string }
+    expect(lock.pid).toBe(process.pid)
+    expect(Date.parse(lock.heartbeatAt)).toBeGreaterThan(Date.UTC(2026, 8, 28, 0, 0, 2))
+    const settled = readFileSync(join(f.home, LOCK_FILENAME), 'utf8')
+    await new Promise((resolve) => { setTimeout(resolve, 50) })
+    expect(readFileSync(join(f.home, LOCK_FILENAME), 'utf8')).toBe(settled)
+    expect(existsSync(join(f.targetParent, LOCK_FILENAME))).toBe(false)
   })
 
   it('shows any other failure with its detail and quits', async () => {

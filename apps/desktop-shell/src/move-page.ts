@@ -12,6 +12,7 @@ import { dirname } from 'node:path'
 import type { MoveText } from './move-text.ts'
 import { formatBytes } from './move-text.ts'
 import { CANCELLABLE_PHASES, type BlockedChoice, type MoveJournal } from './move/journal.ts'
+import type { LockState } from './move/lock.ts'
 import type { MoveOutcome, MoveProgress } from './move/run.ts'
 import { PALETTES, type Appearance } from './theme.ts'
 
@@ -165,6 +166,29 @@ export function stopPage(title: string, sentence: string, text: MoveText, input:
       { label: text.quit, link: { kind: 'quit' } },
     ],
     reveal,
+  }
+}
+
+/**
+ * The page for a data directory another installation holds the move lock of,
+ * or whose lock cannot be read.
+ * @param text - the sentence set.
+ * @param lock - what holds the lock.
+ * @param home - the data directory.
+ * @returns the title, the sentence, and the file the page can show.
+ */
+export function lockPage(
+  text: MoveText, lock: Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>, home: string,
+): { title: string; sentence: string; reveal?: string } {
+  switch (lock.kind) {
+    case 'held':
+      return { title: text.lockedTitle, sentence: text.locked(home, lock.owner.userData) }
+    case 'unfinished':
+      return { title: text.unfinishedTitle, sentence: text.unfinished(home, lock.owner.userData) }
+    case 'unreadable':
+      return { title: text.journalUnreadableTitle, sentence: text.lockUnreadable(lock.path), reveal: lock.path }
+    default:
+      return lock satisfies never
   }
 }
 
