@@ -25,6 +25,7 @@ import {
   evaluatePreflight, gatherPreflightFacts, type ForbiddenPlaces, type PreflightProbes, type PreflightResult,
 } from './move/preflight.ts'
 import { readHomeLinkBefore, readPointerFiles, startMove } from './move/run.ts'
+import type { TreeCheck } from './process-tree.ts'
 import type { ExplicitRead, TerminalSnapshot } from './terminal-env.ts'
 
 /** What a move is asked to do. */
@@ -64,7 +65,10 @@ export type MoveRefusal =
   | { kind: 'no-identity'; detail: string }
   /** Another installation holds the lock, or it cannot be read. */
   | { kind: 'locked'; lock: Exclude<LockState, { kind: 'none' } | { kind: 'ours' }> }
-  /** The server, or a process it started, could not be confirmed stopped; the move was withdrawn before anything was copied. */
+  /**
+   * The server, or a process it started, could not be confirmed stopped; the move was withdrawn before anything was copied.
+   * `pids` lists the processes still running; it is empty when the process list could not be read.
+   */
   | { kind: 'server-still-running'; pids: number[] }
 
 /** Outcome of {@link beginDataMove}. */
@@ -181,13 +185,14 @@ export function withdrawRequestedMove(journal: MoveJournal, request: Pick<MoveRe
 export async function handOverToMove(
   journal: MoveJournal,
   request: Pick<MoveRequest, 'userData' | 'pid'>,
-  deps: { stopServerTree: () => Promise<Array<{ pid: number }>>; restartServer: () => Promise<unknown> },
+  deps: { stopServerTree: () => Promise<TreeCheck>; restartServer: () => Promise<unknown> },
 ): Promise<{ kind: 'go' } | { kind: 'refused'; refusal: MoveRefusal }> {
-  const survivors = await deps.stopServerTree()
-  if (survivors.length === 0) return { kind: 'go' }
+  const check = await deps.stopServerTree()
+  if (check.kind === 'gone') return { kind: 'go' }
   withdrawRequestedMove(journal, request)
   await deps.restartServer()
-  return { kind: 'refused', refusal: { kind: 'server-still-running', pids: survivors.map(entry => entry.pid) } }
+  const pids = check.kind === 'running' ? check.survivors.map(entry => entry.pid) : []
+  return { kind: 'refused', refusal: { kind: 'server-still-running', pids } }
 }
 
 /**

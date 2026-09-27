@@ -5,7 +5,9 @@
  * terminals) are handed to the system's init process when the server exits,
  * so they can no longer be found by their parent afterwards; they are found
  * by the process id and start time recorded before the stop. A process
- * started between the recording and the stop is not in the record.
+ * started between the recording and the stop is not in the record. An empty
+ * process list means the system could not be asked, so it never confirms a
+ * tree gone.
  * @module @deepseek-ai/dsh-desktop-shell/process-tree
  */
 
@@ -68,6 +70,14 @@ export function survivorsOf(recorded: readonly ProcessEntry[], running: readonly
   return recorded.filter(entry => now.get(entry.pid)?.startedAt === entry.startedAt)
 }
 
+/** Whether a tree is gone after its stop. */
+export type TreeCheck =
+  | { kind: 'gone' }
+  /** Some recorded processes are still running. */
+  | { kind: 'running'; survivors: ProcessEntry[] }
+  /** The process list could not be read, or did not show the server while it ran. */
+  | { kind: 'unconfirmed'; detail: string }
+
 /** Kill rounds before a tree is given up as not stoppable. */
 export const TREE_KILL_ROUNDS = 3
 
@@ -79,17 +89,22 @@ export const TREE_CHECK_INTERVAL_MS = 500
  * look again, up to {@link TREE_KILL_ROUNDS} times.
  * @param recorded - the tree as recorded before the stop.
  * @param probes - the process list, the kill, and the wait.
- * @returns the processes still running after the last round; empty when the tree is gone.
+ * @returns `gone`, the processes still running after the last round, or `unconfirmed` when the list came back empty.
  */
-export async function ensureTreeGone(recorded: readonly ProcessEntry[], probes: ProcessProbes): Promise<ProcessEntry[]> {
-  if (recorded.length === 0) return []
-  let survivors = survivorsOf(recorded, await probes.list())
-  for (let round = 0; round < TREE_KILL_ROUNDS && survivors.length > 0; round += 1) {
+export async function ensureTreeGone(recorded: readonly ProcessEntry[], probes: ProcessProbes): Promise<TreeCheck> {
+  if (recorded.length === 0) return { kind: 'gone' }
+  const look = async (): Promise<ProcessEntry[] | undefined> => {
+    const running = await probes.list()
+    return running.length === 0 ? undefined : survivorsOf(recorded, running)
+  }
+  let survivors = await look()
+  for (let round = 0; round < TREE_KILL_ROUNDS && survivors !== undefined && survivors.length > 0; round += 1) {
     for (const entry of survivors) await probes.kill(entry.pid)
     await probes.sleep(TREE_CHECK_INTERVAL_MS)
-    survivors = survivorsOf(recorded, await probes.list())
+    survivors = await look()
   }
-  return survivors
+  if (survivors === undefined) return { kind: 'unconfirmed', detail: 'the process list came back empty after the stop' }
+  return survivors.length === 0 ? { kind: 'gone' } : { kind: 'running', survivors }
 }
 
 /**
@@ -185,15 +200,21 @@ export interface ServerTreeStop {
 /**
  * Stop the server and make sure its whole tree is gone: the tree is recorded
  * while the server runs, then the server is stopped, earlier runs' leftovers
- * are swept, and the recorded processes still running are killed.
+ * are swept, and the recorded processes still running are killed. A record
+ * without the server itself (the list could not be read) confirms nothing;
+ * the server is still stopped.
  * @param input - the server, its stop, the sweep, and the process probes.
- * @returns the processes still running; empty when the tree is gone.
+ * @returns whether the tree is gone; `gone` when no server ran.
  */
-export async function stopServerTree(input: ServerTreeStop): Promise<ProcessEntry[]> {
-  const recorded = input.pid === undefined ? [] : descendantsOf(input.pid, await input.probes.list())
+export async function stopServerTree(input: ServerTreeStop): Promise<TreeCheck> {
+  const pid = input.pid
+  const recorded = pid === undefined ? [] : descendantsOf(pid, await input.probes.list())
   await input.stop()
   await input.sweep()
-  return ensureTreeGone(recorded, input.probes)
+  if (pid !== undefined && !recorded.some(entry => entry.pid === pid)) {
+    return { kind: 'unconfirmed', detail: `the process list did not show the server (pid ${String(pid)}) while it ran` }
+  }
+  return await ensureTreeGone(recorded, input.probes)
 }
 
 /**

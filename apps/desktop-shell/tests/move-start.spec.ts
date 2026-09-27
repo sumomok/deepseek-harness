@@ -18,7 +18,9 @@ import { ABANDONED_FILENAME, JOURNAL_FILENAME, moveDir, readJournal, type MoveJo
 import { LOCK_FILENAME } from '../src/move/lock.ts'
 import { nodePreflightProbes } from '../src/move/preflight.ts'
 import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, profileDirectory, writeMigrationMarker } from '../src/profile-seed.ts'
+import { stopServerTree } from '../src/process-tree.ts'
 import type { TerminalSnapshot } from '../src/terminal-env.ts'
+import { entry, fakeSystem } from './fake-processes.ts'
 import { buildFixture, type Fixture } from './move-fixture.ts'
 
 const fixtures: Fixture[] = []
@@ -133,15 +135,37 @@ describe('starting a data move', () => {
     if (first.kind !== 'started') throw new Error(first.kind)
     let restarts = 0
     const restartServer = async (): Promise<void> => { restarts += 1 }
-    const refused = await handOverToMove(first.journal, request, { stopServerTree: async () => [{ pid: 4242 }], restartServer })
+    // The server's MCP child never dies.
+    const system = fakeSystem([entry(1, 0), entry(4000, 1, 'node'), entry(4242, 4000, 'mcp'), entry(4243, 4000, 'terminal')], [4242])
+    const stopTree = (): ReturnType<typeof stopServerTree> => stopServerTree({
+      pid: 4000, stop: async () => { system.stopServer(4000) }, sweep: async () => undefined, probes: system.probes,
+    })
+    const refused = await handOverToMove(first.journal, request, { stopServerTree: stopTree, restartServer })
     expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'server-still-running', pids: [4242] } })
     expect(restarts).toBe(1)
     expect(readJournal(moveDir(request.userData))).toBeUndefined()
     expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
     const second = await beginDataMove(request, probes)
     if (second.kind !== 'started') throw new Error(second.kind)
-    expect(await handOverToMove(second.journal, request, { stopServerTree: async () => [], restartServer })).toEqual({ kind: 'go' })
-    expect(restarts).toBe(1)
+    // A process list that cannot be read confirms nothing.
+    const blind = { list: async () => [], kill: async () => undefined, sleep: async () => undefined }
+    const unconfirmed = await handOverToMove(second.journal, request, {
+      stopServerTree: () => stopServerTree({ pid: 4000, stop: async () => undefined, sweep: async () => undefined, probes: blind }),
+      restartServer,
+    })
+    expect(unconfirmed).toEqual({ kind: 'refused', refusal: { kind: 'server-still-running', pids: [] } })
+    expect(restarts).toBe(2)
+    const third = await beginDataMove(request, probes)
+    if (third.kind !== 'started') throw new Error(third.kind)
+    const clean = fakeSystem([entry(1, 0), entry(4000, 1, 'node'), entry(4001, 4000, 'mcp')])
+    const handed = await handOverToMove(third.journal, request, {
+      stopServerTree: () => stopServerTree({
+        pid: 4000, stop: async () => { clean.stopServer(4000) }, sweep: async () => undefined, probes: clean.probes,
+      }),
+      restartServer,
+    })
+    expect(handed).toEqual({ kind: 'go' })
+    expect(restarts).toBe(2)
     expect(readJournal(moveDir(request.userData))?.phase).toBe('requested')
   })
 

@@ -10,46 +10,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   descendantsOf, ensureTreeGone, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, stopServerTree, survivorsOf,
-  TREE_KILL_ROUNDS, type ProcessEntry, type ProcessProbes,
+  TREE_KILL_ROUNDS, type ProcessProbes,
 } from '../src/process-tree.ts'
-
-/** One fake process. */
-function entry(pid: number, ppid: number, command = `p${String(pid)}`, startedAt = 'Mon Sep 28 10:00:00 2026'): ProcessEntry {
-  return { pid, ppid, startedAt, command }
-}
-
-/** A fake process table and what was done to it. */
-interface FakeSystem {
-  probes: ProcessProbes
-  killed: number[]
-  table: ProcessEntry[]
-  stopServer: (pid: number) => void
-}
-
-/**
- * A fake system: a process table, a server whose stop removes only itself
- * (its children are reparented to 1, as on POSIX), and kills that work
- * except for the processes named stubborn.
- */
-function fakeSystem(table: ProcessEntry[], stubborn: number[] = []): FakeSystem {
-  const killed: number[] = []
-  const state = { table: [...table] }
-  return {
-    killed,
-    get table() { return state.table },
-    stopServer: (pid) => {
-      state.table = state.table.filter(item => item.pid !== pid).map(item => item.ppid === pid ? { ...item, ppid: 1 } : item)
-    },
-    probes: {
-      list: async () => state.table.map(item => ({ ...item })),
-      kill: async (pid) => {
-        killed.push(pid)
-        if (!stubborn.includes(pid)) state.table = state.table.filter(item => item.pid !== pid)
-      },
-      sleep: async () => undefined,
-    },
-  }
-}
+import { entry, fakeSystem } from './fake-processes.ts'
 
 describe('the server process tree', () => {
   it('finds every descendant of the server, and nothing else', () => {
@@ -64,7 +27,7 @@ describe('the server process tree', () => {
     const survivors = await stopServerTree({
       pid: 100, stop: async () => { system.stopServer(100) }, sweep: async () => { swept = true }, probes: system.probes,
     })
-    expect(survivors).toEqual([])
+    expect(survivors).toEqual({ kind: 'gone' })
     expect(swept).toBe(true)
     expect(system.killed.sort()).toEqual([101, 102])
     expect(system.table.map(item => item.pid)).toEqual([1, 200])
@@ -81,7 +44,7 @@ describe('the server process tree', () => {
       list: async () => [...(await system.probes.list()).filter(item => item.pid !== 102), later],
     }
     const survivors = await ensureTreeGone(recorded, probes)
-    expect(survivors.map(item => item.pid)).toEqual([101])
+    expect(survivors).toMatchObject({ kind: 'running', survivors: [{ pid: 101 }] })
     expect(system.killed).toEqual(Array.from({ length: TREE_KILL_ROUNDS }, () => 101))
     expect(survivorsOf(recorded, [later])).toEqual([])
   })
@@ -89,8 +52,24 @@ describe('the server process tree', () => {
   it('has nothing to check without a server', async () => {
     const system = fakeSystem([entry(1, 0)])
     const none = await stopServerTree({ pid: undefined, stop: async () => undefined, sweep: async () => undefined, probes: system.probes })
-    expect(none).toEqual([])
+    expect(none).toEqual({ kind: 'gone' })
     expect(system.killed).toEqual([])
+  })
+
+  it('never takes a process list that cannot be read for a stopped tree', async () => {
+    const failing: ProcessProbes = { list: async () => [], kill: async () => undefined, sleep: async () => undefined }
+    let stopped = false
+    const check = await stopServerTree({ pid: 100, stop: async () => { stopped = true }, sweep: async () => undefined, probes: failing })
+    expect(check).toMatchObject({ kind: 'unconfirmed' })
+    expect(stopped).toBe(true)
+    // A list that shows the server but not itself: the snapshot has to contain the server.
+    const elsewhere = fakeSystem([entry(1, 0), entry(200, 1)])
+    expect(await stopServerTree({ pid: 100, stop: async () => undefined, sweep: async () => undefined, probes: elsewhere.probes }))
+      .toMatchObject({ kind: 'unconfirmed' })
+    // Readable before the stop, empty after it.
+    const system = fakeSystem([entry(1, 0), entry(100, 1), entry(101, 100)])
+    const blind: ProcessProbes = { ...system.probes, list: async () => [] }
+    expect(await ensureTreeGone(descendantsOf(100, await system.probes.list()), blind)).toMatchObject({ kind: 'unconfirmed' })
   })
 
   it('reads ps and the Windows listing, commands with spaces and the five-word start time included', async () => {

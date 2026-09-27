@@ -46,7 +46,7 @@ import { nameLocale } from './move/names.ts'
 import { nodePreflightProbes } from './move/preflight.ts'
 import { nodeMoveEffects, recordHealth, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
-import { nodeLockProbes, nodeProcessProbes, stopServerTree, type ProcessEntry } from './process-tree.ts'
+import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
@@ -218,21 +218,22 @@ async function stopServerBounded(): Promise<void> {
  * Stop the server and make sure its whole process tree is gone, the
  * processes it started included ([[@deepseek-ai/dsh-desktop-shell/process-tree]]),
  * with this installation's leftovers from earlier runs swept too.
- * @returns the processes still running; empty when the tree is gone.
+ * @returns whether the tree is gone.
  */
-async function stopServerCompletely(): Promise<ProcessEntry[]> {
+async function stopServerCompletely(): Promise<TreeCheck> {
   const handle = server
-  const survivors = await stopServerTree({
+  const check = await stopServerTree({
     pid: handle?.pid,
     stop: stopServerBounded,
     sweep: () => sweepOrphanedServers(resolveSpec().nodeBin, logLine),
     probes: nodeProcessProbes(process.platform),
   })
   server = undefined
-  if (survivors.length > 0) {
-    logLine(`[desktop] server tree not confirmed stopped; still running: ${survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}\n`)
+  if (check.kind === 'running') {
+    logLine(`[desktop] server tree not confirmed stopped; still running: ${check.survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}\n`)
   }
-  return survivors
+  if (check.kind === 'unconfirmed') logLine(`[desktop] server tree not confirmed stopped: ${check.detail}\n`)
+  return check
 }
 
 /**
