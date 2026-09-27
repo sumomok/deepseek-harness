@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/data-location-window
  */
 
-import { app, dialog, type BrowserWindow } from 'electron'
+import { app, dialog, shell, type BrowserWindow } from 'electron'
 import { defaultHarnessHome, type DataLocationHost } from './data-location-boot.ts'
 import { dataLocationText } from './data-location-text.ts'
 import {
@@ -66,6 +66,7 @@ export function appDataLocationHost(
       const picked = await dialog.showOpenDialog(window, { title, properties: ['openDirectory', 'dontAddToRecent'] })
       return picked.canceled ? undefined : picked.filePaths[0]
     },
+    reveal: (path) => { shell.showItemInFolder(path) },
     tell: async (message) => {
       await dialog.showMessageBox(window, { type: 'info', title: 'DSH Desktop', message, buttons: [text.ok] })
     },

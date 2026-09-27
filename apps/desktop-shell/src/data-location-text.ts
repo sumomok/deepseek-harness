@@ -22,6 +22,11 @@ export interface DataLocationText {
   refusedNoData: (path: string) => string
   refusedOtherData: (path: string) => string
   refusedSetAside: (path: string) => string
+  abandonedUnreadableTitle: string
+  /** The record of abandoned copies cannot be read, so the launch does not go on. */
+  abandonedUnreadable: (path: string) => string
+  /** The button that shows a file in the platform's file browser. */
+  reveal: (platform: NodeJS.Platform) => string
   ok: string
   envTitle: string
   env: (reason: EnvUnverifiedReason, envPath: string, current: string) => string
@@ -56,6 +61,9 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedNoData: path => `「${path}」里没有 DSH 的数据。请选择原来存放数据的文件夹。`,
     refusedOtherData: path => `「${path}」里是另一份 DSH 数据，不是你原来的。请选择原来存放数据的文件夹。`,
     refusedSetAside: path => `「${path}」是搬运数据时留下的文件夹，DSH 不再使用它。请选择原来存放数据的文件夹。`,
+    abandonedUnreadableTitle: 'DSH 暂时不能启动',
+    abandonedUnreadable: path => `记录搬运数据时留下的文件夹的文件「${path}」读不出来了。DSH 没法分辨哪些文件夹是留下的副本，为了不把副本当成你的数据，在这个文件修好之前不会启动。`,
+    reveal: platform => platform === 'win32' ? '在资源管理器中显示' : '在访达中显示',
     ok: '知道了',
     envTitle: '数据位置被改过了',
     env: (reason, envPath, current) => {
@@ -104,6 +112,9 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedNoData: path => `"${path}" holds no DSH data. Choose the folder where your data was stored.`,
     refusedOtherData: path => `"${path}" holds a different set of DSH data, not yours. Choose the folder where your data was stored.`,
     refusedSetAside: path => `"${path}" was left behind by moving your data, and DSH no longer uses it. Choose the folder where your data was stored.`,
+    abandonedUnreadableTitle: 'DSH cannot start',
+    abandonedUnreadable: path => `The file that records folders left behind by moving your data, "${path}", cannot be read. DSH cannot tell which folders are left-behind copies, so to avoid taking a copy for your data it does not start until this file is fixed.`,
+    reveal: platform => platform === 'win32' ? 'Show in File Explorer' : 'Show in Finder',
     ok: 'OK',
     envTitle: 'The data location was changed',
     env: (reason, envPath, current) => {

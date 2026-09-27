@@ -28,16 +28,18 @@ import {
 } from './data-location.ts'
 import type { DataLocationText } from './data-location-text.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
-import { moveDir, readAbandonedCopies } from './move/journal.ts'
+import { ABANDONED_FILENAME, JournalError, moveDir, readAbandonedCopies, type AbandonedCopy } from './move/journal.ts'
 import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite } from './terminal-env.ts'
 
 /** A question the boot window puts to the person. */
 export type LocationPrompt =
   | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined; suggestion?: string }
+  /** The record of abandoned copies cannot be read; the launch cannot tell a copy from the data. */
+  | { kind: 'abandoned-unreadable'; path: string; platform: NodeJS.Platform }
   | { kind: 'confirm-env'; reason: EnvUnverifiedReason; envPath: string; current: string }
 
 /** The answers a {@link LocationPrompt} offers. */
-export type LocationAnswer = 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep'
+export type LocationAnswer = 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep' | 'reveal'
 
 /** A prompt rendered for a message box. */
 export interface PromptView {
@@ -77,6 +79,11 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
         buttons,
         cancelIndex: buttons.length - 1,
       }
+    }
+    case 'abandoned-unreadable': {
+      // No button starts DSH: there is no safe way on without the record.
+      const buttons: PromptView['buttons'] = [{ label: text.reveal(prompt.platform), answer: 'reveal' }, { label: text.quit, answer: 'quit' }]
+      return { message: text.abandonedUnreadableTitle, detail: text.abandonedUnreadable(prompt.path), buttons, cancelIndex: 1 }
     }
     case 'confirm-env':
       return {
@@ -118,6 +125,8 @@ export interface DataLocationHost {
   ask: (view: PromptView) => Promise<LocationAnswer>
   /** Let the person pick a folder; `undefined` when they cancel. */
   chooseFolder: (title: string) => Promise<string | undefined>
+  /** Show a file in the platform's file browser. */
+  reveal: (path: string) => void
   /** Show one sentence with a single button and wait for it. */
   tell: (message: string) => Promise<void>
   /** File-system calls for the `~/.dsh` link; the real ones when absent. */
@@ -333,8 +342,8 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
     else if (read.kind === 'absent') explicit = { kind: 'unset' }
     else explicit = persistent ??= await host.readPersistentEnv()
     const envPath = pointerEnv(host, read, explicit)
-    // A damaged record throws: without it an abandoned copy could not be told from the data.
-    const abandoned = readAbandonedCopies(moveDir(host.userData))
+    const abandoned = await readAbandonedOrAsk(host)
+    if (abandoned === undefined) return undefined
     const resolution = resolveDataLocation({ read, env: decided ? undefined : envPath, defaultHome: host.defaultHome, abandoned })
     switch (resolution.kind) {
       case 'ready': {
@@ -429,6 +438,33 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
       default:
         return resolution satisfies never
     }
+  }
+}
+
+/**
+ * Read the record of abandoned copies. While it cannot be read the launch
+ * does not go on: without it an abandoned copy cannot be told from the data,
+ * so the person is told where the file is, may show it, and may quit; after
+ * showing it the file is read again.
+ * @param host - the app.
+ * @returns the copies, or `undefined` when the person quit.
+ * @throws what reading throws other than a {@link JournalError}.
+ */
+async function readAbandonedOrAsk(host: DataLocationHost): Promise<readonly AbandonedCopy[] | undefined> {
+  const path = join(moveDir(host.userData), ABANDONED_FILENAME)
+  for (;;) {
+    try {
+      return readAbandonedCopies(moveDir(host.userData))
+    } catch (error) {
+      if (!(error instanceof JournalError)) throw error
+      host.log(`[desktop] data location: ${error.message}; asking\n`)
+    }
+    const answer = await host.ask(promptView({ kind: 'abandoned-unreadable', path, platform: host.platform }, host.text))
+    if (answer === 'quit') {
+      host.log('[desktop] data location: the person chose to quit\n')
+      return undefined
+    }
+    host.reveal(path)
   }
 }
 

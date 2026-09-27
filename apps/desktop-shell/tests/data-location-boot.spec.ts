@@ -67,6 +67,7 @@ interface Recorded {
   asked: PromptView[]
   told: string[]
   terminalWrites: string[]
+  revealed: string[]
   persistentReads: number
   log: string[]
 }
@@ -83,6 +84,7 @@ function recordingHost(options: {
   afterWrite?: (value: string) => ExplicitRead
   terminal?: (value: string) => TerminalWrite | Error
   onAsk?: (view: PromptView) => void
+  onReveal?: (path: string) => void
   env?: NodeJS.ProcessEnv
 } = {}): Recorded {
   const answers = [...options.answers ?? []]
@@ -91,6 +93,7 @@ function recordingHost(options: {
   const asked: PromptView[] = []
   const told: string[] = []
   const terminalWrites: string[] = []
+  const revealed: string[] = []
   const env = options.env ?? {}
   const counters = { persistentReads: 0 }
   let persistent: ExplicitRead = options.persistent ?? { kind: 'unset' }
@@ -119,10 +122,14 @@ function recordingHost(options: {
       return answer
     },
     chooseFolder: async () => folders.shift(),
+    reveal: (path) => {
+      revealed.push(path)
+      options.onReveal?.(path)
+    },
     tell: async (message) => { told.push(message) },
   }
   return {
-    host, env, asked, told, terminalWrites, log,
+    host, env, asked, told, terminalWrites, log, revealed,
     get persistentReads() { return counters.persistentReads },
   }
 }
@@ -186,6 +193,16 @@ describe('promptView', () => {
     }
   })
 
+  it('names the file browser of each platform on the damaged-record prompt', () => {
+    const mac = promptView({ kind: 'abandoned-unreadable', path: '/u/abandoned-copies.json', platform: 'darwin' }, DATA_LOCATION_TEXT.zh)
+    expect(mac.buttons.map(button => button.label)).toEqual(['在访达中显示', '退出'])
+    const win = promptView({ kind: 'abandoned-unreadable', path: 'C:\\u\\abandoned-copies.json', platform: 'win32' }, DATA_LOCATION_TEXT.zh)
+    expect(win.buttons.map(button => button.label)).toEqual(['在资源管理器中显示', '退出'])
+    const en = promptView({ kind: 'abandoned-unreadable', path: 'C:\\u\\abandoned-copies.json', platform: 'win32' }, DATA_LOCATION_TEXT.en)
+    expect(en.buttons.map(button => button.label)).toEqual(['Show in File Explorer', 'Quit'])
+    expect(en.detail).toContain('C:\\u\\abandoned-copies.json')
+  })
+
   it('picks the language by locale', () => {
     expect(dataLocationText('zh-CN')).toBe(DATA_LOCATION_TEXT.zh)
     expect(dataLocationText('en-US')).toBe(DATA_LOCATION_TEXT.en)
@@ -233,10 +250,26 @@ describe('settleDataLocation and folders a data move set aside', () => {
     expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailable('set-aside', defaultHome))
   })
 
-  it('fails loudly on a damaged record of abandoned copies rather than guessing', async () => {
+  it('does not start while the record of abandoned copies is damaged: it names the file, shows it, and quits', async () => {
+    mkdirSync(defaultHome)
     mkdirSync(moveDir(userData))
-    writeFileSync(join(moveDir(userData), ABANDONED_FILENAME), '{')
-    await expect(settleDataLocation(recordingHost().host, undefined)).rejects.toThrow(/abandoned copies/)
+    const record = join(moveDir(userData), ABANDONED_FILENAME)
+    writeFileSync(record, '{')
+    const quitting = recordingHost({ answers: ['reveal', 'reveal', 'quit'] })
+    expect(await settleDataLocation(quitting.host, undefined)).toBeUndefined()
+    expect(quitting.revealed).toEqual([record, record])
+    expect(quitting.asked).toHaveLength(3)
+    const view = quitting.asked[0]
+    expect(view?.message).toBe(DATA_LOCATION_TEXT.zh.abandonedUnreadableTitle)
+    expect(view?.detail).toBe(DATA_LOCATION_TEXT.zh.abandonedUnreadable(record))
+    expect(view?.buttons.map(button => button.answer)).toEqual(['reveal', 'quit'])
+    expect(view?.buttons[view.cancelIndex]?.answer).toBe('quit')
+    // Nothing was decided or written while the record was unreadable.
+    expect(readPointer(userData)).toEqual({ kind: 'absent' })
+    expect(readDataId(defaultHome).kind).toBe('absent')
+    // Once the person fixes the file, the launch goes on.
+    const fixing = recordingHost({ answers: ['reveal'], onReveal: () => { writeFileSync(record, abandonedCopiesText([])) } })
+    expect(await settleDataLocation(fixing.host, undefined)).toMatchObject({ home: defaultHome, via: 'default' })
   })
 })
 
