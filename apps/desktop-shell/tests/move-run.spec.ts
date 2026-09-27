@@ -758,14 +758,17 @@ describe('a directory a terminal made at the old path', () => {
     expect(existsSync(s.target)).toBe(false)
   })
 
-  posixOnly('never copies, prints, or checks the AppleDouble companions of the markers', async () => {
+  posixOnly('never copies, prints, or checks the lock\'s temporary files or the AppleDouble companions of the markers', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
-    for (const name of [`._${LOCK_FILENAME}`, '._.dsh-data-id']) writeFileSync(join(s.f.home, name), 'apple double')
+    const leftovers = [
+      `._${LOCK_FILENAME}`, '._.dsh-data-id', `${LOCK_FILENAME}.4242.tmp`, `${LOCK_FILENAME}.claim-4242-0a1b2c3d`, `._${LOCK_FILENAME}.4242.tmp`,
+    ]
+    for (const name of leftovers) writeFileSync(join(s.f.home, name), 'left over')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
-    expect(readdirSync(s.target).filter(name => name.startsWith('._'))).toEqual([])
+    expect(readdirSync(s.target).filter(name => name.startsWith('._') || name.startsWith(LOCK_FILENAME))).toEqual([])
     const fs = nodeMoveFs(() => undefined)
     const before = fs.fingerprint(s.target, PRINT_EXCLUDE)
-    writeFileSync(join(s.target, `._${GENERATION_FILENAME}`), 'apple double')
+    for (const name of [`._${GENERATION_FILENAME}`, `${LOCK_FILENAME}.9.tmp`]) writeFileSync(join(s.target, name), 'left over')
     expect(fs.fingerprint(s.target, PRINT_EXCLUDE)).toBe(before)
   })
 

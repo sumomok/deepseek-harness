@@ -78,9 +78,22 @@ export interface TreeScan {
   longestRelative: number
 }
 
+/**
+ * A matcher for the entries a walk leaves out: relative paths (`/`-separated)
+ * matched exactly, and an entry ending in `*` matching every name at the root
+ * that starts with what comes before the `*`.
+ * @param exclude - the entries.
+ * @returns whether a relative path is left out.
+ */
+export function exclusionOf(exclude: readonly string[]): (rel: string) => boolean {
+  const exact = new Set(exclude.filter(entry => !entry.endsWith('*')))
+  const prefixes = exclude.filter(entry => entry.endsWith('*')).map(entry => entry.slice(0, -1))
+  return rel => exact.has(rel) || (!rel.includes('/') && prefixes.some(prefix => rel.startsWith(prefix)))
+}
+
 /** Options of {@link scanTree}. */
 export interface ScanOptions {
-  /** Relative paths (`/`-separated) left out together with everything below them. */
+  /** Entries left out together with everything below them ({@link exclusionOf}). */
   exclude: readonly string[]
   /** Stops the walk between entries. */
   signal?: AbortSignal | undefined
@@ -175,7 +188,7 @@ function clashes(names: readonly string[], key: (name: string) => string): strin
 export async function scanTree(root: string, options: ScanOptions): Promise<TreeScan> {
   const rootStats = await lstat(root)
   if (!rootStats.isDirectory()) throw new Error(`${root} is not a directory (a link is refused: pass its real path)`)
-  const exclude = new Set(options.exclude)
+  const excluded = exclusionOf(options.exclude)
   const scan: TreeScan = {
     root, entries: [], files: 0, dirs: 0, links: 0, others: 0, bytes: 0, allocatedBytes: 0, excluded: [],
     caseCollisions: [], normalizationCollisions: [], longestRelative: 0,
@@ -190,7 +203,7 @@ export async function scanTree(root: string, options: ScanOptions): Promise<Tree
     for (const name of names) {
       options.signal?.throwIfAborted()
       const child = within(name)
-      if (exclude.has(child)) {
+      if (excluded(child)) {
         scan.excluded.push(child)
         continue
       }
@@ -286,7 +299,7 @@ const NODE_PRINT_FS: PrintFs = {
  * file or a link by every field of {@link PrintEntry}. The root's own entry
  * is left out, since the move writes and removes its markers there.
  * @param root - the directory.
- * @param exclude - relative paths (`/`-separated) to leave out.
+ * @param exclude - what to leave out ({@link exclusionOf}).
  * @param platform - whose name rules apply to the ignorable names.
  * @param options - the activity report, and the file system and clock for tests.
  * @returns the hash ({@link printOf}).
@@ -295,7 +308,7 @@ const NODE_PRINT_FS: PrintFs = {
 export function fingerprintTree(
   root: string, exclude: readonly string[], platform: NodeJS.Platform = process.platform, options: PrintOptions = {},
 ): string {
-  const excluded = new Set(exclude)
+  const excluded = exclusionOf(exclude)
   const entries: PrintEntry[] = []
   const fs = options.fs ?? NODE_PRINT_FS
   const now = options.now ?? Date.now
@@ -314,7 +327,7 @@ export function fingerprintTree(
     for (const name of fs.readdir(nativePath(root, rel))) {
       activity()
       const child = rel === '' ? name : `${rel}/${name}`
-      if (excluded.has(child) || isIgnorableName(name, platform)) continue
+      if (excluded(child) || isIgnorableName(name, platform)) continue
       let stats
       try {
         stats = fs.lstat(nativePath(root, child))

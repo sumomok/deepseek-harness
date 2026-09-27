@@ -133,11 +133,13 @@ export const MOVE_MARKERS: readonly string[] = [
 ]
 
 /**
- * The markers and their AppleDouble companions (`._<marker>`), which macOS
- * writes beside a file on a file system without extended attributes (exFAT,
- * FAT, SMB): what a move neither copies, prints, nor checks.
+ * The markers, the lock's temporary files (`<lock>.<pid>.tmp`, `<lock>.claim-…`),
+ * and their AppleDouble companions (`._<name>`), which macOS writes beside a
+ * file on a file system without extended attributes (exFAT, FAT, SMB): what a
+ * move neither copies, prints, nor checks. Entries ending in `*` match by
+ * prefix (`exclusionOf`).
  */
-export const MOVE_MARKER_ENTRIES: readonly string[] = [...MOVE_MARKERS, ...MOVE_MARKERS.map(name => `._${name}`)]
+export const MOVE_MARKER_ENTRIES: readonly string[] = [...MOVE_MARKERS, `${LOCK_FILENAME}.*`].flatMap(name => [name, `._${name}`])
 
 /** What a print of the target leaves out: what the server rebuilds, and the markers. */
 export const PRINT_EXCLUDE: readonly string[] = [...REBUILDABLE_ENTRIES, ...MOVE_MARKER_ENTRIES]

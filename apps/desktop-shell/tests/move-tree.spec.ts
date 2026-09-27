@@ -9,7 +9,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ESTIMATED_BLOCK_BYTES, fingerprintTree, isIgnorableName, isInsidePath, meaningfulNames, nativePath, PRINT_ACTIVITY_ENTRIES,
+  ESTIMATED_BLOCK_BYTES, exclusionOf, fingerprintTree, isIgnorableName, isInsidePath, meaningfulNames, nativePath, PRINT_ACTIVITY_ENTRIES,
   PRINT_ACTIVITY_MS, printOf, REBUILDABLE_ENTRIES, scanTree,
   type PrintEntry, type PrintFs,
 } from '../src/move/tree.ts'
@@ -156,6 +156,14 @@ describe('printOf', () => {
     }
     expect(printOf([{ ...entry, rel: 'AGENTS.md' }, entry])).toBe(base)
     expect(printOf([entry])).not.toBe(base)
+  })
+})
+
+describe('exclusionOf', () => {
+  it('matches paths exactly, and names at the root by prefix for an entry ending in a star', () => {
+    const excluded = exclusionOf(['cache', '.lock.*'])
+    expect(['cache', '.lock.1.tmp', '.lock.claim-x'].every(excluded)).toBe(true)
+    expect(['cache2', '.lock', 'sessions/.lock.1.tmp', 'cache/x'].some(excluded)).toBe(false)
   })
 })
 

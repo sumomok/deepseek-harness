@@ -162,7 +162,7 @@ export interface CopyRequest {
   source: string
   /** Where the copy is made (the partial folder); created when missing. */
   dest: string
-  /** Relative paths left out, with everything below them. */
+  /** Entries left out, with everything below them (`exclusionOf` in `tree.ts`). */
   exclude: readonly string[]
   /** How links move; `destRoot` is where the copy will finally live, not `dest`. */
   links: LinkMove

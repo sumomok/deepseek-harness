@@ -24,7 +24,7 @@ import { DATA_ID_FILENAME } from '../data-location.ts'
 import { fromExtendedLengthPath } from '../link-target.ts'
 import { hashFile, planLinkResolved, readDoneLog, type ByteProgress, type CopyRequest } from './copier.ts'
 import { linkCreation, sameTarget } from './links.ts'
-import { isIgnorableName, isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
+import { exclusionOf, isIgnorableName, isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
 
 /** One way the copy differs from the source. */
 export type VerifyProblem =
@@ -85,7 +85,7 @@ export async function verifyTree(
   const { source, dest, links } = request
   const platform = links.platform
   const api = platform === 'win32' ? win32 : posix
-  const exclude = new Set(request.exclude)
+  const excluded = exclusionOf(request.exclude)
   const done = readDoneLog(request.doneLog)
   const selected = request.hash === 'all' || request.hash === 'none' ? undefined : new Set(request.hash)
   const shouldHash = (rel: string): boolean => request.hash === 'all' || (selected?.has(rel) ?? false)
@@ -101,7 +101,7 @@ export async function verifyTree(
     for (const name of await readdir(nativePath(root, rel))) {
       const child = rel === '' ? name : `${rel}/${name}`
       if (atRoot && ROOT_MARKERS.has(name)) continue
-      if (exclude.has(child)) continue
+      if (excluded(child)) continue
       kinds.set(name, kindOf(await lstat(nativePath(root, child))))
     }
     return kinds
