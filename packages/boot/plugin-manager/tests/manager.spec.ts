@@ -1088,6 +1088,26 @@ it('lists the bundles the profile manifest names as shipped while switched off, 
   expect(await manager.removeBundle('payload')).toMatchObject({ changed: false, application: 'failed' })
 })
 
+it.each([
+  ['a string', 'payload'],
+  ['an object', { payload: true }],
+  ['a mixed array', ['payload', 7]],
+])('reads a shipped record that is %s as no names and warns once', async (_kind, shipped) => {
+  const { ctx, manager, dir, bundle } = await fixture()
+  bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, shipped: shipped as never } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  const warn = vi.spyOn(ctx.logger, 'warn')
+  onTestFinished(() => { warn.mockRestore() })
+  for (let read = 0; read < 2; read++) {
+    const bundles = await manager.listBundles()
+    expect(bundles.filter(row => row.shipped)).toEqual([])
+    expect(bundles.some(row => row.name === 'payload' || row.name.length === 1)).toBe(false)
+  }
+  expect(warn.mock.calls.filter(([message]) => String(message).includes('dsh.profile.shipped'))).toHaveLength(1)
+})
+
 it('omits installation-owned plain packages from the bundle inventory', async () => {
   const { manager, dir, profile, bundle } = await fixture()
   bundle('installation-plain', [])

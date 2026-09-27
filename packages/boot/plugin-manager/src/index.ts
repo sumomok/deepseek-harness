@@ -187,6 +187,8 @@ export class PluginManager extends TypertRemoteService {
   })
   /** Management bundles remain protected if their files become unreadable. */
   private readonly managementBundles = new Set<string>()
+  /** The last unusable `dsh.profile.shipped` value warned about, as JSON, so a repeated read warns once. */
+  private warnedShipped: string | undefined
   private readonly ownerEntryId: string | undefined
   private readonly packageOperations = new Set<Promise<unknown>>()
   private readonly profile: ProfileContext
@@ -283,7 +285,7 @@ export class PluginManager extends TypertRemoteService {
     const exemptions = readProfileVersionExemptions(this.profile.dir)
     const selected = manifest.dsh?.profile?.bundles ?? []
     const dependencies = Object.keys(manifest.dependencies ?? {})
-    const shippedNames = manifest.dsh?.profile?.shipped ?? []
+    const shippedNames = this.shippedNames(manifest.dsh?.profile?.shipped)
     const installation = JSON.parse(readFileSync(this.profile.installAnchor, 'utf8')) as InstallationManifest
     const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...shippedNames])]
     const bundles: BundleInfo[] = []
@@ -735,6 +737,21 @@ export class PluginManager extends TypertRemoteService {
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
     if (enabled) this.protectsManager(name)
+  }
+
+  /**
+   * The bundle names a profile manifest's `dsh.profile.shipped` lists. The launcher writes the file, so a value that
+   * is not an array of strings is read as no names, with one warning per distinct value.
+   */
+  private shippedNames(value: unknown): string[] {
+    if (value === undefined) return []
+    if (Array.isArray(value) && value.every(name => typeof name === 'string')) return value
+    const printed = JSON.stringify(value)
+    if (this.warnedShipped !== printed) {
+      this.warnedShipped = printed
+      this.ownerContext.logger.warn(`Ignoring dsh.profile.shipped in ${this.profile.dir}: expected an array of bundle names, found ${printed}`)
+    }
+    return []
   }
 
   private bundleRows(name: string): EntryOptions[] {

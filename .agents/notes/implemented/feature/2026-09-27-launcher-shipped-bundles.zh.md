@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决定
 
-由启动器在 profile 清单里写明这个事实。`DshProfileManifest.shipped` 是启动该 profile 的应用从自身载荷提供的组合包名单；由启动器写入，DSH 内没有任何代码写它。`listBundles` 把这些名字并入它读取的名字，并对每一个报 `BundleInfo.shipped: true`。随附组合包无论 `dsh.profile.bundles` 是否选中都会列出；包缺失或没有组合包 patch 的随附名字带着问题列出。`setBundleEnabled` 展开保留 `dsh.profile`，关掉组合包不改动这份名单。`removable` 不变：只有 profile 自己的依赖也持有一份副本时，随附组合包才可卸载。
+由启动器在 profile 清单里写明这个事实。`DshProfileManifest.shipped` 是启动该 profile 的应用从自身载荷提供的组合包名单；由启动器写入，DSH 内没有任何代码写它。`listBundles` 把这些名字并入它读取的名字，并对每一个报 `BundleInfo.shipped: true`。随附组合包无论 `dsh.profile.bundles` 是否选中都会列出；包缺失或没有组合包 patch 的随附名字带着问题列出。`setBundleEnabled` 展开保留 `dsh.profile`，关掉组合包不改动这份名单。`dsh.profile.shipped` 不是字符串数组时按没有名字处理，每个不同的值记一次警告；否则字符串会按字符列出多条，对象会让整次读取失败。`removable` 不变：只有 profile 自己的依赖也持有一份副本时，随附组合包才可卸载。
 
 插件页把 `shipped` 组合包收进**已安装**，卡片和详情页都带**内置**标签。分组和没有卸载沿用现有规则：它不是 `optional`，而卸载只对 `installed` 提供。启动器不把组合层与迁移来的用户插件写进 `shipped`，所以它们和以前一样不出现在页面上。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 | 证据 | 行为 |
 |---|---|
-| [manager.spec.ts](../../../../packages/boot/plugin-manager/tests/manager.spec.ts) | 随附组合包关闭时带版本与组件行列出，没有 patch 与缺失的随附包带着问题列出，开启再关闭后 `dsh.profile.shipped` 不变，卸载被拒绝。把随附名字从名字集合或任一处带条件的写入中去掉，该用例失败。 |
+| [manager.spec.ts](../../../../packages/boot/plugin-manager/tests/manager.spec.ts) | 随附组合包关闭时带版本与组件行列出，没有 patch 与缺失的随附包带着问题列出，开启再关闭后 `dsh.profile.shipped` 不变，卸载被拒绝。把随附名字从名字集合或任一处带条件的写入中去掉，该用例失败。字符串、对象、混合数组各自按没有名字处理，两次读取只警告一次；接受它们、每次读取都警告或不警告，这些用例失败。 |
 | [components.client.spec.tsx](../../../../packages/client/ui-plugin-manager/tests/components.client.spec.tsx) | 随附组合包开着或关着都出现在**已安装**下，各带**内置**标签；未随附的选中层不出现在页面上；详情页带标签与版本、没有卸载。从页面过滤条件去掉 `shipped`，该用例失败。 |
 
 ## 后果
