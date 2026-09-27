@@ -126,14 +126,19 @@ export const BROADCAST_FAILED_PREFIX = 'broadcast-failed:'
  * exit.
  *
  * The announcement deletes {@link BROADCAST_VARIABLE} through
- * `[Environment]::SetEnvironmentVariable(…, 'User')`, which sends
- * `SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", …)`
- * after its registry change whether or not the value existed
- * (`SetEnvironmentVariableFromRegistry` in dotnet/runtime
+ * `[Environment]::SetEnvironmentVariable(…, 'User')`, so no `Add-Type` is
+ * needed. The script runs in the system's Windows PowerShell 5.1
+ * (`System32\WindowsPowerShell\v1.0\powershell.exe`, see `systemPowerShell`),
+ * which runs on .NET Framework: there the method deletes the value with
+ * `DeleteValue(variable, false)` and then sends
+ * `SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", 0, 1000, 0)`
+ * whether or not the value existed (`SetEnvironmentVariable(string, string,
+ * EnvironmentVariableTarget)` in microsoft/referencesource
+ * `mscorlib/system/environment.cs`). PowerShell 7 (`pwsh`, .NET) does the same
+ * in `SetEnvironmentVariableFromRegistry` (dotnet/runtime
  * `src/libraries/System.Private.CoreLib/src/System/Environment.Windows.cs`),
- * so no `Add-Type` is needed. It is the same call the write path already
- * relies on; a failure there is printed after {@link BROADCAST_FAILED_PREFIX}
- * and the script still exits 0.
+ * so the script behaves alike in either. A failure there is printed after
+ * {@link BROADCAST_FAILED_PREFIX} and the script still exits 0.
  */
 export const RESTORE_USER_ENV_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
