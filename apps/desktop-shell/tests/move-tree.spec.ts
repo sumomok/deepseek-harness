@@ -4,11 +4,15 @@
  * @module
  */
 
-import { linkSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, readdirSync, renameSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ESTIMATED_BLOCK_BYTES, isIgnorableName, isInsidePath, meaningfulNames, nativePath, REBUILDABLE_ENTRIES, scanTree } from '../src/move/tree.ts'
+import {
+  ESTIMATED_BLOCK_BYTES, fingerprintTree, isIgnorableName, isInsidePath, meaningfulNames, nativePath, printOf, REBUILDABLE_ENTRIES,
+  scanTree,
+  type PrintEntry,
+} from '../src/move/tree.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
 
 let fixture: Fixture | undefined
@@ -137,5 +141,55 @@ describe('paths', () => {
     expect(isInsidePath('/Users/P/DATA/x', '/Users/p/Data', 'darwin')).toBe(true)
     expect(isInsidePath('/a/caf\u0065\u0301/x', '/a/caf\u00e9', 'darwin')).toBe(true)
     expect(isInsidePath('/Users/P/DATA/x', '/Users/p/Data', 'linux')).toBe(false)
+  })
+})
+
+describe('printOf', () => {
+  const entry: PrintEntry = { rel: 'sessions/a/log', size: 10n, mtimeNs: 1_000_000_001n, ctimeNs: 2_000_000_002n, ino: 77n }
+
+  it('changes when any one recorded field of any entry changes', () => {
+    const base = printOf([entry, { ...entry, rel: 'AGENTS.md' }])
+    for (const changed of [
+      { rel: 'sessions/a/log2' }, { size: 11n }, { mtimeNs: 1_000_000_002n }, { ctimeNs: 2_000_000_003n }, { ino: 78n },
+    ] satisfies Array<Partial<PrintEntry>>) {
+      expect(printOf([{ ...entry, ...changed }, { ...entry, rel: 'AGENTS.md' }])).not.toBe(base)
+    }
+    expect(printOf([{ ...entry, rel: 'AGENTS.md' }, entry])).toBe(base)
+    expect(printOf([entry])).not.toBe(base)
+  })
+})
+
+describe('fingerprintTree', () => {
+  it('sees a same-size rewrite whose modification time was set back, and ignores what it is told to leave out', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const home = fixture.home
+    const exclude = [...REBUILDABLE_ENTRIES, '.dsh-data-id']
+    const before = fingerprintTree(home, exclude)
+    expect(fingerprintTree(home, exclude)).toBe(before)
+    // Left out: the excluded entries, the file browser's files, and the root's own times.
+    writeFileSync(join(home, '.dsh-data-id'), 'another\n')
+    mkdirSync(join(home, 'cache', 'more'), { recursive: true })
+    writeFileSync(join(home, 'cache', 'more', 'x'), 'x')
+    writeFileSync(join(home, 'storages', '.DS_Store'), 'finder')
+    expect(fingerprintTree(home, exclude)).toBe(before)
+    const file = join(home, 'storages', 'workspace.json')
+    const stats = statSync(file)
+    const text = String(readdirSync(home).length)
+    writeFileSync(file, 'x'.repeat(stats.size - text.length) + text)
+    utimesSync(file, stats.atime, stats.mtime)
+    expect(statSync(file).size).toBe(stats.size)
+    expect(fingerprintTree(home, exclude)).not.toBe(before)
+  })
+
+  it('sees a file replaced by another of the same size and times', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const home = fixture.home
+    const before = fingerprintTree(home, REBUILDABLE_ENTRIES)
+    const file = join(home, 'storages', 'workspace.json')
+    const stats = statSync(file)
+    writeFileSync(join(home, 'replacement'), 'y'.repeat(stats.size))
+    utimesSync(join(home, 'replacement'), stats.atime, stats.mtime)
+    renameSync(join(home, 'replacement'), file)
+    expect(fingerprintTree(home, REBUILDABLE_ENTRIES)).not.toBe(before)
   })
 })

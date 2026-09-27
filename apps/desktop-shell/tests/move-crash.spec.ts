@@ -22,10 +22,12 @@
 import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { MOVED_ID_FILENAME, readJournal, type BlockedChoice, type MoveJournal } from '../src/move/journal.ts'
+import {
+  MOVED_ID_FILENAME, readJournal, RETIRED_FILENAME, type BlockedChoice, type MoveJournal, type MoveResult,
+} from '../src/move/journal.ts'
 import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
 import { IGNORABLE_NAMES, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
@@ -96,7 +98,28 @@ const CASES: Case[] = [
  * @returns true when nothing fails.
  */
 function expectMoved(c: Case): boolean {
-  return c.healthy && c.faults === undefined && c.choose !== 'rollback'
+  return (c.healthy || keptTwice(c)) && c.faults === undefined && c.choose !== 'rollback'
+}
+
+/**
+ * Whether the person keeps the new location and it fails its check again, so
+ * the move ends on it with the original kept.
+ * @param c - the scenario.
+ * @returns true for that scenario.
+ */
+function keptTwice(c: Case): boolean {
+  return c.choose === 'keep-target' && !c.healthy
+}
+
+/**
+ * Whether a failed scenario leaves the copy at the new location as an unused
+ * copy: on another volume, once the terminal was told about it (every failure
+ * here except naming the target, which fails before that).
+ * @param c - the scenario.
+ * @returns true when the result must name an unused copy.
+ */
+function expectUnusedCopy(c: Case): boolean {
+  return !expectMoved(c) && !c.sameVolume && c.faults?.targetId !== true
 }
 
 /** A prepared move. */
@@ -190,13 +213,13 @@ async function pool<T>(items: readonly T[], limit: number, task: (item: T) => Pr
 }
 
 /**
- * Whether a directory is this data: it carries the identity and no move marker.
+ * Whether a directory is this data: it carries the identity and neither a move nor a retired marker.
  * @param dir - the directory.
  * @returns true when it does.
  */
 function isOurData(dir: string): boolean {
   const idFile = join(dir, '.dsh-data-id')
-  if (!existsSync(idFile) || existsSync(join(dir, MOVE_STATE_FILENAME))) return false
+  if (!existsSync(idFile) || existsSync(join(dir, MOVE_STATE_FILENAME)) || existsSync(join(dir, RETIRED_FILENAME))) return false
   return readFileSync(idFile, 'utf8').trim() === HARNESS_ID
 }
 
@@ -210,6 +233,7 @@ function dataFiles(listing: readonly string[]): string[] {
     && !line.startsWith('file .dsh-data-id ')
     && !line.startsWith('file .dsh-data-id.moved ')
     && !line.startsWith(`file ${MOVE_STATE_FILENAME} `)
+    && !line.startsWith(`file ${RETIRED_FILENAME} `)
     // A file browser's own files (the Finder scenario) are not data.
     && !IGNORABLE_NAMES.some(name => line.startsWith(`file ${name} `) || line.includes(`/${name} `))
     && !REBUILDABLE_ENTRIES.some(entry => line.startsWith(`file ${entry}/`) || line.startsWith(`file ${entry} `)))
@@ -305,7 +329,7 @@ function checkAtKill(p: Prepared, sentinel: readonly string[]): string[] {
 function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: boolean): string[] {
   const violations: string[] = []
   if (existsSync(join(p.setup.dir, 'journal.json'))) violations.push('the journal is still there')
-  const result = JSON.parse(readFileSync(join(p.setup.dir, 'last-result.json'), 'utf8')) as { outcome: string }
+  const result = JSON.parse(readFileSync(join(p.setup.dir, 'last-result.json'), 'utf8')) as MoveResult
   if (ended !== 'none' && ended !== result.outcome) violations.push(`the run said ${String(ended)}, the result file ${result.outcome}`)
   for (const gone of [p.partial, p.hidden]) {
     if (existsSync(gone)) violations.push(`${gone} is still there`)
@@ -323,6 +347,10 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     const pointer = JSON.parse(readFileSync(join(p.setup.userData, 'data-location.json'), 'utf8')) as { path: string }
     if (pointer.path !== p.target) violations.push(`the pointer names ${pointer.path}`)
     if (terminalValue(p.setup) !== p.target) violations.push('the terminal does not name the target')
+    // On one volume the original is what was renamed to the target: there is nothing else to keep.
+    if (keptTwice(c) && !c.sameVolume) violations.push(...checkKept(p, result.keptOriginal?.path, 'kept original'))
+    else if (result.keptOriginal !== undefined) violations.push('the result names a kept original')
+    if (result.leftovers.length > 0) violations.push('the result lists leftovers')
   } else {
     if (result.outcome !== 'failed') violations.push(`the move ended ${result.outcome}`)
     if (JSON.stringify(listTree(p.f.home)) !== JSON.stringify(p.before)) violations.push('the source is not as it was')
@@ -335,7 +363,35 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     const terminal = p.setup.start.terminalBefore
     if (terminalValue(p.setup) !== (terminal.kind === 'set' ? terminal.value : '')) violations.push('the terminal is not as it was')
     if (c.start === 'pointer' && readlinkSync(p.setup.defaultHome) !== p.f.home) violations.push('~/.dsh does not link to the source')
+    const beside = readdirSync(p.f.targetParent).filter(name => name !== 'DSH-Data')
+    if (expectUnusedCopy(c)) {
+      violations.push(...checkKept(p, result.unusedCopy?.path, 'unused copy'))
+      if (result.unusedCopy !== undefined && JSON.stringify(beside) !== JSON.stringify([basename(result.unusedCopy.path)])) {
+        violations.push(`beside the target: ${beside.join(', ')}`)
+      }
+    } else {
+      if (result.unusedCopy !== undefined) violations.push('the result names an unused copy')
+      if (beside.length > 0) violations.push(`beside the target: ${beside.join(', ')}`)
+    }
   }
+  return violations
+}
+
+/**
+ * Check a folder the move left for the person: it exists, holds the complete
+ * data, carries the retired marker, and is not usable as this data.
+ * @param p - the move.
+ * @param path - the folder the result names.
+ * @param what - what it is, for the sentences.
+ * @returns every violation, as sentences.
+ */
+function checkKept(p: Prepared, path: string | undefined, what: string): string[] {
+  if (path === undefined) return [`the result names no ${what}`]
+  if (!existsSync(path)) return [`the ${what} ${path} is not there`]
+  const violations: string[] = []
+  if (JSON.stringify(dataFiles(listTree(path))) !== JSON.stringify(dataFiles(p.before))) violations.push(`the ${what} is not complete`)
+  if (!existsSync(join(path, RETIRED_FILENAME))) violations.push(`the ${what} has no retired marker`)
+  if (existsSync(join(path, '.dsh-data-id'))) violations.push(`the ${what} still carries the identity`)
   return violations
 }
 
@@ -441,6 +497,8 @@ const CHOICE_CASES: Case[] = [
   { name: 'another volume, go back once the old path is free', sameVolume: false, start: 'default-home', healthy: true, choose: 'rollback' },
   { name: 'one volume, keep the new location', sameVolume: true, start: 'default-home', healthy: true, choose: 'keep-target' },
   { name: 'one volume, go back once the old path is free', sameVolume: true, start: 'default-home', healthy: true, choose: 'rollback' },
+  { name: 'another volume, keep the new location, which fails again', sameVolume: false, start: 'default-home', healthy: false, choose: 'keep-target' },
+  { name: 'one volume, keep the new location, which fails again', sameVolume: true, start: 'default-home', healthy: false, choose: 'keep-target' },
 ]
 
 /**

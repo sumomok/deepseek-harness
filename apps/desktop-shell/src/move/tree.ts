@@ -19,6 +19,8 @@
  * @module @deepseek-ai/dsh-desktop-shell/move/tree
  */
 
+import { createHash } from 'node:crypto'
+import { lstatSync, readdirSync } from 'node:fs'
 import { lstat, readdir, readlink } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
 
@@ -225,4 +227,71 @@ export async function scanTree(root: string, options: ScanOptions): Promise<Tree
   }
   await walk('')
   return scan
+}
+
+/** What a print records of one entry. */
+export interface PrintEntry {
+  /** `/`-separated, relative to the root. */
+  rel: string
+  size: bigint
+  mtimeNs: bigint
+  ctimeNs: bigint
+  ino: bigint
+}
+
+/**
+ * A hash over entries: each entry's relative path, size, modification and
+ * status-change times in nanoseconds, and inode number, in path order. Any
+ * difference in any of them gives a different hash.
+ * @param entries - the entries, in any order.
+ * @returns the hash, hex.
+ */
+export function printOf(entries: readonly PrintEntry[]): string {
+  const hash = createHash('sha256')
+  const sorted = [...entries].sort((a, b) => a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0)
+  for (const entry of sorted) {
+    hash.update(`${entry.rel}\0${String(entry.size)}\0${String(entry.mtimeNs)}\0${String(entry.ctimeNs)}\0${String(entry.ino)}\n`)
+  }
+  return hash.digest('hex')
+}
+
+/**
+ * Print a tree, synchronously and without following links: every entry below
+ * the root except the excluded relative paths (with everything under them)
+ * and {@link IGNORABLE_NAMES}. A directory is recorded by its path only; a
+ * file or a link by every field of {@link PrintEntry}. The root's own entry
+ * is left out, since the move writes and removes its markers there.
+ * @param root - the directory.
+ * @param exclude - relative paths (`/`-separated) to leave out.
+ * @param platform - whose name rules apply to the ignorable names.
+ * @returns the hash ({@link printOf}).
+ * @throws when an entry cannot be read, or the root is not there.
+ */
+export function fingerprintTree(root: string, exclude: readonly string[], platform: NodeJS.Platform = process.platform): string {
+  const excluded = new Set(exclude)
+  const entries: PrintEntry[] = []
+  const walk = (rel: string): void => {
+    for (const name of readdirSync(nativePath(root, rel))) {
+      const child = rel === '' ? name : `${rel}/${name}`
+      if (excluded.has(child) || isIgnorableName(name, platform)) continue
+      let stats
+      try {
+        stats = lstatSync(nativePath(root, child), { bigint: true })
+      } catch (error) {
+        // Removed between the listing and the stat: it is not part of the tree any more.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
+      if (stats.isDirectory()) {
+        // A directory's own times and size change with what is in it, which is printed entry by entry already;
+        // recording them would also count a file browser's files in it as a change.
+        entries.push({ rel: child, size: 0n, mtimeNs: 0n, ctimeNs: 0n, ino: 0n })
+        walk(child)
+      } else {
+        entries.push({ rel: child, size: stats.size, mtimeNs: stats.mtimeNs, ctimeNs: stats.ctimeNs, ino: stats.ino })
+      }
+    }
+  }
+  walk('')
+  return printOf(entries)
 }

@@ -6,7 +6,7 @@
  * rollback restores (the pointer's files byte for byte, the terminal's
  * `DSH_HOME`, what `~/.dsh` was). It lives under Electron's user-data
  * directory, never in the source or the target: the source is deleted at the
- * end and the target may be removed or unplugged.
+ * end and the target may be retired or unplugged.
  *
  * What happens next is decided by {@link nextAction}, a pure function of the
  * journal and of what is on disk now ({@link MoveFacts}). Every action is one
@@ -20,6 +20,12 @@
  * source gives up its identity (renamed to `.dsh-data-id.moved`) and takes a
  * move marker before the target gets the identity. A rollback does the same in
  * reverse.
+ *
+ * Once anything outside the move could have used the target (from the moment
+ * the terminal is told about it; {@link MoveJournal.targetExposed}), no step
+ * deletes it: a rollback retires it in place instead. It loses its identity,
+ * takes a retired marker, and is renamed to a visible sibling folder the
+ * person can check and delete themselves.
  * @module @deepseek-ai/dsh-desktop-shell/move/journal
  */
 
@@ -43,6 +49,15 @@ export const DONE_LOG_FILENAME = 'done.jsonl'
 export const RESULT_FILENAME = 'last-result.json'
 /** The identity marker's name in a source that gave it up. */
 export const MOVED_ID_FILENAME = '.dsh-data-id.moved'
+/**
+ * Marker of a folder that held this data and must never be used as a data
+ * directory again: a retired copy at the new location, or an original kept
+ * after the person chose the new location. Its content names the data and the
+ * move. Phase 2's boot and Settings (A7) refuse a folder that holds it.
+ */
+export const RETIRED_FILENAME = '.dsh-data-retired'
+/** Copies left on a drive that was not attached when the person rolled back without them; see {@link AbandonedCopy}. */
+export const ABANDONED_FILENAME = 'abandoned-copies.json'
 /** Rounds of repairs after failed checks before the move is given up (design doc 3.2 step 4). */
 export const MAX_REPAIR_ROUNDS = 2
 
@@ -80,23 +95,12 @@ export interface MoveBaseline {
   quarantined: string[]
 }
 
-/** A summary of a directory tree that changes whenever a file in it is added, removed, or written. */
-export interface Fingerprint {
-  files: number
-  bytes: number
-  /** The latest modification time of any file or directory, in milliseconds. */
-  maxMtimeMs: number
-}
-
 /**
- * Whether two fingerprints are the same.
- * @param a - one.
- * @param b - the other.
- * @returns true when every field is equal.
+ * A hash over every entry of a directory tree (see `fingerprintTree` in
+ * [[@deepseek-ai/dsh-desktop-shell/move/tree]]). It only chooses what the
+ * person is told; no step deletes or keeps anything because of it.
  */
-export function sameFingerprint(a: Fingerprint, b: Fingerprint): boolean {
-  return a.files === b.files && a.bytes === b.bytes && a.maxMtimeMs === b.maxMtimeMs
-}
+export type TargetPrint = string
 
 /** Something a removal could not delete, recorded so the move can finish. */
 export interface JournalLeftover {
@@ -141,6 +145,12 @@ export interface MoveJournal {
   terminalWritten: boolean
   /** Set once `~/.dsh` has been put back during a rollback. */
   homeLinkRestored: boolean
+  /**
+   * Set, and never cleared, in the same write that first records the terminal
+   * as told about the target: from then on something outside the move may
+   * have used the target, and no step deletes it.
+   */
+  targetExposed: boolean
   cleanupAttempts: number
   /**
    * The move stopped as blocked while rolling back; it goes on only after the
@@ -154,11 +164,22 @@ export interface MoveJournal {
   /** The person chose to roll back without the copy, whose disk is not attached; it stays where it is. */
   targetAbandoned: boolean
   /**
-   * The target's session data when the health check failed. A rollback
-   * deletes the target only while its session data still matches, so work
-   * written there afterwards is never deleted without the person choosing.
+   * The target's print when the move last entered `rolling-back` (or the
+   * person last chose to); absent when the target was not there. A blocked
+   * rollback tells the person the new location changed when its print now
+   * differs or this is absent.
    */
-  targetFingerprint?: Fingerprint
+  targetFingerprint?: TargetPrint
+  /** The visible sibling folder the retired target is renamed to; chosen before the rename. */
+  unusedCopy?: string
+  /**
+   * Renaming the retired target failed (on Windows, a program holding a file
+   * in it open past every retry): it stays at its path, retired, and the
+   * rollback goes on. The result names that path as the unused copy.
+   */
+  retiredInPlace: boolean
+  /** The visible sibling folder the original is renamed to when it is kept; chosen before the rename. */
+  keptOriginal?: string
   leftovers: JournalLeftover[]
   /** Why the move is being given up or rolled back. */
   failure?: { phase: MovePhase; detail: string }
@@ -170,6 +191,11 @@ export type MoveStart = Pick<MoveJournal,
   'source' | 'sourceAliases' | 'target' | 'targetPreexisting' | 'sameVolume' | 'dataId' | 'pointerBefore'
   | 'lastSeenEnvBefore' | 'terminalBefore' | 'homeLinkBefore' | 'baseline'>
 
+/** A folder the move left for the person to check and delete themselves. */
+export interface KeptFolder {
+  path: string
+}
+
 /** How a move ended, as Settings reports it. */
 export interface MoveResult {
   version: typeof JOURNAL_VERSION
@@ -178,8 +204,27 @@ export interface MoveResult {
   source: string
   target: string
   detail?: string
+  /** What a removal could not delete; Settings may offer to try again. */
   leftovers: JournalLeftover[]
+  /** A rollback retired the copy at the new location into this folder; nothing deletes it. */
+  unusedCopy?: KeptFolder
+  /** A rollback went on without the copy at the new location, whose drive was not attached; it is still there. */
+  abandonedCopy?: KeptFolder
+  /**
+   * The new location failed its check again after the person chose it; the
+   * application goes on from it, and the original is kept here. Never among
+   * `leftovers`: nothing deletes it.
+   */
+  keptOriginal?: KeptFolder
   finishedAt: string
+}
+
+/** One copy of this data left on a drive that was away when the person rolled back without it. */
+export interface AbandonedCopy {
+  path: string
+  dataId: DataId
+  moveId: MoveId
+  abandonedAt: string
 }
 
 /**
@@ -212,6 +257,8 @@ export function newJournal(start: MoveStart, options: { pid: number; now: Date; 
     pointerWritten: false,
     terminalWritten: false,
     homeLinkRestored: false,
+    targetExposed: false,
+    retiredInPlace: false,
     cleanupAttempts: 0,
     awaitingChoice: false,
     keepTarget: false,
@@ -339,6 +386,8 @@ export function validateJournal(value: unknown): MoveJournal {
     pointerWritten: flag('pointerWritten'),
     terminalWritten: flag('terminalWritten'),
     homeLinkRestored: flag('homeLinkRestored'),
+    targetExposed: flag('targetExposed'),
+    retiredInPlace: flag('retiredInPlace'),
     cleanupAttempts: count('cleanupAttempts'),
     awaitingChoice: flag('awaitingChoice'),
     keepTarget: flag('keepTarget'),
@@ -352,13 +401,9 @@ export function validateJournal(value: unknown): MoveJournal {
     if (typeof lastSeenEnvBefore !== 'string' || !isAbsolute(lastSeenEnvBefore)) return fail('lastSeenEnvBefore')
     journal.lastSeenEnvBefore = lastSeenEnvBefore
   }
-  const fingerprint = r['targetFingerprint']
-  if (fingerprint !== undefined) {
-    const fp = typeof fingerprint === 'object' && fingerprint !== null ? fingerprint as Record<string, unknown> : {}
-    const { files, bytes, maxMtimeMs } = fp
-    if (typeof files !== 'number' || typeof bytes !== 'number' || typeof maxMtimeMs !== 'number') return fail('targetFingerprint')
-    journal.targetFingerprint = { files, bytes, maxMtimeMs }
-  }
+  if (r['targetFingerprint'] !== undefined) journal.targetFingerprint = text('targetFingerprint')
+  if (r['unusedCopy'] !== undefined) journal.unusedCopy = path('unusedCopy')
+  if (r['keptOriginal'] !== undefined) journal.keptOriginal = path('keptOriginal')
   const failure = r['failure']
   if (failure !== undefined) {
     const f = typeof failure === 'object' && failure !== null ? failure as Record<string, unknown> : {}
@@ -428,6 +473,11 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     const lo = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {}
     return typeof lo['path'] === 'string' && typeof lo['bytes'] === 'number' ? [{ path: lo['path'], bytes: lo['bytes'] }] : []
   })
+  const kept = (field: string): { [key: string]: KeptFolder } => {
+    const value = r[field]
+    const path = typeof value === 'object' && value !== null ? (value as Record<string, unknown>)['path'] : undefined
+    return typeof path === 'string' ? { [field]: { path } } : {}
+  }
   return {
     version: JOURNAL_VERSION,
     moveId: r['moveId'] as MoveId,
@@ -436,8 +486,72 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     target: r['target'],
     ...typeof r['detail'] === 'string' ? { detail: r['detail'] } : {},
     leftovers,
+    ...kept('unusedCopy'),
+    ...kept('abandonedCopy'),
+    ...kept('keptOriginal'),
     finishedAt: r['finishedAt'],
   }
+}
+
+/**
+ * Read the copies left on drives that were away when the person rolled back
+ * without them. Each still carries this data's identity; A7 refuses such a
+ * folder as a data directory (see {@link isAbandonedCopy}).
+ * @param dir - the move directory.
+ * @returns the copies; none when the file is absent.
+ * @throws a {@link JournalError} when the file exists but cannot be read or is invalid.
+ */
+export function readAbandonedCopies(dir: string): AbandonedCopy[] {
+  let text: string
+  try {
+    text = readFileSync(join(dir, ABANDONED_FILENAME), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw new JournalError(`abandoned copies: cannot read: ${String(error)}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new JournalError(`abandoned copies: not JSON: ${String(error)}`)
+  }
+  const copies = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>)['copies'] : undefined
+  if ((parsed as Record<string, unknown> | null)?.['version'] !== JOURNAL_VERSION || !Array.isArray(copies)) {
+    throw new JournalError('abandoned copies: invalid document')
+  }
+  return copies.map((item: unknown) => {
+    const c = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {}
+    const { path, dataId, moveId, abandonedAt } = c
+    if (typeof path !== 'string' || !isAbsolute(path) || typeof dataId !== 'string' || typeof moveId !== 'string' || typeof abandonedAt !== 'string') {
+      throw new JournalError('abandoned copies: invalid entry')
+    }
+    return { path, dataId: dataId as DataId, moveId: moveId as MoveId, abandonedAt }
+  })
+}
+
+/**
+ * The document holding the abandoned copies.
+ * @param copies - the copies.
+ * @returns its text.
+ */
+export function abandonedCopiesText(copies: readonly AbandonedCopy[]): string {
+  return `${JSON.stringify({ version: JOURNAL_VERSION, copies }, null, 2)}\n`
+}
+
+/**
+ * Whether a folder is a copy a rollback went on without: A7 refuses it as a
+ * data directory. The copy has the same identity as the data the person uses
+ * now, so the identity alone cannot tell them apart; the recorded path does.
+ * @param copies - the recorded copies ({@link readAbandonedCopies}).
+ * @param path - the folder, as the pointer or `DSH_HOME` names it.
+ * @param dataId - the identity it carries.
+ * @param samePath - whether two paths name the same folder (case-folding where the file system does).
+ * @returns true when it is a recorded copy.
+ */
+export function isAbandonedCopy(
+  copies: readonly AbandonedCopy[], path: string, dataId: DataId, samePath: (a: string, b: string) => boolean,
+): boolean {
+  return copies.some(copy => copy.dataId === dataId && samePath(copy.path, path))
 }
 
 /** What is at one of the move's directories. */
@@ -447,6 +561,8 @@ export interface DirFacts {
   dataId: 'ours' | 'other' | 'none'
   /** Whether it holds `.dsh-data-id.moved`. */
   movedId: boolean
+  /** Whether it holds the retired marker ({@link RETIRED_FILENAME}). */
+  retired: boolean
   /** Its move marker: this move's, another, or none. */
   state: 'ours' | 'other' | 'none'
   /** Whether it is an empty directory. */
@@ -459,8 +575,15 @@ export interface MoveFacts {
   partial: DirFacts
   target: DirFacts
   hidden: DirFacts
-  /** The target's session data now; read only while a rollback compares it with {@link MoveJournal.targetFingerprint}. */
-  targetSessions?: Fingerprint
+  /**
+   * The target's print now; read only while a rollback waits for the
+   * person's choice, to tell them whether the new location changed.
+   */
+  targetPrint?: TargetPrint
+  /** What is at the folder chosen for the retired target, once one is chosen. */
+  unusedCopy?: DirFacts
+  /** What is at the folder chosen for the kept original, once one is chosen. */
+  keptOriginal?: DirFacts
 }
 
 /** Why a move can neither go on nor be undone without the person. */
@@ -473,7 +596,10 @@ export type BlockedReason =
   | 'target-missing'
   /** Something that is not this move's copy now occupies the new location's path. */
   | 'target-occupied'
-  /** Files at the new location changed after the health check failed; rolling back would delete them. */
+  /**
+   * Files at the new location changed after the move started going back (or
+   * the person last chose); going back keeps them in an unused copy.
+   */
   | 'target-changed'
   /** The obstruction is gone, and the move waits for the person to choose how to go on. */
   | 'choice-needed'
@@ -512,6 +638,13 @@ export type MoveAction =
   | { kind: 'remove-hidden' }
   | { kind: 'remove-partial' }
   | { kind: 'remove-target' }
+  | { kind: 'mark-target-retired' }
+  | { kind: 'clear-target-retired' }
+  | { kind: 'name-unused-copy' }
+  | { kind: 'rename-target-to-unused' }
+  | { kind: 'mark-hidden-retired' }
+  | { kind: 'name-kept-original' }
+  | { kind: 'rename-hidden-to-kept' }
   | { kind: 'recreate-empty-target' }
   | { kind: 'restore-home-link' }
   | { kind: 'mark-target' }
@@ -690,14 +823,15 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
     case 'switched':
       return { kind: 'await-health' }
     case 'cleanup':
+      if (journal.keepOriginal) return keepOriginalAction(journal, facts)
       if (!journal.sameVolume && hidden.exists && !leftBehind(journal, journal.hidden)) {
-        if (journal.keepOriginal) return { kind: 'keep-unmarked', path: journal.hidden }
         return removeIfMarked(hidden, journal.hidden, { kind: 'remove-hidden' })
       }
       return { kind: 'finish', outcome: 'moved' }
     case 'cancelling':
     case 'abandoning':
       if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
+      // Only reached before the source is hidden, so before the target could be exposed.
       if (target.exists && target.state === 'ours' && target.dataId !== 'ours' && !leftBehind(journal, journal.target)) {
         return sourceIsOurs ? { kind: 'remove-target' } : blocked(journal, facts, sourceReason(facts))
       }
@@ -730,6 +864,8 @@ function hideBeside(journal: MoveJournal, facts: MoveFacts): MoveAction {
   if (!target.exists) return journal.keepTarget ? blocked(journal, facts, 'target-missing') : { kind: 'roll-back', detail: 'the copy is gone' }
   // Only the checked copy (marked as this move) or this data may be named; never someone else's folder at that path.
   if (target.dataId !== 'ours' && target.state !== 'ours') return blocked(journal, facts, 'target-occupied')
+  // A rollback may have started retiring it before the person chose to keep it.
+  if (target.retired) return { kind: 'clear-target-retired' }
   if (target.dataId !== 'ours') return { kind: 'write-target-id' }
   if (target.state === 'ours') return { kind: 'clear-target-state' }
   return { kind: 'set-phase', phase: 'switching' }
@@ -755,10 +891,12 @@ function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: 
 
 /**
  * The next rollback step (plan S8′): `~/.dsh` first; then, only once the
- * original can go back to its path, the target is made unusable and the
- * original is put back; only after that, and only while the target's session
- * data is what it was when the health check failed, is the copy deleted; the
- * pointer and the terminal last.
+ * original can go back to its path, the target is marked retired and loses
+ * its identity, and the original is put back; then the copy is dealt with,
+ * and the pointer and the terminal last. A copy nothing outside the move
+ * could have used is deleted. An exposed one ({@link MoveJournal.targetExposed})
+ * is never deleted: it is renamed to a visible folder beside it, which the
+ * result names.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @returns the step.
@@ -773,15 +911,22 @@ function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
   if (reason !== undefined) return blocked(journal, facts, reason)
   const sourceIsOurs = source.exists && source.dataId === 'ours'
   if (journal.sameVolume) {
+    // The data itself goes back by rename, with anything written at the target since; nothing is deleted.
     if (target.exists && target.dataId === 'ours') return { kind: 'return-target-to-source' }
   } else {
-    if (target.exists && target.dataId === 'ours' && target.state !== 'ours') return { kind: 'mark-target' }
-    if (target.exists && target.dataId === 'ours') return { kind: 'unlink-target-id' }
+    if (target.exists && target.dataId === 'ours') {
+      if (target.state !== 'ours') return { kind: 'mark-target' }
+      if (!target.retired) return { kind: 'mark-target-retired' }
+      return { kind: 'unlink-target-id' }
+    }
     if (!source.exists) return { kind: 'rename-hidden-to-source' }
     if (source.movedId && source.dataId === 'none') return { kind: 'restore-source-id' }
     if (source.state === 'ours') return { kind: 'clear-source-state' }
-    if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target)) {
-      return targetChanged(journal, facts) ? blocked(journal, facts, 'target-changed') : { kind: 'remove-target' }
+    if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target) && !journal.retiredInPlace) {
+      if (!journal.targetExposed) return { kind: 'remove-target' }
+      if (!target.retired) return { kind: 'mark-target-retired' }
+      if (journal.unusedCopy === undefined || facts.unusedCopy?.exists === true) return { kind: 'name-unused-copy' }
+      return { kind: 'rename-target-to-unused' }
     }
     if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
   }
@@ -793,22 +938,54 @@ function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
 }
 
 /**
- * Whether the target's session data differs from what it was when the health
- * check failed, so deleting the target would delete work done since.
- * @param journal - the journal, with the fingerprint taken at the failure.
+ * The next step of keeping the original after the new location, which the
+ * person chose, failed its check again: the hidden original takes the retired
+ * marker and is renamed to a visible folder beside it, which the result
+ * names. Nothing deletes it.
+ * @param journal - the journal.
  * @param facts - what is on disk now.
- * @returns true when they differ; false when either is unknown.
+ * @returns the step.
+ */
+function keepOriginalAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
+  const { hidden } = facts
+  if (!journal.sameVolume && hidden.exists && hidden.state === 'ours') {
+    if (!hidden.retired) return { kind: 'mark-hidden-retired' }
+    if (journal.keptOriginal === undefined || facts.keptOriginal?.exists === true) return { kind: 'name-kept-original' }
+    return { kind: 'rename-hidden-to-kept' }
+  }
+  return { kind: 'finish', outcome: 'moved' }
+}
+
+/**
+ * Whether the target differs from what it was when the move last entered
+ * `rolling-back`, or when the person last chose. Only chooses what the person
+ * is told.
+ * @param journal - the journal, with the print taken then.
+ * @param facts - what is on disk now.
+ * @returns true when the target is there and its print differs or none was taken.
  */
 function targetChanged(journal: MoveJournal, facts: MoveFacts): boolean {
-  return journal.targetFingerprint !== undefined && facts.targetSessions !== undefined
-    && !sameFingerprint(journal.targetFingerprint, facts.targetSessions)
+  return facts.targetPrint !== undefined && journal.targetFingerprint !== facts.targetPrint
+}
+
+/**
+ * Whether the retired target has been renamed to its unused-copy folder, or left retired at its path.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns true when the chosen folder holds the retired copy.
+ */
+function unusedCopyMade(journal: MoveJournal, facts: MoveFacts): boolean {
+  if (journal.retiredInPlace) return true
+  return journal.unusedCopy !== undefined && facts.unusedCopy?.exists === true && facts.unusedCopy.retired
+    && facts.unusedCopy.state === 'ours'
 }
 
 /**
  * What stops a rollback from going on, before anything is changed: the old
  * path occupied, the original nowhere, or (on another volume) the copy not
- * reachable, so it could not be made unusable. The last one is waived once
- * the person chose to roll back without it.
+ * reachable, so it could not be made unusable or, once exposed, retired into
+ * a folder the result names. The last one is waived once the person chose to
+ * roll back without it.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @returns the reason, or `undefined` when the rollback can go on.
@@ -822,7 +999,10 @@ function obstruction(journal: MoveJournal, facts: MoveFacts): BlockedReason | un
   }
   if (source.exists && !sourceIsOurs && !source.movedId) return 'source-occupied'
   if (!source.exists && !(hidden.exists && hidden.state === 'ours')) return 'original-missing'
+  if (target.exists || journal.targetAbandoned) return undefined
   // Before the original is put back, the copy must be made unusable; it cannot be while its disk is away.
-  if (!target.exists && !journal.targetAbandoned && !source.exists) return 'target-missing'
+  if (!source.exists) return 'target-missing'
+  // An exposed copy must end retired in a folder the result names, or be left behind by the person's choice.
+  if (journal.targetExposed && !unusedCopyMade(journal, facts)) return 'target-missing'
   return undefined
 }

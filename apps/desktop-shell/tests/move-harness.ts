@@ -106,6 +106,7 @@ export function harnessEffects(setup: MoveSetup, faults: Faults = {}): MoveEffec
     userData: setup.userData,
     defaultHome: setup.defaultHome,
     platform: process.platform,
+    locale: 'en',
     syncTerminal: async (target) => {
       writeFileSync(setup.terminalFile, target)
       return target
@@ -175,7 +176,7 @@ export async function driveMove(
         break
       case 'blocked': {
         const choice = choose(outcome)
-        if (choice === undefined || resolveBlocked(dir, choice, outcome.reason, effects.fs) !== 'applied') return 'blocked'
+        if (choice === undefined || resolveBlocked(dir, choice, { reason: outcome.reason, targetPrint: outcome.targetPrint }, effects.fs) !== 'applied') return 'blocked'
         event(`resolve ${choice}`)
         break
       }

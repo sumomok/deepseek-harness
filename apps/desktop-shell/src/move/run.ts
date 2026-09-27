@@ -9,8 +9,8 @@
  * move is over; the result says how), `cleanup-incomplete` (the old copy is
  * not fully deleted yet; try again later), or `blocked` (something that is not
  * this data sits at the data directory's old path, the original or the copy
- * cannot be found, or the copy changed after a failed health check; the
- * journal is kept and nothing is deleted). A blocked rollback goes on only
+ * cannot be found, or a rollback waits for the person; the journal is kept
+ * and nothing is deleted). A blocked rollback goes on only
  * after the person's choice, which {@link resolveBlocked} records: keep the
  * new location, or go back to the old one. While a journal is on disk the
  * application starts the server only when the journal's `mayStartServer`
@@ -25,7 +25,10 @@
  *
  * Failures before the source is hidden give the move up (the copy is deleted,
  * the source was never touched); failures while hiding the source or switching
- * roll it back; failures while giving up or rolling back are thrown and the
+ * roll it back. Once the terminal has been told about the target, a rollback
+ * never deletes it: it is retired into a visible folder the result names
+ * (`perform` refuses `remove-target` from then on, whatever the journal step
+ * says). Failures while giving up or rolling back are thrown and the
  * next call continues. Cancelling is honored only while the copy is still a
  * partial folder.
  * @module @deepseek-ai/dsh-desktop-shell/move/run
@@ -43,14 +46,15 @@ import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
 import type { ExplicitRead } from '../terminal-env.ts'
 import { copyTree, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
 import {
-  CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, MOVED_ID_FILENAME, newJournal, nextAction,
-  readJournal, RESULT_FILENAME, writeJournal,
-  type BlockedChoice, type BlockedReason, type DirFacts, type Fingerprint, type HomeLinkBefore, type MoveAction, type MoveFacts,
-  type MoveJournal, type MovePhase, type MoveResult, type MoveStart, type PointerBefore,
+  ABANDONED_FILENAME, abandonedCopiesText, CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS,
+  MOVED_ID_FILENAME, newJournal, nextAction, readAbandonedCopies, readJournal, RESULT_FILENAME, RETIRED_FILENAME, writeJournal,
+  type BlockedChoice, type BlockedReason, type DirFacts, type HomeLinkBefore, type MoveAction, type MoveFacts,
+  type MoveJournal, type MovePhase, type MoveResult, type MoveStart, type PointerBefore, type TargetPrint,
 } from './journal.ts'
 import { rewriteInPlace, type InPlaceRewrite, type LinkMove, type RewriteOutcome } from './links.ts'
 import { REMOVE_ATTEMPTS, REMOVE_FIRST_DELAY_MS, removeTree, type RemoveReport } from './remove.ts'
-import { isIgnorableName, meaningfulNames, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES, scanTree } from './tree.ts'
+import { keptFolderName, type KeptFolderKind, type NameLocale } from './names.ts'
+import { fingerprintTree, isIgnorableName, meaningfulNames, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES, scanTree } from './tree.ts'
 import { verifyTree, type VerifyProblem, type VerifyRequest } from './verify.ts'
 
 /** What an entry is, without following a link. */
@@ -68,8 +72,8 @@ export interface MoveFs {
   unlink: (path: string) => void
   mkdir: (path: string) => void
   rmdir: (path: string) => void
-  /** A summary of the tree at a directory (links not followed), all zero when it does not exist. */
-  fingerprint: (dir: string) => Fingerprint
+  /** A hash over every entry of the tree at a directory, links not followed, the excluded relative paths left out. */
+  fingerprint: (dir: string, exclude: readonly string[]) => TargetPrint
 }
 
 /**
@@ -115,38 +119,39 @@ export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): Mo
     },
     mkdir: (path) => { mkdirSync(path, { mode: 0o700 }) },
     rmdir: (path) => { rmdirSync(path) },
-    fingerprint: dir => fingerprintTree(dir),
+    fingerprint: (dir, exclude) => fingerprintTree(dir, exclude),
   }
 }
 
+/** The markers a move writes in a data directory; neither copied nor printed. */
+export const MOVE_MARKERS: readonly string[] = [DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME]
+
+/** What a print of the target leaves out: what the server rebuilds, and the markers. */
+export const PRINT_EXCLUDE: readonly string[] = [...REBUILDABLE_ENTRIES, ...MOVE_MARKERS]
+
 /**
- * Summarize a tree without following links: how many files, their total
- * size, and the latest modification time of anything in it.
- * @param dir - the directory.
- * @returns the summary; all zero when it does not exist.
- * @throws when an entry exists but cannot be read.
+ * The target's print now.
+ * @param fs - the directory operations.
+ * @param journal - the journal naming the target.
+ * @returns the print, or `undefined` when the target is not a directory.
  */
-export function fingerprintTree(dir: string): Fingerprint {
-  const print: Fingerprint = { files: 0, bytes: 0, maxMtimeMs: 0 }
-  const walk = (path: string): void => {
-    let stats
-    try {
-      stats = lstatSync(path)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw error
-    }
-    print.maxMtimeMs = Math.max(print.maxMtimeMs, stats.mtimeMs)
-    if (stats.isSymbolicLink()) return
-    if (stats.isDirectory()) {
-      for (const name of readdirSync(path)) walk(join(path, name))
-      return
-    }
-    print.files += 1
-    print.bytes += stats.size
-  }
-  walk(dir)
-  return print
+function targetPrintNow(fs: MoveFs, journal: MoveJournal): TargetPrint | undefined {
+  return fs.kind(journal.target) === 'dir' ? fs.fingerprint(journal.target, PRINT_EXCLUDE) : undefined
+}
+
+/**
+ * The journal entering `rolling-back`: the target's print is taken now, or
+ * dropped when the target is not there (a missing print counts as changed).
+ * @param journal - the journal before.
+ * @param changes - the other fields that change.
+ * @param print - the target's print now.
+ * @returns the journal after.
+ */
+function enterRollback(journal: MoveJournal, changes: Partial<MoveJournal>, print: TargetPrint | undefined): MoveJournal {
+  const next: MoveJournal = { ...journal, ...changes, phase: 'rolling-back' }
+  if (print === undefined) delete next.targetFingerprint
+  else next.targetFingerprint = print
+  return next
 }
 
 /** The real directory operations. */
@@ -185,6 +190,8 @@ export interface MoveEffects {
   restoreTerminal: (before: ExplicitRead) => Promise<void>
   /** Put `~/.dsh` back: remove the link to the target, recreate a link that was there. */
   restoreHomeLink: (before: HomeLinkBefore) => void
+  /** The name of a visible folder the move leaves for the person ({@link keptFolderName} in the system's language). */
+  keptFolderName: (kind: KeptFolderKind, date: Date, attempt: number) => string
   sleep: (ms: number) => Promise<void>
   now: () => Date
 }
@@ -205,8 +212,11 @@ export type MoveOutcome =
    * The move can neither go on nor be undone until the person acts: the
    * journal is kept, and every later call tries again. `dataAt` lists where
    * the data is, the original first; nothing in it has been deleted.
+   * `targetPrint` is the target's print as the page shows it (`null` when the
+   * target is not there); the person's choice carries it back in
+   * {@link BlockedView}, and a choice whose print no longer matches is refused.
    */
-  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[]; choices: BlockedChoice[] }
+  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[]; choices: BlockedChoice[]; targetPrint: TargetPrint | null }
   | { kind: 'ended'; result: MoveResult }
   | { kind: 'cleanup-incomplete'; attempts: number; leftoverBytes: number }
 
@@ -246,16 +256,19 @@ export function startMove(dir: string, start: MoveStart, options: { pid: number;
 }
 
 /**
- * Record the health check of the first launch on the new location.
+ * Record the health check of the first launch on the new location. The
+ * application stops the server it started for the check before calling this,
+ * so nothing writes to the target after its print is taken.
  *
- * A failure rolls the move back, recording the target's session data as it
- * is now, so the rollback never deletes work written there later. After the
- * person chose to keep the target, a failure does not roll back: the move
- * finishes on the target and the original is kept, not deleted.
+ * A failure rolls the move back, taking the target's print; the rollback
+ * retires the target into a visible folder rather than deleting it. After
+ * the person chose to keep the target, a failure does not roll back: the move
+ * finishes on the target and the original is kept in a visible folder the
+ * result names (`keptOriginal`), never deleted.
  * @param dir - the move directory.
  * @param healthy - whether it passed.
  * @param detail - why it failed.
- * @param fs - reads the target's session data; the real file system when absent.
+ * @param fs - prints the target; the real file system when absent.
  * @throws when there is no journal in phase `switched`.
  */
 export function recordHealth(dir: string, healthy: boolean, detail = 'the health check failed', fs: MoveFs = NODE_MOVE_FS): void {
@@ -263,55 +276,59 @@ export function recordHealth(dir: string, healthy: boolean, detail = 'the health
   if (journal?.phase !== 'switched') throw new JournalError(`journal: no move awaits a health check (phase ${String(journal?.phase)})`)
   if (healthy) writeJournal(dir, { ...journal, phase: 'cleanup' })
   else if (journal.keepTarget) writeJournal(dir, { ...journal, phase: 'cleanup', keepOriginal: true, failure: { phase: 'switched', detail } })
-  else {
-    const targetFingerprint = fs.fingerprint(join(journal.target, SESSIONS_DIRNAME))
-    writeJournal(dir, { ...journal, phase: 'rolling-back', targetFingerprint, failure: { phase: 'switched', detail } })
-  }
+  else writeJournal(dir, enterRollback(journal, { failure: { phase: 'switched', detail } }, targetPrintNow(fs, journal)))
 }
 
-/** The directory of session logs under a Harness home, whose changes a rollback must not delete. */
-export const SESSIONS_DIRNAME = 'sessions'
+/** What the page the person chose on showed: the reason and the target's print. */
+export interface BlockedView {
+  reason: BlockedReason
+  targetPrint: TargetPrint | null
+}
 
 /** What {@link resolveBlocked} did. */
 export type ResolveOutcome = 'applied' | 'not-blocked' | 'refused'
 
 /**
  * Carry out the person's choice on a blocked move. Only a choice the blocked
- * move offers now, for the reason the person was shown, is applied: a choice
- * made on a page that is out of date (the files changed since) is refused; one made again after it was applied, or on a
- * move that is no longer blocked, changes nothing, so calling it twice (after
- * a crash, say) is safe. Either way the journal is written once.
+ * move offers now, on a page that shows what is on disk now (the same reason
+ * and the same target print), is applied: a choice made on a page that is out
+ * of date is refused. One made again after it was applied, or on a move that
+ * is no longer blocked, changes nothing, so calling it twice (after a crash,
+ * say) is safe. Either way the journal is written once.
  *
  * - `keep-target`: the move goes forward on the new location from hiding the
  *   source; the original is then deleted only if the next health check passes.
  * - `rollback`: the rollback goes on; a copy whose disk is away is left where
- *   it is, and session data that changed at the new location is deleted with it.
+ *   it is (and recorded when the move ends), and a copy that was exposed is
+ *   retired into a visible folder, never deleted.
  * @param dir - the move directory.
  * @param choice - the person's choice.
- * @param seen - the reason the page the person chose on showed.
+ * @param seen - what the page the person chose on showed.
  * @param fs - the directory operations; the real ones when absent.
- * @returns whether it was applied, the move was not blocked, or the choice is not offered for that reason now.
+ * @returns whether it was applied, the move was not blocked, or the choice is not offered for what the page showed.
  * @throws when the journal cannot be read or written.
  */
-export function resolveBlocked(dir: string, choice: BlockedChoice, seen: BlockedReason, fs: MoveFs = NODE_MOVE_FS): ResolveOutcome {
+export function resolveBlocked(dir: string, choice: BlockedChoice, seen: BlockedView, fs: MoveFs = NODE_MOVE_FS): ResolveOutcome {
   const journal = readJournal(dir)
   if (journal === undefined) return 'not-blocked'
   const facts = observeMove(fs, journal)
   const action = nextAction(journal, facts, false)
   if (action.kind !== 'blocked') return 'not-blocked'
-  if (action.reason !== seen || !action.choices.includes(choice)) return 'refused'
+  const print = blockedPrint(fs, journal, facts)
+  if (action.reason !== seen.reason || print !== seen.targetPrint || !action.choices.includes(choice)) return 'refused'
   const save = (next: MoveJournal): void => { fs.writeFile(join(dir, JOURNAL_FILENAME), `${JSON.stringify(next, null, 2)}\n`) }
   switch (choice) {
-    case 'keep-target':
-      save({ ...journal, phase: 'hiding-source', keepTarget: true, awaitingChoice: false, homeLinkRestored: false })
-      return 'applied'
-    case 'rollback': {
-      const next: MoveJournal = { ...journal, phase: 'rolling-back', awaitingChoice: false }
-      if (action.reason === 'target-missing') next.targetAbandoned = true
-      if (action.reason === 'target-changed' && facts.targetSessions !== undefined) next.targetFingerprint = facts.targetSessions
+    case 'keep-target': {
+      const next: MoveJournal = { ...journal, phase: 'hiding-source', keepTarget: true, awaitingChoice: false, homeLinkRestored: false }
+      delete next.unusedCopy
       save(next)
       return 'applied'
     }
+    case 'rollback':
+      save(enterRollback(journal, {
+        awaitingChoice: false, ...action.reason === 'target-missing' ? { targetAbandoned: true } : {},
+      }, print ?? undefined))
+      return 'applied'
     default:
       return choice satisfies never
   }
@@ -339,20 +356,23 @@ function unlinkIfPresent(path: string): void {
  */
 function dirFacts(fs: MoveFs, path: string, journal: MoveJournal): DirFacts {
   const kind = fs.kind(path)
-  if (kind !== 'dir') return { exists: kind !== 'absent', dataId: 'none', movedId: false, state: 'none', empty: false }
+  if (kind !== 'dir') return { exists: kind !== 'absent', dataId: 'none', movedId: false, retired: false, state: 'none', empty: false }
   const id = fs.readText(join(path, DATA_ID_FILENAME))?.trim()
   const state = fs.readText(join(path, MOVE_STATE_FILENAME))?.trim()
   return {
     exists: true,
     dataId: id === undefined ? 'none' : id === journal.dataId ? 'ours' : 'other',
     movedId: fs.readText(join(path, MOVED_ID_FILENAME)) !== undefined,
+    retired: fs.readText(join(path, RETIRED_FILENAME)) !== undefined,
     state: state === undefined ? 'none' : state === journal.moveId ? 'ours' : 'other',
     empty: meaningfulNames(fs.readdir(path)).length === 0,
   }
 }
 
 /**
- * Look at the four directories.
+ * Look at the four directories, and at the folders chosen for an unused copy
+ * or a kept original. The target is printed only while a rollback waits for
+ * the person's choice.
  * @param fs - the directory operations.
  * @param journal - the journal naming them.
  * @returns the facts.
@@ -364,10 +384,25 @@ export function observeMove(fs: MoveFs, journal: MoveJournal): MoveFacts {
     target: dirFacts(fs, journal.target, journal),
     hidden: dirFacts(fs, journal.hidden, journal),
   }
-  if (journal.phase === 'rolling-back' && journal.targetFingerprint !== undefined && facts.target.exists) {
-    facts.targetSessions = fs.fingerprint(join(journal.target, SESSIONS_DIRNAME))
+  if (journal.unusedCopy !== undefined) facts.unusedCopy = dirFacts(fs, journal.unusedCopy, journal)
+  if (journal.keptOriginal !== undefined) facts.keptOriginal = dirFacts(fs, journal.keptOriginal, journal)
+  if (journal.phase === 'rolling-back' && journal.awaitingChoice && facts.target.exists) {
+    const print = targetPrintNow(fs, journal)
+    if (print !== undefined) facts.targetPrint = print
   }
   return facts
+}
+
+/**
+ * The target's print for a blocked page: the one the facts already hold, or
+ * one taken now.
+ * @param fs - the directory operations.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns the print, or `null` when the target is not there.
+ */
+function blockedPrint(fs: MoveFs, journal: MoveJournal, facts: MoveFacts): TargetPrint | null {
+  return facts.targetPrint ?? targetPrintNow(fs, journal) ?? null
 }
 
 /** Phases whose failure gives the move up, the source untouched. */
@@ -403,15 +438,17 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
     previous = key
     let outcome: MoveOutcome | undefined
     try {
-      outcome = await perform(action, current, { dir, effects, cancel, save, options })
+      outcome = await perform(action, current, { facts, dir, effects, cancel, save, options })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
+      // What the step recorded before it failed (the terminal written, the target exposed) stays recorded.
+      const latest: MoveJournal = journal
       if (CANCELLABLE_PHASES.has(current.phase) && cancel.aborted) {
-        save({ ...current, phase: 'cancelling' })
+        save({ ...latest, phase: 'cancelling' })
       } else if (ABANDON_ON_FAILURE.has(current.phase)) {
-        save({ ...current, phase: 'abandoning', failure: { phase: current.phase, detail } })
+        save({ ...latest, phase: 'abandoning', failure: { phase: current.phase, detail } })
       } else if (ROLL_BACK_ON_FAILURE.has(current.phase)) {
-        save({ ...current, phase: 'rolling-back', failure: { phase: current.phase, detail } })
+        save(enterRollback(latest, { failure: { phase: current.phase, detail } }, targetPrintNow(fs, latest)))
       } else {
         throw error
       }
@@ -423,6 +460,8 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
 
 /** What {@link perform} works with. */
 interface StepContext {
+  /** What was on disk when the step was chosen. */
+  facts: MoveFacts
   dir: string
   effects: MoveEffects
   cancel: AbortSignal
@@ -441,7 +480,7 @@ export function copyRequestOf(journal: MoveJournal, dir: string, platform: NodeJ
   return {
     source: journal.source,
     dest: journal.partial,
-    exclude: [...REBUILDABLE_ENTRIES, DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME],
+    exclude: [...REBUILDABLE_ENTRIES, ...MOVE_MARKERS],
     links: linkMoveOf(journal, platform),
     doneLog: join(dir, DONE_LOG_FILENAME),
   }
@@ -509,12 +548,14 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       phase('abandoning', { failure: { phase: journal.phase, detail: action.detail } })
       return undefined
     case 'roll-back':
-      phase('rolling-back', { failure: { phase: journal.phase, detail: action.detail } })
+      save(enterRollback(journal, { failure: { phase: journal.phase, detail: action.detail } }, targetPrintNow(fs, journal)))
       return undefined
-    case 'blocked':
+    case 'blocked': {
       // A blocked rollback waits for the person's choice even after the obstruction is gone.
       if (journal.phase === 'rolling-back' && !journal.awaitingChoice) save({ ...journal, awaitingChoice: true })
-      return { kind: 'blocked', reason: action.reason, dataAt: action.dataAt, choices: action.choices }
+      const targetPrint = blockedPrint(fs, journal, context.facts)
+      return { kind: 'blocked', reason: action.reason, dataAt: action.dataAt, choices: action.choices, targetPrint }
+    }
     case 'keep-unmarked':
       save({ ...journal, leftovers: [...journal.leftovers, { path: action.path, bytes: 0 }] })
       return undefined
@@ -599,18 +640,19 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       return undefined
     }
     case 'sync-terminal': {
-      save({ ...journal, terminalWritten: true })
+      save({ ...journal, terminalWritten: true, targetExposed: true })
       // Again, so the pointer precedes the terminal even when the first write
       // was interrupted after its flag was saved.
       effects.writePointer(pointerFor(journal, journal.lastSeenEnvBefore, effects.now()))
       const lastSeenEnv = await effects.syncTerminal(journal.target)
       effects.writePointer(pointerFor(journal, lastSeenEnv, effects.now()))
-      phase('switched', { terminalWritten: true })
+      phase('switched', { terminalWritten: true, targetExposed: true })
       return undefined
     }
     case 'await-health':
       return { kind: 'switched' }
     case 'remove-hidden': {
+      if (journal.keepOriginal) throw new Error('refusing to delete the original the person kept')
       progress('finishing')
       const report = await effects.remove(journal.hidden)
       if (report.leftovers.length === 0) return undefined
@@ -620,6 +662,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
     }
     case 'remove-partial':
     case 'remove-target': {
+      if (action.kind === 'remove-target' && journal.targetExposed) throw new Error('refusing to delete a new location that may have been used')
       const path = action.kind === 'remove-partial' ? journal.partial : journal.target
       const report = await effects.remove(path)
       if (report.leftovers.length > 0) save({ ...journal, leftovers: [...journal.leftovers, { path, bytes: report.leftoverBytes }] })
@@ -637,6 +680,32 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       return undefined
     case 'unlink-target-id':
       fs.unlink(join(journal.target, DATA_ID_FILENAME))
+      return undefined
+    case 'mark-target-retired':
+      fs.writeFile(join(journal.target, RETIRED_FILENAME), retiredMarker(journal, effects.now()))
+      return undefined
+    case 'clear-target-retired':
+      fs.unlink(join(journal.target, RETIRED_FILENAME))
+      return undefined
+    case 'name-unused-copy':
+      save({ ...journal, unusedCopy: freeSibling(effects, journal.target, 'unused') })
+      return undefined
+    case 'rename-target-to-unused':
+      try {
+        await renameWithRetry(effects, journal.target, journal.unusedCopy ?? journal.target)
+      } catch (error) {
+        // Retired and without its identity, it is safe where it is; the rollback must not stop on it.
+        save({ ...journal, retiredInPlace: true, failure: journal.failure ?? { phase: journal.phase, detail: String(error) } })
+      }
+      return undefined
+    case 'mark-hidden-retired':
+      fs.writeFile(join(journal.hidden, RETIRED_FILENAME), retiredMarker(journal, effects.now()))
+      return undefined
+    case 'name-kept-original':
+      save({ ...journal, keptOriginal: freeSibling(effects, journal.source, 'original') })
+      return undefined
+    case 'rename-hidden-to-kept':
+      await renameWithRetry(effects, journal.hidden, journal.keptOriginal ?? journal.hidden)
       return undefined
     case 'rename-hidden-to-source':
       await renameWithRetry(effects, journal.hidden, journal.source)
@@ -660,7 +729,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       save({ ...journal, terminalWritten: false })
       return undefined
     case 'finish':
-      return { kind: 'ended', result: finish(dir, journal, action.outcome, effects) }
+      return { kind: 'ended', result: finish(dir, journal, action.outcome, context.facts, effects) }
     default:
       return action satisfies never
   }
@@ -684,16 +753,62 @@ function pointerFor(journal: MoveJournal, lastSeenEnv: string | undefined, now: 
 }
 
 /**
- * End the move: write its result, then remove the done log, the journal, and
- * any temporary file an interrupted durable write left in the directory.
+ * The retired marker's content.
+ * @param journal - the move.
+ * @param now - when.
+ * @returns the text naming the data and the move.
+ */
+function retiredMarker(journal: MoveJournal, now: Date): string {
+  return `${JSON.stringify({ dataId: journal.dataId, moveId: journal.moveId, retiredAt: now.toISOString() })}\n`
+}
+
+/** Attempts at a free name before a move gives up naming a kept folder. */
+const NAME_ATTEMPTS = 1000
+
+/**
+ * A free path beside `path` for a folder the person is left to check.
+ * @param effects - the directory operations, the clock, and the names.
+ * @param path - the folder it sits beside.
+ * @param kind - which folder.
+ * @returns the first free path.
+ * @throws when every attempt is taken.
+ */
+function freeSibling(effects: MoveEffects, path: string, kind: KeptFolderKind): string {
+  const now = effects.now()
+  for (let attempt = 1; attempt <= NAME_ATTEMPTS; attempt += 1) {
+    const candidate = join(dirname(path), effects.keptFolderName(kind, now, attempt))
+    if (effects.fs.kind(candidate) === 'absent') return candidate
+  }
+  throw new Error(`no free name beside ${path}`)
+}
+
+/**
+ * End the move: record a copy the person rolled back without, write the
+ * result, then remove the done log, the journal, and any temporary file an
+ * interrupted durable write left in the directory.
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
+ * @param facts - what is on disk now.
  * @param effects - the directory operations and the clock.
  * @returns the result.
  */
-function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'], effects: MoveEffects): MoveResult {
+function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'], facts: MoveFacts, effects: MoveEffects): MoveResult {
   const { fs } = effects
+  const now = effects.now()
+  const renamed = journal.unusedCopy !== undefined && facts.unusedCopy?.exists === true ? journal.unusedCopy : undefined
+  const unused = outcome === 'failed' ? journal.retiredInPlace ? journal.target : renamed : undefined
+  const abandoned = outcome === 'failed' && journal.targetAbandoned && unused === undefined ? journal.target : undefined
+  const kept = outcome === 'moved' && journal.keepOriginal && !journal.sameVolume
+    ? journal.keptOriginal !== undefined && facts.keptOriginal?.exists === true ? journal.keptOriginal : journal.hidden
+    : undefined
+  if (abandoned !== undefined) {
+    const copies = readAbandonedCopies(dir)
+    if (!copies.some(copy => copy.moveId === journal.moveId)) {
+      const entry = { path: abandoned, dataId: journal.dataId, moveId: journal.moveId, abandonedAt: now.toISOString() }
+      fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText([...copies, entry]))
+    }
+  }
   const result: MoveResult = {
     version: journal.version,
     moveId: journal.moveId,
@@ -702,13 +817,57 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     target: journal.target,
     ...journal.failure === undefined ? {} : { detail: journal.failure.detail },
     leftovers: journal.leftovers,
-    finishedAt: effects.now().toISOString(),
+    ...unused === undefined ? {} : { unusedCopy: { path: unused } },
+    ...abandoned === undefined ? {} : { abandonedCopy: { path: abandoned } },
+    ...kept === undefined ? {} : { keptOriginal: { path: kept } },
+    finishedAt: now.toISOString(),
   }
   fs.writeFile(join(dir, RESULT_FILENAME), `${JSON.stringify(result, null, 2)}\n`)
   for (const name of [DONE_LOG_FILENAME, JOURNAL_FILENAME, ...fs.readdir(dir).filter(entry => entry.endsWith('.tmp'))]) {
     if (fs.kind(join(dir, name)) !== 'absent') fs.unlink(join(dir, name))
   }
   return result
+}
+
+/**
+ * Retire the copies a rollback went on without (see `readAbandonedCopies`),
+ * once their drive is attached again: each takes the retired marker, loses
+ * its identity, and is renamed to a visible folder beside it; its record is
+ * then dropped. A recorded folder that no longer carries this data (nor a
+ * retired marker from its move) is dropped without being touched; one whose
+ * drive is still away stays recorded. Every step is repeatable.
+ * @param dir - the move directory.
+ * @param current - the data directory in use now; a record naming it is kept and left alone.
+ * @param effects - the directory operations, the clock, and the names.
+ * @param samePath - whether two paths name the same folder.
+ * @returns the folders the copies were renamed to.
+ * @throws when the record cannot be read or written, or a step fails.
+ */
+export async function retireAbandonedCopies(
+  dir: string, current: string, effects: MoveEffects, samePath: (a: string, b: string) => boolean,
+): Promise<string[]> {
+  const { fs } = effects
+  const retired: string[] = []
+  let copies = readAbandonedCopies(dir)
+  for (const copy of [...copies]) {
+    if (samePath(copy.path, current)) continue
+    if (fs.kind(copy.path) === 'absent') continue
+    const id = fs.kind(copy.path) === 'dir' ? fs.readText(join(copy.path, DATA_ID_FILENAME))?.trim() : undefined
+    const marker = fs.kind(copy.path) === 'dir' ? fs.readText(join(copy.path, RETIRED_FILENAME)) : undefined
+    const ours = id === copy.dataId || (marker?.includes(copy.moveId) ?? false)
+    if (ours) {
+      if (marker === undefined) {
+        fs.writeFile(join(copy.path, RETIRED_FILENAME), `${JSON.stringify({ dataId: copy.dataId, moveId: copy.moveId, retiredAt: effects.now().toISOString() })}\n`)
+      }
+      if (id !== undefined) fs.unlink(join(copy.path, DATA_ID_FILENAME))
+      const to = freeSibling(effects, copy.path, 'unused')
+      await renameWithRetry(effects, copy.path, to)
+      retired.push(to)
+    }
+    copies = copies.filter(other => other.moveId !== copy.moveId)
+    fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText(copies))
+  }
+  return retired
 }
 
 /**
@@ -781,6 +940,8 @@ export function nodeMoveEffects(input: {
   userData: string
   defaultHome: string
   platform: NodeJS.Platform
+  /** The language of the folders the move leaves for the person. */
+  locale: NameLocale
   syncTerminal: MoveEffects['syncTerminal']
   restoreTerminal: MoveEffects['restoreTerminal']
 }): MoveEffects {
@@ -807,6 +968,7 @@ export function nodeMoveEffects(input: {
     syncTerminal: input.syncTerminal,
     restoreTerminal: input.restoreTerminal,
     restoreHomeLink: (before) => { restoreHomeLink(input.defaultHome, before, input.platform) },
+    keptFolderName: (kind, date, attempt) => keptFolderName(input.locale, kind, date, attempt),
     sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
     now: () => new Date(),
   }
