@@ -3,9 +3,10 @@
  * Windows tray menu. Electron's `role` menus carry English labels and are not
  * localized for us, so each item names itself here.
  *
- * Only menus are covered: dialogs and notifications stay Chinese, which is a
- * deliberate stopping point rather than a half-done translation of the whole
- * surface.
+ * Only menus and the served UI's pre-locale loading page
+ * ([[@deepseek-ai/dsh-desktop-shell/app-boot-text]]) follow this choice:
+ * dialogs and notifications stay Chinese, which is a deliberate stopping point
+ * rather than a half-done translation of the whole surface.
  * @module @deepseek-ai/dsh-desktop-shell/menu-text
  */
 
@@ -38,10 +39,22 @@ const MENU_TEXT = {
 /** One label set; both languages carry the same keys. */
 export type MenuText = typeof MENU_TEXT[keyof typeof MENU_TEXT]
 
+/** A language the shell's own copy is written in. */
+export type ShellLanguage = keyof typeof MENU_TEXT
+
 /**
- * The labels for this launch, chosen by the system locale.
+ * The language of the shell's localized copy for this launch, chosen by the
+ * system locale.
+ * @returns `zh` on a `zh*` locale, `en` otherwise.
+ */
+export function shellLanguage(): ShellLanguage {
+  return app.getLocale().startsWith('zh') ? 'zh' : 'en'
+}
+
+/**
+ * The labels for this launch, in [[shellLanguage]].
  * @returns the Chinese set on a `zh*` locale, the English set otherwise.
  */
 export function menuText(): MenuText {
-  return app.getLocale().startsWith('zh') ? MENU_TEXT.zh : MENU_TEXT.en
+  return MENU_TEXT[shellLanguage()]
 }

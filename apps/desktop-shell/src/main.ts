@@ -24,6 +24,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
+import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
@@ -32,6 +33,7 @@ import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './cra
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
+import { shellLanguage } from './menu-text.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
@@ -547,6 +549,7 @@ function createBootWindow(receipt?: string): BootView {
   })
   guardWindowClose(window)
   attachDownloadHandling(window)
+  restateAppBootPage(window.webContents, appBootCss(shellLanguage()))
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
   const showFailure = (message: string): void => {
