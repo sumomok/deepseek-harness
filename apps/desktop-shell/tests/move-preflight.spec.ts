@@ -104,6 +104,13 @@ describe('evaluatePreflight', () => {
     expect(evaluatePreflight(facts({ platform: 'linux', realTarget: '/USERS/P/.DSH/x' })).refusals).toEqual([])
   })
 
+  it('reads real paths in the letter case stored on disk', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const typed = fixture.home.replace('src-parent', 'SRC-PARENT')
+    if (!existsSync(typed)) return
+    expect(nodePreflightProbes(process.platform).realpath(typed)).toBe(fixture.home)
+  })
+
   it('refuses the data directory typed in another case on a case-insensitive disk', async () => {
     fixture = await buildFixture({ bigBytes: 1000 })
     const probes = nodePreflightProbes(process.platform)
