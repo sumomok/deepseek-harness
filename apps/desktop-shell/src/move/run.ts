@@ -458,6 +458,9 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
     }
     case 'sync-terminal': {
       save({ ...journal, terminalWritten: true })
+      // Again, so the pointer precedes the terminal even when the first write
+      // was interrupted after its flag was saved.
+      effects.writePointer(pointerFor(journal, journal.lastSeenEnvBefore, effects.now()))
       const lastSeenEnv = await effects.syncTerminal(journal.target)
       effects.writePointer(pointerFor(journal, lastSeenEnv, effects.now()))
       phase('switched', { terminalWritten: true })

@@ -20,7 +20,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,6 +54,8 @@ const CASES: Case[] = [
   { name: 'another volume, health check passes', sameVolume: false, start: 'pointer', healthy: true },
   { name: 'another volume, health check fails, ~/.dsh was the home', sameVolume: false, start: 'default-home', healthy: false },
   { name: 'one volume, health check passes', sameVolume: true, start: 'pointer', healthy: true },
+  { name: 'another volume from ~/.dsh, health check passes', sameVolume: false, start: 'default-home', healthy: true },
+  { name: 'one volume from ~/.dsh, health check passes', sameVolume: true, start: 'default-home', healthy: true },
   { name: 'one volume, health check fails', sameVolume: true, start: 'pointer', healthy: false },
 ]
 
@@ -224,7 +226,9 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined): string[] {
   }
   if (c.healthy) {
     if (result.outcome !== 'moved') violations.push(`the move ended ${result.outcome}`)
-    if (existsSync(p.f.home)) violations.push('the source is still there')
+    // Moving ~/.dsh itself leaves a link to the target at the old name.
+    const leftAtSource = existsSync(p.f.home) && !(lstatSync(p.f.home).isSymbolicLink() && readlinkSync(p.f.home) === p.target)
+    if (leftAtSource) violations.push('the source is still there')
     if (!isOurData(p.target)) violations.push('the target is not this data')
     else if (JSON.stringify(dataFiles(listTree(p.target))) !== JSON.stringify(dataFiles(p.before))) violations.push('the target data differs')
     const pointer = JSON.parse(readFileSync(join(p.setup.userData, 'data-location.json'), 'utf8')) as { path: string }

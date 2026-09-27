@@ -124,7 +124,7 @@ describe('a move to another volume', () => {
     }
     const first = await advanceMove(s.setup.dir, effects, { pid: PID })
     expect(first).toEqual({ kind: 'switched' })
-    expect(calls).toEqual(['pointer', 'terminal', 'pointer'])
+    expect(calls).toEqual(['pointer', 'pointer', 'terminal', 'pointer'])
     const journal = readJournal(s.setup.dir)
     expect(journal?.phase).toBe('switched')
     expect(existsSync(s.f.home)).toBe(false)
@@ -145,6 +145,17 @@ describe('a move to another volume', () => {
       .toBe(join(s.target, 'profiles', 'desktop-shell', '.dsh-module-fallback', 'node_modules', 'clsx'))
     expect(readFileSync(join(s.f.sentinel, 'keep.txt'), 'utf8')).toBe('sentinel\n')
     expect(readlinkSync(s.setup.defaultHome)).toBe(s.target)
+  })
+
+  posixOnly('moves ~/.dsh itself: the old name becomes a link to the target', async () => {
+    const s = await scenario({ sameVolume: false, start: 'default-home' })
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    expect(await runToEnd(s, true)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    expect(readlinkSync(s.setup.defaultHome)).toBe(s.target)
+    expect(existsSync(hidden)).toBe(false)
+    expect(JSON.parse(pointerText(s, 'data-location.json') ?? '{}')).toMatchObject({ path: s.target, dataId: HARNESS_ID })
+    expect(terminalValue(s.setup)).toBe(s.target)
+    expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
   })
 
   posixOnly('rolls back a failed health check to exactly where it started from a pointer', async () => {
@@ -262,6 +273,14 @@ describe('a move by rename on one volume', () => {
     expect(readlinkSync(join(nm, 'clsx-relative'))).toBe('../.dsh-module-fallback/node_modules/clsx')
     expect(readlinkSync(join(nm, 'outside'))).toBe(s.f.sentinel)
     expect(listTree(s.target).filter(line => line.startsWith('file '))).toEqual(s.before.filter(line => line.startsWith('file ')))
+  })
+
+  posixOnly('renames ~/.dsh itself and leaves a link to the target at the old name', async () => {
+    const s = await scenario({ sameVolume: true, start: 'default-home' })
+    expect(await runToEnd(s, true)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    expect(readlinkSync(s.setup.defaultHome)).toBe(s.target)
+    expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
+    expect(terminalValue(s.setup)).toBe(s.target)
   })
 
   posixOnly('rolls back a rename with its link rewrites', async () => {
