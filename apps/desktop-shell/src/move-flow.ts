@@ -20,7 +20,7 @@ import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
+import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
 import type { MoveOutcome } from './move/run.ts'
 
@@ -169,6 +169,8 @@ export interface ForeignLockDeps {
   ui: Pick<MoveUi, 'showPage'>
   text: MoveText
   lock: ForeignLock
+  /** Reads the lock again, after a discard found it changed. */
+  inspect: () => Promise<LockState>
   /** The data directory. */
   home: string
   platform: NodeJS.Platform
@@ -179,22 +181,31 @@ export interface ForeignLockDeps {
  * Show the page for another installation's lock on the data. On an
  * unfinished move's page the person may discard that move: after a
  * confirmation only the lock file is removed, and only while it is still the
- * lock the page showed ({@link claimLock}); a lock that changed meanwhile is
- * put back. The data is not touched.
+ * lock the page showed ({@link claimLock}). A lock that changed meanwhile
+ * (its holder refreshed it) is put back, read again, and its page shown anew
+ * with a notice that the page was updated. The data is not touched.
  * @param deps - the window, the sentences, the lock, and the log.
- * @returns `discarded` once the person confirmed (the launch starts again and looks at the lock anew), otherwise `quit`.
+ * @returns `discarded` once the lock the person confirmed was removed or is no longer another installation's (the
+ * launch starts again and looks at the lock anew), otherwise `quit`.
  * @throws when the lock cannot be renamed or read.
  */
 export async function settleForeignLock(deps: ForeignLockDeps): Promise<'quit' | 'discarded'> {
-  const { ui, text, lock } = deps
+  const { ui, text } = deps
+  let lock = deps.lock
+  let notice: string | undefined
   for (;;) {
-    const link = await ui.showPage(lockPage(text, lock, deps.home, deps.platform))
+    const link = await ui.showPage(lockPage(text, lock, deps.home, deps.platform, notice))
+    notice = undefined
     if (link.kind !== 'discard-lock' || lock.kind !== 'unfinished') return 'quit'
     const answer = await ui.showPage(discardLockPage(text, lock))
     if (answer.kind === 'back') continue
     if (answer.kind !== 'confirm') return 'quit'
     const result = claimLock(lock.path, lock.owner)
     deps.log(`[desktop] data move: the person discarded ${lock.owner.userData}'s unfinished move; its lock ${lock.path}: ${result}\n`)
-    return 'discarded'
+    if (result !== 'changed') return 'discarded'
+    const now = await deps.inspect()
+    if (now.kind === 'none' || now.kind === 'ours') return 'discarded'
+    lock = now
+    notice = text.refreshed
   }
 }

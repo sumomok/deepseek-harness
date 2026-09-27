@@ -15,8 +15,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AbandonedRecordHost, LocationAnswer } from '../src/data-location-boot.ts'
 import { DATA_LOCATION_TEXT } from '../src/data-location-text.ts'
-import { carryMove, settleForeignLock, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
-import { lockPage, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
+import { carryMove, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
+import { lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, readJournal } from '../src/move/journal.ts'
@@ -271,6 +271,19 @@ describe('a move that cannot go on', () => {
 describe('another installation\'s lock on the data', () => {
   const other: LockOwner = { userData: '/u/other', pid: 222, startedAt: 'T', heartbeatAt: '2026-09-28T00:00:00.000Z' }
 
+  /**
+   * The flow's dependencies, reading the lock back with the real inspection.
+   * @param ui - the recording windows.
+   * @param lock - the lock the first page shows.
+   * @param home - the data directory.
+   * @param now - the clock the inspection compares the heartbeat with.
+   * @returns the dependencies.
+   */
+  function lockDeps(ui: MoveUi, lock: ForeignLock, home: string, now = new Date('2026-09-28T00:01:30.000Z')): ForeignLockDeps {
+    const probes: LockProbes = { startTimeOf: async () => undefined, now: () => now }
+    return { ui, text, lock, home, platform: 'darwin', log: () => undefined, inspect: () => inspectMoveLock(home, { userData: '/u/this' }, probes) }
+  }
+
   /** A data directory holding the other installation's lock. */
   async function locked(): Promise<{ home: string; path: string }> {
     const f = await buildFixture({ bigBytes: 10 })
@@ -304,7 +317,7 @@ describe('another installation\'s lock on the data', () => {
     const { home, path } = await locked()
     const before = readdirSync(home).sort()
     const ui = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }])
-    const end = await settleForeignLock({ ui, text, lock: { kind: 'unfinished', owner: other, path }, home, platform: 'darwin', log: () => undefined })
+    const end = await settleForeignLock(lockDeps(ui, { kind: 'unfinished', owner: other, path }, home))
     expect(end).toBe('discarded')
     expect(ui.pages.map(page => page.title)).toEqual([text.unfinishedTitle, text.confirmDiscardTitle])
     expect(ui.pages[1]).toMatchObject({
@@ -314,25 +327,41 @@ describe('another installation\'s lock on the data', () => {
     expect(readdirSync(home).sort()).toEqual(before.filter(name => name !== LOCK_FILENAME))
   })
 
-  it('keeps the lock when the person goes back and quits, or when it changed while the page was open', async () => {
+  it('keeps the lock when the person goes back and quits, or quits or closes the window on the confirmation', async () => {
     const { home, path } = await locked()
     const lock = { kind: 'unfinished' as const, owner: other, path }
     const back = recordingUi([{ kind: 'discard-lock' }, { kind: 'back' }, { kind: 'quit' }])
-    expect(await settleForeignLock({ ui: back, text, lock, home, platform: 'darwin', log: () => undefined })).toBe('quit')
+    expect(await settleForeignLock(lockDeps(back, lock, home))).toBe('quit')
     expect(back.pages.map(page => page.title)).toEqual([text.unfinishedTitle, text.confirmDiscardTitle, text.unfinishedTitle])
     expect(existsSync(path)).toBe(true)
+    // Closing the window answers the page with quit.
+    const quit = recordingUi([{ kind: 'discard-lock' }, { kind: 'quit' }])
+    expect(await settleForeignLock(lockDeps(quit, lock, home))).toBe('quit')
+    expect(quit.pages).toHaveLength(2)
+    expect(existsSync(path)).toBe(true)
+  })
+
+  it('shows the lock again, marked as updated, when its holder refreshed it while the page was open, and never relaunches', async () => {
+    const { home, path } = await locked()
+    const lock = { kind: 'unfinished' as const, owner: other, path }
     // That installation came back and refreshed its heartbeat after the page was drawn.
     const fresh = `${JSON.stringify({ ...other, heartbeatAt: '2026-09-28T00:01:00.000Z' })}\n`
     writeFileSync(path, fresh)
-    const confirm = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }])
-    expect(await settleForeignLock({ ui: confirm, text, lock, home, platform: 'darwin', log: () => undefined })).toBe('discarded')
+    const ui = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }, { kind: 'quit' }])
+    expect(await settleForeignLock(lockDeps(ui, lock, home))).toBe('quit')
     expect(readFileSync(path, 'utf8')).toBe(fresh)
+    expect(ui.pages[2]).toMatchObject({ title: text.lockedTitle, notice: text.refreshed })
+    // Refreshed, but stale again by the time it is read back: its page comes back with the notice, and a second confirmation removes it.
+    const later = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }, { kind: 'discard-lock' }, { kind: 'confirm' }])
+    expect(await settleForeignLock(lockDeps(later, lock, home, new Date('2026-09-28T01:00:00.000Z')))).toBe('discarded')
+    expect(later.pages.map(page => page.notice)).toEqual([undefined, undefined, text.refreshed, undefined])
+    expect(existsSync(path)).toBe(false)
   })
 
   it('never offers to discard a lock whose process still runs', async () => {
     const { home, path } = await locked()
     const ui = recordingUi([{ kind: 'discard-lock' }])
-    expect(await settleForeignLock({ ui, text, lock: { kind: 'held', owner: other }, home, platform: 'darwin', log: () => undefined })).toBe('quit')
+    expect(await settleForeignLock(lockDeps(ui, { kind: 'held', owner: other }, home))).toBe('quit')
     expect(ui.pages).toHaveLength(1)
     expect(existsSync(path)).toBe(true)
   })

@@ -43,7 +43,7 @@ import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import type { ExecutorBefore } from './move/executor.ts'
 import { moveDir } from './move/journal.ts'
-import { inspectMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
+import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
 import { nodePreflightProbes } from './move/preflight.ts'
 import { nodeMoveEffects, recordHealth, retireAbandonedCopies } from './move/run.ts'
@@ -528,7 +528,8 @@ async function settleForeignLockInWindow(lock: ForeignLock, home: string, replac
   replacing.destroy()
   let end: 'quit' | 'discarded' = 'quit'
   try {
-    end = await settleForeignLock({ ui: moveWindow, text, lock, home, platform: process.platform, log: logLine })
+    const inspect = (): Promise<LockState> => inspectMoveLock(home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
+    end = await settleForeignLock({ ui: moveWindow, text, lock, inspect, home, platform: process.platform, log: logLine })
   } catch (error) {
     logLine(`[desktop] data move: could not discard the other installation's lock: ${String(error)}\n`)
   }

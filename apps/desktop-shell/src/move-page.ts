@@ -195,9 +195,23 @@ export type ForeignLock = Exclude<LockState, { kind: 'none' } | { kind: 'ours' }
  * @param lock - what holds the lock.
  * @param home - the data directory.
  * @param platform - whose file browser the reveal button names.
+ * @param notice - a line above the page, for a page shown again after the lock changed.
  * @returns the page.
  */
-export function lockPage(text: MoveText, lock: ForeignLock, home: string, platform: NodeJS.Platform): MovePage {
+export function lockPage(text: MoveText, lock: ForeignLock, home: string, platform: NodeJS.Platform, notice?: string): MovePage {
+  const page = lockPageBody(text, lock, home, platform)
+  return notice === undefined ? page : { ...page, notice }
+}
+
+/**
+ * {@link lockPage} without its notice.
+ * @param text - the sentence set.
+ * @param lock - what holds the lock.
+ * @param home - the data directory.
+ * @param platform - whose file browser the reveal button names.
+ * @returns the page.
+ */
+function lockPageBody(text: MoveText, lock: ForeignLock, home: string, platform: NodeJS.Platform): MovePage {
   switch (lock.kind) {
     case 'held':
       return stopPage(text.lockedTitle, text.locked(home, lock.owner.userData), text, { platform })
