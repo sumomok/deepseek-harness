@@ -8,13 +8,16 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UpdateInfo } from 'electron-updater'
 import { DownloadedUpdateHelper } from 'electron-updater/out/DownloadedUpdateHelper.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appCacheDir, discardStaleParts, partFileFor, pendingDir, placeInPendingCache } from '../src/pending-cache.ts'
+import {
+  appCacheDir, discardStaleParts, partFileFor, pendingDir, placeInPendingCache, readStagedArtifact, sweepInstalledPending,
+  type StartedInstall,
+} from '../src/pending-cache.ts'
 
 /** The artifact every case stages. */
 const ARTIFACT = randomBytes(4_096)
@@ -163,3 +166,108 @@ describe('partial files', () => {
     expect(() => { discardStaleParts(cacheDir, partFileFor(cacheDir, VERSION, FILE_NAME)) }).not.toThrow()
   })
 })
+
+/** The build that started the install every sweep case describes. */
+const FROM_VERSION = '0.1.0-rc.32'
+
+/** The differential baselines electron-updater keeps in the cache directory root. */
+const BASELINES = ['update.zip', 'installer.exe', 'package.7z', 'current.blockmap']
+
+/**
+ * Stage [[ARTIFACT]] beside the root baselines, as a cache directory looks
+ * right after the install click.
+ * @param cacheDir - the cache directory to fill.
+ * @returns what that install recorded.
+ */
+function installed(cacheDir: string): StartedInstall {
+  stage(cacheDir)
+  for (const baseline of BASELINES) writeFileSync(join(cacheDir, baseline), baseline)
+  const staged = readStagedArtifact(cacheDir)
+  if (staged === undefined) throw new Error('stage() wrote no record')
+  return { fromVersion: FROM_VERSION, ...staged }
+}
+
+describe('the staged record', () => {
+  it('names the artifact `pending` holds', () => {
+    const cacheDir = cacheDirectory()
+    stage(cacheDir)
+    expect(readStagedArtifact(cacheDir)).toEqual({ fileName: FILE_NAME, sha512: SHA512 })
+  })
+
+  it('is absent when there is no record or it lacks a field', () => {
+    const cacheDir = cacheDirectory()
+    expect(readStagedArtifact(cacheDir)).toBeUndefined()
+    mkdirSync(pendingDir(cacheDir), { recursive: true })
+    writeFileSync(join(pendingDir(cacheDir), 'update-info.json'), JSON.stringify({ fileName: FILE_NAME }))
+    expect(readStagedArtifact(cacheDir)).toBeUndefined()
+    writeFileSync(join(pendingDir(cacheDir), 'update-info.json'), 'not json')
+    expect(readStagedArtifact(cacheDir)).toBeUndefined()
+  })
+})
+
+describe('the sweep after an install', () => {
+  it('empties `pending` on the first launch of the newer build, and leaves every root baseline', async () => {
+    const cacheDir = cacheDirectory()
+    const install = installed(cacheDir)
+    writeFileSync(join(pendingDir(cacheDir), 'current.blockmap'), 'copied up by the library')
+
+    const sweep = sweepInstalledPending(cacheDir, install, VERSION)
+
+    expect(sweep).toEqual({ kind: 'emptied', removed: ['current.blockmap', FILE_NAME, 'update-info.json'].sort(sortRecordLast) })
+    expect(readdirSync(pendingDir(cacheDir))).toEqual([])
+    for (const baseline of BASELINES) expect(readFileSync(join(cacheDir, baseline), 'utf8')).toBe(baseline)
+    // What electron-updater would now take the update from: nothing.
+    expect(await validate(cacheDir)).toBeNull()
+  })
+
+  it('leaves `pending` alone when the same build runs again, because that install did not land', async () => {
+    const cacheDir = cacheDirectory()
+    const install = installed(cacheDir)
+    expect(sweepInstalledPending(cacheDir, install, FROM_VERSION)).toEqual({ kind: 'not-landed' })
+    expect(await validate(cacheDir)).toBe(join(pendingDir(cacheDir), FILE_NAME))
+  })
+
+  it('keeps a later download that replaced the installed artifact', async () => {
+    const cacheDir = cacheDirectory()
+    const install = installed(cacheDir)
+    const later = { ...install, sha512: createHash('sha512').update('the one before').digest('base64') }
+    expect(sweepInstalledPending(cacheDir, later, VERSION)).toEqual({ kind: 'replaced' })
+    expect(await validate(cacheDir)).toBe(join(pendingDir(cacheDir), FILE_NAME))
+    const renamed = { ...install, fileName: 'DSH Desktop-0.1.0-rc.32-arm64-mac.zip' }
+    expect(sweepInstalledPending(cacheDir, renamed, VERSION)).toEqual({ kind: 'replaced' })
+    expect(await validate(cacheDir)).toBe(join(pendingDir(cacheDir), FILE_NAME))
+  })
+
+  it('finds nothing to do when `pending` holds no record', () => {
+    const cacheDir = cacheDirectory()
+    expect(sweepInstalledPending(cacheDir, { fromVersion: FROM_VERSION, fileName: FILE_NAME, sha512: SHA512 }, VERSION))
+      .toEqual({ kind: 'absent' })
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'names what it could not remove and keeps the record, so the next launch sweeps again',
+    () => {
+      const cacheDir = cacheDirectory()
+      const install = installed(cacheDir)
+      const held = join(pendingDir(cacheDir), 'held')
+      mkdirSync(held)
+      writeFileSync(join(held, 'inner'), 'x')
+      // A directory whose entries cannot be unlinked stands in for the
+      // installer file Windows keeps open for a moment after the relaunch.
+      chmodSync(held, 0o500)
+      try {
+        const sweep = sweepInstalledPending(cacheDir, install, VERSION)
+        expect(sweep).toEqual({ kind: 'incomplete', removed: [FILE_NAME], failed: ['held', 'update-info.json'] })
+        expect(readStagedArtifact(cacheDir)).toEqual({ fileName: FILE_NAME, sha512: SHA512 })
+      } finally {
+        chmodSync(held, 0o700)
+      }
+      expect(sweepInstalledPending(cacheDir, install, VERSION)).toEqual({ kind: 'emptied', removed: ['held', 'update-info.json'] })
+    },
+  )
+})
+
+/** The order the sweep removes entries in: directory order, with the record last. */
+function sortRecordLast(left: string, right: string): number {
+  return Number(left === 'update-info.json') - Number(right === 'update-info.json') || (left < right ? -1 : left > right ? 1 : 0)
+}

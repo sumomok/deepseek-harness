@@ -86,13 +86,20 @@ describe('clearStaleAuthCookies', () => {
 describe('the launch sequence in main.ts', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
 
-  it('awaits the clearing exactly once, after the orphan sweep and before the server spawn', () => {
-    const calls = [...source.matchAll(/clearStaleAuthCookies\(/g)].map(match => match.index)
+  it('awaits the clearing once at launch, after the orphan sweep and before the server spawn', () => {
+    const calls = [...source.matchAll(/(?<=await )clearStaleAuthCookies\(/g)].map(match => match.index)
     expect(calls).toHaveLength(1)
     const [call = -1] = calls
     expect(source.slice(call - 'await '.length, call)).toBe('await ')
     expect(source.indexOf('await sweepOrphanedServers(')).toBeLessThan(call)
-    expect(source.indexOf('startServerWithQuarantine(\n')).toBeGreaterThan(call)
+    // The launch's spawn is its `startOnPort` call, the last one in the file;
+    // the one before it is the crash rebind's.
+    expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(call)
+  })
+
+  it('is also what the quit and the crash response remove through', () => {
+    expect([...source.matchAll(/clearStaleAuthCookies\(/g)]).toHaveLength(2)
+    expect(source).toContain('return clearStaleAuthCookies(session.defaultSession.cookies, logLine)')
   })
 
   it('leaves cookies alone on every path that reopens a window or rebinds the server', () => {

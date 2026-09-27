@@ -323,11 +323,52 @@ export function classifyDownloadError(error: unknown): DownloadFailure {
  * @returns a single-line identification.
  */
 export function describeDownloadError(error: unknown): string {
+  return failureCode(error) ?? firstMessageLine(error)
+}
+
+/**
+ * What identifies one failure by name rather than by prose: the codes down its
+ * `cause` chain, or the name of a request given up on.
+ * @param error - the value a download attempt or check failed with.
+ * @returns the identification, or undefined when the failure carries neither.
+ */
+function failureCode(error: unknown): string | undefined {
   const codes = errorCodes(error)
   if (codes.length > 0) return codes.join(CODE_CHAIN_SEPARATOR)
   if (error instanceof Error && ABANDONED_REQUEST_NAMES.has(error.name)) return error.name
+  return undefined
+}
+
+/**
+ * The first line of a failure's message, capped at [[MESSAGE_LOG_LIMIT]].
+ * @param error - the value a download attempt or check failed with.
+ * @returns the line; empty when the message is.
+ */
+function firstMessageLine(error: unknown): string {
   const [line = ''] = (error instanceof Error ? error.message : String(error)).split('\n')
   return line.length > MESSAGE_LOG_LIMIT ? `${line.slice(0, MESSAGE_LOG_LIMIT)}…` : line
+}
+
+/**
+ * The body of the 「无法检查更新」 dialog: the failure's first message line,
+ * the line `错误码:<code>`, and what to do next.
+ *
+ * The code is what a user can read out or screenshot and what a report is
+ * matched against the log by: the whole `cause` chain [[describeDownloadError]]
+ * names — `ENOTFOUND`, `HTTP_ERROR_503`, `DSH_TRANSFER_CUT ← UND_ERR_SOCKET` —
+ * or the `TimeoutError`/`AbortError` name of a request given up on. A failure
+ * that carries neither gets no code line rather than an empty one. Only the
+ * first message line is shown, because an HTTP failure's message continues
+ * with response headers that belong in the log.
+ * @param error - the value the check failed with.
+ * @param advice - the closing line telling the user what to do next.
+ * @returns the dialog detail, lines separated by newlines.
+ */
+export function checkFailureDetail(error: unknown, advice: string): string {
+  const code = failureCode(error)
+  const message = firstMessageLine(error)
+  const lines = code === undefined ? [message] : [message, `错误码:${code}`]
+  return `${lines.join('\n')}\n\n${advice}`
 }
 
 /** What [[withRetry]] needs from its caller besides the attempt itself. */

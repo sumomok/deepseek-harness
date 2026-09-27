@@ -1,10 +1,9 @@
 /**
  * The desktop package's repository build: the title it hands `pnpm run build`,
- * which client artifacts it accepts, and the values the desktop-app bundle
- * runs with.
+ * and which client artifacts it accepts before the desktop-app bundle.
  * @module
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -15,8 +14,10 @@ import {
   type ClientBuildEnvironment,
 } from '../../../scripts/client-build-environment.ts'
 import {
+  assertDesktopClientTitle,
+  DESKTOP_APP_BUNDLE_ARGS,
+  DESKTOP_BUILD_STEPS,
   DESKTOP_CLIENT_TITLE,
-  desktopAppBundleEnvironment,
   desktopRepositoryBuildEnvironment,
 } from '../scripts/client-build.ts'
 
@@ -65,32 +66,46 @@ describe('desktop repository build environment', () => {
   })
 })
 
-describe('desktop-app bundle environment', () => {
+describe('desktop client title check', () => {
   const client = { DSH_CLIENT_COMMIT_HASH: 'abcdef0', DSH_CLIENT_TITLE: DESKTOP_CLIENT_TITLE, DSH_CLIENT_VERSION: UPSTREAM_VERSION }
 
-  it('hands the bundle exactly the recorded client values', () => {
+  it('accepts recorded artifacts built with the desktop title', () => {
     const root = fixtureRoot()
     built(root, client)
-    expect(desktopAppBundleEnvironment(root, { PATH: '/bin', DSH_CLIENT_VERSION: '9.9.9', DSH_BUILD_CLIENT_PROFILE: 'official' }))
-      .toEqual({ PATH: '/bin', ...client })
+    expect(() => { assertDesktopClientTitle(root) }).not.toThrow()
   })
 
   it('refuses artifacts built without the desktop title', () => {
     const root = fixtureRoot()
     built(root, { ...client, DSH_CLIENT_TITLE: 'DSH Local Build' })
-    expect(() => desktopAppBundleEnvironment(root, {})).toThrow(/embeds title "DSH Local Build"/)
+    expect(() => { assertDesktopClientTitle(root) }).toThrow(/embeds title "DSH Local Build"/)
   })
 
   it('refuses a page whose title is not the desktop title', () => {
     const root = fixtureRoot()
     built(root, client, 'DSH Local Build')
-    expect(() => desktopAppBundleEnvironment(root, {})).toThrow(/index.html carries no <title>北冥<\/title>/)
+    expect(() => { assertDesktopClientTitle(root) }).toThrow(/index.html carries no <title>北冥<\/title>/)
   })
 
   it('refuses artifacts changed after the build record', () => {
     const root = fixtureRoot()
     built(root, client)
     writeFileSync(join(root, 'apps/web/dist/index.html'), '<title>北冥</title><!-- changed -->')
-    expect(() => desktopAppBundleEnvironment(root, {})).toThrow(/client artifacts differ/)
+    expect(() => { assertDesktopClientTitle(root) }).toThrow(/client artifacts differ/)
+  })
+})
+
+describe('the builds after the repository build', () => {
+  it('bundle the desktop-app package first, then build the shell', () => {
+    expect(DESKTOP_BUILD_STEPS.map(step => step.name)).toEqual(['desktop-app bundle', 'desktop tsc'])
+    expect(DESKTOP_BUILD_STEPS[0]?.args).toEqual(DESKTOP_APP_BUNDLE_ARGS)
+    expect(DESKTOP_APP_BUNDLE_ARGS).toEqual(['--filter', '@deepseek-ai/dsh-desktop-app', 'run', 'bundle'])
+  })
+
+  it('all run in package.ts after the title check and before the server closure is deployed', () => {
+    const source = readFileSync(new URL('../scripts/package.ts', import.meta.url), 'utf8')
+    const steps = source.indexOf("for (const step of DESKTOP_BUILD_STEPS) await run(step.name, 'pnpm', [...step.args])")
+    expect(steps).toBeGreaterThan(source.indexOf('assertDesktopClientTitle(ROOT)'))
+    expect(steps).toBeLessThan(source.indexOf("run('deploy server closure'"))
   })
 })

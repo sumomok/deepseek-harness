@@ -40,9 +40,10 @@
  * @module @deepseek-ai/dsh-desktop-shell/pending-cache
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
+import { compareVersions } from './version-order.ts'
 
 /** The subdirectory electron-updater takes a staged update from. */
 const PENDING = 'pending'
@@ -153,4 +154,109 @@ export function placeInPendingCache(placement: PendingPlacement): string {
   }
   writeFileSync(join(directory, UPDATE_INFO), JSON.stringify(record))
   return staged
+}
+
+/** Which staged artifact one `pending/update-info.json` vouches for. */
+export interface StagedArtifact {
+  /** The artifact's file name inside `pending`. */
+  fileName: string
+  /** The manifest's base64 sha512 for that artifact. */
+  sha512: string
+}
+
+/**
+ * Read which artifact `pending` holds, from the record beside it.
+ * @param cacheDir - the updater cache directory.
+ * @returns the record's file name and sha512, or undefined when there is no
+ * record, it cannot be read, or it lacks either field.
+ */
+export function readStagedArtifact(cacheDir: string): StagedArtifact | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(join(pendingDir(cacheDir), UPDATE_INFO), 'utf8'))
+  } catch {
+    // No record, or one electron-updater itself would refuse
+    // (`out/DownloadedUpdateHelper.js:94-103`): either way `pending` vouches
+    // for nothing this shell could match an install against.
+    return undefined
+  }
+  const { fileName, sha512 } = (parsed ?? {}) as { fileName?: unknown; sha512?: unknown }
+  if (typeof fileName !== 'string' || typeof sha512 !== 'string') return undefined
+  return { fileName, sha512 }
+}
+
+/** One install a build started, as the launch after it recognizes it. */
+export interface StartedInstall extends StagedArtifact {
+  /** The version that was running when the install was started. */
+  fromVersion: string
+}
+
+/** What one sweep of `pending` after an install did. */
+export type InstalledPendingSweep =
+  /** The running build is not newer than the one that started the install, so it did not land and the artifact is still to be installed. */
+  | { kind: 'not-landed' }
+  /** `pending` holds no record: nothing is staged, or the library already emptied it. */
+  | { kind: 'absent' }
+  /** `pending` now vouches for a different artifact, which is a later download to keep. */
+  | { kind: 'replaced' }
+  /** Every entry of `pending` was removed. */
+  | { kind: 'emptied'; removed: string[] }
+  /** Some entries could not be removed; the rest were. */
+  | { kind: 'incomplete'; removed: string[]; failed: string[] }
+
+/**
+ * Empty `pending` once the artifact it holds is the one that was installed.
+ *
+ * electron-updater empties `pending` only when a download fails or the cached
+ * record stops matching the feed (`out/DownloadedUpdateHelper.js:67-82`,
+ * `:112-116`), never after an install succeeds, so without this the installed
+ * artifact — the whole zip on macOS, the whole NSIS installer on Windows —
+ * stays until the next update's download starts. Only `pending` is touched:
+ * the differential baselines (`update.zip`, `installer.exe`, `package.7z`,
+ * `current.blockmap`) live in the cache directory root, and the next update
+ * downloads only the blocks that differ from them.
+ *
+ * The record decides: `pending` is emptied only while its record still names
+ * `installed` by file name and sha512. Anything else there is a download made
+ * after that install and is still worth handing to the library. Each entry is
+ * removed on its own, so one the Windows installer still holds open is
+ * reported without stopping the rest.
+ *
+ * Nothing is swept unless the running build is newer than the one that
+ * started the install: the same version running again means the install did
+ * not land, and the staged artifact is still the update it has yet to take.
+ * @param cacheDir - the updater cache directory.
+ * @param installed - what `pending` held when the install was started, and the version that started it.
+ * @param runningVersion - the version of the build now running.
+ * @returns what the sweep found and did.
+ * @throws when `pending` holds a record but cannot be listed.
+ */
+export function sweepInstalledPending(cacheDir: string, installed: StartedInstall, runningVersion: string): InstalledPendingSweep {
+  if (compareVersions(runningVersion, installed.fromVersion) <= 0) return { kind: 'not-landed' }
+  const staged = readStagedArtifact(cacheDir)
+  if (staged === undefined) return { kind: 'absent' }
+  if (staged.fileName !== installed.fileName || staged.sha512 !== installed.sha512) return { kind: 'replaced' }
+  const directory = pendingDir(cacheDir)
+  const removed: string[] = []
+  const failed: string[] = []
+  // Name order, with the record last: a sweep that stops part-way still
+  // leaves `pending` vouching for what it was, and the next launch sweeps again.
+  const entries = readdirSync(directory).sort().sort((left, right) => Number(left === UPDATE_INFO) - Number(right === UPDATE_INFO))
+  for (const entry of entries) {
+    if (entry === UPDATE_INFO && failed.length > 0) {
+      failed.push(entry)
+      continue
+    }
+    try {
+      rmSync(join(directory, entry), { force: true, recursive: true })
+    } catch {
+      // EBUSY/EPERM: on Windows the installer that relaunched this app can
+      // still hold its own file open for a moment. The entry is named in the
+      // result, and the record it keeps makes the next launch try again.
+      failed.push(entry)
+      continue
+    }
+    removed.push(entry)
+  }
+  return failed.length === 0 ? { kind: 'emptied', removed } : { kind: 'incomplete', removed, failed }
 }

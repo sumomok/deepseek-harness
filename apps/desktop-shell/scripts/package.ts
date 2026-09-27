@@ -6,9 +6,9 @@
  * runs electron-builder for the requested targets.
  *
  * The repository build embeds the desktop's browser title, and a run whose
- * client artifacts lack it stops before staging, `--skip-repo-build` included;
- * the desktop-app browser half is then bundled from the recorded client values
- * ([[desktopAppBundleEnvironment]]).
+ * client artifacts lack it stops before staging, `--skip-repo-build` included
+ * ([[assertDesktopClientTitle]]); the desktop-app browser half is bundled
+ * after that check.
  *
  * Products land in apps/desktop-shell/dist-app/. Each platform's build runs on its
  * own host and on any other: NSIS needs no wine, so Windows packages cross-build
@@ -41,11 +41,12 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
-import { DESKTOP_APP_BUNDLE_ARGS, desktopAppBundleEnvironment, desktopRepositoryBuildEnvironment } from './client-build.ts'
+import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
-  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, verifyDesktopLayer,
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv,
+  verifyDesktopLayer,
   WITHHELD_PACKAGES,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
@@ -534,7 +535,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   // developer's browser, and the shell declines the same handoff for its own.
   const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: root,
-    env: stagedBootEnv(process.env),
+    env: stagedServerEnv(process.env, join(buildHome, 'dsh-server.log')),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let collected = ''
@@ -923,8 +924,8 @@ async function main(buildHome: string): Promise<void> {
   const startedAt = Date.now()
   const cli = parseCli(process.argv.slice(2))
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
-  await run('desktop-app bundle', 'pnpm', [...DESKTOP_APP_BUNDLE_ARGS], ROOT, desktopAppBundleEnvironment(ROOT, process.env))
-  await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'])
+  assertDesktopClientTitle(ROOT)
+  for (const step of DESKTOP_BUILD_STEPS) await run(step.name, 'pnpm', [...step.args])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
 
   if (!cli.skipDeploy) {

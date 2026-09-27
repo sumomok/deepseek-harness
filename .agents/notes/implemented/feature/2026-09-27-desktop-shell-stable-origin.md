@@ -1,0 +1,54 @@
+# Agent Note: Desktop shell: a stable served-UI origin, the loading page's text, and shortcut combinations
+
+Status: implemented
+
+English | [中文](2026-09-27-desktop-shell-stable-origin.zh.md)
+
+## Problem
+
+Custom keyboard shortcuts were gone after every restart. The web client stores them in `localStorage['dsh.keybindings.v1']`, which belongs to the origin `http://127.0.0.1:<port>`, and the shell started the server with `--port 0`, so every launch served the UI from a new origin with empty storage. The same applies to everything else the client keeps in localStorage (transcript width, right-sidebar layouts, conversation drafts) and to the `dsh-auth-*` cookie, one of which accumulated per launch until 0.1.0-rc.34 began clearing them.
+
+The shortcut editor also refused most combinations with 「此浏览器暂不支持该组合」. Only `Ctrl/Cmd+/`, `Ctrl/Cmd+,`, `Ctrl/Cmd+Alt+key`, `Ctrl/Cmd+Shift+key` and three or more modifiers passed, because the served UI runs in the client's `web` shortcut runtime (`packages/client/shortcuts/src/configuration.ts:111`, `binding.ts:96-112`).
+
+After an update restart the window showed `HARNESS` and `Loading plugins…` under the title 北冥. The shell's own boot page is Chinese; that text comes from the web client's pre-locale loading page, `packages/client/web/src/boot-page.ts:37,40`, with `Failed to load plugins` at `:90`.
+
+## Decision
+
+### Reusing the server port
+
+`src/server-port.ts` keeps the origin stable. The running server's port is written to `desktop-state.json` as `serverPort`; the next launch checks it with a listen on `127.0.0.1`, `0.0.0.0` and `::` in turn (an address family the machine lacks is skipped; on macOS a wildcard listener does not stop a loopback listen, so the loopback check alone misses it) and passes it as `--port`. The check runs after the orphaned-server sweep, since an orphan can still hold the port, and after the render and update services, which bind port 0 and can land on it. A taken port falls back to `--port 0`, and so does a port taken between the check and the bind: `dsh web --port N` on a held port exits 1 with `listen EADDRINUSE` in its output (observed against the built CLI in a temporary home), which `startOnPort` recognizes and retries once. An unexpected server exit forgets the remembered port, and a crash rebind starts on `--port 0` and remembers the new one; the sign-in paragraph below gives the reason. `desktop-state.json` is written to a temporary file, flushed with `fsync`, and renamed over the old one, so a crash mid-write cannot empty it and drop `installedUpdate` with it; a rename refused with `EPERM`, `EBUSY` or `EACCES`, as when a Windows antivirus scanner or indexer holds the file, is retried up to five times 50 ms apart, and a write that still fails is logged.
+
+Browser storage is not copied to a fallback origin. Electron has no main-process API that copies one origin's localStorage to another, and the fallback runs only when another process holds the port, where the loss equals what every launch had before.
+
+A fixed port changes one thing for sign-in. The `dsh-auth-*` cookie names its authority and is signed with a secret the Harness home keeps across processes (`packages/client/connection/src/browser-auth.ts:287-299` checks authority, expiry and signature only), so a cookie issued by one launch is valid for the next launch's server on the same port until it expires. A local process can take a copy only by listening on the port while the window sends requests there with the server gone; the web client reconnects for as long as the window is open. `src/server-lifecycle.ts` orders the shell's steps around that. On an unexpected exit it forgets the remembered port and removes the `dsh-auth-*` cookies before the recovery ladder runs, because the ladder can end without any rebind — the third exit within ten minutes relaunches the whole app, every rebind attempt can fail, and the stop dialog can be dismissed — and the relaunch path raises `quitting` before `app.quit()`, so the quit-time steps do not run for it. A crash rebind takes a new port. A quit removes the cookies, waiting at most 500 ms, and then sends the stop whether or not the removal finished. Bringing the app to the front does nothing once a quit has begun, since a window opened then would exchange a launch token for a new cookie; an update install that fails after its hand-off undoes the quit, clearing the quitting state before it restarts the server and shows the window, so that rule cannot strand the app. With the window closed between launches nothing is sent. A copy taken before a removal is not revoked by it; that is accepted, because taking one requires a local process already listening on that exact port at that moment, and the alternative, a new port per launch, loses every browser preference on each restart. The rest is unchanged: the window loads only the URL the server child prints, whose launch token is new on every launch; `will-navigate` keeps the window on that server's origin, now compared as parsed origins, since the former prefix check accepted `http://127.0.0.1:P@evil.example/`; stale cookies are still cleared before each spawn; and a process that takes the port first gets the fallback, not the window.
+
+Once the origin is stable, `dsh.keybindings.v1` survives restarts, which fixes the reported loss without the desktop shortcut runtime.
+
+### The loading page's text
+
+The page belongs to `packages/client/web`, which this fork does not change. `src/app-boot-text.ts` inserts a stylesheet with `webContents.insertCSS` on `did-navigate` and on `dom-ready` that draws the three texts at size zero and paints `北冥` / `正在加载插件…` / `插件加载失败` through `::after`, or `Beiming` and the original English. The language is the one chosen in the settings, read from the desktop profile's `locale` row (else `settings.yaml`) the way the theme preference is read, and otherwise `app.getLocale()`, the rule the menu labels follow (`shellLanguage` in `src/menu-text.ts`); it is read again for each page load. A screen reader can read the page twice, because the hidden text stays in the document and `::after` content is exposed too; a stylesheet cannot set `aria-hidden`. The selectors use `data-dsh-boot`, `data-dsh-boot-spinner` and child order only, and a client spec runs them against the upstream `BootPage`. Whether a first frame of the English text still paints before the insert lands is a real-machine check.
+
+### Shortcut combinations
+
+The combination rule is not changed. The client decides its runtime from `document.documentElement.dataset.platform` (`packages/client/shortcuts/src/client/dom.ts:17-19`), and the `desktop` runtime accepts every combination on macOS and Windows (`configuration.ts:98`). Reaching it without changing `packages/` requires all of the following from the shell:
+
+- A sandboxed preload that sets `data-platform` and exposes `window.dshDesktop` with `keyboard` and `shortcuts`. Without `keyboard` the shortcuts service throws `Desktop keyboard bridge unavailable` at construction (`packages/client/shortcuts/src/client/index.ts:46`); there is no partial mode.
+- A main-process `before-input-event` interceptor equivalent to upstream `apps/desktop/src/keyboard.ts` (261 lines) and file persistence equivalent to `keybindings.ts`: with a keyboard bridge on macOS and Windows, DOM delivery only feeds fixed actions (`index.ts:71`), so without the interceptor no configurable shortcut fires.
+- A `data-platform` value other than upstream's `darwin`/`win32`, such as `macos`/`windows`. The `darwin` selectors in ui-layout, ui-conversation, dockkit and `packages/client/web/src/base.css` assume upstream's hiddenInset, vibrancy-backed window (transparent page background, traffic-light clearance, drag regions), which the shell's standard-framed window does not have.
+- Packaging for code the shell does not ship today: the interceptor needs `@deepseek-ai/dsh-client-shortcuts/protocol` (and through it `dsh-util-values`, `dsh-brand`, `dsh-util-crypto`) in the asar, and a sandboxed preload must be a CommonJS bundle, while the shell's main is plain `tsc` output.
+
+`window.dshDesktop` is not specific to shortcuts. `'dshDesktop' in globalThis` also turns off the Models page's automatic credential onboarding and its welcome notice (`packages/client/ui-settings-models/src/client/index.ts:81,147`); the `&&` there means no configuration value turns them back on, and the fork ships no onboarding of its own. The same marker makes `ui-settings-account` mount its account and desktop-onboarding UI (`ui-settings-account/src/client/index.ts:43,211`), and `account-controller` is in the web-app bundle, so it would mount; suppressing it means disabling that row in `apps/desktop-app/cordis.patch.yml`. `@haoran/dsh-desktop-update`'s settings trigger also relies on that plugin registering nothing.
+
+The shell therefore stays in the `web` runtime. Adopting the `desktop` runtime means accepting the loss of first-run credential onboarding, or changing the `dshDesktop` checks in `packages/`; that is a product decision.
+
+## Alternatives considered
+
+**A custom protocol origin, as upstream's `dsh-app://app/`.** It removes the port from the origin, but serving the UI through `protocol.handle` needs upstream's host-protocol and platform-view plumbing, and the UI's `/api/remote.mux` WebSocket cannot pass through a protocol handler.
+
+**`--host-resolver-rules` mapping a fixed hostname to the loopback address.** It fixes the host part only; the origin still carries the port.
+
+**A preload that rewrites the loading page's text.** A `MutationObserver` or `webFrame.insertCSS` in a preload runs earlier than `insertCSS` from the main process, but the shell has no preload and its bundling and packaging are the same open work as the shortcut bridge. The main-process insert needs neither.
+
+## Consequences
+
+The served UI keeps one origin across launches and updates, so custom shortcuts and every other localStorage preference persist. A crash rebind moves the UI to a new origin, where those preferences start empty until the next change, and the launches after it keep that origin. A launch whose remembered port is held elsewhere starts on an empty origin once and keeps the new one afterward. The fixed port is visible to other local processes, which can only take it and cause the fallback. The loading page shows the product name and the shell language, except for any frame painted before the stylesheet arrives. Custom shortcuts still accept only the browser's set of combinations.

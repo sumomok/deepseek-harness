@@ -17,7 +17,7 @@ import {
   readSettingsMigrationMarker, SETTINGS_MIGRATION_MARKER,
   type SettingsMigrationMarker,
 } from '../src/settings-migration.ts'
-import { storedThemePreference } from '../src/theme-preference.ts'
+import { storedLanguagePreference, storedThemePreference } from '../src/theme-preference.ts'
 
 let home: string
 let profileDir: string
@@ -693,5 +693,26 @@ describe('storedThemePreference', () => {
 
   it('has no answer for a home with neither', () => {
     expect(storedThemePreference(home)).toBeUndefined()
+  })
+})
+
+describe('storedLanguagePreference', () => {
+  it('reads the profile locale row before settings.yaml, mapping a regional id to its language', () => {
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: ui-theme\n  config:\n    preference: dark\n- id: locale\n  config:\n    preference: en-US\n')
+    writeSettings('locale:\n  preference: zh\n')
+    expect(storedLanguagePreference(home)).toBe('en')
+  })
+
+  it('reads settings.yaml while the profile has no locale row', () => {
+    writeSettings('locale:\n  preference: zh-CN\n')
+    expect(storedLanguagePreference(home)).toBe('zh')
+  })
+
+  it('leaves the choice to the system for no preference or a language the shell has no copy in', () => {
+    expect(storedLanguagePreference(home)).toBeUndefined()
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: locale\n  config:\n    preference: fr\n')
+    expect(storedLanguagePreference(home)).toBeUndefined()
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: locale\n  config: {}\n')
+    expect(storedLanguagePreference(home)).toBeUndefined()
   })
 })

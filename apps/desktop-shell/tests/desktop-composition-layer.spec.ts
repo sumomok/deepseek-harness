@@ -2,8 +2,9 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries eight. `session-query-sqlite` opts into full-text search:
- * dsh-base and dsh-web-app both ship it off and
+ * The layer patches seven rows and inserts two of its own.
+ * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
+ * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
  * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
@@ -14,10 +15,11 @@
  * gate otherwise takes from the pair its own layer ships, and sends every
  * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
- * `office-to-pdf` is off because the payload carries no LibreOffice engine,
- * `ui-chat` starts work details compact, and `desktop-brand` is the one row the
- * layer inserts rather than patches: this package itself, whose browser half
- * names the product in the sidebar.
+ * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
+ * `ui-chat` starts work details compact. The rows it inserts are
+ * `desktop-brand`, this package itself, whose browser half names the product
+ * in the sidebar, and `desktop-server-log`, which appends the server's own
+ * logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -36,6 +38,7 @@ import { describe, expect, it } from 'vitest'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
+import { SERVER_LOG_ENV } from '../src/server.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
@@ -262,6 +265,28 @@ function evaluateWithEnv(value: unknown, env: Record<string, string>): unknown {
   return (new Function('process', `return (${expression})`) as (process: { env: Record<string, string> }) => unknown)({ env })
 }
 
+describe('the composed server-log row', () => {
+  it('is the desktop layer\'s own, inserted by no layer below it', () => {
+    expect(below.find(candidate => candidate.id === 'desktop-server-log')).toBeUndefined()
+    expect((entry(desktop, 'desktop-server-log') as Entry & { name?: string }).name).toBe('@deepseek-ai/dsh-desktop-app/server-log')
+  })
+
+  // The shell names its log file in this variable for the server child; a
+  // boot without the shell names nothing and mounts no exporter.
+  it('mounts only when the shell names a file, and appends to that file', () => {
+    const row = entry(desktop, 'desktop-server-log')
+    expect(evaluateWithEnv(row.disabled, { [SERVER_LOG_ENV]: '/logs/dsh-server.log' })).toBe(false)
+    expect(evaluateWithEnv(row.disabled, {})).toBe(true)
+    expect(evaluateWithEnv(row.config?.['file'], { [SERVER_LOG_ENV]: '/logs/dsh-server.log' })).toBe('/logs/dsh-server.log')
+  })
+
+  // cordis orders ERROR 0 < INFO 1 < WARN 2 < DEBUG 3, so the threshold that
+  // keeps warnings is 2, not the INFO a reader would expect to cover them.
+  it('keeps warnings and drops debug', () => {
+    expect(entry(desktop, 'desktop-server-log').config?.['level']).toBe(2)
+  })
+})
+
 describe('the composed plugin-manager rows', () => {
   const profileGate = { __jsExpr: "!ctx.get('profileContext')" }
 
@@ -349,7 +374,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly eight rows and nothing else', () => {
+  it('changes exactly seven rows, adds its own two, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -357,8 +382,8 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'desktop-brand', 'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite',
-      'ui-chat', 'vision-switch',
+      'desktop-brand', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager',
+      'session-query-sqlite', 'ui-chat', 'vision-switch',
     ])
   })
 

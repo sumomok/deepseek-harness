@@ -98,3 +98,12 @@ export function showInstalling(version: string): void {
   })
   void opened.loadURL(installingPage(version, resolveAppearance()))
 }
+
+/**
+ * Take the install notice down, for an install that failed after the notice
+ * went up and left the app running. Does nothing when no notice is open.
+ */
+export function closeInstalling(): void {
+  const existing = window
+  if (existing !== undefined && !existing.isDestroyed()) existing.close()
+}
