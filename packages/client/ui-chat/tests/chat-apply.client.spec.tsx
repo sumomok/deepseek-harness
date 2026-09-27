@@ -24,6 +24,7 @@ import type {
   ChatNodeInjected, ChatSnapshot, TranscriptViewRowInjected, UseChatNodeTurnData, UseDisclosure,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { QuotaNoticeInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-commands/client'
 import type { PerformanceUsageRowInjected } from '../src/client/settings/PerformanceUsageRow.tsx'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 
@@ -117,6 +118,31 @@ describe('Chat apply wiring', () => {
       const row = b.runtime.slots.entries('conversation.chat.node').find(entry => entry.options.key === 'turn-error')!
       expect(row.inject).toBeUndefined()
       expect(row.children).toBeUndefined()
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
+  it('decorates bare /compact with the localized running-Turn refusal once commandUi is composed', async () => {
+    const b = await bench()
+    try {
+      const decorations = new Map<string, CommandDecoration>()
+      b.runtime.ctx.provide('commandUi', {
+        decorate: (decoration: CommandDecoration) => {
+          decorations.set(decoration.name, decoration)
+          return () => { decorations.delete(decoration.name) }
+        },
+      } as never)
+      await vi.waitFor(() => { expect(decorations.has('compact')).toBe(true) })
+      const decoration = decorations.get('compact')
+      if (decoration?.ui.kind !== 'action') throw new Error('expected the compact action decoration')
+      const notify = vi.fn()
+      const scope = vi.spyOn(b.runtime.ctx.sessions, 'scope').mockReturnValue({
+        get: (name: string) => name === 'conversation' ? { input: { for: () => ({ notify }) } } : undefined,
+      } as never)
+      decoration.ui.run({ sessionId: SID })
+      expect(scope).toHaveBeenCalledWith(SID)
+      expect(notify).toHaveBeenCalledWith('error', '正在回答，等这一轮结束后再压缩')
     } finally {
       await b.runtime.dispose()
     }

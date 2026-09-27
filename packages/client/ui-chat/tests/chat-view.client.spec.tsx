@@ -823,6 +823,37 @@ describe('ChatView', () => {
     expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
   })
 
+  it('keeps a manual /compact refused inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const refusal = 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'
+    const refused: ChatNode<'manual-compaction'> = {
+      key: 'fixture:manual-compaction:4', id: '4', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: {
+        command: command({
+          seq: 4, commandId: 'cmd-busy' as CommandNode['commandId'], name: 'compact', args: null,
+          outcome: { kind: 'error', text: refusal },
+        }),
+        compaction: null,
+      },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [refused]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="manual-compaction"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain(refusal)
+  })
+
   it.each([
     { initialHeight: 200, closed: true },
     { initialHeight: 600, closed: true },

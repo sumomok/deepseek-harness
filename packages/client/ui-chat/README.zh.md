@@ -19,6 +19,7 @@ kind: "package-reference"
 - [指令与失败行](#command-and-failure-rows)
 - [轮次 token 用量](#turn-token-usage)
 - [自动压缩](#automatic-compaction)
+- [手动压缩](#manual-compaction)
 - [已完成轮次的页脚](#completed-turn-footer)
 - [轮次过程折叠](#turn-process-folding)
 - [分组渲染](#grouped-rendering)
@@ -67,6 +68,11 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 ## 自动压缩
 
 一次自动压缩在整个生命周期里只占一行：标记对打开期间显示 `正在压缩…`，替换落地后变为 `上下文已压缩` 并附被遮蔽的条目数与近似 token 数，可展开查看后端写下的摘要。被 Stop 取消的标记对不留下任何行，因错误闭合的标记对改为显示失败提示，起点位于已加载窗口之外的标记对只显示其已落地的标记。在轮次内，运行行位于过程组之外，组折叠时也不会被藏起；已落地的标记与其他过程内容一样进组。
+
+<a id="manual-compaction"></a>
+## 手动压缩
+
+Host 只在 agent 空闲时接受 `/compact`。Session 报告 `running` 期间，本包装饰裸 `/compact` 的菜单选取与回车：输入的指令被消费，不发往 Host，输入框显示 `正在回答，等这一轮结束后再压缩`。带参数的 `/compact …` 行，以及未在运行、但 Host 正在做维护的 Session，仍会发往 Host，由 Host 以一张 `/compact` 卡片作答。在轮次内，这张卡片与自动压缩的运行行一样位于过程组之外，组折叠时也不会藏起拒绝结果。
 
 <a id="completed-turn-footer"></a>
 ## 已完成轮次的页脚
