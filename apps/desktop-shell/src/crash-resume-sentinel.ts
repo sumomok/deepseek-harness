@@ -15,10 +15,13 @@
  * whichever of them renames last.
  *
  * The shell writes it before a quit's stop, before an update install's stop,
- * and before the stop that a mandatory update forces at launch. It does not
- * write it for a server that exited on its own, for a relaunch after repeated
- * crashes, for a start that timed out, or for the orphan sweep: those leave
- * turns the plugin is meant to continue, or no turn at all.
+ * before the stop that a mandatory update forces at launch, and when the
+ * system announces a shutdown, restart, or log-off, which ends the server
+ * without a quit on Windows. It writes it only while the server's child is
+ * running. It does not write it for a server that exited on its own, for a
+ * later quit of that crashed server, for a relaunch after repeated crashes,
+ * for a start that timed out, or for the orphan sweep: those leave turns the
+ * plugin is meant to continue, or no turn at all.
  * @module @deepseek-ai/dsh-desktop-shell/crash-resume-sentinel
  */
 
@@ -34,9 +37,10 @@ export const SENTINEL_FILE = 'intentional-stop.json'
 /**
  * Why the shell stopped the server; recorded for diagnosis only, the plugin
  * never reads it. `quit` covers an ordinary quit and the stop before an update
- * installs, `update` the stop a mandatory update forces at launch.
+ * installs, `update` the stop a mandatory update forces at launch, and
+ * `shutdown` a system shutdown, restart, or log-off.
  */
-export type IntentionalStopReason = 'quit' | 'update'
+export type IntentionalStopReason = 'quit' | 'update' | 'shutdown'
 
 /**
  * The sentinel's text: one JSON object and a newline, with the fields in the

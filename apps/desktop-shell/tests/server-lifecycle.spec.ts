@@ -13,8 +13,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SENTINEL_DIRECTORY, SENTINEL_FILE, writeIntentionalStop } from '../src/crash-resume-sentinel.ts'
 import {
-  COOKIE_CLEAR_BOUND_MS, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
-  stopForQuit,
+  COOKIE_CLEAR_BOUND_MS, markIntentionalStop, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
+  stopForMandatoryUpdate, stopForQuit, stopServerForQuit,
 } from '../src/server-lifecycle.ts'
 import type { ServerHandle, ServerSpec } from '../src/server.ts'
 
@@ -82,7 +82,7 @@ describe('respondToCrash', () => {
 describe('rebindOnNewPort', () => {
   it('asks for a system-picked port whatever port the recorded spec names', async () => {
     const asked: Array<number | undefined> = []
-    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', stop: async () => {}, onExit: () => {} }
+    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
     const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env: {}, port: 49_321 }
     const started = await rebindOnNewPort(spec, async (s) => { asked.push(s.port); return handle }, () => {})
     expect(asked).toEqual([0])
@@ -151,16 +151,58 @@ describe('stopForQuit', () => {
   })
 })
 
+/**
+ * A server stand-in whose stop records whether the sentinel was on disk.
+ * @param sentinel - where the sentinel would land.
+ * @param exited - whether its child already exited.
+ * @returns the handle, and whether the sentinel existed when `stop` ran.
+ */
+function recordingHandle(sentinel: string, exited: boolean): { handle: ServerHandle; presentAtStop: () => boolean | undefined } {
+  let present: boolean | undefined
+  return {
+    handle: {
+      url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t',
+      stop: async () => { present = existsSync(sentinel) }, exited: () => exited, onExit: () => {},
+    },
+    presentAtStop: () => present,
+  }
+}
+
 describe('stopForMandatoryUpdate', () => {
   it('has the sentinel on disk by the time the stop is sent', async () => {
     const { home: target, sentinel } = sentinelHome()
-    let presentAtStop = false
-    await stopForMandatoryUpdate({
-      markIntentional: () => { writeIntentionalStop(target, 'update', () => {}) },
-      stop: async () => { presentAtStop = existsSync(sentinel) },
-    })
-    expect(presentAtStop).toBe(true)
+    const { handle, presentAtStop } = recordingHandle(sentinel, false)
+    await stopForMandatoryUpdate(handle, { home: target, log: () => {} })
+    expect(presentAtStop()).toBe(true)
     expect(JSON.parse(readFileSync(sentinel, 'utf8'))).toMatchObject({ by: 'shell', reason: 'update' })
+  })
+})
+
+describe('stopServerForQuit', () => {
+  it('has the sentinel on disk by the time the stop is sent', async () => {
+    const { home: target, sentinel } = sentinelHome()
+    const { handle, presentAtStop } = recordingHandle(sentinel, false)
+    await stopServerForQuit(handle, { home: target, log: () => {}, clearCookies: async () => {}, timeoutMs: 1_000 })
+    expect(presentAtStop()).toBe(true)
+    expect(JSON.parse(readFileSync(sentinel, 'utf8'))).toMatchObject({ by: 'shell', reason: 'quit' })
+  })
+
+  it('writes nothing for a server that already exited, and still sends the stop', async () => {
+    const { home: target, sentinel } = sentinelHome()
+    const { handle, presentAtStop } = recordingHandle(sentinel, true)
+    await stopServerForQuit(handle, { home: target, log: () => {}, clearCookies: async () => {}, timeoutMs: 1_000 })
+    expect(presentAtStop()).toBe(false)
+    expect(existsSync(sentinel)).toBe(false)
+  })
+})
+
+describe('markIntentionalStop', () => {
+  it('writes the reason for a running server and nothing without one', () => {
+    const { home: target, sentinel } = sentinelHome()
+    expect(markIntentionalStop(undefined, 'shutdown', { home: target, log: () => {} })).toBe(false)
+    expect(existsSync(sentinel)).toBe(false)
+    expect(markIntentionalStop({ exited: () => false }, 'shutdown', { home: target, log: () => {} })).toBe(true)
+    expect(JSON.parse(readFileSync(sentinel, 'utf8'))).toMatchObject({ by: 'shell', reason: 'shutdown' })
   })
 })
 
@@ -226,7 +268,7 @@ describe('main.ts', () => {
     expect(body('handleUnexpectedServerExit')).toMatch(/respondToCrash\(\{\s+forgetPort: forgetServerPort,\s+clearCookies: clearAuthCookies,/u)
     expect(body('handleUnexpectedServerExit')).toContain('ladder: () => runRecoveryLadder(')
     expect(body('performRebind')).toContain('await rebindOnNewPort(spec, startEmbeddedServer, logLine)')
-    expect(body('stopServerBounded')).toMatch(/await stopForQuit\(\{\s+markIntentional: .+\n\s+stop: handle\.stop, clearCookies: clearAuthCookies,/u)
+    expect(body('stopServerBounded')).toMatch(/await stopServerForQuit\(handle, \{ home: resolveHarnessHome\(\), log: logLine, clearCookies: clearAuthCookies,/u)
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([
       'resumeAfterFailedInstall: \\(blocking: boolean\\) => resumeAfterFailedInstall\\(\\{\\s+blocking,',
@@ -235,13 +277,11 @@ describe('main.ts', () => {
     expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
   })
 
-  it('writes the intentional-stop sentinel before a quit\'s stop and the mandatory-update stop, and nowhere else', () => {
-    expect(body('stopServerBounded')).toMatch(/stopForQuit\(\{\s+markIntentional: \(\) => \{ writeIntentionalStop\(resolveHarnessHome\(\), 'quit', logLine\) \},/u)
-    expect(source).toMatch(new RegExp([
-      'await stopForMandatoryUpdate\\(\\{\\s+markIntentional: \\(\\) => \\{ writeIntentionalStop\\(resolveHarnessHome\\(\\), \'update\', sink\\) \\},',
-      '\\s+stop: server\\.stop,',
-    ].join(''), 'u'))
-    expect(source.match(/writeIntentionalStop\(/gu)).toHaveLength(2)
+  it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
+    expect(source).toContain('await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })')
+    expect(source).toContain("}, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })")
+    expect(source).not.toContain('writeIntentionalStop(')
+    expect(source.match(/markIntentionalStop\(|stopServerForQuit\(|stopForMandatoryUpdate\(/gu)).toHaveLength(3)
     // The server's own stop paths: the startup-timeout kill and the orphan sweep.
     expect(readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')).not.toContain('crash-resume-sentinel')
   })

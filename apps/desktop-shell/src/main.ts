@@ -23,13 +23,12 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
+import { app, BrowserWindow, dialog, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
-import { writeIntentionalStop } from './crash-resume-sentinel.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
@@ -54,8 +53,10 @@ import {
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, isPortFree, startOnPort } from './server-port.ts'
 import {
-  rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate, stopForQuit,
+  markIntentionalStop, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
+  stopServerForQuit,
 } from './server-lifecycle.ts'
+import { watchSessionEnd } from './session-end.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -191,18 +192,16 @@ const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
  * Stop the server for a quit, giving up after `STOP_TIMEOUT_MS`. The caller
  * exits either way; a stop that timed out leaves an orphan for the next launch
  * to sweep, which is recoverable, while waiting forever is not. The
- * intentional-stop sentinel is written first, and the sign-in cookies are
- * removed within a short bound before the stop
+ * intentional-stop sentinel is written first unless the server already
+ * crashed — {@link server} keeps a crashed server's handle — and the sign-in
+ * cookies are removed within a short bound before the stop
  * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  * @returns resolves when the server stopped or the deadline passed.
  */
 async function stopServerBounded(): Promise<void> {
   const handle = server
   if (handle === undefined) return
-  await stopForQuit({
-    markIntentional: () => { writeIntentionalStop(resolveHarnessHome(), 'quit', logLine) },
-    stop: handle.stop, clearCookies: clearAuthCookies, log: logLine, timeoutMs: STOP_TIMEOUT_MS,
-  })
+  await stopServerForQuit(handle, { home: resolveHarnessHome(), log: logLine, clearCookies: clearAuthCookies, timeoutMs: STOP_TIMEOUT_MS })
 }
 
 /**
@@ -727,6 +726,17 @@ if (!locked) {
 
   void app.whenReady().then(async () => {
     app.setAppUserModelId(APP_USER_MODEL_ID)
+    // Before the first window, which on Windows is what reports the end. A
+    // Windows session end emits no `before-quit`, so this is the only point at
+    // which the shell can record that the coming end of the server is not a crash.
+    watchSessionEnd({
+      platform: process.platform,
+      powerMonitor,
+      eachWindow: (listener) => {
+        for (const window of BrowserWindow.getAllWindows()) listener(window)
+        app.on('browser-window-created', (_event, window) => { listener(window) })
+      },
+    }, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })
     // Before the first window, so no page ever runs under the default policy.
     installMicrophonePermissions(session.defaultSession, {
       primary: () => mainWindow()?.webContents,
@@ -856,10 +866,7 @@ if (!locked) {
         // server goes down with it, so nothing here is usable until the
         // update the updater is now driving has been installed.
         sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await stopForMandatoryUpdate({
-          markIntentional: () => { writeIntentionalStop(resolveHarnessHome(), 'update', sink) },
-          stop: server.stop,
-        })
+        await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })
         server = undefined
         return
       }

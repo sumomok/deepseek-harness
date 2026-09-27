@@ -21,8 +21,9 @@
  *   plugin ([[@deepseek-ai/dsh-desktop-shell/crash-resume-sentinel]]), then
  *   removes the cookies with a short bound, then stops the server; the stop is
  *   sent whether or not the removal finished. The stop a mandatory update
- *   forces at launch records the same first. An unexpected exit records
- *   nothing.
+ *   forces at launch, and a system shutdown or log-off, record the same. Only
+ *   a server whose child is still running is recorded: an unexpected exit
+ *   records nothing, and neither does a later quit of the crashed server.
  * - Reopening the window while quitting does nothing, so no new token
  *   exchange issues a cookie for a server about to be gone.
  * - An install that failed after the quit began undoes the quit: it clears
@@ -32,6 +33,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/server-lifecycle
  */
 
+import { type IntentionalStopReason, writeIntentionalStop } from './crash-resume-sentinel.ts'
 import type { ServerHandle, ServerSpec } from './server.ts'
 import { startOnPort } from './server-port.ts'
 
@@ -133,23 +135,65 @@ export async function stopForQuit(hooks: StopHooks): Promise<'stopped' | 'timeou
   return 'stopped'
 }
 
-/** What the stop a mandatory update forces at launch needs. */
-export interface UpdateStopHooks {
-  /** Record, synchronously, that the coming stop is intentional; never throws. */
-  markIntentional: () => void
-  /** Terminate the server; resolves once it exited. */
-  stop: () => Promise<void>
+/** Where an intentional-stop sentinel goes, and where a failed write is logged. */
+export interface SentinelTarget {
+  /** The Harness home the server runs against. */
+  home: string
+  /** One log line, ending in a newline. */
+  log: (line: string) => void
 }
 
 /**
- * Stop the server a launch started because a mandatory update blocks the app:
- * record that the stop is intentional, then stop it.
- * @param hooks - the effects.
+ * Write the intentional-stop sentinel for `handle`, but only while its child
+ * is still running. A server that already exited on its own was a crash, and
+ * the shell keeps its handle after a crash (the recovery ladder, the stop
+ * dialog, a quit, or an update install can all follow), so a later quit or
+ * system shutdown must not turn that crash into a stop.
+ * @param handle - the server about to be stopped, or undefined when none runs.
+ * @param reason - why it is being stopped.
+ * @param target - the home and the log.
+ * @returns true when the sentinel write was attempted.
+ */
+export function markIntentionalStop(
+  handle: Pick<ServerHandle, 'exited'> | undefined, reason: IntentionalStopReason, target: SentinelTarget,
+): boolean {
+  if (handle === undefined || handle.exited()) return false
+  writeIntentionalStop(target.home, reason, target.log)
+  return true
+}
+
+/** What a quit's stop of one server needs besides the server. */
+export interface QuitStopContext extends SentinelTarget {
+  /** Remove the served UI's sign-in cookies. */
+  clearCookies: () => Promise<unknown>
+  /** How long the stop may take before the quit goes ahead without it. */
+  timeoutMs: number
+}
+
+/**
+ * Stop `handle` for a quit through [[stopForQuit]], writing the sentinel with
+ * reason `quit` first when the server is still running.
+ * @param handle - the server to stop.
+ * @param context - the home, the log, the cookie removal and the deadline.
+ * @returns `stopped`, or `timeout` when the stop did not finish in time.
+ */
+export function stopServerForQuit(handle: ServerHandle, context: QuitStopContext): Promise<'stopped' | 'timeout'> {
+  return stopForQuit({
+    markIntentional: () => { markIntentionalStop(handle, 'quit', context) },
+    stop: handle.stop, clearCookies: context.clearCookies, log: context.log, timeoutMs: context.timeoutMs,
+  })
+}
+
+/**
+ * Stop the server a launch started because a mandatory update blocks the app,
+ * writing the sentinel with reason `update` first.
+ * @param handle - the server to stop.
+ * @param target - the home and the log.
  * @returns once the server exited.
  */
-export async function stopForMandatoryUpdate(hooks: UpdateStopHooks): Promise<void> {
-  hooks.markIntentional()
-  await hooks.stop()
+export async function stopForMandatoryUpdate(handle: ServerHandle, target: SentinelTarget): Promise<void> {
+  markIntentionalStop(handle, 'update', target)
+  await handle.stop()
 }
 
 /** What bringing the app to the front needs. */

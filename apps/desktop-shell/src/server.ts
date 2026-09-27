@@ -220,6 +220,12 @@ export interface ServerHandle {
   /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
   /**
+   * Whether the child process has exited, by any cause. True as soon as the
+   * process reported its exit, before {@link onExit} listeners hear it.
+   * @returns true once the child is gone.
+   */
+  exited: () => boolean
+  /**
    * Register a listener for the child's own exit. Fires exactly once, whether
    * the child already exited by the time this is called (synchronously, with
    * the recorded info) or exits later. It fires once the output pipes closed
@@ -435,6 +441,7 @@ export async function startServer(
       expectedExit = true
       return killTree(child)
     },
+    exited: () => child.exitCode !== null || child.signalCode !== null,
     onExit: (listener) => {
       if (exitInfo !== undefined) {
         listener(exitInfo)

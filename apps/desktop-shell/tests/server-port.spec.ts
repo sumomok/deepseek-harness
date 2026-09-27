@@ -47,6 +47,7 @@ function handleOn(port: number): ServerHandle {
     url: `http://127.0.0.1:${String(port)}`,
     authenticatedUrl: `http://127.0.0.1:${String(port)}/?token=t`,
     stop: async () => {},
+    exited: () => false,
     onExit: () => {},
   }
 }
