@@ -36,11 +36,7 @@ export const REBUILDABLE_ENTRIES: readonly string[] = [
   'storages/session_projcache.json',
 ]
 
-/**
- * File that marks a directory as a move in progress (a partial copy, a hidden
- * source, or a target that has no identity yet). Its content is the move id.
- */
-export const MOVE_STATE_FILENAME = '.dsh-move-state'
+export { MOVE_STATE_FILENAME } from '../data-location.ts'
 
 /** Allocation unit assumed for the target volume (APFS and NTFS both default to 4 KiB). */
 export const ESTIMATED_BLOCK_BYTES = 4096

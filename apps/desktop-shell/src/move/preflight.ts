@@ -24,7 +24,7 @@ import {
 } from 'node:fs'
 import { dirname, join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
-import { DATA_ID_FILENAME, looksLikeHarnessHome } from '../data-location.ts'
+import { DATA_ID_FILENAME, hasHarnessStructure } from '../data-location.ts'
 import type { PowerShellRunner } from '../terminal-env.ts'
 import { isInsidePath, meaningfulNames, REBUILDABLE_ENTRIES, scanTree, type TreeScan } from './tree.ts'
 
@@ -78,7 +78,7 @@ export function inspectTarget(path: string): TargetState {
     return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'not-a-folder'
   }
   if (!stats.isDirectory()) return 'not-a-folder'
-  if (existsSync(join(path, DATA_ID_FILENAME)) || looksLikeHarnessHome(path)) return 'harness-data'
+  if (existsSync(join(path, DATA_ID_FILENAME)) || hasHarnessStructure(path)) return 'harness-data'
   return meaningfulNames(readdirSync(path)).length === 0 ? 'empty' : 'not-empty'
 }
 

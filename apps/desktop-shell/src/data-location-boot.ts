@@ -24,10 +24,11 @@ import { join, resolve } from 'node:path'
 import {
   adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, keepPointerOverEnv, normalizeDshHome, readPointer,
   resolveDataLocation, writePointer,
-  type DataLocationPointer, type EnvUnverifiedReason, type PointerRead, type Resolution, type UnavailableReason,
+  type ChosenFolder, type DataLocationPointer, type EnvUnverifiedReason, type PointerRead, type Resolution, type UnavailableReason,
 } from './data-location.ts'
 import type { DataLocationText } from './data-location-text.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
+import { moveDir, readAbandonedCopies } from './move/journal.ts'
 import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite } from './terminal-env.ts'
 
 /** A question the boot window puts to the person. */
@@ -107,8 +108,12 @@ export interface DataLocationHost {
   log: (line: string) => void
   /** Read `DSH_HOME` from the login shell or the Windows user environment, never from this process's environment. */
   readPersistentEnv: () => Promise<ExplicitRead>
-  /** Make terminals opened from now on see this `DSH_HOME`. */
-  writeTerminalEnv: (value: string) => Promise<TerminalWrite>
+  /**
+   * Make terminals opened from now on see this `DSH_HOME`, or, with
+   * `undefined`, no `DSH_HOME` of ours: the profile block or the Windows user
+   * variable is removed (a data move's rollback when there was none before).
+   */
+  writeTerminalEnv: (value: string | undefined) => Promise<TerminalWrite>
   /** Put a question on the boot window and wait for the answer. */
   ask: (view: PromptView) => Promise<LocationAnswer>
   /** Let the person pick a folder; `undefined` when they cancel. */
@@ -328,7 +333,9 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
     else if (read.kind === 'absent') explicit = { kind: 'unset' }
     else explicit = persistent ??= await host.readPersistentEnv()
     const envPath = pointerEnv(host, read, explicit)
-    const resolution = resolveDataLocation({ read, env: decided ? undefined : envPath, defaultHome: host.defaultHome })
+    // A damaged record throws: without it an abandoned copy could not be told from the data.
+    const abandoned = readAbandonedCopies(moveDir(host.userData))
+    const resolution = resolveDataLocation({ read, env: decided ? undefined : envPath, defaultHome: host.defaultHome, abandoned })
     switch (resolution.kind) {
       case 'ready': {
         let pointer: DataLocationPointer | undefined
@@ -356,7 +363,7 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
         return { home: resolution.home, via: resolution.via, pointer, explicit, link, ...terminal === undefined ? {} : { terminal } }
       }
       case 'unavailable': {
-        const path = resolution.pointer?.path
+        const path = resolution.pointer?.path ?? resolution.path
         const suggestion = resolution.suggestion
         log(`[desktop] data location: unavailable (${resolution.reason}) ${path ?? resolution.detail ?? ''}${suggestion === undefined ? '' : `; the backup names ${suggestion.path}`}; asking\n`)
         const answer = await host.ask(promptView({
@@ -371,10 +378,10 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
         else if (answer === 'choose') chosen = await host.chooseFolder(text.chooseTitle)
         if (chosen === undefined) continue
         // A confirmed backup location must still carry the identity the backup recorded.
-        const checked = checkChosenFolder(chosen, answer === 'use-suggested' ? suggestion : resolution.pointer, envPath)
+        const checked = checkChosenFolder(chosen, answer === 'use-suggested' ? suggestion : resolution.pointer, envPath, abandoned)
         if (checked.kind === 'rejected') {
           log(`[desktop] data location: refused ${chosen} (${checked.reason})\n`)
-          await host.tell(checked.reason === 'no-data' ? text.refusedNoData(chosen) : text.refusedOtherData(chosen))
+          await host.tell(refusal(text, checked.reason, chosen))
           continue
         }
         log(`[desktop] data location: the person pointed the app at ${checked.pointer.path}\n`)
@@ -422,6 +429,26 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
       default:
         return resolution satisfies never
     }
+  }
+}
+
+/**
+ * The sentence for a refused pick.
+ * @param text - the sentence set.
+ * @param reason - why the folder was refused.
+ * @param path - the folder.
+ * @returns the sentence.
+ */
+function refusal(text: DataLocationText, reason: Extract<ChosenFolder, { kind: 'rejected' }>['reason'], path: string): string {
+  switch (reason) {
+    case 'no-data':
+      return text.refusedNoData(path)
+    case 'other-data':
+      return text.refusedOtherData(path)
+    case 'set-aside':
+      return text.refusedSetAside(path)
+    default:
+      return reason satisfies never
   }
 }
 

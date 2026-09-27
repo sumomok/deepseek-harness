@@ -16,9 +16,10 @@ import {
   type DataLocationHost, type LocationAnswer, type PromptView,
 } from '../src/data-location-boot.ts'
 import {
-  DATA_ID_FILENAME, POINTER_VERSION, readDataId, readPointer, writePointer,
+  DATA_ID_FILENAME, MOVE_STATE_FILENAME, POINTER_VERSION, readDataId, readPointer, RETIRED_FILENAME, writePointer,
   type DataId, type DataLocationPointer,
 } from '../src/data-location.ts'
+import { ABANDONED_FILENAME, abandonedCopiesText, moveDir, type MoveId } from '../src/move/journal.ts'
 import { DATA_LOCATION_TEXT, dataLocationText } from '../src/data-location-text.ts'
 import {
   POINTER_HOME_ENV, readLoginShellDshHome, shellQuote, updateShellProfile, type ExplicitRead, type TerminalWrite,
@@ -101,6 +102,7 @@ function recordingHost(options: {
       return persistent
     },
     writeTerminalEnv: async (value) => {
+      if (value === undefined) throw new Error('the launch step never removes the terminal setting')
       terminalWrites.push(value)
       const result = options.terminal?.(value) ?? { kind: 'user-environment' }
       if (result instanceof Error) throw result
@@ -169,7 +171,7 @@ describe('promptView', () => {
   })
 
   it('offers only keep and quit when the new location cannot be used', () => {
-    for (const reason of ['not-a-folder', 'damaged-data', 'cannot-create'] as const) {
+    for (const reason of ['not-a-folder', 'damaged-data', 'set-aside', 'cannot-create'] as const) {
       for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
         const view = promptView({ kind: 'confirm-env', reason, envPath: '/set', current: '/data' }, text)
         expect(view.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
@@ -191,14 +193,50 @@ describe('promptView', () => {
 
   it('names each reason in words, without the variable\'s name', () => {
     for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
-      for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable'] as const) {
+      for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable', 'set-aside'] as const) {
         expect(text.unavailable(reason, '/p')).not.toMatch(/DSH_HOME|pointer|指针/)
       }
       expect(text.unavailableSuggested('/p')).not.toMatch(/DSH_HOME|pointer|backup|指针|备份/)
-      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'cannot-create'] as const) {
+      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'set-aside', 'cannot-create'] as const) {
         expect(text.env(reason, '/a', '/b')).not.toMatch(/DSH_HOME|pointer|marker|指针|标记/)
       }
     }
+  })
+})
+
+describe('settleDataLocation and folders a data move set aside', () => {
+  it('asks instead of using a pointer\'s folder that a move set aside, and refuses picking one', async () => {
+    const aside = dataDir('aside', ID)
+    writeFileSync(join(aside, MOVE_STATE_FILENAME), 'm\n')
+    const retired = dataDir('retired')
+    writeFileSync(join(retired, RETIRED_FILENAME), '{}\n')
+    const good = dataDir('good', ID)
+    writePointer(userData, pointerAt(aside))
+    const recorded = recordingHost({ answers: ['choose', 'choose'], folders: [retired, good] })
+    const settled = await settleDataLocation(recorded.host, undefined)
+    expect(settled).toMatchObject({ home: good, via: 'pointer' })
+    expect(recorded.asked.map(view => view.detail)).toEqual([
+      DATA_LOCATION_TEXT.zh.unavailable('set-aside', aside), DATA_LOCATION_TEXT.zh.unavailable('set-aside', aside),
+    ])
+    expect(recorded.told).toEqual([DATA_LOCATION_TEXT.zh.refusedSetAside(retired)])
+  })
+
+  it('refuses an abandoned copy recorded under user data, and names the default home it cannot use', async () => {
+    mkdirSync(defaultHome)
+    writeFileSync(join(defaultHome, DATA_ID_FILENAME), `${ID}\n`)
+    mkdirSync(moveDir(userData))
+    writeFileSync(join(moveDir(userData), ABANDONED_FILENAME), abandonedCopiesText([
+      { path: realpathSync(defaultHome), dataId: ID, moveId: 'm' as MoveId, abandonedAt: '' },
+    ]))
+    const recorded = recordingHost({ answers: ['quit'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+    expect(recorded.asked[0]?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailable('set-aside', defaultHome))
+  })
+
+  it('fails loudly on a damaged record of abandoned copies rather than guessing', async () => {
+    mkdirSync(moveDir(userData))
+    writeFileSync(join(moveDir(userData), ABANDONED_FILENAME), '{')
+    await expect(settleDataLocation(recordingHost().host, undefined)).rejects.toThrow(/abandoned copies/)
   })
 })
 

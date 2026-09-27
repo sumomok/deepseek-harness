@@ -289,6 +289,11 @@ describe('the target folder', () => {
     expect(inspectTarget(join(scratch, 'data'))).toBe('harness-data')
     expect(inspectTarget(join(scratch, 'marked'))).toBe('harness-data')
     expect(inspectTarget(join(scratch, 'file'))).toBe('not-a-folder')
+    // A single Harness folder is not enough to adopt a home, but enough to refuse taking the folder over.
+    for (const only of ['sessions', 'profiles', 'attachments', 'storages']) {
+      mkdirSync(join(scratch, `only-${only}`, only), { recursive: true })
+      expect(inspectTarget(join(scratch, `only-${only}`))).toBe('harness-data')
+    }
   })
 
   it('resolves the existing part of a path that does not exist yet', () => {

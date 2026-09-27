@@ -442,4 +442,19 @@ describe('platform dispatch', () => {
     const written = await writeTerminalDshHome(host('darwin', { SHELL: '/bin/zsh' }), '/m')
     expect(written).toEqual({ kind: 'profile', update: { kind: 'written', file: join(home, '.zshrc') } })
   })
+
+  it('removes the setting it wrote when asked for none, on both platforms', async () => {
+    const calls: string[] = []
+    const run: PowerShellRunner = async (_script, env) => { calls.push(env[WRITE_VALUE_ENV] ?? '<removed>'); return { code: 0, stdout: '' } }
+    expect(await writeTerminalDshHome(host('win32', {}, run), undefined)).toEqual({ kind: 'user-environment' })
+    expect(calls).toEqual(['<removed>'])
+    const zshrc = join(home, '.zshrc')
+    writeFileSync(zshrc, 'alias ll=ls\n')
+    await writeTerminalDshHome(host('darwin', { SHELL: '/bin/zsh' }), '/m')
+    expect(readFileSync(zshrc, 'utf8')).toContain('/m')
+    expect(await writeTerminalDshHome(host('darwin', { SHELL: '/bin/zsh' }), undefined))
+      .toMatchObject({ kind: 'profile', update: { kind: 'written', file: zshrc } })
+    expect(readFileSync(zshrc, 'utf8')).not.toContain('DSH_HOME')
+    expect(readFileSync(zshrc, 'utf8')).toContain('alias ll=ls')
+  })
 })

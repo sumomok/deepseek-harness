@@ -49,13 +49,7 @@ export const DONE_LOG_FILENAME = 'done.jsonl'
 export const RESULT_FILENAME = 'last-result.json'
 /** The identity marker's name in a source that gave it up. */
 export const MOVED_ID_FILENAME = '.dsh-data-id.moved'
-/**
- * Marker of a folder that held this data and must never be used as a data
- * directory again: a retired copy at the new location, or an original kept
- * after the person chose the new location. Its content names the data and the
- * move. Phase 2's boot and Settings (A7) refuse a folder that holds it.
- */
-export const RETIRED_FILENAME = '.dsh-data-retired'
+export { RETIRED_FILENAME } from '../data-location.ts'
 /** Copies left on a drive that was not attached when the person rolled back without them; see {@link AbandonedCopy}. */
 export const ABANDONED_FILENAME = 'abandoned-copies.json'
 /** Rounds of repairs after failed checks before the move is given up (design doc 3.2 step 4). */

@@ -22,15 +22,21 @@
  * holds Harness data. A value equal to `lastSeenEnv`, or no value, leaves the
  * pointer in charge. This module decides; it performs no prompt, and the only
  * files it writes are the pointer and the identity marker.
+ *
+ * A directory a data move set aside is never used, whichever of the pointer,
+ * `DSH_HOME`, `~/.dsh`, or the person's pick names it (see {@link isSetAside}):
+ * a copy or original in the middle of a move, a retired copy, or a copy
+ * recorded as abandoned on a drive that was away.
  * @module @deepseek-ai/dsh-desktop-shell/data-location
  */
 
 import { randomUUID } from 'node:crypto'
 import {
-  closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, writeSync,
+  closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeSync,
 } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeDurably } from './durable-file.ts'
+import type { AbandonedCopy } from './move/journal.ts'
 
 /** File name of the pointer under Electron's user-data directory. */
 export const POINTER_FILENAME = 'data-location.json'
@@ -40,6 +46,19 @@ export const POINTER_BACKUP_FILENAME = 'data-location.json.bak'
 export const DATA_ID_FILENAME = '.dsh-data-id'
 /** The only pointer format this build reads and writes. */
 export const POINTER_VERSION = 1
+/**
+ * File that marks a directory as a move in progress (a partial copy, a hidden
+ * source, or a target that has no identity yet). Its content is the move id.
+ * A directory holding it is never used as the data directory.
+ */
+export const MOVE_STATE_FILENAME = '.dsh-move-state'
+/**
+ * Marker of a folder that held this data and must never be used as a data
+ * directory again: a retired copy at the new location, or an original kept
+ * after the person chose the new location. Its content names the data and the
+ * move.
+ */
+export const RETIRED_FILENAME = '.dsh-data-retired'
 
 /**
  * Identity of one data directory: a random UUID written once into its marker
@@ -84,9 +103,9 @@ export type DataIdRead =
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
- * Entries only the Harness creates at the top of its home. A directory holding
- * one of them is Harness data even before it carries an identity marker, which
- * is the state of every home written before this build.
+ * Entries only the Harness creates at the top of its home. Homes written
+ * before this build carry no identity marker, so these entries are what
+ * recognizes them ({@link looksLikeHarnessHome}, {@link hasHarnessStructure}).
  */
 const HOME_STRUCTURE = ['sessions', 'profiles', 'attachments', 'storages'] as const
 
@@ -253,28 +272,71 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * Whether a directory without an identity marker is nevertheless a Harness home.
+ * Whether a directory without an identity marker is nevertheless a Harness
+ * home to adopt: it holds `sessions/` and one of `profiles/` or `storages/`,
+ * which a home that has been launched once has. A single one of them (a
+ * copy begun and stopped, say) is not enough.
  * @param dir - the directory to inspect.
- * @returns true when it holds one of the top-level directories only the Harness creates.
+ * @returns true when it holds that structure.
  */
 export function looksLikeHarnessHome(dir: string): boolean {
+  return isDirectory(join(dir, 'sessions')) && (isDirectory(join(dir, 'profiles')) || isDirectory(join(dir, 'storages')))
+}
+
+/**
+ * Whether a directory holds any of the top-level directories only the Harness
+ * creates. Broader than {@link looksLikeHarnessHome}: it decides what a move
+ * must not take over, not what may be adopted.
+ * @param dir - the directory to inspect.
+ * @returns true when one of them is there.
+ */
+export function hasHarnessStructure(dir: string): boolean {
   return HOME_STRUCTURE.some(name => isDirectory(join(dir, name)))
 }
 
-/** Why a pointer's directory cannot be used. */
-export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable'
+/**
+ * Whether a data move set a directory aside, so it must never be used as the
+ * data directory: it holds a move marker ({@link MOVE_STATE_FILENAME}) or a
+ * retired marker ({@link RETIRED_FILENAME}), or it is a recorded abandoned
+ * copy. An abandoned copy carries the same identity as the data in use, so it
+ * is told apart by its recorded path, compared with the directory's real
+ * path: a link to the data in use at a recorded path (`~/.dsh` after a move)
+ * is not set aside.
+ * @param dir - the directory, as a pointer, `DSH_HOME`, or a pick names it.
+ * @param abandoned - the recorded abandoned copies.
+ * @returns true when the directory must not be used.
+ */
+export function isSetAside(dir: string, abandoned: readonly AbandonedCopy[]): boolean {
+  if (!isDirectory(dir)) return false
+  if (existsSync(join(dir, MOVE_STATE_FILENAME)) || existsSync(join(dir, RETIRED_FILENAME))) return true
+  if (abandoned.length === 0) return false
+  const id = readDataId(dir)
+  if (id.kind !== 'ok') return false
+  let real: string
+  try {
+    real = realpathSync.native(dir)
+  } catch {
+    // The directory went away between the checks: nothing is there to set aside.
+    return false
+  }
+  return abandoned.some(copy => copy.dataId === id.id && copy.path === real)
+}
+
+/** Why a pointer's directory cannot be used. `set-aside`: a data move set it aside ({@link isSetAside}). */
+export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable' | 'set-aside'
 
 /**
  * Why an explicit `DSH_HOME` that changed is not followed without asking.
  * `missing` and `not-harness-data` can be adopted as a new, empty location;
  * `not-a-folder` (a file, a dangling link, or a path that cannot be reached),
- * `damaged-data` (an identity marker that cannot be read), and
+ * `damaged-data` (an identity marker that cannot be read), `set-aside` (a
+ * folder a data move set aside, {@link isSetAside}), and
  * `cannot-create` cannot. {@link resolveDataLocation} never returns
  * `cannot-create`: the launch step asks with it after
  * {@link adoptEnvLocation} failed, on a volume that is not mounted or a
  * directory the person may not write, for example.
  */
-export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data' | 'cannot-create'
+export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data' | 'set-aside' | 'cannot-create'
 
 /**
  * Whether the person may adopt an unverified `DSH_HOME` as a new location.
@@ -288,6 +350,7 @@ export function canAdoptEnv(reason: EnvUnverifiedReason): boolean {
       return true
     case 'not-a-folder':
     case 'damaged-data':
+    case 'set-aside':
     case 'cannot-create':
       return false
     default:
@@ -344,7 +407,15 @@ export type Resolution =
     pointer?: DataLocationPointer
     adoptId?: boolean
   }
-  | { kind: 'unavailable'; reason: UnavailableReason; pointer?: DataLocationPointer; suggestion?: DataLocationPointer; detail?: string }
+  | {
+    kind: 'unavailable'
+    reason: UnavailableReason
+    pointer?: DataLocationPointer
+    suggestion?: DataLocationPointer
+    /** The directory that cannot be used when no pointer names it (`DSH_HOME` or `~/.dsh` set aside by a move). */
+    path?: string
+    detail?: string
+  }
   | { kind: 'confirm-env'; envPath: string; pointer: DataLocationPointer; reason: EnvUnverifiedReason }
 
 /** Inputs of {@link resolveDataLocation}. */
@@ -359,17 +430,21 @@ export interface ResolveInput {
   env: string | undefined
   /** The default home, `~/.dsh`. */
   defaultHome: string
+  /** The copies recorded as abandoned by data moves; see {@link isSetAside}. */
+  abandoned: readonly AbandonedCopy[]
 }
 
 /**
  * Decide which directory this launch uses. Reads the directories it names;
- * writes nothing.
+ * writes nothing. A directory a data move set aside is never `ready`.
  * @param input - the pointer, the explicit `DSH_HOME`, and the default home.
  * @returns the decision.
  */
 export function resolveDataLocation(input: ResolveInput): Resolution {
-  const { read, env, defaultHome } = input
+  const { read, env, defaultHome, abandoned } = input
   if (read.kind === 'absent') {
+    const home = env ?? defaultHome
+    if (isSetAside(home, abandoned)) return { kind: 'unavailable', reason: 'set-aside', path: home }
     return env === undefined ? { kind: 'ready', home: defaultHome, via: 'default' } : { kind: 'ready', home: env, via: 'env' }
   }
   if (read.kind === 'corrupt') {
@@ -380,10 +455,12 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
   const pointer = read.pointer
   if (env !== undefined && env !== pointer.lastSeenEnv) {
     const seen: DataLocationPointer = { ...pointer, lastSeenEnv: env }
-    if (env === pointer.path) return verifyPointer(seen, true)
+    if (env === pointer.path) return verifyPointer(seen, true, abandoned)
     const kind = pathKind(env)
     if (kind === 'absent') return { kind: 'confirm-env', envPath: env, pointer, reason: 'missing' }
     if (kind === 'other') return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-a-folder' }
+    // Before the identity: an abandoned copy carries this data's identity.
+    if (isSetAside(env, abandoned)) return { kind: 'confirm-env', envPath: env, pointer, reason: 'set-aside' }
     const followed: DataLocationPointer = { ...seen, path: env, movedAt: new Date().toISOString() }
     const id = readDataId(env)
     if (id.kind === 'ok') return { kind: 'ready', home: env, via: 'followed-env', pointer: { ...followed, dataId: id.id } }
@@ -391,17 +468,20 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
     if (looksLikeHarnessHome(env)) return { kind: 'ready', home: env, via: 'followed-env', pointer: followed, adoptId: true }
     return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-harness-data' }
   }
-  return verifyPointer(pointer, false)
+  return verifyPointer(pointer, false, abandoned)
 }
 
 /**
- * Check that the pointer's directory is there and carries its identity.
+ * Check that the pointer's directory is there, was not set aside by a data
+ * move, and carries its identity.
  * @param pointer - the pointer to verify.
  * @param changed - whether the pointer must be written back when it verifies.
+ * @param abandoned - the recorded abandoned copies.
  * @returns `ready` at the pointer's path, or why it is unavailable.
  */
-function verifyPointer(pointer: DataLocationPointer, changed: boolean): Resolution {
+function verifyPointer(pointer: DataLocationPointer, changed: boolean, abandoned: readonly AbandonedCopy[]): Resolution {
   if (!isDirectory(pointer.path)) return { kind: 'unavailable', reason: 'missing', pointer }
+  if (isSetAside(pointer.path, abandoned)) return { kind: 'unavailable', reason: 'set-aside', pointer }
   const id = readDataId(pointer.path)
   if (id.kind !== 'ok' || id.id !== pointer.dataId) return { kind: 'unavailable', reason: 'id-mismatch', pointer }
   return changed ? { kind: 'ready', home: pointer.path, via: 'pointer', pointer } : { kind: 'ready', home: pointer.path, via: 'pointer' }
@@ -432,23 +512,27 @@ export function commitReady(
 /** Outcome of checking a folder the person picked as their data. */
 export type ChosenFolder =
   | { kind: 'accepted'; pointer: DataLocationPointer }
-  | { kind: 'rejected'; reason: 'no-data' | 'other-data' }
+  | { kind: 'rejected'; reason: 'no-data' | 'other-data' | 'set-aside' }
 
 /**
  * Check a folder the person picked while the pointer's directory was
  * unavailable. With a readable pointer the folder must carry the pointer's
  * identity; with an unreadable one any identity marker is accepted, since
- * there is nothing left to compare it with.
+ * there is nothing left to compare it with. A folder a data move set aside is
+ * refused whatever it carries.
  * @param chosen - the absolute folder path.
  * @param pointer - the pointer that could not be used, or `undefined` when it was unreadable.
  * @param env - the explicit `DSH_HOME` observed this launch, recorded as seen.
+ * @param abandoned - the recorded abandoned copies.
  * @returns the pointer to write, or why the folder is refused.
  */
 export function checkChosenFolder(
   chosen: string,
   pointer: DataLocationPointer | undefined,
   env: string | undefined,
+  abandoned: readonly AbandonedCopy[],
 ): ChosenFolder {
+  if (isSetAside(chosen, abandoned)) return { kind: 'rejected', reason: 'set-aside' }
   const id = readDataId(chosen)
   if (id.kind !== 'ok') return { kind: 'rejected', reason: 'no-data' }
   if (pointer !== undefined && id.id !== pointer.dataId) return { kind: 'rejected', reason: 'other-data' }

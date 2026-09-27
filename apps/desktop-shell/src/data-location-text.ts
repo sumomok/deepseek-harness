@@ -21,6 +21,7 @@ export interface DataLocationText {
   chooseTitle: string
   refusedNoData: (path: string) => string
   refusedOtherData: (path: string) => string
+  refusedSetAside: (path: string) => string
   ok: string
   envTitle: string
   env: (reason: EnvUnverifiedReason, envPath: string, current: string) => string
@@ -40,6 +41,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `你的数据存放在「${path ?? ''}」，但这个位置现在的数据不是你原来的。如果换过磁盘，请选择数据所在的文件夹。`
         case 'pointer-unreadable':
           return '记录数据位置的文件读不出来了。请选择数据所在的文件夹。'
+        case 'set-aside':
+          return `你的数据记在「${path ?? ''}」，但那个文件夹是搬运数据时留下的，DSH 不再使用它。请选择数据所在的文件夹。`
         default:
           return reason satisfies never
       }
@@ -52,6 +55,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     chooseTitle: '选择数据所在的文件夹',
     refusedNoData: path => `「${path}」里没有 DSH 的数据。请选择原来存放数据的文件夹。`,
     refusedOtherData: path => `「${path}」里是另一份 DSH 数据，不是你原来的。请选择原来存放数据的文件夹。`,
+    refusedSetAside: path => `「${path}」是搬运数据时留下的文件夹，DSH 不再使用它。请选择原来存放数据的文件夹。`,
     ok: '知道了',
     envTitle: '数据位置被改过了',
     env: (reason, envPath, current) => {
@@ -64,6 +68,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `系统或终端里把数据位置设成了「${envPath}」，但那里不是一个能存放数据的文件夹，所以不能改用它。\n现在的数据在「${current}」。`
         case 'damaged-data':
           return `系统或终端里把数据位置设成了「${envPath}」，但那里的 DSH 数据已经损坏，认不出是哪一份，所以不能改用它。\n现在的数据在「${current}」。`
+        case 'set-aside':
+          return `系统或终端里把数据位置设成了「${envPath}」，但那是搬运数据时留下的文件夹，DSH 不再使用它，所以不能改用它。\n现在的数据在「${current}」。`
         case 'cannot-create':
           return `这个位置无法使用：没能在「${envPath}」建立数据文件夹，可能是磁盘没有接上，或者没有权限在那里写入。\n现在的数据在「${current}」。`
         default:
@@ -83,6 +89,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `Your data is stored in "${path ?? ''}", but the data there now is not yours. If you changed drives, choose the folder that holds your data.`
         case 'pointer-unreadable':
           return 'The record of where your data is stored cannot be read. Choose the folder that holds your data.'
+        case 'set-aside':
+          return `Your data is recorded as being in "${path ?? ''}", but that folder was left behind by moving your data, and DSH no longer uses it. Choose the folder that holds your data.`
         default:
           return reason satisfies never
       }
@@ -95,6 +103,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     chooseTitle: 'Choose the folder that holds your data',
     refusedNoData: path => `"${path}" holds no DSH data. Choose the folder where your data was stored.`,
     refusedOtherData: path => `"${path}" holds a different set of DSH data, not yours. Choose the folder where your data was stored.`,
+    refusedSetAside: path => `"${path}" was left behind by moving your data, and DSH no longer uses it. Choose the folder where your data was stored.`,
     ok: 'OK',
     envTitle: 'The data location was changed',
     env: (reason, envPath, current) => {
@@ -107,6 +116,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `The data location was set to "${envPath}" in the system or a terminal, but that is not a folder that can hold data, so it cannot be used.\nYour data is now in "${current}".`
         case 'damaged-data':
           return `The data location was set to "${envPath}" in the system or a terminal, but the DSH data there is damaged and cannot be recognized, so it cannot be used.\nYour data is now in "${current}".`
+        case 'set-aside':
+          return `The data location was set to "${envPath}" in the system or a terminal, but that folder was left behind by moving your data, and DSH no longer uses it, so it cannot be used.\nYour data is now in "${current}".`
         case 'cannot-create':
           return `This location cannot be used: a data folder could not be created in "${envPath}". The drive may not be connected, or you may not have permission to write there.\nYour data is now in "${current}".`
         default:
