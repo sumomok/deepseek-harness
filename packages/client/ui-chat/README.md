@@ -72,7 +72,7 @@ An automatic compaction owns one row for its whole lifetime: `Compacting context
 <a id="manual-compaction"></a>
 ## Manual compaction
 
-The Host refuses `/compact` unless the agent is idle. While a Session reports `running`, this package decorates the bare `/compact` menu pick and Enter: the typed command is consumed, nothing reaches the Host, and the composer shows `A reply is in progress. Compact after this turn ends.` An argued `/compact …` line and a Session that is idle but busy with Host maintenance still reach the Host, which answers with a `/compact` card. Inside a Turn that card stands outside the process group like the automatic running row, so a collapsed group never hides a refusal.
+The Host refuses `/compact` unless the agent is idle. While a Session reports `running`, this package decorates the bare `/compact` menu pick and Enter: the typed command is consumed, nothing reaches the Host, and the composer shows `A reply is in progress. Compact after this turn ends.` A bare `/compact` in a Session that is not `running` but whose Host is busy with maintenance still reaches the Host, which answers with a `/compact` card; an argued `/compact …` line is not a bare invocation and is sent as a message. Inside a Turn that card stands outside the process group like the automatic running row, so a collapsed group never hides a refusal.
 
 <a id="completed-turn-footer"></a>
 ## Completed-turn footer

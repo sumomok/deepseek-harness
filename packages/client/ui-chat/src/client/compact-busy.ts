@@ -14,10 +14,10 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
  * Decorate the Host `compact` command for as long as `commandUi` is composed.
  * While the addressed Session reports `running`, a bare menu pick or Enter
  * consumes the typed token, executes nothing, and shows `notice()` as an
- * error notice in that Session's composer. An idle Session, and every argued
- * `/compact …` line, reaches the Host command unchanged. Host maintenance that
- * does not report `running` still reaches the Host, which answers with its
- * own command card.
+ * error notice in that Session's composer. A bare invocation in an idle
+ * Session reaches the Host command unchanged, including while the Host runs
+ * maintenance that does not report `running`; the Host then answers with its
+ * own command card. The decoration never sees an argued `/compact …` line.
  * @param ctx - client root context that owns the decoration effect.
  * @param sessions - Session registry read for the running flag and the composer scope.
  * @param notice - localized refusal text, read on each refusal.

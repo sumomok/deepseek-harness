@@ -72,7 +72,7 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 <a id="manual-compaction"></a>
 ## 手动压缩
 
-Host 只在 agent 空闲时接受 `/compact`。Session 报告 `running` 期间，本包装饰裸 `/compact` 的菜单选取与回车：输入的指令被消费，不发往 Host，输入框显示 `正在回答，等这一轮结束后再压缩`。带参数的 `/compact …` 行，以及未在运行、但 Host 正在做维护的 Session，仍会发往 Host，由 Host 以一张 `/compact` 卡片作答。在轮次内，这张卡片与自动压缩的运行行一样位于过程组之外，组折叠时也不会藏起拒绝结果。
+Host 只在 agent 空闲时接受 `/compact`。Session 报告 `running` 期间，本包装饰裸 `/compact` 的菜单选取与回车：输入的指令被消费，不发往 Host，输入框显示 `正在回答，等这一轮结束后再压缩`。Session 不在 `running`、但 Host 正在做维护时，裸 `/compact` 仍会发往 Host，由 Host 以一张 `/compact` 卡片作答；带参数的 `/compact …` 不是裸调用，会作为消息发送。在轮次内，这张卡片与自动压缩的运行行一样位于过程组之外，组折叠时也不会藏起拒绝结果。
 
 <a id="completed-turn-footer"></a>
 ## 已完成轮次的页脚
