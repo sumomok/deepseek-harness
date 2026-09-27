@@ -25,7 +25,7 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
-  lockExpectedAt, rolledBackPointer, startMove,
+  abandonMove, lockExpectedAt, rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { acquireMoveLock, checkOwnLock, LOCK_FILENAME, MoveLockLostError } from '../src/move/lock.ts'
@@ -741,9 +741,9 @@ describe('a directory a terminal made at the old path', () => {
       ...real, copy: async (...args) => { await real.copy(...args); unlinkSync(join(s.f.home, LOCK_FILENAME)) },
     }
     const seen: string[][] = []
-    const guard = (journal: Parameters<typeof lockExpectedAt>[0], facts: Parameters<typeof lockExpectedAt>[1]): void => {
+    const guard = async (journal: Parameters<typeof lockExpectedAt>[0], facts: Parameters<typeof lockExpectedAt>[1]): Promise<void> => {
       seen.push(lockExpectedAt(journal, facts))
-      const check = checkOwnLock(lockExpectedAt(journal, facts), self, journal.pid)
+      const check = await checkOwnLock(lockExpectedAt(journal, facts), self, { startTimeOf: async () => undefined })
       if (check.kind === 'lost') throw new MoveLockLostError(check.detail)
     }
     const before = listTree(s.f.home).filter(line => !line.includes(LOCK_FILENAME))
@@ -756,6 +756,20 @@ describe('a directory a terminal made at the old path', () => {
     expect(existsSync(journal?.hidden ?? '')).toBe(false)
     expect(existsSync(journal?.partial ?? '')).toBe(true)
     expect(existsSync(s.target)).toBe(false)
+    // Once hiding began, the original can no longer be left as it was: no abandoning.
+    const journalText = readFileSync(join(s.setup.dir, JOURNAL_FILENAME), 'utf8')
+    writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'hiding-source' }))
+    expect(() => { abandonMove(s.setup.dir, 'x') }).toThrow(JournalError)
+    writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), journalText)
+    // Abandoned: the partial copy goes, unguarded, and nothing else changes.
+    abandonMove(s.setup.dir, 'the move lock was lost')
+    const ended = await advanceMove(s.setup.dir, effects, { pid: PID, guard })
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', source: s.f.home } })
+    expect(readJournal(s.setup.dir)).toBeUndefined()
+    expect(existsSync(journal?.partial ?? '')).toBe(false)
+    expect(listTree(s.f.home)).toEqual(before)
+    expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
+    expect(() => { abandonMove(s.setup.dir, 'x') }).toThrow(JournalError)
   })
 
   posixOnly('never copies, prints, or checks the lock\'s temporary files or the AppleDouble companions of the markers', async () => {
@@ -1042,7 +1056,9 @@ describe('nextAction', () => {
     const one = journal({ phase: 'switching', sameVolume: true })
     expect(lockExpectedAt(one, facts({ target: ours, hidden: dir({ exists: true }) }))).toEqual(['/t'])
     expect(lockExpectedAt({ ...across, phase: 'requested' }, facts({ source: ours }))).toEqual([])
-    expect(lockExpectedAt({ ...across, phase: 'cleanup' }, facts({ hidden: dir({ exists: true }) }))).toEqual([])
+    for (const phase of ['cleanup', 'rolling-back', 'cancelling', 'abandoning'] as const) {
+      expect(lockExpectedAt({ ...across, phase }, facts({ source: ours, hidden: dir({ exists: true }) }))).toEqual([])
+    }
   })
 
   it('hides the source before it names the target, one step at a time', () => {

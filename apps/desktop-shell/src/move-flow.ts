@@ -12,17 +12,17 @@ import type { AbandonedRecordHost } from './data-location-boot.ts'
 import { readAbandonedOrAsk } from './data-location-boot.ts'
 import { lockPlaces, relaunchHome } from './move-boot.ts'
 import {
-  blockedPage, discardLockPage, lockPage, progressView, stopPage, type ForeignLock, type MoveLink, type MovePage, type ProgressClock,
-  type ProgressView,
+  blockedPage, discardLockPage, lockLostPage, lockPage, progressView, stopPage, type ForeignLock, type MoveLink, type MovePage,
+  type ProgressClock, type ProgressView,
 } from './move-page.ts'
 import type { MoveText } from './move-text.ts'
 import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockCheck, type LockState } from './move/lock.ts'
+import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockProbes, type LockState } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
-import { lockExpectedNow, NODE_MOVE_FS, type MoveOutcome } from './move/run.ts'
+import { ABANDONABLE_PHASES, abandonMove, lockExpectedNow, NODE_MOVE_FS, type MoveOutcome } from './move/run.ts'
 
 /** The windows a move shows. */
 export interface MoveUi {
@@ -50,6 +50,8 @@ export interface MoveFlowDeps {
   abandoned: AbandonedRecordHost
   log: (line: string) => void
   now: () => Date
+  /** Process start times, for telling this installation's own earlier runs from one that still runs. */
+  lockProbes: Pick<LockProbes, 'startTimeOf'>
   /** Milliseconds between two heartbeats; {@link HEARTBEAT_INTERVAL_MS} when absent. */
   heartbeatMs?: number
   /** Starts the executor's worker; the real one when absent. */
@@ -75,25 +77,19 @@ export type MoveFlowEnd =
  */
 export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
   const { request } = deps
-  const beat = (): LockCheck => {
-    const journal = readJournal(request.dir)
-    if (journal === undefined) return { kind: 'ours' }
+  // A lock that is not this move's is only logged here: the worker checks it before each step and stops there.
+  const beat = async (): Promise<void> => {
     try {
-      return refreshMoveLock(lockExpectedNow(NODE_MOVE_FS, journal), request.lockSelf, deps.now(), journal.pid)
+      const journal = readJournal(request.dir)
+      if (journal === undefined) return
+      const check = await refreshMoveLock(lockExpectedNow(NODE_MOVE_FS, journal), request.lockSelf, deps.now(), deps.lockProbes)
+      if (check.kind === 'lost') deps.log(`[desktop] data move: the move lock is not this move's; not refreshed: ${check.detail}\n`)
     } catch (error) {
       deps.log(`[desktop] data move: could not refresh the move lock: ${String(error)}\n`)
-      return { kind: 'ours' }
     }
   }
-  const first = beat()
-  if (first.kind === 'lost') return await stopForLostLock(deps, first.detail)
-  const heartbeat = setInterval(() => {
-    const check = beat()
-    if (check.kind === 'ours') return
-    // The worker checks the lock before its next step and stops there.
-    deps.log(`[desktop] data move: the move lock is no longer this move's: ${check.detail}\n`)
-    clearInterval(heartbeat)
-  }, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS)
+  await beat()
+  const heartbeat = setInterval(() => { void beat() }, deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS)
   try {
     return await carry(deps)
   } finally {
@@ -102,16 +98,30 @@ export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
 }
 
 /**
- * Tell the person the move stopped because its lock was discarded or taken,
- * and quit; the journal stays.
- * @param deps - the windows, the sentences, and the log.
+ * Ask the person what to do with a move that stopped because its lock was not
+ * this move's. Before anything but the copy was changed, the move may be
+ * abandoned ({@link abandonMove}); later the original can no longer be left
+ * as it was, so the move may only be tried again (a lock that could not be
+ * read reads again; a lock another installation discarded stays lost).
+ * @param deps - the move, the windows, the sentences, and the log.
  * @param detail - where the lock was lost.
- * @returns `quit`.
+ * @returns `go` to carry the move on (abandoned, or tried again), or `quit`.
+ * @throws when the journal cannot be read or written.
  */
-async function stopForLostLock(deps: MoveFlowDeps, detail: string): Promise<MoveFlowEnd> {
-  deps.log(`[desktop] data move: stopped: the move lock is no longer this move's: ${detail}\n`)
-  await deps.ui.showPage(stopPage(deps.text.lockLostTitle, deps.text.lockLost, deps.text, { platform: deps.request.platform }))
-  return { kind: 'quit' }
+async function askAfterLostLock(deps: MoveFlowDeps, detail: string): Promise<'go' | 'quit'> {
+  const { request, text, log } = deps
+  log(`[desktop] data move: stopped: the move lock is not this move's: ${detail}\n`)
+  const phase = readJournal(request.dir)?.phase
+  if (phase === undefined) return 'quit'
+  const way = ABANDONABLE_PHASES.has(phase) ? 'abandon' : 'retry'
+  const link = await deps.ui.showPage(lockLostPage(text, way))
+  if (link.kind === 'abandon' && way === 'abandon') {
+    abandonMove(request.dir, `the move lock was lost: ${detail}`)
+    log('[desktop] data move: the person abandoned the move after its lock was lost\n')
+    return 'go'
+  }
+  if (link.kind === 'retry' && way === 'retry') return 'go'
+  return 'quit'
 }
 
 /**
@@ -147,7 +157,10 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
       })
     } catch (error) {
       if (!(error instanceof ExecutorError)) throw error
-      if (error.name === 'MoveLockLostError') return await stopForLostLock(deps, error.message)
+      if (error.name === 'MoveLockLostError') {
+        if (await askAfterLostLock(deps, error.message) === 'quit') return { kind: 'quit' }
+        continue
+      }
       log(`[desktop] data move: ${error.stalled ? 'stalled' : 'failed'}: ${error.name}: ${error.message}\n`)
       if (error.name === 'JournalError' && error.message.startsWith('abandoned copies')) {
         // The record the move reads and writes cannot be read: the same page as at launch, then the move goes on.

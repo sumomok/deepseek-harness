@@ -10,6 +10,7 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, MainCall } from './executor.ts'
 import { readJournal } from './journal.ts'
+import { nodeLockProbes } from '../process-tree.ts'
 import { checkOwnLock, MoveLockLostError } from './lock.ts'
 import {
   advanceMove, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, type MoveEffects, type ResolveOutcome,
@@ -19,6 +20,7 @@ import { PROGRESS_INTERVAL_MS } from './worker.ts'
 const port = parentPort
 if (port === null) throw new Error('executor-worker runs only as a worker thread')
 const request = workerData as ExecutorRequest
+const lockProbes = nodeLockProbes(request.platform)
 const cancel = new AbortController()
 const replies = new Map<number, { resolve: (value: string | null) => void; reject: (error: Error) => void }>()
 let nextId = 1
@@ -96,8 +98,8 @@ Promise.resolve().then(() => {
   if (prepared !== undefined) post({ type: 'prepared', prepared: { result: prepared, journal: readJournal(request.dir) } })
   return advanceMove(request.dir, effects, {
     pid: request.pid,
-    guard: (journal, facts) => {
-      const check = checkOwnLock(lockExpectedAt(journal, facts), request.lockSelf, journal.pid)
+    guard: async (journal, facts) => {
+      const check = await checkOwnLock(lockExpectedAt(journal, facts), request.lockSelf, lockProbes)
       if (check.kind === 'lost') throw new MoveLockLostError(check.detail)
     },
     cancel: cancel.signal,

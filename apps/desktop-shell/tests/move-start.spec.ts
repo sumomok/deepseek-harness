@@ -11,7 +11,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  bootMove, checkHealth, countSessions, lockPlaces, quarantinedPlugins, relaunchHome,
+  bootMove, checkHealth, countSessions, lockPlaces, passHealthCheck, quarantinedPlugins, relaunchHome,
 } from '../src/move-boot.ts'
 import {
   beginDataMove, handOverToMove, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest, type MoveStartProbes,
@@ -170,6 +170,23 @@ describe('starting a data move', () => {
     }
     expect(bootMove(dir)).toEqual({ kind: 'none' })
     expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
+  })
+
+  it('gives back the lock at the new location when the health check passes, and leaves the one in the hidden original', async () => {
+    const { request, probes } = await setup()
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    const dir = moveDir(request.userData)
+    const journal = started.journal
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'switched' }))
+    for (const place of [journal.target, journal.hidden]) {
+      mkdirSync(place, { recursive: true })
+      writeFileSync(join(place, LOCK_FILENAME), readFileSync(join(journal.source, LOCK_FILENAME)))
+    }
+    passHealthCheck(dir, request)
+    expect(readJournal(dir)?.phase).toBe('cleanup')
+    expect(existsSync(join(journal.target, LOCK_FILENAME))).toBe(false)
+    expect(existsSync(join(journal.hidden, LOCK_FILENAME))).toBe(true)
   })
 
   it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {

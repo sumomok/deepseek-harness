@@ -247,22 +247,56 @@ export interface AdvanceOptions {
    * throws stops the move with nothing more done (the executor checks that
    * the move still holds its lock, {@link lockExpectedAt}).
    */
-  guard?: (journal: MoveJournal, facts: MoveFacts) => void
+  guard?: (journal: MoveJournal, facts: MoveFacts) => void | Promise<void>
+}
+
+/** Phases whose steps need the move's lock where the data is ({@link lockExpectedAt}). */
+export const GUARDED_PHASES: ReadonlySet<MovePhase> = new Set([
+  'copying', 'verifying', 'catching-up', 'finalizing', 'hiding-source', 'switching', 'switched',
+])
+
+/** Guarded phases a move that lost its lock may be abandoned from: nothing outside the partial copy was changed yet. */
+export const ABANDONABLE_PHASES: ReadonlySet<MovePhase> = new Set(['copying', 'verifying', 'catching-up', 'finalizing'])
+
+/**
+ * Give up a move that lost its lock before it changed anything but its own
+ * copy: the journal goes to `abandoning`, which removes only the marked
+ * partial copy or copy at the new location, or puts back the empty folder
+ * that was there, and ends with the data where it was.
+ * @param dir - the move directory.
+ * @param detail - why, recorded as the failure.
+ * @throws when there is no journal in one of {@link ABANDONABLE_PHASES}.
+ */
+export function abandonMove(dir: string, detail: string): void {
+  const journal = readJournal(dir)
+  if (journal === undefined || !ABANDONABLE_PHASES.has(journal.phase)) {
+    throw new JournalError(`journal: the move cannot be abandoned now (phase ${String(journal?.phase)})`)
+  }
+  writeJournal(dir, { ...journal, phase: 'abandoning', failure: { phase: journal.phase, detail } })
 }
 
 /**
  * Where a move's lock must be now: in the original data wherever it is — at
  * the old path, hidden beside it, or, on one volume, renamed to the new
  * location. A place whose data is not this move's (its drive away, or
- * something else there) is not checked. None while the move is only
- * requested, or cleaning up (the cleanup deletes the hidden original, lock
- * included).
+ * something else there) is not checked.
+ *
+ * None in these phases:
+ * - `requested`: nothing has been done yet, and a launch withdraws such a move.
+ * - `cleanup`: it deletes only the hidden original, which no installation uses
+ *   as its data directory; on one volume it deletes nothing where the lock is.
+ *   The new location's lock is released when the health check passes.
+ * - `cancelling`, `abandoning`: they remove only this move's marked partial
+ *   copy or copy at the new location, or put back the empty folder that was
+ *   there; they never touch the original.
+ * - `rolling-back`: it only puts the original back where it was, and stops
+ *   with a page when something else is at that path.
  * @param journal - the journal.
  * @param facts - what is on disk now at the old path, the hidden original, and the new location.
  * @returns the directories.
  */
 export function lockExpectedAt(journal: MoveJournal, facts: Pick<MoveFacts, 'source' | 'hidden' | 'target'>): string[] {
-  if (journal.phase === 'requested' || journal.phase === 'cleanup') return []
+  if (!GUARDED_PHASES.has(journal.phase)) return []
   const places: string[] = []
   // `.dsh-data-id.moved` marks the original between giving up its identity and being hidden.
   if (facts.source.exists && (facts.source.dataId === 'ours' || facts.source.movedId)) places.push(journal.source)
@@ -499,7 +533,7 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
   for (;;) {
     const current: MoveJournal = journal
     const facts = observeMove(fs, current)
-    options.guard?.(current, facts)
+    await options.guard?.(current, facts)
     const action = nextAction(current, facts, cancel.aborted)
     const key = JSON.stringify({ current, facts, action })
     if (key === previous) throw new MoveStuckError(`${current.phase}: ${action.kind}`)

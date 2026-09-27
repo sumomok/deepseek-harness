@@ -23,7 +23,8 @@ import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, profileDirectory, readMigra
 import {
   JOURNAL_FILENAME, JournalError, mayStartServer, readJournal, type MoveBaseline, type MoveJournal, type MoveResult,
 } from './move/journal.ts'
-import type { MoveOutcome } from './move/run.ts'
+import { releaseMoveLock, type LockSelf } from './move/lock.ts'
+import { recordHealth, type MoveOutcome } from './move/run.ts'
 
 /** What a launch does about the move on disk. */
 export type BootMove =
@@ -59,6 +60,22 @@ export function bootMove(dir: string): BootMove {
   if (journal.phase === 'requested') return { kind: 'requested', journal }
   if (!mayStartServer(journal)) return { kind: 'resume', journal }
   return journal.phase === 'switched' ? { kind: 'health-check', journal } : { kind: 'cleanup', journal }
+}
+
+/**
+ * Record a passed health check and give back the lock at the new location:
+ * on one volume the data was renamed there with its lock, and the cleanup
+ * that follows neither needs it nor refreshes it, so it would otherwise age
+ * into a lock another installation reads as an unfinished move. The hidden
+ * original's lock goes with the original when the cleanup deletes it.
+ * @param dir - the move directory.
+ * @param self - this installation.
+ * @throws when there is no journal in phase `switched`, or the lock cannot be removed.
+ */
+export function passHealthCheck(dir: string, self: Pick<LockSelf, 'userData'>): void {
+  const journal = readJournal(dir)
+  recordHealth(dir, true)
+  if (journal !== undefined) releaseMoveLock([journal.target], self)
 }
 
 /**

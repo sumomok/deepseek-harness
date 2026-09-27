@@ -111,29 +111,36 @@ describe('the move lock', () => {
     expect(readFileSync(path, 'utf8')).toBe('a\n')
   })
 
-  it('refreshes the heartbeat where the lock must be, taking it over from the recorded process, and stops where it is not this move\'s', () => {
+  it('refreshes the heartbeat where the lock must be, taking over any earlier run\'s, and stops where it is not this move\'s', async () => {
     const path = join(dir, LOCK_FILENAME)
+    const none = { startTimeOf: async () => undefined }
     writeFileSync(path, JSON.stringify({ ...self, pid: 999, startedAt: 'earlier', heartbeatAt: '2026-01-01T00:00:00Z' }))
-    expect(refreshMoveLock([dir], self, NOW, 999)).toEqual({ kind: 'ours' })
+    expect(await refreshMoveLock([dir], self, NOW, none)).toEqual({ kind: 'ours' })
     expect(lockFile()).toEqual({ ...self, heartbeatAt: NOW.toISOString() })
     // Discarded by another installation: the refresh never recreates it.
     rmSync(path)
-    expect(refreshMoveLock([dir], self, NOW, self.pid)).toMatchObject({ kind: 'lost' })
+    expect(await refreshMoveLock([dir], self, NOW, none)).toMatchObject({ kind: 'lost' })
     expect(existsSync(path)).toBe(false)
     writeFileSync(path, JSON.stringify(other))
-    expect(refreshMoveLock([dir], self, NOW, self.pid)).toMatchObject({ kind: 'lost' })
+    expect(await refreshMoveLock([dir], self, NOW, none)).toMatchObject({ kind: 'lost' })
     expect(lockFile()).toEqual(other)
-    // This installation, but a process that is neither this one nor the one the journal records.
-    writeFileSync(path, JSON.stringify({ ...self, pid: 555, heartbeatAt: NOW.toISOString() }))
-    expect(checkOwnLock([dir], self, 999)).toMatchObject({ kind: 'lost' })
+    // A relaunch of this installation that was itself cut short wrote it: ours, whatever the journal records.
+    const cutShort = { ...self, pid: 555, startedAt: 'P2', heartbeatAt: NOW.toISOString() }
+    writeFileSync(path, JSON.stringify(cutShort))
+    expect(await checkOwnLock([dir], self, none)).toEqual({ kind: 'ours' })
+    expect(await checkOwnLock([dir], self, { startTimeOf: async () => 'a later process' })).toEqual({ kind: 'ours' })
+    // The same process id in an earlier boot: ours.
     writeFileSync(path, JSON.stringify({ ...self, startedAt: 'another boot', heartbeatAt: NOW.toISOString() }))
-    expect(checkOwnLock([dir], self, 999)).toMatchObject({ kind: 'lost' })
+    expect(await checkOwnLock([dir], self, none)).toEqual({ kind: 'ours' })
+    // Another process of this installation that still runs holds it.
+    writeFileSync(path, JSON.stringify(cutShort))
+    expect(await checkOwnLock([dir], self, { startTimeOf: async () => 'P2' })).toMatchObject({ kind: 'lost' })
     writeFileSync(path, '{')
-    expect(checkOwnLock([dir], self, self.pid)).toMatchObject({ kind: 'lost' })
+    expect(await checkOwnLock([dir], self, none)).toMatchObject({ kind: 'lost' })
     // Another installation's, even one naming this process id and start time.
     writeFileSync(path, JSON.stringify({ ...self, userData: '/u/other', heartbeatAt: NOW.toISOString() }))
-    expect(checkOwnLock([dir], self, self.pid)).toMatchObject({ kind: 'lost', detail: `${dir}: held by /u/other` })
-    expect(checkOwnLock([], self, self.pid)).toEqual({ kind: 'ours' })
+    expect(await checkOwnLock([dir], self, none)).toMatchObject({ kind: 'lost', detail: `${dir}: held by /u/other` })
+    expect(await checkOwnLock([], self, none)).toEqual({ kind: 'ours' })
   })
 
   it('releases only its own lock, in every place the data may be', async () => {

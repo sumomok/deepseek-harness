@@ -289,15 +289,18 @@ export class MoveLockLostError extends Error {
 }
 
 /**
- * Check that each place where the data is holds this move's lock: this
- * installation's, written by this process (the same id and start time) or by
- * the process the journal records.
+ * Check that each place where the data is holds this move's lock: a lock of
+ * this installation, unless another process of it that still runs wrote it
+ * (another id whose start time matches the one the lock records). A lock an
+ * earlier run of this installation left, including one a relaunch that was
+ * itself cut short wrote, is this move's: the boot treats it as ours the same
+ * way ({@link inspectMoveLock}).
  * @param dirs - where the lock must be (see `lockExpectedAt`).
  * @param self - this installation and process.
- * @param recordedPid - the process the journal records.
+ * @param probes - the process start times.
  * @returns `ours`, or `lost` naming the first place that does not hold it.
  */
-export function checkOwnLock(dirs: readonly string[], self: LockSelf, recordedPid: number): LockCheck {
+export async function checkOwnLock(dirs: readonly string[], self: LockSelf, probes: Pick<LockProbes, 'startTimeOf'>): Promise<LockCheck> {
   for (const dir of dirs) {
     let lock: LockRead
     try {
@@ -309,8 +312,9 @@ export function checkOwnLock(dirs: readonly string[], self: LockSelf, recordedPi
     if (lock.kind === 'unreadable') return { kind: 'lost', detail: `${dir}: ${lock.detail}` }
     const owner = lock.owner
     if (owner.userData !== self.userData) return { kind: 'lost', detail: `${dir}: held by ${owner.userData}` }
-    const thisProcess = owner.pid === self.pid && owner.startedAt === self.startedAt
-    if (!thisProcess && owner.pid !== recordedPid) return { kind: 'lost', detail: `${dir}: held by process ${String(owner.pid)}` }
+    if (owner.pid !== self.pid && owner.startedAt !== '' && await probes.startTimeOf(owner.pid) === owner.startedAt) {
+      return { kind: 'lost', detail: `${dir}: held by process ${String(owner.pid)} of this installation, which still runs` }
+    }
   }
   return { kind: 'ours' }
 }
@@ -320,16 +324,22 @@ export function checkOwnLock(dirs: readonly string[], self: LockSelf, recordedPi
  * recording this process as its holder (a move resumed after a relaunch takes
  * its lock over this way). A place that does not hold this move's lock
  * ({@link checkOwnLock}) stops the refresh before anything is written: the
- * lock was discarded or taken, and the move must stop.
+ * lock was discarded or taken, and the move must stop. The check and the
+ * write are not one step: a lock another installation discards in between is
+ * written again by this refresh, and one it takes over in between is
+ * replaced; the next check before a step (or the next heartbeat) cannot tell
+ * either apart from a lock that was never touched.
  * @param dirs - where the lock must be.
  * @param self - this installation and process.
  * @param now - the time to record.
- * @param recordedPid - the process the journal records.
+ * @param probes - the process start times.
  * @returns `ours` once every place was refreshed, or `lost`.
  * @throws when a lock cannot be written.
  */
-export function refreshMoveLock(dirs: readonly string[], self: LockSelf, now: Date, recordedPid: number): LockCheck {
-  const check = checkOwnLock(dirs, self, recordedPid)
+export async function refreshMoveLock(
+  dirs: readonly string[], self: LockSelf, now: Date, probes: Pick<LockProbes, 'startTimeOf'>,
+): Promise<LockCheck> {
+  const check = await checkOwnLock(dirs, self, probes)
   if (check.kind === 'lost') return check
   for (const dir of dirs) {
     const path = join(dir, LOCK_FILENAME)

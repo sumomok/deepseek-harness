@@ -33,7 +33,7 @@ import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
-import { bootMove, checkHealth, countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
+import { bootMove, checkHealth, countSessions, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage, type ForeignLock } from './move-page.ts'
 import {
@@ -46,7 +46,7 @@ import { moveDir } from './move/journal.ts'
 import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
 import { nodePreflightProbes } from './move/preflight.ts'
-import { nodeMoveEffects, recordHealth, retireAbandonedCopies } from './move/run.ts'
+import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
 import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
@@ -1073,7 +1073,7 @@ if (!locked) {
         clearInterval(ticker)
         const text = moveText(app.getLocale())
         const sentence = text.withdrawFailed(pendingMove.path, pendingMove.detail)
-        await stopForMove(text.journalUnreadableTitle, sentence, view.window, pendingMove.path)
+        await stopForMove(text.withdrawFailedTitle, sentence, view.window, pendingMove.path)
         return
       }
       if (found.kind === 'requested') sink('[desktop] data move: withdrawn at launch before copying anything\n')
@@ -1156,7 +1156,7 @@ if (!locked) {
           await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail: verdict.detail })
           return
         }
-        recordHealth(moveDir(app.getPath('userData')), true)
+        passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') })
         cleanUp = true
       }
       view.phase(2)

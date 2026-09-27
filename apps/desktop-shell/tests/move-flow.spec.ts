@@ -22,7 +22,7 @@ import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread 
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { recordHealth, startMove } from '../src/move/run.ts'
-import { buildFixture, type Fixture } from './move-fixture.ts'
+import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
 
 const fixtures: Fixture[] = []
@@ -95,7 +95,8 @@ function depsOf(setup: MoveSetup, ui: MoveUi, extra: Partial<MoveFlowDeps> = {})
       lockSelf: selfOf(setup),
     },
     main: { syncTerminal: async target => target, restoreTerminal: async () => undefined },
-    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(), ...extra,
+    ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(),
+    lockProbes: { startTimeOf: async () => undefined }, ...extra,
   }
 }
 
@@ -273,23 +274,48 @@ describe('a move that cannot go on', () => {
     expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x' }, undefined])
   })
 
-  it('stops a resumed move whose lock was discarded before starting the worker, and one the worker found without its lock', async () => {
-    const { setup, f } = await started()
+  posixOnly('stops a copy whose lock was discarded, and abandons it on request: the copy goes and the original opens as before', async () => {
+    const { setup, f, target } = await started()
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'copying' }))
     unlinkSync(join(f.home, LOCK_FILENAME))
-    let starts = 0
-    const ui = recordingUi([{ kind: 'quit' }])
-    const end = await carryMove(depsOf(setup, ui, { start: () => { starts += 1; return new ScriptedThread() } }))
-    expect(end).toEqual({ kind: 'quit' })
-    expect(starts).toBe(0)
-    expect(ui.pages[0]).toMatchObject({ title: text.lockLostTitle, paragraphs: [text.lockLost] })
-    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
-    expect(readJournal(setup.dir)?.phase).toBe('copying')
-    const again = await started()
-    const thread = new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'no lock' })
+    const before = listTree(f.home)
     const stopped = recordingUi([{ kind: 'quit' }])
-    expect(await carryMove(depsOf(again.setup, stopped, { start: () => thread }))).toEqual({ kind: 'quit' })
-    expect(stopped.pages[0]).toMatchObject({ title: text.lockLostTitle })
+    expect(await carryMove(depsOf(setup, stopped))).toEqual({ kind: 'quit' })
+    expect(stopped.pages[0]).toEqual({
+      title: text.lockLostTitle, paragraphs: [text.lockLost], reveal: [],
+      buttons: [{ label: text.abandonMove, link: { kind: 'abandon' } }, { label: text.quit, link: { kind: 'quit' } }],
+    })
+    expect(readJournal(setup.dir)?.phase).toBe('copying')
+    const abandoned = recordingUi([{ kind: 'abandon' }])
+    expect(await carryMove(depsOf(setup, abandoned))).toEqual({ kind: 'relaunch', home: f.home })
+    expect(readJournal(setup.dir)).toBeUndefined()
+    expect(listTree(f.home)).toEqual(before)
+    expect(existsSync(target)).toBe(false)
+    expect(readdirSync(f.targetParent).filter(name => name.startsWith('.dsh-data.partial') || name.includes('DSH-Data'))).toEqual([])
+  })
+
+  it('offers to try a move that could not read its lock after hiding began again, and goes on when it can', async () => {
+    const { setup, target } = await started()
+    writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'hiding-source' }))
+    const threads = [
+      new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'EIO' }),
+      new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } }),
+    ]
+    const ui = recordingUi([{ kind: 'retry' }])
+    expect(await carryMove(depsOf(setup, ui, { start: () => threads.shift() ?? new ScriptedThread() }))).toEqual({ kind: 'relaunch', home: target })
+    expect(ui.pages[0]).toMatchObject({
+      title: text.lockUncheckedTitle, paragraphs: [text.lockUnchecked],
+      buttons: [{ label: text.retry, link: { kind: 'retry' } }, { label: text.quit, link: { kind: 'quit' } }],
+    })
+    expect(threads).toEqual([])
+  })
+
+  posixOnly('goes on after a relaunch that was itself cut short left its own lock behind', async () => {
+    const { setup, f, target } = await started()
+    // The first run recorded itself and copied; a relaunch refreshed the lock and was killed before it recorded itself.
+    writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'copying', pid: 11111 }))
+    writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ userData: setup.userData, pid: 22222, startedAt: 'P2', heartbeatAt: new Date().toISOString() }))
+    expect(await carryMove(depsOf(setup, recordingUi([])))).toEqual({ kind: 'relaunch', home: target })
   })
 
   it('shows any other failure with its detail and quits', async () => {

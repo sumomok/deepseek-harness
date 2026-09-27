@@ -31,6 +31,10 @@ export type MoveLink =
   | { kind: 'confirm' }
   /** Go back to the page before. */
   | { kind: 'back' }
+  /** Abandon a move that lost its lock. */
+  | { kind: 'abandon' }
+  /** Try a move again. */
+  | { kind: 'retry' }
 
 /**
  * The link a button carries.
@@ -44,6 +48,8 @@ export function moveLinkUrl(link: MoveLink): string {
     case 'discard-lock':
     case 'confirm':
     case 'back':
+    case 'abandon':
+    case 'retry':
       return `${MOVE_LINK_SCHEME}//${link.kind}`
     case 'choose':
       return `${MOVE_LINK_SCHEME}//choose?c=${link.choice}`
@@ -79,6 +85,10 @@ export function parseMoveLink(url: string): MoveLink | undefined {
       return { kind: 'confirm' }
     case 'back':
       return { kind: 'back' }
+    case 'abandon':
+      return { kind: 'abandon' }
+    case 'retry':
+      return { kind: 'retry' }
     case 'choose': {
       const choice = parsed.searchParams.get('c')
       return choice === 'keep-target' || choice === 'rollback' ? { kind: 'choose', choice } : undefined
@@ -230,6 +240,25 @@ function lockPageBody(text: MoveText, lock: ForeignLock, home: string, platform:
       return stopPage(text.journalUnreadableTitle, text.lockUnreadable(lock.path), text, { platform, reveal: lock.path })
     default:
       return lock satisfies never
+  }
+}
+
+/**
+ * The page for a move that stopped because its lock was not this move's.
+ * @param text - the sentence set.
+ * @param way - what the page offers besides quitting: abandoning the move (before anything but the copy changed), or
+ * trying again (the lock could not be read).
+ * @returns the page.
+ */
+export function lockLostPage(text: MoveText, way: 'abandon' | 'retry'): MovePage {
+  const offer = way === 'abandon'
+    ? { label: text.abandonMove, link: { kind: 'abandon' } as const }
+    : { label: text.retry, link: { kind: 'retry' } as const }
+  return {
+    title: way === 'abandon' ? text.lockLostTitle : text.lockUncheckedTitle,
+    paragraphs: [way === 'abandon' ? text.lockLost : text.lockUnchecked],
+    buttons: [offer, { label: text.quit, link: { kind: 'quit' } }],
+    reveal: [],
   }
 }
 

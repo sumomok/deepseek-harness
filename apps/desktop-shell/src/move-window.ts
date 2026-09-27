@@ -22,6 +22,7 @@ import type { MoveText } from './move-text.ts'
 import type { ExecutorBefore, MainEffects } from './move/executor.ts'
 import { moveDir, readJournal } from './move/journal.ts'
 import type { LockSelf } from './move/lock.ts'
+import { nodeLockProbes } from './process-tree.ts'
 import { systemPowerShell } from './terminal-env.ts'
 import { restoreTerminal } from './terminal-restore.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -80,6 +81,8 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
       case 'discard-lock':
       case 'confirm':
       case 'back':
+      case 'abandon':
+      case 'retry':
         answer?.(link)
         answer = undefined
         break
@@ -179,5 +182,6 @@ export function appMoveFlowDeps(
     abandoned: appDataLocationHost(window, () => undefined, log),
     log,
     now: () => new Date(),
+    lockProbes: nodeLockProbes(process.platform),
   }
 }
