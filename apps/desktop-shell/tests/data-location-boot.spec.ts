@@ -184,7 +184,7 @@ describe('promptView', () => {
   })
 
   it('offers only keep and quit when the new location cannot be used', () => {
-    for (const reason of ['not-a-folder', 'damaged-data', 'set-aside', 'cannot-create'] as const) {
+    for (const reason of ['not-a-folder', 'damaged-data', 'set-aside', 'older', 'cannot-create'] as const) {
       for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
         const view = promptView({ kind: 'confirm-env', reason, envPath: '/set', current: '/data' }, text)
         expect(view.buttons.map(button => button.answer)).toEqual(['keep', 'quit'])
@@ -216,11 +216,11 @@ describe('promptView', () => {
 
   it('names each reason in words, without the variable\'s name', () => {
     for (const text of [DATA_LOCATION_TEXT.zh, DATA_LOCATION_TEXT.en]) {
-      for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable', 'set-aside'] as const) {
+      for (const reason of ['missing', 'id-mismatch', 'pointer-unreadable', 'set-aside', 'older'] as const) {
         expect(text.unavailable(reason, '/p')).not.toMatch(/DSH_HOME|pointer|指针/)
       }
       expect(text.unavailableSuggested('/p')).not.toMatch(/DSH_HOME|pointer|backup|指针|备份/)
-      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'set-aside', 'cannot-create'] as const) {
+      for (const reason of ['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'set-aside', 'older', 'cannot-create'] as const) {
         expect(text.env(reason, '/a', '/b')).not.toMatch(/DSH_HOME|pointer|marker|指针|标记/)
       }
     }
@@ -408,6 +408,29 @@ describe('making a set-aside folder the data again', () => {
     expect(readGeneration(folder)).toBe(3)
     expect(readPointer(userData)).toMatchObject({ kind: 'ok', pointer: { path: folder, generation: 3 } })
     expect(readAbandonedCopies(moveDir(userData))).toEqual([])
+  })
+
+  it('says a folder refused only by its number may be an older copy, and warns that the newer one stops being used', async () => {
+    const folder = olderFolder()
+    const recorded = recordingHost({ answers: ['use-anyway', 'confirm'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toMatchObject({ home: folder, via: 'pointer' })
+    const [page, confirm] = recorded.asked
+    expect(page?.detail).toBe(DATA_LOCATION_TEXT.zh.unavailable('older', folder))
+    expect(page?.detail).toContain('旧副本')
+    expect(confirm?.detail).toBe(DATA_LOCATION_TEXT.zh.confirmUseOlder)
+    expect(DATA_LOCATION_TEXT.en.confirmUseOlder).toContain('hidden')
+    expect(DATA_LOCATION_TEXT.en.confirmUseOlder).toContain('not deleted')
+  })
+
+  it('names an older copy the person picks as one', async () => {
+    const live = dataDir('live', ID)
+    writeGeneration(live, 2)
+    const old = dataDir('old', ID)
+    writeGeneration(old, 1)
+    writePointer(userData, pointerAt(join(root, 'gone'), { generation: 2 }))
+    const recorded = recordingHost({ answers: ['choose', 'choose'], folders: [old, live] })
+    expect(await settleDataLocation(recorded.host, undefined)).toMatchObject({ home: live })
+    expect(recorded.told).toEqual([DATA_LOCATION_TEXT.zh.refusedOlder(old)])
   })
 
   it('changes nothing when the person cancels', async () => {

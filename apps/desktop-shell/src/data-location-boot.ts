@@ -40,8 +40,8 @@ import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite
 /** A question the boot window puts to the person. */
 export type LocationPrompt =
   | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined; suggestion?: string; escapable?: boolean }
-  /** The person asked to use a set-aside folder as their data; this confirms it. */
-  | { kind: 'confirm-use'; path: string }
+  /** The person asked to use a set-aside folder as their data; this confirms it. `older`: it may be an older copy. */
+  | { kind: 'confirm-use'; path: string; older: boolean }
   /** The record of abandoned copies cannot be read; the launch cannot tell a copy from the data. */
   | { kind: 'abandoned-unreadable'; path: string; platform: NodeJS.Platform }
   /** The person asked to set the unreadable record aside; `name` is what it will be renamed to. */
@@ -110,7 +110,7 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
     case 'confirm-use':
       return {
         message: text.confirmUseTitle(prompt.path),
-        detail: text.confirmUse,
+        detail: prompt.older ? text.confirmUseOlder : text.confirmUse,
         buttons: [{ label: text.cancel, answer: 'cancel' }, { label: text.confirmUseButton, answer: 'confirm' }],
         cancelIndex: 0,
       }
@@ -414,7 +414,8 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
           return undefined
         }
         if (answer === 'use-anyway' && escapable) {
-          if (await host.ask(promptView({ kind: 'confirm-use', path }, text)) !== 'confirm') continue
+          const older = resolution.reason === 'older'
+          if (await host.ask(promptView({ kind: 'confirm-use', path, older }, text)) !== 'confirm') continue
           log(`[desktop] data location: the person made ${path} their data again\n`)
           makeFolderCurrent(host, path, read)
           continue
@@ -575,6 +576,8 @@ function refusal(text: DataLocationText, reason: Extract<ChosenFolder, { kind: '
       return text.refusedOtherData(path)
     case 'set-aside':
       return text.refusedSetAside(path)
+    case 'older':
+      return text.refusedOlder(path)
     default:
       return reason satisfies never
   }

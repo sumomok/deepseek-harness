@@ -492,6 +492,17 @@ export function canMakeCurrent(reason: SetAsideReason): boolean {
 }
 
 /**
+ * How a refusal names a set-aside folder: `older` when only its generation
+ * set it aside (it may be an older copy of the data), `set-aside` otherwise
+ * (a data move left it behind).
+ * @param reason - why it is set aside.
+ * @returns the reason the prompts use.
+ */
+export function refusalReason(reason: SetAsideReason): 'set-aside' | 'older' {
+  return reason === 'older' ? 'older' : 'set-aside'
+}
+
+/**
  * Whether a data move set a directory aside ({@link setAsideReason}).
  * @param dir - the directory.
  * @param context - the abandoned copies and the reference.
@@ -501,21 +512,27 @@ export function isSetAside(dir: string, context: SetAsideContext): boolean {
   return setAsideReason(dir, context) !== undefined
 }
 
-/** Why a pointer's directory cannot be used. `set-aside`: a data move set it aside ({@link isSetAside}). */
-export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable' | 'set-aside'
+/**
+ * Why a pointer's directory cannot be used. `set-aside`: a data move left it
+ * behind; `older`: it carries the data's identity with a lower generation, so
+ * it may be an older copy ({@link refusalReason}).
+ */
+export type UnavailableReason = 'missing' | 'id-mismatch' | 'pointer-unreadable' | 'set-aside' | 'older'
 
 /**
  * Why an explicit `DSH_HOME` that changed is not followed without asking.
  * `missing` and `not-harness-data` can be adopted as a new, empty location;
  * `not-a-folder` (a file, a dangling link, or a path that cannot be reached),
  * `damaged-data` (an identity marker that cannot be read), `set-aside` (a
- * folder a data move set aside, {@link isSetAside}), and
+ * folder a data move set aside, {@link isSetAside}), `older` (a folder
+ * that may be an older copy of the data, {@link refusalReason}), and
  * `cannot-create` cannot. {@link resolveDataLocation} never returns
  * `cannot-create`: the launch step asks with it after
  * {@link adoptEnvLocation} failed, on a volume that is not mounted or a
  * directory the person may not write, for example.
  */
-export type EnvUnverifiedReason = 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data' | 'set-aside' | 'cannot-create'
+export type EnvUnverifiedReason =
+  | 'missing' | 'not-harness-data' | 'not-a-folder' | 'damaged-data' | 'set-aside' | 'older' | 'cannot-create'
 
 /**
  * Whether the person may adopt an unverified `DSH_HOME` as a new location.
@@ -530,6 +547,7 @@ export function canAdoptEnv(reason: EnvUnverifiedReason): boolean {
     case 'not-a-folder':
     case 'damaged-data':
     case 'set-aside':
+    case 'older':
     case 'cannot-create':
       return false
     default:
@@ -593,7 +611,7 @@ export type Resolution =
     suggestion?: DataLocationPointer
     /** The directory that cannot be used when no pointer names it (`DSH_HOME` or `~/.dsh` set aside by a move). */
     path?: string
-    /** For `set-aside`: the person may make the folder current again ({@link canMakeCurrent}). */
+    /** For `set-aside` and `older`: the person may make the folder current again ({@link canMakeCurrent}). */
     escapable?: boolean
     detail?: string
   }
@@ -627,7 +645,7 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
   if (read.kind === 'absent') {
     const home = env ?? defaultHome
     const why = setAsideReason(home, context)
-    if (why !== undefined) return { kind: 'unavailable', reason: 'set-aside', path: home, escapable: canMakeCurrent(why) }
+    if (why !== undefined) return { kind: 'unavailable', reason: refusalReason(why), path: home, escapable: canMakeCurrent(why) }
     return env === undefined ? { kind: 'ready', home: defaultHome, via: 'default' } : { kind: 'ready', home: env, via: 'env' }
   }
   if (read.kind === 'corrupt') {
@@ -643,7 +661,8 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
     if (kind === 'absent') return { kind: 'confirm-env', envPath: env, pointer, reason: 'missing' }
     if (kind === 'other') return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-a-folder' }
     // Before the identity: an abandoned copy carries this data's identity.
-    if (isSetAside(env, context)) return { kind: 'confirm-env', envPath: env, pointer, reason: 'set-aside' }
+    const envAside = setAsideReason(env, context)
+    if (envAside !== undefined) return { kind: 'confirm-env', envPath: env, pointer, reason: refusalReason(envAside) }
     // The pointer now names another folder: its number is that folder's.
     const followed: DataLocationPointer = withGeneration({ ...seen, path: env, movedAt: new Date().toISOString() }, readGeneration(env))
     const id = readDataId(env)
@@ -666,7 +685,7 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
 function verifyPointer(pointer: DataLocationPointer, changed: boolean, context: SetAsideContext): Resolution {
   if (!isDirectory(pointer.path)) return { kind: 'unavailable', reason: 'missing', pointer }
   const why = setAsideReason(pointer.path, context)
-  if (why !== undefined) return { kind: 'unavailable', reason: 'set-aside', pointer, escapable: canMakeCurrent(why) }
+  if (why !== undefined) return { kind: 'unavailable', reason: refusalReason(why), pointer, escapable: canMakeCurrent(why) }
   const id = readDataId(pointer.path)
   if (id.kind !== 'ok' || id.id !== pointer.dataId) return { kind: 'unavailable', reason: 'id-mismatch', pointer }
   return changed ? { kind: 'ready', home: pointer.path, via: 'pointer', pointer } : { kind: 'ready', home: pointer.path, via: 'pointer' }
@@ -697,7 +716,7 @@ export function commitReady(
 /** Outcome of checking a folder the person picked as their data. */
 export type ChosenFolder =
   | { kind: 'accepted'; pointer: DataLocationPointer }
-  | { kind: 'rejected'; reason: 'no-data' | 'other-data' | 'set-aside' }
+  | { kind: 'rejected'; reason: 'no-data' | 'other-data' | 'set-aside' | 'older' }
 
 /**
  * Check a folder the person picked while the pointer's directory was
@@ -717,7 +736,8 @@ export function checkChosenFolder(
   env: string | undefined,
   context: SetAsideContext,
 ): ChosenFolder {
-  if (isSetAside(chosen, context)) return { kind: 'rejected', reason: 'set-aside' }
+  const aside = setAsideReason(chosen, context)
+  if (aside !== undefined) return { kind: 'rejected', reason: refusalReason(aside) }
   const id = readDataId(chosen)
   if (id.kind !== 'ok') return { kind: 'rejected', reason: 'no-data' }
   if (pointer !== undefined && id.id !== pointer.dataId) return { kind: 'rejected', reason: 'other-data' }

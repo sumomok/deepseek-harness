@@ -813,11 +813,11 @@ describe('generations: a left-behind copy is older wherever it is mounted', () =
       expect(readDataId(remounted)).toEqual({ kind: 'ok', id: HARNESS_ID })
       const pointer = start === 'pointer' ? readPointer(s.setup.userData) : undefined
       if (pointer?.kind === 'ok') {
-        expect(resolveWith(s, remounted)).toMatchObject({ kind: 'confirm-env', reason: 'set-aside' })
+        expect(resolveWith(s, remounted)).toMatchObject({ kind: 'confirm-env', reason: 'older' })
       } else {
         // Without a pointer the default home is the reference.
         expect(resolveDataLocation({ read: { kind: 'absent' }, env: remounted, defaultHome: s.setup.defaultHome, abandoned: [] }))
-          .toMatchObject({ kind: 'unavailable', reason: 'set-aside', escapable: true })
+          .toMatchObject({ kind: 'unavailable', reason: 'older', escapable: true })
         expect(resolveDataLocation({ read: { kind: 'absent' }, env: undefined, defaultHome: s.setup.defaultHome, abandoned: [] }))
           .toMatchObject({ kind: 'ready', home: s.setup.defaultHome })
       }
@@ -842,7 +842,7 @@ describe('generations: a left-behind copy is older wherever it is mounted', () =
     renameSync(join(s.f.root, 'lost'), back)
     renameSync(join(back, '.dsh-data-id.moved'), join(back, '.dsh-data-id'))
     unlinkSync(join(back, MOVE_STATE_FILENAME))
-    expect(resolveWith(s, back)).toMatchObject({ kind: 'confirm-env', reason: 'set-aside' })
+    expect(resolveWith(s, back)).toMatchObject({ kind: 'confirm-env', reason: 'older' })
   })
 
   posixOnly('gives the copy a number above the original on every switch, and the original one above the copy on every rollback', async () => {

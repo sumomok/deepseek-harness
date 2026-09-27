@@ -22,6 +22,7 @@ export interface DataLocationText {
   refusedNoData: (path: string) => string
   refusedOtherData: (path: string) => string
   refusedSetAside: (path: string) => string
+  refusedOlder: (path: string) => string
   abandonedUnreadableTitle: string
   /** The record of abandoned copies cannot be read, so the launch does not go on. */
   abandonedUnreadable: (path: string) => string
@@ -36,6 +37,8 @@ export interface DataLocationText {
   useAnyway: string
   confirmUseTitle: (path: string) => string
   confirmUse: string
+  /** {@link DataLocationText.confirmUse} for a folder that may be an older copy. */
+  confirmUseOlder: string
   confirmUseButton: string
   cancel: string
   ok: string
@@ -59,6 +62,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return '记录数据位置的文件读不出来了。请选择数据所在的文件夹。'
         case 'set-aside':
           return `你的数据记在「${path ?? ''}」，但那个文件夹是搬运数据时留下的，DSH 不再使用它。请选择数据所在的文件夹。`
+        case 'older':
+          return `你的数据记在「${path ?? ''}」，但那个文件夹里可能是你数据的一份旧副本：DSH 见过同一份数据更新的一份。请选择数据所在的文件夹。`
         default:
           return reason satisfies never
       }
@@ -72,6 +77,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedNoData: path => `「${path}」里没有 DSH 的数据。请选择数据所在的文件夹。`,
     refusedOtherData: path => `「${path}」里是另一份 DSH 数据，不是你原来的。请选择数据所在的文件夹。`,
     refusedSetAside: path => `「${path}」是搬运数据时留下的文件夹，DSH 不再使用它。请选择数据所在的文件夹。`,
+    refusedOlder: path => `「${path}」里可能是你数据的一份旧副本：DSH 见过同一份数据更新的一份。请选择数据所在的文件夹。`,
     abandonedUnreadableTitle: 'DSH 暂时不能启动',
     abandonedUnreadable: path => `记录搬运数据时留下的文件夹的文件「${path}」读不出来了。DSH 没法确定哪些文件夹是留下的副本，为了不把副本当成你的数据，在这个文件修好或移开之前不会启动。`,
     moveAside: '移开这个文件并继续',
@@ -82,6 +88,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     useAnyway: '这就是我要用的数据，改用它',
     confirmUseTitle: path => `改用「${path}」里的数据？`,
     confirmUse: 'DSH 会把这个文件夹当作你的数据继续使用。同一份数据的其他副本，包括搬运数据时留下的，以后都不会再被使用。',
+    confirmUseOlder: 'DSH 会把这个文件夹当作你的数据继续使用。同一份数据更新的那一份以后不会再被使用，它里面最近的对话在 DSH 里会看不到（不会被删除，仍留在那个文件夹里）。',
     confirmUseButton: '改用它',
     cancel: '取消',
     ok: '知道了',
@@ -98,6 +105,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `系统或终端里把数据位置设成了「${envPath}」，但那里的 DSH 数据已经损坏，认不出是哪一份，所以不能改用它。\n现在的数据在「${current}」。`
         case 'set-aside':
           return `系统或终端里把数据位置设成了「${envPath}」，但那是搬运数据时留下的文件夹，DSH 不再使用它，所以不能改用它。\n现在的数据在「${current}」。`
+        case 'older':
+          return `系统或终端里把数据位置设成了「${envPath}」，但那里可能是你数据的一份旧副本：DSH 见过同一份数据更新的一份，所以不能改用它。\n现在的数据在「${current}」。`
         case 'cannot-create':
           return `这个位置无法使用：没能在「${envPath}」建立数据文件夹，可能是磁盘没有接上，或者没有权限在那里写入。\n现在的数据在「${current}」。`
         default:
@@ -119,6 +128,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return 'The record of where your data is stored cannot be read. Choose the folder that holds your data.'
         case 'set-aside':
           return `Your data is recorded as being in "${path ?? ''}", but that folder was left behind by moving your data, and DSH no longer uses it. Choose the folder that holds your data.`
+        case 'older':
+          return `Your data is recorded as being in "${path ?? ''}", but that folder may hold an older copy of your data: DSH has seen a newer copy of the same data. Choose the folder that holds your data.`
         default:
           return reason satisfies never
       }
@@ -132,6 +143,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     refusedNoData: path => `"${path}" holds no DSH data. Choose the folder that holds your data.`,
     refusedOtherData: path => `"${path}" holds a different set of DSH data, not yours. Choose the folder that holds your data.`,
     refusedSetAside: path => `"${path}" was left behind by moving your data, and DSH no longer uses it. Choose the folder that holds your data.`,
+    refusedOlder: path => `"${path}" may hold an older copy of your data: DSH has seen a newer copy of the same data. Choose the folder that holds your data.`,
     abandonedUnreadableTitle: 'DSH cannot start',
     abandonedUnreadable: path => `The file that records folders left behind by moving your data, "${path}", cannot be read. DSH cannot be sure which folders are left-behind copies, so to avoid taking a copy for your data it does not start until this file is fixed or moved aside.`,
     moveAside: 'Move This File Aside and Continue',
@@ -142,6 +154,7 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     useAnyway: 'This Is My Data — Use It',
     confirmUseTitle: path => `Use the data in "${path}"?`,
     confirmUse: 'DSH will use this folder as your data from now on. Any other copy of the same data, including copies left behind by moving your data, will no longer be used.',
+    confirmUseOlder: 'DSH will use this folder as your data from now on. The newer copy of the same data will no longer be used, and its recent conversations will be hidden in DSH (not deleted; they stay in that folder).',
     confirmUseButton: 'Use It',
     cancel: 'Cancel',
     ok: 'OK',
@@ -158,6 +171,8 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
           return `The data location was set to "${envPath}" in the system or a terminal, but the DSH data there is damaged and cannot be recognized, so it cannot be used.\nYour data is now in "${current}".`
         case 'set-aside':
           return `The data location was set to "${envPath}" in the system or a terminal, but that folder was left behind by moving your data, and DSH no longer uses it, so it cannot be used.\nYour data is now in "${current}".`
+        case 'older':
+          return `The data location was set to "${envPath}" in the system or a terminal, but that folder may hold an older copy of your data: DSH has seen a newer copy of the same data, so it cannot be used.\nYour data is now in "${current}".`
         case 'cannot-create':
           return `This location cannot be used: a data folder could not be created in "${envPath}". The drive may not be connected, or you may not have permission to write there.\nYour data is now in "${current}".`
         default:

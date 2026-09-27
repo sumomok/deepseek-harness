@@ -279,9 +279,9 @@ describe('resolveDataLocation with a pointer', () => {
           .toEqual({ kind: 'confirm-env', envPath: env, pointer, reason: 'missing' })
       }
     }
-    expect(['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'set-aside', 'cannot-create']
+    expect(['missing', 'not-harness-data', 'not-a-folder', 'damaged-data', 'set-aside', 'older', 'cannot-create']
       .map(reason => canAdoptEnv(reason as EnvUnverifiedReason)))
-      .toEqual([true, true, false, false, false, false])
+      .toEqual([true, true, false, false, false, false, false])
   })
 })
 
@@ -458,19 +458,19 @@ describe('generations', () => {
     const pointer = pointerAt(live, { generation: 3 })
     const read = { kind: 'ok' as const, pointer }
     expect(resolveDataLocation({ read, env: old, defaultHome, abandoned: [] }))
-      .toEqual({ kind: 'confirm-env', envPath: old, pointer, reason: 'set-aside' })
+      .toEqual({ kind: 'confirm-env', envPath: old, pointer, reason: 'older' })
     // A pointer one step behind its folder (a crash between the two writes) still takes the folder's number.
     const lagging = { kind: 'ok' as const, pointer: pointerAt(live, { generation: 2 }) }
     expect(dataReference(lagging, defaultHome)).toEqual({ dataId: ID_A, generation: 3 })
     expect(resolveDataLocation({ read: lagging, env: undefined, defaultHome, abandoned: [] })).toMatchObject({ kind: 'ready', home: live })
-    expect(resolveDataLocation({ read: lagging, env: old, defaultHome, abandoned: [] })).toMatchObject({ reason: 'set-aside' })
+    expect(resolveDataLocation({ read: lagging, env: old, defaultHome, abandoned: [] })).toMatchObject({ reason: 'older' })
     // Another identity is never compared by number.
     const other = dataDir('other', { id: ID_B, structure: true })
     expect(resolveDataLocation({ read, env: other, defaultHome, abandoned: [] })).toMatchObject({ kind: 'ready', home: other })
     // A pointer naming the older folder is refused, with the way back offered.
     const stale = { kind: 'ok' as const, pointer: pointerAt(old, { generation: 3 }) }
     expect(resolveDataLocation({ read: stale, env: undefined, defaultHome, abandoned: [] }))
-      .toMatchObject({ kind: 'unavailable', reason: 'set-aside', escapable: true })
+      .toMatchObject({ kind: 'unavailable', reason: 'older', escapable: true })
   })
 
   it('reads an absent or unreadable number as 0, which never makes a folder the newest', () => {
@@ -483,7 +483,7 @@ describe('generations', () => {
     const damaged = dataDir('damaged', { id: ID_A })
     writeFileSync(join(damaged, GENERATION_FILENAME), '99x\n')
     const read = { kind: 'ok' as const, pointer: pointerAt(dir, { generation: 12 }) }
-    expect(resolveDataLocation({ read, env: damaged, defaultHome, abandoned: [] })).toMatchObject({ reason: 'set-aside' })
+    expect(resolveDataLocation({ read, env: damaged, defaultHome, abandoned: [] })).toMatchObject({ reason: 'older' })
   })
 
   it('takes the reference from the default home when there is no pointer', () => {
@@ -494,7 +494,7 @@ describe('generations', () => {
     writeGeneration(old, 3)
     expect(dataReference({ kind: 'absent' }, defaultHome)).toEqual({ dataId: ID_A, generation: 4 })
     expect(resolveDataLocation({ read: { kind: 'absent' }, env: old, defaultHome, abandoned: [] }))
-      .toEqual({ kind: 'unavailable', reason: 'set-aside', path: old, escapable: true })
+      .toEqual({ kind: 'unavailable', reason: 'older', path: old, escapable: true })
   })
 
   it('gives a pointer that names another folder that folder\'s number, never the old one', () => {
