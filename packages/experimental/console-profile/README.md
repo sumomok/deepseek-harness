@@ -96,7 +96,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction. The `console-mcp` row offers each configured server's tools as `mcp__<server id>__<tool>` and nothing while its list is empty. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
+Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction: show the data the user asks about through components, describe no working directory, tool, or internal implementation, and name tables, fields, layers, entries, and categories by their Chinese display names rather than by table names, entry ids, codes, or enum values. The `console-mcp` row offers each configured server's tools as `mcp__<server id>__<tool>` and nothing while its list is empty. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
 
 #### KV Cache effect
 

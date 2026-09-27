@@ -96,7 +96,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
