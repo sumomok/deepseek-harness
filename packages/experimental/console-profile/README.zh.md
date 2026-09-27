@@ -53,6 +53,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
+| `ui-chat` | 配置 `performanceUsage: compact`：设置 → 通用设置 → 性能与用量初始为「简洁」，已完成的回答下不显示每轮 token 用量；用户自己的选择保存进 profile 补丁，并覆盖这个默认值 |
 | `preset-console` | 插入：`console` Agent 预设——persona、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`；没有 shell、搜索、后台任务、目标、计划、委派、web 与 `present` 行 |
 | `preset-standard-as-console` | 插入：一个插件与 `console` 完全相同的 `standard` Agent 预设；会话按创建时记下的预设 id 恢复，控制台部署在 `console` 出现之前建的会话记的是 `standard` |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；每个会话运行的都是 `console` 的插件，id 为 `console` 或 `standard` |

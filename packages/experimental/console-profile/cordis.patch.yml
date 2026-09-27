@@ -142,6 +142,17 @@
 - id: ui-permission
   disabled: true
 
+# Settings → General → Performance & usage starts at compact for a console user:
+# no per-Turn token usage under a completed answer. The composer statistics row
+# is hidden in either mode by `terminology-guard.ts`. `performanceUsage` is
+# volatile Config, and this row sits below the profile patch, so it is the
+# inherited value: a user's choice in Settings is saved into the profile patch
+# and outranks it, and resetting the choice returns to compact. The same row in
+# `permission-lock.patch.yml` would make config-editor refuse that write.
+- id: ui-chat
+  config:
+    performanceUsage: compact
+
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'

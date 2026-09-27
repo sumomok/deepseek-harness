@@ -636,6 +636,21 @@ describe('web e2e: the product-console sidebar', () => {
 
       expect(await page.getByRole('button', { name: 'Save as workflow' }).count()).toBe(0)
 
+      // The console bundle starts Performance & usage at Compact, whose stats
+      // row never draws the turns/steps counts. The visitor switches to
+      // Detailed in Settings, the write is saved, and the row below then
+      // renders counts for the guard to hide.
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const settings = page.getByRole('dialog', { name: 'Settings' })
+      await settings.waitFor({ timeout: 10_000 })
+      const usageRow = settings.getByText('Performance & usage', { exact: true }).locator('../..')
+      await usageRow.getByRole('button', { name: 'Compact', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Detailed', exact: true }).click()
+      await expect.poll(() => scaffold.ctx.settings.describe().find(form => form.ns === 'ui-chat')?.value)
+        .toMatchObject({ performanceUsage: 'detailed' })
+      await page.keyboard.press('Escape')
+      await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
+
       seedClosedTurn(scaffold, workbenchSessionId)
       await page.getByRole('button', { name: 'Save as workflow' }).waitFor({ timeout: 15_000 })
 

@@ -262,6 +262,13 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('ui-settings-general')?.disabled).not.toBe(true)
   })
 
+  it('starts Performance & usage at compact in the bundle layer, where a user\'s Settings choice still outranks it', () => {
+    expect(rowOf(CONSOLE_PATCH, 'ui-chat')).toEqual({ id: 'ui-chat', config: { performanceUsage: 'compact' } })
+    expect(byId.get('ui-chat')).toMatchObject({ name: '@deepseek-ai/dsh-client-ui-chat', config: { performanceUsage: 'compact' } })
+    // Above the profile patch, config-editor would refuse the user's write.
+    expect(idsOf(LOCK_PATCH)).not.toContain('ui-chat')
+  })
+
   it('mounts the MCP capability by package name with an empty server list it states rather than defaults', () => {
     const mcp = byId.get('console-mcp')
     expect(mcp).toMatchObject({ name: '@deepseek-ai/dsh-experimental-console-mcp' })
