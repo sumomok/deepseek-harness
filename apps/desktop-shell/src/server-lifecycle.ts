@@ -21,6 +21,10 @@
  *   stop is sent whether or not the removal finished.
  * - Reopening the window while quitting does nothing, so no new token
  *   exchange issues a cookie for a server about to be gone.
+ * - An install that failed after the quit began undoes the quit: it clears
+ *   the quitting state first, so the window can be shown again, restarts the
+ *   server through the ordinary start unless the mandatory-update block holds
+ *   the app, and then shows the window.
  * @module @deepseek-ai/dsh-desktop-shell/server-lifecycle
  */
 
@@ -141,4 +145,30 @@ export function revealApp(hooks: RevealHooks): void {
   if (hooks.quitting()) return
   if (hooks.revealExisting()) return
   hooks.openWindow()
+}
+
+/** What bringing the app back after a failed install needs. */
+export interface ResumeHooks {
+  /** Whether the mandatory-update block holds the app, which keeps the served UI closed. */
+  blocking: boolean
+  /** Clear the quitting state the install's teardown set. */
+  clearQuitting: () => void
+  /** Start the server again through the ordinary start; handles its own failure. */
+  restartServer: () => Promise<void>
+  /** Bring the app window to the front. */
+  reveal: () => void
+}
+
+/**
+ * Bring the app back after the installer it handed over to failed and left
+ * this process running with its server stopped: clear the quitting state,
+ * restart the server unless the mandatory block holds the app, then show the
+ * window. Clearing comes first because [[revealApp]] does nothing while
+ * quitting.
+ * @param hooks - the effects.
+ */
+export async function resumeAfterFailedInstall(hooks: ResumeHooks): Promise<void> {
+  hooks.clearQuitting()
+  if (!hooks.blocking) await hooks.restartServer()
+  hooks.reveal()
 }

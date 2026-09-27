@@ -15,8 +15,27 @@ import { readClientBuildRecord } from '../../../scripts/client-build-environment
 /** Browser title of the desktop application, in every UI language. */
 export const DESKTOP_CLIENT_TITLE = '北冥'
 
-/** `pnpm` arguments that bundle the desktop-app browser and Host halves. */
+/** `pnpm` arguments that bundle the desktop-app browser and Host halves and its server-log exporter. */
 export const DESKTOP_APP_BUNDLE_ARGS = ['--filter', '@deepseek-ai/dsh-desktop-app', 'run', 'bundle'] as const
+
+/** One `pnpm` run the packaging script makes after the repository build. */
+export interface DesktopBuildStep {
+  /** The name the run is logged under. */
+  name: string
+  /** The `pnpm` arguments. */
+  args: readonly string[]
+}
+
+/**
+ * What the packaging script builds after the repository build and before the
+ * server closure is deployed, in order: the desktop-app package, whose `lib/`
+ * the deploy copies into the payload and the profile's `desktop-brand` and
+ * `desktop-server-log` rows import, then the shell itself.
+ */
+export const DESKTOP_BUILD_STEPS: readonly DesktopBuildStep[] = [
+  { name: 'desktop-app bundle', args: DESKTOP_APP_BUNDLE_ARGS },
+  { name: 'desktop tsc', args: ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'] },
+]
 
 /**
  * The environment `pnpm run build` runs in for the desktop package.

@@ -65,7 +65,7 @@ import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
-import { showInstalling } from './progress-window.ts'
+import { closeInstalling, showInstalling } from './progress-window.ts'
 import {
   CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, checkFailureDetail, classifyDownloadError,
   describeDownloadError, httpErrorCode, transferWithFallback, withRetry,
@@ -161,6 +161,14 @@ export interface UpdateHost {
    * control to an installer that replaces the app directory.
    */
   prepareQuit: () => Promise<void>
+  /**
+   * Undo [[prepareQuit]] after the installer this run handed over to failed
+   * and left the process running: clear the quitting state, restart the
+   * server unless the mandatory block holds the app, and show the window.
+   * @param blocking - whether the mandatory-update block holds the app.
+   * @returns once the app is back.
+   */
+  resumeAfterFailedInstall: (blocking: boolean) => Promise<void>
 }
 
 /** One entry of the `files` list in a `latest*.yml` manifest. */
@@ -1001,6 +1009,12 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   })
   built.on('error', (error) => {
     host.log(`[updater] error: ${error.message}\n`)
+    // An install already handed over reports its failure only here: Squirrel's
+    // staging and signature check, or the NSIS installer failing to start.
+    if (handedOff !== undefined) {
+      void installFailed(host, handedOff, error)
+      return
+    }
     // A failure while a download is in flight is delivered twice: here, and to
     // whoever awaited downloadUpdate(). [[download]] owns that one — it decides
     // whether to retry, keeps the progress window for the retry to write to,
@@ -1169,6 +1183,7 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     // it swaps the bundles. The relaunch is Squirrel's `open`, so the new
     // process inherits neither this one's argv nor its environment.
     host.log(`[updater] handing ${version} to Squirrel\n`)
+    handedOff = version
     updater?.quitAndInstall()
     return
   }
@@ -1197,7 +1212,53 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
   // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
   // before any page exists, so neither mode can land anywhere but the directory
   // the app already occupies.
+  handedOff = version
   updater?.quitAndInstall(false, true)
+}
+
+/**
+ * The version handed to the installer, from the hand-off until the installer
+ * fails. Set only once the server is stopped and the window hidden, so an
+ * `error` while it is set belongs to the install.
+ */
+let handedOff: string | undefined
+
+/**
+ * Recover from an installer that failed after the hand-off. The app is still
+ * running with its server stopped and, on macOS, its window hidden behind the
+ * install notice; without this it stays that way with nothing the user can
+ * reach. The notice comes down, the update entry shows the failure through
+ * [[UpdateState.markUnavailable]] — on macOS through [[demoteMac]], which also
+ * drops the run to the download page — and the host brings the app back.
+ * Under the mandatory block the app stays closed and the only choices are
+ * installing again or quitting.
+ * @param host - logging and quit coordination from the main process.
+ * @param version - the version whose install failed.
+ * @param error - what the installer reported.
+ */
+async function installFailed(host: UpdateHost, version: string, error: unknown): Promise<void> {
+  handedOff = undefined
+  const message = error instanceof Error ? error.message : String(error)
+  host.log(`[updater] installing ${version} failed (${message}); bringing the app back\n`)
+  closeInstalling()
+  if (process.platform === 'darwin') demoteMac(host, error)
+  else updateState().markUnavailable(`install failed: ${message}`)
+  await host.resumeAfterFailedInstall(blocking)
+  if (!blocking) return
+  const answer = await ask({
+    type: 'error',
+    title: '更新安装失败',
+    message: `v${version} 没有安装成功`,
+    detail: '可以重试安装,或退出应用稍后再启动。',
+    buttons: ['重试', '退出应用'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (answer === 0) {
+    await installStaged(host, version)
+    return
+  }
+  app.quit()
 }
 
 /**

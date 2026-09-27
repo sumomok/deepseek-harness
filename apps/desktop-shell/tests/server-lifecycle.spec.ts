@@ -9,7 +9,9 @@
 
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { COOKIE_CLEAR_BOUND_MS, rebindOnNewPort, respondToCrash, revealApp, stopForQuit } from '../src/server-lifecycle.ts'
+import {
+  COOKIE_CLEAR_BOUND_MS, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForQuit,
+} from '../src/server-lifecycle.ts'
 import type { ServerHandle, ServerSpec } from '../src/server.ts'
 
 afterEach(() => { vi.useRealTimers() })
@@ -125,6 +127,35 @@ describe('revealApp', () => {
   })
 })
 
+describe('resumeAfterFailedInstall', () => {
+  /**
+   * A shell whose quitting flag gates the reveal the way `main.ts` wires it.
+   * @param blocking - whether the mandatory block holds the app.
+   * @returns the recorded steps once the resume finished.
+   */
+  async function resume(blocking: boolean): Promise<string[]> {
+    const steps: string[] = []
+    let quitting = true
+    await resumeAfterFailedInstall({
+      blocking,
+      clearQuitting: () => { quitting = false; steps.push('clear') },
+      restartServer: async () => { await Promise.resolve(); steps.push('restart') },
+      reveal: () => {
+        revealApp({ quitting: () => quitting, revealExisting: () => { steps.push('shown'); return true }, openWindow: () => {} })
+      },
+    })
+    return steps
+  }
+
+  it('clears the quitting state, restarts the server, then shows the window', async () => {
+    expect(await resume(false)).toEqual(['clear', 'restart', 'shown'])
+  })
+
+  it('shows the window without the server while the mandatory block holds the app', async () => {
+    expect(await resume(true)).toEqual(['clear', 'shown'])
+  })
+})
+
 describe('main.ts', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
 
@@ -139,11 +170,16 @@ describe('main.ts', () => {
     return source.slice(start, source.indexOf('\n}\n', start))
   }
 
-  it('runs these steps at each of the four points', () => {
+  it('runs these steps at each of the five points', () => {
     expect(body('handleUnexpectedServerExit')).toMatch(/respondToCrash\(\{\s+forgetPort: forgetServerPort,\s+clearCookies: clearAuthCookies,/u)
     expect(body('handleUnexpectedServerExit')).toContain('ladder: () => runRecoveryLadder(')
     expect(body('performRebind')).toContain('await rebindOnNewPort(spec, startEmbeddedServer, logLine)')
     expect(body('stopServerBounded')).toContain('await stopForQuit({ stop: handle.stop, clearCookies: clearAuthCookies,')
     expect(body('reveal')).toContain('quitting: () => quitting,')
+    expect(source).toMatch(new RegExp([
+      'resumeAfterFailedInstall: \\(blocking: boolean\\) => resumeAfterFailedInstall\\(\\{\\s+blocking,',
+      '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
+    ].join(''), 'u'))
+    expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
   })
 })

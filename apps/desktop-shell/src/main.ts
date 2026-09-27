@@ -51,7 +51,7 @@ import {
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, isPortFree, startOnPort } from './server-port.ts'
-import { rebindOnNewPort, respondToCrash, revealApp, stopForQuit } from './server-lifecycle.ts'
+import { rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForQuit } from './server-lifecycle.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -284,6 +284,33 @@ function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
 function rememberServerPort(spec: ServerSpec): void {
   activeServerSpec = spec
   if (spec.port !== undefined && spec.port !== 0) setServerPort(spec.port)
+}
+
+/**
+ * Start the server again after an install that stopped it failed, through the
+ * ordinary start: the remembered port when it is free, otherwise one the
+ * system picks. On success every window and the notification streams move to
+ * it and supervision resumes; on failure the stopped-server dialog offers a
+ * retry, as after repeated crashes.
+ * @returns once the server is up or the dialog is shown.
+ */
+async function restartAfterFailedInstall(): Promise<void> {
+  const spec = activeServerSpec
+  if (spec === undefined) return
+  try {
+    const port = await choosePort(readState().serverPort, isPortFree)
+    logLine(port.line)
+    const started = await startOnPort({ ...spec, port: port.port }, startEmbeddedServer, logLine)
+    server = started.server
+    rememberServerPort(started.spec)
+    logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
+    retargetWindows(started.server.authenticatedUrl)
+    setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
+    attachSupervision()
+  } catch (error) {
+    logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
+    void runStoppedDialog()
+  }
 }
 
 /**
@@ -752,6 +779,12 @@ if (!locked) {
         quitting = true
         await stopServerBounded()
       },
+      resumeAfterFailedInstall: (blocking: boolean) => resumeAfterFailedInstall({
+        blocking,
+        clearQuitting: () => { quitting = false },
+        restartServer: restartAfterFailedInstall,
+        reveal,
+      }),
     }
     const checkForUpdates = setupUpdates(host)
     setupTray({ log: sink, reveal, checkForUpdates, isQuitting: () => quitting })

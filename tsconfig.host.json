@@ -175,6 +175,7 @@
     "apps/desktop-shell/src/**/*.ts",
     "apps/desktop-shell/scripts/**/*.ts",
     "apps/desktop-app/build.ts",
+    "apps/desktop-app/build-options.ts",
     "apps/desktop-shell/tests/**/*.ts",
     "apps/desktop/scripts/**/*.ts",
     "apps/desktop/tests/**/*.ts",

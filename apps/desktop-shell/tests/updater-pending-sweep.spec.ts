@@ -63,7 +63,7 @@ vi.mock('electron-updater', () => {
   return { MacUpdater: FakeUpdater, NsisUpdater: FakeUpdater }
 })
 
-vi.mock('../src/progress-window.ts', () => ({ showInstalling: (): void => undefined }))
+vi.mock('../src/progress-window.ts', () => ({ showInstalling: (): void => undefined, closeInstalling: (): void => undefined }))
 
 /** The build that starts the install. */
 const FROM = '0.1.0-rc.34'
@@ -129,7 +129,13 @@ function state(): Record<string, unknown> {
  */
 function sink(): { host: UpdateHost; lines: string[] } {
   const lines: string[] = []
-  return { host: { log: (line) => { lines.push(line) }, openLog: () => undefined, prepareQuit: async () => undefined }, lines }
+  return {
+    host: {
+      log: (line) => { lines.push(line) }, openLog: () => undefined, prepareQuit: async () => undefined,
+      resumeAfterFailedInstall: async () => undefined,
+    },
+    lines,
+  }
 }
 
 describe('the install click', () => {

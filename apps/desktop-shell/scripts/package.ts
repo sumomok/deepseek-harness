@@ -41,7 +41,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
-import { assertDesktopClientTitle, DESKTOP_APP_BUNDLE_ARGS, desktopRepositoryBuildEnvironment } from './client-build.ts'
+import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
@@ -925,8 +925,7 @@ async function main(buildHome: string): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
   assertDesktopClientTitle(ROOT)
-  await run('desktop-app bundle', 'pnpm', [...DESKTOP_APP_BUNDLE_ARGS])
-  await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'])
+  for (const step of DESKTOP_BUILD_STEPS) await run(step.name, 'pnpm', [...step.args])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
 
   if (!cli.skipDeploy) {

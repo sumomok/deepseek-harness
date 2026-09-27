@@ -219,8 +219,9 @@
 # `ctx.logger`, and no row in the shipped bundles registers an exporter for it,
 # so without this row those records live only in the logger's in-memory buffer.
 # The shell names its log file in `DSH_DESKTOP_SERVER_LOG` for the server child
-# alone; a boot without it — `dsh --profile desktop-shell` started by hand, or
-# the packaging run's staged boot — leaves the row off. `level: 2` is the
+# alone, and the packaging run's staged boot names one too, so the row mounts
+# there and its module must resolve from the payload; a boot without the
+# variable — `dsh --profile desktop-shell` started by hand — leaves the row off. `level: 2` is the
 # threshold cordis compares against its own order, ERROR 0 < INFO 1 < WARN 2
 # < DEBUG 3, so it keeps warnings — the level the webserver reports a failed
 # listen at — and drops debug.

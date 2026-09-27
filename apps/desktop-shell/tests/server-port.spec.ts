@@ -202,7 +202,9 @@ describe('the launch sequence in main.ts', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
 
   it('checks the remembered port after the orphan sweep and the loopback services, and just before the spawn', () => {
-    const choice = source.indexOf('await choosePort(')
+    // The launch is the last `choosePort` in the file; the one before it is
+    // the restart after a failed install.
+    const choice = source.lastIndexOf('await choosePort(')
     expect(choice).toBeGreaterThan(-1)
     expect(source.indexOf('await sweepOrphanedServers(')).toBeLessThan(choice)
     expect(source.indexOf('await startRenderServiceForServer(')).toBeLessThan(choice)
@@ -210,8 +212,8 @@ describe('the launch sequence in main.ts', () => {
     expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(choice)
   })
 
-  it('starts the launch through startOnPort and records the port it listens on', () => {
-    expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(1)
-    expect(source).toContain('rememberServerPort(started.spec)')
+  it('starts the launch and the restart after a failed install through startOnPort and records the port', () => {
+    expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(2)
+    expect([...source.matchAll(/rememberServerPort\(started\.spec\)/g)]).toHaveLength(3)
   })
 })

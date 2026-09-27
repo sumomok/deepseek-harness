@@ -245,6 +245,7 @@ function sink(): Sink {
     },
     openLog: () => undefined,
     prepareQuit: async () => undefined,
+    resumeAfterFailedInstall: async () => undefined,
   }
   const waitFor = async (fragment: string): Promise<void> => {
     if (lines.some(line => line.includes(fragment))) return
