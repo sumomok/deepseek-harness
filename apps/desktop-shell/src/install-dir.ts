@@ -1,7 +1,7 @@
 /**
- * The installation directory, named to the server child so the permission
- * gateway plugin (`@haoran/dsh-llm-permission-gateway`) can keep the agent from
- * writing into the running application's own files.
+ * The installation directory, named to the server child for the permission
+ * gateway plugin (`@haoran/dsh-llm-permission-gateway`), which reads it from
+ * 0.6.0 on; the vendored 0.5.0 does not.
  *
  * The directory is the one an installer creates and an update replaces: on
  * macOS the `.app` bundle, two levels above `Contents/Resources`; on Windows
@@ -13,7 +13,7 @@
 import { posix, win32 } from 'node:path'
 import type { LauncherLocation } from './pnpm-launcher.ts'
 
-/** Environment variable naming the installation directory, set on the server child alone. */
+/** Environment variable naming the installation directory, set on the server child alone. The gateway reads it from 0.6.0 on. */
 export const INSTALL_DIR_ENV = 'DSH_DESKTOP_INSTALL_DIR'
 
 /**

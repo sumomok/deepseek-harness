@@ -364,7 +364,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
 
-**打包后的启动会把安装目录告诉服务器。**`src/install-dir.ts` 把 `DSH_DESKTOP_INSTALL_DIR` 加进服务器子进程的环境,别处都不加:macOS 上是 `.app` 包,即 `process.resourcesPath`(`Contents/Resources`)往上两级;Windows 和 Linux 上是 `resources/` 所在的目录。权限网关读它,防止 agent 往正在运行的应用自己的文件里写。开发启动没有安装目录,什么都不设,绝不设成空值。`dsh-server.log` 用一行 `install dir:` 记下这个值。
+**打包后的启动会把安装目录告诉服务器。**`src/install-dir.ts` 把 `DSH_DESKTOP_INSTALL_DIR` 加进服务器子进程的环境,别处都不加:macOS 上是 `.app` 包,即 `process.resourcesPath`(`Contents/Resources`)往上两级;Windows 和 Linux 上是 `resources/` 所在的目录。它是为权限网关设的,网关从 0.6.0 起读它;现在内置的 0.5.0 不读。开发启动没有安装目录,什么都不设,绝不设成空值。`dsh-server.log` 用一行 `install dir:` 记下这个值。
 
 **服务器死掉时留下它最后写的几行,致命错误时还留下一份报告。**壳在服务器那个 Node 进程自己的命令行上加 `--report-on-fatalerror --report-uncaught-exception --report-directory=<日志目录> --report-exclude-env --report-exclude-network`,所以 V8 致命错误——首先是内存耗尽——会在 `dsh-server.log` 旁边写一份 `report.<日期>.<时间>.<pid>.<序号>.json`,不含环境变量(提供方的 key 就在那里),也不含网络接口。这些参数只属于这一个进程,不放进 `NODE_OPTIONS`,因为 agent 运行的每个 Node 程序都会继承它。异常只有在 CLI 装上自己的处理器之前才会产生报告;之后,处理器写进 `dsh-server.log` 的那行 stderr 就是记录。绕过 V8 的原生崩溃(例如 Windows 的退出码 `0xC0000409`)不写报告。`server exited unexpectedly` 这一行等死掉的服务器的两条输出管道都关闭后才写;若它启动的某个进程还占着管道,则在退出后 2 秒写,所以尾部带着服务器最后写的内容。在打出 URL 行之前就退出的启动按同样的条件上报,所以「内置插件」一节里的隔离扫描读到的是完整输出。
 
@@ -405,3 +405,4 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 渲染进程崩溃或无响应只记日志,别的什么都不做:窗口不重新加载,因为内存耗尽的渲染进程重新加载只会重演同一次加载。
 - 自定义快捷键只接受浏览器那一套组合,其余一律以「此浏览器暂不支持该组合」拒绝,因为服务出来的 UI 运行在 web 客户端的 `web` 快捷键运行时里。`desktop` 运行时需要文档上的 `data-platform`,加上 `dshDesktop` 桥和原生按键拦截;而 `dshDesktop` 同时也是关掉模型页首启凭据引导与欢迎须知、打开账号插件的那个标记;[Agent Note](../../.agents/notes/implemented/feature/2026-09-27-desktop-shell-stable-origin.zh.md)的「快捷键组合」一节记下了设计以及为什么没有采用。
 - 读屏软件可能把服务出来的 UI 的加载页读两遍:被替换的英文仍在文档里,只是画成零字号,而替换文字是 `::after` 内容,无障碍树同样会暴露它。样式表设不了 `aria-hidden`,而那个页面属于 `packages/client/web`。
+- 在 macOS 的 App Translocation 下——带隔离标记的副本直接从「下载」里第一次启动时——`DSH_DESKTOP_INSTALL_DIR` 给出的是 macOS 实际运行应用的那个临时转移路径,而不是用户看到的那个 `.app`;第一次启动前先把应用移到「应用程序」里就不会这样。
