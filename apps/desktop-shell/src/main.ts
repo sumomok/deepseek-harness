@@ -30,7 +30,7 @@ import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-r
 import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { readState, recordRun, setServerPort } from './desktop-state.ts'
+import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
@@ -51,6 +51,7 @@ import {
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, isPortFree, startOnPort } from './server-port.ts'
+import { rebindOnNewPort, respondToCrash, revealApp, stopForQuit } from './server-lifecycle.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -130,6 +131,10 @@ let logLine: (chunk: string) => void = (chunk) => {
 /** Set once the log file's own path is known, for the L2 "打开日志" button. */
 let logFile = ''
 
+// `logLine` is read at report time, so a write that fails before the file
+// sink exists goes to stderr like every other early line.
+reportStateWritesTo((line) => { logLine(line) })
+
 /**
  * Where a crash report goes. `log` reads {@link logLine} at report time, not
  * at construction, so the same host serves both the handlers registered once
@@ -179,30 +184,25 @@ const isRecoveryRelaunch = isRecoveryRelaunchInstance(process.argv)
 const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
 
 /**
- * Stop the server, giving up after `STOP_TIMEOUT_MS`. The caller exits either
- * way; a stop that timed out leaves an orphan for the next launch to sweep,
- * which is recoverable, while waiting forever is not.
- *
- * The window's `dsh-auth-*` cookies are removed before the server is stopped.
- * The window stays open until the process exits, and the next launch asks for
- * the same port: without the removal, requests the window makes after the
- * server is gone would carry a cookie that stays valid for a server on that
- * port to whatever else listens there first.
+ * Stop the server for a quit, giving up after `STOP_TIMEOUT_MS`. The caller
+ * exits either way; a stop that timed out leaves an orphan for the next launch
+ * to sweep, which is recoverable, while waiting forever is not. The sign-in
+ * cookies are removed first, within a short bound
+ * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  * @returns resolves when the server stopped or the deadline passed.
  */
 async function stopServerBounded(): Promise<void> {
   const handle = server
   if (handle === undefined) return
-  let timer: NodeJS.Timeout | undefined
-  const deadline = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => { resolve('timeout') }, STOP_TIMEOUT_MS)
-  })
-  const stopped = clearStaleAuthCookies(session.defaultSession.cookies, logLine).then(() => handle.stop())
-  const outcome = await Promise.race([stopped.then(() => 'stopped' as const), deadline])
-  clearTimeout(timer)
-  if (outcome === 'timeout') {
-    logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
-  }
+  await stopForQuit({ stop: handle.stop, clearCookies: clearAuthCookies, log: logLine, timeoutMs: STOP_TIMEOUT_MS })
+}
+
+/**
+ * Remove the served UI's sign-in cookies from the default session.
+ * @returns the number removed.
+ */
+function clearAuthCookies(): Promise<number> {
+  return clearStaleAuthCookies(session.defaultSession.cookies, logLine)
 }
 
 /**
@@ -243,22 +243,15 @@ function notifyRecovering(): void {
  * {@link activeServerSpec} on a port the system picks, and on success
  * retarget every window and the notification streams, and resume supervising
  * the new child. Used both by the L0 ladder and by the L2 dialog's manual
- * retry.
- *
- * The rebind does not ask for the crashed server's port. Between the crash and
- * the rebind the window keeps sending requests, with its `dsh-auth-*` cookie,
- * to that port, where any local process can listen; the cookie is signed with
- * a secret the Harness home keeps across processes, so a copy taken there
- * would be valid for any later server on the same port until it expires. On
- * a new port the new server's cookie name and authority differ, and the new
- * port is what the next launch remembers.
+ * retry. Why the port changes is in
+ * [[@deepseek-ai/dsh-desktop-shell/server-lifecycle]].
  * @returns true once the server is back up.
  */
 async function performRebind(): Promise<boolean> {
   const spec = activeServerSpec
   if (spec === undefined) return false
   try {
-    const started = await startOnPort({ ...spec, port: 0 }, startEmbeddedServer, logLine)
+    const started = await rebindOnNewPort(spec, startEmbeddedServer, logLine)
     const handle = started.server
     server = handle
     rememberServerPort(started.spec)
@@ -319,10 +312,17 @@ async function handleUnexpectedServerExit(): Promise<void> {
   // `expected` and never reaches here, but a second, unrelated crash racing
   // the same teardown must not start a rebind the quit is about to undo.
   if (quitting) return
-  const { state, outcome } = await runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
-    sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
-    notifyRecovering,
-    rebind: performRebind,
+  // Before the ladder, whatever it decides: the dead server's port must not be
+  // asked for again and its cookie must not be sent to it meanwhile.
+  const { state, outcome } = await respondToCrash({
+    forgetPort: forgetServerPort,
+    clearCookies: clearAuthCookies,
+    log: logLine,
+    ladder: () => runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
+      sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
+      notifyRecovering,
+      rebind: performRebind,
+    }),
   })
   supervisorState = state
   if (outcome === 'relaunch') relaunchForRecovery()
@@ -331,11 +331,12 @@ async function handleUnexpectedServerExit(): Promise<void> {
 
 /**
  * Escalate to L1: relaunch the whole app once, marked so the next instance
- * knows it is this relaunch (the L2 guard reads it). Goes through
- * `app.quit()`, not `app.exit()`, so the ordinary `before-quit` teardown
- * (closing the loopback services, `quitting` already true here so the tray's
- * close guard stands aside) still runs — there is nothing left to stop on the
- * server itself, which already exited.
+ * knows it is this relaunch (the L2 guard reads it). `quitting` is raised
+ * first so the tray's close guard stands aside, which also makes the
+ * `before-quit` handler return at once: nothing is left for it to do, since
+ * the server already exited and [[handleUnexpectedServerExit]] forgot its port
+ * and removed the cookies before the ladder chose this, and the loopback
+ * services close with the process.
  */
 function relaunchForRecovery(): void {
   logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
@@ -639,14 +640,19 @@ function createAppWindow(url: string): void {
  * one on the served UI when it has none. Every route back into the app — the
  * tray icon, a clicked notification, a second launch, the macOS Dock — ends
  * here, so all of them behave the same whether the window is hidden in the
- * tray, minimized, merely behind something, or gone.
+ * tray, minimized, merely behind something, or gone. Once a quit has begun it
+ * does nothing.
  */
 function reveal(): void {
-  if (mainWindow() !== undefined) {
-    revealMainWindow()
-    return
-  }
-  if (server !== undefined) createAppWindow(server.authenticatedUrl)
+  revealApp({
+    quitting: () => quitting,
+    revealExisting: () => {
+      if (mainWindow() === undefined) return false
+      revealMainWindow()
+      return true
+    },
+    openWindow: () => { if (server !== undefined) createAppWindow(server.authenticatedUrl) },
+  })
 }
 
 const locked = app.requestSingleInstanceLock()

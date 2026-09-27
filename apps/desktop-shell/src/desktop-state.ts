@@ -15,7 +15,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/desktop-state
  */
 
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { StartedInstall } from './pending-cache.ts'
@@ -78,21 +78,93 @@ export function readState(): DesktopState {
 }
 
 /**
- * Replace the file with `state`, dropping the write when the file cannot be
- * written. The content goes to `desktop-state.json.tmp` first and is renamed
- * over the file, so a process that dies mid-write leaves the previous file
- * whole: a truncated file reads as empty, and the next write would then drop
- * every field, `installedUpdate` included.
+ * Where a failed write is reported. The shell's log sink by the time
+ * `main.ts` calls [[reportStateWritesTo]]; nowhere before that.
+ */
+let reportWrite: (line: string) => void = () => {}
+
+/**
+ * Report failed state-file writes to `log`.
+ * @param log - receives one line per failed write, ending in a newline.
+ */
+export function reportStateWritesTo(log: (line: string) => void): void {
+  reportWrite = log
+}
+
+/**
+ * How many times a rename refused with a sharing error is tried, and how long
+ * apart. On Windows an antivirus scanner or the search indexer can hold the
+ * state file open for a moment, and `rename` over it then fails with `EPERM`,
+ * `EBUSY` or `EACCES` until they let go.
+ */
+export const RENAME_ATTEMPTS = 5
+/** The pause between rename attempts, in ms; see [[RENAME_ATTEMPTS]]. */
+export const RENAME_RETRY_MS = 50
+
+/** Error codes a rename is retried for. */
+const SHARING_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+/**
+ * Block the calling thread for `ms`. The state file is written synchronously
+ * by every caller, and only a refused rename waits at all.
+ * @param ms - how long to wait.
+ */
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Rename `from` over `to`, retrying a sharing error up to [[RENAME_ATTEMPTS]] times.
+ * @param from - the temporary file.
+ * @param to - the state file.
+ * @throws the last error when every attempt failed, or the first one that is not a sharing error.
+ */
+function renameWithRetry(from: string, to: string): void {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      renameSync(from, to)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (attempt >= RENAME_ATTEMPTS || code === undefined || !SHARING_ERRORS.has(code)) throw error
+    }
+    pause(RENAME_RETRY_MS)
+  }
+}
+
+/**
+ * Write `content` to `path` and flush it to the disk before returning, so the
+ * rename that follows never exposes a file whose data has not been written.
+ * @param path - the temporary file.
+ * @param content - the whole file.
+ */
+function writeDurably(path: string, content: string): void {
+  const fd = openSync(path, 'w')
+  try {
+    writeSync(fd, content)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Replace the file with `state`. The content goes to `desktop-state.json.tmp`,
+ * is flushed, and is renamed over the file, so a process that dies mid-write
+ * leaves the previous file whole: a truncated file reads as empty, and the
+ * next write would then drop every field, `installedUpdate` included. A write
+ * that still fails is reported through [[reportStateWritesTo]] and dropped.
  */
 function writeState(state: DesktopState): void {
   const file = stateFile()
   const temporary = `${file}.tmp`
   try {
-    writeFileSync(temporary, `${JSON.stringify(state)}\n`)
-    renameSync(temporary, file)
-  } catch {
+    writeDurably(temporary, `${JSON.stringify(state)}\n`)
+    renameWithRetry(temporary, file)
+  } catch (error) {
     // An unwritable state file costs the next launch its receipt and the user
     // their remembered close choice, and nothing else.
+    reportWrite(`[desktop] could not write ${file}: ${String(error)}\n`)
     removeTemporary(temporary)
   }
 }
@@ -154,4 +226,11 @@ export function setInstalledUpdate(installed: StartedInstall | undefined): void 
  */
 export function setServerPort(port: number): void {
   writeState({ ...readState(), serverPort: port })
+}
+
+/** Forget the remembered server port, so the next launch lets the system pick one. */
+export function forgetServerPort(): void {
+  const state = readState()
+  delete state.serverPort
+  writeState(state)
 }

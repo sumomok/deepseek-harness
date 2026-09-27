@@ -10,18 +10,17 @@
  * The shell therefore remembers the port the last server actually listened on
  * and asks for it again. A port that another process holds is not waited for:
  * the launch falls back to `--port 0`, which is what every launch did before,
- * and remembers the new port for the next one. A crash rebind does not ask
- * for the crashed server's port; `performRebind` in `main.ts` says why.
+ * and remembers the new port for the next one. An unexpected server exit
+ * forgets the remembered port and a crash rebind takes a new one
+ * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  *
  * What a fixed port changes for sign-in: the `dsh-auth-*` cookie is signed
  * with a secret the Harness home keeps across processes and names its
  * authority, so a cookie issued by one launch is valid for the next launch's
  * server on the same port until it expires. A process could only obtain one
  * by listening on the port while the window sends requests there with the
- * server gone. That happens after a crash, which is why a rebind takes a new
- * port, and while the app quits, which is why the shell removes its cookies
- * before stopping the server ([[@deepseek-ai/dsh-desktop-shell/auth-cookies]]).
- * Everything else is as before: the window loads only the URL the server
+ * server gone, which happens after a crash and while the app quits; the
+ * lifecycle module lists what the shell does at each. Everything else is as before: the window loads only the URL the server
  * child prints, whose launch token is new on every launch; `will-navigate`
  * keeps the window on that server's origin; and a process holding the port
  * gets the fallback, not the window.

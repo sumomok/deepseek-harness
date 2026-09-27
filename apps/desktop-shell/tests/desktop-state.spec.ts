@@ -11,7 +11,33 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const fixture = vi.hoisted(() => ({ userData: '', locale: 'zh-CN' }))
+const fixture = vi.hoisted(() => ({
+  userData: '',
+  locale: 'zh-CN',
+  /** Error codes the next renames throw, one per call, before the real rename runs again. */
+  renameFailures: [] as string[],
+  renames: 0,
+  /** File-system calls in order, as `fsync` and `rename`. */
+  calls: [] as string[],
+}))
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    fsyncSync: (fd: number): void => {
+      fixture.calls.push('fsync')
+      actual.fsyncSync(fd)
+    },
+    renameSync: (from: string, to: string): void => {
+      fixture.calls.push('rename')
+      fixture.renames += 1
+      const code = fixture.renameFailures.shift()
+      if (code !== undefined) throw Object.assign(new Error(`${code}: rename`), { code })
+      actual.renameSync(from, to)
+    },
+  }
+})
 
 vi.mock('electron', () => ({
   app: {
@@ -21,11 +47,17 @@ vi.mock('electron', () => ({
   },
 }))
 
-const { readState, setCloseAction, setServerPort } = await import('../src/desktop-state.ts')
+const {
+  forgetServerPort, readState, RENAME_ATTEMPTS, reportStateWritesTo, setCloseAction, setServerPort,
+} = await import('../src/desktop-state.ts')
 const { menuText, shellLanguage } = await import('../src/menu-text.ts')
 
 beforeEach(() => {
   fixture.userData = mkdtempSync(join(tmpdir(), 'dsh-desktop-state-'))
+  fixture.renameFailures = []
+  fixture.renames = 0
+  fixture.calls = []
+  reportStateWritesTo(() => {})
 })
 
 afterEach(() => {
@@ -59,8 +91,9 @@ describe('serverPort', () => {
 })
 
 describe('writes', () => {
-  it('replace the file through a temporary file and leave none behind', () => {
+  it('replace the file through a flushed temporary file and leave none behind', () => {
     setServerPort(49_321)
+    expect(fixture.calls).toEqual(['fsync', 'rename'])
     expect(existsSync(join(fixture.userData, 'desktop-state.json.tmp'))).toBe(false)
     expect(readState()).toEqual({ serverPort: 49_321 })
   })
@@ -78,6 +111,45 @@ describe('writes', () => {
     writeFileSync(join(fixture.userData, 'desktop-state.json', 'occupant'), '')
     setServerPort(49_321)
     expect(existsSync(join(fixture.userData, 'desktop-state.json.tmp'))).toBe(false)
+  })
+})
+
+describe('forgetServerPort', () => {
+  it('drops the remembered port and keeps every other field', () => {
+    setCloseAction('tray')
+    setServerPort(49_321)
+    forgetServerPort()
+    expect(readState()).toEqual({ closeAction: 'tray' })
+  })
+})
+
+describe('a rename refused by another process', () => {
+  it('is retried until it succeeds', () => {
+    fixture.renameFailures = ['EPERM', 'EBUSY']
+    setServerPort(49_321)
+    expect(fixture.renames).toBe(3)
+    expect(readState()).toEqual({ serverPort: 49_321 })
+  })
+
+  it('is given up after the last attempt, reported, and leaves the previous file and no temporary file', () => {
+    setCloseAction('quit')
+    const lines: string[] = []
+    reportStateWritesTo((line) => { lines.push(line) })
+    fixture.renames = 0
+    fixture.renameFailures = Array.from({ length: RENAME_ATTEMPTS }, () => 'EACCES')
+    setServerPort(49_321)
+    expect(fixture.renames).toBe(RENAME_ATTEMPTS)
+    expect(readState()).toEqual({ closeAction: 'quit' })
+    expect(existsSync(join(fixture.userData, 'desktop-state.json.tmp'))).toBe(false)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('could not write')
+  })
+
+  it('is not retried for an error that is not a sharing error', () => {
+    fixture.renameFailures = ['ENOSPC']
+    setServerPort(49_321)
+    expect(fixture.renames).toBe(1)
+    expect(readState()).toEqual({})
   })
 })
 

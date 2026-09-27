@@ -1,7 +1,7 @@
 /**
  * Remove the shell's browser-session cookies on `127.0.0.1`: once per process
- * before this launch starts its server, and again as the app quits, before
- * the server is stopped.
+ * before this launch starts its server, when the server exits unexpectedly,
+ * and as the app quits, before the server is stopped.
  *
  * The served page stores one persistent `dsh-auth-<sha256(authority)>` cookie
  * per server it signs into. The authority carries the port, so a launch or a
@@ -15,16 +15,18 @@
  * secret the Harness home keeps, so it stays valid, until its expiry, for any
  * later server on the same authority, and a launch asks for the previous
  * launch's port ([[@deepseek-ai/dsh-desktop-shell/server-port]]). The removal
- * at launch keeps a stored copy from being sent again; the removal at quit
- * keeps the window, still open while the server stops, from sending one to a
- * port the server no longer holds. A copy taken before either — by a process
- * that listened on the port while the window was sending to it — is not
- * revoked by removing the stored cookie.
+ * at launch keeps a stored copy from being sent again; the removals after a
+ * crash and at quit keep the window, still open and still reconnecting, from
+ * sending one to a port the server no longer holds
+ * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]). A copy taken before a
+ * removal — by a process that listened on the port while the window was
+ * sending to it — is not revoked by removing the stored cookie.
  *
  * Before the spawn this process has no server yet, so removing every
  * `dsh-auth-*` cookie cannot remove the one this launch is about to be issued.
- * Reopening a window and rebinding the server never call this: they keep the
- * cookie the running server issued.
+ * Reopening a window never calls this: it keeps the cookie the running server
+ * issued. A rebind runs after the removal its crash triggered, and the
+ * window's load of the new server is issued a new cookie.
  * @module @deepseek-ai/dsh-desktop-shell/auth-cookies
  */
 
@@ -64,8 +66,8 @@ export interface CookieStore {
 
 /**
  * Remove every `dsh-auth-*` cookie stored for `127.0.0.1`, leaving every other
- * cookie on that host. Called before the spawn and at quit; see the module
- * description.
+ * cookie on that host. Called before the spawn, after an unexpected exit,
+ * and at quit; see the module description.
  *
  * The cookies are read by domain rather than by URL, because a URL filter also
  * matches the path and would miss a cookie stored under a path other than `/`;

@@ -97,13 +97,9 @@ describe('the launch sequence in main.ts', () => {
     expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(call)
   })
 
-  it('clears again at quit, before the server is stopped, and nowhere else', () => {
+  it('is also what the quit and the crash response remove through', () => {
     expect([...source.matchAll(/clearStaleAuthCookies\(/g)]).toHaveLength(2)
-    const stop = source.indexOf('async function stopServerBounded(')
-    const end = source.indexOf('\n}\n', stop)
-    const clear = source.indexOf('clearStaleAuthCookies(session.defaultSession.cookies, logLine).then(() => handle.stop())', stop)
-    expect(clear).toBeGreaterThan(stop)
-    expect(clear).toBeLessThan(end)
+    expect(source).toContain('return clearStaleAuthCookies(session.defaultSession.cookies, logLine)')
   })
 
   it('leaves cookies alone on every path that reopens a window or rebinds the server', () => {

@@ -210,16 +210,8 @@ describe('the launch sequence in main.ts', () => {
     expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(choice)
   })
 
-  it('starts a crash rebind on a port the system picks, not the crashed server\'s', () => {
-    const rebind = source.indexOf('async function performRebind(')
-    const end = source.indexOf('\n}\n', rebind)
-    const call = source.indexOf('await startOnPort({ ...spec, port: 0 }, startEmbeddedServer, logLine)', rebind)
-    expect(call).toBeGreaterThan(rebind)
-    expect(call).toBeLessThan(end)
-  })
-
-  it('starts both the launch and the crash rebind through startOnPort and records the port each time', () => {
-    expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(2)
-    expect([...source.matchAll(/rememberServerPort\(started\.spec\)/g)]).toHaveLength(2)
+  it('starts the launch through startOnPort and records the port it listens on', () => {
+    expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(1)
+    expect(source).toContain('rememberServerPort(started.spec)')
   })
 })
