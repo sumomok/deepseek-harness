@@ -17,7 +17,7 @@
  */
 
 import { lstat, readdir, readlink } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
+import { realpathSync, type Stats } from 'node:fs'
 import { posix, win32 } from 'node:path'
 import { DATA_ID_FILENAME } from '../data-location.ts'
 import { fromExtendedLengthPath } from '../link-target.ts'
@@ -62,7 +62,7 @@ type Kind = 'dir' | 'file' | 'link' | 'other'
  * @param stats - its `lstat`.
  * @returns the kind.
  */
-function kindOf(stats: Awaited<ReturnType<typeof lstat>>): Kind {
+function kindOf(stats: Stats): Kind {
   if (stats.isSymbolicLink()) return 'link'
   if (stats.isDirectory()) return 'dir'
   return stats.isFile() ? 'file' : 'other'

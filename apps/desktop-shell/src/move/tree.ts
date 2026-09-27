@@ -70,7 +70,7 @@ export interface ScanOptions {
   /** Relative paths (`/`-separated) left out together with everything below them. */
   exclude: readonly string[]
   /** Stops the walk between entries. */
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
 }
 
 /**

@@ -22,7 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { appendFileSync, closeSync, fsyncSync, openSync, readFileSync, realpathSync } from 'node:fs'
+import { appendFileSync, closeSync, fsyncSync, openSync, readFileSync, realpathSync, type Stats } from 'node:fs'
 import { chmod, lstat, mkdir, open, readlink, symlink, utimes } from 'node:fs/promises'
 import { posix, win32 } from 'node:path'
 import { writeDurably } from '../durable-file.ts'
@@ -280,7 +280,7 @@ export function recordStillHolds(record: DoneRecord | undefined, entry: Extract<
  * @param path - the path.
  * @returns its stats, or `undefined` when nothing is there.
  */
-async function lstatOrUndefined(path: string): Promise<Awaited<ReturnType<typeof lstat>> | undefined> {
+async function lstatOrUndefined(path: string): Promise<Stats | undefined> {
   try {
     return await lstat(path)
   } catch (error) {
