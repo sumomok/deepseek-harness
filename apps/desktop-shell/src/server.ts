@@ -160,6 +160,8 @@ export interface ServerHandle {
   url: string
   /** The readiness-line URL carrying the launch token; loading it exchanges the token for the browser-session cookie. */
   authenticatedUrl: string
+  /** The server process's id; `undefined` only when the system gave none. */
+  pid: number | undefined
   /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
   /**
@@ -356,6 +358,7 @@ export async function startServer(
   return {
     url: new URL(authenticatedUrl).origin,
     authenticatedUrl,
+    pid: child.pid,
     stop: () => {
       expectedExit = true
       return killTree(child)

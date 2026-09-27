@@ -13,12 +13,12 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-start
  */
 
-import { realpathSync } from 'node:fs'
+import { realpathSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readDataId, readGeneration, readPointer } from './data-location.ts'
 import { countSessions, quarantinedPlugins } from './move-boot.ts'
 import {
-  ABANDONED_FILENAME, JournalError, moveDir, readAbandonedCopies, readJournal, type MoveJournal,
+  ABANDONED_FILENAME, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, moveDir, readAbandonedCopies, readJournal, type MoveJournal,
 } from './move/journal.ts'
 import { acquireMoveLock, releaseMoveLock, type LockOwner } from './move/lock.ts'
 import {
@@ -62,6 +62,8 @@ export type MoveRefusal =
   | { kind: 'in-progress' }
   | { kind: 'no-identity'; detail: string }
   | { kind: 'locked'; owner: LockOwner }
+  /** The server, or a process it started, could not be confirmed stopped; the move was withdrawn before anything was copied. */
+  | { kind: 'server-still-running'; pids: number[] }
 
 /** Outcome of {@link beginDataMove}. */
 export type MoveStartOutcome =
@@ -133,6 +135,46 @@ export async function beginDataMove(request: MoveRequest, probes: MoveStartProbe
     releaseMoveLock([source], self)
     throw error
   }
+}
+
+/**
+ * Take back a move that has only been requested: nothing was copied, renamed,
+ * or written anywhere but its journal and its lock, so both go and the move
+ * leaves no result behind.
+ * @param journal - the journal {@link beginDataMove} wrote.
+ * @param request - the installation and process that took the lock.
+ * @throws when the journal is no longer in phase `requested`, or a file cannot be removed.
+ */
+export function withdrawRequestedMove(journal: MoveJournal, request: Pick<MoveRequest, 'userData' | 'pid'>): void {
+  const dir = moveDir(request.userData)
+  const current = readJournal(dir)
+  if (current?.moveId !== journal.moveId || current.phase !== 'requested') {
+    throw new JournalError(`journal: move ${journal.moveId} is no longer only requested (phase ${String(current?.phase)})`)
+  }
+  for (const name of [JOURNAL_FILENAME, DONE_LOG_FILENAME]) rmSync(join(dir, name), { force: true })
+  releaseMoveLock([journal.source], { userData: request.userData, pid: request.pid })
+}
+
+/**
+ * Hand the data over to a move that was just requested: stop the server and
+ * everything it started. When some of it cannot be confirmed gone the move is
+ * taken back before anything was copied and the server is started again.
+ * @param journal - the journal {@link beginDataMove} wrote.
+ * @param request - the installation and process that took the lock.
+ * @param deps - the stop of the server's whole tree (the processes still running) and its restart.
+ * @returns `go` when the move may run, or the refusal to report.
+ * @throws when the move cannot be taken back.
+ */
+export async function handOverToMove(
+  journal: MoveJournal,
+  request: Pick<MoveRequest, 'userData' | 'pid'>,
+  deps: { stopServerTree: () => Promise<Array<{ pid: number }>>; restartServer: () => Promise<unknown> },
+): Promise<{ kind: 'go' } | { kind: 'refused'; refusal: MoveRefusal }> {
+  const survivors = await deps.stopServerTree()
+  if (survivors.length === 0) return { kind: 'go' }
+  withdrawRequestedMove(journal, request)
+  await deps.restartServer()
+  return { kind: 'refused', refusal: { kind: 'server-still-running', pids: survivors.map(entry => entry.pid) } }
 }
 
 /**

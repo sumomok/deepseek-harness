@@ -36,7 +36,7 @@ import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { bootMove, checkHealth, countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import { carryMove, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage } from './move-page.ts'
-import { beginDataMove, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
+import { beginDataMove, handOverToMove, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import { moveDir } from './move/journal.ts'
@@ -45,6 +45,7 @@ import { nameLocale } from './move/names.ts'
 import { nodePreflightProbes } from './move/preflight.ts'
 import { nodeMoveEffects, recordHealth, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
+import { nodeProcessProbes, stopServerTree, type ProcessEntry } from './process-tree.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
@@ -210,6 +211,27 @@ async function stopServerBounded(): Promise<void> {
   if (outcome === 'timeout') {
     logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
   }
+}
+
+/**
+ * Stop the server and make sure its whole process tree is gone, the
+ * processes it started included ([[@deepseek-ai/dsh-desktop-shell/process-tree]]),
+ * with this installation's leftovers from earlier runs swept too.
+ * @returns the processes still running; empty when the tree is gone.
+ */
+async function stopServerCompletely(): Promise<ProcessEntry[]> {
+  const handle = server
+  const survivors = await stopServerTree({
+    pid: handle?.pid,
+    stop: stopServerBounded,
+    sweep: () => sweepOrphanedServers(resolveSpec().nodeBin, logLine),
+    probes: nodeProcessProbes(process.platform),
+  })
+  server = undefined
+  if (survivors.length > 0) {
+    logLine(`[desktop] server tree not confirmed stopped; still running: ${survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}\n`)
+  }
+  return survivors
 }
 
 /**
@@ -549,10 +571,17 @@ export async function startDataMoveFromSettings(input: Pick<MoveRequest, 'chosen
     isAlive: processIsAlive,
   })
   if (outcome.kind === 'refused') return outcome
-  logLine(`[desktop] data move: started to ${outcome.journal.target}; stopping the server\n`)
-  // stop() marks the exit expected, so supervision does not answer it with a rebind.
-  await stopServerBounded()
-  server = undefined
+  logLine(`[desktop] data move: requested to ${outcome.journal.target}; stopping the server and every process it started\n`)
+  // stop() marks the exit expected, so supervision does not answer it with a rebind. Nothing is copied while
+  // something the server started may still write to the data: then the move is taken back.
+  const handed = await handOverToMove(outcome.journal, { userData: app.getPath('userData'), pid: process.pid }, {
+    stopServerTree: stopServerCompletely,
+    restartServer: async () => {
+      logLine('[desktop] data move: withdrawn before copying anything; starting the server again\n')
+      return await performRebind()
+    },
+  })
+  if (handed.kind === 'refused') return handed
   await runMoveToEnd(logLine, mainWindow())
   return outcome
 }
@@ -1069,8 +1098,8 @@ if (!locked) {
         sink(`[desktop] data move: health check ${verdict.healthy ? 'passed' : 'failed'}: ${verdict.detail}\n`)
         if (!verdict.healthy) {
           // Stopped before the result is recorded: the rollback prints the new location, and nothing may still write to it.
-          await stopServerBounded()
-          server = undefined
+          // The print only chooses what the person is told, so a tree that cannot be confirmed gone is logged, not fatal.
+          await stopServerCompletely()
           recordHealth(moveDir(app.getPath('userData')), false, verdict.detail)
           await runMoveToEnd(sink, view.window)
           return

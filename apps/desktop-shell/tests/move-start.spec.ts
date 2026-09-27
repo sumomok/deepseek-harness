@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   bootMove, checkHealth, countSessions, lockPlaces, quarantinedPlugins, relaunchHome,
 } from '../src/move-boot.ts'
-import { beginDataMove, type MoveRequest, type MoveStartProbes } from '../src/move-start.ts'
+import { beginDataMove, handOverToMove, withdrawRequestedMove, type MoveRequest, type MoveStartProbes } from '../src/move-start.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, moveDir, readJournal, type MoveJournal } from '../src/move/journal.ts'
 import { LOCK_FILENAME } from '../src/move/lock.ts'
 import { nodePreflightProbes } from '../src/move/preflight.ts'
@@ -101,6 +101,39 @@ describe('starting a data move', () => {
     const stale = { ...probes, isAlive: () => false }
     expect((await beginDataMove(request, stale)).kind).toBe('started')
     expect(await beginDataMove(request, stale)).toEqual({ kind: 'refused', refusal: { kind: 'in-progress' } })
+  })
+
+  it('takes back a move that was only requested, and refuses once it went further', async () => {
+    const { f, request, probes } = await setup()
+    const outcome = await beginDataMove(request, probes)
+    if (outcome.kind !== 'started') throw new Error(outcome.kind)
+    withdrawRequestedMove(outcome.journal, request)
+    expect(readJournal(moveDir(request.userData))).toBeUndefined()
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+    expect(existsSync(join(moveDir(request.userData), 'last-result.json'))).toBe(false)
+    const again = await beginDataMove(request, probes)
+    if (again.kind !== 'started') throw new Error(again.kind)
+    writeFileSync(join(moveDir(request.userData), JOURNAL_FILENAME), JSON.stringify({ ...again.journal, phase: 'copying' }))
+    expect(() => { withdrawRequestedMove(again.journal, request) }).toThrow('no longer only requested')
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
+  })
+
+  it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {
+    const { f, request, probes } = await setup()
+    const first = await beginDataMove(request, probes)
+    if (first.kind !== 'started') throw new Error(first.kind)
+    let restarts = 0
+    const restartServer = async (): Promise<void> => { restarts += 1 }
+    const refused = await handOverToMove(first.journal, request, { stopServerTree: async () => [{ pid: 4242 }], restartServer })
+    expect(refused).toEqual({ kind: 'refused', refusal: { kind: 'server-still-running', pids: [4242] } })
+    expect(restarts).toBe(1)
+    expect(readJournal(moveDir(request.userData))).toBeUndefined()
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+    const second = await beginDataMove(request, probes)
+    if (second.kind !== 'started') throw new Error(second.kind)
+    expect(await handOverToMove(second.journal, request, { stopServerTree: async () => [], restartServer })).toEqual({ kind: 'go' })
+    expect(restarts).toBe(1)
+    expect(readJournal(moveDir(request.userData))?.phase).toBe('requested')
   })
 
   posixOnly('gives the lock back when the journal cannot be written', async () => {
