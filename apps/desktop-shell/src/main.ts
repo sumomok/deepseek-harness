@@ -35,6 +35,7 @@ import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerP
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
+import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
@@ -824,11 +825,17 @@ if (!locked) {
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
       const updateEnv = await startUpdateForServer(host, sink)
-      const pnpmEnv = pnpmLauncherEnv({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform })
+      const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
+      const pnpmEnv = pnpmLauncherEnv(location)
+      const installEnv = installDirEnv(location)
       const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
       sink(launcher === undefined
         ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
         : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
+      const installDir = installEnv[INSTALL_DIR_ENV]
+      sink(installDir === undefined
+        ? '[desktop] install dir: none in a development launch\n'
+        : `[desktop] install dir: ${installDir}\n`)
       // The server appends its own logger records to the same file, as one
       // write per record, rather than printing them into the streams above.
       // After the orphan sweep and the loopback services: an orphan can still
@@ -836,7 +843,7 @@ if (!locked) {
       const port = await choosePort(readState().serverPort, isPortFree)
       sink(port.line)
       const started = await startOnPort(
-        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, [SERVER_LOG_ENV]: logFile }, port: port.port },
+        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, [SERVER_LOG_ENV]: logFile }, port: port.port },
         startEmbeddedServer, sink,
       )
       server = started.server
