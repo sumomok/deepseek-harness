@@ -22,7 +22,7 @@ Status: implemented
 
 **输入框拒绝被移除。** 在该设置下两个选项都接受忙时 `/compact`，所以消费命令并弹出「正在回答，等这一轮结束后再压缩」的 `commandUi` 装饰已无可拒绝之事。它的模块、测试、locale 键、web 场景与 `ui-commands` 依赖都已删除。
 
-**卡片显示等待状态，并用读者的语言。** 命令 Definition 折叠关联的 `compaction/start`；在它到来之前，未结算的 `/compact` 卡显示 `等待压缩…` / `Waiting to compact…`，之后显示 `正在压缩…`。Host 的固定英文结果文本从不依赖 cordis 的 `@deepseek-ai/dsh-command-compact/result-text` 叶模块导出；客户端 bundle 不能导入这个值，所以卡片重述这张表，`satisfies typeof COMPACT_RESULT_TEXT` 在 Host 文本改变时让构建失败。
+**卡片显示等待状态，并用读者的语言。** 命令 Definition 折叠关联的 `compaction/start`；在它到来之前，未结算的 `/compact` 卡显示 `等待压缩…` / `Waiting to compact…`，之后显示 `正在压缩…`。Host 的固定英文结果文本从不依赖 cordis 的 `@deepseek-ai/dsh-command-compact/result-text` 叶模块导出；客户端 bundle 不能导入这个值，所以 `chat/compact-result.ts` 重述这张表，`satisfies typeof COMPACT_RESULT_TEXT` 在 Host 文本改变时让构建失败。
 
 **压缩相关的行位于两层折叠之外。** `process-groups.ts` 把 `manual-compaction` 列为独立根，`contract/turn-process.ts` 把它列入已完成轮次整轮折叠之外的类别。自动压缩失败行经 `auto-compaction-policy-seat` 得到同样两处登记。
 
