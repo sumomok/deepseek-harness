@@ -152,12 +152,16 @@ describe('identity marker', () => {
     expect(() => ensureDataId(dataDir('bad', { id: 'garbage' }))).toThrow(/does not hold a UUID/)
   })
 
-  it('recognizes a Harness home to adopt only by sessions and profiles or storages together', () => {
+  it('recognizes a Harness home to adopt by two of its top-level folders, never one', () => {
     expect(looksLikeHarnessHome(dataDir('plain'))).toBe(false)
     expect(looksLikeHarnessHome(dataDir('home', { structure: true }))).toBe(true)
     const storages = dataDir('storages-home')
     for (const name of ['sessions', 'storages']) mkdirSync(join(storages, name))
     expect(looksLikeHarnessHome(storages)).toBe(true)
+    // What a home holds after one start with no conversation yet (seen on a fresh DSH_HOME).
+    const fresh = dataDir('fresh-home')
+    for (const name of ['profiles', 'storages']) mkdirSync(join(fresh, name))
+    expect(looksLikeHarnessHome(fresh)).toBe(true)
     for (const only of ['sessions', 'profiles', 'storages', 'attachments']) {
       const dir = dataDir(`only-${only}`)
       mkdirSync(join(dir, only))

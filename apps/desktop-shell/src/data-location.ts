@@ -273,14 +273,14 @@ function isDirectory(path: string): boolean {
 
 /**
  * Whether a directory without an identity marker is nevertheless a Harness
- * home to adopt: it holds `sessions/` and one of `profiles/` or `storages/`,
- * which a home that has been launched once has. A single one of them (a
- * copy begun and stopped, say) is not enough.
+ * home to adopt: it holds at least two of the top-level directories only the
+ * Harness creates. A home started once and never used holds `profiles/` and
+ * `storages/` but no `sessions/` yet; a single one of them is not enough.
  * @param dir - the directory to inspect.
  * @returns true when it holds that structure.
  */
 export function looksLikeHarnessHome(dir: string): boolean {
-  return isDirectory(join(dir, 'sessions')) && (isDirectory(join(dir, 'profiles')) || isDirectory(join(dir, 'storages')))
+  return HOME_STRUCTURE.filter(name => isDirectory(join(dir, name))).length >= 2
 }
 
 /**
