@@ -10,13 +10,21 @@
  * The shell therefore remembers the port the last server actually listened on
  * and asks for it again. A port that another process holds is not waited for:
  * the launch falls back to `--port 0`, which is what every launch did before,
- * and remembers the new port for the next one.
+ * and remembers the new port for the next one. A crash rebind does not ask
+ * for the crashed server's port; `performRebind` in `main.ts` says why.
  *
- * Nothing about authentication changes with a fixed port. The window only
- * loads the URL the server child prints, whose launch token is new on every
- * launch; `will-navigate` keeps the window on that server's origin; and the
- * stale `dsh-auth-*` cookies are cleared before each spawn. A process that
- * takes the port first gets the fallback, not the window.
+ * What a fixed port changes for sign-in: the `dsh-auth-*` cookie is signed
+ * with a secret the Harness home keeps across processes and names its
+ * authority, so a cookie issued by one launch is valid for the next launch's
+ * server on the same port until it expires. A process could only obtain one
+ * by listening on the port while the window sends requests there with the
+ * server gone. That happens after a crash, which is why a rebind takes a new
+ * port, and while the app quits, which is why the shell removes its cookies
+ * before stopping the server ([[@deepseek-ai/dsh-desktop-shell/auth-cookies]]).
+ * Everything else is as before: the window loads only the URL the server
+ * child prints, whose launch token is new on every launch; `will-navigate`
+ * keeps the window on that server's origin; and a process holding the port
+ * gets the fallback, not the window.
  * @module @deepseek-ai/dsh-desktop-shell/server-port
  */
 
@@ -35,21 +43,54 @@ export function isListenPort(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65_535
 }
 
+/** What one listen attempt on a host found. */
+export type ListenOutcome = 'free' | 'taken' | 'unavailable'
+
 /**
- * Check whether `port` is free on the loopback host by listening on it and
- * closing again. A free answer can go stale before the server binds, which
- * [[startOnPort]] covers by falling back on `EADDRINUSE`.
- * @param port - the port to check.
- * @returns true when the listen succeeded.
+ * Try to listen on `host:port` and close again.
+ * @param port - the port to try.
+ * @param host - the address to bind.
+ * @returns `free` when the listen succeeded; `unavailable` when the host has no
+ * such address or address family (`EADDRNOTAVAIL`, `EAFNOSUPPORT`, as for `::`
+ * on a machine without IPv6); `taken` for any other failure, `EADDRINUSE` and
+ * `EACCES` among them.
  */
-export async function isPortFree(port: number): Promise<boolean> {
+export async function listenOutcome(port: number, host: string): Promise<ListenOutcome> {
   return new Promise((resolve) => {
     const probe = createServer()
-    probe.once('error', () => { resolve(false) })
-    probe.listen(port, LOOPBACK, () => {
-      probe.close(() => { resolve(true) })
+    probe.once('error', (error: NodeJS.ErrnoException) => {
+      resolve(error.code === 'EADDRNOTAVAIL' || error.code === 'EAFNOSUPPORT' ? 'unavailable' : 'taken')
+    })
+    probe.listen(port, host, () => {
+      probe.close(() => { resolve('free') })
     })
   })
+}
+
+/**
+ * The addresses a port must be free on. Checking the loopback address alone
+ * is not enough: on macOS a process listening on the IPv4 or IPv6 wildcard
+ * does not stop a listen on `127.0.0.1` with the same port, and connections
+ * the window makes can then reach either listener.
+ */
+const PROBE_HOSTS = [LOOPBACK, '0.0.0.0', '::'] as const
+
+/**
+ * Check whether `port` is free on the loopback address and both wildcard
+ * addresses, one listen at a time. An address family the machine lacks does
+ * not make the port taken. A free answer can go stale before the server binds,
+ * which [[startOnPort]] covers by falling back on `EADDRINUSE`.
+ * @param port - the port to check.
+ * @param probe - one listen attempt; [[listenOutcome]] outside tests.
+ * @returns true when no probe found the port taken.
+ */
+export async function isPortFree(
+  port: number, probe: (port: number, host: string) => Promise<ListenOutcome> = listenOutcome,
+): Promise<boolean> {
+  for (const host of PROBE_HOSTS) {
+    if (await probe(port, host) === 'taken') return false
+  }
+  return true
 }
 
 /** The port to start with and the log line that says why. */

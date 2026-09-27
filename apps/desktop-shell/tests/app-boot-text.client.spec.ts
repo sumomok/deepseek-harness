@@ -75,7 +75,7 @@ describe('appBootCss', () => {
 })
 
 describe('restateAppBootPage', () => {
-  it('inserts the stylesheet on every committed navigation and every DOM-ready', async () => {
+  it('inserts a freshly built stylesheet on every committed navigation and every DOM-ready', async () => {
     const contents = new EventEmitter() as EventEmitter & { inserted: string[]; insertCSS(css: string): Promise<string> }
     contents.inserted = []
     contents.insertCSS = async (css) => {
@@ -83,11 +83,12 @@ describe('restateAppBootPage', () => {
       if (contents.inserted.length === 2) throw new Error('page gone')
       return 'key'
     }
-    restateAppBootPage(contents, 'css')
+    let built = 0
+    restateAppBootPage(contents, () => `css${String(++built)}`)
     contents.emit('did-navigate')
     contents.emit('dom-ready')
     contents.emit('did-navigate')
     await Promise.resolve()
-    expect(contents.inserted).toEqual(['css', 'css', 'css'])
+    expect(contents.inserted).toEqual(['css1', 'css2', 'css3'])
   })
 })

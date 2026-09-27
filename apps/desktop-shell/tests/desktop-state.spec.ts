@@ -6,7 +6,7 @@
  * @module
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -55,6 +55,29 @@ describe('serverPort', () => {
       writeRaw({ serverPort, closeAction: 'quit' })
       expect(readState()).toEqual({ closeAction: 'quit' })
     }
+  })
+})
+
+describe('writes', () => {
+  it('replace the file through a temporary file and leave none behind', () => {
+    setServerPort(49_321)
+    expect(existsSync(join(fixture.userData, 'desktop-state.json.tmp'))).toBe(false)
+    expect(readState()).toEqual({ serverPort: 49_321 })
+  })
+
+  it('leave the previous file whole when the temporary file cannot be written', () => {
+    writeRaw({ closeAction: 'quit', installedUpdate: { fromVersion: '0.1.0-rc.34', fileName: 'a.zip', sha512: 'x' } })
+    const before = readFileSync(join(fixture.userData, 'desktop-state.json'), 'utf8')
+    mkdirSync(join(fixture.userData, 'desktop-state.json.tmp'))
+    setServerPort(49_321)
+    expect(readFileSync(join(fixture.userData, 'desktop-state.json'), 'utf8')).toBe(before)
+  })
+
+  it('remove the temporary file when the rename fails', () => {
+    mkdirSync(join(fixture.userData, 'desktop-state.json'))
+    writeFileSync(join(fixture.userData, 'desktop-state.json', 'occupant'), '')
+    setServerPort(49_321)
+    expect(existsSync(join(fixture.userData, 'desktop-state.json.tmp'))).toBe(false)
   })
 })
 

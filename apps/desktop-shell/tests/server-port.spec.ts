@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import { choosePort, isAddressInUse, isListenPort, isPortFree, portOf, startOnPort } from '../src/server-port.ts'
+import { choosePort, isAddressInUse, isListenPort, isPortFree, listenOutcome, portOf, startOnPort } from '../src/server-port.ts'
 import { ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
 /** Listeners a case opened, closed after it. */
@@ -20,13 +20,15 @@ afterEach(async () => {
 })
 
 /**
- * Hold a loopback port for the rest of the case.
+ * Hold a port for the rest of the case.
+ * @param host - the address to hold it on; the loopback address by default.
  * @returns the port.
  */
-async function holdPort(): Promise<number> {
+async function holdPort(host = '127.0.0.1'): Promise<number> {
   const listener = createServer()
   listeners.push(listener)
-  await new Promise<void>((resolve) => { listener.listen(0, '127.0.0.1', resolve) })
+  // IPv6 only, so a hold on `::` is not also a hold on the IPv4 wildcard.
+  await new Promise<void>((resolve) => { listener.listen({ port: 0, host, ipv6Only: host === '::' }, resolve) })
   const address = listener.address()
   if (address === null || typeof address === 'string') throw new Error('no port')
   return address.port
@@ -66,6 +68,38 @@ describe('isPortFree', () => {
     expect(await isPortFree(port)).toBe(false)
     await new Promise((resolve) => { listeners.pop()?.close(resolve) })
     expect(await isPortFree(port)).toBe(true)
+  })
+
+  it('answers false for a port held on the IPv4 wildcard, which a loopback-only probe would miss', async () => {
+    const port = await holdPort('0.0.0.0')
+    // macOS lets the loopback listen succeed beside the wildcard one.
+    if (process.platform === 'darwin') expect(await listenOutcome(port, '127.0.0.1')).toBe('free')
+    expect(await isPortFree(port)).toBe(false)
+  })
+
+  it('answers false for a port held on the IPv6 wildcard alone, where the machine has IPv6', async () => {
+    if (await listenOutcome(0, '::') === 'unavailable') return
+    const port = await holdPort('::')
+    expect(await listenOutcome(port, '0.0.0.0')).toBe('free')
+    expect(await isPortFree(port)).toBe(false)
+  })
+
+  it('checks the loopback and both wildcard addresses, and skips one the machine lacks', async () => {
+    const asked: string[] = []
+    const free = await isPortFree(49_321, async (_port, host) => {
+      asked.push(host)
+      return host === '::' ? 'unavailable' : 'free'
+    })
+    expect(asked).toEqual(['127.0.0.1', '0.0.0.0', '::'])
+    expect(free).toBe(true)
+    expect(await isPortFree(49_321, async (_port, host) => host === '0.0.0.0' ? 'taken' : 'free')).toBe(false)
+  })
+})
+
+describe('listenOutcome', () => {
+  it('reports an address the machine does not have as unavailable, not taken', async () => {
+    // 192.0.2.0/24 is TEST-NET-1 (RFC 5737), assigned to no host.
+    expect(await listenOutcome(0, '192.0.2.1')).toBe('unavailable')
   })
 })
 
@@ -174,6 +208,14 @@ describe('the launch sequence in main.ts', () => {
     expect(source.indexOf('await startRenderServiceForServer(')).toBeLessThan(choice)
     expect(source.indexOf('await startUpdateForServer(')).toBeLessThan(choice)
     expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(choice)
+  })
+
+  it('starts a crash rebind on a port the system picks, not the crashed server\'s', () => {
+    const rebind = source.indexOf('async function performRebind(')
+    const end = source.indexOf('\n}\n', rebind)
+    const call = source.indexOf('await startOnPort({ ...spec, port: 0 }, startEmbeddedServer, logLine)', rebind)
+    expect(call).toBeGreaterThan(rebind)
+    expect(call).toBeLessThan(end)
   })
 
   it('starts both the launch and the crash rebind through startOnPort and records the port each time', () => {

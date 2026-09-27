@@ -15,7 +15,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/desktop-state
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { StartedInstall } from './pending-cache.ts'
@@ -77,13 +77,34 @@ export function readState(): DesktopState {
   }
 }
 
-/** Replace the file with `state`, dropping the write when the file cannot be written. */
+/**
+ * Replace the file with `state`, dropping the write when the file cannot be
+ * written. The content goes to `desktop-state.json.tmp` first and is renamed
+ * over the file, so a process that dies mid-write leaves the previous file
+ * whole: a truncated file reads as empty, and the next write would then drop
+ * every field, `installedUpdate` included.
+ */
 function writeState(state: DesktopState): void {
+  const file = stateFile()
+  const temporary = `${file}.tmp`
   try {
-    writeFileSync(stateFile(), `${JSON.stringify(state)}\n`)
+    writeFileSync(temporary, `${JSON.stringify(state)}\n`)
+    renameSync(temporary, file)
   } catch {
     // An unwritable state file costs the next launch its receipt and the user
     // their remembered close choice, and nothing else.
+    removeTemporary(temporary)
+  }
+}
+
+/** Remove a temporary file a failed write left, if it can be removed. */
+function removeTemporary(path: string): void {
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // Something other than a file holds the name, or it cannot be removed; the
+    // next write tries the same name and fails the same way, which costs what
+    // any unwritable state file costs.
   }
 }
 

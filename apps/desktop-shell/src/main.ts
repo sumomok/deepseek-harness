@@ -35,7 +35,7 @@ import { decideDownload, downloadOutcome, type DownloadAlert } from './download-
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
-import { isExternalNavigationTarget } from './navigation.ts'
+import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import {
@@ -52,6 +52,7 @@ import {
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, isPortFree, startOnPort } from './server-port.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
+import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
@@ -143,9 +144,9 @@ const CRASH_LOG_HOST: CrashLogHost = {
  * The launch spec the running server was started (or last rebound) with —
  * paths, the loopback-service environment additions, and the port it listens
  * on. Recorded once the first startup succeeds; every automatic or manual
- * rebind reuses it, since the loopback services it points at keep running
- * across a server-only crash, and asking for the same port keeps the served
- * UI's origin.
+ * rebind reuses its paths and environment, since the loopback services it
+ * points at keep running across a server-only crash, but not its port: see
+ * [[performRebind]].
  */
 let activeServerSpec: ServerSpec | undefined
 
@@ -181,6 +182,12 @@ const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
  * Stop the server, giving up after `STOP_TIMEOUT_MS`. The caller exits either
  * way; a stop that timed out leaves an orphan for the next launch to sweep,
  * which is recoverable, while waiting forever is not.
+ *
+ * The window's `dsh-auth-*` cookies are removed before the server is stopped.
+ * The window stays open until the process exits, and the next launch asks for
+ * the same port: without the removal, requests the window makes after the
+ * server is gone would carry a cookie that stays valid for a server on that
+ * port to whatever else listens there first.
  * @returns resolves when the server stopped or the deadline passed.
  */
 async function stopServerBounded(): Promise<void> {
@@ -190,7 +197,8 @@ async function stopServerBounded(): Promise<void> {
   const deadline = new Promise<'timeout'>((resolve) => {
     timer = setTimeout(() => { resolve('timeout') }, STOP_TIMEOUT_MS)
   })
-  const outcome = await Promise.race([handle.stop().then(() => 'stopped' as const), deadline])
+  const stopped = clearStaleAuthCookies(session.defaultSession.cookies, logLine).then(() => handle.stop())
+  const outcome = await Promise.race([stopped.then(() => 'stopped' as const), deadline])
   clearTimeout(timer)
   if (outcome === 'timeout') {
     logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
@@ -232,16 +240,25 @@ function notifyRecovering(): void {
 
 /**
  * Attempt one rebind of the embedded server: start it again from
- * {@link activeServerSpec}, and on success retarget every window and the
- * notification streams, and resume supervising the new child. Used both by
- * the L0 ladder and by the L2 dialog's manual retry.
+ * {@link activeServerSpec} on a port the system picks, and on success
+ * retarget every window and the notification streams, and resume supervising
+ * the new child. Used both by the L0 ladder and by the L2 dialog's manual
+ * retry.
+ *
+ * The rebind does not ask for the crashed server's port. Between the crash and
+ * the rebind the window keeps sending requests, with its `dsh-auth-*` cookie,
+ * to that port, where any local process can listen; the cookie is signed with
+ * a secret the Harness home keeps across processes, so a copy taken there
+ * would be valid for any later server on the same port until it expires. On
+ * a new port the new server's cookie name and authority differ, and the new
+ * port is what the next launch remembers.
  * @returns true once the server is back up.
  */
 async function performRebind(): Promise<boolean> {
   const spec = activeServerSpec
   if (spec === undefined) return false
   try {
-    const started = await startOnPort(spec, startEmbeddedServer, logLine)
+    const started = await startOnPort({ ...spec, port: 0 }, startEmbeddedServer, logLine)
     const handle = started.server
     server = handle
     rememberServerPort(started.spec)
@@ -565,14 +582,15 @@ function createBootWindow(receipt?: string): BootView {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
-    if (server === undefined || !target.startsWith(server.url)) {
+    if (server === undefined || !isServerNavigation(target, server.url)) {
       event.preventDefault()
       if (isExternalNavigationTarget(target)) void shell.openExternal(target)
     }
   })
   guardWindowClose(window)
   attachDownloadHandling(window)
-  restateAppBootPage(window.webContents, appBootCss(shellLanguage()))
+  // The language chosen in the settings, else the system's, as the menus use.
+  restateAppBootPage(window.webContents, () => appBootCss(storedLanguagePreference(resolveHarnessHome()) ?? shellLanguage()))
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
   const showFailure = (message: string): void => {

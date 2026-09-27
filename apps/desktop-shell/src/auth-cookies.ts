@@ -1,20 +1,30 @@
 /**
- * Remove the browser-session cookies earlier launches of this shell left on
- * `127.0.0.1`, once per process, before this launch starts its server.
+ * Remove the shell's browser-session cookies on `127.0.0.1`: once per process
+ * before this launch starts its server, and again as the app quits, before
+ * the server is stopped.
  *
- * Every launch serves the UI on a new `--port 0` port, and the served page
- * stores one persistent `dsh-auth-<sha256(authority)>` cookie for it. The
- * authority carries the port, so each launch adds a cookie under a new name,
- * while the browser sends cookies by host and not by port: every one of them
- * goes out with every request to `127.0.0.1`. Enough launches push the request
- * header past Node's 16 KB limit, and the server answers the plugin bundle
- * request with 431, which the window reports as `Failed to load plugins`.
+ * The served page stores one persistent `dsh-auth-<sha256(authority)>` cookie
+ * per server it signs into. The authority carries the port, so a launch or a
+ * crash rebind on a new port adds a cookie under a new name, while the browser
+ * sends cookies by host and not by port: every one of them goes out with every
+ * request to `127.0.0.1`. Enough of them push the request header past Node's
+ * 16 KB limit, and the server answers the plugin bundle request with 431,
+ * which the window reports as `Failed to load plugins`.
  *
- * Before the spawn this process has no server yet, so every `dsh-auth-*`
- * cookie on the host belongs to an earlier process and none of them can
- * authenticate anything; removing all of them cannot remove the one this
- * launch is about to be issued. Reopening a window and rebinding the server
- * never call this: they keep the cookie the running server issued.
+ * A cookie is not bound to the process that issued it. It is signed with a
+ * secret the Harness home keeps, so it stays valid, until its expiry, for any
+ * later server on the same authority, and a launch asks for the previous
+ * launch's port ([[@deepseek-ai/dsh-desktop-shell/server-port]]). The removal
+ * at launch keeps a stored copy from being sent again; the removal at quit
+ * keeps the window, still open while the server stops, from sending one to a
+ * port the server no longer holds. A copy taken before either — by a process
+ * that listened on the port while the window was sending to it — is not
+ * revoked by removing the stored cookie.
+ *
+ * Before the spawn this process has no server yet, so removing every
+ * `dsh-auth-*` cookie cannot remove the one this launch is about to be issued.
+ * Reopening a window and rebinding the server never call this: they keep the
+ * cookie the running server issued.
  * @module @deepseek-ai/dsh-desktop-shell/auth-cookies
  */
 
@@ -54,7 +64,8 @@ export interface CookieStore {
 
 /**
  * Remove every `dsh-auth-*` cookie stored for `127.0.0.1`, leaving every other
- * cookie on that host.
+ * cookie on that host. Called before the spawn and at quit; see the module
+ * description.
  *
  * The cookies are read by domain rather than by URL, because a URL filter also
  * matches the path and would miss a cookie stored under a path other than `/`;
@@ -83,6 +94,6 @@ export async function clearStaleAuthCookies(cookies: CookieStore, log: (line: st
       log(`[desktop] could not remove cookie ${cookie.name}: ${String(error)}\n`)
     }
   }
-  if (removed > 0) log(`[desktop] removed ${String(removed)} browser-session cookies earlier launches left on ${LOOPBACK_HOST}\n`)
+  if (removed > 0) log(`[desktop] removed ${String(removed)} browser-session cookies on ${LOOPBACK_HOST}\n`)
   return removed
 }

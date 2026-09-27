@@ -1,7 +1,8 @@
 /**
- * The boot window's `will-navigate` policy: once a navigation is declined
- * (it does not target the running server), which targets still reach the
- * OS's own handler rather than being silently dropped. Depends on nothing
+ * The boot window's `will-navigate` policy: which navigations stay in the
+ * window because they target the running server, and, once a navigation is
+ * declined, which targets still reach the OS's own handler rather than being
+ * silently dropped. Depends on nothing
  * Electron-specific, so it is importable outside the main process.
  * @module @deepseek-ai/dsh-desktop-shell/navigation
  */
@@ -18,4 +19,22 @@
  */
 export function isExternalNavigationTarget(target: string): boolean {
   return target.startsWith('http') || target.startsWith('mailto:')
+}
+
+/**
+ * Whether a navigation target is on the running server's origin. The origins
+ * are compared parsed, not as string prefixes: `http://127.0.0.1:P@evil.example/`
+ * starts with the server's origin text but names `evil.example` as its host,
+ * with `127.0.0.1` and `P` as user name and password.
+ * @param target - the navigation target `will-navigate` reports.
+ * @param serverUrl - the running server's origin.
+ * @returns true when both parse and their origins are equal; false otherwise.
+ */
+export function isServerNavigation(target: string, serverUrl: string): boolean {
+  try {
+    return new URL(target).origin === new URL(serverUrl).origin
+  } catch {
+    // An unparsable target is declined like any other foreign one.
+    return false
+  }
 }

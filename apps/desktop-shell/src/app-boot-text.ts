@@ -76,17 +76,19 @@ export interface StyledContents {
 }
 
 /**
- * Insert the stylesheet into every page the window shows. `did-navigate` fires
+ * Insert the stylesheet into every page the window shows, built anew for each
+ * insert so a language chosen in the settings since the window opened applies
+ * from the next page load. `did-navigate` fires
  * once the new document is committed, before the client's scripts have drawn
  * the loading page in the ordinary case; `dom-ready` inserts it again in case
  * the first insert reached the document too early to stay. Two copies of the
  * same rules change nothing.
  * @param contents - the window's web contents.
- * @param css - from [[appBootCss]].
+ * @param css - builds the stylesheet with [[appBootCss]].
  */
-export function restateAppBootPage(contents: StyledContents, css: string): void {
+export function restateAppBootPage(contents: StyledContents, css: () => string): void {
   const insert = (): void => {
-    contents.insertCSS(css).catch(() => {
+    contents.insertCSS(css()).catch(() => {
       // The page was replaced or the window closed while inserting; the next
       // page gets its own insert.
     })
