@@ -12,8 +12,11 @@
  * @module
  */
 
+import { closeSync, existsSync, openSync, writeFileSync, writeSync } from 'node:fs'
+import { join } from 'node:path'
+import { readJournal } from '../src/move/journal.ts'
 import type { MoveEffects, MoveFs } from '../src/move/run.ts'
-import { driveMove, harnessEffects, type MoveSetup } from './move-harness.ts'
+import { driveMove, harnessEffects, type Faults, type MoveSetup } from './move-harness.ts'
 
 /** What the parent passes. */
 export interface ChildInput {
@@ -22,6 +25,14 @@ export interface ChildInput {
   healthy: boolean
   /** The event after which the process kills itself; 0 never. */
   killAt: number
+  faults: Faults
+  /**
+   * Before the first full check, damage the copy (a file's first bytes, and a
+   * stray file), so the check fails and the move repairs the copy.
+   */
+  damageFirstCheck: boolean
+  /** Drop a `.DS_Store` into the target folder and the copy while copying, as Finder does. */
+  finderFiles: boolean
 }
 
 const input = JSON.parse(process.argv[2] ?? '{}') as ChildInput
@@ -36,7 +47,7 @@ function event(label: string): void {
   if (labels.length === input.killAt) process.kill(process.pid, 'SIGKILL')
 }
 
-const real = harnessEffects(input.setup)
+const real = harnessEffects(input.setup, input.faults)
 const fs: MoveFs = {
   ...real.fs,
   writeFile: (path, content) => { real.fs.writeFile(path, content); event(`writeFile ${path}`) },
@@ -49,13 +60,32 @@ const effects: MoveEffects = {
   ...real,
   fs,
   copy: async (request, signal, onProgress) => {
+    if (input.finderFiles) {
+      for (const dir of [input.setup.start.target, request.dest]) {
+        if (existsSync(dir)) writeFileSync(join(dir, '.DS_Store'), 'finder')
+      }
+    }
     await real.copy(request, signal, (progress) => { onProgress(progress); event('copy progress') })
     event('copy')
   },
   verify: async (request, signal, onProgress) => {
+    if (input.damageFirstCheck && request.hash === 'all' && readJournal(input.setup.dir)?.repairRounds === 0) {
+      const big = join(request.dest, 'attachments', 'v1', 'objects', 'big.bin')
+      const fd = openSync(big, 'r+')
+      try {
+        writeSync(fd, Buffer.from('DAMAGED-DAMAGED!'), 0, 16, 0)
+      } finally {
+        closeSync(fd)
+      }
+      writeFileSync(join(request.dest, 'stray.txt'), 'not in the source\n')
+    }
     const problems = await real.verify(request, signal, (progress) => { onProgress(progress); event('verify progress') })
     event('verify')
     return problems
+  },
+  repair: async (request, extras, forget) => {
+    await real.repair(request, extras, forget)
+    event('repair')
   },
   remove: async (path) => {
     const report = await real.remove(path)

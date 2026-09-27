@@ -20,16 +20,18 @@
  */
 
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { readJournal, type MoveJournal } from '../src/move/journal.ts'
+import { MOVED_ID_FILENAME, readJournal, type MoveJournal } from '../src/move/journal.ts'
 import { startMove } from '../src/move/run.ts'
-import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
+import { IGNORABLE_NAMES, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
-import { driveMove, HARNESS_ID, harnessEffects, prepareMove, terminalValue, type MoveSetup, type Start } from './move-harness.ts'
+import {
+  driveMove, HARNESS_ID, harnessEffects, INTRUDER_ID, plantIntruder, prepareMove, terminalValue, type Faults, type MoveSetup, type Start,
+} from './move-harness.ts'
 import type { ChildInput } from './move-crash-child.ts'
 
 const CHILD = fileURLToPath(new URL('./move-crash-child.ts', import.meta.url))
@@ -47,7 +49,21 @@ interface Case {
   name: string
   sameVolume: boolean
   start: Start
+  /** The health check's verdict. */
   healthy: boolean
+  faults?: Faults
+  /** After the kill, a terminal `dsh` recreates the data's old path when it is empty. */
+  intruder?: boolean
+  /** The person picked an empty folder, which becomes the target. */
+  targetPreexisting?: boolean
+  /** The first full check finds a damaged file and a stray one, and the copy is repaired. */
+  damage?: boolean
+  /** Finder drops `.DS_Store` into the picked folder and the copy while copying. */
+  finderFiles?: boolean
+  /** Size of the large attachment; more than one read chunk makes kills land inside it. */
+  bigBytes?: number
+  /** Kill after every progress report too, not a sample. */
+  allProgress?: boolean
 }
 
 const CASES: Case[] = [
@@ -57,7 +73,29 @@ const CASES: Case[] = [
   { name: 'another volume from ~/.dsh, health check passes', sameVolume: false, start: 'default-home', healthy: true },
   { name: 'one volume from ~/.dsh, health check passes', sameVolume: true, start: 'default-home', healthy: true },
   { name: 'one volume, health check fails', sameVolume: true, start: 'pointer', healthy: false },
+  { name: 'another volume, naming the target fails', sameVolume: false, start: 'pointer', healthy: true, faults: { targetId: true } },
+  { name: 'another volume from ~/.dsh, the terminal write fails', sameVolume: false, start: 'default-home', healthy: true, faults: { terminal: true } },
+  { name: 'one volume, rewriting a link fails', sameVolume: true, start: 'pointer', healthy: true, faults: { rewrite: true } },
+  { name: 'one volume, the terminal write fails', sameVolume: true, start: 'pointer', healthy: true, faults: { terminal: true } },
+  { name: 'another volume from ~/.dsh, recreated by a terminal, passes', sameVolume: false, start: 'default-home', healthy: true, intruder: true },
+  { name: 'another volume from ~/.dsh, recreated by a terminal, fails', sameVolume: false, start: 'default-home', healthy: false, intruder: true },
+  { name: 'one volume from ~/.dsh, recreated by a terminal, passes', sameVolume: true, start: 'default-home', healthy: true, intruder: true },
+  { name: 'one volume from ~/.dsh, recreated by a terminal, fails', sameVolume: true, start: 'default-home', healthy: false, intruder: true },
+  { name: 'another volume into a picked empty folder Finder writes into', sameVolume: false, start: 'pointer', healthy: true, targetPreexisting: true, finderFiles: true },
+  { name: 'another volume into a picked empty folder, health check fails', sameVolume: false, start: 'pointer', healthy: false, targetPreexisting: true },
+  { name: 'one volume into a picked empty folder', sameVolume: true, start: 'pointer', healthy: true, targetPreexisting: true },
+  { name: 'another volume, the first check finds damage', sameVolume: false, start: 'pointer', healthy: true, damage: true },
+  { name: 'another volume, a file larger than one read chunk', sameVolume: false, start: 'pointer', healthy: true, bigBytes: 2_500_000, allProgress: true },
 ]
+
+/**
+ * Whether a scenario ends with the data moved.
+ * @param c - the scenario.
+ * @returns true when nothing fails.
+ */
+function expectMoved(c: Case): boolean {
+  return c.healthy && c.faults === undefined
+}
 
 /** A prepared move. */
 interface Prepared {
@@ -75,9 +113,11 @@ interface Prepared {
  * @returns the move.
  */
 async function prepare(c: Case): Promise<Prepared> {
-  const f = await buildFixture({ bigBytes: 200_000 })
+  const f = await buildFixture({ bigBytes: c.bigBytes ?? 200_000 })
   const target = join(f.targetParent, 'DSH-Data')
-  const setup = prepareMove({ root: f.root, home: f.home, target, sameVolume: c.sameVolume, start: c.start })
+  const setup = prepareMove({
+    root: f.root, home: f.home, target, sameVolume: c.sameVolume, start: c.start, targetPreexisting: c.targetPreexisting === true,
+  })
   const journal = startMove(setup.dir, setup.start, { pid: process.pid, now: new Date() })
   return { f, setup, target, before: listTree(f.home), hidden: journal.hidden, partial: journal.partial }
 }
@@ -110,7 +150,10 @@ interface ChildRun {
  * @returns how it ended, once the process has exited.
  */
 function runChild(p: Prepared, c: Case, killAt: number): Promise<ChildRun> {
-  const input: ChildInput = { setup: p.setup, target: p.target, healthy: c.healthy, killAt }
+  const input: ChildInput = {
+    setup: p.setup, target: p.target, healthy: c.healthy, killAt, faults: c.faults ?? {},
+    damageFirstCheck: c.damage === true, finderFiles: c.finderFiles === true,
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CHILD, JSON.stringify(input)], { stdio: ['ignore', 'pipe', 'pipe'], timeout: CHILD_TIMEOUT_MS })
     let stdout = ''
@@ -163,6 +206,10 @@ function isOurData(dir: string): boolean {
 function dataFiles(listing: readonly string[]): string[] {
   return listing.filter(line => line.startsWith('file ')
     && !line.startsWith('file .dsh-data-id ')
+    && !line.startsWith('file .dsh-data-id.moved ')
+    && !line.startsWith(`file ${MOVE_STATE_FILENAME} `)
+    // A file browser's own files (the Finder scenario) are not data.
+    && !IGNORABLE_NAMES.some(name => line.startsWith(`file ${name} `) || line.includes(`/${name} `))
     && !REBUILDABLE_ENTRIES.some(entry => line.startsWith(`file ${entry}/`) || line.startsWith(`file ${entry} `)))
 }
 
@@ -178,6 +225,41 @@ const POINTER_CONSISTENT = new Set(['requested', 'copying', 'verifying', 'catchi
 const SOURCE_UNTOUCHED = new Set(['requested', 'copying', 'verifying', 'catching-up', 'finalizing'])
 
 /**
+ * When no directory is this data, the kill fell between the source retiring
+ * its identity and the target receiving it, or, in a rollback, between the
+ * target giving it up and the source dropping its move marker: the journal
+ * must be readable in that phase and the original complete under a path it
+ * names, with its (retired) identity.
+ * @param p - the move.
+ * @returns every violation, as sentences.
+ */
+function checkRetiredWindow(p: Prepared): string[] {
+  let journal: MoveJournal | undefined
+  try {
+    journal = readJournal(p.setup.dir)
+  } catch (error) {
+    return [`no directory is this data and the journal is unreadable: ${String(error)}`]
+  }
+  if (journal === undefined || (journal.phase !== 'hiding-source' && journal.phase !== 'rolling-back')) {
+    return [`no directory is this data in phase ${String(journal?.phase)}`]
+  }
+  // The original holds the retired identity, or (a rollback that restored it
+  // but has not yet removed the move marker) the identity and the marker.
+  const idOf = (dir: string): string | undefined => {
+    for (const name of [MOVED_ID_FILENAME, '.dsh-data-id']) {
+      if (existsSync(join(dir, name))) return readFileSync(join(dir, name), 'utf8').trim()
+    }
+    return undefined
+  }
+  const original = [journal.source, journal.hidden].find(dir => idOf(dir) !== undefined)
+  if (original === undefined) return ['no directory is this data and no directory named by the journal holds its identity']
+  const violations: string[] = []
+  if (idOf(original) !== HARNESS_ID) violations.push('the original named by the journal is not this data')
+  if (JSON.stringify(dataFiles(listTree(original))) !== JSON.stringify(dataFiles(p.before))) violations.push('the retired original is not complete')
+  return violations
+}
+
+/**
  * Check what must hold at the moment of the kill.
  * @param p - the move.
  * @param sentinel - the sentinel's listing before the move.
@@ -189,6 +271,7 @@ function checkAtKill(p: Prepared, sentinel: readonly string[]): string[] {
   // `~/.dsh` may be a link to the target once the launch has calibrated it; one directory, two names.
   const ours = [...new Set(dirs.filter(isOurData).map(dir => realpathSync(dir)))]
   if (ours.length > 1) violations.push(`more than one directory is this data: ${ours.join(', ')}`)
+  if (ours.length === 0) violations.push(...checkRetiredWindow(p))
   if (existsSync(join(p.partial, '.dsh-data-id'))) violations.push('the partial copy carries an identity marker')
   let journal: MoveJournal | undefined
   try {
@@ -214,9 +297,10 @@ function checkAtKill(p: Prepared, sentinel: readonly string[]): string[] {
  * @param p - the move.
  * @param c - the scenario.
  * @param ended - how the resumed run said the move ended.
+ * @param planted - whether a terminal `dsh` recreated the old path.
  * @returns every violation, as sentences.
  */
-function checkAtEnd(p: Prepared, c: Case, ended: string | undefined): string[] {
+function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: boolean): string[] {
   const violations: string[] = []
   if (existsSync(join(p.setup.dir, 'journal.json'))) violations.push('the journal is still there')
   const result = JSON.parse(readFileSync(join(p.setup.dir, 'last-result.json'), 'utf8')) as { outcome: string }
@@ -224,11 +308,14 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined): string[] {
   for (const gone of [p.partial, p.hidden]) {
     if (existsSync(gone)) violations.push(`${gone} is still there`)
   }
-  if (c.healthy) {
+  if (expectMoved(c)) {
     if (result.outcome !== 'moved') violations.push(`the move ended ${result.outcome}`)
-    // Moving ~/.dsh itself leaves a link to the target at the old name.
-    const leftAtSource = existsSync(p.f.home) && !(lstatSync(p.f.home).isSymbolicLink() && readlinkSync(p.f.home) === p.target)
-    if (leftAtSource) violations.push('the source is still there')
+    // Moving ~/.dsh itself leaves a link to the target at the old name, or the directory a terminal made there.
+    const atSource = existsSync(p.f.home) ? lstatSync(p.f.home) : undefined
+    const expectedThere = atSource === undefined
+      || (atSource.isSymbolicLink() && readlinkSync(p.f.home) === p.target)
+      || (planted && readFileSync(join(p.f.home, '.dsh-data-id'), 'utf8').trim() === INTRUDER_ID)
+    if (!expectedThere) violations.push('the source is still there')
     if (!isOurData(p.target)) violations.push('the target is not this data')
     else if (JSON.stringify(dataFiles(listTree(p.target))) !== JSON.stringify(dataFiles(p.before))) violations.push('the target data differs')
     const pointer = JSON.parse(readFileSync(join(p.setup.userData, 'data-location.json'), 'utf8')) as { path: string }
@@ -237,7 +324,9 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined): string[] {
   } else {
     if (result.outcome !== 'failed') violations.push(`the move ended ${result.outcome}`)
     if (JSON.stringify(listTree(p.f.home)) !== JSON.stringify(p.before)) violations.push('the source is not as it was')
-    if (existsSync(p.target)) violations.push('the target is still there')
+    if (c.targetPreexisting === true) {
+      if (!existsSync(p.target) || readdirSync(p.target).length !== 0) violations.push('the picked folder is not back, empty')
+    } else if (existsSync(p.target)) violations.push('the target is still there')
     const main = join(p.setup.userData, 'data-location.json')
     const now = existsSync(main) ? readFileSync(main, 'utf8') : undefined
     if (now !== p.setup.start.pointerBefore.main) violations.push('the pointer is not as it was')
@@ -249,17 +338,38 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined): string[] {
 }
 
 /**
+ * Check a move blocked by a directory a terminal made at the old path: the
+ * journal is kept, the original is complete where the journal says, and the
+ * other directory is untouched.
+ * @param p - the move.
+ * @param c - the scenario.
+ * @returns every violation, as sentences.
+ */
+function checkBlocked(p: Prepared, c: Case): string[] {
+  const violations: string[] = []
+  if (!existsSync(join(p.setup.dir, 'journal.json'))) violations.push('the journal is gone')
+  const holder = c.sameVolume ? p.target : p.hidden
+  if (!existsSync(holder) || JSON.stringify(dataFiles(listTree(holder))) !== JSON.stringify(dataFiles(p.before))) {
+    violations.push(`the data is not complete in ${holder}`)
+  }
+  if (readFileSync(join(p.f.home, '.dsh-data-id'), 'utf8').trim() !== INTRUDER_ID) violations.push('the other directory was changed')
+  if (!existsSync(join(p.f.home, 'sessions', 'theirs.txt'))) violations.push('the other directory lost its file')
+  return violations
+}
+
+/**
  * The kill points of a scenario: every event other than a progress report,
  * and a seeded sample of progress reports.
  * @param events - the events of an uninterrupted run.
  * @param seed - the sample's seed.
+ * @param allProgress - whether every progress report is a kill point.
  * @returns event numbers, 1-based.
  */
-function killPoints(events: readonly string[], seed: number): number[] {
+function killPoints(events: readonly string[], seed: number, allProgress: boolean): number[] {
   const points: number[] = []
   const progress: number[] = []
   events.forEach((label, index) => {
-    if (label.endsWith(' progress')) progress.push(index + 1)
+    if (label.endsWith(' progress') && !allProgress) progress.push(index + 1)
     else points.push(index + 1)
   })
   let state = seed
@@ -282,13 +392,13 @@ posixOnly('a data move killed at any step', () => {
         expect(run.stderr).toBe('')
         expect(run.signal).toBeNull()
         expect(run.status).toBe(0)
-        expect(checkAtEnd(counting, c, run.ended)).toEqual([])
+        expect(checkAtEnd(counting, c, run.ended, false)).toEqual([])
         events = run.events
       } finally {
         await dispose(counting.f)
       }
       const failures: string[] = []
-      const points = killPoints(events, 20_260_927 + index)
+      const points = killPoints(events, 20_260_927 + index, c.allProgress === true)
       await pool(points, CONCURRENCY, async (killAt) => {
         const label = `kill ${String(killAt)} (${events[killAt - 1] ?? '?'})`
         const p = await prepare(c)
@@ -300,8 +410,17 @@ posixOnly('a data move killed at any step', () => {
             return
           }
           for (const violation of checkAtKill(p, sentinel)) failures.push(`${label}: ${violation}`)
-          const ended = await driveMove(p.setup, p.target, c.healthy, harnessEffects(p.setup))
-          for (const violation of checkAtEnd(p, c, ended)) failures.push(`${label}: ${violation}`)
+          const planted = c.intruder === true && plantIntruder(p.f.home)
+          const effects = harnessEffects(p.setup, c.faults)
+          let ended = await driveMove(p.setup, p.target, c.healthy, effects)
+          if (ended === 'blocked') {
+            if (!planted || expectMoved(c)) failures.push(`${label}: blocked without a directory in the way`)
+            for (const violation of checkBlocked(p, c)) failures.push(`${label}: blocked: ${violation}`)
+            // The person moves the other directory away; the move can then finish.
+            await rm(p.f.home, { recursive: true, force: true })
+            ended = await driveMove(p.setup, p.target, c.healthy, effects)
+          }
+          for (const violation of checkAtEnd(p, c, ended, planted)) failures.push(`${label}: ${violation}`)
           if (JSON.stringify(listTree(p.f.sentinel)) !== JSON.stringify(sentinel)) failures.push(`${label}: the sentinel changed`)
         } catch (error) {
           failures.push(`${label}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
