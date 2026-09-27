@@ -18,11 +18,12 @@ import {
   initProfile, loadOverlayPatches, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir,
 } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { sameLinkTarget } from '../src/link-target.ts'
 import {
   AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_COMPOSITION_BUNDLE, DESKTOP_PROFILE, describeSeed,
   ensureLink,
   MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
-  readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
+  readMigrationMarker, removeLink, resolveHarnessHome, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 

@@ -14,7 +14,7 @@ import { join, resolve, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DATA_ID_FILENAME, type DataId } from '../src/data-location.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type LinkFs, type LinkStats } from '../src/home-link.ts'
-import { fromExtendedLengthPath, sameLinkTarget } from '../src/profile-seed.ts'
+import { fromExtendedLengthPath, sameLinkTarget } from '../src/link-target.ts'
 
 let root: string
 let defaultHome: string
