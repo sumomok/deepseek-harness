@@ -74,13 +74,13 @@ export function copyDurably(source: string, file: string): void {
 const DIRECTORY_FSYNC_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM', 'EBADF'])
 
 /**
- * Flush a directory's entries to disk. Windows cannot open a directory for
- * `fsync`, and NTFS commits a rename through its journal, so it is skipped
- * there.
+ * Flush a directory's entries to disk, so a rename or a creation in it
+ * survives a power loss. Windows cannot open a directory for `fsync`, and NTFS
+ * commits a rename through its journal, so it is skipped there.
  * @param dir - the directory.
  * @throws when the directory cannot be opened, or the flush fails for a reason other than being unsupported.
  */
-function fsyncDirectory(dir: string): void {
+export function fsyncDirectory(dir: string): void {
   if (process.platform === 'win32') return
   const fd = openSync(dir, 'r')
   try {

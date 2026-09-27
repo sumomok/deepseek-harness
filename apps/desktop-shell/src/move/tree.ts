@@ -8,6 +8,11 @@
  * inode, because a copy to another volume writes every hard-linked path as a
  * file of its own (pnpm links package files into the profiles that way).
  *
+ * An entry that changes between its `lstat` and the `readdir` of it (a
+ * directory replaced by a link, say) is read as whatever `readdir` then
+ * finds; the copier and the check read every entry again, so the change is
+ * caught there rather than here.
+ *
  * Relative paths use `/` on every platform, so a journal written on Windows
  * reads the same as one written on macOS; {@link nativePath} turns one back
  * into a path under a root.
@@ -35,6 +40,9 @@ export const REBUILDABLE_ENTRIES: readonly string[] = [
  */
 export const MOVE_STATE_FILENAME = '.dsh-move-state'
 
+/** Allocation unit assumed for the target volume (APFS and NTFS both default to 4 KiB). */
+export const ESTIMATED_BLOCK_BYTES = 4096
+
 /** One entry of a scanned tree. `rel` is relative to the root, `/`-separated. */
 export type TreeEntry =
   | { kind: 'dir'; rel: string; mode: number }
@@ -55,6 +63,12 @@ export interface TreeScan {
   others: number
   /** Sum of the sizes of every file path. */
   bytes: number
+  /**
+   * Space the files and directories take on a volume with
+   * {@link ESTIMATED_BLOCK_BYTES} blocks: every file rounded up to whole blocks,
+   * one block per directory and link.
+   */
+  allocatedBytes: number
   /** Excluded relative paths that exist. */
   excluded: string[]
   /** Groups of paths in one directory whose names differ only in letter case. */
@@ -71,6 +85,8 @@ export interface ScanOptions {
   exclude: readonly string[]
   /** Stops the walk between entries. */
   signal?: AbortSignal | undefined
+  /** Called after each entry is read, so a watcher can tell a slow walk from a hung one. */
+  onActivity?: (() => void) | undefined
 }
 
 /**
@@ -85,8 +101,10 @@ export function nativePath(root: string, rel: string): string {
 
 /**
  * Whether `path` is `root` or lies below it, compared by path text after
- * resolving both. Windows compares without regard to letter case, as its file
- * systems do.
+ * resolving both. On macOS and Windows the comparison ignores letter case
+ * (and, on macOS, Unicode normalization), as their default file systems do,
+ * so `/Users/p/DATA` counts as inside `/Users/p/Data`. On a case-sensitive
+ * volume there this errs toward "inside", which only ever refuses more.
  * @param path - an absolute path.
  * @param root - an absolute directory.
  * @param platform - whose path rules apply.
@@ -94,10 +112,29 @@ export function nativePath(root: string, rel: string): string {
  */
 export function isInsidePath(path: string, root: string, platform: NodeJS.Platform): boolean {
   const api = platform === 'win32' ? win32 : posix
-  const rel = api.relative(api.resolve(root), api.resolve(path))
+  const fold = (value: string): string => {
+    if (platform === 'win32') return value.toLowerCase()
+    return platform === 'darwin' ? value.normalize('NFC').toLowerCase() : value
+  }
+  const rel = api.relative(fold(api.resolve(root)), fold(api.resolve(path)))
   if (rel === '') return true
   if (api.isAbsolute(rel)) return false
   return rel !== '..' && !rel.startsWith(`..${api.sep}`)
+}
+
+/**
+ * Names the operating system's file browser drops into any folder it shows.
+ * A folder holding only these counts as empty, and they are deleted with it.
+ */
+export const IGNORABLE_NAMES: readonly string[] = ['.DS_Store', 'desktop.ini', 'Thumbs.db']
+
+/**
+ * The names of a directory listing that are not {@link IGNORABLE_NAMES}.
+ * @param names - the listing.
+ * @returns the names that make the folder non-empty.
+ */
+export function meaningfulNames(names: readonly string[]): string[] {
+  return names.filter(name => !IGNORABLE_NAMES.includes(name))
 }
 
 /**
@@ -129,7 +166,7 @@ export async function scanTree(root: string, options: ScanOptions): Promise<Tree
   if (!rootStats.isDirectory()) throw new Error(`${root} is not a directory (a link is refused: pass its real path)`)
   const exclude = new Set(options.exclude)
   const scan: TreeScan = {
-    root, entries: [], files: 0, dirs: 0, links: 0, others: 0, bytes: 0, excluded: [],
+    root, entries: [], files: 0, dirs: 0, links: 0, others: 0, bytes: 0, allocatedBytes: 0, excluded: [],
     caseCollisions: [], normalizationCollisions: [], longestRelative: 0,
   }
   const walk = async (rel: string): Promise<void> => {
@@ -149,6 +186,8 @@ export async function scanTree(root: string, options: ScanOptions): Promise<Tree
       scan.longestRelative = Math.max(scan.longestRelative, child.length)
       const path = nativePath(root, child)
       const stats = await lstat(path)
+      options.onActivity?.()
+      scan.allocatedBytes += stats.isFile() ? Math.ceil(stats.size / ESTIMATED_BLOCK_BYTES) * ESTIMATED_BLOCK_BYTES : ESTIMATED_BLOCK_BYTES
       if (stats.isSymbolicLink()) {
         scan.entries.push({ kind: 'link', rel: child, target: await readlink(path) })
         scan.links += 1

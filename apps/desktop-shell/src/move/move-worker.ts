@@ -19,6 +19,15 @@ port.on('message', (message: unknown) => {
   if (message === 'abort') controller.abort()
 })
 
+let lastAlive = 0
+const alive = (): void => {
+  const now = Date.now()
+  if (now - lastAlive < PROGRESS_INTERVAL_MS) return
+  lastAlive = now
+  const message: WorkerMessage = { type: 'alive' }
+  port.postMessage(message)
+}
+
 let last = 0
 const progress = (value: ByteProgress): void => {
   const now = Date.now()
@@ -35,14 +44,14 @@ const progress = (value: ByteProgress): void => {
 async function run(): Promise<MoveJobResult> {
   switch (job.kind) {
     case 'copy': {
-      const report = await copyTree(job.request, controller.signal, progress)
+      const report = await copyTree(job.request, controller.signal, progress, alive)
       return {
         kind: 'copy',
         summary: { copied: report.copied, skipped: report.skipped, bytesCopied: report.bytesCopied, bytes: report.scan.bytes },
       }
     }
     case 'verify': {
-      const report = await verifyTree(job.request, controller.signal, progress)
+      const report = await verifyTree(job.request, controller.signal, progress, alive)
       return { kind: 'verify', problems: report.problems, files: report.files, hashedBytes: report.hashedBytes }
     }
     default:

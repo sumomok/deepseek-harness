@@ -239,6 +239,27 @@ describe('verifyTree', () => {
     })
   })
 
+  posixOnly('finds a copy whose permissions differ, file or directory', async () => {
+    fixture = await buildFixture()
+    const req = request(fixture)
+    await copyTree(req)
+    chmodSync(join(req.dest, '.credentials.yaml'), 0o644)
+    chmodSync(join(req.dest, 'sessions'), 0o777)
+    expect((await verifyTree(check(fixture, 'none'))).problems).toEqual(expect.arrayContaining([
+      { kind: 'mode', rel: '.credentials.yaml' },
+      { kind: 'mode', rel: 'sessions' },
+    ]))
+  })
+
+  it('does not report a file browser\'s files in the copy', async () => {
+    fixture = await buildFixture()
+    const req = request(fixture)
+    await copyTree(req)
+    writeFileSync(join(req.dest, '.DS_Store'), 'finder')
+    writeFileSync(join(req.dest, 'sessions', 'Thumbs.db'), 'explorer')
+    expect((await verifyTree(check(fixture, 'none'))).problems).toEqual([])
+  })
+
   posixOnly('flags a link whose text is not the planned one', async () => {
     fixture = await buildFixture()
     const req = request(fixture)
@@ -261,6 +282,12 @@ describe('runMoveJob', () => {
     expect(seen.length).toBeGreaterThan(0)
     const checked = await runMoveJob({ kind: 'verify', request: check(fixture) })
     expect(checked).toMatchObject({ kind: 'verify', problems: [] })
+  })
+
+  it('gives up a job that sends nothing for the stall limit', async () => {
+    fixture = await buildFixture()
+    const job = runMoveJob({ kind: 'copy', request: request(fixture) }, { stallMs: 1 })
+    await expect(job).rejects.toSatisfy((error: unknown) => error instanceof MoveJobError && error.stalled && !error.aborted)
   })
 
   it('rejects with an aborted error when aborted', async () => {

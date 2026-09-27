@@ -6,7 +6,8 @@
  * sets, so a name the target file system changed (Unicode normalization,
  * letter case) shows up as one missing and one extra entry. Files must match
  * their done-log record in size, the source must still be what was copied
- * (size, modification time, inode), and, where asked, the copy is read again
+ * (size, modification time, inode), permission bits must match (except on
+ * Windows, which has none), and, where asked, the copy is read again
  * and its SHA-256 compared with the record. Links must hold the text the
  * copier gives them, and no link may resolve into the old home, neither by
  * its text nor on disk.
@@ -23,7 +24,7 @@ import { DATA_ID_FILENAME } from '../data-location.ts'
 import { fromExtendedLengthPath } from '../link-target.ts'
 import { hashFile, planLinkResolved, readDoneLog, type ByteProgress, type CopyRequest } from './copier.ts'
 import { linkCreation, sameTarget } from './links.ts'
-import { isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
+import { IGNORABLE_NAMES, isInsidePath, MOVE_STATE_FILENAME, nativePath } from './tree.ts'
 
 /** One way the copy differs from the source. */
 export type VerifyProblem =
@@ -33,6 +34,7 @@ export type VerifyProblem =
   | { kind: 'not-recorded'; rel: string }
   | { kind: 'source-changed'; rel: string }
   | { kind: 'size'; rel: string }
+  | { kind: 'mode'; rel: string }
   | { kind: 'content'; rel: string }
   | { kind: 'link'; rel: string; expected: string; actual: string }
   | { kind: 'link-into-old-root'; rel: string; resolved: string }
@@ -73,11 +75,12 @@ function kindOf(stats: Stats): Kind {
  * @param request - the trees, the exclusions, how links moved, the done log, and what to hash.
  * @param signal - stops the check between entries and chunks.
  * @param onProgress - called with the bytes hashed so far.
+ * @param onActivity - called after every entry compared, so a watcher can tell a slow check from a hung one.
  * @returns every problem found; none means the copy matches.
  * @throws on abort, or when either tree cannot be read.
  */
 export async function verifyTree(
-  request: VerifyRequest, signal?: AbortSignal, onProgress?: (progress: ByteProgress) => void,
+  request: VerifyRequest, signal?: AbortSignal, onProgress?: (progress: ByteProgress) => void, onActivity?: () => void,
 ): Promise<VerifyReport> {
   const { source, dest, links } = request
   const platform = links.platform
@@ -87,6 +90,7 @@ export async function verifyTree(
   const selected = request.hash === 'all' || request.hash === 'none' ? undefined : new Set(request.hash)
   const shouldHash = (rel: string): boolean => request.hash === 'all' || (selected?.has(rel) ?? false)
   const report: VerifyReport = { problems: [], files: 0, hashedBytes: 0 }
+  const sameMode = (a: number, b: number): boolean => platform === 'win32' || (a & 0o7777) === (b & 0o7777)
   const total = request.hash === 'none'
     ? 0
     : [...done.values()].filter(record => shouldHash(record.rel)).reduce((sum, record) => sum + record.size, 0)
@@ -149,6 +153,10 @@ export async function verifyTree(
       report.problems.push({ kind: 'size', rel })
       return
     }
+    if (!sameMode(now.mode, copy.mode)) {
+      report.problems.push({ kind: 'mode', rel })
+      return
+    }
     if (!shouldHash(rel)) return
     const digest = await hashFile(nativePath(dest, rel), signal, (bytes) => {
       report.hashedBytes += bytes
@@ -176,11 +184,18 @@ export async function verifyTree(
         report.problems.push({ kind: 'type', rel: child })
         continue
       }
-      if (kind === 'dir') await walk(child)
-      else if (kind === 'file') await checkFile(child)
+      onActivity?.()
+      if (kind === 'dir') {
+        const [from, to] = await Promise.all([lstat(nativePath(source, child)), lstat(nativePath(dest, child))])
+        if (!sameMode(from.mode, to.mode)) report.problems.push({ kind: 'mode', rel: child })
+        await walk(child)
+      } else if (kind === 'file') await checkFile(child)
       else await checkLink(child)
     }
     for (const name of destKinds.keys()) {
+      // A file browser may drop its own files into the copy while it is open;
+      // they are not data and are not reported.
+      if (IGNORABLE_NAMES.includes(name) && !sourceKinds.has(name)) continue
       if (sourceKinds.get(name) === undefined || sourceKinds.get(name) === 'other') {
         report.problems.push({ kind: 'extra', rel: atRoot ? name : `${rel}/${name}` })
       }

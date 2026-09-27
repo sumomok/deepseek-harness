@@ -411,10 +411,24 @@ export interface MoveFacts {
   hidden: DirFacts
 }
 
+/** Why a move can neither go on nor be undone without the person. */
+export type BlockedReason =
+  /**
+   * Something that is not this data now occupies the data directory's old
+   * path (a terminal `dsh` recreated `~/.dsh`, say), so the original cannot be
+   * put back there, or its rename could not be completed.
+   */
+  | 'source-occupied'
+  /** The original is neither at its old path nor hidden beside it: its disk is not attached, or it was removed. */
+  | 'source-missing'
+
 /** One step. */
 export type MoveAction =
   | { kind: 'abandon'; detail: string }
+  | { kind: 'roll-back'; detail: string }
   | { kind: 'cancel' }
+  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[] }
+  | { kind: 'keep-unmarked'; path: string }
   | { kind: 'plan-links' }
   | { kind: 'set-phase'; phase: MovePhase }
   | { kind: 'create-partial' }
@@ -458,7 +472,52 @@ function leftBehind(journal: MoveJournal, path: string): boolean {
 }
 
 /**
+ * Where this data is on disk now, for the person when the move is blocked:
+ * the original (at its old path, or hidden beside it) first, then a complete
+ * copy at the target.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns the directories holding the data.
+ */
+export function dataLocations(journal: MoveJournal, facts: MoveFacts): string[] {
+  const { source, target, hidden } = facts
+  const found: string[] = []
+  if (source.exists && (source.dataId === 'ours' || source.movedId)) found.push(journal.source)
+  if (hidden.exists && hidden.state === 'ours') found.push(journal.hidden)
+  const copyComplete = !journal.sameVolume && !CANCELLABLE_PHASES.has(journal.phase)
+  if (target.exists && (target.dataId === 'ours' || (copyComplete && target.state === 'ours'))) found.push(journal.target)
+  return found
+}
+
+/**
+ * The blocked step.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns a `blocked` action naming why and where the data is.
+ */
+function blocked(journal: MoveJournal, facts: MoveFacts): MoveAction {
+  return { kind: 'blocked', reason: facts.source.exists ? 'source-occupied' : 'source-missing', dataAt: dataLocations(journal, facts) }
+}
+
+/**
+ * The step that removes a folder this move made, or records it as left
+ * behind when it does not carry this move's marker and is not empty.
+ * @param dir - the folder's facts.
+ * @param path - the folder.
+ * @param remove - the removal step.
+ * @returns the step.
+ */
+function removeIfMarked(dir: DirFacts, path: string, remove: MoveAction): MoveAction {
+  return dir.state === 'ours' || dir.empty ? remove : { kind: 'keep-unmarked', path }
+}
+
+/**
  * Decide the next step.
+ *
+ * The original is never given up for a path that does not hold it: a
+ * directory at the source path that is not this data (no identity, no retired
+ * identity) stops the move as `blocked`, with the journal kept, and no copy is
+ * deleted while the original is not back at its path.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @param cancelRequested - whether the person asked to cancel.
@@ -469,9 +528,10 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
   const phase = journal.phase
   if (cancelRequested && CANCELLABLE_PHASES.has(phase)) return { kind: 'cancel' }
   const emptyPreexisting = journal.targetPreexisting && target.exists && target.empty
+  const sourceIsOurs = source.exists && source.dataId === 'ours'
   switch (phase) {
     case 'requested':
-      if (!source.exists || source.dataId !== 'ours') return { kind: 'abandon', detail: 'the data directory is not where it was, or no longer carries its identity' }
+      if (!sourceIsOurs) return { kind: 'abandon', detail: 'the data directory is not where it was, or no longer carries its identity' }
       if (target.exists && !emptyPreexisting) return { kind: 'abandon', detail: 'something is already at the target' }
       return journal.sameVolume ? { kind: 'plan-links' } : { kind: 'set-phase', phase: 'copying' }
     case 'copying':
@@ -489,31 +549,21 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
       if (target.exists && target.state === 'ours') return { kind: 'set-phase', phase: 'hiding-source' }
       return { kind: 'abandon', detail: 'the copy is gone' }
     case 'hiding-source':
-      if (journal.sameVolume) {
-        if (source.exists) {
-          if (!target.exists) return { kind: 'rename-source-to-target' }
-          return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target' }
-        }
-        return { kind: 'rewrite-links' }
-      }
-      if (source.exists && source.dataId === 'ours') return { kind: 'retire-source-id' }
-      if (source.exists && source.state !== 'ours') return { kind: 'mark-source' }
-      if (source.exists) return { kind: 'rename-source-to-hidden' }
-      if (target.dataId !== 'ours') return { kind: 'write-target-id' }
-      if (target.state === 'ours') return { kind: 'clear-target-state' }
-      return { kind: 'set-phase', phase: 'switching' }
+      return journal.sameVolume ? hideByRename(journal, facts, emptyPreexisting) : hideBeside(journal, facts)
     case 'switching':
       return journal.pointerWritten ? { kind: 'sync-terminal' } : { kind: 'write-pointer' }
     case 'switched':
       return { kind: 'await-health' }
     case 'cleanup':
-      if (!journal.sameVolume && hidden.exists && !leftBehind(journal, journal.hidden)) return { kind: 'remove-hidden' }
+      if (!journal.sameVolume && hidden.exists && !leftBehind(journal, journal.hidden)) {
+        return removeIfMarked(hidden, journal.hidden, { kind: 'remove-hidden' })
+      }
       return { kind: 'finish', outcome: 'moved' }
     case 'cancelling':
     case 'abandoning':
-      if (partial.exists && !leftBehind(journal, journal.partial)) return { kind: 'remove-partial' }
+      if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
       if (target.exists && target.state === 'ours' && target.dataId !== 'ours' && !leftBehind(journal, journal.target)) {
-        return { kind: 'remove-target' }
+        return sourceIsOurs ? { kind: 'remove-target' } : blocked(journal, facts)
       }
       if (journal.targetPreexisting && !target.exists) return { kind: 'recreate-empty-target' }
       return { kind: 'finish', outcome: phase === 'cancelling' ? 'cancelled' : 'failed' }
@@ -525,8 +575,50 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
 }
 
 /**
- * The next rollback step (plan S8′): `~/.dsh` first, then the directories,
- * then the pointer and the terminal.
+ * The next step of hiding the source on another volume: the source retires
+ * its identity, takes this move's marker, and is renamed beside itself; only
+ * then does the target get the identity. Once the source is hidden, whatever
+ * appears at its old path is ignored.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @returns the step.
+ */
+function hideBeside(journal: MoveJournal, facts: MoveFacts): MoveAction {
+  const { source, target, hidden } = facts
+  if (!(hidden.exists && hidden.state === 'ours')) {
+    if (source.exists && source.dataId === 'ours') return { kind: 'retire-source-id' }
+    if (source.exists && source.movedId) return source.state === 'ours' ? { kind: 'rename-source-to-hidden' } : { kind: 'mark-source' }
+    return blocked(journal, facts)
+  }
+  if (!target.exists) return { kind: 'roll-back', detail: 'the copy is gone' }
+  if (target.dataId !== 'ours') return { kind: 'write-target-id' }
+  if (target.state === 'ours') return { kind: 'clear-target-state' }
+  return { kind: 'set-phase', phase: 'switching' }
+}
+
+/**
+ * The next step of moving the source by rename on one volume. Once the data
+ * is at the target, whatever appears at its old path is ignored.
+ * @param journal - the journal.
+ * @param facts - what is on disk now.
+ * @param emptyPreexisting - whether the target is the empty folder the person picked.
+ * @returns the step.
+ */
+function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: boolean): MoveAction {
+  const { source, target } = facts
+  if (source.exists && source.dataId === 'ours') {
+    if (!target.exists) return { kind: 'rename-source-to-target' }
+    return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target' }
+  }
+  if (target.exists && target.dataId === 'ours') return { kind: 'rewrite-links' }
+  return blocked(journal, facts)
+}
+
+/**
+ * The next rollback step (plan S8′): `~/.dsh` first; then, only once the
+ * original can go back to its path, the target is made unusable and the
+ * original is put back; only after that is any copy deleted; the pointer and
+ * the terminal last.
  * @param journal - the journal.
  * @param facts - what is on disk now.
  * @returns the step.
@@ -534,16 +626,22 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
 function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
   const { source, partial, target, hidden } = facts
   if (!journal.homeLinkRestored) return { kind: 'restore-home-link' }
+  const sourceIsOurs = source.exists && source.dataId === 'ours'
   if (journal.sameVolume) {
-    if (target.exists && !source.exists) return { kind: 'return-target-to-source' }
+    if (target.exists && target.dataId === 'ours') return source.exists ? blocked(journal, facts) : { kind: 'return-target-to-source' }
+    if (!sourceIsOurs) return blocked(journal, facts)
   } else {
+    const hiddenIsOurs = hidden.exists && hidden.state === 'ours'
+    if (source.exists && !sourceIsOurs && !source.movedId) return blocked(journal, facts)
+    if (!source.exists && !hiddenIsOurs) return blocked(journal, facts)
     if (target.exists && target.dataId === 'ours' && target.state !== 'ours') return { kind: 'mark-target' }
     if (target.exists && target.dataId === 'ours') return { kind: 'unlink-target-id' }
-    if (!source.exists && hidden.exists) return { kind: 'rename-hidden-to-source' }
-    if (source.exists && source.movedId && source.dataId === 'none') return { kind: 'restore-source-id' }
-    if (source.exists && source.state === 'ours') return { kind: 'clear-source-state' }
-    if (target.exists && target.state === 'ours' && !leftBehind(journal, journal.target)) return { kind: 'remove-target' }
-    if (partial.exists && !leftBehind(journal, journal.partial)) return { kind: 'remove-partial' }
+    if (!source.exists) return { kind: 'rename-hidden-to-source' }
+    if (source.movedId && source.dataId === 'none') return { kind: 'restore-source-id' }
+    if (source.state === 'ours') return { kind: 'clear-source-state' }
+    if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target)) return { kind: 'remove-target' }
+    if (partial.exists && !leftBehind(journal, journal.partial)) return removeIfMarked(partial, journal.partial, { kind: 'remove-partial' })
+    if (!sourceIsOurs) return blocked(journal, facts)
   }
   if (journal.targetPreexisting && !target.exists) return { kind: 'recreate-empty-target' }
   if (journal.pointerWritten) return { kind: 'restore-pointer' }

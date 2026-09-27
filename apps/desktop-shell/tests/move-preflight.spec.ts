@@ -5,13 +5,13 @@
  * @module
  */
 
-import { chmodSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join, win32 } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   cloudRoots, DATA_DIR_NAME, evaluatePreflight, fileSystemOf, gatherPreflightFacts, iCloudSyncsDesktopAndDocuments,
-  inspectTarget, nodePreflightProbes, parseDarwinMounts, PROBE_DRIVE_ENV, probeCapabilities, realPathOf, requiredSpace,
+  inspectTarget, isVolumeRootOnDisk, nodePreflightProbes, parseDarwinMounts, PROBE_DRIVE_ENV, probeCapabilities, realPathOf, requiredSpace,
   resolveMoveTarget, SPACE_RESERVE_BYTES, windowsFileSystem, WINDOWS_PATH_BUDGET,
   type PreflightFacts, type PreflightProbes, type PreflightRequest, type TargetState,
 } from '../src/move/preflight.ts'
@@ -50,7 +50,7 @@ function facts(overrides: Partial<PreflightFacts> = {}): PreflightFacts {
     freeBytes: 10_000 * MB,
     fileSystem: { type: 'apfs', network: false },
     capabilities: { ok: true, caseSensitive: false },
-    scan: { bytes: 1000 * MB, caseCollisions: [], normalizationCollisions: [], longestRelative: 80 },
+    scan: { bytes: 1000 * MB, allocatedBytes: 1000 * MB, caseCollisions: [], normalizationCollisions: [], longestRelative: 80 },
     forbidden: {
       install: ['/Applications/DSH Desktop.app'],
       userData: '/Users/p/Library/Application Support/@deepseek-ai/dsh-desktop',
@@ -95,6 +95,25 @@ describe('evaluatePreflight', () => {
     expect(result.ok).toBe(true)
     expect(result.copyBytes).toBe(1000 * MB)
     expect(result.neededBytes).toBe(requiredSpace(1000 * MB))
+  })
+
+  it('compares places without regard to letter case on macOS and Windows', () => {
+    expect(refusedAt('/USERS/P/.DSH/DSH-Data')).toEqual(['inside-source'])
+    expect(refusedAt('/applications/dsh desktop.app/x')).toEqual(['inside-install'])
+    expect(refusedAt('/Users/p/library/mobile documents/x')).toEqual(['cloud-synced'])
+    expect(evaluatePreflight(facts({ platform: 'linux', realTarget: '/USERS/P/.DSH/x' })).refusals).toEqual([])
+  })
+
+  it('refuses the data directory typed in another case on a case-insensitive disk', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const probes = nodePreflightProbes(process.platform)
+    const typed = fixture.home.replace('src-parent', 'SRC-PARENT')
+    if (!existsSync(typed)) return
+    const gathered = await gatherPreflightFacts(
+      { platform: process.platform, source: fixture.home, chosen: typed, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      probes,
+    )
+    expect(evaluatePreflight(gathered).refusals.map(r => r.kind)).toContain('inside-source')
   })
 
   it('refuses a target inside the source, and one that holds the source', () => {
@@ -148,6 +167,8 @@ describe('evaluatePreflight', () => {
 
   it('needs the data plus the margin and the reserve free on another volume, and nothing on the same one', () => {
     expect(requiredSpace(1000)).toBe(1100 + SPACE_RESERVE_BYTES)
+    const rounded = facts({ scan: { ...facts().scan, bytes: 10, allocatedBytes: 1000 * MB } })
+    expect(evaluatePreflight(rounded).neededBytes).toBe(requiredSpace(1000 * MB))
     const needed = requiredSpace(1000 * MB)
     expect(evaluatePreflight(facts({ freeBytes: needed })).ok).toBe(true)
     expect(evaluatePreflight(facts({ freeBytes: needed - 1 })).refusals).toEqual([{ kind: 'not-enough-space', needed, free: needed - 1 }])
@@ -156,7 +177,7 @@ describe('evaluatePreflight', () => {
   })
 
   it('refuses name clashes a copy would merge, but not on a rename or a case-sensitive target', () => {
-    const scan = { bytes: 1, caseCollisions: [['a/B', 'a/b']], normalizationCollisions: [['c/e\u0301', 'c/\u00e9']], longestRelative: 3 }
+    const scan = { bytes: 1, allocatedBytes: 4096, caseCollisions: [['a/B', 'a/b']], normalizationCollisions: [['c/e\u0301', 'c/\u00e9']], longestRelative: 3 }
     expect(evaluatePreflight(facts({ scan })).refusals.map(r => r.kind)).toEqual(['case-collision', 'normalization-collision'])
     expect(evaluatePreflight(facts({ scan, capabilities: { ok: true, caseSensitive: true } })).refusals.map(r => r.kind))
       .toEqual(['normalization-collision'])
@@ -164,7 +185,7 @@ describe('evaluatePreflight', () => {
   })
 
   it('warns about long paths on Windows only', () => {
-    const scan = { bytes: 1, caseCollisions: [], normalizationCollisions: [], longestRelative: WINDOWS_PATH_BUDGET }
+    const scan = { bytes: 1, allocatedBytes: 4096, caseCollisions: [], normalizationCollisions: [], longestRelative: WINDOWS_PATH_BUDGET }
     const windows = windowsFacts('D:\\DSH-Data', { scan })
     const length = 'D:\\DSH-Data'.length + 1 + WINDOWS_PATH_BUDGET
     expect(evaluatePreflight(windows).warnings).toEqual([{ kind: 'long-paths', length, budget: WINDOWS_PATH_BUDGET }])
@@ -174,11 +195,60 @@ describe('evaluatePreflight', () => {
 })
 
 describe('the target folder', () => {
+  const notRoot = (): boolean => false
+
   it('uses an empty picked folder itself and makes DSH-Data inside any other', () => {
     const states: Record<string, TargetState> = { '/e': 'empty', '/full': 'not-empty', [join('/full', DATA_DIR_NAME)]: 'absent' }
     const inspect = (path: string): TargetState => states[path] ?? 'absent'
-    expect(resolveMoveTarget('/e', inspect)).toEqual({ target: '/e', parent: '/', preexisting: true })
-    expect(resolveMoveTarget('/full', inspect)).toEqual({ target: join('/full', DATA_DIR_NAME), parent: '/full', preexisting: false })
+    expect(resolveMoveTarget('/e', inspect, notRoot)).toEqual({ target: '/e', parent: '/', preexisting: true })
+    expect(resolveMoveTarget('/full', inspect, notRoot)).toEqual({ target: join('/full', DATA_DIR_NAME), parent: '/full', preexisting: false })
+  })
+
+  it('never takes the root of a volume as the target itself, even empty', () => {
+    const inspect = (path: string): TargetState => path === '/Volumes/USB' ? 'empty' : 'absent'
+    const mounted = (path: string): boolean => path === '/Volumes/USB'
+    expect(resolveMoveTarget('/Volumes/USB', inspect, mounted))
+      .toEqual({ target: join('/Volumes/USB', DATA_DIR_NAME), parent: '/Volumes/USB', preexisting: false })
+  })
+
+  it('finds volume roots on disk: a path with no parent, not an ordinary folder', async () => {
+    scratch = await scratchDir('dsh-preflight-')
+    expect(isVolumeRootOnDisk('/')).toBe(true)
+    expect(isVolumeRootOnDisk(scratch)).toBe(false)
+    expect(isVolumeRootOnDisk(join(scratch, 'none'))).toBe(false)
+  })
+
+  it('probes the volume the target folder is on when it is a mount point', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const usb = join(fixture.root, 'usb')
+    mkdirSync(usb)
+    const real = nodePreflightProbes(process.platform)
+    const probed: string[] = []
+    const probes: PreflightProbes = {
+      ...real,
+      isVolumeRoot: path => path === usb,
+      device: path => path.startsWith(usb) ? 9 : 1,
+      freeBytes: (dir) => {
+        probed.push(dir)
+        return dir === usb ? 7 : 0
+      },
+    }
+    const gathered = await gatherPreflightFacts(
+      { platform: process.platform, source: fixture.home, chosen: usb, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      probes,
+    )
+    expect(gathered.target).toEqual({ target: join(usb, DATA_DIR_NAME), parent: usb, preexisting: false })
+    expect(gathered.sameVolume).toBe(false)
+    expect(gathered.freeBytes).toBe(7)
+    expect(probed).toEqual([usb])
+  })
+
+  it('counts a folder holding only a file browser\'s files as empty', async () => {
+    scratch = await scratchDir('dsh-preflight-')
+    mkdirSync(join(scratch, 'finder'))
+    writeFileSync(join(scratch, 'finder', '.DS_Store'), '')
+    writeFileSync(join(scratch, 'finder', 'desktop.ini'), '')
+    expect(inspectTarget(join(scratch, 'finder'))).toBe('empty')
   })
 
   it('reads what is on disk, never following a link', async () => {

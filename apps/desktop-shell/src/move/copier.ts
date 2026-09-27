@@ -18,14 +18,19 @@
  *
  * The readback shows that what was written is what reads back; it may come
  * from the page cache rather than the disk surface (design doc 3.5).
+ *
+ * Contents, permission bits, and modification times are copied; extended
+ * attributes (macOS quarantine flags, Finder tags, resource forks), ACLs, and
+ * ownership are not. The copy is the home's data, which the Harness writes
+ * itself and reads through none of those.
  * @module @deepseek-ai/dsh-desktop-shell/move/copier
  */
 
 import { createHash } from 'node:crypto'
-import { appendFileSync, closeSync, fsyncSync, openSync, readFileSync, realpathSync, type Stats } from 'node:fs'
+import { appendFileSync, readFileSync, realpathSync, type Stats } from 'node:fs'
 import { chmod, lstat, mkdir, open, readlink, symlink, utimes } from 'node:fs/promises'
 import { posix, win32 } from 'node:path'
-import { writeDurably } from '../durable-file.ts'
+import { fsyncDirectory, writeDurably } from '../durable-file.ts'
 import { fromExtendedLengthPath } from '../link-target.ts'
 import { linkCreation, planLink, sameTarget, type LinkMove, type LinkPlan } from './links.ts'
 import { removeTree } from './remove.ts'
@@ -301,49 +306,33 @@ async function clear(path: string, platform: NodeJS.Platform): Promise<void> {
 }
 
 /**
- * Flush a directory's entries. Windows cannot open a directory for `fsync`
- * and commits entries through the NTFS journal.
- * @param dir - the directory.
- */
-function fsyncDir(dir: string): void {
-  if (process.platform === 'win32') return
-  const fd = openSync(dir, 'r')
-  try {
-    fsyncSync(fd)
-  } catch (error) {
-    // EINVAL, ENOTSUP, EBADF, EISDIR: a file system that does not flush
-    // directories; the entries stand as the system left them.
-    if (!['EINVAL', 'ENOTSUP', 'EBADF', 'EISDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
-  } finally {
-    closeSync(fd)
-  }
-}
-
-/**
  * Copy `source` into `dest`, resuming from the done log.
  * @param request - the trees, what to leave out, how links move, and the done log.
  * @param signal - stops the copy between chunks.
  * @param onProgress - called with the bytes handled so far, skipped files included.
+ * @param onActivity - called after every entry read or written, so a watcher can tell a slow copy from a hung one.
  * @returns what was copied.
  * @throws on abort, on a {@link CopyMismatchError}, or when a file cannot be read or written.
  */
 export async function copyTree(
-  request: CopyRequest, signal?: AbortSignal, onProgress?: (progress: ByteProgress) => void,
+  request: CopyRequest, signal?: AbortSignal, onProgress?: (progress: ByteProgress) => void, onActivity?: () => void,
 ): Promise<CopyReport> {
   const { source, dest, links } = request
   const platform = links.platform
-  const scan = await scanTree(source, { exclude: request.exclude, signal })
+  const scan = await scanTree(source, { exclude: request.exclude, signal, onActivity })
   const done = readDoneLog(request.doneLog)
   const report: CopyReport = { copied: [], skipped: 0, bytesCopied: 0, scan }
   const progress: ByteProgress = { done: 0, total: scan.bytes }
   const advance = (bytes: number): void => {
     progress.done += bytes
     onProgress?.(progress)
+    onActivity?.()
   }
   await mkdir(dest, { recursive: true, mode: 0o700 })
   const dirs: Array<{ path: string; mode: number }> = [{ path: dest, mode: 0o700 }]
   for (const entry of scan.entries) {
     signal?.throwIfAborted()
+    onActivity?.()
     const target = nativePath(dest, entry.rel)
     const existing = await lstatOrUndefined(target)
     switch (entry.kind) {
@@ -392,7 +381,7 @@ export async function copyTree(
     }
   }
   for (const dir of dirs.reverse()) {
-    fsyncDir(dir.path)
+    fsyncDirectory(dir.path)
     await chmod(dir.path, dir.mode)
   }
   return report

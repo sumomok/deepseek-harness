@@ -17,10 +17,12 @@ import {
   JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, nextAction, readJournal, readMoveResult, validateJournal,
   type DirFacts, type MoveFacts, type MoveJournal,
 } from '../src/move/journal.ts'
-import { advanceMove, MoveStuckError, recordHealth, startMove, type MoveEffects, type MoveOutcome } from '../src/move/run.ts'
+import { advanceMove, MoveStuckError, nodeMoveFs, recordHealth, startMove, type MoveEffects, type MoveOutcome } from '../src/move/run.ts'
 import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
-import { HARNESS_ID, harnessEffects, prepareMove, terminalValue, type MoveSetup, type Start } from './move-harness.ts'
+import {
+  HARNESS_ID, harnessEffects, INTRUDER_ID, plantIntruder, prepareMove, terminalValue, type MoveSetup, type Start,
+} from './move-harness.ts'
 
 const fixtures: Fixture[] = []
 
@@ -69,13 +71,15 @@ function bootOnTarget(s: Scenario): void {
 }
 
 /**
- * The data files of a listing: every file line except the identity and the rebuildable entries.
+ * The data files of a listing: every file line except the identity, the move markers, and the rebuildable entries.
  * @param listing - a {@link listTree} listing.
  * @returns the file lines.
  */
 function dataFiles(listing: readonly string[]): string[] {
   return listing.filter(line => line.startsWith('file ')
     && !line.startsWith('file .dsh-data-id ')
+    && !line.startsWith('file .dsh-data-id.moved ')
+    && !line.startsWith(`file ${MOVE_STATE_FILENAME} `)
     && !REBUILDABLE_ENTRIES.some(entry => line.startsWith(`file ${entry}/`) || line.startsWith(`file ${entry} `)))
 }
 
@@ -261,6 +265,90 @@ describe('a move to another volume', () => {
   })
 })
 
+describe('a directory a terminal made at the old path', () => {
+  posixOnly('blocks the rollback of a move to another volume, keeping the original and the copy, until it is gone', async () => {
+    const s = await scenario({ sameVolume: false, start: 'default-home' })
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    expect(plantIntruder(s.f.home)).toBe(true)
+    recordHealth(s.setup.dir, false)
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: [hidden, s.target] })
+    expect(readJournal(s.setup.dir)?.phase).toBe('rolling-back')
+    expect(dataFiles(listTree(hidden))).toEqual(dataFiles(s.before))
+    expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
+    expect(readFileSync(join(s.f.home, '.dsh-data-id'), 'utf8').trim()).toBe(INTRUDER_ID)
+    expect(existsSync(join(s.f.home, MOVE_STATE_FILENAME))).toBe(false)
+    await rm(s.f.home, { recursive: true })
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(listTree(s.f.home)).toEqual(s.before)
+  })
+
+  posixOnly('blocks the rollback of a rename, leaving the data at the target the pointer names', async () => {
+    const s = await scenario({ sameVolume: true, start: 'default-home' })
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    expect(plantIntruder(s.f.home)).toBe(true)
+    recordHealth(s.setup.dir, false)
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID }))
+      .toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: [s.target] })
+    expect(JSON.parse(pointerText(s, 'data-location.json') ?? '{}')).toMatchObject({ path: s.target })
+    expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
+  })
+
+  posixOnly('is ignored once the original is hidden: the move finishes on the target', async () => {
+    const s = await scenario({ sameVolume: false, start: 'default-home' })
+    const real = harnessEffects(s.setup)
+    let planted = false
+    const effects: MoveEffects = {
+      ...real,
+      fs: {
+        ...real.fs,
+        rename: (from, to) => {
+          real.fs.rename(from, to)
+          if (from === s.f.home) planted = plantIntruder(s.f.home)
+        },
+      },
+    }
+    expect(await runToEnd(s, true, effects)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    expect(planted).toBe(true)
+    expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
+    expect(readFileSync(join(s.f.home, '.dsh-data-id'), 'utf8').trim()).toBe(INTRUDER_ID)
+    expect(existsSync(join(s.f.home, MOVE_STATE_FILENAME))).toBe(false)
+  })
+})
+
+describe('a picked empty folder', () => {
+  it('still counts as empty with a file browser\'s files in it, which go with it', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer', targetPreexisting: true })
+    writeFileSync(join(s.target, '.DS_Store'), 'finder')
+    writeFileSync(join(s.target, 'Thumbs.db'), 'explorer')
+    expect(await runToEnd(s, true)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    expect(existsSync(join(s.target, '.DS_Store'))).toBe(false)
+    expect(existsSync(join(s.target, 'Thumbs.db'))).toBe(false)
+  })
+
+  it('is not taken over when it holds anything else', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer', targetPreexisting: true })
+    writeFileSync(join(s.target, 'notes.txt'), 'mine')
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(readFileSync(join(s.target, 'notes.txt'), 'utf8')).toBe('mine')
+  })
+})
+
+describe('nodeMoveFs', () => {
+  it('flushes the directories on both sides of a rename before returning', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const flushed: string[] = []
+    const fs = nodeMoveFs((dir) => { flushed.push(dir) })
+    const from = join(s.f.root, 'a.txt')
+    writeFileSync(from, 'x')
+    fs.rename(from, join(s.f.targetParent, 'b.txt'))
+    expect(flushed).toEqual([s.f.targetParent, s.f.root])
+    fs.rename(join(s.f.targetParent, 'b.txt'), join(s.f.targetParent, 'c.txt'))
+    expect(flushed.slice(2)).toEqual([s.f.targetParent])
+  })
+})
+
 describe('a move by rename on one volume', () => {
   posixOnly('renames the home and rewrites its links in place', async () => {
     const s = await scenario({ sameVolume: true, start: 'pointer' })
@@ -351,10 +439,10 @@ describe('nextAction', () => {
     expect(nextAction(hiding, facts({ source: ours, target }), false).kind).toBe('retire-source-id')
     expect(nextAction(hiding, facts({ source: dir({ exists: true, movedId: true }), target }), false).kind).toBe('mark-source')
     expect(nextAction(hiding, facts({ source: dir({ exists: true, movedId: true, state: 'ours' }), target }), false).kind).toBe('rename-source-to-hidden')
-    expect(nextAction(hiding, facts({ hidden: dir({ exists: true }), target }), false).kind).toBe('write-target-id')
-    expect(nextAction(hiding, facts({ hidden: dir({ exists: true }), target: dir({ exists: true, dataId: 'ours', state: 'ours' }) }), false).kind)
+    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target }), false).kind).toBe('write-target-id')
+    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: dir({ exists: true, dataId: 'ours', state: 'ours' }) }), false).kind)
       .toBe('clear-target-state')
-    expect(nextAction(hiding, facts({ hidden: dir({ exists: true }), target: ours }), false)).toEqual({ kind: 'set-phase', phase: 'switching' })
+    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: ours }), false)).toEqual({ kind: 'set-phase', phase: 'switching' })
   })
 
   it('invalidates the target before the source takes its identity back', () => {
@@ -379,9 +467,49 @@ describe('nextAction', () => {
     expect(nextAction(journal({ phase: 'finalizing' }), facts({ source: ours, target }), true).kind).toBe('set-phase')
   })
 
+  it('ignores the old path once the original is hidden, and blocks when the original is nowhere', () => {
+    const hiding = journal({ phase: 'hiding-source' })
+    const other = dir({ exists: true, dataId: 'other' })
+    const target = dir({ exists: true, state: 'ours' })
+    expect(nextAction(hiding, facts({ source: other, hidden: dir({ exists: true, state: 'ours' }), target }), false).kind).toBe('write-target-id')
+    expect(nextAction(hiding, facts({ source: other, target }), false))
+      .toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: ['/t'] })
+    expect(nextAction(hiding, facts({ target }), false)).toEqual({ kind: 'blocked', reason: 'source-missing', dataAt: ['/t'] })
+    expect(nextAction(hiding, facts({ source: other, hidden: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('roll-back')
+  })
+
+  it('never marks a directory that is not the original', () => {
+    const hiding = journal({ phase: 'hiding-source' })
+    const target = dir({ exists: true, state: 'ours' })
+    expect(nextAction(hiding, facts({ source: dir({ exists: true, movedId: true }), target }), false).kind).toBe('mark-source')
+    expect(nextAction(hiding, facts({ source: dir({ exists: true }), target }), false).kind).toBe('blocked')
+  })
+
+  it('blocks a rollback before touching the copy while the old path is occupied', () => {
+    const rolling = journal({ phase: 'rolling-back', homeLinkRestored: true })
+    const hidden = dir({ exists: true, movedId: true, state: 'ours' })
+    const other = dir({ exists: true, dataId: 'other' })
+    expect(nextAction(rolling, facts({ source: other, target: ours, hidden }), false))
+      .toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: ['/h', '/t'] })
+    expect(nextAction(rolling, facts({ target: ours }), false).kind).toBe('blocked')
+    const same = journal({ phase: 'rolling-back', homeLinkRestored: true, sameVolume: true })
+    expect(nextAction(same, facts({ source: other, target: ours }), false)).toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: ['/t'] })
+    expect(nextAction(same, facts({ target: ours }), false).kind).toBe('return-target-to-source')
+  })
+
+  it('removes only folders marked as this move, or empty', () => {
+    const cleanup = journal({ phase: 'cleanup' })
+    expect(nextAction(cleanup, facts({ hidden: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('remove-hidden')
+    expect(nextAction(cleanup, facts({ hidden: dir({ exists: true }) }), false)).toEqual({ kind: 'keep-unmarked', path: '/h' })
+    const abandoning = journal({ phase: 'abandoning' })
+    expect(nextAction(abandoning, facts({ source: ours, partial: dir({ exists: true, empty: true }) }), false).kind).toBe('remove-partial')
+    expect(nextAction(abandoning, facts({ source: ours, partial: dir({ exists: true }) }), false)).toEqual({ kind: 'keep-unmarked', path: '/p' })
+  })
+
   it('does not remove a target that is not marked as this move', () => {
     const abandoning = journal({ phase: 'abandoning' })
     expect(nextAction(abandoning, facts({ target: dir({ exists: true, state: 'other' }) }), false).kind).toBe('finish')
-    expect(nextAction(abandoning, facts({ target: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('remove-target')
+    expect(nextAction(abandoning, facts({ source: ours, target: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('remove-target')
+    expect(nextAction(abandoning, facts({ target: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('blocked')
   })
 })

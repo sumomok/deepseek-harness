@@ -7,7 +7,7 @@
  * @module
  */
 
-import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DataId } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
@@ -85,13 +85,24 @@ export function prepareMove(input: {
   }
 }
 
+/** Failures a scenario injects; each one fails every time its step runs. */
+export interface Faults {
+  /** Writing the target's identity marker fails (another volume): hiding the source rolls back. */
+  targetId?: boolean
+  /** Writing the terminal's `DSH_HOME` fails: switching rolls back. */
+  terminal?: boolean
+  /** Rewriting a link to the target fails (one volume): hiding the source rolls back. */
+  rewrite?: boolean
+}
+
 /**
- * The real effects with the terminal kept in a file.
+ * The real effects with the terminal kept in a file, and the injected failures.
  * @param setup - the move.
+ * @param faults - which steps fail.
  * @returns the effects.
  */
-export function harnessEffects(setup: MoveSetup): MoveEffects {
-  return nodeMoveEffects({
+export function harnessEffects(setup: MoveSetup, faults: Faults = {}): MoveEffects {
+  const effects = nodeMoveEffects({
     userData: setup.userData,
     defaultHome: setup.defaultHome,
     platform: process.platform,
@@ -103,6 +114,25 @@ export function harnessEffects(setup: MoveSetup): MoveEffects {
       writeFileSync(setup.terminalFile, before.kind === 'set' ? before.value : '')
     },
   })
+  const target = setup.start.target
+  return {
+    ...effects,
+    fs: {
+      ...effects.fs,
+      writeFile: (path, content) => {
+        if (faults.targetId === true && path === join(target, '.dsh-data-id')) throw new Error('injected: cannot write the identity')
+        effects.fs.writeFile(path, content)
+      },
+    },
+    syncTerminal: async (value) => {
+      if (faults.terminal === true) throw new Error('injected: cannot write the terminal')
+      return effects.syncTerminal(value)
+    },
+    rewriteLink: (root, rewrite) => {
+      if (faults.rewrite === true && rewrite.to.startsWith(target)) throw new Error('injected: cannot rewrite a link')
+      return effects.rewriteLink(root, rewrite)
+    },
+  }
 }
 
 /**
@@ -123,7 +153,7 @@ export function terminalValue(setup: MoveSetup): string {
  * @param healthy - the health check's verdict.
  * @param effects - the effects.
  * @param event - called after the calibration and after the health record, for the crash child's numbering.
- * @returns how the move ended, or `none` when no move was recorded.
+ * @returns how the move ended, `blocked` when it is blocked, or `none` when no move was recorded.
  */
 export async function driveMove(
   setup: MoveSetup, target: string, healthy: boolean, effects: MoveEffects, event: (label: string) => void = () => {},
@@ -141,10 +171,29 @@ export async function driveMove(
         break
       case 'cleanup-incomplete':
         break
+      case 'blocked':
+        return 'blocked'
       case 'ended':
         return outcome.result.outcome
       default:
         return outcome satisfies never
     }
   }
+}
+
+/** Identity of the directory a terminal `dsh` creates where the data was. */
+export const INTRUDER_ID = '99999999-2222-4333-8444-555555555555'
+
+/**
+ * Make a directory at the data's old path the way a terminal `dsh` would
+ * after the data was renamed away: its own identity and a session.
+ * @param path - the old path.
+ * @returns false when something is already there.
+ */
+export function plantIntruder(path: string): boolean {
+  if (existsSync(path)) return false
+  mkdirSync(join(path, 'sessions'), { recursive: true })
+  writeFileSync(join(path, '.dsh-data-id'), `${INTRUDER_ID}\n`)
+  writeFileSync(join(path, 'sessions', 'theirs.txt'), 'not ours\n')
+  return true
 }

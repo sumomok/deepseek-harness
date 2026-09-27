@@ -8,7 +8,7 @@ import { linkSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'no
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isInsidePath, nativePath, REBUILDABLE_ENTRIES, scanTree } from '../src/move/tree.ts'
+import { ESTIMATED_BLOCK_BYTES, isInsidePath, meaningfulNames, nativePath, REBUILDABLE_ENTRIES, scanTree } from '../src/move/tree.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
 
 let fixture: Fixture | undefined
@@ -74,6 +74,20 @@ describe('scanTree', () => {
     )
   })
 
+  it('estimates allocated space in whole blocks', async () => {
+    scratch = await scratchDir('dsh-scan-')
+    writeFileSync(join(scratch, 'one'), Buffer.alloc(1))
+    writeFileSync(join(scratch, 'empty'), '')
+    mkdirSync(join(scratch, 'd'))
+    const scan = await scanTree(scratch, { exclude: [] })
+    expect(scan.bytes).toBe(1)
+    expect(scan.allocatedBytes).toBe(2 * ESTIMATED_BLOCK_BYTES)
+  })
+
+  it('leaves a file browser\'s files out of what makes a folder non-empty', () => {
+    expect(meaningfulNames(['.DS_Store', 'Thumbs.db', 'desktop.ini', 'a'])).toEqual(['a'])
+  })
+
   it('reports the longest relative path', async () => {
     scratch = await scratchDir('dsh-scan-')
     mkdirSync(join(scratch, 'aaaa', 'bbbbbbbb'), { recursive: true })
@@ -110,5 +124,8 @@ describe('paths', () => {
     expect(isInsidePath('/', '/a', 'darwin')).toBe(false)
     expect(isInsidePath('C:\\Data\\x', 'c:\\data', 'win32')).toBe(true)
     expect(isInsidePath('D:\\Data', 'C:\\Data', 'win32')).toBe(false)
+    expect(isInsidePath('/Users/P/DATA/x', '/Users/p/Data', 'darwin')).toBe(true)
+    expect(isInsidePath('/a/caf\u0065\u0301/x', '/a/caf\u00e9', 'darwin')).toBe(true)
+    expect(isInsidePath('/Users/P/DATA/x', '/Users/p/Data', 'linux')).toBe(false)
   })
 })

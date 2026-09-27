@@ -6,8 +6,11 @@
  * does that one step, records the new phase durably, and repeats until the move
  * needs the application: `switched` (relaunch or continue onto the new
  * location, start the server, then call {@link recordHealth}), `ended` (the
- * move is over; the result says how), or `cleanup-incomplete` (the old copy is
- * not fully deleted yet; try again later). An interruption anywhere is
+ * move is over; the result says how), `cleanup-incomplete` (the old copy is
+ * not fully deleted yet; try again later), or `blocked` (something that is not
+ * this data sits at the data directory's old path, or the original cannot be
+ * found; the journal is kept and nothing is deleted until a later call can go
+ * on). An interruption anywhere is
  * resumed by calling it again: every step is repeatable.
  *
  * Everything that changes the disk goes through {@link MoveEffects}: the
@@ -27,8 +30,8 @@
 import {
   lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync,
 } from 'node:fs'
-import { join } from 'node:path'
-import { writeDurably } from '../durable-file.ts'
+import { dirname, join } from 'node:path'
+import { fsyncDirectory, writeDurably } from '../durable-file.ts'
 import {
   DATA_ID_FILENAME, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION, writePointer, type DataLocationPointer,
 } from '../data-location.ts'
@@ -38,12 +41,12 @@ import { copyTree, forgetDone, planLinkResolved, removeExtra, type ByteProgress,
 import {
   CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, MOVED_ID_FILENAME, newJournal, nextAction,
   readJournal, RESULT_FILENAME, writeJournal,
-  type DirFacts, type HomeLinkBefore, type MoveAction, type MoveFacts, type MoveJournal, type MovePhase, type MoveResult,
-  type MoveStart, type PointerBefore,
+  type BlockedReason, type DirFacts, type HomeLinkBefore, type MoveAction, type MoveFacts, type MoveJournal, type MovePhase,
+  type MoveResult, type MoveStart, type PointerBefore,
 } from './journal.ts'
 import { rewriteInPlace, type InPlaceRewrite, type LinkMove, type RewriteOutcome } from './links.ts'
 import { REMOVE_ATTEMPTS, REMOVE_FIRST_DELAY_MS, removeTree, type RemoveReport } from './remove.ts'
-import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES, scanTree } from './tree.ts'
+import { IGNORABLE_NAMES, meaningfulNames, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES, scanTree } from './tree.ts'
 import { verifyTree, type VerifyProblem, type VerifyRequest } from './verify.ts'
 
 /** What an entry is, without following a link. */
@@ -63,36 +66,51 @@ export interface MoveFs {
   rmdir: (path: string) => void
 }
 
-/** The real directory operations. */
-export const NODE_MOVE_FS: MoveFs = {
-  kind: (path) => {
-    let stats
-    try {
-      stats = lstatSync(path)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
-      throw error
-    }
-    if (stats.isSymbolicLink()) return 'link'
-    if (stats.isDirectory()) return 'dir'
-    return stats.isFile() ? 'file' : 'other'
-  },
-  readText: (path) => {
-    try {
-      return readFileSync(path, 'utf8')
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
-      throw error
-    }
-  },
-  readdir: path => readdirSync(path),
-  writeFile: (path, content) => { writeDurably(path, Buffer.from(content), 0o600) },
-  rename: (from, to) => { renameSync(from, to) },
-  unlink: (path) => { unlinkSync(path) },
-  mkdir: (path) => { mkdirSync(path, { mode: 0o700 }) },
-  rmdir: (path) => { rmdirSync(path) },
+/**
+ * The real directory operations. A rename is followed by a flush of the
+ * directories on both sides, so the rename is on disk before the journal
+ * records the step that follows it.
+ * @param flushDir - flushes one directory's entries; {@link fsyncDirectory} in the app.
+ * @returns the operations.
+ */
+export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): MoveFs {
+  return {
+    kind: (path) => {
+      let stats
+      try {
+        stats = lstatSync(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
+        throw error
+      }
+      if (stats.isSymbolicLink()) return 'link'
+      if (stats.isDirectory()) return 'dir'
+      return stats.isFile() ? 'file' : 'other'
+    },
+    readText: (path) => {
+      try {
+        return readFileSync(path, 'utf8')
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ENOENT' || code === 'ENOTDIR') return undefined
+        throw error
+      }
+    },
+    readdir: path => readdirSync(path),
+    writeFile: (path, content) => { writeDurably(path, Buffer.from(content), 0o600) },
+    rename: (from, to) => {
+      renameSync(from, to)
+      flushDir(dirname(to))
+      if (dirname(from) !== dirname(to)) flushDir(dirname(from))
+    },
+    unlink: (path) => { unlinkSync(path) },
+    mkdir: (path) => { mkdirSync(path, { mode: 0o700 }) },
+    rmdir: (path) => { rmdirSync(path) },
+  }
 }
+
+/** The real directory operations. */
+export const NODE_MOVE_FS: MoveFs = nodeMoveFs()
 
 /** Everything a move does to the disk and to the rest of the application. */
 export interface MoveEffects {
@@ -102,6 +120,12 @@ export interface MoveEffects {
   copy: (request: CopyRequest, signal: AbortSignal, onProgress: (progress: ByteProgress) => void) => Promise<void>
   /** Check the partial folder against the source. */
   verify: (request: VerifyRequest, signal: AbortSignal, onProgress: (progress: ByteProgress) => void) => Promise<VerifyProblem[]>
+  /**
+   * Prepare a copy for another round after a failed check: delete what the
+   * copy has and the source does not, and forget the done-log records of what
+   * differs, so those files are copied again.
+   */
+  repair: (request: CopyRequest, extras: readonly string[], forget: ReadonlySet<string>) => Promise<void>
   /** Delete a tree without following links. */
   remove: (path: string) => Promise<RemoveReport>
   /** The links in the source, for a rename on one volume. */
@@ -137,6 +161,12 @@ export interface MoveProgress {
 /** Why {@link advanceMove} returned. */
 export type MoveOutcome =
   | { kind: 'switched' }
+  /**
+   * The move can neither go on nor be undone until the person acts: the
+   * journal is kept, and every later call tries again. `dataAt` lists where
+   * the data is, the original first; nothing in it has been deleted.
+   */
+  | { kind: 'blocked'; reason: BlockedReason; dataAt: string[] }
   | { kind: 'ended'; result: MoveResult }
   | { kind: 'cleanup-incomplete'; attempts: number; leftoverBytes: number }
 
@@ -220,7 +250,7 @@ function dirFacts(fs: MoveFs, path: string, journal: MoveJournal): DirFacts {
     dataId: id === undefined ? 'none' : id === journal.dataId ? 'ours' : 'other',
     movedId: fs.readText(join(path, MOVED_ID_FILENAME)) !== undefined,
     state: state === undefined ? 'none' : state === journal.moveId ? 'ours' : 'other',
-    empty: fs.readdir(path).length === 0,
+    empty: meaningfulNames(fs.readdir(path)).length === 0,
   }
 }
 
@@ -257,7 +287,7 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
   if (journal === undefined) throw new JournalError('journal: no move in progress')
   const fs = effects.fs
   const save = (next: MoveJournal): void => {
-    writeJournal(dir, next)
+    fs.writeFile(join(dir, JOURNAL_FILENAME), `${JSON.stringify(next, null, 2)}\n`)
     journal = next
   }
   if (journal.pid !== options.pid) save({ ...journal, pid: options.pid })
@@ -377,6 +407,14 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
     case 'abandon':
       phase('abandoning', { failure: { phase: journal.phase, detail: action.detail } })
       return undefined
+    case 'roll-back':
+      phase('rolling-back', { failure: { phase: journal.phase, detail: action.detail } })
+      return undefined
+    case 'blocked':
+      return { kind: 'blocked', reason: action.reason, dataAt: action.dataAt }
+    case 'keep-unmarked':
+      save({ ...journal, leftovers: [...journal.leftovers, { path: action.path, bytes: 0 }] })
+      return undefined
     case 'cancel':
       phase('cancelling')
       return undefined
@@ -414,14 +452,15 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
         phase('abandoning', { failure: { phase: journal.phase, detail: `the copy does not match: ${describeProblems(problems)}` } })
         return undefined
       }
-      for (const problem of problems) {
-        if (problem.kind === 'extra') await removeExtra(journal.partial, problem.rel, effects.platform)
-      }
-      forgetDone(request.doneLog, new Set(problems.filter(problem => problem.kind !== 'extra').map(problem => problem.rel)))
+      const extras = problems.filter(problem => problem.kind === 'extra').map(problem => problem.rel)
+      await effects.repair(request, extras, new Set(problems.filter(problem => problem.kind !== 'extra').map(problem => problem.rel)))
       phase('copying', { repairRounds: journal.repairRounds + 1 })
       return undefined
     }
     case 'remove-empty-target':
+      for (const name of fs.readdir(journal.target)) {
+        if (IGNORABLE_NAMES.includes(name)) fs.unlink(join(journal.target, name))
+      }
       fs.rmdir(journal.target)
       return undefined
     case 'rename-partial-to-target':
@@ -429,7 +468,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       await renameWithRetry(effects, journal.partial, journal.target)
       return undefined
     case 'retire-source-id':
-      fs.rename(join(journal.source, DATA_ID_FILENAME), join(journal.source, MOVED_ID_FILENAME))
+      await renameWithRetry(effects, join(journal.source, DATA_ID_FILENAME), join(journal.source, MOVED_ID_FILENAME))
       return undefined
     case 'mark-source':
       fs.writeFile(join(journal.source, MOVE_STATE_FILENAME), journal.moveId)
@@ -500,7 +539,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       await renameWithRetry(effects, journal.hidden, journal.source)
       return undefined
     case 'restore-source-id':
-      fs.rename(join(journal.source, MOVED_ID_FILENAME), join(journal.source, DATA_ID_FILENAME))
+      await renameWithRetry(effects, join(journal.source, MOVED_ID_FILENAME), join(journal.source, DATA_ID_FILENAME))
       return undefined
     case 'clear-source-state':
       fs.unlink(join(journal.source, MOVE_STATE_FILENAME))
@@ -518,7 +557,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       save({ ...journal, terminalWritten: false })
       return undefined
     case 'finish':
-      return { kind: 'ended', result: finish(dir, journal, action.outcome, effects.now()) }
+      return { kind: 'ended', result: finish(dir, journal, action.outcome, effects) }
     default:
       return action satisfies never
   }
@@ -547,10 +586,11 @@ function pointerFor(journal: MoveJournal, lastSeenEnv: string | undefined, now: 
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
- * @param now - the clock.
+ * @param effects - the directory operations and the clock.
  * @returns the result.
  */
-function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'], now: Date): MoveResult {
+function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'], effects: MoveEffects): MoveResult {
+  const { fs } = effects
   const result: MoveResult = {
     version: journal.version,
     moveId: journal.moveId,
@@ -559,13 +599,11 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     target: journal.target,
     ...journal.failure === undefined ? {} : { detail: journal.failure.detail },
     leftovers: journal.leftovers,
-    finishedAt: now.toISOString(),
+    finishedAt: effects.now().toISOString(),
   }
-  writeDurably(join(dir, RESULT_FILENAME), Buffer.from(`${JSON.stringify(result, null, 2)}\n`))
-  unlinkIfPresent(join(dir, DONE_LOG_FILENAME))
-  unlinkIfPresent(join(dir, JOURNAL_FILENAME))
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith('.tmp')) unlinkIfPresent(join(dir, name))
+  fs.writeFile(join(dir, RESULT_FILENAME), `${JSON.stringify(result, null, 2)}\n`)
+  for (const name of [DONE_LOG_FILENAME, JOURNAL_FILENAME, ...fs.readdir(dir).filter(entry => entry.endsWith('.tmp'))]) {
+    if (fs.kind(join(dir, name)) !== 'absent') fs.unlink(join(dir, name))
   }
   return result
 }
@@ -648,6 +686,10 @@ export function nodeMoveEffects(input: {
     fs: NODE_MOVE_FS,
     copy: async (request, signal, onProgress) => { await copyTree(request, signal, onProgress) },
     verify: async (request, signal, onProgress) => (await verifyTree(request, signal, onProgress)).problems,
+    repair: async (request, extras, forget) => {
+      for (const rel of extras) await removeExtra(request.dest, rel, input.platform)
+      forgetDone(request.doneLog, forget)
+    },
     remove: path => removeTree(path, { platform: input.platform }),
     scanLinks: async (source) => {
       const scan = await scanTree(source, { exclude: [] })

@@ -8,6 +8,12 @@
  * {@link evaluatePreflight} is a pure function of the facts and returns every
  * reason the move is refused, so the Settings page can list them all at once.
  * The rules are the design doc's 3.4.
+ *
+ * The disk probes (device, free space, file-system type, capabilities) run in
+ * the target's parent: the partial copy is made there and renamed to the
+ * target, and a pre-existing empty target is replaced there by `rmdir` and
+ * `rename`. {@link resolveMoveTarget} never picks a volume root as the target
+ * itself, so the parent is on the target's volume.
  * @module @deepseek-ai/dsh-desktop-shell/move/preflight
  */
 
@@ -20,7 +26,7 @@ import { dirname, join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { DATA_ID_FILENAME, looksLikeHarnessHome } from '../data-location.ts'
 import type { PowerShellRunner } from '../terminal-env.ts'
-import { isInsidePath, REBUILDABLE_ENTRIES, scanTree, type TreeScan } from './tree.ts'
+import { isInsidePath, meaningfulNames, REBUILDABLE_ENTRIES, scanTree, type TreeScan } from './tree.ts'
 
 /** Name of the folder a move creates inside the folder the person picked (design doc Q13). */
 export const DATA_DIR_NAME = 'DSH-Data'
@@ -73,20 +79,47 @@ export function inspectTarget(path: string): TargetState {
   }
   if (!stats.isDirectory()) return 'not-a-folder'
   if (existsSync(join(path, DATA_ID_FILENAME)) || looksLikeHarnessHome(path)) return 'harness-data'
-  return readdirSync(path).length === 0 ? 'empty' : 'not-empty'
+  return meaningfulNames(readdirSync(path)).length === 0 ? 'empty' : 'not-empty'
 }
 
 /**
  * The move target for a folder the person picked: the folder itself when it
- * is empty, otherwise a {@link DATA_DIR_NAME} folder inside it (plan D6).
+ * is empty (files the file browser leaves, {@link IGNORABLE_NAMES}, do not
+ * count), otherwise a {@link DATA_DIR_NAME} folder inside it (plan D6).
+ *
+ * A folder that is the root of a volume — a drive (`D:\`), or a disk mounted
+ * at `/Volumes/USB` — is never the target itself, even when empty: the copy is
+ * made beside the target and renamed into place, which cannot cross into or
+ * replace a mount point, so the data goes into a folder inside it.
  * @param chosen - the absolute folder the person picked.
  * @param inspect - reads a path's state; {@link inspectTarget} in the app.
+ * @param isVolumeRoot - whether a folder is the root of a volume; {@link isVolumeRootOnDisk} in the app.
  * @returns the target, its parent, and whether it exists already.
  */
-export function resolveMoveTarget(chosen: string, inspect: (path: string) => TargetState = inspectTarget): MoveTarget {
-  if (inspect(chosen) === 'empty') return { target: chosen, parent: dirname(chosen), preexisting: true }
+export function resolveMoveTarget(
+  chosen: string,
+  inspect: (path: string) => TargetState = inspectTarget,
+  isVolumeRoot: (path: string) => boolean = isVolumeRootOnDisk,
+): MoveTarget {
+  if (inspect(chosen) === 'empty' && !isVolumeRoot(chosen)) return { target: chosen, parent: dirname(chosen), preexisting: true }
   const target = join(chosen, DATA_DIR_NAME)
   return { target, parent: chosen, preexisting: inspect(target) === 'empty' }
+}
+
+/**
+ * Whether a folder is the root of a volume: it has no parent, or its parent
+ * lies on another device.
+ * @param path - an existing absolute folder.
+ * @returns true for a drive root or a mount point; false when it cannot be read.
+ */
+export function isVolumeRootOnDisk(path: string): boolean {
+  if (dirname(path) === path) return true
+  try {
+    return statSync(path).dev !== statSync(dirname(path)).dev
+  } catch {
+    // ENOENT or EACCES: nothing to compare; `inspect` reports the folder itself.
+    return false
+  }
 }
 
 /** A file system as the operating system names it. */
@@ -140,7 +173,7 @@ export interface PreflightFacts {
   freeBytes: number
   fileSystem: FileSystemInfo | undefined
   capabilities: CapabilityReport
-  scan: Pick<TreeScan, 'bytes' | 'caseCollisions' | 'normalizationCollisions' | 'longestRelative'>
+  scan: Pick<TreeScan, 'bytes' | 'allocatedBytes' | 'caseCollisions' | 'normalizationCollisions' | 'longestRelative'>
   /** Forbidden places, each resolved to its real path where it exists. */
   forbidden: ForbiddenPlaces
 }
@@ -184,7 +217,7 @@ export interface PreflightResult {
 
 /**
  * Bytes a copy to another volume needs free.
- * @param bytes - the size of the data to copy.
+ * @param bytes - the space the data takes, rounded up to whole blocks ({@link TreeScan.allocatedBytes}).
  * @returns the data with its margin and the reserve.
  */
 export function requiredSpace(bytes: number): number {
@@ -201,7 +234,7 @@ export function evaluatePreflight(facts: PreflightFacts): PreflightResult {
   const refusals: PreflightRefusal[] = []
   const warnings: PreflightWarning[] = []
   const copyBytes = facts.sameVolume ? 0 : facts.scan.bytes
-  const neededBytes = facts.sameVolume ? 0 : requiredSpace(facts.scan.bytes)
+  const neededBytes = facts.sameVolume ? 0 : requiredSpace(facts.scan.allocatedBytes)
   const result = (): PreflightResult => ({
     ok: refusals.length === 0, target: facts.target, sameVolume: facts.sameVolume, copyBytes, neededBytes, refusals, warnings,
   })
@@ -269,7 +302,9 @@ export function evaluatePreflight(facts: PreflightFacts): PreflightResult {
  * Folders sync clients upload. On macOS: iCloud Drive and the File Provider
  * root every other client (OneDrive, Dropbox, Google Drive) mounts under, plus
  * Desktop and Documents while iCloud syncs them. On Windows: the OneDrive
- * roots the client exports.
+ * roots the client exports. Other sync clients that keep their folder
+ * elsewhere (a Dropbox folder in the home directory, Google Drive for desktop
+ * on Windows, Nextcloud, Seafile) are not recognized.
  * @param input - the platform, the home directory, the environment, and whether iCloud syncs Desktop and Documents.
  * @returns absolute folder paths.
  */
@@ -477,6 +512,7 @@ export interface PreflightProbes {
   fileSystem: (dir: string) => Promise<FileSystemInfo | undefined>
   capabilities: (dir: string) => CapabilityReport
   inspect: (path: string) => TargetState
+  isVolumeRoot: (path: string) => boolean
   scan: (source: string) => Promise<TreeScan>
 }
 
@@ -488,7 +524,9 @@ export interface PreflightProbes {
  */
 export function nodePreflightProbes(platform: NodeJS.Platform, powerShell?: PowerShellRunner): PreflightProbes {
   return {
-    realpath: path => realpathSync(path),
+    // The native call returns the letter case stored on disk, so a path typed
+    // in another case compares equal to the real one.
+    realpath: path => realpathSync.native(path),
     device: path => statSync(path).dev,
     freeBytes: (dir) => {
       const stats = statfsSync(dir)
@@ -501,6 +539,7 @@ export function nodePreflightProbes(platform: NodeJS.Platform, powerShell?: Powe
     },
     capabilities: dir => probeCapabilities(dir, platform),
     inspect: inspectTarget,
+    isVolumeRoot: isVolumeRootOnDisk,
     scan: source => scanTree(source, { exclude: REBUILDABLE_ENTRIES }),
   }
 }
@@ -558,7 +597,7 @@ export function realPathOf(path: string, realpath: (path: string) => string, pla
 export async function gatherPreflightFacts(request: PreflightRequest, probes: PreflightProbes): Promise<PreflightFacts> {
   const { platform } = request
   const source = probes.realpath(request.source)
-  const target = resolveMoveTarget(request.chosen, probes.inspect)
+  const target = resolveMoveTarget(request.chosen, probes.inspect, probes.isVolumeRoot)
   const real = (path: string): string => realPathOf(path, probes.realpath, platform)
   const forbidden: ForbiddenPlaces = {
     install: request.forbidden.install.map(real),
