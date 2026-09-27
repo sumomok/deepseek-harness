@@ -79,6 +79,7 @@ export function prepareMove(input: {
       pointerBefore: readPointerFiles(userData),
       ...lastSeenEnvBefore === undefined ? {} : { lastSeenEnvBefore },
       terminalBefore,
+      terminalSnapshot: { kind: 'unknown', detail: 'the harness keeps the terminal in a file' },
       homeLinkBefore: readHomeLinkBefore(defaultHome),
       baseline: { sessions: 1, workspaces: 0, quarantined: [] },
       originalGeneration: readGeneration(input.home),

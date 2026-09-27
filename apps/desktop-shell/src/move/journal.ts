@@ -34,7 +34,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import { writeDurably } from '../durable-file.ts'
 import type { DataId } from '../data-location.ts'
-import type { ExplicitRead } from '../terminal-env.ts'
+import { parseTerminalSnapshot, type ExplicitRead, type TerminalSnapshot } from '../terminal-env.ts'
 import type { InPlaceRewrite } from './links.ts'
 
 /** The only journal format this build reads and writes. */
@@ -128,6 +128,13 @@ export interface MoveJournal {
   /** The pointer's `lastSeenEnv` before the move. */
   lastSeenEnvBefore?: string
   terminalBefore: ExplicitRead
+  /**
+   * The persistent setting itself before the move (the profile's bytes, or
+   * the Windows variable with its registry type), for a byte-exact rollback;
+   * `terminalBefore` says what a terminal saw, which may come from another
+   * file.
+   */
+  terminalSnapshot: TerminalSnapshot
   homeLinkBefore: HomeLinkBefore
   baseline: MoveBaseline
   /** Links rewritten in place after a rename on one volume. */
@@ -202,7 +209,7 @@ export interface MoveJournal {
 /** What starting a move needs; the rest of the journal is derived. */
 export type MoveStart = Pick<MoveJournal,
   'source' | 'sourceAliases' | 'target' | 'targetPreexisting' | 'sameVolume' | 'dataId' | 'pointerBefore'
-  | 'lastSeenEnvBefore' | 'terminalBefore' | 'homeLinkBefore' | 'baseline' | 'originalGeneration'>
+  | 'lastSeenEnvBefore' | 'terminalBefore' | 'terminalSnapshot' | 'homeLinkBefore' | 'baseline' | 'originalGeneration'>
 
 /** A folder the move left for the person to check and delete themselves. */
 export interface KeptFolder {
@@ -362,6 +369,7 @@ export function validateJournal(value: unknown): MoveJournal {
   const { main, backup } = pointerBefore as Record<string, unknown>
   if ((main !== undefined && typeof main !== 'string') || (backup !== undefined && typeof backup !== 'string')) return fail('pointerBefore')
   const terminalBefore = explicitRead(r['terminalBefore']) ?? fail('terminalBefore')
+  const terminalSnapshot = parseTerminalSnapshot(r['terminalSnapshot']) ?? fail('terminalSnapshot')
   const homeLink = r['homeLinkBefore']
   if (typeof homeLink !== 'object' || homeLink === null) return fail('homeLinkBefore')
   const link = homeLink as Record<string, unknown>
@@ -403,6 +411,7 @@ export function validateJournal(value: unknown): MoveJournal {
     dataId: dataId as DataId,
     pointerBefore: { ...typeof main === 'string' ? { main } : {}, ...typeof backup === 'string' ? { backup } : {} },
     terminalBefore,
+    terminalSnapshot,
     homeLinkBefore,
     baseline: { sessions: b['sessions'], workspaces: b['workspaces'], quarantined: b['quarantined'] },
     linkRewrites,

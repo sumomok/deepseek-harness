@@ -485,3 +485,126 @@ export async function writeTerminalDshHome(host: TerminalEnvHost, value: string 
   }
   return { kind: 'unsupported-platform', platform: host.platform }
 }
+
+/**
+ * The terminal's persistent `DSH_HOME` setting as it is before a data move,
+ * recorded so a rollback puts back exactly what was there.
+ *
+ * - `profile`: the shell profile this module would edit (its real path).
+ *   `content` is the file's bytes, base64; absent when the file did not
+ *   exist. `hadBlock` says whether this module's block was in it.
+ * - `profile-unavailable`: no profile would be edited (an unsupported shell,
+ *   or a profile reached through a dangling link).
+ * - `user-environment`: the Windows user variable, `unset`, or `set` with its
+ *   registry type (`String` is REG_SZ, `ExpandString` REG_EXPAND_SZ) and its
+ *   text unexpanded; an empty `raw` is a variable set to the empty string.
+ * - `unknown`: the source could not be read.
+ * - `unsupported-platform`: nothing is written on this platform.
+ */
+export type TerminalSnapshot =
+  | { kind: 'profile'; file: string; content?: string; hadBlock: boolean }
+  | { kind: 'profile-unavailable'; reason: 'unsupported-shell' | 'dangling-profile'; detail: string }
+  | { kind: 'user-environment'; value: { kind: 'unset' } | { kind: 'set'; type: 'String' | 'ExpandString'; raw: string } }
+  | { kind: 'unknown'; detail: string }
+  | { kind: 'unsupported-platform'; platform: string }
+
+/**
+ * Script reading the user-scope `DSH_HOME` from the registry as stored: its
+ * value type and its text with environment references left unexpanded,
+ * printed as `set:<type>:<text>` or `unset:`, UTF-8.
+ */
+export const READ_USER_ENV_RAW_SCRIPT = [
+  '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+  "$k = Get-Item -LiteralPath 'HKCU:\\Environment'",
+  "if ($k.GetValueNames() -contains 'DSH_HOME') { "
+  + "$t = $k.GetValueKind('DSH_HOME'); "
+  + "$v = $k.GetValue('DSH_HOME', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); "
+  + "[Console]::Out.Write('set:' + $t + ':' + $v) } else { [Console]::Out.Write('unset:') }",
+].join('; ')
+
+/**
+ * Record the Windows user `DSH_HOME` as stored.
+ * @param run - the PowerShell runner.
+ * @returns the snapshot, or `unknown` when PowerShell fails or reports a type other than a string.
+ */
+export async function snapshotWindowsUserDshHome(run: PowerShellRunner): Promise<TerminalSnapshot> {
+  let result: PowerShellResult
+  try {
+    result = await run(READ_USER_ENV_RAW_SCRIPT, {})
+  } catch (error) {
+    return { kind: 'unknown', detail: String(error) }
+  }
+  if (result.code !== 0) return { kind: 'unknown', detail: `PowerShell exited with ${String(result.code)}` }
+  if (result.stdout === 'unset:') return { kind: 'user-environment', value: { kind: 'unset' } }
+  const match = /^set:(String|ExpandString):/.exec(result.stdout)
+  if (match === null) return { kind: 'unknown', detail: `unexpected registry value: ${result.stdout.slice(0, 40)}` }
+  const type = match[1] === 'ExpandString' ? 'ExpandString' : 'String'
+  return { kind: 'user-environment', value: { kind: 'set', type, raw: result.stdout.slice(match[0].length) } }
+}
+
+/**
+ * Record the shell profile this module would edit, byte for byte.
+ * @param target - home, shell, and `ZDOTDIR`.
+ * @returns the snapshot.
+ * @throws when the profile exists but cannot be read.
+ */
+export function snapshotShellProfile(target: ProfileTarget): TerminalSnapshot {
+  const choice = profileFile(target)
+  if (choice.kind === 'unsupported') return { kind: 'profile-unavailable', reason: 'unsupported-shell', detail: target.shell ?? '' }
+  if (choice.kind === 'dangling') return { kind: 'profile-unavailable', reason: 'dangling-profile', detail: choice.link }
+  if (!choice.exists) return { kind: 'profile', file: choice.file, hadBlock: false }
+  const file = realpathSync(choice.file)
+  const bytes = readFileSync(file)
+  const hadBlock = bytes.toString('latin1').split(/\r?\n/).includes(BLOCK_START)
+  return { kind: 'profile', file, content: bytes.toString('base64'), hadBlock }
+}
+
+/**
+ * Record the terminal's persistent `DSH_HOME` setting before a data move.
+ * @param host - platform, environment, and runners.
+ * @returns the snapshot.
+ * @throws when a profile exists but cannot be read.
+ */
+export async function snapshotTerminal(host: TerminalEnvHost): Promise<TerminalSnapshot> {
+  if (host.platform === 'win32') return await snapshotWindowsUserDshHome(host.powershell)
+  if (host.platform === 'darwin') {
+    return snapshotShellProfile({ home: host.home, shell: host.env['SHELL'], zdotdir: host.env['ZDOTDIR'] })
+  }
+  return { kind: 'unsupported-platform', platform: host.platform }
+}
+
+/**
+ * Check a parsed {@link TerminalSnapshot}.
+ * @param value - the value.
+ * @returns it, or `undefined` when it is not one.
+ */
+export function parseTerminalSnapshot(value: unknown): TerminalSnapshot | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const r = value as Record<string, unknown>
+  switch (r['kind']) {
+    case 'profile': {
+      const { file, content, hadBlock } = r
+      if (typeof file !== 'string' || typeof hadBlock !== 'boolean') return undefined
+      if (content !== undefined && typeof content !== 'string') return undefined
+      return typeof content === 'string' ? { kind: 'profile', file, content, hadBlock } : { kind: 'profile', file, hadBlock }
+    }
+    case 'profile-unavailable': {
+      const { reason, detail } = r
+      if ((reason !== 'unsupported-shell' && reason !== 'dangling-profile') || typeof detail !== 'string') return undefined
+      return { kind: 'profile-unavailable', reason, detail }
+    }
+    case 'user-environment': {
+      const v = typeof r['value'] === 'object' && r['value'] !== null ? r['value'] as Record<string, unknown> : {}
+      if (v['kind'] === 'unset') return { kind: 'user-environment', value: { kind: 'unset' } }
+      const { type, raw } = v
+      if (v['kind'] !== 'set' || (type !== 'String' && type !== 'ExpandString') || typeof raw !== 'string') return undefined
+      return { kind: 'user-environment', value: { kind: 'set', type, raw } }
+    }
+    case 'unknown':
+      return typeof r['detail'] === 'string' ? { kind: 'unknown', detail: r['detail'] } : undefined
+    case 'unsupported-platform':
+      return typeof r['platform'] === 'string' ? { kind: 'unsupported-platform', platform: r['platform'] } : undefined
+    default:
+      return undefined
+  }
+}

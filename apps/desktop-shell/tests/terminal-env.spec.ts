@@ -18,6 +18,7 @@ import {
   BLOCK_END, BLOCK_START, POINTER_HOME_ENV, PROFILE_BACKUP_SUFFIX, processDshHome, profileFile,
   READ_USER_ENV_SCRIPT, readLoginShellDshHome, readPersistentDshHome, readWindowsUserDshHome, shellQuote,
   updateShellProfile, WRITE_USER_ENV_SCRIPT, WRITE_VALUE_ENV, writeTerminalDshHome, writeWindowsUserDshHome,
+  parseTerminalSnapshot, READ_USER_ENV_RAW_SCRIPT, snapshotShellProfile, snapshotTerminal, snapshotWindowsUserDshHome,
   type PowerShellRunner, type TerminalEnvHost,
 } from '../src/terminal-env.ts'
 
@@ -456,5 +457,69 @@ describe('platform dispatch', () => {
       .toMatchObject({ kind: 'profile', update: { kind: 'written', file: zshrc } })
     expect(readFileSync(zshrc, 'utf8')).not.toContain('DSH_HOME')
     expect(readFileSync(zshrc, 'utf8')).toContain('alias ll=ls')
+  })
+})
+
+describe('the terminal setting recorded before a move', () => {
+  const zsh = (): { home: string; shell: string; zdotdir: undefined } => ({ home, shell: '/bin/zsh', zdotdir: undefined })
+
+  it('records that the profile did not exist, rather than an empty one', () => {
+    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile', file: join(home, '.zshrc'), hadBlock: false })
+    writeFileSync(join(home, '.zshrc'), '')
+    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile', file: realpathSync(join(home, '.zshrc')), content: '', hadBlock: false })
+  })
+
+  it('records the profile byte for byte, at its real path, and whether our block is in it', () => {
+    const bytes = Buffer.concat([Buffer.from('alias ll=ls\r\n'), Buffer.from([0xff, 0xfe]), Buffer.from('\nexport X=1')])
+    const real = join(home, 'dotfiles-zshrc')
+    writeFileSync(real, bytes)
+    symlinkSync(real, join(home, '.zshrc'))
+    const before = snapshotShellProfile(zsh())
+    expect(before).toEqual({ kind: 'profile', file: realpathSync(real), content: bytes.toString('base64'), hadBlock: false })
+    expect(Buffer.from(before.kind === 'profile' ? before.content ?? '' : '', 'base64').equals(bytes)).toBe(true)
+    updateShellProfile(zsh(), '/data')
+    expect(snapshotShellProfile(zsh())).toMatchObject({ kind: 'profile', hadBlock: true })
+  })
+
+  it('records why no profile would be written', () => {
+    expect(snapshotShellProfile({ home, shell: '/usr/bin/fish', zdotdir: undefined }))
+      .toEqual({ kind: 'profile-unavailable', reason: 'unsupported-shell', detail: '/usr/bin/fish' })
+    symlinkSync(join(home, 'gone'), join(home, '.zshrc'))
+    expect(snapshotShellProfile(zsh())).toEqual({ kind: 'profile-unavailable', reason: 'dangling-profile', detail: join(home, '.zshrc') })
+  })
+
+  it('records the Windows variable with its registry type, telling set-to-empty from unset', async () => {
+    const answering = (stdout: string, code = 0): PowerShellRunner => async (script) => {
+      expect(script).toBe(READ_USER_ENV_RAW_SCRIPT)
+      return { code, stdout }
+    }
+    expect(await snapshotWindowsUserDshHome(answering('unset:'))).toEqual({ kind: 'user-environment', value: { kind: 'unset' } })
+    expect(await snapshotWindowsUserDshHome(answering('set:String:')))
+      .toEqual({ kind: 'user-environment', value: { kind: 'set', type: 'String', raw: '' } })
+    expect(await snapshotWindowsUserDshHome(answering('set:ExpandString:%USERPROFILE%\\DSH')))
+      .toEqual({ kind: 'user-environment', value: { kind: 'set', type: 'ExpandString', raw: '%USERPROFILE%\\DSH' } })
+    expect(await snapshotWindowsUserDshHome(answering('set:String:D:\\a:b')))
+      .toEqual({ kind: 'user-environment', value: { kind: 'set', type: 'String', raw: 'D:\\a:b' } })
+    expect((await snapshotWindowsUserDshHome(answering('set:MultiString:x'))).kind).toBe('unknown')
+    expect((await snapshotWindowsUserDshHome(answering('', 1))).kind).toBe('unknown')
+    expect((await snapshotWindowsUserDshHome(async () => { throw new Error('no PowerShell') })).kind).toBe('unknown')
+  })
+
+  it('dispatches by platform, and survives the journal round trip', async () => {
+    const linux = await snapshotTerminal({ platform: 'linux', env: {}, home, shellTimeoutMs: 1, powershell: async () => ({ code: 0, stdout: '' }) })
+    expect(linux).toEqual({ kind: 'unsupported-platform', platform: 'linux' })
+    const mac = await snapshotTerminal({ platform: 'darwin', env: { SHELL: '/bin/zsh' }, home, shellTimeoutMs: 1, powershell: async () => ({ code: 0, stdout: '' }) })
+    expect(mac).toMatchObject({ kind: 'profile' })
+    for (const snapshot of [
+      mac, linux, { kind: 'unknown', detail: 'x' },
+      { kind: 'user-environment', value: { kind: 'set', type: 'ExpandString', raw: '' } },
+      { kind: 'user-environment', value: { kind: 'unset' } },
+      { kind: 'profile', file: '/p', content: 'AA==', hadBlock: true },
+      { kind: 'profile-unavailable', reason: 'dangling-profile', detail: '/l' },
+    ]) {
+      expect(parseTerminalSnapshot(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot)
+    }
+    expect(parseTerminalSnapshot({ kind: 'profile', file: '/p', hadBlock: 'yes' })).toBeUndefined()
+    expect(parseTerminalSnapshot({ kind: 'user-environment', value: { kind: 'set', type: 'MultiString', raw: '' } })).toBeUndefined()
   })
 })

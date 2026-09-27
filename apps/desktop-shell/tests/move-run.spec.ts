@@ -923,6 +923,8 @@ describe('the journal', () => {
     bad({ sourceAliases: [] })
     bad({ terminalBefore: { kind: 'set', value: '/x', source: 'nowhere' } })
     bad({ homeLinkBefore: { kind: 'link' } })
+    bad({ terminalSnapshot: undefined })
+    bad({ terminalSnapshot: { kind: 'profile', file: '/p', content: 7, hadBlock: false } })
     bad({ linkRewrites: [{ rel: 'a' }] })
     bad({ pointerWritten: 'yes' })
     bad({ failure: { phase: 'nope', detail: 'x' } })
@@ -949,7 +951,7 @@ describe('nextAction', () => {
   const journal = (changes: Partial<MoveJournal>): MoveJournal => ({
     version: 1, moveId: 'm' as MoveJournal['moveId'], phase: 'requested', pid: 1, source: '/s', sourceAliases: ['/s'], target: '/t',
     targetPreexisting: false, partial: '/p', hidden: '/h', sameVolume: false, dataId: HARNESS_ID, pointerBefore: {},
-    terminalBefore: { kind: 'unset' }, homeLinkBefore: { kind: 'absent' }, baseline: { sessions: 0, workspaces: 0, quarantined: [] },
+    terminalBefore: { kind: 'unset' }, terminalSnapshot: { kind: 'unknown', detail: '' }, homeLinkBefore: { kind: 'absent' }, baseline: { sessions: 0, workspaces: 0, quarantined: [] },
     linkRewrites: [], repairRounds: 0, pointerWritten: false, terminalWritten: false, homeLinkRestored: false, targetExposed: false,
     retiredInPlace: false, originalGeneration: 0, cleanupAttempts: 0,
     awaitingChoice: false, keepTarget: false, keepOriginal: false, targetAbandoned: false, originalAbandoned: false,
