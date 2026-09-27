@@ -25,7 +25,7 @@
  *
  * Failures before the source is hidden give the move up (the copy is deleted,
  * the source was never touched); failures while hiding the source or switching
- * roll it back. Once the terminal has been told about the target, a rollback
+ * roll it back. Once the pointer is about to name the target, a rollback
  * never deletes it: it is retired into a visible folder the result names
  * (`perform` refuses `remove-target` from then on, whatever the journal step
  * says). Failures while giving up or rolling back are thrown and the
@@ -239,7 +239,8 @@ export class MoveStuckError extends Error {
 }
 
 /**
- * Start a move: write its journal in phase `requested`, and a fresh done log.
+ * Start a move: write its journal in phase `requested`, and a fresh done log;
+ * a record of an abandoned copy at the new location is dropped.
  * @param dir - the move directory; created when missing.
  * @param start - the paths and what to restore.
  * @param options - the process id and the clock.
@@ -251,6 +252,10 @@ export function startMove(dir: string, start: MoveStart, options: { pid: number;
   if (readJournal(dir) !== undefined) throw new JournalError('journal: a move is already in progress')
   const journal = newJournal(start, options)
   unlinkIfPresent(join(dir, DONE_LOG_FILENAME))
+  // The new location passed the preflight, so no abandoned copy is there any more; its record would refuse the data.
+  const copies = readAbandonedCopies(dir)
+  const kept = copies.filter(copy => copy.path !== journal.target)
+  if (kept.length !== copies.length) writeDurably(join(dir, ABANDONED_FILENAME), Buffer.from(abandonedCopiesText(kept)), 0o600)
   writeJournal(dir, journal)
   return journal
 }
@@ -319,7 +324,10 @@ export function resolveBlocked(dir: string, choice: BlockedChoice, seen: Blocked
   const save = (next: MoveJournal): void => { fs.writeFile(join(dir, JOURNAL_FILENAME), `${JSON.stringify(next, null, 2)}\n`) }
   switch (choice) {
     case 'keep-target': {
-      const next: MoveJournal = { ...journal, phase: 'hiding-source', keepTarget: true, awaitingChoice: false, homeLinkRestored: false }
+      const next: MoveJournal = {
+        ...journal, phase: 'hiding-source', keepTarget: true, awaitingChoice: false, homeLinkRestored: false,
+        originalAbandoned: journal.originalAbandoned || (action.reason === 'original-missing' && !journal.sameVolume),
+      }
       delete next.unusedCopy
       save(next)
       return 'applied'
@@ -556,6 +564,9 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       const targetPrint = blockedPrint(fs, journal, context.facts)
       return { kind: 'blocked', reason: action.reason, dataAt: action.dataAt, choices: action.choices, targetPrint }
     }
+    case 'original-found':
+      save({ ...journal, originalAbandoned: false })
+      return undefined
     case 'keep-unmarked':
       save({ ...journal, leftovers: [...journal.leftovers, { path: action.path, bytes: 0 }] })
       return undefined
@@ -635,18 +646,18 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       phase('switching')
       return undefined
     case 'write-pointer': {
-      phase('switching', { pointerWritten: true })
+      phase('switching', { pointerWritten: true, targetExposed: true })
       effects.writePointer(pointerFor(journal, journal.lastSeenEnvBefore, effects.now()))
       return undefined
     }
     case 'sync-terminal': {
-      save({ ...journal, terminalWritten: true, targetExposed: true })
+      save({ ...journal, terminalWritten: true })
       // Again, so the pointer precedes the terminal even when the first write
       // was interrupted after its flag was saved.
       effects.writePointer(pointerFor(journal, journal.lastSeenEnvBefore, effects.now()))
       const lastSeenEnv = await effects.syncTerminal(journal.target)
       effects.writePointer(pointerFor(journal, lastSeenEnv, effects.now()))
-      phase('switched', { terminalWritten: true, targetExposed: true })
+      phase('switched', { terminalWritten: true })
       return undefined
     }
     case 'await-health':
@@ -799,15 +810,20 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
   const renamed = journal.unusedCopy !== undefined && facts.unusedCopy?.exists === true ? journal.unusedCopy : undefined
   const unused = outcome === 'failed' ? journal.retiredInPlace ? journal.target : renamed : undefined
   const abandoned = outcome === 'failed' && journal.targetAbandoned && unused === undefined ? journal.target : undefined
-  const kept = outcome === 'moved' && journal.keepOriginal && !journal.sameVolume
-    ? journal.keptOriginal !== undefined && facts.keptOriginal?.exists === true ? journal.keptOriginal : journal.hidden
-    : undefined
-  if (abandoned !== undefined) {
+  let kept: string | undefined
+  if (outcome === 'moved' && journal.keepOriginal && !journal.sameVolume) {
+    // An original that was never found again is reported as abandoned, not kept.
+    if (journal.keptOriginal !== undefined && facts.keptOriginal?.exists === true) kept = journal.keptOriginal
+    else if (facts.hidden.exists) kept = journal.hidden
+  }
+  const original = outcome === 'moved' && journal.originalAbandoned ? journal.source : undefined
+  // The original was at its old path or already hidden beside it when its drive went away.
+  const paths = [...abandoned === undefined ? [] : [abandoned], ...original === undefined ? [] : [journal.source, journal.hidden]]
+  if (paths.length > 0) {
     const copies = readAbandonedCopies(dir)
-    if (!copies.some(copy => copy.moveId === journal.moveId)) {
-      const entry = { path: abandoned, dataId: journal.dataId, moveId: journal.moveId, abandonedAt: now.toISOString() }
-      fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText([...copies, entry]))
-    }
+    const added = paths.filter(path => !copies.some(copy => copy.moveId === journal.moveId && copy.path === path))
+      .map(path => ({ path, dataId: journal.dataId, moveId: journal.moveId, abandonedAt: now.toISOString() }))
+    if (added.length > 0) fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText([...copies, ...added]))
   }
   const result: MoveResult = {
     version: journal.version,
@@ -819,6 +835,7 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     leftovers: journal.leftovers,
     ...unused === undefined ? {} : { unusedCopy: { path: unused } },
     ...abandoned === undefined ? {} : { abandonedCopy: { path: abandoned } },
+    ...original === undefined ? {} : { abandonedOriginal: { path: original } },
     ...kept === undefined ? {} : { keptOriginal: { path: kept } },
     finishedAt: now.toISOString(),
   }
@@ -830,12 +847,14 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
 }
 
 /**
- * Retire the copies a rollback went on without (see `readAbandonedCopies`),
- * once their drive is attached again: each takes the retired marker, loses
- * its identity, and is renamed to a visible folder beside it; its record is
- * then dropped. A recorded folder that no longer carries this data (nor a
- * retired marker from its move) is dropped without being touched; one whose
- * drive is still away stays recorded. Every step is repeatable.
+ * Retire the recorded abandoned copies (see `readAbandonedCopies`) once their
+ * drive is attached again: each takes the retired marker, loses its identity,
+ * and is renamed to a visible "unused copy" folder beside it; its record is
+ * then dropped. A folder counts as the recorded copy when it is a real
+ * directory (never a link) holding this data's identity, its retired
+ * identity, or a retired marker from the recorded move. A recorded folder
+ * that is none of those is dropped without being touched; one whose drive is
+ * still away stays recorded. Every step is repeatable.
  * @param dir - the move directory.
  * @param current - the data directory in use now; a record naming it is kept and left alone.
  * @param effects - the directory operations, the clock, and the names.
@@ -851,20 +870,23 @@ export async function retireAbandonedCopies(
   let copies = readAbandonedCopies(dir)
   for (const copy of [...copies]) {
     if (samePath(copy.path, current)) continue
-    if (fs.kind(copy.path) === 'absent') continue
-    const id = fs.kind(copy.path) === 'dir' ? fs.readText(join(copy.path, DATA_ID_FILENAME))?.trim() : undefined
-    const marker = fs.kind(copy.path) === 'dir' ? fs.readText(join(copy.path, RETIRED_FILENAME)) : undefined
-    const ours = id === copy.dataId || (marker?.includes(copy.moveId) ?? false)
+    const kind = fs.kind(copy.path)
+    if (kind === 'absent') continue
+    const read = (name: string): string | undefined => kind === 'dir' ? fs.readText(join(copy.path, name)) : undefined
+    const id = read(DATA_ID_FILENAME)?.trim()
+    const movedId = read(MOVED_ID_FILENAME)?.trim()
+    const marker = read(RETIRED_FILENAME)
+    const ours = id === copy.dataId || movedId === copy.dataId || (marker?.includes(copy.moveId) ?? false)
     if (ours) {
       if (marker === undefined) {
         fs.writeFile(join(copy.path, RETIRED_FILENAME), `${JSON.stringify({ dataId: copy.dataId, moveId: copy.moveId, retiredAt: effects.now().toISOString() })}\n`)
       }
-      if (id !== undefined) fs.unlink(join(copy.path, DATA_ID_FILENAME))
+      if (id === copy.dataId) fs.unlink(join(copy.path, DATA_ID_FILENAME))
       const to = freeSibling(effects, copy.path, 'unused')
       await renameWithRetry(effects, copy.path, to)
       retired.push(to)
     }
-    copies = copies.filter(other => other.moveId !== copy.moveId)
+    copies = copies.filter(other => other !== copy)
     fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText(copies))
   }
   return retired

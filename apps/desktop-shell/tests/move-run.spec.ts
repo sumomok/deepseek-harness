@@ -7,16 +7,16 @@
  */
 
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, writeFileSync,
 } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { calibrateHomeLink } from '../src/home-link.ts'
 import {
-  isAbandonedCopy, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, mayStartServer, MOVE_PHASES, nextAction, readAbandonedCopies,
-  readJournal, readMoveResult, RETIRED_FILENAME, validateJournal,
-  type DirFacts, type MoveFacts, type MoveJournal,
+  abandonedCopiesText, isAbandonedCopy, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, mayStartServer, MOVE_PHASES, nextAction,
+  readAbandonedCopies, readJournal, readMoveResult, RETIRED_FILENAME, validateJournal,
+  type DirFacts, type MoveFacts, type MoveId, type MoveJournal,
 } from '../src/move/journal.ts'
 import {
   advanceMove, MoveStuckError, nodeMoveFs, recordHealth, resolveBlocked, retireAbandonedCopies, startMove,
@@ -195,7 +195,7 @@ describe('a move to another volume', () => {
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'sessions missing' } })
     expect(listTree(s.f.home)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
-    // The copy was exposed (the terminal was told about it), so it is kept, retired, beside where it was.
+    // The copy was exposed (the pointer and the terminal were told about it), so it is kept, retired, beside where it was.
     const [unused] = unusedCopies(s)
     expect(unused).toBeDefined()
     const unusedPath = join(s.f.targetParent, unused ?? '')
@@ -458,6 +458,25 @@ describe('a directory a terminal made at the old path', () => {
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
   })
 
+  posixOnly('treats the target as exposed from the pointer write: a failure there retires the copy instead of deleting it', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const real = harnessEffects(s.setup)
+    const journals: Array<boolean | undefined> = []
+    const failing: MoveEffects = {
+      ...real,
+      writePointer: () => {
+        journals.push(readJournal(s.setup.dir)?.targetExposed)
+        throw new Error('injected: cannot write the pointer')
+      },
+    }
+    const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
+    expect(journals).toEqual([true])
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'injected: cannot write the pointer' } })
+    expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
+    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(terminalValue(s.setup)).toBe(s.f.home)
+  })
+
   posixOnly('refuses a choice made on a page whose print is out of date, and applies one made on a fresh page', async () => {
     const s = await scenario({ sameVolume: false, start: 'default-home' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -564,8 +583,84 @@ describe('a directory a terminal made at the old path', () => {
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     recordHealth(s.setup.dir, true)
-    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'moved', abandonedOriginal: { path: s.f.home } } })
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
+    const moveId = readMoveResult(s.setup.dir)?.moveId
+    expect(readAbandonedCopies(s.setup.dir)).toMatchObject([{ path: s.f.home, moveId }, { path: hidden, moveId }])
+    // The drive with the original comes back: it is retired as an unused copy, never taken for the data.
+    renameSync(join(s.f.root, 'lost'), hidden)
+    const samePath = (a: string, b: string): boolean => a === b
+    expect(isAbandonedCopy(readAbandonedCopies(s.setup.dir), hidden, HARNESS_ID, samePath)).toBe(true)
+    const retired = await retireAbandonedCopies(s.setup.dir, s.target, harnessEffects(s.setup), samePath)
+    expect(retired).toHaveLength(1)
+    expect(existsSync(hidden)).toBe(false)
+    expect(existsSync(join(retired[0] ?? '', RETIRED_FILENAME))).toBe(true)
+    expect(dataFiles(listTree(retired[0] ?? ''))).toEqual(dataFiles(s.before))
+    expect(readAbandonedCopies(s.setup.dir)).toMatchObject([{ path: s.f.home }])
+  })
+
+  posixOnly('reports a missing original as abandoned, not kept, when the kept location fails again', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, false)
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    renameSync(hidden, join(s.f.root, 'lost'))
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    recordHealth(s.setup.dir, false)
+    const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'moved', abandonedOriginal: { path: s.f.home } } })
+    expect(ended.kind === 'ended' ? ended.result.keptOriginal : 'x').toBeUndefined()
+  })
+
+  posixOnly('records nothing as abandoned when the original comes back before the move ends', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, false)
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    renameSync(hidden, join(s.f.root, 'lost'))
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
+    expect(readJournal(s.setup.dir)?.originalAbandoned).toBe(true)
+    renameSync(join(s.f.root, 'lost'), hidden)
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    expect(readJournal(s.setup.dir)?.originalAbandoned).toBe(false)
+    recordHealth(s.setup.dir, true)
+    const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(ended.kind === 'ended' ? ended.result.abandonedOriginal : 'x').toBeUndefined()
+    expect(existsSync(hidden)).toBe(false)
+    expect(readAbandonedCopies(s.setup.dir)).toEqual([])
+  })
+
+  posixOnly('never retires a link at a recorded path, nor the data in use', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await runToEnd(s, true)
+    const moveId = readMoveResult(s.setup.dir)?.moveId ?? ''
+    const linked = join(s.f.root, 'linked')
+    symlinkSync(s.target, linked)
+    writeFileSync(join(s.setup.dir, 'abandoned-copies.json'), abandonedCopiesText([
+      { path: linked, dataId: HARNESS_ID, moveId: moveId as MoveId, abandonedAt: '' },
+      { path: s.target, dataId: HARNESS_ID, moveId: moveId as MoveId, abandonedAt: '' },
+    ]))
+    const samePath = (a: string, b: string): boolean => a === b
+    expect(await retireAbandonedCopies(s.setup.dir, s.target, harnessEffects(s.setup), samePath)).toEqual([])
+    expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
+    expect(lstatSync(linked).isSymbolicLink()).toBe(true)
+    expect(readAbandonedCopies(s.setup.dir)).toMatchObject([{ path: s.target }])
+  })
+
+  posixOnly('forgets a record naming the new location of a later move', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await rm(s.setup.dir, { recursive: true })
+    mkdirSync(s.setup.dir, { recursive: true })
+    const other = { path: '/elsewhere', dataId: HARNESS_ID, moveId: 'm1' as MoveId, abandonedAt: '' }
+    writeFileSync(join(s.setup.dir, 'abandoned-copies.json'), abandonedCopiesText([
+      { path: s.target, dataId: HARNESS_ID, moveId: 'm0' as MoveId, abandonedAt: '' }, other,
+    ]))
+    startMove(s.setup.dir, s.setup.start, { pid: PID, now: new Date() })
+    expect(readAbandonedCopies(s.setup.dir)).toEqual([other])
   })
 
   posixOnly('blocks the rollback of a rename, leaving the data at the target the pointer names', async () => {
@@ -727,7 +822,7 @@ describe('nextAction', () => {
     terminalBefore: { kind: 'unset' }, homeLinkBefore: { kind: 'absent' }, baseline: { sessions: 0, workspaces: 0, quarantined: [] },
     linkRewrites: [], repairRounds: 0, pointerWritten: false, terminalWritten: false, homeLinkRestored: false, targetExposed: false,
     retiredInPlace: false, cleanupAttempts: 0,
-    awaitingChoice: false, keepTarget: false, keepOriginal: false, targetAbandoned: false,
+    awaitingChoice: false, keepTarget: false, keepOriginal: false, targetAbandoned: false, originalAbandoned: false,
     leftovers: [], startedAt: '', ...changes,
   })
   const facts = (changes: Partial<MoveFacts>): MoveFacts => ({ source: dir(), partial: dir(), target: dir(), hidden: dir(), ...changes })

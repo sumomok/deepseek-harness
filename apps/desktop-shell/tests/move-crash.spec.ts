@@ -113,7 +113,7 @@ function keptTwice(c: Case): boolean {
 
 /**
  * Whether a failed scenario leaves the copy at the new location as an unused
- * copy: on another volume, once the terminal was told about it (every failure
+ * copy: on another volume, once the pointer was about to name it (every failure
  * here except naming the target, which fails before that).
  * @param c - the scenario.
  * @returns true when the result must name an unused copy.

@@ -22,7 +22,7 @@
  * reverse.
  *
  * Once anything outside the move could have used the target (from the moment
- * the terminal is told about it; {@link MoveJournal.targetExposed}), no step
+ * the pointer is about to name it; {@link MoveJournal.targetExposed}), no step
  * deletes it: a rollback retires it in place instead. It loses its identity,
  * takes a retired marker, and is renamed to a visible sibling folder the
  * person can check and delete themselves.
@@ -146,9 +146,10 @@ export interface MoveJournal {
   /** Set once `~/.dsh` has been put back during a rollback. */
   homeLinkRestored: boolean
   /**
-   * Set, and never cleared, in the same write that first records the terminal
-   * as told about the target: from then on something outside the move may
-   * have used the target, and no step deletes it.
+   * Set, and never cleared, in the same write that first records the pointer
+   * as naming the target (before the pointer or the terminal is told about
+   * it): from then on something outside the move may have used the target,
+   * and no step deletes it.
    */
   targetExposed: boolean
   cleanupAttempts: number
@@ -163,6 +164,13 @@ export interface MoveJournal {
   keepOriginal: boolean
   /** The person chose to roll back without the copy, whose disk is not attached; it stays where it is. */
   targetAbandoned: boolean
+  /**
+   * The person chose to keep the new location while the original could not
+   * be found (on another volume). Cleared as soon as the original is seen
+   * again, since the move then hides and deletes it as usual; still set when
+   * the move ends, the original's possible paths are recorded as abandoned.
+   */
+  originalAbandoned: boolean
   /**
    * The target's print when the move last entered `rolling-back` (or the
    * person last chose to); absent when the target was not there. A blocked
@@ -211,6 +219,12 @@ export interface MoveResult {
   /** A rollback went on without the copy at the new location, whose drive was not attached; it is still there. */
   abandonedCopy?: KeptFolder
   /**
+   * The person kept the new location while the original could not be found;
+   * the original is still wherever its drive is, recorded as abandoned, and
+   * retired as an unused copy once that drive is attached again.
+   */
+  abandonedOriginal?: KeptFolder
+  /**
    * The new location failed its check again after the person chose it; the
    * application goes on from it, and the original is kept here. Never among
    * `leftovers`: nothing deletes it.
@@ -219,7 +233,11 @@ export interface MoveResult {
   finishedAt: string
 }
 
-/** One copy of this data left on a drive that was away when the person rolled back without it. */
+/**
+ * One copy of this data left on a drive that was away: the copy at the new
+ * location a rollback went on without, or the original the person moved on
+ * without.
+ */
 export interface AbandonedCopy {
   path: string
   dataId: DataId
@@ -264,6 +282,7 @@ export function newJournal(start: MoveStart, options: { pid: number; now: Date; 
     keepTarget: false,
     keepOriginal: false,
     targetAbandoned: false,
+    originalAbandoned: false,
     leftovers: [],
     startedAt: options.now.toISOString(),
   }
@@ -393,6 +412,7 @@ export function validateJournal(value: unknown): MoveJournal {
     keepTarget: flag('keepTarget'),
     keepOriginal: flag('keepOriginal'),
     targetAbandoned: flag('targetAbandoned'),
+    originalAbandoned: flag('originalAbandoned'),
     leftovers,
     startedAt: text('startedAt'),
   }
@@ -488,6 +508,7 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     leftovers,
     ...kept('unusedCopy'),
     ...kept('abandonedCopy'),
+    ...kept('abandonedOriginal'),
     ...kept('keptOriginal'),
     finishedAt: r['finishedAt'],
   }
@@ -618,6 +639,7 @@ export type MoveAction =
   | { kind: 'cancel' }
   | { kind: 'blocked'; reason: BlockedReason; dataAt: string[]; choices: BlockedChoice[] }
   | { kind: 'keep-unmarked'; path: string }
+  | { kind: 'original-found' }
   | { kind: 'plan-links' }
   | { kind: 'set-phase'; phase: MovePhase }
   | { kind: 'create-partial' }
@@ -795,6 +817,10 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
   if (cancelRequested && CANCELLABLE_PHASES.has(phase)) return { kind: 'cancel' }
   const emptyPreexisting = journal.targetPreexisting && target.exists && target.empty
   const sourceIsOurs = source.exists && source.dataId === 'ours'
+  // The original came back: the move handles it as usual again, and nothing about it is recorded as abandoned.
+  if (journal.originalAbandoned && ((hidden.exists && hidden.state === 'ours') || (source.exists && (sourceIsOurs || source.movedId)))) {
+    return { kind: 'original-found' }
+  }
   switch (phase) {
     case 'requested':
       if (!sourceIsOurs) return { kind: 'abandon', detail: 'the data directory is not where it was, or no longer carries its identity' }
