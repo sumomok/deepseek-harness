@@ -6,7 +6,7 @@ import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
 import type { Volatile, Context } from '@deepseek-ai/cordis'
 import type { LinkOpening, TranscriptViewMode, PerformanceUsageMode } from './chat-settings.ts'
 import z from '@deepseek-ai/schemastery'
-import { BUSY_COMPACTION_FIELD, TRANSCRIPT_VIEW_FIELD } from './chat-settings.ts'
+import { TRANSCRIPT_VIEW_FIELD } from './chat-settings.ts'
 
 import { ChatSettingsFields } from './chat-settings.ts'
 
@@ -31,10 +31,10 @@ export interface Config {
 
 /** Live preferences projected to the browser. */
 export const Config = z.object({
-  [TRANSCRIPT_VIEW_FIELD]: ChatSettingsFields[TRANSCRIPT_VIEW_FIELD].volatile(),
+  transcriptView: ChatSettingsFields[TRANSCRIPT_VIEW_FIELD].volatile(),
   performanceUsage: ChatSettingsFields['performanceUsage'].volatile(),
   linkOpening: ChatSettingsFields.linkOpening.volatile(),
-  busyCompaction: ChatSettingsFields[BUSY_COMPACTION_FIELD].volatile(),
+  busyCompaction: ChatSettingsFields.busyCompaction.volatile(),
 })
 
 /**

@@ -74,7 +74,7 @@ export interface ChatSettings {
 
 /** Durable Chat schema; also the wire envelope the browser scope validates against. */
 export const ChatSettingsFields = {
-  [BUSY_COMPACTION_FIELD]: z.union([...BUSY_COMPACTION_MODES]).default(DEFAULT_BUSY_COMPACTION),
+  busyCompaction: z.union([...BUSY_COMPACTION_MODES]).default(DEFAULT_BUSY_COMPACTION),
   linkOpening: z.union(['sidebar', 'new-tab']).default(DEFAULT_LINK_OPENING),
   performanceUsage: z.union([...PERFORMANCE_USAGE_MODES]).default(DEFAULT_PERFORMANCE_USAGE),
   // Missing and unrecognized modes both use Standard.
