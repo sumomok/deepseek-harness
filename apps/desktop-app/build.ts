@@ -9,17 +9,14 @@
  *
  * The browser half requests exactly the web shell's platform module table and
  * inlines everything else; React in particular must come from the table, since
- * a second React has its own hook dispatcher. The public `DSH_CLIENT_*` values
- * in this process's environment are substituted the way the repository's own
- * client bundles substitute them, so the version the desktop packaging build
- * sets is the version this half renders. The bundle carries no source map:
- * the package publishes no `.map` file for it to name.
+ * a second React has its own hook dispatcher. The half reads no `process.env`
+ * value, so the bundle substitutes none. The bundle carries no source map: the
+ * package publishes no `.map` file for it to name.
  * @module
  */
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { build } from 'esbuild'
-import { clientBuildEnvironmentDefines } from '../../scripts/client-build-environment.ts'
 import { PLATFORM_MODULES } from '../../packages/client/web/src/platform.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-desktop-app'
@@ -46,7 +43,6 @@ await build({
   target: 'es2022',
   jsx: 'automatic',
   external: [...PLATFORM_MODULES],
-  define: clientBuildEnvironmentDefines(process.env),
   banner: {
     js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PACKAGE_NAME)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`,
   },

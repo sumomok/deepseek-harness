@@ -15,6 +15,9 @@
       "path": "../../packages/client/locale/tsconfig.client.json"
     },
     {
+      "path": "../../packages/client/ui-primitives"
+    },
+    {
       "path": "../../packages/client/ui-renderer"
     },
     {
