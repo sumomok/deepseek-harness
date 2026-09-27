@@ -11,7 +11,9 @@ import {
   type CompactionResult,
   type CompactionTrigger,
   type ManualCompactAgentContext,
+  type ManualCompactionWhileBusy,
 } from '@deepseek-ai/dsh-compaction'
+import { COMPACT_RESULT_TEXT } from '@deepseek-ai/dsh-command-compact/result-text'
 import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import * as commandCompact from '@deepseek-ai/dsh-command-compact'
 
@@ -32,7 +34,7 @@ class StubCompactionEngine extends CompactionEngine {
   result: CompactionResult | null = RESULT
   failure: unknown
   operation: (() => Promise<CompactionResult | null>) | undefined
-  calls: { agent: ManualCompactAgentContext; signal: AbortSignal }[] = []
+  calls: { agent: ManualCompactAgentContext; signal: AbortSignal; whileBusy: ManualCompactionWhileBusy | undefined }[] = []
 
   override compactIfNeeded(
     _agent: CompactionAgentContext,
@@ -50,8 +52,9 @@ class StubCompactionEngine extends CompactionEngine {
     agent: ManualCompactAgentContext,
     signal: AbortSignal,
     sourceCommandId?: Parameters<CompactionEngine['compactNow']>[2],
+    whileBusy?: ManualCompactionWhileBusy,
   ): Promise<CompactionResult | null> {
-    this.calls.push({ agent, signal })
+    this.calls.push({ agent, signal, whileBusy })
     if (this.operation !== undefined) return this.operation()
     return this.failure === undefined
       ? Promise.resolve(this.result === null ? null : this.appendResult(agent, this.result, sourceCommandId))
@@ -183,7 +186,41 @@ describe('/compact human command', () => {
       sourceEventSeq: RESULT.summarySeq,
     })
     expect(execution.commandId).toBe(expectLastLifecycle(test, '', execution.result))
-    expect(test.compact.calls).toEqual([{ agent: test.agent, signal: controller.signal }])
+    expect(test.compact.calls).toHaveLength(1)
+    const forwarded = test.compact.calls[0]!
+    expect(forwarded.agent).toBe(test.agent)
+    expect(forwarded.whileBusy).toBeUndefined()
+    expect(forwarded.signal.aborted).toBe(false)
+    const reason = new Error('request closed')
+    controller.abort(reason)
+    expect(forwarded.signal.reason).toBe(reason)
+  })
+
+  it('forwards the live busy-state timing of a mounted provider on every request', async () => {
+    const test = await harness()
+    let answer: ManualCompactionWhileBusy = 'turn-end'
+    test.ctx.provide('manualCompactionTiming', { whileBusy: () => answer })
+    await run(test)
+    answer = 'next-step'
+    await run(test)
+    expect(test.compact.calls.map(call => call.whileBusy)).toEqual(['turn-end', 'next-step'])
+  })
+
+  it('settles a request still waiting when the plugin is disposed', async () => {
+    const test = await harness()
+    const waiting = Promise.withResolvers<AbortSignal>()
+    test.compact.operation = () => {
+      const signal = test.compact.calls.at(-1)!.signal
+      waiting.resolve(signal)
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new ManualCompactionError('cancelled', 'engine saw the abort')) }, { once: true })
+      })
+    }
+    const execution = run(test)
+    const signal = await waiting.promise
+    await test.plugin.dispose()
+    expect(signal.aborted).toBe(true)
+    expect((await execution).result).toEqual({ kind: 'error', text: COMPACT_RESULT_TEXT.cancelled })
   })
 
   it('returns direct no-history and argument-rejection results', async () => {

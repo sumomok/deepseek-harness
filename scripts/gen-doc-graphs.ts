@@ -717,6 +717,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The basic backend consumes post-step pressure and request-error recovery events; there is no model-facing compact tool.',
   },
   {
+    key: 'manualCompactionTiming',
+    pkg: 'compaction',
+    title: 'Busy-state manual compaction timing',
+    mode: 'seam',
+    implementations: ['client-ui-chat'],
+    consumers: ['command-compact'],
+    note: 'The Web Chat plugin answers from a user setting whether a /compact sent during a running turn waits for its next step boundary or its end; without a provider the request is refused as busy.',
+  },
+  {
     key: 'subagents',
     pkg: 'subagent',
     title: 'Subagent provider and continuation service',

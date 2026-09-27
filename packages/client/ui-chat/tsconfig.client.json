@@ -34,6 +34,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../compaction/command-compact"
+    },
+    {
       "path": "../../compaction/compaction"
     },
     {
