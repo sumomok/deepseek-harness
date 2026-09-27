@@ -271,10 +271,11 @@ export class PluginManager extends TypertRemoteService {
     })
   }
 
-  /** Read the profile's installed bundles, the bundles this dsh installation supplies, and the selected names that are not bundles.
-   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.
+  /** Read the profile's installed bundles, the bundles this dsh installation supplies, the bundles the profile manifest's
+   * `dsh.profile.shipped` names, and the selected names that are not bundles.
+   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.
    * @returns Package versions, manifest descriptions, rows, optional display metadata, activation selections,
-   * whether the installation offers the bundle, and removal availability.
+   * whether the installation offers the bundle, whether the launcher ships it, and removal availability.
    */
   @Remote
   listBundles(): Promise<BundleInfo[]> {
@@ -282,20 +283,22 @@ export class PluginManager extends TypertRemoteService {
     const exemptions = readProfileVersionExemptions(this.profile.dir)
     const selected = manifest.dsh?.profile?.bundles ?? []
     const dependencies = Object.keys(manifest.dependencies ?? {})
+    const shippedNames = manifest.dsh?.profile?.shipped ?? []
     const installation = JSON.parse(readFileSync(this.profile.installAnchor, 'utf8')) as InstallationManifest
-    const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {})])]
+    const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...shippedNames])]
     const bundles: BundleInfo[] = []
     for (const name of names) {
       const installed = dependencies.includes(name)
       const optional = OPTIONAL_BUNDLES.includes(name)
+      const shipped = shippedNames.includes(name)
       const removable = installed && !Object.hasOwn(installation.dependencies ?? {}, name)
       const enabled = selected.includes(name)
       const readOnlyReason = this.protectsManager(name) ? 'management-required' as const : undefined
       try {
         const info = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
         if (info === undefined) {
-          if (enabled) bundles.push({ name, enabled, installed, optional, removable: removable && readOnlyReason === undefined,
-            ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: { code: 'not-bundle' }, rows: [], overrides: [] })
+          if (enabled || shipped) bundles.push({ name, enabled, installed, optional, shipped,
+            removable: removable && readOnlyReason === undefined, ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: { code: 'not-bundle' }, rows: [], overrides: [] })
           continue
         }
         const compatibility = evaluatePluginCompatibility(info, exemptions)
@@ -305,12 +308,12 @@ export class PluginManager extends TypertRemoteService {
         bundles.push({ name, ...(info.version === undefined ? {} : { version: info.version }),
           ...(info.description === undefined || info.description === '' ? {} : { description: info.description }),
           ...meta === undefined ? {} : { meta },
-          enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+          enabled, installed, optional, shipped, removable: removable && readOnlyReason === undefined,
           ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
           ...this.declaredRows(name, info) })
       } catch (error) {
-        if (enabled || installed) {
-          bundles.push({ name, enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+        if (enabled || installed || shipped) {
+          bundles.push({ name, enabled, installed, optional, shipped, removable: removable && readOnlyReason === undefined,
             ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: managementError(error), rows: [], overrides: [] })
         }
       }

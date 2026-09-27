@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-launcher-shipped-bundles.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-launcher-shipped-bundles.md
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles:
+  en: 84c55cd0af62fd75
+  zh: 9a5b9cb63058bf6e
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles/problem:
+  en: 9b6efd59f8b86819
+  zh: 3076b7a3a30d7b33
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles/decision:
+  en: ad63a6e6d2055139
+  zh: 85d38aa923c90ff0
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles/alternatives-considered:
+  en: fe96fbf61c0c1e98
+  zh: 84dc170b070d9ab8
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles/testing:
+  en: 9d17deb9896a0106
+  zh: 834e210e625c08b1
+/agent-note-the-plugin-manager-lists-launcher-shipped-bundles/consequences:
+  en: ef50302c828193fa
+  zh: 0134818f8549911e
