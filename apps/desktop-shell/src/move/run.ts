@@ -46,6 +46,7 @@ import {
 } from '../data-location.ts'
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
 import type { TerminalSnapshot } from '../terminal-env.ts'
+import { LOCK_FILENAME } from './lock.ts'
 import { copyTree, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
 import {
   ABANDONED_FILENAME, abandonedCopiesText, CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS,
@@ -127,7 +128,7 @@ export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): Mo
 
 /** The markers a move writes in a data directory; neither copied nor printed. */
 export const MOVE_MARKERS: readonly string[] = [
-  DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME, GENERATION_FILENAME,
+  DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME, GENERATION_FILENAME, LOCK_FILENAME,
 ]
 
 /** What a print of the target leaves out: what the server rebuilds, and the markers. */
