@@ -2,7 +2,8 @@
  * What the approval toast's buttons do: the frame a pressed 「拒绝」 sends back
  * on `$events/result`, the window a pressed 「去看看」 brings back, the window a
  * press brings back instead when this shell can no longer answer, and when a
- * toast is taken off the screen.
+ * toast is taken off the screen. On macOS, what the Dock badge counts and when
+ * a count comes off it.
  *
  * `notifications.ts` opens a real `WebSocket` and constructs a real
  * `Notification`. Both are replaced here — the socket by the stand-in
@@ -97,6 +98,15 @@ const hiddenWindow = {
 }
 
 const notifications: FakeNotification[] = []
+
+/** Every value the module set on the Dock badge, in order; the last one is what the Dock shows. */
+const dockBadges: string[] = []
+
+/** The Dock, recording what the badge was set to. */
+const fakeDock = {
+  setBadge: (text: string) => { dockBadges.push(text) },
+  bounce: () => 0,
+}
 const sockets: FakeSocket[] = []
 const quitHandlers: (() => void)[] = []
 const windows: (typeof hiddenWindow)[] = []
@@ -110,7 +120,7 @@ const appHandlers = new Map<string, () => void>()
 
 vi.mock('electron', () => ({
   app: {
-    dock: undefined,
+    dock: fakeDock,
     on: (event: string, handler: () => void) => { appHandlers.set(event, handler) },
     once: (_event: string, handler: () => void) => { quitHandlers.push(handler) },
   },
@@ -510,5 +520,114 @@ describe('the approval toast', () => {
       outcome: { kind: 'result', value: 'rejected' },
     })
     expect(notifications).toHaveLength(1)
+  })
+})
+
+/** What the Dock badge shows now; an empty string is no badge. */
+function shownBadge(): string {
+  return dockBadges.at(-1) ?? ''
+}
+
+describe('the macOS Dock badge', () => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', writable: false, enumerable: true, configurable: true })
+    windows.push(hiddenWindow)
+  })
+
+  afterEach(async () => {
+    for (const stop of quitHandlers) stop()
+    // The finished-run count outlives a generation; focus is what clears it.
+    appHandlers.get('browser-window-focus')?.()
+    Object.defineProperty(process, 'platform', { value: realPlatform, writable: false, enumerable: true, configurable: true })
+    notifications.length = 0
+    sockets.length = 0
+    answers.length = 0
+    lines.length = 0
+    posted.length = 0
+    windows.length = 0
+    dockBadges.length = 0
+    answersRead = 0
+    const running = server
+    server = undefined
+    if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
+  })
+
+  /**
+   * Deliver approvals and wait until the badge counts all of them.
+   * @param socket - the stream socket to deliver them on.
+   * @param eventIds - the deliveries.
+   */
+  async function badgedApprovals(socket: FakeSocket, ...eventIds: string[]): Promise<void> {
+    for (const eventId of eventIds) deliverApproval(socket, eventId)
+    await until(() => shownBadge() === String(eventIds.length), 'the badge count')
+  }
+
+  it('counts each waiting request and raises no toast', async () => {
+    await badgedApprovals(await subscribed(), 'event-a', 'event-b')
+    expect(shownBadge()).toBe('2')
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('takes a request off the badge when someone else answered it', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a', 'event-b')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('1')
+    socket.deliver({ type: 'cancel', eventId: 'event-b' })
+    expect(shownBadge()).toBe('')
+  })
+
+  it('takes a request off once, however many cancels name it', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a', 'event-b')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    socket.deliver({ type: 'cancel', eventId: 'event-unknown' })
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('clears on focus, stays clear when a counted request is cancelled after that, and counts afresh', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a')
+    appHandlers.get('browser-window-focus')?.()
+    expect(shownBadge()).toBe('')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('')
+    deliverApproval(socket, 'event-b')
+    await until(() => shownBadge() === '1', 'the fresh count')
+  })
+
+  it('does not count a replay of a request it already counts', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a')
+    deliverApproval(socket, 'event-a')
+    await settle()
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('keeps a finished run on the badge when a request is cancelled', async () => {
+    const socket = await subscribed()
+    socket.deliver({ type: 'emit', event: 'api-session/status', args: ['session-1', true] })
+    socket.deliver({ type: 'emit', event: 'api-session/status', args: ['session-1', false] })
+    await until(() => shownBadge() === '1', 'the finished run')
+    deliverApproval(socket, 'event-a')
+    await until(() => shownBadge() === '2', 'the request')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('drops the requests of a generation that was stopped', async () => {
+    await badgedApprovals(await subscribed(), 'event-a')
+    for (const stop of quitHandlers) stop()
+    expect(shownBadge()).toBe('')
+  })
+
+  it('keeps counting a request after its own grace answer, which the page still holds', async () => {
+    windows.length = 0
+    await badgedApprovals(await subscribed(), EVENT)
+    graceElapses()
+    await until(() => answers.length === 1, 'the grace answer')
+    expect(answers[0]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
+    expect(shownBadge()).toBe('1')
   })
 })
