@@ -34,8 +34,8 @@ import { decideDownload, downloadOutcome, type DownloadAlert } from './download-
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { bootMove, checkHealth, countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
-import { carryMove, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
-import { lockPage, stopPage } from './move-page.ts'
+import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
+import { stopPage, type ForeignLock } from './move-page.ts'
 import {
   beginDataMove, handOverToMove, lockSelf, withdrawRequestAtBoot, type MoveRequest, type MoveStartOutcome,
 } from './move-start.ts'
@@ -510,6 +510,31 @@ async function stopForMove(title: string, sentence: string, replacing: BrowserWi
   await moveWindow.showPage(stopPage(title, sentence, text, { platform: process.platform, ...reveal === undefined ? {} : { reveal } }))
   moveWindow.close()
   quitting = true
+  app.exit(0)
+}
+
+/**
+ * Show the page for another installation's lock on the data in the move's
+ * window. When the person discards that installation's unfinished move, the
+ * application relaunches and looks at the lock again; otherwise it quits.
+ * @param lock - the lock.
+ * @param home - the data directory.
+ * @param replacing - the window this one takes the place of; closed once the new one is open.
+ * @returns once the application is on its way out.
+ */
+async function settleForeignLockInWindow(lock: ForeignLock, home: string, replacing: BrowserWindow): Promise<void> {
+  const text = moveText(app.getLocale())
+  const moveWindow = openMoveWindow(text, logLine)
+  replacing.destroy()
+  let end: 'quit' | 'discarded' = 'quit'
+  try {
+    end = await settleForeignLock({ ui: moveWindow, text, lock, home, platform: process.platform, log: logLine })
+  } catch (error) {
+    logLine(`[desktop] data move: could not discard the other installation's lock: ${String(error)}\n`)
+  }
+  moveWindow.close()
+  quitting = true
+  if (end === 'discarded') app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== RECOVERY_RELAUNCH_FLAG) })
   app.exit(0)
 }
 
@@ -1067,8 +1092,7 @@ if (!locked) {
         // so nothing here may touch the data until that installation has finished.
         sink(`[desktop] data move: ${location.home} has another installation's move lock (${lock.kind})\n`)
         clearInterval(ticker)
-        const page = lockPage(moveText(app.getLocale()), lock, location.home)
-        await stopForMove(page.title, page.sentence, view.window, page.reveal)
+        await settleForeignLockInWindow(lock, location.home, view.window)
         return
       }
       // Our own lock without a journal is left from a move that ended before it could remove it.

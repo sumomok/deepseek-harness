@@ -9,18 +9,18 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AbandonedRecordHost, LocationAnswer } from '../src/data-location-boot.ts'
 import { DATA_LOCATION_TEXT } from '../src/data-location-text.ts'
-import { carryMove, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
-import type { MoveLink, MovePage, ProgressView } from '../src/move-page.ts'
+import { carryMove, settleForeignLock, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
+import { lockPage, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, readJournal } from '../src/move/journal.ts'
-import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockProbes } from '../src/move/lock.ts'
+import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes } from '../src/move/lock.ts'
 import { recordHealth, startMove } from '../src/move/run.ts'
 import { buildFixture, type Fixture } from './move-fixture.ts'
 import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
@@ -265,5 +265,75 @@ describe('a move that cannot go on', () => {
     const thread = new ScriptedThread({ type: 'failed', name: 'MoveStuckError', message: 'data move made no progress: copying: copy' })
     expect(await carryMove(depsOf(setup, ui, { start: () => thread }))).toEqual({ kind: 'quit' })
     expect(ui.pages[0]?.paragraphs[0]).toBe(text.failed('data move made no progress: copying: copy'))
+  })
+})
+
+describe('another installation\'s lock on the data', () => {
+  const other: LockOwner = { userData: '/u/other', pid: 222, startedAt: 'T', heartbeatAt: '2026-09-28T00:00:00.000Z' }
+
+  /** A data directory holding the other installation's lock. */
+  async function locked(): Promise<{ home: string; path: string }> {
+    const f = await buildFixture({ bigBytes: 10 })
+    fixtures.push(f)
+    const path = join(f.home, LOCK_FILENAME)
+    writeFileSync(path, `${JSON.stringify(other)}\n`)
+    return { home: f.home, path }
+  }
+
+  it('shows the lock file of an unfinished move and offers to discard that move; a running one and an unreadable one only quit', () => {
+    const page = lockPage(text, { kind: 'unfinished', owner: other, path: '/d/.dsh-move.lock' }, '/d', 'darwin')
+    expect(page).toEqual({
+      title: text.unfinishedTitle,
+      paragraphs: [text.unfinished('/d', '/u/other')],
+      buttons: [
+        { label: text.reveal('darwin'), link: { kind: 'reveal', index: 0 } },
+        { label: text.discardMove, link: { kind: 'discard-lock' } },
+        { label: text.quit, link: { kind: 'quit' } },
+      ],
+      reveal: ['/d/.dsh-move.lock'],
+    })
+    const held = lockPage(text, { kind: 'held', owner: other }, '/d', 'darwin')
+    expect(held).toMatchObject({ title: text.lockedTitle, paragraphs: [text.locked('/d', '/u/other')], reveal: [] })
+    expect(held.buttons.map(button => button.link.kind)).toEqual(['quit'])
+    const unreadable = lockPage(text, { kind: 'unreadable', path: '/d/.dsh-move.lock', detail: 'x' }, '/d', 'win32')
+    expect(unreadable).toMatchObject({ paragraphs: [text.lockUnreadable('/d/.dsh-move.lock')], reveal: ['/d/.dsh-move.lock'] })
+    expect(unreadable.buttons.map(button => button.link.kind)).toEqual(['reveal', 'quit'])
+  })
+
+  it('removes only the lock file, and only after the person confirms', async () => {
+    const { home, path } = await locked()
+    const before = readdirSync(home).sort()
+    const ui = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }])
+    const end = await settleForeignLock({ ui, text, lock: { kind: 'unfinished', owner: other, path }, home, platform: 'darwin', log: () => undefined })
+    expect(end).toBe('discarded')
+    expect(ui.pages.map(page => page.title)).toEqual([text.unfinishedTitle, text.confirmDiscardTitle])
+    expect(ui.pages[1]).toMatchObject({
+      paragraphs: [text.confirmDiscard(path, '/u/other')],
+      buttons: [{ label: text.confirmDiscardButton, link: { kind: 'confirm' } }, { label: text.back, link: { kind: 'back' } }],
+    })
+    expect(readdirSync(home).sort()).toEqual(before.filter(name => name !== LOCK_FILENAME))
+  })
+
+  it('keeps the lock when the person goes back and quits, or when it changed while the page was open', async () => {
+    const { home, path } = await locked()
+    const lock = { kind: 'unfinished' as const, owner: other, path }
+    const back = recordingUi([{ kind: 'discard-lock' }, { kind: 'back' }, { kind: 'quit' }])
+    expect(await settleForeignLock({ ui: back, text, lock, home, platform: 'darwin', log: () => undefined })).toBe('quit')
+    expect(back.pages.map(page => page.title)).toEqual([text.unfinishedTitle, text.confirmDiscardTitle, text.unfinishedTitle])
+    expect(existsSync(path)).toBe(true)
+    // That installation came back and refreshed its heartbeat after the page was drawn.
+    const fresh = `${JSON.stringify({ ...other, heartbeatAt: '2026-09-28T00:01:00.000Z' })}\n`
+    writeFileSync(path, fresh)
+    const confirm = recordingUi([{ kind: 'discard-lock' }, { kind: 'confirm' }])
+    expect(await settleForeignLock({ ui: confirm, text, lock, home, platform: 'darwin', log: () => undefined })).toBe('discarded')
+    expect(readFileSync(path, 'utf8')).toBe(fresh)
+  })
+
+  it('never offers to discard a lock whose process still runs', async () => {
+    const { home, path } = await locked()
+    const ui = recordingUi([{ kind: 'discard-lock' }])
+    expect(await settleForeignLock({ ui, text, lock: { kind: 'held', owner: other }, home, platform: 'darwin', log: () => undefined })).toBe('quit')
+    expect(ui.pages).toHaveLength(1)
+    expect(existsSync(path)).toBe(true)
   })
 })

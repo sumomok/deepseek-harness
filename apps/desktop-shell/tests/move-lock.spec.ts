@@ -14,12 +14,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  acquireMoveLock, claimOwnLock, createByExclusiveWrite, HEARTBEAT_STALE_MS, holderIsAlive, inspectMoveLock, LOCK_FILENAME, refreshMoveLock,
+  acquireMoveLock, claimLock, createByExclusiveWrite, HEARTBEAT_STALE_MS, holderIsAlive, inspectMoveLock, LOCK_FILENAME, refreshMoveLock,
   releaseMoveLock, START_TIME_UNKNOWN, type LockOwner, type LockProbes,
 } from '../src/move/lock.ts'
 import { MOVE_MARKERS } from '../src/move/run.ts'
-import { lockPage } from '../src/move-page.ts'
-import { MOVE_TEXT } from '../src/move-text.ts'
 import { startTimeOf } from '../src/process-tree.ts'
 
 let dir: string
@@ -58,7 +56,7 @@ describe('the move lock', () => {
   it('refuses another installation\'s lock whether its process runs or not, and never takes it', async () => {
     writeFileSync(join(dir, LOCK_FILENAME), JSON.stringify(other))
     expect(await acquireMoveLock(dir, self, probes({ 222: other.startedAt }))).toEqual({ kind: 'held', owner: other })
-    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'unfinished', owner: other })
+    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'unfinished', owner: other, path: join(dir, LOCK_FILENAME) })
     releaseMoveLock([dir], self)
     expect(lockFile()).toEqual(other)
   })
@@ -92,13 +90,13 @@ describe('the move lock', () => {
     const old: LockOwner = { ...self, pid: 999, heartbeatAt: '2026-01-01T00:00:00Z' }
     const fresh = JSON.stringify({ ...self, pid: 555, heartbeatAt: NOW.toISOString() })
     writeFileSync(path, fresh)
-    expect(claimOwnLock(path, old)).toBe('changed')
+    expect(claimLock(path, old)).toBe('changed')
     expect(readFileSync(path, 'utf8')).toBe(fresh)
     expect(readdirSync(dir)).toEqual([LOCK_FILENAME])
     writeFileSync(path, JSON.stringify(old))
-    expect(claimOwnLock(path, old)).toBe('claimed')
+    expect(claimLock(path, old)).toBe('claimed')
     expect(readdirSync(dir)).toEqual([])
-    expect(claimOwnLock(path, old)).toBe('gone')
+    expect(claimLock(path, old)).toBe('gone')
   })
 
   it('writes exclusively and reads back where hard links are not available', () => {
@@ -123,15 +121,6 @@ describe('the move lock', () => {
     await acquireMoveLock(dir, self, probes({}))
     releaseMoveLock([dir, join(dir, 'gone')], self)
     expect(await inspectMoveLock(dir, self, probes({}))).toEqual({ kind: 'none' })
-  })
-
-  it('names what holds the lock on the page that keeps the app from starting', () => {
-    const text = MOVE_TEXT.zh
-    expect(lockPage(text, { kind: 'held', owner: other }, '/d')).toEqual({ title: text.lockedTitle, sentence: text.locked('/d', '/u/other') })
-    expect(lockPage(text, { kind: 'unfinished', owner: other }, '/d'))
-      .toEqual({ title: text.unfinishedTitle, sentence: text.unfinished('/d', '/u/other') })
-    expect(lockPage(text, { kind: 'unreadable', path: '/d/.dsh-move.lock', detail: 'x' }, '/d'))
-      .toEqual({ title: text.journalUnreadableTitle, sentence: text.lockUnreadable('/d/.dsh-move.lock'), reveal: '/d/.dsh-move.lock' })
   })
 
   it('looks a start time up in the process list', async () => {

@@ -58,7 +58,7 @@ export type LockState =
   /** Another installation's process that is still running holds it. */
   | { kind: 'held'; owner: LockOwner }
   /** Another installation holds it and its process is gone: that installation has a move it has not finished. */
-  | { kind: 'unfinished'; owner: LockOwner }
+  | { kind: 'unfinished'; owner: LockOwner; path: string }
   /** The file cannot be read as a lock; nothing tells whose it is. */
   | { kind: 'unreadable'; path: string; detail: string }
 
@@ -150,7 +150,8 @@ export async function inspectMoveLock(dir: string, self: Pick<LockSelf, 'userDat
   const lock = readLock(dir)
   if (lock.kind !== 'lock') return lock
   if (lock.owner.userData === self.userData) return { kind: 'ours', owner: lock.owner }
-  return await holderIsAlive(lock.owner, probes) ? { kind: 'held', owner: lock.owner } : { kind: 'unfinished', owner: lock.owner }
+  if (await holderIsAlive(lock.owner, probes)) return { kind: 'held', owner: lock.owner }
+  return { kind: 'unfinished', owner: lock.owner, path: join(dir, LOCK_FILENAME) }
 }
 
 /**
@@ -195,16 +196,18 @@ export function createByExclusiveWrite(path: string, text: string): boolean {
 }
 
 /**
- * Remove this installation's old lock so a new one can be created, only if
- * it is still the lock that was read: it is renamed to a name no other
- * process uses, and a lock that changed in between (another process took it
- * over first) is linked back into place and kept.
+ * Remove a lock only if it is still the lock that was read: this
+ * installation's old lock before a new one is created, or another
+ * installation's unfinished move's lock the person chose to discard. It is
+ * renamed to a name no other process uses, and a lock that changed in
+ * between (another process took it over or refreshed it first) is linked
+ * back into place and kept.
  * @param path - the lock file.
  * @param expected - the lock that was read.
  * @returns `claimed` when the old lock was removed, `changed` when another lock was put back, `gone` when there was none.
  * @throws when the lock cannot be renamed or read.
  */
-export function claimOwnLock(path: string, expected: LockOwner): 'claimed' | 'changed' | 'gone' {
+export function claimLock(path: string, expected: LockOwner): 'claimed' | 'changed' | 'gone' {
   const claim = `${path}.claim-${String(process.pid)}-${randomBytes(4).toString('hex')}`
   try {
     renameSync(path, claim)
@@ -248,7 +251,7 @@ export async function acquireMoveLock(
     const state = await inspectMoveLock(dir, self, probes)
     if (state.kind === 'none') continue
     if (state.kind !== 'ours') return state
-    claimOwnLock(path, state.owner)
+    claimLock(path, state.owner)
   }
   throw new Error(`the move lock in ${dir} kept changing while this process tried to take it`)
 }

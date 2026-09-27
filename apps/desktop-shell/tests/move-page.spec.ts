@@ -25,7 +25,7 @@ describe('the links on the move pages', () => {
   it('round-trips every link and ignores anything else', () => {
     const links: MoveLink[] = [
       { kind: 'cancel' }, { kind: 'quit' }, { kind: 'choose', choice: 'keep-target' }, { kind: 'choose', choice: 'rollback' },
-      { kind: 'reveal', index: 1 },
+      { kind: 'reveal', index: 1 }, { kind: 'discard-lock' }, { kind: 'confirm' }, { kind: 'back' },
     ]
     for (const link of links) expect(parseMoveLink(moveLinkUrl(link))).toEqual(link)
     expect(parseMoveLink('dsh-move://choose?c=delete-everything')).toBeUndefined()

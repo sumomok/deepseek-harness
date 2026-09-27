@@ -77,6 +77,9 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
       }
       case 'choose':
       case 'quit':
+      case 'discard-lock':
+      case 'confirm':
+      case 'back':
         answer?.(link)
         answer = undefined
         break

@@ -25,6 +25,12 @@ export type MoveLink =
   | { kind: 'choose'; choice: BlockedChoice }
   | { kind: 'reveal'; index: number }
   | { kind: 'quit' }
+  /** Discard another installation's unfinished move: asks for confirmation first. */
+  | { kind: 'discard-lock' }
+  /** Confirm what the page asks. */
+  | { kind: 'confirm' }
+  /** Go back to the page before. */
+  | { kind: 'back' }
 
 /**
  * The link a button carries.
@@ -35,6 +41,9 @@ export function moveLinkUrl(link: MoveLink): string {
   switch (link.kind) {
     case 'cancel':
     case 'quit':
+    case 'discard-lock':
+    case 'confirm':
+    case 'back':
       return `${MOVE_LINK_SCHEME}//${link.kind}`
     case 'choose':
       return `${MOVE_LINK_SCHEME}//choose?c=${link.choice}`
@@ -64,6 +73,12 @@ export function parseMoveLink(url: string): MoveLink | undefined {
       return { kind: 'cancel' }
     case 'quit':
       return { kind: 'quit' }
+    case 'discard-lock':
+      return { kind: 'discard-lock' }
+    case 'confirm':
+      return { kind: 'confirm' }
+    case 'back':
+      return { kind: 'back' }
     case 'choose': {
       const choice = parsed.searchParams.get('c')
       return choice === 'keep-target' || choice === 'rollback' ? { kind: 'choose', choice } : undefined
@@ -169,26 +184,56 @@ export function stopPage(title: string, sentence: string, text: MoveText, input:
   }
 }
 
+/** A lock that keeps the application off a data directory. */
+export type ForeignLock = Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>
+
 /**
  * The page for a data directory another installation holds the move lock of,
- * or whose lock cannot be read.
+ * or whose lock cannot be read. An unfinished move's page shows the lock
+ * file and offers to discard that move, which {@link discardLockPage} confirms.
  * @param text - the sentence set.
  * @param lock - what holds the lock.
  * @param home - the data directory.
- * @returns the title, the sentence, and the file the page can show.
+ * @param platform - whose file browser the reveal button names.
+ * @returns the page.
  */
-export function lockPage(
-  text: MoveText, lock: Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>, home: string,
-): { title: string; sentence: string; reveal?: string } {
+export function lockPage(text: MoveText, lock: ForeignLock, home: string, platform: NodeJS.Platform): MovePage {
   switch (lock.kind) {
     case 'held':
-      return { title: text.lockedTitle, sentence: text.locked(home, lock.owner.userData) }
+      return stopPage(text.lockedTitle, text.locked(home, lock.owner.userData), text, { platform })
     case 'unfinished':
-      return { title: text.unfinishedTitle, sentence: text.unfinished(home, lock.owner.userData) }
+      return {
+        title: text.unfinishedTitle,
+        paragraphs: [text.unfinished(home, lock.owner.userData)],
+        buttons: [
+          { label: text.reveal(platform), link: { kind: 'reveal', index: 0 } },
+          { label: text.discardMove, link: { kind: 'discard-lock' } },
+          { label: text.quit, link: { kind: 'quit' } },
+        ],
+        reveal: [lock.path],
+      }
     case 'unreadable':
-      return { title: text.journalUnreadableTitle, sentence: text.lockUnreadable(lock.path), reveal: lock.path }
+      return stopPage(text.journalUnreadableTitle, text.lockUnreadable(lock.path), text, { platform, reveal: lock.path })
     default:
       return lock satisfies never
+  }
+}
+
+/**
+ * The confirmation before another installation's unfinished move is discarded.
+ * @param text - the sentence set.
+ * @param lock - the unfinished move's lock.
+ * @returns the page.
+ */
+export function discardLockPage(text: MoveText, lock: Extract<LockState, { kind: 'unfinished' }>): MovePage {
+  return {
+    title: text.confirmDiscardTitle,
+    paragraphs: [text.confirmDiscard(lock.path, lock.owner.userData)],
+    buttons: [
+      { label: text.confirmDiscardButton, link: { kind: 'confirm' } },
+      { label: text.back, link: { kind: 'back' } },
+    ],
+    reveal: [],
   }
 }
 

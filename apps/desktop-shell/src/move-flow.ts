@@ -11,13 +11,16 @@
 import type { AbandonedRecordHost } from './data-location-boot.ts'
 import { readAbandonedOrAsk } from './data-location-boot.ts'
 import { lockPlaces, relaunchHome } from './move-boot.ts'
-import { blockedPage, progressView, stopPage, type MoveLink, type MovePage, type ProgressClock, type ProgressView } from './move-page.ts'
+import {
+  blockedPage, discardLockPage, lockPage, progressView, stopPage, type ForeignLock, type MoveLink, type MovePage, type ProgressClock,
+  type ProgressView,
+} from './move-page.ts'
 import type { MoveText } from './move-text.ts'
 import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
+import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
 import type { MoveOutcome } from './move/run.ts'
 
@@ -158,5 +161,40 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
       default:
         return outcome satisfies never
     }
+  }
+}
+
+/** What {@link settleForeignLock} works with. */
+export interface ForeignLockDeps {
+  ui: Pick<MoveUi, 'showPage'>
+  text: MoveText
+  lock: ForeignLock
+  /** The data directory. */
+  home: string
+  platform: NodeJS.Platform
+  log: (line: string) => void
+}
+
+/**
+ * Show the page for another installation's lock on the data. On an
+ * unfinished move's page the person may discard that move: after a
+ * confirmation only the lock file is removed, and only while it is still the
+ * lock the page showed ({@link claimLock}); a lock that changed meanwhile is
+ * put back. The data is not touched.
+ * @param deps - the window, the sentences, the lock, and the log.
+ * @returns `discarded` once the person confirmed (the launch starts again and looks at the lock anew), otherwise `quit`.
+ * @throws when the lock cannot be renamed or read.
+ */
+export async function settleForeignLock(deps: ForeignLockDeps): Promise<'quit' | 'discarded'> {
+  const { ui, text, lock } = deps
+  for (;;) {
+    const link = await ui.showPage(lockPage(text, lock, deps.home, deps.platform))
+    if (link.kind !== 'discard-lock' || lock.kind !== 'unfinished') return 'quit'
+    const answer = await ui.showPage(discardLockPage(text, lock))
+    if (answer.kind === 'back') continue
+    if (answer.kind !== 'confirm') return 'quit'
+    const result = claimLock(lock.path, lock.owner)
+    deps.log(`[desktop] data move: the person discarded ${lock.owner.userData}'s unfinished move; its lock ${lock.path}: ${result}\n`)
+    return 'discarded'
   }
 }
