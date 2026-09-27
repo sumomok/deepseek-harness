@@ -182,6 +182,12 @@ export interface ServerSpec {
    * other process the shell starts would inherit them from there.
    */
   env: Record<string, string>
+  /**
+   * The port passed as `--port`. Absent or 0 lets the system pick one; see
+   * [[@deepseek-ai/dsh-desktop-shell/server-port]] for why the shell asks for
+   * the previous launch's port.
+   */
+  port?: number
 }
 
 /** What one server-child exit tells the caller. */
@@ -341,7 +347,7 @@ export async function startServer(
   // the web app performs by default; without it every start, including the
   // relaunch after an update, adds a 127.0.0.1 tab.
   const child = spawn(spec.nodeBin, [
-    ...diagnosticReportFlags(spec.reportDirectory), spec.entry, '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open',
+    ...diagnosticReportFlags(spec.reportDirectory), spec.entry, '--profile', DESKTOP_PROFILE, '--port', String(spec.port ?? 0), '--no-open',
   ], {
     cwd: spec.cwd,
     // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch

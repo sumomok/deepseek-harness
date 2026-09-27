@@ -181,6 +181,14 @@ describe('startServer', () => {
     await handle.stop()
   })
 
+  it('asks for the spec\'s port when it names one', async () => {
+    const { entry, argvFile } = argvReportingEntry()
+    const handle = await startServer(specFor(entry, { port: 49_321 }), () => {})
+    const argv = JSON.parse(readFileSync(argvFile, 'utf8')) as string[]
+    expect(argv).toEqual(['--profile', DESKTOP_PROFILE, '--port', '49321', '--no-open'])
+    await handle.stop()
+  })
+
   it('always sets DSH_TELEMETRY_DISABLED on the spawned server, unconditionally', async () => {
     const { entry, envFile } = envReportingEntry('DSH_TELEMETRY_DISABLED')
     const handle = await startServer(specFor(entry), () => {})

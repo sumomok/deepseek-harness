@@ -30,7 +30,7 @@ import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-r
 import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { recordRun } from './desktop-state.ts'
+import { readState, recordRun, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
@@ -50,6 +50,7 @@ import {
   runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { choosePort, isPortFree, startOnPort } from './server-port.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
@@ -140,10 +141,11 @@ const CRASH_LOG_HOST: CrashLogHost = {
 
 /**
  * The launch spec the running server was started (or last rebound) with —
- * paths plus the loopback-service environment additions. Recorded once the
- * first startup succeeds; every automatic or manual rebind reuses it
- * unchanged, since the loopback services it points at keep running across a
- * server-only crash.
+ * paths, the loopback-service environment additions, and the port it listens
+ * on. Recorded once the first startup succeeds; every automatic or manual
+ * rebind reuses it, since the loopback services it points at keep running
+ * across a server-only crash, and asking for the same port keeps the served
+ * UI's origin.
  */
 let activeServerSpec: ServerSpec | undefined
 
@@ -239,8 +241,10 @@ async function performRebind(): Promise<boolean> {
   const spec = activeServerSpec
   if (spec === undefined) return false
   try {
-    const handle = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+    const started = await startOnPort(spec, startEmbeddedServer, logLine)
+    const handle = started.server
     server = handle
+    rememberServerPort(started.spec)
     logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
     retargetWindows(handle.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
@@ -251,6 +255,25 @@ async function performRebind(): Promise<boolean> {
     logLine(`[desktop] rebind attempt failed: ${message}\n`)
     return false
   }
+}
+
+/**
+ * Start the embedded server with the migrated-plugin quarantine, logging to the
+ * current {@link logLine}.
+ * @param spec - the launch.
+ * @returns the running server.
+ */
+function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
+  return startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+}
+
+/**
+ * Record the spec a server was started with, and its port for the next launch.
+ * @param spec - the spec [[startOnPort]] returned, carrying the port the server listens on.
+ */
+function rememberServerPort(spec: ServerSpec): void {
+  activeServerSpec = spec
+  if (spec.port !== undefined && spec.port !== 0) setServerPort(spec.port)
 }
 
 /**
@@ -744,10 +767,16 @@ if (!locked) {
         : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
       // The server appends its own logger records to the same file, as one
       // write per record, rather than printing them into the streams above.
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, [SERVER_LOG_ENV]: logFile } }
-      server = await startServerWithQuarantine(
-        activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
+      // After the orphan sweep and the loopback services: an orphan can still
+      // hold the remembered port, and a service bound to port 0 can land on it.
+      const port = await choosePort(readState().serverPort, isPortFree)
+      sink(port.line)
+      const started = await startOnPort(
+        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, [SERVER_LOG_ENV]: logFile }, port: port.port },
+        startEmbeddedServer, sink,
       )
+      server = started.server
+      rememberServerPort(started.spec)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

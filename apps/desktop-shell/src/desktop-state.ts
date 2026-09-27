@@ -2,7 +2,8 @@
  * The desktop shell's own state file, `desktop-state.json` under the user data
  * directory. It holds what the shell must remember across launches but the
  * server knows nothing about: which build ran last, what closing the window
- * does, and which update it last handed to the installer.
+ * does, which update it last handed to the installer, and which port the
+ * server last listened on.
  *
  * The user data directory is the only place a build can leave a note for its
  * successor — an update replaces the whole install directory, and the
@@ -18,6 +19,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { StartedInstall } from './pending-cache.ts'
+import { isListenPort } from './server-port.ts'
 import { compareVersions } from './version-order.ts'
 
 /** What closing the main window does when the user asked not to be asked again. */
@@ -38,6 +40,11 @@ export interface DesktopState {
    * `pending` directory. Absent when no install is outstanding.
    */
   installedUpdate?: StartedInstall
+  /**
+   * The loopback port the last started server listened on, asked for again
+   * by the next launch; see [[@deepseek-ai/dsh-desktop-shell/server-port]].
+   */
+  serverPort?: number
 }
 
 
@@ -60,6 +67,7 @@ export function readState(): DesktopState {
     if (typeof installed?.fromVersion === 'string' && typeof installed.fileName === 'string' && typeof installed.sha512 === 'string') {
       state.installedUpdate = { fromVersion: installed.fromVersion, fileName: installed.fileName, sha512: installed.sha512 }
     }
+    if (isListenPort(parsed.serverPort)) state.serverPort = parsed.serverPort
     return state
   } catch {
     // No state yet, or it did not survive. Both mean the same thing to every
@@ -117,4 +125,12 @@ export function setInstalledUpdate(installed: StartedInstall | undefined): void 
   if (installed === undefined) delete state.installedUpdate
   else state.installedUpdate = installed
   writeState(state)
+}
+
+/**
+ * Remember the port the running server listens on, for the next launch.
+ * @param port - the port from the server's origin.
+ */
+export function setServerPort(port: number): void {
+  writeState({ ...readState(), serverPort: port })
 }

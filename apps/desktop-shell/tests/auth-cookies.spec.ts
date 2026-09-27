@@ -92,7 +92,9 @@ describe('the launch sequence in main.ts', () => {
     const [call = -1] = calls
     expect(source.slice(call - 'await '.length, call)).toBe('await ')
     expect(source.indexOf('await sweepOrphanedServers(')).toBeLessThan(call)
-    expect(source.indexOf('startServerWithQuarantine(\n')).toBeGreaterThan(call)
+    // The launch's spawn is its `startOnPort` call, the last one in the file;
+    // the one before it is the crash rebind's.
+    expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(call)
   })
 
   it('leaves cookies alone on every path that reopens a window or rebinds the server', () => {
