@@ -169,6 +169,32 @@ function validatePointer(value: unknown): DataLocationPointer | string {
 }
 
 /**
+ * Parse a pointer file's text.
+ * @param text - the text.
+ * @returns the pointer, or `undefined` when the text is not a valid pointer.
+ */
+export function parsePointerText(text: string): DataLocationPointer | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    // SyntaxError: text that is not JSON is not a pointer.
+    return undefined
+  }
+  const pointer = validatePointer(parsed)
+  return typeof pointer === 'string' ? undefined : pointer
+}
+
+/**
+ * The text {@link writePointer} writes for a pointer.
+ * @param pointer - the pointer.
+ * @returns the file's text.
+ */
+export function pointerText(pointer: DataLocationPointer): string {
+  return `${JSON.stringify(pointer, null, 2)}\n`
+}
+
+/**
  * Read and validate one pointer file.
  * @param file - the file to read.
  * @returns the pointer, `'absent'` when the file does not exist, or why it is unusable.
@@ -222,9 +248,9 @@ export function writePointer(userData: string, pointer: DataLocationPointer): vo
   const main = join(userData, POINTER_FILENAME)
   const current = readPointerFile(main)
   if (typeof current === 'object' && !('detail' in current)) {
-    writeDurably(join(userData, POINTER_BACKUP_FILENAME), Buffer.from(`${JSON.stringify(current, null, 2)}\n`))
+    writeDurably(join(userData, POINTER_BACKUP_FILENAME), Buffer.from(pointerText(current)))
   }
-  writeDurably(main, Buffer.from(`${JSON.stringify(pointer, null, 2)}\n`))
+  writeDurably(main, Buffer.from(pointerText(pointer)))
 }
 
 /**

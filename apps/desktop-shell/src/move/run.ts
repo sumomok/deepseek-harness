@@ -41,8 +41,8 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { samePathText } from '../path-text.ts'
 import { fsyncDirectory, writeDurably } from '../durable-file.ts'
 import {
-  DATA_ID_FILENAME, GENERATION_FILENAME, parseGeneration, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION, withGeneration,
-  writePointer, type DataLocationPointer,
+  DATA_ID_FILENAME, GENERATION_FILENAME, parseGeneration, parsePointerText, POINTER_BACKUP_FILENAME, POINTER_FILENAME, pointerText,
+  POINTER_VERSION, withGeneration, writePointer, type DataLocationPointer,
 } from '../data-location.ts'
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
 import type { ExplicitRead } from '../terminal-env.ts'
@@ -750,7 +750,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       await renameWithRetry(effects, journal.target, journal.source)
       return undefined
     case 'restore-pointer':
-      effects.restorePointer(journal.pointerBefore)
+      effects.restorePointer(rolledBackPointer(journal.pointerBefore, journal.originalGeneration))
       save({ ...journal, pointerWritten: false })
       return undefined
     case 'restore-terminal':
@@ -934,6 +934,24 @@ export function canonicalPath(path: string): string {
     if (dirname(at) === at) return resolve(path)
     rest.push(basename(at))
   }
+}
+
+/**
+ * The pointer files a rollback writes back: the backup as it was, and the main
+ * file as it was but numbered at least `generation`, the original's number
+ * after the rollback raised it above the copy's. The pointer then keeps the
+ * reference even if the original's `.dsh-data-generation` is lost later. A
+ * main file that did not exist stays absent; one that was not a valid pointer
+ * goes back byte for byte.
+ * @param before - the files' text before the move.
+ * @param generation - the original's number now.
+ * @returns the files to write.
+ */
+export function rolledBackPointer(before: PointerBefore, generation: number): PointerBefore {
+  const pointer = before.main === undefined ? undefined : parsePointerText(before.main)
+  if (pointer === undefined) return before
+  const main = pointerText(withGeneration(pointer, Math.max(pointer.generation ?? 0, generation)))
+  return { ...before, main }
 }
 
 /**

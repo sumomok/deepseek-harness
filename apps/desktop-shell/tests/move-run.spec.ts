@@ -14,7 +14,8 @@ import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  GENERATION_FILENAME, readDataId, readGeneration, readPointer, resolveDataLocation, writeGeneration, type Resolution,
+  DATA_ID_FILENAME, dataReference, GENERATION_FILENAME, readDataId, readGeneration, readPointer, resolveDataLocation, setAsideReason,
+  writeGeneration, type Resolution,
 } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
 import {
@@ -24,7 +25,7 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
-  startMove,
+  rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { keptFolderName } from '../src/move/names.ts'
@@ -220,11 +221,40 @@ describe('a move to another volume', () => {
     expect(dataFiles(listTree(unusedPath))).toEqual(dataFiles(s.before))
     expect(existsSync(join(unusedPath, '.dsh-data-id'))).toBe(false)
     expect(JSON.parse(readFileSync(join(unusedPath, RETIRED_FILENAME), 'utf8'))).toMatchObject({ dataId: HARNESS_ID })
-    expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
+    // The pointer is the one from before, numbered as the original is now; the backup is as it was.
+    expect(pointerText(s, 'data-location.json')).toBe(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main)
+    expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, generation: readGeneration(s.f.home) } })
+    expect(readGeneration(s.f.home)).toBeGreaterThan(readGeneration(unusedPath))
     expect(pointerText(s, 'data-location.json.bak')).toBe(s.pointerBefore.backup)
     expect(readlinkSync(s.setup.defaultHome)).toBe(s.f.home)
     expect(terminalValue(s.setup)).toBe(s.f.home)
     expect(readdirSync(s.f.targetParent)).toEqual([unused])
+  })
+
+  it('numbers the pointer a rollback writes back no lower than the original, and leaves other files as they were', () => {
+    const main = `${JSON.stringify({ version: 1, path: '/data', dataId: HARNESS_ID, generation: 5 }, null, 2)}\n`
+    expect(JSON.parse(rolledBackPointer({ main, backup: 'b' }, 7).main ?? '')).toMatchObject({ path: '/data', generation: 7 })
+    expect(rolledBackPointer({ main, backup: 'b' }, 7).backup).toBe('b')
+    expect(JSON.parse(rolledBackPointer({ main }, 3).main ?? '')).toMatchObject({ generation: 5 })
+    expect(rolledBackPointer({ backup: 'b' }, 7)).toEqual({ backup: 'b' })
+    expect(rolledBackPointer({ main: '{ damaged' }, 7)).toEqual({ main: '{ damaged' })
+  })
+
+  posixOnly('keeps a copy older after a rollback even when the original loses its number', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await runToEnd(s, false)
+    const [unused] = unusedCopies(s)
+    const copyGeneration = readGeneration(join(s.f.targetParent, unused ?? ''))
+    expect(copyGeneration).toBeGreaterThan(0)
+    // The same data turns up at a path nothing recorded, still carrying its identity and number.
+    const elsewhere = join(s.f.targetParent, 'Remounted')
+    mkdirSync(elsewhere)
+    writeFileSync(join(elsewhere, DATA_ID_FILENAME), `${HARNESS_ID}\n`)
+    writeGeneration(elsewhere, copyGeneration)
+    unlinkSync(join(s.f.home, GENERATION_FILENAME))
+    const reference = dataReference(readPointer(s.setup.userData), s.setup.defaultHome)
+    expect(reference?.generation).toBeGreaterThan(copyGeneration)
+    expect(setAsideReason(elsewhere, { abandoned: [], reference })).toBe('older')
   })
 
   posixOnly('rolls back a move of ~/.dsh itself: the link to the target goes and the real directory comes back', async () => {
@@ -467,7 +497,7 @@ describe('a directory a terminal made at the old path', () => {
     const outcome = await advanceMove(s.setup.dir, held, { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', unusedCopy: { path: s.target } } })
     expect(originalListing(s)).toEqual(s.before)
-    expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
+    expect(pointerText(s, 'data-location.json')).toBe(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main)
     expect(terminalValue(s.setup)).toBe(s.f.home)
     expect(existsSync(join(s.target, RETIRED_FILENAME))).toBe(true)
     expect(existsSync(join(s.target, '.dsh-data-id'))).toBe(false)

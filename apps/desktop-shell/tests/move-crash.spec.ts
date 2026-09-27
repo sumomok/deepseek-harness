@@ -29,7 +29,7 @@ import {
   MOVED_ID_FILENAME, readJournal, RETIRED_FILENAME, type BlockedChoice, type MoveJournal, type MoveResult,
 } from '../src/move/journal.ts'
 import { readGeneration } from '../src/data-location.ts'
-import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
+import { advanceMove, recordHealth, rolledBackPointer, startMove } from '../src/move/run.ts'
 import { IGNORABLE_NAMES, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import {
@@ -367,7 +367,10 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     } else if (existsSync(p.target)) violations.push('the target is still there')
     const main = join(p.setup.userData, 'data-location.json')
     const now = existsSync(main) ? readFileSync(main, 'utf8') : undefined
-    if (now !== p.setup.start.pointerBefore.main) violations.push('the pointer is not as it was')
+    // A pointer that named the copy goes back numbered as the original is now; one never written stays as it was.
+    const before = p.setup.start.pointerBefore
+    const expected = result.unusedCopy === undefined ? before.main : rolledBackPointer(before, readGeneration(p.f.home)).main
+    if (now !== expected) violations.push('the pointer is not as it was (numbered as the original is now when it named the copy)')
     const terminal = p.setup.start.terminalBefore
     if (terminalValue(p.setup) !== (terminal.kind === 'set' ? terminal.value : '')) violations.push('the terminal is not as it was')
     if (c.start === 'pointer' && readlinkSync(p.setup.defaultHome) !== p.f.home) violations.push('~/.dsh does not link to the source')
