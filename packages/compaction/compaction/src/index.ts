@@ -10,10 +10,10 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import type { CompactionResult } from './types.ts'
+import type { CompactionResult, ManualCompactionWhileBusy } from './types.ts'
 import type { CompactionCheckpointSource } from './checkpoint.ts'
 
-export type { CompactionResult } from './types.ts'
+export type { CompactionResult, ManualCompactionWhileBusy } from './types.ts'
 export { CompactionId } from './brand.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 // The checkpoint source constructor and predicate are declared on the cordis-free
@@ -75,6 +75,8 @@ export interface CompactionAgentContext {
  * other compaction transactions.
  */
 export interface ManualCompactAgentContext extends CompactionAgentContext {
+  /** `running` while a turn is open or queued work is being driven; maintenance reports `idle`. */
+  readonly status: 'idle' | 'running'
   /**
    * Run a non-turn maintenance operation only while the agent is idle, withholding later
    * waking input until it settles.
@@ -85,9 +87,25 @@ export interface ManualCompactAgentContext extends CompactionAgentContext {
   runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
 }
 
+/**
+ * Live choice of when `/compact` runs if its agent is running a turn. A
+ * host-plane plugin that owns the user's setting provides it; a manual
+ * compaction consumer reads it once per request and passes the answer to
+ * {@link CompactionEngine.compactNow}. Without a provider a busy request is
+ * refused as `busy`.
+ */
+export interface ManualCompactionTiming {
+  /**
+   * Read the setting in force for the next request.
+   * @returns the timing a request made during a running turn uses.
+   */
+  whileBusy(): ManualCompactionWhileBusy
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     compaction: CompactionEngine
+    manualCompactionTiming: ManualCompactionTiming
   }
   interface Events {
     /**
@@ -141,8 +159,8 @@ export abstract class CompactionEngine extends Service {
 
   /**
    * Explicitly compact useful history even below automatic pressure thresholds.
-   * Implementations synchronously start an idle task before any asynchronous
-   * work, select a useful range without writing on a no-op, then
+   * For an idle agent, implementations synchronously start an idle task before
+   * any asynchronous work, select a useful range without writing on a no-op, then
    * append a standalone `compaction/start` before summarization. That durable
    * marker is the compaction lock until one `compaction/end` attempt. Later waking
    * prompts remain accepted in FIFO order and start only after the optional
@@ -150,9 +168,18 @@ export abstract class CompactionEngine extends Service {
    * summary runs may sit between the marker pair; only the selected span must
    * remain stable.
    *
-   * @param agent - idle agent whose durable history should be compacted.
-   * @param signal - cancellation scoped to this compaction request.
+   * With `whileBusy` and a `running` agent, the request waits instead of
+   * failing: `next-step` compacts at the running turn's next step boundary
+   * with a bracket owned by that turn; `next-step` without a later boundary in
+   * that turn, and `turn-end`, compact once the turn ends — at the first step
+   * boundary of a turn the loop chains without going idle, else as the idle
+   * task above. One request waits per agent. A turn that ends aborted
+   * cancels the waiting request.
+   *
+   * @param agent - agent whose durable history should be compacted.
+   * @param signal - cancellation scoped to this compaction request, including its wait.
    * @param sourceCommandId - initiating command identity for a manual compaction.
+   * @param whileBusy - timing for a `running` agent; omitted refuses a running agent as `busy`.
    * @returns the compaction result, or `null` when no safe useful range exists.
    * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
    * changed-span, summarization/shrink, commit-stage, or persistence failures;
@@ -163,6 +190,7 @@ export abstract class CompactionEngine extends Service {
     agent: ManualCompactAgentContext,
     signal: AbortSignal,
     sourceCommandId?: CommandId,
+    whileBusy?: ManualCompactionWhileBusy,
   ): Promise<CompactionResult | null>
 
   /**

@@ -22,6 +22,7 @@ const TURN_PROCESS_INDEPENDENT_KIND_LIST = [
   'user',
   'steering',
   'turn-trigger',
+  'manual-compaction',
   'turn-process',
   'turn-error',
   'turn-max-tokens',

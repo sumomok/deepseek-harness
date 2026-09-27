@@ -34,7 +34,6 @@ import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
-import { registerCompactBusyNotice } from './compact-busy.ts'
 import { StatsPills } from './chat/StatsPills.tsx'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { QuotaNoticeHost } from './chat/QuotaNoticeHost.tsx'
@@ -43,7 +42,10 @@ import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/Tr
 import { createChatStore } from './stores.ts'
 import { TranscriptViewPolicy } from './transcript-view.ts'
 import { derivePresentationPolicy } from './presentation-policy.ts'
-import { CHAT_SETTINGS_NAMESPACE, DEFAULT_LINK_OPENING, type ChatSettings } from '../chat-settings.ts'
+import {
+  BUSY_COMPACTION_FIELD, CHAT_SETTINGS_NAMESPACE, DEFAULT_BUSY_COMPACTION, DEFAULT_LINK_OPENING, type ChatSettings,
+} from '../chat-settings.ts'
+import { BusyCompactionRow, type BusyCompactionRowInjected } from './settings/BusyCompactionRow.tsx'
 import { LinkOpeningRow, type LinkOpeningRowInjected } from './settings/LinkOpeningRow.tsx'
 import { PerformanceUsageRow, type PerformanceUsageRowInjected } from './settings/PerformanceUsageRow.tsx'
 import { PerformanceUsagePolicy } from './performance-usage.ts'
@@ -226,7 +228,6 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-chat: dictionaries')
   const t = ctx.locale.bind(NS)
-  registerCompactBusyNotice(ctx, ctx.sessions, () => t('message.compaction.busy'))
   const chatStore = createChatStore()
   const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
   const chatSettings = ctx.configForms.get<ChatSettings>(CHAT_SETTINGS_NAMESPACE)
@@ -266,6 +267,30 @@ export function apply(ctx: Context): void {
       }),
     }, LinkOpeningRow))
   })
+  const busyCompaction = createSnapshotStore(
+    chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD] ?? DEFAULT_BUSY_COMPACTION,
+  )
+  ctx.effect(() => chatSettings.subscribe(() => {
+    const accepted = chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD]
+    if (accepted !== undefined) busyCompaction.set(accepted)
+  }))
+  // Next to the composer's busy-Enter row (order 20): both answer what input
+  // does while a turn runs.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'busy-compaction',
+    order: 21,
+    locale: NS,
+    inject: (): BusyCompactionRowInjected => ({
+      hooks: { busyCompaction },
+      setBusyCompaction: (mode) => {
+        busyCompaction.set(mode)
+        void chatSettings.set(BUSY_COMPACTION_FIELD, mode).catch((_error: unknown) => {
+          // The row keeps the choice for this page; the Host keeps its accepted value.
+        })
+      },
+    }),
+  }, BusyCompactionRow))
   const transcriptView = new TranscriptViewPolicy(chatSettings)
   const presentation = derivePresentationPolicy(transcriptView.mode)
   const performancePolicy = new PerformanceUsagePolicy(chatSettings)

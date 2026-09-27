@@ -33,6 +33,7 @@ export const ManualCompactionNodeView = memo(function ManualCompactionNodeView({
       <CompactionCommandCard
         node={data.command}
         {...data.compaction === null ? {} : { compaction: data.compaction }}
+        waiting={data.waiting}
         t={t}
       />
     </div>

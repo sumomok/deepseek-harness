@@ -51,6 +51,11 @@ export interface ToolChatData {
 export interface ManualCompactionChatData {
   readonly command: CommandNode
   readonly compaction: CompactionSummaryNode | null
+  /**
+   * The command is unsettled and its compaction has not opened a bracket:
+   * the request is waiting for a running turn's step boundary or end.
+   */
+  readonly waiting: boolean
 }
 
 /**

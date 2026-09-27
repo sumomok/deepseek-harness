@@ -90,6 +90,14 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
+/**
+ * When a manual compaction requested while its agent runs a turn takes place:
+ * `next-step` at the turn's next step boundary, before the next model request,
+ * or the turn's end when no further step boundary comes; `turn-end` once the
+ * turn has ended, before any later turn's first model request.
+ */
+export type ManualCompactionWhileBusy = 'next-step' | 'turn-end'
+
 /** Result of a successful compaction operation. */
 export interface CompactionResult {
   /** Stable identity shared by this compaction's complete durable lifecycle. */

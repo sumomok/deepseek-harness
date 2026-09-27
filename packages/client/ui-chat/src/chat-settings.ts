@@ -1,6 +1,7 @@
 /** Chat display preferences stored in the Host user-settings document. */
 
 import z from '@deepseek-ai/schemastery'
+import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction/types'
 
 /** Settings namespace owned by the Chat target. */
 export const CHAT_SETTINGS_NAMESPACE = 'ui-chat'
@@ -46,6 +47,19 @@ export type LinkOpening = 'sidebar' | 'new-tab'
 /** Preserve the built-in browser for users without an explicit preference. */
 export const DEFAULT_LINK_OPENING: LinkOpening = 'sidebar'
 
+/** Field carrying when `/compact` runs if the agent is running a turn. */
+export const BUSY_COMPACTION_FIELD = 'busyCompaction'
+
+/** Busy-state `/compact` timings a user can choose, in menu order. */
+export const BUSY_COMPACTION_MODES = ['next-step', 'turn-end'] as const satisfies readonly ManualCompactionWhileBusy[]
+
+/**
+ * `turn-end` for users without an explicit preference: like a queued message,
+ * the running turn finishes on the history it started with, and busy Enter
+ * also defaults to Queue.
+ */
+export const DEFAULT_BUSY_COMPACTION: ManualCompactionWhileBusy = 'turn-end'
+
 /** Durable Chat section shared by the Host schema and browser scope. */
 export interface ChatSettings {
   /** Work-details preference; legacy values are accepted only from existing saved settings. */
@@ -54,10 +68,13 @@ export interface ChatSettings {
   performanceUsage: PerformanceUsageMode
   /** Default destination for Chat HTTP(S) links. */
   linkOpening: LinkOpening
+  /** When `/compact` runs if the agent is running a turn. */
+  busyCompaction: ManualCompactionWhileBusy
 }
 
 /** Durable Chat schema; also the wire envelope the browser scope validates against. */
 export const ChatSettingsFields = {
+  [BUSY_COMPACTION_FIELD]: z.union([...BUSY_COMPACTION_MODES]).default(DEFAULT_BUSY_COMPACTION),
   linkOpening: z.union(['sidebar', 'new-tab']).default(DEFAULT_LINK_OPENING),
   performanceUsage: z.union([...PERFORMANCE_USAGE_MODES]).default(DEFAULT_PERFORMANCE_USAGE),
   // Missing and unrecognized modes both use Standard.

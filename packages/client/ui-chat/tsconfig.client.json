@@ -34,6 +34,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../compaction/command-compact"
+    },
+    {
       "path": "../../compaction/compaction"
     },
     {
@@ -77,9 +80,6 @@
     },
     {
       "path": "../ui-approval"
-    },
-    {
-      "path": "../ui-commands"
     },
     {
       "path": "../ui-conversation/tsconfig.client.json"

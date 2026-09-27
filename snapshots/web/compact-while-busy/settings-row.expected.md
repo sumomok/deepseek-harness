@@ -1,0 +1,2 @@
+- text: "Compaction while busy What /compact does while the agent is running: Interrupt compacts after the current step, Queue after the current turn"
+- button "Queue"

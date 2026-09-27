@@ -1,4 +1,4 @@
-# Agent Note: 回答进行中的手动 `/compact` 在输入框作答
+# Agent Note: 回答进行中的手动 `/compact` 等到设置所选的边界再执行
 
 Status: implemented
 
@@ -6,34 +6,44 @@ Status: implemented
 
 ## 问题
 
-用户在回答进行中输入 `/compact`，反馈「没有反应」。Host 经 `compactNow` 执行手动压缩，它调用 `agent.runMaintenance`，agent 不空闲就抛 `busy`，于是命令以一张失败的 `/compact` 卡结束。这张卡是运行中轮次里的 `manual-compaction` 节点，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时也折叠过程组，所以卡被藏起来了。输入框不为已准入的命令显示任何东西：`runDetached` 只在准入失败时发输入框提示，而忙时拒绝是一条已准入、处理器失败的命令。[自动压缩的运行行](2026-09-18-auto-compaction-running-card.zh.md) 已经移出了组，手动卡没有。
+用户在回答进行中输入 `/compact`，反馈「没有反应」。Host 经 `compactNow` 执行手动压缩，它调用 `agent.runMaintenance`，agent 不空闲就抛 `busy`，于是命令以一张失败的 `/compact` 卡结束。这张卡是运行中轮次里的 `manual-compaction` 节点，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时也折叠过程组，所以卡被藏起来了。轮次完成后，整轮折叠又把它藏了一次。[自动压缩的运行行](2026-09-18-auto-compaction-running-card.zh.md) 已经移出了组，手动卡没有。
+
+用户 09-27 定：忙时的 `/compact` 不拒绝；设置 → 通用里的「繁忙时的压缩行为」一行选择它在运行中轮次的下一个 step 边界执行（「立即打断」），还是在轮次结束后立即执行（「排队等候」）；轮次折叠后压缩相关的行仍然可见。
 
 ## 决定
 
-**会话报告 `running` 时在输入框拒绝。** `ui-chat` 经 `commandUi.decorate` 给 Host 的 `compact` 命令挂一个 `action` 装饰，与 `ui-message-feedback` 装饰 `/feedback` 用的是同一个接口。它的 `available` 读会话快照的 `running`，所以轮次不在运行时装饰不生效，裸命令原样发往 Host。轮次运行时，裸的菜单选取或回车会消费输入的指令、不发送任何东西，并发出一条 `error` 级输入框提示：中文 `正在回答，等这一轮结束后再压缩`，英文 `A reply is in progress. Compact after this turn ends.`。`error` 级就是输入框的临时 Toast。没有用常驻的 `info` 条，因为轮次结束时没有东西清掉它，回答结束后它仍会显示正在回答。
+**引擎改为等待而不是拒绝。** `CompactionEngine.compactNow` 接受可选的 `whileBusy: 'next-step' | 'turn-end'`。agent 空闲或不传它时行为不变。agent 运行中时，`dsh-compaction-basic` 为每个 Session 保留一个等待中的请求。它的 `agent/pre-step` 监听器在下一个 step 边界处理 `next-step`，标记对归开放轮次所有——与自动压力压缩同一位置、同一归属，因此轮次在替换后的表层上继续，不被取消。`turn-end` 在一个非中止的 `turn/end` 之后处理：若循环不经空闲直接从收件箱接续下一轮次，就在该轮次的第一个 step 边界；否则在 `agent/status` 转为空闲时，作为普通空闲维护、以独立标记对执行。轮次在没有后续边界时就结束的 `next-step` 请求（回答已是最后一个 step）同样这样处理。空闲监听器同步启动 `runMaintenance`，因此排队的提示词会锁存在维护之后，而不是先开启下一轮次。中止的 `turn/end`（Stop）、请求自身的信号与引擎释放会取消等待；已有请求等待时的第二个请求是 `busy`。这些监听器不依赖 `auto`：它们只执行用户明确要求的事。
 
-**拒绝而不排队。** 输入框忙时，普通消息经 `ISession.prompt` 的 `queue` 或 `steer` 进入 agent 的消息队列。命令从不进入这个队列，Host 也没有「agent 空闲后再执行某条命令」的机制；排队 `/compact` 需要 Host 侧的命令队列和一种新的会话日志记录。命令路径已有的忙时行为是拒绝：`matchEnter` 对不接收附件的命令发一条输入框提示，不执行任何东西。
+**选择是一个实时的 host 平面服务。** `@deepseek-ai/dsh-compaction` 声明 `ctx.manualCompactionTiming` 及其 `whileBusy()`。`ui-chat` 的 Host 插件把设置作为 volatile 字段 `ui-chat.busyCompaction` 持有并提供该服务；`command-compact` 每个请求读取一次，把回答传给 `compactNow`。`command-compact` 在每个预设里各挂一份，拿不到唯一寻址的设置表单；`ui-chat` 可以，而且它已经拥有 `/compact` 卡片。这与 `compactionPolicy` 同一做法：host 平面提供方，预设 realm 经 `ctx.get` 读取。没有提供方时（TUI、ACP、无界面组合），忙时 `/compact` 仍按上游行为被拒绝。
 
-**把 Host 的卡移出过程组。** `process-groups.ts` 把 `manual-compaction` 列入独立根，与 `compaction-running` 并列。轮次运行期间仍然到达 Host 的 `/compact`（另一客户端发来的，或本客户端尚未收到 `running` 时发出的）会把拒绝结果渲染在折叠组之外。空闲时的 `/compact` 不属于任何轮次，本来就不进组。
+**默认「排队等候」。** 与排队的消息一样，运行中的轮次会在它开始时的历史上完成，而且繁忙时发送的默认值本来就是「排队发送」。「立即打断」会在轮次中途用摘要替换该轮次自己的工具结果，应由用户主动选择。
 
-**为什么是核心补丁。** 装饰用的是现成的扩展点，但注册它的代码必须随桌面线与控制台线一起出货，而本仓之外的包只到得了桌面线。分组规则没有扩展点：独立根集合是 `ui-chat` 内部的常量。`ui-chat` 已经拥有 `/compact` 卡片与 `message.compaction.*` 文案，所以两半都放在这里。
+**在 step 边界的手动压缩保持零保留。** 轮次内的请求选择与空闲 `/compact` 相同的范围，只保留最后一个节点和成对的工具调用。改用自动压缩的保留尾部，会让同一条命令因时机不同而做两种不同的缩减。
+
+**输入框拒绝被移除。** 在该设置下两个选项都接受忙时 `/compact`，所以消费命令并弹出「正在回答，等这一轮结束后再压缩」的 `commandUi` 装饰已无可拒绝之事。它的模块、测试、locale 键、web 场景与 `ui-commands` 依赖都已删除。
+
+**卡片显示等待状态，并用读者的语言。** 命令 Definition 折叠关联的 `compaction/start`；在它到来之前，未结算的 `/compact` 卡显示 `等待压缩…` / `Waiting to compact…`，之后显示 `正在压缩…`。Host 的固定英文结果文本从不依赖 cordis 的 `@deepseek-ai/dsh-command-compact/result-text` 叶模块导出；客户端 bundle 不能导入这个值，所以卡片重述这张表，`satisfies typeof COMPACT_RESULT_TEXT` 在 Host 文本改变时让构建失败。
+
+**压缩相关的行位于两层折叠之外。** `process-groups.ts` 把 `manual-compaction` 列为独立根，`contract/turn-process.ts` 把它列入已完成轮次整轮折叠之外的类别。自动压缩失败行经 `auto-compaction-policy-seat` 得到同样两处登记。
+
+**为什么是核心补丁。** 引擎监听器、Service Definition 与消费方都在上游包里，两处折叠集合是 `ui-chat` 内部的常量。提供时机的一方必须同时随桌面线与控制台线出货；本仓库之外的包只能到达桌面。
 
 ## 考虑过的替代方案
 
-**把 `/compact` 排到轮次结束后。** 否决，理由见上：它需要 Host 命令队列和一种新的持久记录，而用户重新输入一次即可。
+**继续在输入框拒绝。** 被 09-27 的决定取代；它还让用户在轮次结束后重新输入命令。
 
-**让 `command-compact` 等到空闲。** 否决：处理器会在轮次剩余时间里一直挂着一条命令、没有可见状态，Stop 还得同时取消两件事。
+**在 Host 侧命令队列里排队。** 否决：那需要新的持久记录，而引擎已有 step 与空闲两种边界，命令生命周期（`command/run` … `command/done`）也已记录了等待。
 
-**只把 Host 的忙时文案本地化，不在客户端拒绝。** 否决为唯一改动：卡片仍是唯一反馈，而在轮次内它恰恰是被藏起来的那部分。
+**由客户端扣住 `/compact` 直到轮次结束。** 否决：「立即打断」无法在客户端实现，而且接续的排队轮次从不让客户端看到空闲状态。
 
-**由 fork 的桌面插件提供装饰。** 否决：控制台线不加载它们。
+**扩展 `CompactionPolicy`。** 否决：桌面的 auto-compact 插件是它唯一的提供方，它将不得不实现一个不属于它的设置。
 
 ## 后果
 
-输入的 `/compact` 被消费，提示是拒绝留下的唯一痕迹；用户在轮次结束后重新输入。提示出现在输入框 Toast 的位置，即对话区顶部。会话不在 `running`、但 Host 正在做维护时（fork 的轮末自动压缩），没有提示：命令到达 Host，卡片上是 Host 的英文 `busy` 原文，位于轮次之外。已完成轮次的整轮折叠仍会藏起落在该轮内的 `manual-compaction` 卡，与它藏起所有过程行一样；解除的只是过程组的折叠。
+等待中的请求让它的 `commands/execute` 调用保持打开；关闭发起它的页面会取消它，卡片以已取消结算。「立即打断」的标记对归轮次所有，所以卡片位于该轮次内；「排队等候」的卡片在独立标记对落地后移到轮次之后，若排队的提示词不经空闲紧接而来，则进入下一轮次。没有提供方的组合里的 `/compact` 仍得到 `busy` 卡片，如今已本地化。
 
-**退役。** 上游自己在客户端或 Host 处理忙时 `/compact` 时，装饰退役。上游把 `manual-compaction` 列为独立根、或以其他方式让轮内命令卡不进折叠组时，分组那一项退役。机械判据在 `.claude/core-patches.md` 的 `manual-compact-busy-notice` 条目里。
+**退役。** 引擎与消费方部分在上游让忙时 `/compact` 可以等待、或以其他方式改变 `compactNow` 或 `command-compact` 的 `busy` 分支时退役。折叠登记在上游让轮次内的 `manual-compaction` 在两层折叠中都可见时退役。`.claude/core-patches.md` 里的 `manual-compact-busy-notice` 条目给出机械判据。
 
 ## 测试
 
-`packages/client/ui-chat/tests/compact-busy.client.spec.ts` 钉住装饰只在会话 `running` 时生效，并把当前语言的提示写进该会话的输入框。`chat-apply.client.spec.tsx` 钉住 `apply` 在 `commandUi` 出现后注册它。`chat-view.client.spec.tsx` 在 `compact` 档的打开轮次里渲染一张失败的 `manual-compaction`，钉住它在折叠组之外。`apps/web/tests/compact-busy.e2e.ts` 走发布的 Web 组合与真实连接：挂起一轮、发送 `/compact`，钉住提示、清空的输入框、以及没有 `command/run`；再经 `commands/execute` 发同一命令，钉住 Host 卡在组外。分别去掉 `running` 判断、提示调用、`apply` 接线、`INDEPENDENT` 那一项，各自的测试都会失败。
+`compaction-basic/tests/manual-compaction-while-busy.spec.ts` 驱动真实循环：轮次内的 next-step、最后一个 step 之后的 next-step、越过 step 边界的 turn-end、接续排队轮次之前的 turn-end、出错轮次之后、带时机的空闲请求、不带时机的 busy、单一等待请求、Stop、请求自身的中止、引擎释放、失败的 step 压缩，以及其间的 Stop。`command-compact` 的测试钉住转发的时机与 teardown 中止；`ui-chat` 的测试钉住 volatile 字段上的 Host 服务、设置行、等待文案、本地化结果与两层折叠。`apps/web/tests/compact-while-busy.e2e.ts` 用节奏回放在真实线路上运行随附 Web 组合：从设置行选「立即打断」后在轮次的两个 step 之间压缩；「排队等候」在 `turn/end` 之后压缩，显示等待卡片与第二个请求的本地化拒绝，并在轮次折叠后保持卡片可见。

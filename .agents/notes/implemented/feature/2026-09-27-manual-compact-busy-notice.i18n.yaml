@@ -2,21 +2,21 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-manual-compact-busy-notice.md
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer:
-  en: d388b01197e13b5a
-  zh: 326f4caa8edd640c
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer/problem:
-  en: 6c1971779856e9b8
-  zh: 392176461040e9df
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer/decision:
-  en: ef3d1d9f1cbc299c
-  zh: f3820333a119aa22
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer/alternatives-considered:
-  en: 3860726d52e87973
-  zh: 981bee873a56f843
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer/consequences:
-  en: edfc5eca11a6e167
-  zh: b000403e96203f15
-/agent-note-a-manual-compact-during-a-reply-answers-in-the-composer/testing:
-  en: efc1dc03ae36e90f
-  zh: 8b8bda6a62a97a95
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses:
+  en: ffe9af84a0e23eee
+  zh: 0d50ae80c144694d
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/problem:
+  en: f3b3874054d78d39
+  zh: 35a9b17c34387c12
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/decision:
+  en: 3c1571f29910974a
+  zh: 8b1a391109426394
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/alternatives-considered:
+  en: 4c6db1bb1267a02e
+  zh: 2e5b1c06ea80eeb3
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/consequences:
+  en: 5c7c79e888a83f4c
+  zh: 80c760988f40bbb5
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/testing:
+  en: 60c7a6d23f5c39b7
+  zh: eb1bbf9401c6c466

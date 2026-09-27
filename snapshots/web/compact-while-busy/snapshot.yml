@@ -1,5 +1,5 @@
 version: 1
-scenario: compact-busy
+scenario: compact-while-busy
 profile: web
 composition: web-default
 recording: authored

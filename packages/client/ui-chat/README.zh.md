@@ -72,7 +72,7 @@ Assistant 尝试结束且没有可见消息时，Chat 隐藏已发布的 Node，
 <a id="manual-compaction"></a>
 ## 手动压缩
 
-Host 只在 agent 空闲时接受 `/compact`。Session 报告 `running` 期间，本包装饰裸 `/compact` 的菜单选取与回车：输入的指令被消费，不发往 Host，输入框显示 `正在回答，等这一轮结束后再压缩`。Session 不在 `running`、但 Host 正在做维护时，裸 `/compact` 仍会发往 Host，由 Host 以一张 `/compact` 卡片作答；带参数的 `/compact …` 不是裸调用，会作为消息发送。在轮次内，这张卡片与自动压缩的运行行一样位于过程组之外，组折叠时也不会藏起拒绝结果。
+设置 → 通用设置 → 繁忙时的压缩行为保存 `ui-chat.busyCompaction`，本包的 Host 插件把它实时提供为 `ctx.manualCompactionTiming`，因此轮次运行期间发送的裸 `/compact` 遵循它：「排队等候」（`turn-end`，默认）在轮次结束后、任何排队轮次的首个请求之前压缩；「立即打断」（`next-step`）在运行中轮次的下一个 step 边界压缩，不取消该轮次，之后没有 step 边界时则在轮次结束后压缩。默认取「排队等候」，因为运行中的轮次会在它开始时的历史上完成，与繁忙时发送默认「排队发送」一致。带参数的 `/compact …` 不是裸调用，会作为消息发送。标记对打开之前，`/compact` 卡片显示 `等待压缩…`。在轮次内，这张卡片位于过程组与整轮折叠之外，组折叠和轮次完成都不会把它藏起。Host 的固定英文结果文本以读者的语言显示。
 
 <a id="completed-turn-footer"></a>
 ## 已完成轮次的页脚

@@ -2738,6 +2738,25 @@ describe('built-in conversation node Definitions', () => {
     expect(node(snapshot(value), 'manual-compaction')).toBeDefined()
   })
 
+  it('marks a manual compaction as waiting until its bracket opens', () => {
+    const waiting = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+    ], true)
+    expect((node(snapshot(waiting), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(true)
+
+    const opened = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+      at(11, 'compaction/start', { compactionId: 'compact-waited', sourceCommandId: 'cmd-wait', turn: 3 }),
+    ], true)
+    expect((node(snapshot(opened), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+
+    const settled = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+      at(11, 'command/done', { commandId: 'cmd-wait', kind: 'error', text: 'Compaction cancelled.' }),
+    ], true)
+    expect((node(snapshot(settled), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+  })
+
   it('shows a failure node when an automatic compaction bracket closes on an error', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-failed', turn: 2 }),

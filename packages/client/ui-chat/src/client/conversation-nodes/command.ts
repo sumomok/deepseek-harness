@@ -26,6 +26,8 @@ interface CommandState {
   readonly command: CommandNode
   readonly summary?: ConversationMatch
   readonly checkpoint?: ConversationMatch
+  /** A correlated `compaction/start` has been folded. */
+  readonly started?: true
 }
 
 interface CompactionEvidence {
@@ -199,6 +201,7 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     if (match.event.type === 'command/done') {
       return { ...context.state, command: commandFromDone(match, context.state.command) }
     }
+    if (match.event.type === 'compaction/start') return { ...context.state, started: true }
     return updateCompactionState(context.state, match)
   },
   buildViewNode: (context) => {
@@ -210,7 +213,8 @@ export const commandDefinition: ConversationNodeDefinition<CommandState> = {
     const compaction = state.checkpoint === undefined
       ? null
       : compactSummary(state.summary, state.checkpoint)
-    const data: ManualCompactionChatData = { command: state.command, compaction }
+    const waiting = state.started !== true && compaction === null && state.command.outcome === null
+    const data: ManualCompactionChatData = { command: state.command, compaction, waiting }
     return chatNode(context, 'manual-compaction', compaction?.seq ?? state.command.seq, data)
   },
 }
