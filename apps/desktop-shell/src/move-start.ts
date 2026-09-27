@@ -175,14 +175,20 @@ export function withdrawRequestedMove(journal: MoveJournal, request: Pick<MoveRe
 /**
  * At launch, withdraw a move that was asked for and never started copying
  * ({@link withdrawRequestedMove}); the launch then goes on as without a move.
+ * The journal goes first, so the only state a failure part-way can leave is
+ * this installation's lock without a journal, which the launch releases.
  * @param boot - what {@link bootMove} found.
  * @param request - this installation and process.
- * @returns `none` for a withdrawn move, otherwise `boot` unchanged.
- * @throws when the move cannot be withdrawn.
+ * @returns `none` for a withdrawn move, `withdraw-failed` naming the move directory when it could not be withdrawn,
+ * otherwise `boot` unchanged.
  */
 export function withdrawRequestAtBoot(boot: BootMove, request: Pick<MoveRequest, 'userData' | 'pid'>): BootMove {
   if (boot.kind !== 'requested') return boot
-  withdrawRequestedMove(boot.journal, request)
+  try {
+    withdrawRequestedMove(boot.journal, request)
+  } catch (error) {
+    return { kind: 'withdraw-failed', path: moveDir(request.userData), detail: error instanceof Error ? error.message : String(error) }
+  }
   return { kind: 'none' }
 }
 

@@ -148,6 +148,30 @@ describe('starting a data move', () => {
     expect(readJournal(dir)?.phase).toBe('copying')
   })
 
+  posixOnly('reports a move it cannot withdraw at launch instead of going on, with the journal kept', async () => {
+    const { f, request, probes } = await setup()
+    const dir = moveDir(request.userData)
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    chmodSync(dir, 0o500)
+    try {
+      expect(withdrawRequestAtBoot(bootMove(dir), request)).toMatchObject({ kind: 'withdraw-failed', path: dir })
+    } finally {
+      chmodSync(dir, 0o700)
+    }
+    expect(bootMove(dir)).toMatchObject({ kind: 'requested' })
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
+    // The journal went, the lock could not: only this installation's lock is left, which the launch releases.
+    chmodSync(f.home, 0o500)
+    try {
+      expect(withdrawRequestAtBoot(bootMove(dir), request)).toMatchObject({ kind: 'withdraw-failed' })
+    } finally {
+      chmodSync(f.home, 0o700)
+    }
+    expect(bootMove(dir)).toEqual({ kind: 'none' })
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
+  })
+
   it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {
     const { f, request, probes } = await setup()
     const first = await beginDataMove(request, probes)

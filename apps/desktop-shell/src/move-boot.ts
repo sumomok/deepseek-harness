@@ -38,6 +38,8 @@ export type BootMove =
    * checked, so the launch withdraws it instead of resuming it.
    */
   | { kind: 'requested'; journal: MoveJournal }
+  /** A move that never started copying could not be withdrawn; the launch stops without starting the server. */
+  | { kind: 'withdraw-failed'; path: string; detail: string }
 
 /**
  * Decide what this launch does about the move recorded in `dir`.

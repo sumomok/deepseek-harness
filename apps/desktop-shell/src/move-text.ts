@@ -54,6 +54,8 @@ export interface MoveText {
   confirmDiscardButton: string
   back: string
   lockLostTitle: string
+  /** A move that never started copying could not be withdrawn at launch. */
+  withdrawFailed: (path: string, detail: string) => string
   /** A move stopped because its lock was discarded or taken. */
   lockLost: string
   /** Why a move asked for in Settings did not start: the server could not be confirmed stopped. */
@@ -110,6 +112,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     confirmDiscard: (path, owner) => `DSH 只会删掉文件「${path}」，不会动你的任何数据。如果那个 DSH（「${owner}」）其实还在运行，它发现锁没了就会停下这次搬运，什么也不会删除。`,
     confirmDiscardButton: '放弃它的搬运',
     back: '返回',
+    withdrawFailed: (path, detail) => `上次没有开始的数据搬运没能撤回（${detail}）。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「${path}」能否写入，然后重新打开 DSH。`,
     lockLostTitle: '另一个 DSH 可能接手了这份数据',
     lockLost: '这份数据上的搬运锁不见了，或者已经换了主人，可能是另一个 DSH 接手了这份数据。所以这次搬运已经停下，之后没有再动这份数据。请重新打开 DSH。',
     serverStillRunning: 'DSH 没能确认后台服务和它启动的程序都已经停下，所以这次没有开始搬运，你的数据还在原来的位置，一切照旧。请稍后再试；如果一直这样，重新启动电脑后再搬。',
@@ -160,6 +163,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     confirmDiscard: (path, owner) => `DSH will delete only the file "${path}" and will not touch any of your data. If that DSH ("${owner}") is still running, it stops its move when it notices, and nothing is deleted.`,
     confirmDiscardButton: 'Discard its move',
     back: 'Back',
+    withdrawFailed: (path, detail) => `The last data move, which had not started, could not be withdrawn (${detail}). While its record is there, DSH does not start, so it does not use data that was about to move. Check that the folder "${path}" can be written to, then open DSH again.`,
     lockLostTitle: 'Another DSH may have taken over this data',
     lockLost: 'The move lock on this data is gone or now belongs to someone else, so another DSH may have taken over the data. This move has stopped and has not touched the data since. Please open DSH again.',
     serverStillRunning: 'DSH could not confirm that its background service and the programs it started have stopped, so the move did not start. Your data is still in its original location, and nothing has changed. Try again later; if this keeps happening, restart your computer and then move the data.',

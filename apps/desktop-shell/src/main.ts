@@ -1068,6 +1068,14 @@ if (!locked) {
       if (found.kind !== 'none') sink(`[desktop] data move on disk: ${found.kind}\n`)
       // A move that never started copying is withdrawn: after a crash, processes the server started may still write to the data.
       const pendingMove = withdrawRequestAtBoot(found, { userData: app.getPath('userData'), pid: process.pid })
+      if (pendingMove.kind === 'withdraw-failed') {
+        sink(`[desktop] data move: could not withdraw at launch: ${pendingMove.detail}\n`)
+        clearInterval(ticker)
+        const text = moveText(app.getLocale())
+        const sentence = text.withdrawFailed(pendingMove.path, pendingMove.detail)
+        await stopForMove(text.journalUnreadableTitle, sentence, view.window, pendingMove.path)
+        return
+      }
       if (found.kind === 'requested') sink('[desktop] data move: withdrawn at launch before copying anything\n')
       if (pendingMove.kind === 'unreadable') {
         clearInterval(ticker)
