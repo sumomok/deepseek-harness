@@ -13,11 +13,13 @@ import { readAbandonedOrAsk } from './data-location-boot.ts'
 import { lockPlaces, relaunchHome } from './move-boot.ts'
 import { blockedPage, progressView, stopPage, type MoveLink, type MovePage, type ProgressClock, type ProgressView } from './move-page.ts'
 import type { MoveText } from './move-text.ts'
-import { ExecutorError, type ExecutorOptions, type ExecutorRequest, type MainEffects, runMoveExecutor } from './move/executor.ts'
+import {
+  ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
+} from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
 import { HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
-import { resolveBlocked, type MoveOutcome } from './move/run.ts'
+import type { MoveOutcome } from './move/run.ts'
 
 /** The windows a move shows. */
 export interface MoveUi {
@@ -35,6 +37,7 @@ export interface MoveUi {
 
 /** What a move flow needs. */
 export interface MoveFlowDeps {
+  /** The move; its `before` step (a failed health check) is taken once, on the first run. */
   request: ExecutorRequest
   main: MainEffects
   ui: MoveUi
@@ -97,12 +100,23 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
   const { request, ui, text, log } = deps
   const clock: ProgressClock = { startedAt: Date.now(), stage: undefined }
   let refreshed = false
+  // The person's choice, or a failed health check, taken on the worker before it carries the move on: both print the new location.
+  let before: ExecutorBefore | undefined = request.before
   for (;;) {
-    const journal = readJournal(request.dir)
+    let journal = readJournal(request.dir)
     if (journal === undefined) return { kind: 'quit' }
     let outcome: MoveOutcome
     try {
-      outcome = await runMoveExecutor(request, deps.main, {
+      const { before: _earlier, ...plain } = request
+      outcome = await runMoveExecutor(before === undefined ? plain : { ...plain, before }, deps.main, {
+        onPrepared: (step: ExecutorPrepared) => {
+          before = undefined
+          if (step.journal !== undefined) journal = step.journal
+          if (step.result !== 'recorded') {
+            log(`[desktop] data move: the person's choice: ${step.result}\n`)
+            refreshed = step.result === 'refused'
+          }
+        },
         cancel: ui.cancel,
         onProgress: (progress) => { ui.showProgress(progressView(progress, text, clock, Date.now())) },
         ...deps.start === undefined ? {} : { start: deps.start },
@@ -128,9 +142,9 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         })
         const link = await ui.showPage(page)
         if (link.kind !== 'choose') return { kind: 'quit' }
-        const applied = resolveBlocked(request.dir, link.choice, { reason: outcome.reason, targetPrint: outcome.targetPrint })
-        log(`[desktop] data move: the person chose ${link.choice}: ${applied}\n`)
-        refreshed = applied === 'refused'
+        log(`[desktop] data move: the person chose ${link.choice}\n`)
+        before = { kind: 'resolve', choice: link.choice, seen: { reason: outcome.reason, targetPrint: outcome.targetPrint } }
+        refreshed = false
         continue
       }
       case 'ended':

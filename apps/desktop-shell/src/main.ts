@@ -39,6 +39,7 @@ import { lockPage, stopPage } from './move-page.ts'
 import { beginDataMove, handOverToMove, lockSelf, type MoveRequest, type MoveStartOutcome } from './move-start.ts'
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
+import type { ExecutorBefore } from './move/executor.ts'
 import { moveDir } from './move/journal.ts'
 import { inspectMoveLock, releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
@@ -465,12 +466,13 @@ function relaunchOnto(home: string): void {
  * @param log - the desktop log sink.
  * @param replacing - the window the move's window takes the place of; closed once the new one is open, so
  * the application never has no window (which would quit it on Windows).
+ * @param before - a step the move's worker takes first (a failed health check), if any.
  * @returns once the application is on its way out.
  */
-async function runMoveToEnd(log: (line: string) => void, replacing: BrowserWindow | undefined): Promise<void> {
+async function runMoveToEnd(log: (line: string) => void, replacing: BrowserWindow | undefined, before?: ExecutorBefore): Promise<void> {
   const moveWindow = openMoveWindow(moveText(app.getLocale()), log)
   replacing?.destroy()
-  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log, await thisLockSelf()))
+  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log, await thisLockSelf(), before))
   moving = { cancel: moveWindow.requestCancel, ended: flow }
   let end: MoveFlowEnd
   try {
@@ -1110,9 +1112,9 @@ if (!locked) {
         if (!verdict.healthy) {
           // Stopped before the result is recorded: the rollback prints the new location, and nothing may still write to it.
           // The print only chooses what the person is told, so a tree that cannot be confirmed gone is logged, not fatal.
+          // The move's worker records the result, because the print reads the whole new location.
           await stopServerCompletely()
-          recordHealth(moveDir(app.getPath('userData')), false, verdict.detail)
-          await runMoveToEnd(sink, view.window)
+          await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail: verdict.detail })
           return
         }
         recordHealth(moveDir(app.getPath('userData')), true)

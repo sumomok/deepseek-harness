@@ -9,7 +9,8 @@
 
 import { parentPort, workerData } from 'node:worker_threads'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, MainCall } from './executor.ts'
-import { advanceMove, nodeMoveEffects } from './run.ts'
+import { readJournal } from './journal.ts'
+import { advanceMove, nodeMoveEffects, recordHealth, resolveBlocked, type MoveEffects, type ResolveOutcome } from './run.ts'
 import { PROGRESS_INTERVAL_MS } from './worker.ts'
 
 const port = parentPort
@@ -68,18 +69,41 @@ const effects = nodeMoveEffects({
   activity: alive,
 })
 
-advanceMove(request.dir, effects, {
-  pid: request.pid,
-  cancel: cancel.signal,
-  onProgress: (progress) => {
-    const now = Date.now()
-    const changed = progress.stage !== lastStage || progress.phase !== lastPhase || progress.done === progress.total
-    if (!changed && now - lastProgress < PROGRESS_INTERVAL_MS) return
-    lastProgress = now
-    lastStage = progress.stage
-    lastPhase = progress.phase
-    post({ type: 'progress', progress })
-  },
+/**
+ * Take the step asked for before the move, if any.
+ * @param moveEffects - the effects, whose directory operations report activity.
+ * @returns what it came to, or `undefined` without a step.
+ */
+function prepare(moveEffects: MoveEffects): ResolveOutcome | 'recorded' | undefined {
+  const before = request.before
+  if (before === undefined) return undefined
+  switch (before.kind) {
+    case 'resolve':
+      return resolveBlocked(request.dir, before.choice, before.seen, moveEffects.fs)
+    case 'health-failed':
+      recordHealth(request.dir, false, before.detail, moveEffects.fs)
+      return 'recorded'
+    default:
+      return before satisfies never
+  }
+}
+
+Promise.resolve().then(() => {
+  const prepared = prepare(effects)
+  if (prepared !== undefined) post({ type: 'prepared', prepared: { result: prepared, journal: readJournal(request.dir) } })
+  return advanceMove(request.dir, effects, {
+    pid: request.pid,
+    cancel: cancel.signal,
+    onProgress: (progress) => {
+      const now = Date.now()
+      const changed = progress.stage !== lastStage || progress.phase !== lastPhase || progress.done === progress.total
+      if (!changed && now - lastProgress < PROGRESS_INTERVAL_MS) return
+      lastProgress = now
+      lastStage = progress.stage
+      lastPhase = progress.phase
+      post({ type: 'progress', progress })
+    },
+  })
 }).then(
   (outcome) => {
     post({ type: 'done', outcome })

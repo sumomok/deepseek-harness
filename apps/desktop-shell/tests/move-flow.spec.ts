@@ -18,7 +18,7 @@ import { DATA_LOCATION_TEXT } from '../src/data-location-text.ts'
 import { carryMove, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
 import type { MoveLink, MovePage, ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
-import type { ExecutorCommand, ExecutorMessage, ExecutorThread } from '../src/move/executor.ts'
+import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, readJournal } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockProbes } from '../src/move/lock.ts'
 import { recordHealth, startMove } from '../src/move/run.ts'
@@ -105,6 +105,15 @@ describe('carrying a data move', () => {
     expect(await inspectMoveLock(f.home, { userData: setup.userData }, LOCK_PROBES)).toEqual({ kind: 'none' })
   })
 
+  posixOnly('records a failed health check on the worker before it carries the move back', async () => {
+    const { setup, f } = await started()
+    await carryMove(depsOf(setup, recordingUi([])))
+    const deps = depsOf(setup, recordingUi([]))
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'sessions missing' } } })
+    expect(end).toEqual({ kind: 'relaunch', home: f.home })
+    expect(readJournal(setup.dir)).toBeUndefined()
+  })
+
   posixOnly('shows a move stopped partway, redraws it after a choice it no longer offers, and applies one it does', async () => {
     const { setup, f, target } = await started('default-home')
     await carryMove(depsOf(setup, recordingUi([])))
@@ -121,6 +130,10 @@ describe('carrying a data move', () => {
     expect(first?.reveal).toEqual([hidden])
     expect(second?.notice).toBe(text.refreshed)
     expect(readJournal(setup.dir)?.phase).toBe('switched')
+    // A failed health check after keeping the new location keeps the original and ends in the background cleanup.
+    const deps = depsOf(setup, recordingUi([]))
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x' } } })
+    expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended' } })
   })
 
   posixOnly('quits from a stopped move\'s page and leaves the journal', async () => {
@@ -194,6 +207,56 @@ describe('a move that cannot go on', () => {
     await new Promise((resolve) => { setTimeout(resolve, 50) })
     expect(readFileSync(join(f.home, LOCK_FILENAME), 'utf8')).toBe(settled)
     expect(existsSync(join(f.targetParent, LOCK_FILENAME))).toBe(false)
+  })
+
+  it('hands the person\'s choice to the worker with what the page showed, once, and goes on from the journal the worker left', async () => {
+    const { setup, target } = await started()
+    const journal = readJournal(setup.dir)
+    if (journal === undefined) throw new Error('no journal')
+    const blocked: ExecutorMessage = {
+      type: 'done', outcome: { kind: 'blocked', reason: 'target-occupied', dataAt: [journal.source], choices: ['rollback'], targetPrint: null },
+    }
+    const result = { version: journal.version, moveId: journal.moveId, outcome: 'moved' as const, source: journal.source, target, leftovers: [] }
+    const requests: ExecutorRequest[] = []
+    const threads: Array<() => ScriptedThread> = [
+      () => new ScriptedThread(blocked),
+      () => {
+        const thread = new ScriptedThread({ type: 'prepared', prepared: { result: 'applied', journal: { ...journal, phase: 'cleanup' } } })
+        setTimeout(() => { thread.emit('message', { type: 'done', outcome: { kind: 'ended', result } }) }, 5)
+        return thread
+      },
+    ]
+    const logged: string[] = []
+    const end = await carryMove(depsOf(setup, recordingUi([{ kind: 'choose', choice: 'rollback' }]), {
+      start: (request) => { requests.push(request); return (threads.shift() ?? (() => new ScriptedThread()))() },
+      log: (line) => { logged.push(line) },
+    }))
+    expect(requests.map(request => request.before)).toEqual([
+      undefined, { kind: 'resolve', choice: 'rollback', seen: { reason: 'target-occupied', targetPrint: null } },
+    ])
+    expect(end).toEqual({ kind: 'done', outcome: { kind: 'ended', result } })
+    expect(logged.some(line => line.includes('the person\'s choice: applied'))).toBe(true)
+  })
+
+  it('takes the step before the move only once, even when the move has to start again', async () => {
+    const { setup, target } = await started()
+    writeFileSync(join(setup.dir, ABANDONED_FILENAME), '{')
+    const requests: ExecutorRequest[] = []
+    const threads = [
+      () => {
+        const thread = new ScriptedThread({ type: 'prepared', prepared: { result: 'recorded', journal: readJournal(setup.dir) } })
+        setTimeout(() => { thread.emit('message', { type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' }) }, 5)
+        return thread
+      },
+      () => new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } }),
+    ]
+    const deps = depsOf(setup, recordingUi([]), {
+      start: (request) => { requests.push(request); return (threads.shift() ?? (() => new ScriptedThread()))() },
+      abandoned: abandonedHost(setup, ['move-aside', 'confirm']),
+    })
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x' } } })
+    expect(end).toEqual({ kind: 'relaunch', home: target })
+    expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x' }, undefined])
   })
 
   it('shows any other failure with its detail and quits', async () => {

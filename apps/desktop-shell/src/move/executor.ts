@@ -23,7 +23,8 @@
 import { Worker } from 'node:worker_threads'
 import type { TerminalSnapshot } from '../terminal-env.ts'
 import type { NameLocale } from './names.ts'
-import type { MoveOutcome, MoveProgress } from './run.ts'
+import type { BlockedChoice, MoveJournal } from './journal.ts'
+import type { BlockedView, MoveOutcome, MoveProgress, ResolveOutcome } from './run.ts'
 import { MOVE_STALL_TIMEOUT_MS } from './worker.ts'
 
 /** What the worker needs to run a move. */
@@ -36,6 +37,26 @@ export interface ExecutorRequest {
   locale: NameLocale
   /** The application's process id, recorded in the journal. */
   pid: number
+  /**
+   * A step the worker takes before carrying the move on, because it prints
+   * the new location, which can take long on a large tree: the person's
+   * choice on a stopped move ({@link resolveBlocked}), or a failed health
+   * check ({@link recordHealth}).
+   */
+  before?: ExecutorBefore
+}
+
+/** A step before the move is carried on; see {@link ExecutorRequest.before}. */
+export type ExecutorBefore =
+  | { kind: 'resolve'; choice: BlockedChoice; seen: BlockedView }
+  | { kind: 'health-failed'; detail: string }
+
+/** What the step before the move came to. */
+export interface ExecutorPrepared {
+  /** {@link resolveBlocked}'s answer, or `recorded` for a failed health check. */
+  result: ResolveOutcome | 'recorded'
+  /** The journal right after the step, which the move then starts from. */
+  journal: MoveJournal | undefined
 }
 
 /** A terminal effect the worker asks the main process to run. */
@@ -48,6 +69,8 @@ export type ExecutorMessage =
   | { type: 'alive' }
   | { type: 'progress'; progress: MoveProgress }
   | { type: 'call'; id: number; call: MainCall }
+  /** What the step before the move came to. */
+  | { type: 'prepared'; prepared: ExecutorPrepared }
   | { type: 'done'; outcome: MoveOutcome }
   | { type: 'failed'; name: string; message: string }
 
@@ -100,6 +123,8 @@ export interface ExecutorOptions {
   /** Asks the move to cancel; honored only while the copy is partial. */
   cancel?: AbortSignal
   onProgress?: (progress: MoveProgress) => void
+  /** Receives what the step before the move came to. */
+  onPrepared?: (prepared: ExecutorPrepared) => void
   /** Milliseconds without a report before the move counts as hung; {@link MOVE_STALL_TIMEOUT_MS} when absent. */
   stallMs?: number
   /** Starts the worker; the real `executor-worker` when absent. */
@@ -186,6 +211,9 @@ export function runMoveExecutor(request: ExecutorRequest, main: MainEffects, opt
           break
         case 'call':
           void answer(message.id, message.call)
+          break
+        case 'prepared':
+          options.onPrepared?.(message.prepared)
           break
         case 'done':
           finish(() => { resolve(message.outcome) })

@@ -19,7 +19,7 @@ import { moveText } from './move-text.ts'
 import { nameLocale } from './move/names.ts'
 import { pageDocument, parseMoveLink, progressDocument, type MoveLink, type MovePage, type ProgressView } from './move-page.ts'
 import type { MoveText } from './move-text.ts'
-import type { MainEffects } from './move/executor.ts'
+import type { ExecutorBefore, MainEffects } from './move/executor.ts'
 import { moveDir, readJournal } from './move/journal.ts'
 import type { LockSelf } from './move/lock.ts'
 import { systemPowerShell } from './terminal-env.ts'
@@ -155,14 +155,20 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
  * @param ui - the windows the flow shows (the move's window, or none for a background cleanup).
  * @param log - the desktop log sink.
  * @param lockSelf - this installation and process, as the move lock records them.
+ * @param before - a step the worker takes before carrying the move on (a failed health check), if any.
  * @returns the flow's dependencies.
  */
-export function appMoveFlowDeps(window: BrowserWindow, ui: MoveUi, log: (line: string) => void, lockSelf: LockSelf): MoveFlowDeps {
+export function appMoveFlowDeps(
+  window: BrowserWindow, ui: MoveUi, log: (line: string) => void, lockSelf: LockSelf, before?: ExecutorBefore,
+): MoveFlowDeps {
   const userData = app.getPath('userData')
   const dir = moveDir(userData)
   const locale = nameLocale(app.getLocale())
   return {
-    request: { dir, userData, defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform, locale, pid: process.pid },
+    request: {
+      dir, userData, defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform, locale, pid: process.pid,
+      ...before === undefined ? {} : { before },
+    },
     main: appMoveMainEffects(window, dir, log),
     ui,
     text: moveText(app.getLocale()),
