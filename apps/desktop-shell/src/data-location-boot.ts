@@ -510,6 +510,9 @@ function makeFolderCurrent(host: DataLocationHost, folder: string, read: Pointer
   }
 }
 
+/** What {@link readAbandonedOrAsk} needs from the app. */
+export type AbandonedRecordHost = Pick<DataLocationHost, 'userData' | 'platform' | 'text' | 'log' | 'ask' | 'reveal'>
+
 /**
  * Read the record of abandoned copies. While it cannot be read the launch
  * does not go on by itself: without it some abandoned copies cannot be told
@@ -517,11 +520,12 @@ function makeFolderCurrent(host: DataLocationHost, folder: string, read: Pointer
  * (then it is read again), quit, or, after a confirmation, have it renamed
  * aside ({@link setAbandonedCopiesAside}) and go on with the folders'
  * generations alone.
- * @param host - the app.
+ * The data move's window asks the same way when a move meets this file.
+ * @param host - the app: user data, the platform, the sentences, the log, the question, and the file browser.
  * @returns the copies, or `undefined` when the person quit.
  * @throws what reading throws other than a {@link JournalError}.
  */
-async function readAbandonedOrAsk(host: DataLocationHost): Promise<readonly AbandonedCopy[] | undefined> {
+export async function readAbandonedOrAsk(host: AbandonedRecordHost): Promise<readonly AbandonedCopy[] | undefined> {
   const path = join(moveDir(host.userData), ABANDONED_FILENAME)
   for (;;) {
     try {
@@ -545,7 +549,7 @@ async function readAbandonedOrAsk(host: DataLocationHost): Promise<readonly Aban
  * failed rename is logged and the record is read again, which asks again.
  * @param host - the app.
  */
-async function moveAbandonedAside(host: DataLocationHost): Promise<void> {
+async function moveAbandonedAside(host: AbandonedRecordHost): Promise<void> {
   const dir = moveDir(host.userData)
   const name = abandonedCopiesAsideName(dir, new Date())
   const path = join(dir, ABANDONED_FILENAME)
