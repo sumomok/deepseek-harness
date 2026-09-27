@@ -497,6 +497,13 @@ describe('nextAction', () => {
     expect(nextAction(same, facts({ target: ours }), false).kind).toBe('return-target-to-source')
   })
 
+  it('neither deletes the copy nor finishes while the old path holds another identity beside the retired one', () => {
+    const rolling = journal({ phase: 'rolling-back', homeLinkRestored: true })
+    const mixed = dir({ exists: true, dataId: 'other', movedId: true })
+    expect(nextAction(rolling, facts({ source: mixed, target: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('blocked')
+    expect(nextAction(rolling, facts({ source: mixed }), false).kind).toBe('blocked')
+  })
+
   it('removes only folders marked as this move, or empty', () => {
     const cleanup = journal({ phase: 'cleanup' })
     expect(nextAction(cleanup, facts({ hidden: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('remove-hidden')

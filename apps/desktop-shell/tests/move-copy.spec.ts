@@ -290,6 +290,15 @@ describe('runMoveJob', () => {
     await expect(job).rejects.toSatisfy((error: unknown) => error instanceof MoveJobError && error.stalled && !error.aborted)
   })
 
+  it('counts the stall limit from the start, before the worker has sent anything', async () => {
+    fixture = await buildFixture()
+    const empty = join(fixture.root, 'empty-source')
+    mkdirSync(empty)
+    const quiet: VerifyRequest = { ...check(fixture, 'none'), source: empty, dest: empty }
+    const job = runMoveJob({ kind: 'verify', request: quiet }, { stallMs: 1 })
+    await expect(job).rejects.toSatisfy((error: unknown) => error instanceof MoveJobError && error.stalled)
+  })
+
   it('rejects with an aborted error when aborted', async () => {
     fixture = await buildFixture({ bigBytes: 64 * 1024 * 1024 })
     const controller = new AbortController()
