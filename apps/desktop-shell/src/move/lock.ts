@@ -165,16 +165,31 @@ function createExclusively(path: string, text: string): boolean {
   const temporary = `${path}.${String(process.pid)}.${randomBytes(4).toString('hex')}.tmp`
   writeFileSync(temporary, text, { mode: 0o600 })
   try {
-    linkSync(temporary, path)
+    return linkIntoPlace(temporary, path, text)
+  } finally {
+    unlinkIfPresent(temporary)
+  }
+}
+
+/**
+ * Put a file holding `text` at `path` unless something is there: a hard link
+ * from `from`, or, on a file system without hard links (exFAT, FAT), an
+ * exclusive write read back ({@link createByExclusiveWrite}).
+ * @param from - a file holding `text`.
+ * @param path - where it goes.
+ * @param text - its content.
+ * @returns whether this call put it there.
+ * @throws when neither can be done for a reason other than a file already there.
+ */
+function linkIntoPlace(from: string, path: string, text: string): boolean {
+  try {
+    linkSync(from, path)
     return true
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'EEXIST') return false
-    // A file system without hard links: an exclusive write, then a read-back that must match.
     if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EOPNOTSUPP' && code !== 'ENOSYS') throw error
     return createByExclusiveWrite(path, text)
-  } finally {
-    unlinkIfPresent(temporary)
   }
 }
 
@@ -217,14 +232,11 @@ export function claimLock(path: string, expected: LockOwner): 'claimed' | 'chang
     throw error
   }
   try {
-    const found = parseLock(readFileSync(claim, 'utf8'))
+    const text = readFileSync(claim, 'utf8')
+    const found = parseLock(text)
     if (found !== undefined && lockText(found) === lockText(expected)) return 'claimed'
-    try {
-      linkSync(claim, path)
-    } catch (error) {
-      // EEXIST: yet another lock appeared meanwhile; it stays, and the caller looks again.
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    }
+    // False when yet another lock appeared meanwhile; it stays, and the caller looks again.
+    linkIntoPlace(claim, path, text)
     return 'changed'
   } finally {
     unlinkIfPresent(claim)
