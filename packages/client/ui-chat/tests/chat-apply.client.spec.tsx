@@ -162,7 +162,11 @@ describe('Chat apply wiring', () => {
     const row = b.runtime.slots.entries('settings.general.item')
       .find(entry => entry.options.id === 'busy-compaction')!
     expect(row.options.order).toBe(21)
-    const face = (row.inject as unknown as () => BusyCompactionRowInjected)()
+    const injected = row.inject?.() ?? {}
+    const face: BusyCompactionRowInjected = {
+      hooks: injected['hooks'] as BusyCompactionRowInjected['hooks'],
+      setBusyCompaction: injected['setBusyCompaction'] as BusyCompactionRowInjected['setBusyCompaction'],
+    }
     expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
     face.setBusyCompaction('next-step')
     expect(face.hooks.busyCompaction.getSnapshot()).toBe('next-step')
