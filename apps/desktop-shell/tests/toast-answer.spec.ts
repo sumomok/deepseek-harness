@@ -123,11 +123,35 @@ vi.stubGlobal('WebSocket', FakeSocket)
 /** Every `/api` path the module POSTed, recorded as the request was issued. */
 const posted: string[] = []
 
+/**
+ * How many `$events/result` responses have reached the module and been read
+ * as far as it reads them: the status of a failure, the body of a success.
+ * The loopback server records an answer when the request arrives, before the
+ * module has seen the response, so `answers` alone does not say that the
+ * module's own handling of that response has run.
+ */
+let answersRead = 0
+
 const realFetch = globalThis.fetch
 vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
   const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-  if (init?.method === 'POST') posted.push(new URL(href).pathname)
-  return realFetch(input, init)
+  const path = new URL(href).pathname
+  if (init?.method === 'POST') posted.push(path)
+  const response = await realFetch(input, init)
+  if (path !== RESULT_PATH) return response
+  if (!response.ok) {
+    answersRead += 1
+    return response
+  }
+  const json = response.json.bind(response)
+  response.json = async () => {
+    try {
+      return await json()
+    } finally {
+      answersRead += 1
+    }
+  }
+  return response
 })
 
 const { setupNotifications } = await import('../src/notifications.ts')
@@ -206,6 +230,18 @@ async function until(ready: () => boolean, what: string): Promise<void> {
  */
 async function settle(): Promise<void> {
   await new Promise<void>((resolve) => { setImmediate(resolve) })
+}
+
+/**
+ * Wait until the module has handled the Host's response to its `count`th
+ * answer: the response was read, and every microtask the module's handler
+ * queued has run.
+ * @param count - how many answers must have been handled.
+ * @param what - what the failure message says was never reached.
+ */
+async function answerHandled(count: number, what: string): Promise<void> {
+  await until(() => answersRead >= count, what)
+  await settle()
 }
 
 /** How many answers the module has issued, whatever became of them. */
@@ -294,6 +330,7 @@ describe('the approval toast', () => {
     windows.length = 0
     reveals = 0
     resultFailures = 0
+    answersRead = 0
     const running = server
     server = undefined
     if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
@@ -427,7 +464,7 @@ describe('the approval toast', () => {
   it('forgets a refusal the Host accepted, so a later replay is not answered again', async () => {
     const toast = await announcedApproval()
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    await until(() => answers.length === 1, 'the answer')
+    await answerHandled(1, 'the accepted answer')
     // The Host removes an answering client from the delivery before settling,
     // so no `cancel` comes back for this shell's own refusal to clean up after.
     deliverApproval(sockets[0]!)
@@ -440,9 +477,11 @@ describe('the approval toast', () => {
     const toast = await announcedApproval()
     resultFailures = 2
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    await until(() => answers.length === 1, 'the failed answer')
+    await answerHandled(1, 'the failed answer')
     deliverApproval(sockets[0]!)
-    await until(() => answers.length === 2, 'the failed resend')
+    // The second failure re-arms the grace from the module's response handler;
+    // the grace below can only elapse once that handler has armed it.
+    await answerHandled(2, 'the failed resend')
     graceElapses()
     await until(() => answers.length === 3, 'the abstention')
     expect(answers[2]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
