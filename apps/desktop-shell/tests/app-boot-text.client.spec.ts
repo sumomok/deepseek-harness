@@ -61,6 +61,8 @@ describe('appBootCss', () => {
     expect(zh).toContain(`${APP_BOOT_SELECTORS.loading}::after { content: "正在加载插件…"`)
     expect(zh).toContain(`${APP_BOOT_SELECTORS.failed}::after { content: "插件加载失败"`)
     expect(zh).toContain(`${APP_BOOT_SELECTORS.wordmark} { font-size: 0 !important;`)
+    expect(zh).toContain(`${APP_BOOT_SELECTORS.wordmark}::after { content: "北冥"; font-size: 16px; line-height: 24px; letter-spacing: 0.08em; }`)
+    expect(zh).toContain(`${APP_BOOT_SELECTORS.loading}::after { content: "正在加载插件…"; font-size: 12px; line-height: 18px; }`)
     expect(appBootCss('en')).toContain(`content: "${APP_BOOT_TEXT.en.wordmark}"`)
     expect(appBootCss('en')).not.toContain('HARNESS')
   })

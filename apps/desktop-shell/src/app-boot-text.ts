@@ -41,12 +41,15 @@ export const APP_BOOT_SELECTORS = {
  * replacement is drawn by `::after` at the size the page gives that text.
  * @param selector - the element whose text is replaced.
  * @param text - the replacement.
- * @param size - the page's font size and line height for that element, in px.
+ * @param size - the page's font size and line height for that element, in px,
+ * and its letter spacing in em, which must be restated because an `em` value
+ * on the element itself now resolves against size 0.
  * @returns the two rules.
  */
-function replaceText(selector: string, text: string, size: { font: number; line: number }): string {
+function replaceText(selector: string, text: string, size: { font: number; line: number; spacing?: number }): string {
+  const spacing = size.spacing === undefined ? '' : ` letter-spacing: ${String(size.spacing)}em;`
   return `${selector} { font-size: 0 !important; line-height: 0 !important; }\n`
-    + `${selector}::after { content: ${JSON.stringify(text)}; font-size: ${String(size.font)}px; line-height: ${String(size.line)}px; }\n`
+    + `${selector}::after { content: ${JSON.stringify(text)}; font-size: ${String(size.font)}px; line-height: ${String(size.line)}px;${spacing} }\n`
 }
 
 /**
@@ -56,7 +59,7 @@ function replaceText(selector: string, text: string, size: { font: number; line:
  */
 export function appBootCss(language: keyof typeof APP_BOOT_TEXT): string {
   const text = APP_BOOT_TEXT[language]
-  return replaceText(APP_BOOT_SELECTORS.wordmark, text.wordmark, { font: 16, line: 24 })
+  return replaceText(APP_BOOT_SELECTORS.wordmark, text.wordmark, { font: 16, line: 24, spacing: 0.08 })
     + replaceText(APP_BOOT_SELECTORS.loading, text.loading, { font: 12, line: 18 })
     + replaceText(APP_BOOT_SELECTORS.failed, text.failed, { font: 14, line: 22 })
 }
