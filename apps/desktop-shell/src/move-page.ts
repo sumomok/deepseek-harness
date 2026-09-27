@@ -206,7 +206,7 @@ export function progressView(progress: MoveProgress, text: MoveText, clock: Prog
   const fraction = done !== undefined && total !== undefined && total > 0 ? Math.min(1, done / total) : undefined
   switch (progress.stage) {
     case 'copying': {
-      if (done === undefined || total === undefined) return { line: text.progressTitle, cancellable, fraction }
+      if (done === undefined || total === undefined) return { line: '', cancellable, fraction }
       const elapsed = (now - clock.startedAt) / 1000
       const secondsLeft = done > 0 && elapsed >= 3 ? (total - done) / (done / elapsed) : undefined
       return { line: text.progress(formatBytes(done), formatBytes(total), secondsLeft), cancellable, fraction }
@@ -237,6 +237,7 @@ function escapeHtml(value: string): string {
 function style(appearance: Appearance): string {
   const colors = PALETTES[appearance]
   return `* { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; min-height: 100vh; padding: 28px 30px; display: flex; flex-direction: column; justify-content: center;
     background: ${colors.gradient}; color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif; }
   h1 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }

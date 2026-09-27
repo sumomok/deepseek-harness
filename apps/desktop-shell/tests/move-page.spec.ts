@@ -108,6 +108,9 @@ describe('the progress window', () => {
     expect(html).toContain('a &quot;b&quot; &amp; &lt;c&gt;')
     expect(html).not.toContain('<c>')
     expect(html).toContain('href="dsh-move://quit"')
-    expect(decodeURIComponent(progressDocument(text, 'light'))).toContain('href="dsh-move://cancel"')
+    const progress = decodeURIComponent(progressDocument(text, 'light'))
+    expect(progress).toContain('href="dsh-move://cancel"')
+    // The cancel row is a flex box; without this rule its hidden attribute would not hide it.
+    expect(progress).toContain('[hidden] { display: none !important; }')
   })
 })

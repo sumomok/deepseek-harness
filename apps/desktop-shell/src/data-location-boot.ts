@@ -267,17 +267,21 @@ export type TerminalSync =
   | { kind: 'not-written'; value: string; write: TerminalWrite }
   | { kind: 'failed'; value: string; detail: string }
 
+/** What {@link syncTerminal} needs from the app. */
+export type TerminalSyncHost = Pick<DataLocationHost, 'writeTerminalEnv' | 'readPersistentEnv' | 'osHome' | 'log'>
+
 /**
  * Make terminals see the pointer's directory, read back what they now see,
  * and record that as the value last seen, so the next launch neither takes
  * the directory for a change nor follows a value the write did not replace.
- * @param host - the app.
+ * A data move uses it for its switch too.
+ * @param host - the app: the terminal write and read, the home `~` stands for, and the log.
  * @param pointer - the pointer about to be written.
  * @param observed - the explicit `DSH_HOME` observed this launch.
  * @returns the pointer with `lastSeenEnv` set accordingly, and what the write came to.
  */
-async function syncTerminal(
-  host: DataLocationHost, pointer: DataLocationPointer, observed: string | undefined,
+export async function syncTerminal(
+  host: TerminalSyncHost, pointer: DataLocationPointer, observed: string | undefined,
 ): Promise<{ pointer: DataLocationPointer; sync: TerminalSync }> {
   const value = pointer.path
   const seenBefore = observed === undefined ? pointer : { ...pointer, lastSeenEnv: observed }
@@ -316,7 +320,7 @@ async function syncTerminal(
  * @returns `result`, unchanged.
  */
 function report(
-  host: DataLocationHost, result: { pointer: DataLocationPointer; sync: TerminalSync },
+  host: TerminalSyncHost, result: { pointer: DataLocationPointer; sync: TerminalSync },
 ): { pointer: DataLocationPointer; sync: TerminalSync } {
   const { sync } = result
   const line = (text: string): void => { host.log(`[desktop] data location: ${text}\n`) }
