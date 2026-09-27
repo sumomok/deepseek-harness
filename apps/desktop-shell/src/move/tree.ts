@@ -248,6 +248,37 @@ export function printOf(entries: readonly PrintEntry[]): string {
   return hash.digest('hex')
 }
 
+/** The file-system calls a print makes; the real ones unless a test replaces them. */
+export interface PrintFs {
+  readdir: (path: string) => string[]
+  /** `lstat` with nanosecond times. */
+  lstat: (path: string) => { isDirectory: () => boolean; size: bigint; mtimeNs: bigint; ctimeNs: bigint; ino: bigint }
+}
+
+/** Options of {@link fingerprintTree}. */
+export interface PrintOptions {
+  /**
+   * Called while the walk goes on, at least every {@link PRINT_ACTIVITY_ENTRIES}
+   * entries and whenever {@link PRINT_ACTIVITY_MS} passed since the last call,
+   * so a watcher can tell a long walk from a hung one.
+   */
+  onActivity?: () => void
+  fs?: PrintFs
+  /** Milliseconds now; `Date.now` unless a test replaces it. */
+  now?: () => number
+}
+
+/** Entries a print reads between two activity reports at most. */
+export const PRINT_ACTIVITY_ENTRIES = 256
+
+/** Milliseconds a print goes at most without an activity report, while entries are still being read. */
+export const PRINT_ACTIVITY_MS = 1000
+
+const NODE_PRINT_FS: PrintFs = {
+  readdir: path => readdirSync(path),
+  lstat: path => lstatSync(path, { bigint: true }),
+}
+
 /**
  * Print a tree, synchronously and without following links: every entry below
  * the root except the excluded relative paths (with everything under them)
@@ -257,19 +288,36 @@ export function printOf(entries: readonly PrintEntry[]): string {
  * @param root - the directory.
  * @param exclude - relative paths (`/`-separated) to leave out.
  * @param platform - whose name rules apply to the ignorable names.
+ * @param options - the activity report, and the file system and clock for tests.
  * @returns the hash ({@link printOf}).
  * @throws when an entry cannot be read, or the root is not there.
  */
-export function fingerprintTree(root: string, exclude: readonly string[], platform: NodeJS.Platform = process.platform): string {
+export function fingerprintTree(
+  root: string, exclude: readonly string[], platform: NodeJS.Platform = process.platform, options: PrintOptions = {},
+): string {
   const excluded = new Set(exclude)
   const entries: PrintEntry[] = []
+  const fs = options.fs ?? NODE_PRINT_FS
+  const now = options.now ?? Date.now
+  let sinceReport = 0
+  let reportedAt = now()
+  const activity = (): void => {
+    if (options.onActivity === undefined) return
+    sinceReport += 1
+    const at = now()
+    if (sinceReport < PRINT_ACTIVITY_ENTRIES && at - reportedAt < PRINT_ACTIVITY_MS) return
+    sinceReport = 0
+    reportedAt = at
+    options.onActivity()
+  }
   const walk = (rel: string): void => {
-    for (const name of readdirSync(nativePath(root, rel))) {
+    for (const name of fs.readdir(nativePath(root, rel))) {
+      activity()
       const child = rel === '' ? name : `${rel}/${name}`
       if (excluded.has(child) || isIgnorableName(name, platform)) continue
       let stats
       try {
-        stats = lstatSync(nativePath(root, child), { bigint: true })
+        stats = fs.lstat(nativePath(root, child))
       } catch (error) {
         // Removed between the listing and the stat: it is not part of the tree any more.
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue

@@ -9,9 +9,9 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  ESTIMATED_BLOCK_BYTES, fingerprintTree, isIgnorableName, isInsidePath, meaningfulNames, nativePath, printOf, REBUILDABLE_ENTRIES,
-  scanTree,
-  type PrintEntry,
+  ESTIMATED_BLOCK_BYTES, fingerprintTree, isIgnorableName, isInsidePath, meaningfulNames, nativePath, PRINT_ACTIVITY_ENTRIES,
+  PRINT_ACTIVITY_MS, printOf, REBUILDABLE_ENTRIES, scanTree,
+  type PrintEntry, type PrintFs,
 } from '../src/move/tree.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
 
@@ -191,5 +191,26 @@ describe('fingerprintTree', () => {
     utimesSync(join(home, 'replacement'), stats.atime, stats.mtime)
     renameSync(join(home, 'replacement'), file)
     expect(fingerprintTree(home, REBUILDABLE_ENTRIES)).not.toBe(before)
+  })
+
+  it('reports activity while it walks, every so many entries and whenever a slow read took long', () => {
+    const clock = { now: 0 }
+    const names = Array.from({ length: 1000 }, (_, index) => `f${String(index)}`)
+    const file = { isDirectory: () => false, size: 1n, mtimeNs: 1n, ctimeNs: 1n, ino: 1n }
+    const fast: PrintFs = { readdir: () => names, lstat: () => file }
+    const reports: number[] = []
+    fingerprintTree('/fake', [], 'linux', { fs: fast, now: () => clock.now, onActivity: () => { reports.push(clock.now) } })
+    expect(reports).toHaveLength(Math.floor(names.length / PRINT_ACTIVITY_ENTRIES))
+    // A cold disk: every stat takes a quarter of the report interval, so reports follow time, not the entry count.
+    const slow: PrintFs = { readdir: () => names.slice(0, 30), lstat: () => { clock.now += PRINT_ACTIVITY_MS / 4; return file } }
+    const times: number[] = []
+    clock.now = 0
+    fingerprintTree('/fake', [], 'linux', { fs: slow, now: () => clock.now, onActivity: () => { times.push(clock.now) } })
+    expect(times.length).toBeGreaterThanOrEqual(7)
+    const gaps = times.map((at, index) => at - (times[index - 1] ?? 0))
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(PRINT_ACTIVITY_MS + PRINT_ACTIVITY_MS / 4)
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(PRINT_ACTIVITY_MS)
+    expect(fingerprintTree('/fake', [], 'linux', { fs: slow, now: () => clock.now }))
+      .toBe(fingerprintTree('/fake', [], 'linux', { fs: slow, now: () => clock.now, onActivity: () => undefined }))
   })
 })

@@ -116,6 +116,13 @@ describe('the heartbeat', () => {
     const beforeSleep = beats
     await effects.sleep(1)
     expect(beats).toBe(beforeSleep + 1)
+    const tree = join(f.root, 'printed')
+    mkdirSync(tree)
+    for (let index = 0; index < 600; index += 1) writeFileSync(join(tree, `e${String(index)}`), '')
+    const beforePrint = beats
+    effects.fs.fingerprint(tree, [])
+    // One report for the call itself, and one per 256 entries read during the walk.
+    expect(beats).toBeGreaterThanOrEqual(beforePrint + 3)
   })
 })
 

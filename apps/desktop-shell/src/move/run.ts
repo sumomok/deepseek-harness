@@ -84,9 +84,10 @@ export interface MoveFs {
  * directories on both sides, and an unlink by a flush of its directory, so
  * the change is on disk before the journal records the step that follows it.
  * @param flushDir - flushes one directory's entries; {@link fsyncDirectory} in the app.
+ * @param activity - reported while a print walks a tree (the executor's heartbeat).
  * @returns the operations.
  */
-export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): MoveFs {
+export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory, activity?: () => void): MoveFs {
   return {
     kind: (path) => {
       let stats
@@ -122,7 +123,7 @@ export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): Mo
     },
     mkdir: (path) => { mkdirSync(path, { mode: 0o700 }) },
     rmdir: (path) => { rmdirSync(path) },
-    fingerprint: (dir, exclude) => fingerprintTree(dir, exclude),
+    fingerprint: (dir, exclude) => fingerprintTree(dir, exclude, process.platform, activity === undefined ? {} : { onActivity: activity }),
   }
 }
 
@@ -1061,7 +1062,7 @@ export function nodeMoveEffects(input: {
   }
   return {
     platform: input.platform,
-    fs: activity === undefined ? NODE_MOVE_FS : reportingMoveFs(NODE_MOVE_FS, activity),
+    fs: activity === undefined ? NODE_MOVE_FS : reportingMoveFs(nodeMoveFs(fsyncDirectory, activity), activity),
     copy: async (request, signal, onProgress) => { await copyTree(request, signal, onProgress, activity) },
     verify: async (request, signal, onProgress) => (await verifyTree(request, signal, onProgress, activity)).problems,
     repair: async (request, extras, forget) => {
