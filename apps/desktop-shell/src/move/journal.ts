@@ -83,8 +83,11 @@ export interface PointerBefore {
 export interface MoveBaseline {
   /** Session directories before the move. */
   sessions: number
-  /** Workspace records before the move. */
-  workspaces: number
+  /**
+   * Workspace records before the move, as the server reports them; absent
+   * when no count was available, and then not compared.
+   */
+  workspaces?: number
   /** Plugins already quarantined before the move. */
   quarantined: string[]
 }
@@ -380,7 +383,10 @@ export function validateJournal(value: unknown): MoveJournal {
   const baseline = r['baseline']
   if (typeof baseline !== 'object' || baseline === null) return fail('baseline')
   const b = baseline as Record<string, unknown>
-  if (typeof b['sessions'] !== 'number' || typeof b['workspaces'] !== 'number' || !isStringArray(b['quarantined'])) return fail('baseline')
+  const workspaces = b['workspaces']
+  if (typeof b['sessions'] !== 'number' || (workspaces !== undefined && typeof workspaces !== 'number') || !isStringArray(b['quarantined'])) {
+    return fail('baseline')
+  }
   const rewrites = r['linkRewrites']
   if (!Array.isArray(rewrites)) return fail('linkRewrites')
   const linkRewrites: InPlaceRewrite[] = rewrites.map((item: unknown) => {
@@ -413,7 +419,7 @@ export function validateJournal(value: unknown): MoveJournal {
     terminalBefore,
     terminalSnapshot,
     homeLinkBefore,
-    baseline: { sessions: b['sessions'], workspaces: b['workspaces'], quarantined: b['quarantined'] },
+    baseline: { sessions: b['sessions'], ...typeof workspaces === 'number' ? { workspaces } : {}, quarantined: b['quarantined'] },
     linkRewrites,
     repairRounds: count('repairRounds'),
     pointerWritten: flag('pointerWritten'),
