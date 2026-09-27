@@ -10,11 +10,13 @@
  * that did not exist before is deleted, with the `.dsh-backup` this module
  * made beside it. On Windows the user variable is written back with its
  * registry type through the registry, since .NET's `SetEnvironmentVariable`
- * writes only `REG_SZ` and treats an empty value as removal.
+ * writes only `REG_SZ` and treats an empty value as removal; the change is
+ * then announced with `WM_SETTINGCHANGE`, and a failed announcement is only
+ * logged.
  * @module @deepseek-ai/dsh-desktop-shell/terminal-restore
  */
 
-import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { writeDurably } from './durable-file.ts'
 import {
   findProfileBlock, PROFILE_BACKUP_SUFFIX, withoutProfileBlock, type PowerShellRunner, type TerminalSnapshot,
@@ -80,14 +82,20 @@ export function restoreShellProfile(snapshot: Extract<TerminalSnapshot, { kind: 
   switch (step.kind) {
     case 'write-whole':
       writeDurably(snapshot.file, step.bytes, step.mode)
+      // The temporary file is created under the process umask, which may narrow the recorded bits.
+      if (step.mode !== undefined) chmodSync(snapshot.file, step.mode)
       break
     case 'delete-file':
       unlinkSync(snapshot.file)
       break
     case 'replace-block':
-    case 'remove-block':
-      writeDurably(snapshot.file, step.bytes)
+    case 'remove-block': {
+      // The file keeps the permissions it has now; only our block changes.
+      const mode = statSync(snapshot.file).mode & 0o7777
+      writeDurably(snapshot.file, step.bytes, mode)
+      chmodSync(snapshot.file, mode)
       break
+    }
     case 'nothing':
       break
     default:
@@ -104,22 +112,40 @@ export const RESTORE_VALUE_ENV = 'DSH_DATA_LOCATION_RESTORE'
 /** Environment variable naming the registry type to write: `String` or `ExpandString`; absent to remove the value. */
 export const RESTORE_TYPE_ENV = 'DSH_DATA_LOCATION_RESTORE_TYPE'
 
+/** A user variable the broadcast deletes; it is never set, so deleting it changes nothing. */
+export const BROADCAST_VARIABLE = 'DSH_DATA_LOCATION_BROADCAST'
+
+/** What the restore script prints when the registry write went through and the broadcast did not. */
+export const BROADCAST_FAILED_PREFIX = 'broadcast-failed:'
+
 /**
  * Script writing the user-scope `DSH_HOME` back with its registry type, or
- * removing it, then broadcasting `WM_SETTINGCHANGE` for `Environment` so
- * programs started afterwards see it. The value arrives base64-encoded after
- * a `v`, so an empty value is still a variable.
+ * removing it, then announcing the change so programs started afterwards
+ * see it. The value arrives base64-encoded after a `v`, so an empty value is
+ * still a variable. A failed registry write stops the script with a nonzero
+ * exit.
+ *
+ * The announcement deletes {@link BROADCAST_VARIABLE} through
+ * `[Environment]::SetEnvironmentVariable(…, 'User')`, which sends
+ * `SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", …)`
+ * after its registry change whether or not the value existed
+ * (`SetEnvironmentVariableFromRegistry` in dotnet/runtime
+ * `src/libraries/System.Private.CoreLib/src/System/Environment.Windows.cs`),
+ * so no `Add-Type` is needed. It is the same call the write path already
+ * relies on; a failure there is printed after {@link BROADCAST_FAILED_PREFIX}
+ * and the script still exits 0.
  */
 export const RESTORE_USER_ENV_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
   "$key = 'HKCU:\\Environment'",
   `$type = $env:${RESTORE_TYPE_ENV}`,
-  "if ([string]::IsNullOrEmpty($type)) { Remove-ItemProperty -LiteralPath $key -Name 'DSH_HOME' -ErrorAction SilentlyContinue } else { "
+  'if ([string]::IsNullOrEmpty($type)) { '
+  + "if ((Get-Item -LiteralPath $key).GetValueNames() -contains 'DSH_HOME') { Remove-ItemProperty -LiteralPath $key -Name 'DSH_HOME' } "
+  + '} else { '
   + `$v = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:${RESTORE_VALUE_ENV}.Substring(1))); `
   + "New-ItemProperty -LiteralPath $key -Name 'DSH_HOME' -PropertyType $type -Value $v -Force | Out-Null }",
-  "Add-Type -Namespace DshRestore -Name Native -MemberDefinition '[DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] "
-  + 'public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wParam, string lParam, uint flags, uint timeout, out UIntPtr result);\'',
-  '$r = [UIntPtr]::Zero',
-  "[void][DshRestore.Native]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$r)",
+  `try { [Environment]::SetEnvironmentVariable('${BROADCAST_VARIABLE}', $null, 'User') } `
+  + `catch { [Console]::Out.Write('${BROADCAST_FAILED_PREFIX}' + $_.Exception.Message) }`,
 ].join('; ')
 
 /**
@@ -151,7 +177,11 @@ export async function restoreTerminal(snapshot: TerminalSnapshot, run: PowerShel
     case 'user-environment': {
       const result = await run(RESTORE_USER_ENV_SCRIPT, restoreScriptEnv(snapshot.value))
       if (result.code !== 0) throw new Error(`PowerShell exited with ${String(result.code)} restoring DSH_HOME`)
-      return snapshot.value.kind === 'unset' ? 'user DSH_HOME removed' : `user DSH_HOME restored as ${snapshot.value.type}`
+      const done = snapshot.value.kind === 'unset' ? 'user DSH_HOME removed' : `user DSH_HOME restored as ${snapshot.value.type}`
+      const at = result.stdout.indexOf(BROADCAST_FAILED_PREFIX)
+      if (at === -1) return done
+      return `${done}; announcing the change to running programs failed (${result.stdout.slice(at + BROADCAST_FAILED_PREFIX.length).trim()}); `
+        + 'the registry holds the restored value, but programs started from Explorer may see the old one until the next sign-in'
     }
     case 'profile-unavailable':
     case 'unsupported-platform':

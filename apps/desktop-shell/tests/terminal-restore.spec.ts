@@ -16,7 +16,8 @@ import {
   PROFILE_BACKUP_SUFFIX, snapshotShellProfile, updateShellProfile, type PowerShellRunner, type TerminalSnapshot,
 } from '../src/terminal-env.ts'
 import {
-  planProfileRestore, RESTORE_TYPE_ENV, RESTORE_USER_ENV_SCRIPT, RESTORE_VALUE_ENV, restoreScriptEnv, restoreShellProfile, restoreTerminal,
+  BROADCAST_FAILED_PREFIX, BROADCAST_VARIABLE, planProfileRestore, RESTORE_TYPE_ENV, RESTORE_USER_ENV_SCRIPT, RESTORE_VALUE_ENV,
+  restoreScriptEnv, restoreShellProfile, restoreTerminal,
 } from '../src/terminal-restore.ts'
 
 let home: string
@@ -57,6 +58,30 @@ describe('restoring a shell profile', () => {
     writeFileSync(profile(), `${readFileSync(profile(), 'utf8')}alias gs='git status'\n`)
     expect(restoreShellProfile(before).kind).toBe('remove-block')
     expect(readFileSync(profile(), 'utf8')).toBe("alias gs='git status'\n")
+  })
+
+  posixOnly('applies the recorded permissions after writing back, whatever the umask, and keeps them when only the block changes', () => {
+    writeFileSync(profile(), 'alias a=b\n')
+    chmodSync(profile(), 0o644)
+    const before = snapshot()
+    updateShellProfile(zsh(), '/data')
+    const umask = process.umask(0o077)
+    try {
+      restoreShellProfile(before)
+    } finally {
+      process.umask(umask)
+    }
+    expect(statSync(profile()).mode & 0o777).toBe(0o644)
+    updateShellProfile(zsh(), '/data')
+    writeFileSync(profile(), `export EDITOR=vim\n${readFileSync(profile(), 'utf8')}`)
+    chmodSync(profile(), 0o640)
+    const again = process.umask(0o077)
+    try {
+      expect(restoreShellProfile(before).kind).toBe('remove-block')
+    } finally {
+      process.umask(again)
+    }
+    expect(statSync(profile()).mode & 0o777).toBe(0o640)
   })
 
   posixOnly('writes an untouched profile back byte for byte, with its permissions, and removes the backup the move made', () => {
@@ -117,9 +142,9 @@ describe('restoring a shell profile', () => {
 
 describe('restoring the Windows user variable', () => {
   /** A runner that records what it was asked to run. */
-  function recording(code = 0): { run: PowerShellRunner; calls: Array<{ script: string; env: Record<string, string> }> } {
+  function recording(code = 0, stdout = ''): { run: PowerShellRunner; calls: Array<{ script: string; env: Record<string, string> }> } {
     const calls: Array<{ script: string; env: Record<string, string> }> = []
-    return { calls, run: async (script, env) => { calls.push({ script, env }); return { code, stdout: '' } } }
+    return { calls, run: async (script, env) => { calls.push({ script, env }); return { code, stdout } } }
   }
 
   it('writes the value back with its registry type, an empty value included, and removes one that was unset', async () => {
@@ -136,11 +161,21 @@ describe('restoring the Windows user variable', () => {
     await expect(restoreTerminal({ kind: 'user-environment', value: { kind: 'unset' } }, recording(1).run)).rejects.toThrow('exited with 1')
   })
 
-  it('writes through the registry with the type, never through SetEnvironmentVariable, and broadcasts the change', () => {
+  it('writes DSH_HOME through the registry with its type, and announces the change without Add-Type', () => {
     expect(RESTORE_USER_ENV_SCRIPT).toContain('-PropertyType $type')
-    expect(RESTORE_USER_ENV_SCRIPT).toContain('Remove-ItemProperty')
-    expect(RESTORE_USER_ENV_SCRIPT).toContain('SendMessageTimeout')
-    expect(RESTORE_USER_ENV_SCRIPT).not.toContain('SetEnvironmentVariable')
+    expect(RESTORE_USER_ENV_SCRIPT).toContain("$ErrorActionPreference = 'Stop'")
+    expect(RESTORE_USER_ENV_SCRIPT).not.toContain('SilentlyContinue')
+    expect(RESTORE_USER_ENV_SCRIPT).not.toContain('Add-Type')
+    expect(RESTORE_USER_ENV_SCRIPT).not.toMatch(/SetEnvironmentVariable\('DSH_HOME'/)
+    expect(RESTORE_USER_ENV_SCRIPT).toContain(`[Environment]::SetEnvironmentVariable('${BROADCAST_VARIABLE}', $null, 'User')`)
+  })
+
+  it('logs a failed announcement once the registry write went through, and fails on a failed write', async () => {
+    const snapshot: TerminalSnapshot = { kind: 'user-environment', value: { kind: 'set', type: 'String', raw: 'D:\\DSH' } }
+    const line = await restoreTerminal(snapshot, recording(0, `${BROADCAST_FAILED_PREFIX}Cannot invoke method. Method invocation is supported only on core types in this language mode.`).run)
+    expect(line).toContain('user DSH_HOME restored as String')
+    expect(line).toContain('Method invocation is supported only on core types')
+    await expect(restoreTerminal(snapshot, recording(1, BROADCAST_FAILED_PREFIX).run)).rejects.toThrow('exited with 1')
   })
 
   it('restores nothing where nothing was written, and refuses without a snapshot', async () => {
