@@ -125,15 +125,20 @@ function readLock(dir: string): LockRead {
 }
 
 /**
- * Whether the process a lock names still runs.
+ * Whether the process a lock names still runs. A running process with that
+ * id but another start time is a later process that reused the id, so the
+ * holder is gone at once. When no process on this machine has that id (the
+ * holder may run on another machine sharing the drive), or the system cannot
+ * be asked, only the heartbeat tells: the holder counts as gone once its
+ * heartbeat is {@link HEARTBEAT_STALE_MS} old, so a holder on this machine
+ * that stopped is seen as gone up to two minutes after its last heartbeat.
  * @param owner - the lock's owner.
  * @param probes - the process start times and the clock.
- * @returns true when its id and start time match a running process, or the system cannot be asked and its heartbeat is recent.
+ * @returns true when its id and start time match a running process, or its heartbeat is recent.
  */
 export async function holderIsAlive(owner: LockOwner, probes: LockProbes): Promise<boolean> {
   const started = await probes.startTimeOf(owner.pid)
-  if (started === undefined) return false
-  if (started !== START_TIME_UNKNOWN && owner.startedAt !== '') return started === owner.startedAt
+  if (started !== undefined && started !== START_TIME_UNKNOWN && owner.startedAt !== '') return started === owner.startedAt
   const beat = Date.parse(owner.heartbeatAt)
   return Number.isFinite(beat) && probes.now().getTime() - beat < HEARTBEAT_STALE_MS
 }

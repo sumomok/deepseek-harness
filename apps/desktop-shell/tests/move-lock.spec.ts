@@ -56,7 +56,10 @@ describe('the move lock', () => {
   it('refuses another installation\'s lock whether its process runs or not, and never takes it', async () => {
     writeFileSync(join(dir, LOCK_FILENAME), JSON.stringify(other))
     expect(await acquireMoveLock(dir, self, probes({ 222: other.startedAt }))).toEqual({ kind: 'held', owner: other })
-    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'unfinished', owner: other, path: join(dir, LOCK_FILENAME) })
+    // No process has that id here and the heartbeat is fresh: it may run on another machine sharing the drive.
+    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'held', owner: other })
+    const stale = new Date(NOW.getTime() + HEARTBEAT_STALE_MS + 1)
+    expect(await acquireMoveLock(dir, self, probes({}, stale))).toEqual({ kind: 'unfinished', owner: other, path: join(dir, LOCK_FILENAME) })
     releaseMoveLock([dir], self)
     expect(lockFile()).toEqual(other)
   })
@@ -64,7 +67,8 @@ describe('the move lock', () => {
   it('tells the holder from a later process that reused its id, and trusts a recent heartbeat when the system cannot be asked', async () => {
     expect(await holderIsAlive(other, probes({ 222: other.startedAt }))).toBe(true)
     expect(await holderIsAlive(other, probes({ 222: 'Mon Sep 28 11:59:00 2026' }))).toBe(false)
-    expect(await holderIsAlive(other, probes({}))).toBe(false)
+    expect(await holderIsAlive(other, probes({}))).toBe(true)
+    expect(await holderIsAlive(other, probes({}, new Date(NOW.getTime() + HEARTBEAT_STALE_MS + 1)))).toBe(false)
     expect(await holderIsAlive(other, probes({ 222: START_TIME_UNKNOWN }))).toBe(true)
     const later = new Date(NOW.getTime() + HEARTBEAT_STALE_MS + 1)
     expect(await holderIsAlive(other, probes({ 222: START_TIME_UNKNOWN }, later))).toBe(false)
