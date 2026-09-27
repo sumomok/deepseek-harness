@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MOVED_ID_FILENAME, readJournal, RETIRED_FILENAME, type BlockedChoice, type MoveJournal, type MoveResult,
 } from '../src/move/journal.ts'
+import { readGeneration } from '../src/data-location.ts'
 import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
 import { IGNORABLE_NAMES, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
@@ -234,6 +235,7 @@ function dataFiles(listing: readonly string[]): string[] {
     && !line.startsWith('file .dsh-data-id.moved ')
     && !line.startsWith(`file ${MOVE_STATE_FILENAME} `)
     && !line.startsWith(`file ${RETIRED_FILENAME} `)
+    && !line.startsWith('file .dsh-data-generation ')
     // A file browser's own files (the Finder scenario) are not data.
     && !IGNORABLE_NAMES.some(name => line.startsWith(`file ${name} `) || line.includes(`/${name} `))
     && !REBUILDABLE_ENTRIES.some(entry => line.startsWith(`file ${entry}/`) || line.startsWith(`file ${entry} `)))
@@ -344,8 +346,13 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     if (!expectedThere) violations.push('the source is still there')
     if (!isOurData(p.target)) violations.push('the target is not this data')
     else if (JSON.stringify(dataFiles(listTree(p.target))) !== JSON.stringify(dataFiles(p.before))) violations.push('the target data differs')
-    const pointer = JSON.parse(readFileSync(join(p.setup.userData, 'data-location.json'), 'utf8')) as { path: string }
+    const pointer = JSON.parse(readFileSync(join(p.setup.userData, 'data-location.json'), 'utf8')) as { path: string; generation?: number }
     if (pointer.path !== p.target) violations.push(`the pointer names ${pointer.path}`)
+    if ((pointer.generation ?? 0) !== readGeneration(p.target)) violations.push('the pointer and the target disagree on the generation')
+    if (!c.sameVolume && readGeneration(p.target) <= 0) violations.push('the target is not numbered above the original')
+    if (result.keptOriginal !== undefined && readGeneration(result.keptOriginal.path) >= readGeneration(p.target)) {
+      violations.push('the kept original is not older than the target')
+    }
     if (terminalValue(p.setup) !== p.target) violations.push('the terminal does not name the target')
     // On one volume the original is what was renamed to the target: there is nothing else to keep.
     if (keptTwice(c) && !c.sameVolume) violations.push(...checkKept(p, result.keptOriginal?.path, 'kept original'))
@@ -353,7 +360,8 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     if (result.leftovers.length > 0) violations.push('the result lists leftovers')
   } else {
     if (result.outcome !== 'failed') violations.push(`the move ended ${result.outcome}`)
-    if (JSON.stringify(listTree(p.f.home)) !== JSON.stringify(p.before)) violations.push('the source is not as it was')
+    const original = listTree(p.f.home).filter(line => !line.startsWith('file .dsh-data-generation '))
+    if (JSON.stringify(original) !== JSON.stringify(p.before)) violations.push('the source is not as it was')
     if (c.targetPreexisting === true) {
       if (!existsSync(p.target) || readdirSync(p.target).length !== 0) violations.push('the picked folder is not back, empty')
     } else if (existsSync(p.target)) violations.push('the target is still there')
@@ -366,6 +374,9 @@ function checkAtEnd(p: Prepared, c: Case, ended: string | undefined, planted: bo
     const beside = readdirSync(p.f.targetParent).filter(name => name !== 'DSH-Data')
     if (expectUnusedCopy(c)) {
       violations.push(...checkKept(p, result.unusedCopy?.path, 'unused copy'))
+      if (result.unusedCopy !== undefined && readGeneration(result.unusedCopy.path) >= readGeneration(p.f.home)) {
+        violations.push('the unused copy is not older than the original')
+      }
       if (result.unusedCopy !== undefined && JSON.stringify(beside) !== JSON.stringify([basename(result.unusedCopy.path)])) {
         violations.push(`beside the target: ${beside.join(', ')}`)
       }

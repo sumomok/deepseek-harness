@@ -180,6 +180,17 @@ export interface MoveJournal {
    * rollback goes on. The result names that path as the unused copy.
    */
   retiredInPlace: boolean
+  /**
+   * The original's generation (`.dsh-data-generation`): read when the move
+   * starts, raised when a rollback gives the original a number above the
+   * copy's, so a copy left behind is older.
+   */
+  originalGeneration: number
+  /**
+   * The copy's generation, above the original's, chosen and recorded before
+   * it is written into the copy (on another volume); absent until then.
+   */
+  targetGeneration?: number
   /** The visible sibling folder the original is renamed to when it is kept; chosen before the rename. */
   keptOriginal?: string
   leftovers: JournalLeftover[]
@@ -191,7 +202,7 @@ export interface MoveJournal {
 /** What starting a move needs; the rest of the journal is derived. */
 export type MoveStart = Pick<MoveJournal,
   'source' | 'sourceAliases' | 'target' | 'targetPreexisting' | 'sameVolume' | 'dataId' | 'pointerBefore'
-  | 'lastSeenEnvBefore' | 'terminalBefore' | 'homeLinkBefore' | 'baseline'>
+  | 'lastSeenEnvBefore' | 'terminalBefore' | 'homeLinkBefore' | 'baseline' | 'originalGeneration'>
 
 /** A folder the move left for the person to check and delete themselves. */
 export interface KeptFolder {
@@ -401,6 +412,7 @@ export function validateJournal(value: unknown): MoveJournal {
     homeLinkRestored: flag('homeLinkRestored'),
     targetExposed: flag('targetExposed'),
     retiredInPlace: flag('retiredInPlace'),
+    originalGeneration: count('originalGeneration'),
     cleanupAttempts: count('cleanupAttempts'),
     awaitingChoice: flag('awaitingChoice'),
     keepTarget: flag('keepTarget'),
@@ -417,6 +429,7 @@ export function validateJournal(value: unknown): MoveJournal {
   }
   if (r['targetFingerprint'] !== undefined) journal.targetFingerprint = text('targetFingerprint')
   if (r['unusedCopy'] !== undefined) journal.unusedCopy = path('unusedCopy')
+  if (r['targetGeneration'] !== undefined) journal.targetGeneration = count('targetGeneration')
   if (r['keptOriginal'] !== undefined) journal.keptOriginal = path('keptOriginal')
   const failure = r['failure']
   if (failure !== undefined) {
@@ -578,6 +591,8 @@ export interface DirFacts {
   movedId: boolean
   /** Whether it holds the retired marker ({@link RETIRED_FILENAME}). */
   retired: boolean
+  /** Its generation; 0 when it has none. */
+  generation: number
   /** Its move marker: this move's, another, or none. */
   state: 'ours' | 'other' | 'none'
   /** Whether it is an empty directory. */
@@ -645,6 +660,8 @@ export type MoveAction =
   | { kind: 'mark-source' }
   | { kind: 'rename-source-to-hidden' }
   | { kind: 'write-target-id' }
+  | { kind: 'write-target-generation' }
+  | { kind: 'write-original-generation' }
   | { kind: 'clear-target-state' }
   | { kind: 'rename-source-to-target' }
   | { kind: 'rewrite-links' }
@@ -886,6 +903,11 @@ function hideBeside(journal: MoveJournal, facts: MoveFacts): MoveAction {
   if (target.dataId !== 'ours' && target.state !== 'ours') return blocked(journal, facts, 'target-occupied')
   // A rollback may have started retiring it before the person chose to keep it.
   if (target.retired) return { kind: 'clear-target-retired' }
+  // The copy's number goes above the original's before it is named, so the original is the older one from then on.
+  if (journal.targetGeneration === undefined || journal.targetGeneration <= journal.originalGeneration
+    || target.generation !== journal.targetGeneration) {
+    return { kind: 'write-target-generation' }
+  }
   if (target.dataId !== 'ours') return { kind: 'write-target-id' }
   if (target.state === 'ours') return { kind: 'clear-target-state' }
   return { kind: 'set-phase', phase: 'switching' }
@@ -940,6 +962,11 @@ function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
       return { kind: 'unlink-target-id' }
     }
     if (!source.exists) return { kind: 'rename-hidden-to-source' }
+    // The original's number goes above the copy's before it takes its identity back, so the copy is the older one.
+    if (journal.targetGeneration !== undefined
+      && (journal.originalGeneration <= journal.targetGeneration || source.generation < journal.originalGeneration)) {
+      return { kind: 'write-original-generation' }
+    }
     if (source.movedId && source.dataId === 'none') return { kind: 'restore-source-id' }
     if (source.state === 'ours') return { kind: 'clear-source-state' }
     if (target.exists && target.state === 'ours' && sourceIsOurs && !leftBehind(journal, journal.target) && !journal.retiredInPlace) {

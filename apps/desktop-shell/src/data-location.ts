@@ -37,6 +37,7 @@ import {
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeDurably } from './durable-file.ts'
 import type { AbandonedCopy } from './move/journal.ts'
+import { samePathText } from './path-text.ts'
 
 /** File name of the pointer under Electron's user-data directory. */
 export const POINTER_FILENAME = 'data-location.json'
@@ -59,6 +60,16 @@ export const MOVE_STATE_FILENAME = '.dsh-move-state'
  * move.
  */
 export const RETIRED_FILENAME = '.dsh-data-retired'
+/**
+ * File holding a data directory's generation, a decimal integer; absent means
+ * 0. A data move gives the copy it switches to a higher number than the
+ * original, and a rollback gives the original a higher number than the copy,
+ * so of two folders with the same identity the one in use has the higher
+ * number; the pointer records it too ({@link DataLocationPointer.generation}).
+ * A folder whose number is lower than that is left over, wherever it is
+ * mounted ({@link setAsideReason}).
+ */
+export const GENERATION_FILENAME = '.dsh-data-generation'
 
 /**
  * Identity of one data directory: a random UUID written once into its marker
@@ -82,6 +93,8 @@ export interface DataLocationPointer {
   lastSeenEnv?: string
   /** When the location last changed, as an ISO timestamp. */
   movedAt?: string
+  /** The data directory's generation ({@link GENERATION_FILENAME}) when it was named; absent means 0. */
+  generation?: number
 }
 
 /**
@@ -146,6 +159,11 @@ function validatePointer(value: unknown): DataLocationPointer | string {
   if (movedAt !== undefined) {
     if (typeof movedAt !== 'string') return 'movedAt is not a string'
     pointer.movedAt = movedAt
+  }
+  const generation = record['generation']
+  if (generation !== undefined) {
+    if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 0) return 'generation is not a count'
+    pointer.generation = generation
   }
   return pointer
 }
@@ -295,31 +313,166 @@ export function hasHarnessStructure(dir: string): boolean {
 }
 
 /**
- * Whether a data move set a directory aside, so it must never be used as the
- * data directory: it holds a move marker ({@link MOVE_STATE_FILENAME}) or a
- * retired marker ({@link RETIRED_FILENAME}), or it is a recorded abandoned
- * copy. An abandoned copy carries the same identity as the data in use, so it
- * is told apart by its recorded path, compared with the directory's real
- * path: a link to the data in use at a recorded path (`~/.dsh` after a move)
- * is not set aside.
+ * A data directory's generation.
+ * @param dir - the directory.
+ * @returns its number; 0 when the file is absent or does not hold a count, so an unreadable number never makes a folder the newest.
+ */
+export function readGeneration(dir: string): number {
+  let text: string
+  try {
+    text = readFileSync(join(dir, GENERATION_FILENAME), 'utf8')
+  } catch {
+    // ENOENT for a folder no move has numbered; anything else cannot vouch for a number either.
+    return 0
+  }
+  return parseGeneration(text)
+}
+
+/**
+ * A generation file's number.
+ * @param text - its text, or `undefined` when there is none.
+ * @returns the number; 0 when absent or not a count.
+ */
+export function parseGeneration(text: string | undefined): number {
+  const trimmed = text?.trim() ?? ''
+  const value = Number(trimmed)
+  return /^\d+$/.test(trimmed) && Number.isSafeInteger(value) ? value : 0
+}
+
+/**
+ * Replace a data directory's generation durably.
+ * @param dir - the directory.
+ * @param generation - the new number.
+ * @throws when it cannot be written.
+ */
+export function writeGeneration(dir: string, generation: number): void {
+  writeDurably(join(dir, GENERATION_FILENAME), Buffer.from(`${String(generation)}\n`), 0o600)
+}
+
+/**
+ * A pointer's `generation` set to a number, left out when it is 0 so a
+ * pointer that never had one reads the same as before.
+ * @param pointer - the pointer.
+ * @param generation - the number.
+ * @returns the pointer with it.
+ */
+export function withGeneration(pointer: DataLocationPointer, generation: number): DataLocationPointer {
+  const next = { ...pointer }
+  if (generation > 0) next.generation = generation
+  else delete next.generation
+  return next
+}
+
+/** The identity in use and the highest generation known for it. */
+export interface DataReference {
+  dataId: DataId
+  generation: number
+}
+
+/** What {@link setAsideReason} compares a folder with. */
+export interface SetAsideContext {
+  /** The copies recorded as abandoned by data moves. */
+  abandoned: readonly AbandonedCopy[]
+  /** The identity in use and its generation, when one is known ({@link dataReference}). */
+  reference: DataReference | undefined
+}
+
+/**
+ * Whether a directory carries a move or retired marker.
+ * @param dir - the directory.
+ * @returns true when one of them is there.
+ */
+function hasMoveMarker(dir: string): boolean {
+  return existsSync(join(dir, MOVE_STATE_FILENAME)) || existsSync(join(dir, RETIRED_FILENAME))
+}
+
+/**
+ * The identity in use and the highest generation known for it: the pointer's
+ * identity (or, without a pointer, the default home's), with the highest of
+ * the pointer's number and the numbers in the pointer's folder and the default
+ * home when they carry that identity and no move marker. The folders count
+ * because a rollback puts the pointer back as it was before the move, older
+ * than the original's new number, and a crash may leave the pointer one step
+ * behind its folder.
+ * @param read - the pointer.
+ * @param defaultHome - `~/.dsh`.
+ * @returns the reference, or `undefined` when no identity is known.
+ */
+export function dataReference(read: PointerRead, defaultHome: string): DataReference | undefined {
+  const pointer = read.kind === 'ok' ? read.pointer : undefined
+  const idAt = (dir: string): DataId | undefined => {
+    if (!isDirectory(dir) || hasMoveMarker(dir)) return undefined
+    const id = readDataId(dir)
+    return id.kind === 'ok' ? id.id : undefined
+  }
+  const dataId = pointer?.dataId ?? idAt(defaultHome)
+  if (dataId === undefined) return undefined
+  let generation = pointer?.generation ?? 0
+  for (const dir of [...pointer === undefined ? [] : [pointer.path], defaultHome]) {
+    if (idAt(dir) === dataId) generation = Math.max(generation, readGeneration(dir))
+  }
+  return { dataId, generation }
+}
+
+/**
+ * Why a data move set a directory aside, so it must never be used as the
+ * data directory:
+ *
+ * - `moving`: it holds a move marker ({@link MOVE_STATE_FILENAME});
+ * - `retired`: it holds a retired marker ({@link RETIRED_FILENAME});
+ * - `abandoned`: it is a recorded abandoned copy, told apart from the data in
+ *   use (which has the same identity) by its real path, compared as the
+ *   platform compares names, so a link to the data in use at a recorded path
+ *   (`~/.dsh` after a move) is not set aside;
+ * - `older`: it carries the identity in use with a lower generation than the
+ *   reference, wherever it is mounted now.
  * @param dir - the directory, as a pointer, `DSH_HOME`, or a pick names it.
- * @param abandoned - the recorded abandoned copies.
+ * @param context - the abandoned copies and the reference.
+ * @returns the reason, or `undefined` when the directory may be used.
+ */
+export function setAsideReason(dir: string, context: SetAsideContext): SetAsideReason | undefined {
+  if (!isDirectory(dir)) return undefined
+  if (existsSync(join(dir, MOVE_STATE_FILENAME))) return 'moving'
+  if (existsSync(join(dir, RETIRED_FILENAME))) return 'retired'
+  const id = readDataId(dir)
+  if (id.kind !== 'ok') return undefined
+  if (context.abandoned.length > 0) {
+    let real: string
+    try {
+      real = realpathSync.native(dir)
+    } catch {
+      // The directory went away between the checks: nothing is there to set aside.
+      return undefined
+    }
+    if (context.abandoned.some(copy => copy.dataId === id.id && samePathText(copy.path, real, process.platform))) return 'abandoned'
+  }
+  const { reference } = context
+  if (reference !== undefined && reference.dataId === id.id && readGeneration(dir) < reference.generation) return 'older'
+  return undefined
+}
+
+/** Why a folder is set aside; see {@link setAsideReason}. */
+export type SetAsideReason = 'moving' | 'retired' | 'abandoned' | 'older'
+
+/**
+ * Whether the person may make a set-aside folder current again: it holds the
+ * data (an identity and no move marker) and is set aside only by the record
+ * of abandoned copies or by its generation.
+ * @param reason - why it is set aside.
+ * @returns true for `abandoned` and `older`.
+ */
+export function canMakeCurrent(reason: SetAsideReason): boolean {
+  return reason === 'abandoned' || reason === 'older'
+}
+
+/**
+ * Whether a data move set a directory aside ({@link setAsideReason}).
+ * @param dir - the directory.
+ * @param context - the abandoned copies and the reference.
  * @returns true when the directory must not be used.
  */
-export function isSetAside(dir: string, abandoned: readonly AbandonedCopy[]): boolean {
-  if (!isDirectory(dir)) return false
-  if (existsSync(join(dir, MOVE_STATE_FILENAME)) || existsSync(join(dir, RETIRED_FILENAME))) return true
-  if (abandoned.length === 0) return false
-  const id = readDataId(dir)
-  if (id.kind !== 'ok') return false
-  let real: string
-  try {
-    real = realpathSync.native(dir)
-  } catch {
-    // The directory went away between the checks: nothing is there to set aside.
-    return false
-  }
-  return abandoned.some(copy => copy.dataId === id.id && copy.path === real)
+export function isSetAside(dir: string, context: SetAsideContext): boolean {
+  return setAsideReason(dir, context) !== undefined
 }
 
 /** Why a pointer's directory cannot be used. `set-aside`: a data move set it aside ({@link isSetAside}). */
@@ -414,6 +567,8 @@ export type Resolution =
     suggestion?: DataLocationPointer
     /** The directory that cannot be used when no pointer names it (`DSH_HOME` or `~/.dsh` set aside by a move). */
     path?: string
+    /** For `set-aside`: the person may make the folder current again ({@link canMakeCurrent}). */
+    escapable?: boolean
     detail?: string
   }
   | { kind: 'confirm-env'; envPath: string; pointer: DataLocationPointer; reason: EnvUnverifiedReason }
@@ -442,9 +597,11 @@ export interface ResolveInput {
  */
 export function resolveDataLocation(input: ResolveInput): Resolution {
   const { read, env, defaultHome, abandoned } = input
+  const context: SetAsideContext = { abandoned, reference: dataReference(read, defaultHome) }
   if (read.kind === 'absent') {
     const home = env ?? defaultHome
-    if (isSetAside(home, abandoned)) return { kind: 'unavailable', reason: 'set-aside', path: home }
+    const why = setAsideReason(home, context)
+    if (why !== undefined) return { kind: 'unavailable', reason: 'set-aside', path: home, escapable: canMakeCurrent(why) }
     return env === undefined ? { kind: 'ready', home: defaultHome, via: 'default' } : { kind: 'ready', home: env, via: 'env' }
   }
   if (read.kind === 'corrupt') {
@@ -455,20 +612,21 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
   const pointer = read.pointer
   if (env !== undefined && env !== pointer.lastSeenEnv) {
     const seen: DataLocationPointer = { ...pointer, lastSeenEnv: env }
-    if (env === pointer.path) return verifyPointer(seen, true, abandoned)
+    if (env === pointer.path) return verifyPointer(seen, true, context)
     const kind = pathKind(env)
     if (kind === 'absent') return { kind: 'confirm-env', envPath: env, pointer, reason: 'missing' }
     if (kind === 'other') return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-a-folder' }
     // Before the identity: an abandoned copy carries this data's identity.
-    if (isSetAside(env, abandoned)) return { kind: 'confirm-env', envPath: env, pointer, reason: 'set-aside' }
-    const followed: DataLocationPointer = { ...seen, path: env, movedAt: new Date().toISOString() }
+    if (isSetAside(env, context)) return { kind: 'confirm-env', envPath: env, pointer, reason: 'set-aside' }
+    // The pointer now names another folder: its number is that folder's.
+    const followed: DataLocationPointer = withGeneration({ ...seen, path: env, movedAt: new Date().toISOString() }, readGeneration(env))
     const id = readDataId(env)
     if (id.kind === 'ok') return { kind: 'ready', home: env, via: 'followed-env', pointer: { ...followed, dataId: id.id } }
     if (id.kind === 'unreadable') return { kind: 'confirm-env', envPath: env, pointer, reason: 'damaged-data' }
     if (looksLikeHarnessHome(env)) return { kind: 'ready', home: env, via: 'followed-env', pointer: followed, adoptId: true }
     return { kind: 'confirm-env', envPath: env, pointer, reason: 'not-harness-data' }
   }
-  return verifyPointer(pointer, false, abandoned)
+  return verifyPointer(pointer, false, context)
 }
 
 /**
@@ -476,12 +634,13 @@ export function resolveDataLocation(input: ResolveInput): Resolution {
  * move, and carries its identity.
  * @param pointer - the pointer to verify.
  * @param changed - whether the pointer must be written back when it verifies.
- * @param abandoned - the recorded abandoned copies.
+ * @param context - the abandoned copies and the reference.
  * @returns `ready` at the pointer's path, or why it is unavailable.
  */
-function verifyPointer(pointer: DataLocationPointer, changed: boolean, abandoned: readonly AbandonedCopy[]): Resolution {
+function verifyPointer(pointer: DataLocationPointer, changed: boolean, context: SetAsideContext): Resolution {
   if (!isDirectory(pointer.path)) return { kind: 'unavailable', reason: 'missing', pointer }
-  if (isSetAside(pointer.path, abandoned)) return { kind: 'unavailable', reason: 'set-aside', pointer }
+  const why = setAsideReason(pointer.path, context)
+  if (why !== undefined) return { kind: 'unavailable', reason: 'set-aside', pointer, escapable: canMakeCurrent(why) }
   const id = readDataId(pointer.path)
   if (id.kind !== 'ok' || id.id !== pointer.dataId) return { kind: 'unavailable', reason: 'id-mismatch', pointer }
   return changed ? { kind: 'ready', home: pointer.path, via: 'pointer', pointer } : { kind: 'ready', home: pointer.path, via: 'pointer' }
@@ -523,16 +682,16 @@ export type ChosenFolder =
  * @param chosen - the absolute folder path.
  * @param pointer - the pointer that could not be used, or `undefined` when it was unreadable.
  * @param env - the explicit `DSH_HOME` observed this launch, recorded as seen.
- * @param abandoned - the recorded abandoned copies.
+ * @param context - the abandoned copies and the reference.
  * @returns the pointer to write, or why the folder is refused.
  */
 export function checkChosenFolder(
   chosen: string,
   pointer: DataLocationPointer | undefined,
   env: string | undefined,
-  abandoned: readonly AbandonedCopy[],
+  context: SetAsideContext,
 ): ChosenFolder {
-  if (isSetAside(chosen, abandoned)) return { kind: 'rejected', reason: 'set-aside' }
+  if (isSetAside(chosen, context)) return { kind: 'rejected', reason: 'set-aside' }
   const id = readDataId(chosen)
   if (id.kind !== 'ok') return { kind: 'rejected', reason: 'no-data' }
   if (pointer !== undefined && id.id !== pointer.dataId) return { kind: 'rejected', reason: 'other-data' }
@@ -544,7 +703,7 @@ export function checkChosenFolder(
   }
   const lastSeenEnv = env ?? pointer?.lastSeenEnv
   if (lastSeenEnv !== undefined) next.lastSeenEnv = lastSeenEnv
-  return { kind: 'accepted', pointer: next }
+  return { kind: 'accepted', pointer: withGeneration(next, readGeneration(chosen)) }
 }
 
 /**
@@ -558,13 +717,13 @@ export function checkChosenFolder(
  */
 export function adoptEnvLocation(envPath: string, pointer: DataLocationPointer): DataLocationPointer {
   mkdirSync(envPath, { recursive: true, mode: 0o700 })
-  return {
+  return withGeneration({
     ...pointer,
     path: envPath,
     dataId: ensureDataId(envPath),
     lastSeenEnv: envPath,
     movedAt: new Date().toISOString(),
-  }
+  }, readGeneration(envPath))
 }
 
 /**

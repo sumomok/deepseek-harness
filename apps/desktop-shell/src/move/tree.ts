@@ -22,7 +22,8 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readdirSync } from 'node:fs'
 import { lstat, readdir, readlink } from 'node:fs/promises'
-import { join, posix, win32 } from 'node:path'
+import { join } from 'node:path'
+import { foldPath, pathApi } from '../path-text.ts'
 
 /**
  * Entries under the Harness home that the server rebuilds by itself, so a move
@@ -109,12 +110,8 @@ export function nativePath(root: string, rel: string): string {
  * @returns true when `path` is inside `root` or equal to it.
  */
 export function isInsidePath(path: string, root: string, platform: NodeJS.Platform): boolean {
-  const api = platform === 'win32' ? win32 : posix
-  const fold = (value: string): string => {
-    if (platform === 'win32') return value.toLowerCase()
-    return platform === 'darwin' ? value.normalize('NFC').toLowerCase() : value
-  }
-  const rel = api.relative(fold(api.resolve(root)), fold(api.resolve(path)))
+  const api = pathApi(platform)
+  const rel = api.relative(foldPath(api.resolve(root), platform), foldPath(api.resolve(path), platform))
   if (rel === '') return true
   if (api.isAbsolute(rel)) return false
   return rel !== '..' && !rel.startsWith(`..${api.sep}`)

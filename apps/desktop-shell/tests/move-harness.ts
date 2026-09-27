@@ -9,7 +9,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { DataId } from '../src/data-location.ts'
+import { readGeneration, type DataId } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
 import { moveDir, readJournal, type BlockedChoice, type MoveStart } from '../src/move/journal.ts'
 import {
@@ -81,6 +81,7 @@ export function prepareMove(input: {
       terminalBefore,
       homeLinkBefore: readHomeLinkBefore(defaultHome),
       baseline: { sessions: 1, workspaces: 0, quarantined: [] },
+      originalGeneration: readGeneration(input.home),
     },
   }
 }

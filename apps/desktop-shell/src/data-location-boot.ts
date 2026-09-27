@@ -20,26 +20,34 @@
  * @module @deepseek-ai/dsh-desktop-shell/data-location-boot
  */
 
+import { realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
-  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, keepPointerOverEnv, normalizeDshHome, readPointer,
-  resolveDataLocation, writePointer,
+  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, dataReference, keepPointerOverEnv, normalizeDshHome, readDataId,
+  readGeneration, readPointer, resolveDataLocation, withGeneration, writeGeneration, writePointer,
   type ChosenFolder, type DataLocationPointer, type EnvUnverifiedReason, type PointerRead, type Resolution, type UnavailableReason,
 } from './data-location.ts'
 import type { DataLocationText } from './data-location-text.ts'
 import { calibrateHomeLink, defaultHomeLinkTarget, type HomeLinkOutcome, type LinkFs } from './home-link.ts'
-import { ABANDONED_FILENAME, JournalError, moveDir, readAbandonedCopies, type AbandonedCopy } from './move/journal.ts'
+import { writeDurably } from './durable-file.ts'
+import {
+  ABANDONED_FILENAME, abandonedCopiesText, JournalError, moveDir, readAbandonedCopies, type AbandonedCopy,
+} from './move/journal.ts'
+import { samePathText } from './path-text.ts'
 import { POINTER_HOME_ENV, processDshHome, type ExplicitRead, type TerminalWrite } from './terminal-env.ts'
 
 /** A question the boot window puts to the person. */
 export type LocationPrompt =
-  | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined; suggestion?: string }
+  | { kind: 'unavailable'; reason: UnavailableReason; path: string | undefined; suggestion?: string; escapable?: boolean }
+  /** The person asked to use a set-aside folder as their data; this confirms it. */
+  | { kind: 'confirm-use'; path: string }
   /** The record of abandoned copies cannot be read; the launch cannot tell a copy from the data. */
   | { kind: 'abandoned-unreadable'; path: string; platform: NodeJS.Platform }
   | { kind: 'confirm-env'; reason: EnvUnverifiedReason; envPath: string; current: string }
 
 /** The answers a {@link LocationPrompt} offers. */
-export type LocationAnswer = 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep' | 'reveal'
+export type LocationAnswer =
+  | 'retry' | 'use-suggested' | 'choose' | 'quit' | 'use-new' | 'keep' | 'reveal' | 'use-anyway' | 'confirm' | 'cancel'
 
 /** A prompt rendered for a message box. */
 export interface PromptView {
@@ -63,14 +71,13 @@ export interface PromptView {
 export function promptView(prompt: LocationPrompt, text: DataLocationText): PromptView {
   switch (prompt.kind) {
     case 'unavailable': {
-      const buttons: PromptView['buttons'] = prompt.suggestion === undefined
-        ? [{ label: text.retry, answer: 'retry' }, { label: text.choose, answer: 'choose' }, { label: text.quit, answer: 'quit' }]
-        : [
-          { label: text.retry, answer: 'retry' },
-          { label: text.useSuggested, answer: 'use-suggested' },
-          { label: text.choose, answer: 'choose' },
-          { label: text.quit, answer: 'quit' },
-        ]
+      const buttons: PromptView['buttons'] = [
+        { label: text.retry, answer: 'retry' },
+        ...prompt.suggestion === undefined ? [] : [{ label: text.useSuggested, answer: 'use-suggested' as const }],
+        { label: text.choose, answer: 'choose' },
+        ...prompt.escapable === true ? [{ label: text.useAnyway, answer: 'use-anyway' as const }] : [],
+        { label: text.quit, answer: 'quit' },
+      ]
       return {
         message: text.unavailableTitle,
         detail: prompt.suggestion === undefined
@@ -85,6 +92,13 @@ export function promptView(prompt: LocationPrompt, text: DataLocationText): Prom
       const buttons: PromptView['buttons'] = [{ label: text.reveal(prompt.platform), answer: 'reveal' }, { label: text.quit, answer: 'quit' }]
       return { message: text.abandonedUnreadableTitle, detail: text.abandonedUnreadable(prompt.path), buttons, cancelIndex: 1 }
     }
+    case 'confirm-use':
+      return {
+        message: text.confirmUseTitle(prompt.path),
+        detail: text.confirmUse,
+        buttons: [{ label: text.cancel, answer: 'cancel' }, { label: text.confirmUseButton, answer: 'confirm' }],
+        cancelIndex: 0,
+      }
     case 'confirm-env':
       return {
         message: text.envTitle,
@@ -375,19 +389,28 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
         const path = resolution.pointer?.path ?? resolution.path
         const suggestion = resolution.suggestion
         log(`[desktop] data location: unavailable (${resolution.reason}) ${path ?? resolution.detail ?? ''}${suggestion === undefined ? '' : `; the backup names ${suggestion.path}`}; asking\n`)
+        const escapable = resolution.escapable === true && path !== undefined
         const answer = await host.ask(promptView({
           kind: 'unavailable', reason: resolution.reason, path, ...suggestion === undefined ? {} : { suggestion: suggestion.path },
+          ...escapable ? { escapable } : {},
         }, text))
         if (answer === 'quit') {
           log('[desktop] data location: the person chose to quit\n')
           return undefined
+        }
+        if (answer === 'use-anyway' && escapable) {
+          if (await host.ask(promptView({ kind: 'confirm-use', path }, text)) !== 'confirm') continue
+          log(`[desktop] data location: the person made ${path} their data again\n`)
+          makeFolderCurrent(host, path, read)
+          continue
         }
         let chosen: string | undefined
         if (answer === 'use-suggested' && suggestion !== undefined) chosen = suggestion.path
         else if (answer === 'choose') chosen = await host.chooseFolder(text.chooseTitle)
         if (chosen === undefined) continue
         // A confirmed backup location must still carry the identity the backup recorded.
-        const checked = checkChosenFolder(chosen, answer === 'use-suggested' ? suggestion : resolution.pointer, envPath, abandoned)
+        const context = { abandoned, reference: dataReference(read, host.defaultHome) }
+        const checked = checkChosenFolder(chosen, answer === 'use-suggested' ? suggestion : resolution.pointer, envPath, context)
         if (checked.kind === 'rejected') {
           log(`[desktop] data location: refused ${chosen} (${checked.reason})\n`)
           await host.tell(refusal(text, checked.reason, chosen))
@@ -438,6 +461,36 @@ export async function settleDataLocation(host: DataLocationHost, launchEnv: stri
       default:
         return resolution satisfies never
     }
+  }
+}
+
+/**
+ * Make a folder set aside by the record of abandoned copies or by its
+ * generation the data in use again, after the person confirmed it: its
+ * generation goes above every other copy's, its records in the abandoned
+ * list go, and the pointer, when there is one, names it with that number.
+ * Each step is repeatable, in this order, so an interruption leaves the
+ * folder refused (and the person asked again) or current, never a second
+ * copy in use.
+ * @param host - the app.
+ * @param folder - the folder.
+ * @param read - the pointer as read this pass.
+ * @throws when the folder carries no identity, or a file cannot be written.
+ */
+function makeFolderCurrent(host: DataLocationHost, folder: string, read: PointerRead): void {
+  const id = readDataId(folder)
+  if (id.kind !== 'ok') throw new Error(`${folder} carries no data identity`)
+  const reference = dataReference(read, host.defaultHome)
+  const generation = Math.max(reference?.dataId === id.id ? reference.generation : 0, readGeneration(folder)) + 1
+  writeGeneration(folder, generation)
+  const dir = moveDir(host.userData)
+  const copies = readAbandonedCopies(dir)
+  const real = realpathSync.native(folder)
+  const kept = copies.filter(copy => !(copy.dataId === id.id && samePathText(copy.path, real, host.platform)))
+  if (kept.length !== copies.length) writeDurably(join(dir, ABANDONED_FILENAME), Buffer.from(abandonedCopiesText(kept)), 0o600)
+  if (read.kind === 'ok') {
+    const named = { ...read.pointer, path: resolve(folder), dataId: id.id, movedAt: new Date().toISOString() }
+    writePointer(host.userData, withGeneration(named, generation))
   }
 }
 

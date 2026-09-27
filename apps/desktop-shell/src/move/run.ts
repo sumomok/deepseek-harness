@@ -35,12 +35,14 @@
  */
 
 import {
-  lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync,
+  lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+import { samePathText } from '../path-text.ts'
 import { fsyncDirectory, writeDurably } from '../durable-file.ts'
 import {
-  DATA_ID_FILENAME, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION, writePointer, type DataLocationPointer,
+  DATA_ID_FILENAME, GENERATION_FILENAME, parseGeneration, POINTER_BACKUP_FILENAME, POINTER_FILENAME, POINTER_VERSION, withGeneration,
+  writePointer, type DataLocationPointer,
 } from '../data-location.ts'
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
 import type { ExplicitRead } from '../terminal-env.ts'
@@ -124,7 +126,9 @@ export function nodeMoveFs(flushDir: (dir: string) => void = fsyncDirectory): Mo
 }
 
 /** The markers a move writes in a data directory; neither copied nor printed. */
-export const MOVE_MARKERS: readonly string[] = [DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME]
+export const MOVE_MARKERS: readonly string[] = [
+  DATA_ID_FILENAME, MOVE_STATE_FILENAME, MOVED_ID_FILENAME, RETIRED_FILENAME, GENERATION_FILENAME,
+]
 
 /** What a print of the target leaves out: what the server rebuilds, and the markers. */
 export const PRINT_EXCLUDE: readonly string[] = [...REBUILDABLE_ENTRIES, ...MOVE_MARKERS]
@@ -254,7 +258,8 @@ export function startMove(dir: string, start: MoveStart, options: { pid: number;
   unlinkIfPresent(join(dir, DONE_LOG_FILENAME))
   // The new location passed the preflight, so no abandoned copy is there any more; its record would refuse the data.
   const copies = readAbandonedCopies(dir)
-  const kept = copies.filter(copy => copy.path !== journal.target)
+  const target = canonicalPath(journal.target)
+  const kept = copies.filter(copy => !samePathText(copy.path, target, process.platform))
   if (kept.length !== copies.length) writeDurably(join(dir, ABANDONED_FILENAME), Buffer.from(abandonedCopiesText(kept)), 0o600)
   writeJournal(dir, journal)
   return journal
@@ -364,7 +369,7 @@ function unlinkIfPresent(path: string): void {
  */
 function dirFacts(fs: MoveFs, path: string, journal: MoveJournal): DirFacts {
   const kind = fs.kind(path)
-  if (kind !== 'dir') return { exists: kind !== 'absent', dataId: 'none', movedId: false, retired: false, state: 'none', empty: false }
+  if (kind !== 'dir') return { exists: kind !== 'absent', dataId: 'none', movedId: false, retired: false, generation: 0, state: 'none', empty: false }
   const id = fs.readText(join(path, DATA_ID_FILENAME))?.trim()
   const state = fs.readText(join(path, MOVE_STATE_FILENAME))?.trim()
   return {
@@ -372,6 +377,7 @@ function dirFacts(fs: MoveFs, path: string, journal: MoveJournal): DirFacts {
     dataId: id === undefined ? 'none' : id === journal.dataId ? 'ours' : 'other',
     movedId: fs.readText(join(path, MOVED_ID_FILENAME)) !== undefined,
     retired: fs.readText(join(path, RETIRED_FILENAME)) !== undefined,
+    generation: parseGeneration(fs.readText(join(path, GENERATION_FILENAME))),
     state: state === undefined ? 'none' : state === journal.moveId ? 'ours' : 'other',
     empty: meaningfulNames(fs.readdir(path)).length === 0,
   }
@@ -631,6 +637,18 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
     case 'rename-source-to-hidden':
       await renameWithRetry(effects, journal.source, journal.hidden)
       return undefined
+    case 'write-target-generation': {
+      const generation = Math.max(journal.targetGeneration ?? 0, journal.originalGeneration + 1)
+      if (generation !== journal.targetGeneration) save({ ...journal, targetGeneration: generation })
+      fs.writeFile(join(journal.target, GENERATION_FILENAME), `${String(generation)}\n`)
+      return undefined
+    }
+    case 'write-original-generation': {
+      const generation = Math.max(journal.originalGeneration, (journal.targetGeneration ?? 0) + 1, context.facts.source.generation)
+      if (generation !== journal.originalGeneration) save({ ...journal, originalGeneration: generation })
+      fs.writeFile(join(journal.source, GENERATION_FILENAME), `${String(generation)}\n`)
+      return undefined
+    }
     case 'write-target-id':
       fs.writeFile(join(journal.target, DATA_ID_FILENAME), `${journal.dataId}\n`)
       return undefined
@@ -754,14 +772,17 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
  * @returns the pointer.
  */
 function pointerFor(journal: MoveJournal, lastSeenEnv: string | undefined, now: Date): DataLocationPointer {
-  return {
+  // On one volume the original itself is renamed, and keeps its number.
+  const generation = journal.sameVolume ? journal.originalGeneration : journal.targetGeneration ?? journal.originalGeneration
+  return withGeneration({
     version: POINTER_VERSION,
     path: journal.target,
     dataId: journal.dataId,
     ...lastSeenEnv === undefined ? {} : { lastSeenEnv },
     movedAt: now.toISOString(),
-  }
+  }, generation)
 }
+
 
 /**
  * The retired marker's content.
@@ -821,7 +842,8 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
   const paths = [...abandoned === undefined ? [] : [abandoned], ...original === undefined ? [] : [journal.source, journal.hidden]]
   if (paths.length > 0) {
     const copies = readAbandonedCopies(dir)
-    const added = paths.filter(path => !copies.some(copy => copy.moveId === journal.moveId && copy.path === path))
+    const added = paths.map(canonicalPath)
+      .filter(path => !copies.some(copy => copy.moveId === journal.moveId && samePathText(copy.path, path, effects.platform)))
       .map(path => ({ path, dataId: journal.dataId, moveId: journal.moveId, abandonedAt: now.toISOString() }))
     if (added.length > 0) fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText([...copies, ...added]))
   }
@@ -890,6 +912,28 @@ export async function retireAbandonedCopies(
     fs.writeFile(join(dir, ABANDONED_FILENAME), abandonedCopiesText(copies))
   }
   return retired
+}
+
+/**
+ * A path as the abandoned-copies record keeps it: the real path when it
+ * exists; when it does not (its drive is away), the real path of the nearest
+ * folder above it that exists, joined with the rest; otherwise the path
+ * resolved. Records compare as the platform compares names
+ * ({@link samePathText}).
+ * @param path - an absolute path.
+ * @returns its canonical text.
+ */
+export function canonicalPath(path: string): string {
+  const rest: string[] = []
+  for (let at = resolve(path); ; at = dirname(at)) {
+    try {
+      return join(realpathSync.native(at), ...rest.reverse())
+    } catch {
+      // ENOENT (or unreachable): try the folder above, keeping this name.
+    }
+    if (dirname(at) === at) return resolve(path)
+    rest.push(basename(at))
+  }
 }
 
 /**

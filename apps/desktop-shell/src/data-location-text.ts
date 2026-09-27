@@ -27,6 +27,12 @@ export interface DataLocationText {
   abandonedUnreadable: (path: string) => string
   /** The button that shows a file in the platform's file browser. */
   reveal: (platform: NodeJS.Platform) => string
+  /** The button that makes a set-aside folder the data again. */
+  useAnyway: string
+  confirmUseTitle: (path: string) => string
+  confirmUse: string
+  confirmUseButton: string
+  cancel: string
   ok: string
   envTitle: string
   env: (reason: EnvUnverifiedReason, envPath: string, current: string) => string
@@ -64,6 +70,11 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     abandonedUnreadableTitle: 'DSH 暂时不能启动',
     abandonedUnreadable: path => `记录搬运数据时留下的文件夹的文件「${path}」读不出来了。DSH 没法分辨哪些文件夹是留下的副本，为了不把副本当成你的数据，在这个文件修好之前不会启动。`,
     reveal: platform => platform === 'win32' ? '在资源管理器中显示' : '在访达中显示',
+    useAnyway: '这就是我要用的数据，改用它',
+    confirmUseTitle: path => `改用「${path}」里的数据？`,
+    confirmUse: 'DSH 会把这个文件夹当作你的数据继续使用。同一份数据的其他副本，包括搬运数据时留下的，以后都不会再被使用。',
+    confirmUseButton: '改用它',
+    cancel: '取消',
     ok: '知道了',
     envTitle: '数据位置被改过了',
     env: (reason, envPath, current) => {
@@ -115,6 +126,11 @@ export const DATA_LOCATION_TEXT: Record<'zh' | 'en', DataLocationText> = {
     abandonedUnreadableTitle: 'DSH cannot start',
     abandonedUnreadable: path => `The file that records folders left behind by moving your data, "${path}", cannot be read. DSH cannot tell which folders are left-behind copies, so to avoid taking a copy for your data it does not start until this file is fixed.`,
     reveal: platform => platform === 'win32' ? 'Show in File Explorer' : 'Show in Finder',
+    useAnyway: 'This Is My Data — Use It',
+    confirmUseTitle: path => `Use the data in "${path}"?`,
+    confirmUse: 'DSH will use this folder as your data from now on. Any other copy of the same data, including copies left behind by moving your data, will no longer be used.',
+    confirmUseButton: 'Use It',
+    cancel: 'Cancel',
     ok: 'OK',
     envTitle: 'The data location was changed',
     env: (reason, envPath, current) => {

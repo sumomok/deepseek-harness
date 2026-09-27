@@ -16,10 +16,11 @@ import {
   type DataLocationHost, type LocationAnswer, type PromptView,
 } from '../src/data-location-boot.ts'
 import {
-  DATA_ID_FILENAME, MOVE_STATE_FILENAME, POINTER_VERSION, readDataId, readPointer, RETIRED_FILENAME, writePointer,
+  DATA_ID_FILENAME, MOVE_STATE_FILENAME, POINTER_VERSION, readDataId, readGeneration, readPointer, RETIRED_FILENAME, writeGeneration,
+  writePointer,
   type DataId, type DataLocationPointer,
 } from '../src/data-location.ts'
-import { ABANDONED_FILENAME, abandonedCopiesText, moveDir, type MoveId } from '../src/move/journal.ts'
+import { ABANDONED_FILENAME, abandonedCopiesText, moveDir, readAbandonedCopies, type MoveId } from '../src/move/journal.ts'
 import { DATA_LOCATION_TEXT, dataLocationText } from '../src/data-location-text.ts'
 import {
   POINTER_HOME_ENV, readLoginShellDshHome, shellQuote, updateShellProfile, type ExplicitRead, type TerminalWrite,
@@ -270,6 +271,84 @@ describe('settleDataLocation and folders a data move set aside', () => {
     // Once the person fixes the file, the launch goes on.
     const fixing = recordingHost({ answers: ['reveal'], onReveal: () => { writeFileSync(record, abandonedCopiesText([])) } })
     expect(await settleDataLocation(fixing.host, undefined)).toMatchObject({ home: defaultHome, via: 'default' })
+  })
+})
+
+describe('making a set-aside folder the data again', () => {
+  /** A folder with the identity, set aside by a lower number than the pointer's. */
+  function olderFolder(): string {
+    const folder = dataDir('mine', ID)
+    writeGeneration(folder, 1)
+    writePointer(userData, pointerAt(folder, { generation: 2 }))
+    return folder
+  }
+
+  /** Record the folder as an abandoned copy. */
+  function recordAbandoned(folder: string): void {
+    mkdirSync(moveDir(userData), { recursive: true })
+    writeFileSync(join(moveDir(userData), ABANDONED_FILENAME), abandonedCopiesText([
+      { path: realpathSync(folder), dataId: ID, moveId: 'm' as MoveId, abandonedAt: '' },
+    ]))
+  }
+
+  it('offers it only after a confirmation that other copies stop being used, then uses the folder', async () => {
+    const folder = olderFolder()
+    recordAbandoned(folder)
+    const recorded = recordingHost({ answers: ['use-anyway', 'confirm'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toMatchObject({ home: folder, via: 'pointer' })
+    const [page, confirm] = recorded.asked
+    expect(page?.buttons.map(button => button.answer)).toEqual(['retry', 'choose', 'use-anyway', 'quit'])
+    expect(page?.buttons.find(button => button.answer === 'use-anyway')?.label).toBe('这就是我要用的数据，改用它')
+    expect(confirm?.message).toBe(DATA_LOCATION_TEXT.zh.confirmUseTitle(folder))
+    expect(confirm?.detail).toBe(DATA_LOCATION_TEXT.zh.confirmUse)
+    expect(confirm?.buttons[confirm.cancelIndex]?.answer).toBe('cancel')
+    expect(readGeneration(folder)).toBe(3)
+    expect(readPointer(userData)).toMatchObject({ kind: 'ok', pointer: { path: folder, generation: 3 } })
+    expect(readAbandonedCopies(moveDir(userData))).toEqual([])
+  })
+
+  it('changes nothing when the person cancels', async () => {
+    const folder = olderFolder()
+    const recorded = recordingHost({ answers: ['use-anyway', 'cancel', 'quit'] })
+    expect(await settleDataLocation(recorded.host, undefined)).toBeUndefined()
+    expect(readGeneration(folder)).toBe(1)
+    expect(readPointer(userData)).toMatchObject({ kind: 'ok', pointer: { generation: 2 } })
+  })
+
+  it('is not offered for a folder in the middle of a move or retired', async () => {
+    const folder = dataDir('marked', ID)
+    writeFileSync(join(folder, RETIRED_FILENAME), '{}\n')
+    writePointer(userData, pointerAt(folder))
+    const recorded = recordingHost({ answers: ['quit'] })
+    await settleDataLocation(recorded.host, undefined)
+    expect(recorded.asked[0]?.buttons.map(button => button.answer)).toEqual(['retry', 'choose', 'quit'])
+  })
+
+  posixOnly('ends with the folder in use after an interruption at any of its steps', async () => {
+    const folder = olderFolder()
+    recordAbandoned(folder)
+    // The record cannot be rewritten: the folder's number is already raised, the rest is not done.
+    chmodSync(moveDir(userData), 0o500)
+    try {
+      await expect(settleDataLocation(recordingHost({ answers: ['use-anyway', 'confirm'] }).host, undefined)).rejects.toThrow()
+    } finally {
+      chmodSync(moveDir(userData), 0o700)
+    }
+    expect(readGeneration(folder)).toBe(3)
+    expect(readAbandonedCopies(moveDir(userData))).toHaveLength(1)
+    expect(readPointer(userData)).toMatchObject({ kind: 'ok', pointer: { generation: 2 } })
+    // Still refused by the record, so the person is asked again; now the pointer cannot be written.
+    chmodSync(userData, 0o500)
+    try {
+      await expect(settleDataLocation(recordingHost({ answers: ['use-anyway', 'confirm'] }).host, undefined)).rejects.toThrow()
+    } finally {
+      chmodSync(userData, 0o700)
+    }
+    expect(readGeneration(folder)).toBe(4)
+    expect(readAbandonedCopies(moveDir(userData))).toEqual([])
+    // The pointer is one step behind its folder, which the reference allows for: the folder is used.
+    const settled = await settleDataLocation(recordingHost().host, undefined)
+    expect(settled).toMatchObject({ home: folder, via: 'pointer' })
   })
 })
 

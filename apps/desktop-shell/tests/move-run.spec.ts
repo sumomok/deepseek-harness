@@ -7,11 +7,15 @@
  */
 
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  GENERATION_FILENAME, readDataId, readGeneration, readPointer, resolveDataLocation, writeGeneration, type Resolution,
+} from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
 import {
   abandonedCopiesText, isAbandonedCopy, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, mayStartServer, MOVE_PHASES, nextAction,
@@ -19,7 +23,8 @@ import {
   type DirFacts, type MoveFacts, type MoveId, type MoveJournal,
 } from '../src/move/journal.ts'
 import {
-  advanceMove, MoveStuckError, nodeMoveFs, recordHealth, resolveBlocked, retireAbandonedCopies, startMove,
+  advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
+  startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { keptFolderName } from '../src/move/names.ts'
@@ -86,7 +91,18 @@ function dataFiles(listing: readonly string[]): string[] {
     && !line.startsWith('file .dsh-data-id.moved ')
     && !line.startsWith(`file ${MOVE_STATE_FILENAME} `)
     && !line.startsWith(`file ${RETIRED_FILENAME} `)
+    && !line.startsWith('file .dsh-data-generation ')
     && !REBUILDABLE_ENTRIES.some(entry => line.startsWith(`file ${entry}/`) || line.startsWith(`file ${entry} `)))
+}
+
+/**
+ * The original's listing without its generation file, which a rollback adds
+ * (a number above the copy's); everything else must be as before the move.
+ * @param s - the scenario.
+ * @returns the listing.
+ */
+function originalListing(s: Scenario): string[] {
+  return listTree(s.f.home).filter(line => !line.startsWith('file .dsh-data-generation '))
 }
 
 /**
@@ -193,7 +209,7 @@ describe('a move to another volume', () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     const outcome = await runToEnd(s, false)
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'sessions missing' } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
     // The copy was exposed (the pointer and the terminal were told about it), so it is kept, retired, beside where it was.
     const [unused] = unusedCopies(s)
@@ -220,7 +236,7 @@ describe('a move to another volume', () => {
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
     expect(lstatSync(s.setup.defaultHome).isDirectory()).toBe(true)
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(pointerText(s, 'data-location.json')).toBeUndefined()
     expect(pointerText(s, 'data-location.json.bak')).toBeUndefined()
     expect(terminalValue(s.setup)).toBe('')
@@ -243,7 +259,7 @@ describe('a move to another volume', () => {
       pid: PID, cancel: controller.signal, onProgress: (progress) => { if (progress.stage === 'copying') controller.abort() },
     })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'cancelled' } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(readdirSync(s.f.targetParent)).toEqual([])
     expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
   })
@@ -271,7 +287,7 @@ describe('a move to another volume', () => {
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
     expect(outcome.kind === 'ended' ? outcome.result.detail : undefined).toContain('big.bin')
     expect(checks).toBe(MAX_REPAIR_ROUNDS + 1)
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(readdirSync(s.f.targetParent)).toEqual([])
   })
 
@@ -325,7 +341,7 @@ describe('a directory a terminal made at the old path', () => {
     expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(waiting))).toBe('applied')
     expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(waiting))).toBe('not-blocked')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(unusedCopies(s)).toHaveLength(1)
   })
 
@@ -410,7 +426,7 @@ describe('a directory a terminal made at the old path', () => {
     recordHealth(s.setup.dir, false)
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
     const unused = outcome.kind === 'ended' ? outcome.result.unusedCopy?.path ?? '' : ''
     expect(readFileSync(join(unused, 'skills', 'mine', 'SKILL.md'), 'utf8')).toBe('hand written\n')
@@ -429,7 +445,7 @@ describe('a directory a terminal made at the old path', () => {
     const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'injected: the read-back failed' } })
     expect(terminalValue(s.setup)).toBe(s.f.home)
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
   })
 
@@ -450,7 +466,7 @@ describe('a directory a terminal made at the old path', () => {
     }
     const outcome = await advanceMove(s.setup.dir, held, { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', unusedCopy: { path: s.target } } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
     expect(terminalValue(s.setup)).toBe(s.f.home)
     expect(existsSync(join(s.target, RETIRED_FILENAME))).toBe(true)
@@ -473,7 +489,7 @@ describe('a directory a terminal made at the old path', () => {
     expect(journals).toEqual([true])
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'injected: cannot write the pointer' } })
     expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(terminalValue(s.setup)).toBe(s.f.home)
   })
 
@@ -529,7 +545,7 @@ describe('a directory a terminal made at the old path', () => {
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', abandonedCopy: { path: s.target } } })
     expect(ended.kind === 'ended' ? ended.result.unusedCopy : 'x').toBeUndefined()
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     const moveId = readMoveResult(s.setup.dir)?.moveId
     expect(readAbandonedCopies(s.setup.dir)).toMatchObject([{ path: s.target, dataId: HARNESS_ID, moveId }])
     // The drive comes back: the copy still carries the identity, and A7 refuses it by its recorded path.
@@ -567,7 +583,7 @@ describe('a directory a terminal made at the old path', () => {
     }
     const outcome = await advanceMove(s.setup.dir, effects, { pid: PID })
     expect(outcome).toMatchObject({ kind: 'blocked', reason: 'target-missing', choices: ['rollback'] })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(join(away, RETIRED_FILENAME))).toBe(true)
     expect(existsSync(join(away, '.dsh-data-id'))).toBe(false)
   })
@@ -651,6 +667,44 @@ describe('a directory a terminal made at the old path', () => {
     expect(readAbandonedCopies(s.setup.dir)).toMatchObject([{ path: s.target }])
   })
 
+  posixOnly('records paths by their real path, and forgets a record that names the new location in other letter case', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const linkedParent = join(s.f.root, 'linked-parent')
+    symlinkSync(s.f.targetParent, linkedParent)
+    expect(canonicalPath(join(linkedParent, 'not', 'there'))).toBe(join(realpathSync(s.f.targetParent), 'not', 'there'))
+    expect(canonicalPath(`${s.f.targetParent}/`)).toBe(realpathSync(s.f.targetParent))
+    if (process.platform !== 'darwin') return
+    await rm(s.setup.dir, { recursive: true })
+    mkdirSync(s.setup.dir, { recursive: true })
+    writeFileSync(join(s.setup.dir, 'abandoned-copies.json'), abandonedCopiesText([
+      { path: `${s.target.toUpperCase()}/`, dataId: HARNESS_ID, moveId: 'm0' as MoveId, abandonedAt: '' },
+    ]))
+    startMove(s.setup.dir, s.setup.start, { pid: PID, now: new Date() })
+    expect(readAbandonedCopies(s.setup.dir)).toEqual([])
+  })
+
+  posixOnly('records an abandoned copy by its real path when the new location was named through a link', async () => {
+    const f = await buildFixture({ bigBytes: 1000 })
+    fixtures.push(f)
+    const linkedParent = join(f.root, 'linked-parent')
+    symlinkSync(f.targetParent, linkedParent)
+    const target = join(linkedParent, 'DSH-Data')
+    const setup = prepareMove({ root: f.root, home: f.home, target, sameVolume: false, start: 'pointer' })
+    startMove(setup.dir, setup.start, { pid: PID, now: new Date() })
+    await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
+    recordHealth(setup.dir, false)
+    renameSync(join(f.targetParent, 'DSH-Data'), join(f.root, 'unplugged'))
+    const blocked = await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
+    expect(resolveBlocked(setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
+    await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
+    expect(readAbandonedCopies(setup.dir).map(copy => copy.path)).toEqual([join(realpathSync(f.targetParent), 'DSH-Data')])
+  })
+
+  it('never copies or prints the generation file: the copy gets its own number', () => {
+    expect(MOVE_MARKERS).toContain(GENERATION_FILENAME)
+    expect(PRINT_EXCLUDE).toContain(GENERATION_FILENAME)
+  })
+
   posixOnly('forgets a record naming the new location of a later move', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await rm(s.setup.dir, { recursive: true })
@@ -698,6 +752,82 @@ describe('a directory a terminal made at the old path', () => {
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
     expect(readFileSync(join(s.f.home, '.dsh-data-id'), 'utf8').trim()).toBe(INTRUDER_ID)
     expect(existsSync(join(s.f.home, MOVE_STATE_FILENAME))).toBe(false)
+  })
+})
+
+describe('generations: a left-behind copy is older wherever it is mounted', () => {
+  /**
+   * Where the launch step would go now for a `DSH_HOME` naming `env`, with no abandoned record.
+   * @param s - the scenario.
+   * @param env - the changed `DSH_HOME`.
+   * @returns the decision.
+   */
+  function resolveWith(s: Scenario, env: string): Resolution {
+    return resolveDataLocation({ read: readPointer(s.setup.userData), env, defaultHome: s.setup.defaultHome, abandoned: [] })
+  }
+
+  for (const start of ['pointer', 'default-home'] as const) {
+    posixOnly(`sets aside a copy a rollback went without, remounted at another path (${start})`, async () => {
+      const s = await scenario({ sameVolume: false, start })
+      await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+      recordHealth(s.setup.dir, false)
+      const away = join(s.f.root, 'unplugged')
+      renameSync(s.target, away)
+      const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+      expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
+      expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+      // The drive comes back under another name ("/Volumes/X 1"), so the record's path no longer matches it.
+      const remounted = join(s.f.root, 'remounted 1')
+      renameSync(away, remounted)
+      expect(readGeneration(s.f.home)).toBeGreaterThan(readGeneration(remounted))
+      expect(readDataId(remounted)).toEqual({ kind: 'ok', id: HARNESS_ID })
+      const pointer = start === 'pointer' ? readPointer(s.setup.userData) : undefined
+      if (pointer?.kind === 'ok') {
+        expect(resolveWith(s, remounted)).toMatchObject({ kind: 'confirm-env', reason: 'set-aside' })
+      } else {
+        // Without a pointer the default home is the reference.
+        expect(resolveDataLocation({ read: { kind: 'absent' }, env: remounted, defaultHome: s.setup.defaultHome, abandoned: [] }))
+          .toMatchObject({ kind: 'unavailable', reason: 'set-aside', escapable: true })
+        expect(resolveDataLocation({ read: { kind: 'absent' }, env: undefined, defaultHome: s.setup.defaultHome, abandoned: [] }))
+          .toMatchObject({ kind: 'ready', home: s.setup.defaultHome })
+      }
+    })
+  }
+
+  posixOnly('sets aside an original the person moved on without, when it comes back at another path', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, false)
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    renameSync(hidden, join(s.f.root, 'lost'))
+    const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(blocked))).toBe('applied')
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    recordHealth(s.setup.dir, true)
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    const pointer = readPointer(s.setup.userData)
+    expect(pointer.kind === 'ok' ? pointer.pointer.generation : undefined).toBe(readGeneration(s.target))
+    // The original, with its retired identity given back by hand, mounted somewhere else.
+    const back = join(s.f.root, 'original again')
+    renameSync(join(s.f.root, 'lost'), back)
+    renameSync(join(back, '.dsh-data-id.moved'), join(back, '.dsh-data-id'))
+    unlinkSync(join(back, MOVE_STATE_FILENAME))
+    expect(resolveWith(s, back)).toMatchObject({ kind: 'confirm-env', reason: 'set-aside' })
+  })
+
+  posixOnly('gives the copy a number above the original on every switch, and the original one above the copy on every rollback', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    writeGeneration(s.f.home, 7)
+    await rm(s.setup.dir, { recursive: true })
+    startMove(s.setup.dir, { ...s.setup.start, originalGeneration: 7 }, { pid: PID, now: new Date() })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(readGeneration(s.target)).toBe(8)
+    const pointer = readPointer(s.setup.userData)
+    expect(pointer.kind === 'ok' ? pointer.pointer.generation : undefined).toBe(8)
+    recordHealth(s.setup.dir, false)
+    const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(readGeneration(s.f.home)).toBe(9)
+    expect(readGeneration(ended.kind === 'ended' ? ended.result.unusedCopy?.path ?? '' : '')).toBe(8)
   })
 })
 
@@ -766,7 +896,7 @@ describe('a move by rename on one volume', () => {
   posixOnly('rolls back a rename with its link rewrites', async () => {
     const s = await scenario({ sameVolume: true, start: 'pointer' })
     expect(await runToEnd(s, false)).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
-    expect(listTree(s.f.home)).toEqual(s.before)
+    expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
     expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
   })
@@ -812,7 +942,7 @@ describe('the journal', () => {
  * @returns the facts.
  */
 function dir(facts: Partial<DirFacts> = {}): DirFacts {
-  return { exists: false, dataId: 'none', movedId: false, retired: false, state: 'none', empty: false, ...facts }
+  return { exists: false, dataId: 'none', movedId: false, retired: false, generation: 0, state: 'none', empty: false, ...facts }
 }
 
 describe('nextAction', () => {
@@ -821,7 +951,7 @@ describe('nextAction', () => {
     targetPreexisting: false, partial: '/p', hidden: '/h', sameVolume: false, dataId: HARNESS_ID, pointerBefore: {},
     terminalBefore: { kind: 'unset' }, homeLinkBefore: { kind: 'absent' }, baseline: { sessions: 0, workspaces: 0, quarantined: [] },
     linkRewrites: [], repairRounds: 0, pointerWritten: false, terminalWritten: false, homeLinkRestored: false, targetExposed: false,
-    retiredInPlace: false, cleanupAttempts: 0,
+    retiredInPlace: false, originalGeneration: 0, cleanupAttempts: 0,
     awaitingChoice: false, keepTarget: false, keepOriginal: false, targetAbandoned: false, originalAbandoned: false,
     leftovers: [], startedAt: '', ...changes,
   })
@@ -829,15 +959,37 @@ describe('nextAction', () => {
   const ours = dir({ exists: true, dataId: 'ours' })
 
   it('hides the source before it names the target, one step at a time', () => {
-    const hiding = journal({ phase: 'hiding-source' })
-    const target = dir({ exists: true, state: 'ours' })
+    const hiding = journal({ phase: 'hiding-source', targetGeneration: 1 })
+    const target = dir({ exists: true, state: 'ours', generation: 1 })
     expect(nextAction(hiding, facts({ source: ours, target }), false).kind).toBe('retire-source-id')
     expect(nextAction(hiding, facts({ source: dir({ exists: true, movedId: true }), target }), false).kind).toBe('mark-source')
     expect(nextAction(hiding, facts({ source: dir({ exists: true, movedId: true, state: 'ours' }), target }), false).kind).toBe('rename-source-to-hidden')
     expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target }), false).kind).toBe('write-target-id')
-    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: dir({ exists: true, dataId: 'ours', state: 'ours' }) }), false).kind)
+    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: dir({ exists: true, dataId: 'ours', state: 'ours', generation: 1 }) }), false).kind)
       .toBe('clear-target-state')
-    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: ours }), false)).toEqual({ kind: 'set-phase', phase: 'switching' })
+    expect(nextAction(hiding, facts({ hidden: dir({ exists: true, state: 'ours' }), target: dir({ exists: true, dataId: 'ours', generation: 1 }) }), false))
+      .toEqual({ kind: 'set-phase', phase: 'switching' })
+  })
+
+  it('numbers the copy above the original before naming it, and the original above the copy before it takes its identity back', () => {
+    const hidden = dir({ exists: true, state: 'ours', movedId: true })
+    const copy = (generation: number): DirFacts => dir({ exists: true, state: 'ours', generation })
+    // Not yet chosen, not yet written, or not above the original (a rollback raised it): write it first.
+    for (const [changes, target] of [
+      [{}, copy(0)], [{ targetGeneration: 3 }, copy(0)], [{ targetGeneration: 3, originalGeneration: 4 }, copy(3)],
+    ] as const) {
+      expect(nextAction(journal({ phase: 'hiding-source', originalGeneration: 2, ...changes }), facts({ hidden, target }), false).kind)
+        .toBe('write-target-generation')
+    }
+    expect(nextAction(journal({ phase: 'hiding-source', originalGeneration: 2, targetGeneration: 3 }), facts({ hidden, target: copy(3) }), false).kind)
+      .toBe('write-target-id')
+    const rolling = journal({ phase: 'rolling-back', homeLinkRestored: true, originalGeneration: 2, targetGeneration: 3 })
+    const back = dir({ exists: true, movedId: true, state: 'ours', generation: 2 })
+    expect(nextAction(rolling, facts({ source: back }), false).kind).toBe('write-original-generation')
+    expect(nextAction({ ...rolling, originalGeneration: 4 }, facts({ source: back }), false).kind).toBe('write-original-generation')
+    expect(nextAction({ ...rolling, originalGeneration: 4 }, facts({ source: { ...back, generation: 4 } }), false).kind).toBe('restore-source-id')
+    // A move that never numbered a copy leaves the original's number alone.
+    expect(nextAction(journal({ phase: 'rolling-back', homeLinkRestored: true }), facts({ source: back }), false).kind).toBe('restore-source-id')
   })
 
   it('invalidates the target before the source takes its identity back', () => {
@@ -872,14 +1024,14 @@ describe('nextAction', () => {
   })
 
   it('ignores the old path once the original is hidden, and blocks when the original is nowhere', () => {
-    const hiding = journal({ phase: 'hiding-source' })
+    const hiding = journal({ phase: 'hiding-source', targetGeneration: 1 })
     const other = dir({ exists: true, dataId: 'other' })
-    const target = dir({ exists: true, state: 'ours' })
+    const target = dir({ exists: true, state: 'ours', generation: 1 })
     expect(nextAction(hiding, facts({ source: other, hidden: dir({ exists: true, state: 'ours' }), target }), false).kind).toBe('write-target-id')
     expect(nextAction(hiding, facts({ source: other, target }), false))
       .toEqual({ kind: 'blocked', reason: 'source-occupied', dataAt: ['/t'], choices: ['keep-target'] })
     expect(nextAction(hiding, facts({ target }), false)).toEqual({ kind: 'blocked', reason: 'original-missing', dataAt: ['/t'], choices: ['keep-target'] })
-    const kept = journal({ phase: 'hiding-source', keepTarget: true })
+    const kept = journal({ phase: 'hiding-source', keepTarget: true, targetGeneration: 1 })
     expect(nextAction(kept, facts({ source: other, target }), false).kind).toBe('write-target-id')
     expect(nextAction(kept, facts({ source: other }), false)).toMatchObject({ kind: 'blocked', reason: 'target-missing' })
     expect(nextAction(hiding, facts({ source: other, hidden: dir({ exists: true, state: 'ours' }) }), false).kind).toBe('roll-back')
