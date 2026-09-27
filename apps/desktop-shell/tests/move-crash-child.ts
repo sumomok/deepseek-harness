@@ -14,7 +14,7 @@
 
 import { closeSync, existsSync, openSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
-import { readJournal } from '../src/move/journal.ts'
+import { readJournal, type BlockedChoice } from '../src/move/journal.ts'
 import type { MoveEffects, MoveFs } from '../src/move/run.ts'
 import { driveMove, harnessEffects, type Faults, type MoveSetup } from './move-harness.ts'
 
@@ -33,6 +33,8 @@ export interface ChildInput {
   damageFirstCheck: boolean
   /** Drop a `.DS_Store` into the target folder and the copy while copying, as Finder does. */
   finderFiles: boolean
+  /** The person's choice when the move is blocked. */
+  choose?: BlockedChoice
 }
 
 const input = JSON.parse(process.argv[2] ?? '{}') as ChildInput
@@ -113,7 +115,7 @@ const effects: MoveEffects = {
   restoreHomeLink: (before) => { real.restoreHomeLink(before); event('restoreHomeLink') },
 }
 
-driveMove(input.setup, input.target, input.healthy, effects, event).then(
+driveMove(input.setup, input.target, input.healthy, effects, event, () => input.choose).then(
   (ended) => { process.stdout.write(`${JSON.stringify({ events: labels, ended })}\n`) },
   (error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)

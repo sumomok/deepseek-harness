@@ -25,8 +25,8 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { MOVED_ID_FILENAME, readJournal, type MoveJournal } from '../src/move/journal.ts'
-import { startMove } from '../src/move/run.ts'
+import { MOVED_ID_FILENAME, readJournal, type BlockedChoice, type MoveJournal } from '../src/move/journal.ts'
+import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
 import { IGNORABLE_NAMES, MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import {
@@ -64,6 +64,8 @@ interface Case {
   bigBytes?: number
   /** Kill after every progress report too, not a sample. */
   allProgress?: boolean
+  /** The person's choice on the blocked move the scenario starts from. */
+  choose?: BlockedChoice
 }
 
 const CASES: Case[] = [
@@ -94,7 +96,7 @@ const CASES: Case[] = [
  * @returns true when nothing fails.
  */
 function expectMoved(c: Case): boolean {
-  return c.healthy && c.faults === undefined
+  return c.healthy && c.faults === undefined && c.choose !== 'rollback'
 }
 
 /** A prepared move. */
@@ -152,7 +154,7 @@ interface ChildRun {
 function runChild(p: Prepared, c: Case, killAt: number): Promise<ChildRun> {
   const input: ChildInput = {
     setup: p.setup, target: p.target, healthy: c.healthy, killAt, faults: c.faults ?? {},
-    damageFirstCheck: c.damage === true, finderFiles: c.finderFiles === true,
+    damageFirstCheck: c.damage === true, finderFiles: c.finderFiles === true, ...c.choose === undefined ? {} : { choose: c.choose },
   }
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CHILD, JSON.stringify(input)], { stdio: ['ignore', 'pipe', 'pipe'], timeout: CHILD_TIMEOUT_MS })
@@ -416,12 +418,77 @@ posixOnly('a data move killed at any step', () => {
           if (ended === 'blocked') {
             if (!planted || expectMoved(c)) failures.push(`${label}: blocked without a directory in the way`)
             for (const violation of checkBlocked(p, c)) failures.push(`${label}: blocked: ${violation}`)
-            // The person moves the other directory away; the move can then finish.
+            // The person moves the other directory away and chooses to go back.
             await rm(p.f.home, { recursive: true, force: true })
-            ended = await driveMove(p.setup, p.target, c.healthy, effects)
+            ended = await driveMove(p.setup, p.target, c.healthy, effects, () => {}, () => 'rollback')
           }
           for (const violation of checkAtEnd(p, c, ended, planted)) failures.push(`${label}: ${violation}`)
           if (JSON.stringify(listTree(p.f.sentinel)) !== JSON.stringify(sentinel)) failures.push(`${label}: the sentinel changed`)
+        } catch (error) {
+          failures.push(`${label}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
+        } finally {
+          await dispose(p.f)
+        }
+      })
+      expect(failures).toEqual([])
+    }, SCENARIO_TIMEOUT_MS)
+  })
+})
+
+/** Scenarios that start from a rollback blocked by a directory a terminal made at the old path. */
+const CHOICE_CASES: Case[] = [
+  { name: 'another volume, keep the new location', sameVolume: false, start: 'default-home', healthy: true, choose: 'keep-target' },
+  { name: 'another volume, go back once the old path is free', sameVolume: false, start: 'default-home', healthy: true, choose: 'rollback' },
+  { name: 'one volume, keep the new location', sameVolume: true, start: 'default-home', healthy: true, choose: 'keep-target' },
+  { name: 'one volume, go back once the old path is free', sameVolume: true, start: 'default-home', healthy: true, choose: 'rollback' },
+]
+
+/**
+ * A move blocked while rolling back: switched, a terminal made the old path,
+ * the health check failed. For a rollback choice the other directory is then
+ * moved away, so the move waits only for the choice.
+ * @param c - the scenario.
+ * @returns the move.
+ */
+async function prepareBlocked(c: Case): Promise<Prepared> {
+  const p = await prepare(c)
+  const effects = harnessEffects(p.setup)
+  expect(await advanceMove(p.setup.dir, effects, { pid: process.pid })).toEqual({ kind: 'switched' })
+  expect(plantIntruder(p.f.home)).toBe(true)
+  recordHealth(p.setup.dir, false)
+  expect(await advanceMove(p.setup.dir, effects, { pid: process.pid })).toMatchObject({ kind: 'blocked', reason: 'source-occupied' })
+  if (c.choose === 'rollback') await rm(p.f.home, { recursive: true, force: true })
+  return p
+}
+
+posixOnly('a choice made on a blocked move, killed at any step', () => {
+  CHOICE_CASES.forEach((c) => {
+    it(`resumes to a consistent end: ${c.name}`, async () => {
+      const counting = await prepareBlocked(c)
+      let events: string[]
+      try {
+        const run = await runChild(counting, c, 0)
+        expect(run.stderr).toBe('')
+        expect(run.status).toBe(0)
+        expect(checkAtEnd(counting, c, run.ended, c.choose === 'keep-target')).toEqual([])
+        events = run.events
+      } finally {
+        await dispose(counting.f)
+      }
+      const failures: string[] = []
+      await pool(events.map((_, index) => index + 1), CONCURRENCY, async (killAt) => {
+        const label = `kill ${String(killAt)} (${events[killAt - 1] ?? '?'})`
+        const p = await prepareBlocked(c)
+        try {
+          const sentinel = listTree(p.f.sentinel)
+          const killed = await runChild(p, c, killAt)
+          if (killed.signal !== 'SIGKILL') {
+            failures.push(`${label}: child was not killed (${String(killed.signal ?? killed.status)}): ${killed.stderr}`)
+            return
+          }
+          for (const violation of checkAtKill(p, sentinel)) failures.push(`${label}: ${violation}`)
+          const ended = await driveMove(p.setup, p.target, c.healthy, harnessEffects(p.setup), () => {}, () => c.choose)
+          for (const violation of checkAtEnd(p, c, ended, c.choose === 'keep-target')) failures.push(`${label}: ${violation}`)
         } catch (error) {
           failures.push(`${label}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
         } finally {
