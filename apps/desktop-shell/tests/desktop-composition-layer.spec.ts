@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer patches seven rows and inserts one of its own.
+ * The layer patches seven rows and inserts two of its own.
  * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
  * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
@@ -16,9 +16,10 @@
  * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
  * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
- * `ui-chat` starts work details compact. The row it inserts,
- * `desktop-server-log`, appends the server's own logger records to the
- * desktop log file.
+ * `ui-chat` starts work details compact. The rows it inserts are
+ * `desktop-brand`, this package itself, whose browser half names the product
+ * in the sidebar, and `desktop-server-log`, which appends the server's own
+ * logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -345,6 +346,16 @@ describe('the composed ui-chat row', () => {
   })
 })
 
+describe('the composed brand row', () => {
+  it('is absent below the desktop layer', () => {
+    expect(below.find(row => row.id === 'desktop-brand')).toBeUndefined()
+  })
+
+  it('mounts this package, whose browser half occupies the sidebar brand name', () => {
+    expect(entry(desktop, 'desktop-brand')).toEqual({ id: 'desktop-brand', name: DESKTOP_APP })
+  })
+})
+
 describe('the composed telemetry rows', () => {
   // The composed row is what a launch applies, so a later bundle layer
   // re-enabling one of these shows up here and nowhere else. The shipped rows
@@ -363,7 +374,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly seven rows, adds its own one, and nothing else', () => {
+  it('changes exactly seven rows, adds its own two, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -371,8 +382,8 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite',
-      'ui-chat', 'vision-switch',
+      'desktop-brand', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager',
+      'session-query-sqlite', 'ui-chat', 'vision-switch',
     ])
   })
 

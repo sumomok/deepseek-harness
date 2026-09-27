@@ -76,7 +76,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@puppeteer/browsers`](https://github.com/puppeteer/puppeteer/tree/main/packages/browsers) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
-| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.6.0.tgz) | MIT |
+| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz) | MIT |
 | [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.4.0.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@trycua/cua-driver`](https://github.com/trycua/cua) | MIT |

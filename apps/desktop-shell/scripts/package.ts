@@ -5,6 +5,11 @@
  * materialize every symlink), stages a real Node runtime per platform, then
  * runs electron-builder for the requested targets.
  *
+ * The repository build embeds the desktop's browser title, and a run whose
+ * client artifacts lack it stops before staging, `--skip-repo-build` included
+ * ([[assertDesktopClientTitle]]); the desktop-app browser half is bundled
+ * after that check.
+ *
  * Products land in apps/desktop-shell/dist-app/. Each platform's build runs on its
  * own host and on any other: NSIS needs no wine, so Windows packages cross-build
  * from macOS, and they carry the win32-x64 N-API prebuilds either way. A
@@ -36,6 +41,7 @@ import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filter
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { assertDesktopClientTitle, DESKTOP_APP_BUNDLE_ARGS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
@@ -171,7 +177,13 @@ function batchInvocation(file: string, args: string[]): { command: string; args:
 }
 
 /** Run one subprocess with inherited stdio from the repo root; non-zero exit throws. */
-async function run(label: string, command: string, args: string[], cwd: string = ROOT): Promise<void> {
+async function run(
+  label: string,
+  command: string,
+  args: string[],
+  cwd: string = ROOT,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
   console.log(`package: ${label}: ${[command, ...args].join(' ')}`)
   const resolved = resolveCommand(command)
   const isBatch = /\.(?:cmd|bat)$/i.test(resolved)
@@ -180,7 +192,7 @@ async function run(label: string, command: string, args: string[], cwd: string =
     const child = spawn(invocation.command, invocation.args, {
       cwd,
       stdio: 'inherit',
-      env: { ...process.env, CI: 'true' },
+      env: { ...environment, CI: 'true' },
       windowsVerbatimArguments: isBatch,
     })
     child.once('error', (error) => { reject(new Error(`package: ${label} failed to spawn: ${error.message}`)) })
@@ -911,10 +923,10 @@ async function main(buildHome: string): Promise<void> {
   // produces is written after this point.
   const startedAt = Date.now()
   const cli = parseCli(process.argv.slice(2))
-  if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'])
+  if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'], ROOT, desktopRepositoryBuildEnvironment(process.env))
+  assertDesktopClientTitle(ROOT)
+  await run('desktop-app bundle', 'pnpm', [...DESKTOP_APP_BUNDLE_ARGS])
   await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-shell', 'run', 'build:ts'])
-  // Before the deploy, which copies the package's `lib` into the payload.
-  await run('desktop-app tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop-app', 'run', 'build:ts'])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
 
   if (!cli.skipDeploy) {

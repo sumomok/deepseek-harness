@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-desktop-brand-beiming.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-desktop-brand-beiming.md
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page:
+  en: bfe70f69248a3680
+  zh: e074b67785cd878b
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page/problem:
+  en: d31149a9c9f110c0
+  zh: 7912a833c3d4eeaa
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page/decision:
+  en: 0936388739f76ec1
+  zh: 4f863b2a5ea20ffc
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page/alternatives-considered:
+  en: d4c349941874c46a
+  zh: 8c74f2171ad88dbc
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page/consequences:
+  en: 6649ce8595f23428
+  zh: 8cd25a969f412372
+/agent-note-the-desktop-names-itself-and-shows-its-release-version-only-on-the-update-page/related:
+  en: 45eb673868d988d1
+  zh: ab8ebadbca17b368

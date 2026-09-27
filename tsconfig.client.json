@@ -33,6 +33,8 @@
     // bundle list comes from the shell source below, which imports node
     // builtins only and therefore belongs to neither Context face.
     "apps/desktop-shell/tests/**/*.client.spec.ts",
+    // The desktop composition layer's browser half and its client suite.
+    "apps/desktop-app/tests/**/*.client.spec.tsx",
     "apps/desktop-shell/src/profile-seed.ts",
     // The loading-page restatement, whose client-face suite checks it against
     // the web client's BootPage; it imports nothing.
@@ -55,6 +57,7 @@
   "references": [
     { "path": "./tsconfig.desktop-keyboard-tests.json" },
     { "path": "./apps/desktop/tsconfig.client.json" },
+    { "path": "./apps/desktop-app" },
     { "path": "./packages/experimental/client-ui-voice-input" },
 
     { "path": "./packages/client/ui-sidebar-terminal" },

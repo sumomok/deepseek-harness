@@ -24,7 +24,7 @@ Status: implemented
 
 ### 服务端 logger 记录进 `dsh-server.log`
 
-`@deepseek-ai/dsh-desktop-app` 多了一个插件模块 `./server-log`,它的 patch 层插入挂载该模块的 `desktop-server-log` 一行。插件在根 logger 服务上注册一个 exporter——这个服务由每个上下文共用,隔离的预设 realm 也在内——把级别不高于 `level: 2` 的每条记录追加到 `DSH_DESKTOP_SERVER_LOG` 点名的文件;壳只给服务器子进程把这个变量设为 `dsh-server.log`,没有这个变量时这一行关闭。cordis 的级别顺序是 ERROR 0 < INFO 1 < WARN 2 < DEBUG 3,所以这个阈值保留 warn、丢掉 debug。每条记录是一次 `appendFileSync`,各行以 `[server-log]` 开头。挂载时插件先追加服务缓冲区里已有的、阈值以内的记录。这个包像壳一样用自己的 `tsc -b` 构建,因为仓库的 tsdown 只覆盖 `vendor`、`packages` 与 `apps/cli`;打包流程在 deploy 之前构建它,暂存启动也点名一个日志文件,让这一行在那里挂载,它的模块就必须能从载荷里解析到。
+`@deepseek-ai/dsh-desktop-app` 多了一个插件模块 `./server-log`,它的 patch 层插入挂载该模块的 `desktop-server-log` 一行。插件在根 logger 服务上注册一个 exporter——这个服务由每个上下文共用,隔离的预设 realm 也在内——把级别不高于 `level: 2` 的每条记录追加到 `DSH_DESKTOP_SERVER_LOG` 点名的文件;壳只给服务器子进程把这个变量设为 `dsh-server.log`,没有这个变量时这一行关闭。cordis 的级别顺序是 ERROR 0 < INFO 1 < WARN 2 < DEBUG 3,所以这个阈值保留 warn、丢掉 debug。每条记录是一次 `appendFileSync`,各行以 `[server-log]` 开头。挂载时插件先追加服务缓冲区里已有的、阈值以内的记录。这个包的 `build.ts` 用 esbuild 把该模块与浏览器半边一起打到 `lib/server-log.js`,`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 保留为导入,因为仓库的 tsdown 只覆盖 `vendor`、`packages` 与 `apps/cli`;打包流程在 deploy 之前打出它,暂存启动也点名一个日志文件,让这一行在那里挂载,它的模块就必须能从载荷里解析到。
 
 ### 「无法检查更新」的详情
 
@@ -50,4 +50,4 @@ Status: implemented
 
 ## Consequences
 
-服务出来的 UI 加载失败会重试一次,否则停在启动页的失败状态,而不是一个空白窗口;每一次窗口加载都留下一行。UI 加载出来之后卡住,屏幕上仍然什么都不显示。崩溃现在会留下服务器最后写的那几行,V8 致命错误会在日志旁留下一份报告。每次启动在打开日志之前,把超过 10 MiB 的 `dsh-server.log` 改名为 `dsh-server.log.1`,并只保留最新五份诊断报告(`src/log-retention.ts`),所以这个目录维持在约 20 MiB 加五份报告;一次长时间运行仍可能在下次启动前超过 10 MiB。日志现在还会收到每个插件 INFO 及以上的 logger 记录。`desktop-server-log` 挂载之前、启动期间记下的 warn 仍会丢失——从 rc.33 升级后首次启动时设置导入逐段的失败也在其中。开发启动之前需要先跑 `pnpm --filter @deepseek-ai/dsh-desktop-app run build:ts`,因为这一行导入的是那个包的 `lib/`。由早于这项改动的版本发起的安装没有留下记录,它的安装包会一直留在 `pending`,直到下一次更新下载时清掉。
+服务出来的 UI 加载失败会重试一次,否则停在启动页的失败状态,而不是一个空白窗口;每一次窗口加载都留下一行。UI 加载出来之后卡住,屏幕上仍然什么都不显示。崩溃现在会留下服务器最后写的那几行,V8 致命错误会在日志旁留下一份报告。每次启动在打开日志之前,把超过 10 MiB 的 `dsh-server.log` 改名为 `dsh-server.log.1`,并只保留最新五份诊断报告(`src/log-retention.ts`),所以这个目录维持在约 20 MiB 加五份报告;一次长时间运行仍可能在下次启动前超过 10 MiB。日志现在还会收到每个插件 INFO 及以上的 logger 记录。`desktop-server-log` 挂载之前、启动期间记下的 warn 仍会丢失——从 rc.33 升级后首次启动时设置导入逐段的失败也在其中。开发启动之前需要先跑 `pnpm --filter @deepseek-ai/dsh-desktop-app run bundle`,因为这一行导入的是那个包的 `lib/`。由早于这项改动的版本发起的安装没有留下记录,它的安装包会一直留在 `pending`,直到下一次更新下载时清掉。
