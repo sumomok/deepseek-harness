@@ -210,10 +210,22 @@
 # `ui-brand-official` row registers only under the `official` client build
 # profile, one this application never builds. The same half shadows
 # Settings → General's current-version row, since the desktop's release version
-# is on the update settings page. The host half is an empty apply.
+# is on the update settings page.
+#
+# The same row mounts the Host half, which adds `protectedDirsPrompt` to every
+# session's system prompt as the global section
+# `desktop:protected-directories`, after the persona suffix. A preset whose
+# persona is `complete` (`minimal`) replaces the whole prompt and drops it. The
+# text names the data directory by the `DSH_HOME` environment variable, which
+# the managed shell environment sets in every bash and PowerShell call; it
+# names the installation directory without a path. Why the line earns its
+# context cost:
+# .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md.
 - insert:
     - id: desktop-brand
       name: '@deepseek-ai/dsh-desktop-app'
+      config:
+        protectedDirsPrompt: Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable).
 
 # The server's own log records in the desktop log file. Plugins log through
 # `ctx.logger`, and no row in the shipped bundles registers an exporter for it,

@@ -8,6 +8,7 @@
     "src"
   ],
   "exclude": [
+    "src/index.ts",
     "src/server-log.ts"
   ],
   "references": [

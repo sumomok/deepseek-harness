@@ -18,8 +18,9 @@
  * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
  * `ui-chat` starts work details compact. The rows it inserts are
  * `desktop-brand`, this package itself, whose browser half names the product
- * in the sidebar, and `desktop-server-log`, which appends the server's own
- * logger records to the desktop log file.
+ * in the sidebar and whose Host half ends every session's system prompt with
+ * the protected-directories instruction, and `desktop-server-log`, which
+ * appends the server's own logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -34,7 +35,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context, type Plugin } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import * as Persona from '@deepseek-ai/dsh-persona'
+import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
@@ -43,6 +50,9 @@ import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
 const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
+
+/** The protected-directories instruction the desktop row states. */
+const PROTECTED_DIRS_PROMPT = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory or its data directory (the path in the DSH_HOME environment variable).'
 
 /** The composed-entry fields these cases read. */
 interface Entry {
@@ -239,15 +249,16 @@ describe('the composed llm-permission-gateway row', () => {
 })
 
 /**
- * The `tool-plugin-manager` row inside one preset's plugin list.
+ * One row inside one preset's plugin list.
  * @param entries - a composed entry list.
  * @param presetId - the preset declaration row's id.
+ * @param rowId - the child row's id.
  * @returns the preset's child row.
  */
-function presetToolRow(entries: Entry[], presetId: string): Entry {
+function presetRow(entries: Entry[], presetId: string, rowId: string): Entry {
   const plugins = entry(entries, presetId).config?.['plugins'] as Entry[] | undefined
-  const found = plugins?.find(candidate => candidate.id === 'tool-plugin-manager')
-  if (found === undefined) throw new Error(`${presetId} lists no tool-plugin-manager row`)
+  const found = plugins?.find(candidate => candidate.id === rowId)
+  if (found === undefined) throw new Error(`${presetId} lists no ${rowId} row`)
   return found
 }
 
@@ -318,8 +329,8 @@ describe('the composed plugin-manager rows', () => {
   // injects the service the Host row provides, so with that row on it mounts;
   // the gateway row's `alwaysAsk` is what sends each of its calls to a person.
   it('leaves the cordis preset\'s tool row gated on the profile alone, over a service that now registers', () => {
-    expect(presetToolRow(below, 'preset-cordis').disabled).toEqual(profileGate)
-    expect(presetToolRow(desktop, 'preset-cordis').disabled).toEqual(profileGate)
+    expect(presetRow(below, 'preset-cordis', 'tool-plugin-manager').disabled).toEqual(profileGate)
+    expect(presetRow(desktop, 'preset-cordis', 'tool-plugin-manager').disabled).toEqual(profileGate)
     expect(pluginManagerToolInject).toContain('pluginManager')
   })
 })
@@ -351,8 +362,101 @@ describe('the composed brand row', () => {
     expect(below.find(row => row.id === 'desktop-brand')).toBeUndefined()
   })
 
-  it('mounts this package, whose browser half occupies the sidebar brand name', () => {
-    expect(entry(desktop, 'desktop-brand')).toEqual({ id: 'desktop-brand', name: DESKTOP_APP })
+  it('mounts this package with the protected-directories prompt its Host half registers', () => {
+    expect(entry(desktop, 'desktop-brand')).toEqual({
+      id: 'desktop-brand',
+      name: DESKTOP_APP,
+      config: { protectedDirsPrompt: PROTECTED_DIRS_PROMPT },
+    })
+  })
+})
+
+describe('the protected-directories section in composed sessions', () => {
+  // The composed rows drive real modules: the base's system-prompt row, each
+  // preset's persona row, and the desktop row through this package's Host
+  // half resolved from the payload's deploy root. A preset's rows compose
+  // behind the preset's own scope, and the agent-preset registry binds a
+  // session's scope, and a delegated child's, under it; the child then adds
+  // its own persona prefix through dsh-subagent's composition step.
+  // The Host half's own `Config` validates the composed row as the Loader's mount does.
+  type RowPlugin = Plugin.Object<Entry['config']>
+
+  /**
+   * One preset's composed persona row, read field by field.
+   * @param presetId - the preset declaration row's id.
+   * @returns the row's config.
+   */
+  function personaConfig(presetId: string): Persona.Config {
+    const { prefix, suffix, complete, includeRuntimeContext } = presetRow(desktop, presetId, 'persona').config ?? {}
+    if (typeof prefix !== 'string') throw new Error(`${presetId}'s persona row states no prefix`)
+    return {
+      prefix,
+      ...typeof suffix === 'string' ? { suffix } : {},
+      ...typeof complete === 'boolean' ? { complete } : {},
+      ...typeof includeRuntimeContext === 'boolean' ? { includeRuntimeContext } : {},
+    }
+  }
+  const roots: Context[] = []
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map(root => root.fiber.dispose()))
+  })
+
+  /**
+   * A root with the composed registry and the desktop row mounted, and one
+   * session scope under the named preset's persona.
+   * @param presetId - the preset declaration row's id.
+   * @returns the root, the preset's scope key, and the session's scope.
+   */
+  async function session(presetId: string): Promise<{ root: Context; presetKey: ScopeKey; agent: Scope }> {
+    const root = new Context()
+    roots.push(root)
+    await root.plugin(SystemPrompt, entry(desktop, 'system-prompt').config ?? {})
+    root.systemPrompt.variable('cwd', () => '/workspace')
+    root.systemPrompt.variable('model', () => 'deepseek-flash')
+    const hostDir = resolveBundleDir('test', DESKTOP_APP, installAnchor, serverDir)
+    const host = await import(pathToFileURL(join(hostDir, 'src', 'index.ts')).href) as RowPlugin
+    await root.plugin(host, entry(desktop, 'desktop-brand').config)
+    const presetKey: ScopeKey = { preset: presetId }
+    await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
+    const agent = createScope(root, { agent: presetId }, { parent: presetKey })
+    return { root, presetKey, agent }
+  }
+
+  /** @returns the prompt one scope renders. */
+  async function prompt(root: Context, scope: Scope): Promise<string> {
+    const key = scopeOf(scope.ctx)
+    if (key === undefined) throw new Error('the scope carries no key')
+    return renderPrompt(await root.systemPrompt.assemble({ scope: key }))
+  }
+
+  it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('ends the prompt of a %s session', async (presetId) => {
+    const { root, agent } = await session(presetId)
+    const text = await prompt(root, agent)
+    expect(text.endsWith(`Your working directory is /workspace.\n\n${PROTECTED_DIRS_PROMPT}`)).toBe(true)
+  })
+
+  it('ends the prompt of a child that session delegates to, under the child\'s own persona', async () => {
+    const { root, presetKey, agent } = await session('preset-standard')
+    // The driver composes a child from a context that injects the registry.
+    let child: Scope | undefined
+    await root.plugin({
+      inject: ['systemPrompt'],
+      apply: (ctx: Context) => {
+        child = createScope(ctx, { agent: 'child' }, { parent: presetKey })
+        applyChildComposition(child.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
+      },
+    })
+    if (child === undefined) throw new Error('the child was not composed')
+    const text = await prompt(root, child)
+    expect(text).toContain('You review one file.')
+    expect(text.endsWith(PROTECTED_DIRS_PROMPT)).toBe(true)
+  })
+
+  // `minimal`'s persona is `complete`, which replaces every other section.
+  it('is absent from a preset-minimal session', async () => {
+    const { root, agent } = await session('preset-minimal')
+    expect(personaConfig('preset-minimal').complete).toBe(true)
+    expect(await prompt(root, agent)).toBe(personaConfig('preset-minimal').prefix)
   })
 })
 

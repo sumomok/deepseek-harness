@@ -12,7 +12,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FISH_LOGO_PATH, FISH_LOGO_VIEWBOX } from '@deepseek-ai/dsh-client-ui-primitives'
 import * as localeClient from '@deepseek-ai/dsh-client-locale/client'
 import { SlotTestRuntime, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply as hostApply } from '../src/index.ts'
 import { CurrentVersionRow } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/CurrentVersionRow.tsx'
 import { en as settingsEn, zh as settingsZh } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/locales.ts'
 import { apply, inject } from '../src/client/index.ts'
@@ -56,10 +55,6 @@ async function page() {
 }
 
 describe('desktop brand occupants', () => {
-  it('keeps the host Loader entry inert', () => {
-    expect(hostApply).not.toThrow()
-  })
-
   it('names the product 北冥 in Chinese and Beiming in English, with no version beside it', async () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '0.1.7-rc.2')
     const { view, setLocale } = await page()

@@ -2,10 +2,10 @@
  * Package build for the desktop composition layer's two halves and its
  * server-log exporter.
  *
- * esbuild bundles `src/index.ts` into the node half `lib/index.js`,
- * `src/server-log.ts` into `lib/server-log.js` with `@deepseek-ai/cordis` and
- * `@deepseek-ai/schemastery` left as imports (`build-options.ts` says why), and
- * `src/client/index.ts` into `lib/client.js` in the closure-factory form the
+ * esbuild bundles `src/index.ts` into the node half `lib/index.js` and
+ * `src/server-log.ts` into `lib/server-log.js`, both with `@deepseek-ai/cordis`
+ * and `@deepseek-ai/schemastery` left as imports (`build-options.ts` says why),
+ * and `src/client/index.ts` into `lib/client.js` in the closure-factory form the
  * web shell's module loader consumes:
  *
  *   window.__ModuleLoader__.load({ id, factory: (require) => { … } })
@@ -21,24 +21,16 @@ import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { build } from 'esbuild'
 import { PLATFORM_MODULES } from '../../packages/client/web/src/platform.ts'
-import { serverLogBuild } from './build-options.ts'
+import { hostBuild } from './build-options.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-desktop-app'
 const root = import.meta.dirname
 
 rmSync(resolve(root, 'lib'), { recursive: true, force: true })
 
-await build({
-  entryPoints: [resolve(root, 'src/index.ts')],
-  outfile: resolve(root, 'lib/index.js'),
-  bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
-  logLevel: 'warning',
-})
+await build(hostBuild(root, 'index'))
 
-await build(serverLogBuild(root))
+await build(hostBuild(root, 'server-log'))
 
 await build({
   entryPoints: [resolve(root, 'src/client/index.ts')],

@@ -172,6 +172,7 @@
     "apps/web/tests/workflow-run.e2e.ts",
     "apps/web/stress-tests/reasoning-chunks.stress.ts",
     "apps/cli/tests/**/*.ts",
+    "apps/desktop-app/src/index.ts",
     "apps/desktop-app/src/server-log.ts",
     "apps/desktop-app/tests/**/*.ts",
     "apps/desktop-shell/src/**/*.ts",
