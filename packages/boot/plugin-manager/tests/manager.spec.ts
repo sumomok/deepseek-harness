@@ -1557,3 +1557,18 @@ it('refuses the plugin_manager tool\'s set actions on a required module and its 
   expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
   expect(readFileSync(profile.patchPath, 'utf8')).toBe(patch)
 })
+
+it.each(['missing patch', 'invalid patch'])('keeps a started required bundle protected with a %s', async (failure) => {
+  const { manager, dir } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  const patch = join(dir, 'node_modules', 'extra', 'cordis.patch.yml')
+  if (failure === 'missing patch') rmSync(patch)
+  else writeFileSync(patch, '[invalid')
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: true, readOnlyReason: 'deployment-required', removable: false, error: { code: 'operation-error' },
+  })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'deployment-required' },
+  })
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
+})

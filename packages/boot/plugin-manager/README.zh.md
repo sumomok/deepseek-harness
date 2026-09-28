@@ -133,6 +133,9 @@ CLI 提供 `dsh plugin --profile <profile> version-exemptions`、`allow-version 
 - 替换已有包后需要重启进程，以加载新的 JavaScript 模块版本。
 - 仅启动时加载的 profile 不能删除当前进程启动时使用的包；停止进程后使用 `dsh plugin`。
 - 管理器不能关闭自身所需的管理组件或 `requiredModules` 点名的模块、修改其他 profile 或编辑 agent 预设组合。
+- 插件页对带 `readOnlyReason` 的组合包两个方向都锁住开关，而服务与 `plugin_manager` 工具仍能用 `set_bundle(name, true)` 重新打开已关掉的必需组合包。
+- 被某层 patch 停用的必需模块行，`set_plugin(row, true)` 同样拒绝，页面与工具都打不开它，与 `management-required` 一致；让必需组合包保持打开由写入 profile 种子的启动器负责。
+- 启动警告只扫描已启动组合包插入的行：由基础 `cordis.yml` 或 profile 自己的 patch 插入的必需模块照样被锁定，但也会被报成未匹配。
 - 失败的删除可能留下部分依赖改动，失败或被取消的安装可能在 `node_modules` 或 pnpm 缓存中留下已下载文件。文件缺失的未启用依赖仍可删除。诊断日志保留在 profile 的 `.plugin-manager/logs` 目录中。
 - 管理结果描述 Host 激活状态。浏览器同步失败会在设置的插件列表中单独显示。
 - Desktop 包管理操作仍由 Desktop shell 负责。

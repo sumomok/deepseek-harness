@@ -133,6 +133,9 @@ Tool results append to the transcript. Enabling or disabling other tools can cha
 - Package replacements require restarting the process to load a fresh JavaScript module generation.
 - Startup-only profiles cannot remove packages used to start the current process; stop it and use `dsh plugin`.
 - The manager cannot disable its own management components or the modules `requiredModules` names, change another profile, or edit an agent preset's composition.
+- The plugin page locks both directions of a bundle with a `readOnlyReason`, while the service and the `plugin_manager` tool can still switch a switched-off required bundle back on with `set_bundle(name, true)`.
+- A required module's row that a patch disables is refused by `set_plugin(row, true)` as well, so neither the page nor the tool can turn it on, as with `management-required`; the launcher that seeds the profile is responsible for keeping required bundles on.
+- The startup warning scans only the rows started bundles insert: a required module that the base `cordis.yml` or the profile's own patch inserts is still locked but is also reported as unmatched.
 - A failed removal may leave dependencies partially changed, and a failed or cancelled installation can leave downloaded files under `node_modules` or the pnpm store. Inactive dependencies with missing files remain removable. Diagnostic logs remain under the profile's `.plugin-manager/logs` directory.
 - Management results describe Host activation. Browser synchronization failures appear separately in the Settings plugin list.
 - Desktop package operations remain owned by the Desktop shell.
