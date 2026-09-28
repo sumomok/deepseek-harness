@@ -9,7 +9,8 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -21,9 +22,9 @@ import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
-import { recordHealth, startMove } from '../src/move/run.ts'
+import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
-import { plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
+import { harnessEffects, plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
 
 const fixtures: Fixture[] = []
 const posixOnly = process.platform === 'win32' ? it.skip : it
@@ -52,6 +53,26 @@ async function started(start: Start = 'pointer'): Promise<{ setup: MoveSetup; f:
  */
 function selfOf(setup: MoveSetup): LockSelf {
   return { userData: setup.userData, pid: process.pid, startedAt: '' }
+}
+
+/**
+ * The content hash of every file below a directory, links by their text, the move's markers left out.
+ * @param root - the directory.
+ * @returns the hashes by relative path.
+ */
+function hashes(root: string): Record<string, string> {
+  const found: Record<string, string> = {}
+  const walk = (rel: string): void => {
+    for (const name of readdirSync(join(root, rel))) {
+      if (name.startsWith('.dsh-') || name.startsWith('._')) continue
+      const path = join(root, rel, name)
+      const stats = lstatSync(path)
+      if (stats.isDirectory()) walk(join(rel, name))
+      else found[join(rel, name)] = stats.isSymbolicLink() ? `link ${readlinkSync(path)}` : createHash('sha256').update(readFileSync(path)).digest('hex')
+    }
+  }
+  walk('')
+  return found
 }
 
 /** A recording stand-in for the windows, answering pages from a queue. */
@@ -274,16 +295,20 @@ describe('a move that cannot go on', () => {
     expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x' }, undefined])
   })
 
-  posixOnly('stops a copy whose lock was discarded, and abandons it on request: the copy goes and the original opens as before', async () => {
+  posixOnly('stops a copy whose lock was discarded, tries it again on request, and abandons it: the copy goes and the original opens as before', async () => {
     const { setup, f, target } = await started()
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'copying' }))
     unlinkSync(join(f.home, LOCK_FILENAME))
     const before = listTree(f.home)
-    const stopped = recordingUi([{ kind: 'quit' }])
+    const stopped = recordingUi([{ kind: 'retry' }, { kind: 'quit' }])
     expect(await carryMove(depsOf(setup, stopped))).toEqual({ kind: 'quit' })
+    expect(stopped.pages).toHaveLength(2)
     expect(stopped.pages[0]).toEqual({
-      title: text.lockLostTitle, paragraphs: [text.lockLost], reveal: [],
-      buttons: [{ label: text.abandonMove, link: { kind: 'abandon' } }, { label: text.quit, link: { kind: 'quit' } }],
+      title: text.lockLostTitle, paragraphs: [text.lockLost, text.abandonNote], reveal: [],
+      buttons: [
+        { label: text.retry, link: { kind: 'retry' } }, { label: text.abandonMove, link: { kind: 'abandon' } },
+        { label: text.quit, link: { kind: 'quit' } },
+      ],
     })
     expect(readJournal(setup.dir)?.phase).toBe('copying')
     const abandoned = recordingUi([{ kind: 'abandon' }])
@@ -294,20 +319,73 @@ describe('a move that cannot go on', () => {
     expect(readdirSync(f.targetParent).filter(name => name.startsWith('.dsh-data.partial') || name.includes('DSH-Data'))).toEqual([])
   })
 
-  it('offers to try a move that could not read its lock after hiding began again, and goes on when it can', async () => {
-    const { setup, target } = await started()
+  it('says why the lock is not the move\'s, read again when the worker stopped, and goes on after a retry that finds it', async () => {
+    const { setup, f, target } = await started()
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'hiding-source' }))
-    const threads = [
-      new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'EIO' }),
-      new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } }),
-    ]
-    const ui = recordingUi([{ kind: 'retry' }])
-    expect(await carryMove(depsOf(setup, ui, { start: () => threads.shift() ?? new ScriptedThread() }))).toEqual({ kind: 'relaunch', home: target })
+    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost' })
+    const threads = [lost(), lost(), lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
+    const self = selfOf(setup)
+    const sibling = { ...self, pid: 22222, startedAt: 'P2', heartbeatAt: new Date().toISOString() }
+    const ui: MoveUi & { pages: MovePage[] } = recordingUi([{ kind: 'retry' }, { kind: 'retry' }, { kind: 'retry' }])
+    const answer = ui.showPage
+    let shown = 0
+    // Each page is answered with the lock put in the state the next page is about.
+    ui.showPage = async (page) => {
+      shown += 1
+      if (shown === 1) writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify(sibling))
+      if (shown === 2) writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ ...sibling, userData: '/u/other' }))
+      if (shown === 3) writeFileSync(join(f.home, LOCK_FILENAME), JSON.stringify({ ...self, heartbeatAt: new Date().toISOString() }))
+      return await answer(page)
+    }
+    const deps = depsOf(setup, ui, { start: () => threads.shift() ?? new ScriptedThread(), lockProbes: { startTimeOf: async pid => pid === 22222 ? 'P2' : undefined } })
+    expect(await carryMove(deps)).toEqual({ kind: 'relaunch', home: target })
+    expect(ui.pages.map(page => [page.title, page.paragraphs[0]])).toEqual([
+      // The lock read as the move's again: it could not be read when the worker looked.
+      [text.lockUncheckedTitle, text.lockUnchecked],
+      [text.lockSiblingTitle, text.lockSibling],
+      [text.lockLostTitle, text.lockLost],
+    ])
     expect(ui.pages[0]).toMatchObject({
-      title: text.lockUncheckedTitle, paragraphs: [text.lockUnchecked],
-      buttons: [{ label: text.retry, link: { kind: 'retry' } }, { label: text.quit, link: { kind: 'quit' } }],
+      paragraphs: [text.lockUnchecked, text.rollBackNote],
+      buttons: [
+        { label: text.retry, link: { kind: 'retry' } }, { label: text.rollBackMove, link: { kind: 'roll-back' } },
+        { label: text.quit, link: { kind: 'quit' } },
+      ],
     })
     expect(threads).toEqual([])
+  })
+
+  posixOnly('takes back a move stopped while hiding the original after its lock was discarded, keeping what was written there since', async () => {
+    const { setup, f, target } = await started()
+    const originals = hashes(f.home)
+    // Run until the original gave up its identity and took this move's marker, just before it is renamed.
+    const stop = new Error('stop here')
+    await advanceMove(setup.dir, harnessEffects(setup), {
+      pid: process.pid,
+      guard: (journal, facts) => { if (journal.phase === 'hiding-source' && facts.source.movedId && facts.source.state === 'ours') throw stop },
+    }).catch((error: unknown) => { if (error !== stop) throw error })
+    expect(existsSync(join(f.home, '.dsh-data-id'))).toBe(false)
+    // Another installation discarded the lock and wrote to the data.
+    unlinkSync(join(f.home, LOCK_FILENAME))
+    writeFileSync(join(f.home, 'other-work.txt'), 'written by another DSH')
+    const seen: Array<{ phase: string | undefined; hidden: boolean }> = []
+    const ui = recordingUi([{ kind: 'roll-back' }])
+    const answer = ui.showPage
+    ui.showPage = async (page) => {
+      const journal = readJournal(setup.dir)
+      seen.push({ phase: journal?.phase, hidden: existsSync(journal?.hidden ?? '') })
+      return await answer(page)
+    }
+    expect(await carryMove(depsOf(setup, ui))).toEqual({ kind: 'relaunch', home: f.home })
+    expect(seen).toEqual([{ phase: 'hiding-source', hidden: false }])
+    expect(ui.pages[0]?.title).toBe(text.lockLostTitle)
+    expect(readJournal(setup.dir)).toBeUndefined()
+    expect(existsSync(join(f.home, '.dsh-data-id'))).toBe(true)
+    const after = hashes(f.home)
+    expect(after['other-work.txt']).toBeDefined()
+    delete after['other-work.txt']
+    expect(after).toEqual(originals)
+    expect(existsSync(target)).toBe(false)
   })
 
   posixOnly('goes on after a relaunch that was itself cut short left its own lock behind', async () => {

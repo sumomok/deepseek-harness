@@ -57,12 +57,20 @@ export interface MoveText {
   withdrawFailedTitle: string
   /** A move that never started copying could not be withdrawn at launch. */
   withdrawFailed: (path: string, detail: string) => string
-  /** A move stopped because its lock was discarded or taken, before anything but its copy changed. */
+  /** A move stopped because its lock is gone or another installation holds it. */
   lockLost: string
-  abandonMove: string
   lockUncheckedTitle: string
-  /** A move stopped because its lock could not be read, after it began changing the original. */
+  /** A move stopped because its lock could not be read. */
   lockUnchecked: string
+  lockSiblingTitle: string
+  /** A move stopped because another process of this installation holds its lock. */
+  lockSibling: string
+  /** What abandoning does, on the page of a move that lost its lock while only its copy changed. */
+  abandonNote: string
+  abandonMove: string
+  /** What taking the move back does, on the page of a move that lost its lock after hiding began. */
+  rollBackNote: string
+  rollBackMove: string
   retry: string
   /** Why a move asked for in Settings did not start: the server could not be confirmed stopped. */
   serverStillRunning: string
@@ -120,10 +128,15 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     back: '返回',
     withdrawFailed: (path, detail) => `上次没有开始的数据搬运没能撤回（${detail}）。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「${path}」能否写入，然后重新打开 DSH。`,
     lockLostTitle: '另一个 DSH 可能接手了这份数据',
-    lockLost: '这份数据上的搬运锁不见了，或者已经换了主人，可能是另一个 DSH 接手了这份数据。这次搬运已经停下，原来位置的数据没有被改动。可以放弃这次搬运：DSH 会删掉已经复制到新位置的那一份，然后照常打开原来位置的数据。也可以先退出，以后再决定。',
-    abandonMove: '放弃这次搬运',
+    lockLost: '这份数据上的搬运锁不见了，或者已经换了主人，可能是另一个 DSH 接手了这份数据。这次搬运先停在这里，之后没有再动数据。',
     lockUncheckedTitle: '暂时无法确认搬运锁',
-    lockUnchecked: '读不出这份数据上的搬运锁，没法确认它仍属于这次搬运，所以搬运先停在这里，之后没有再动数据。可以重试；如果一直这样，先退出，确认数据所在的磁盘还接着，再打开 DSH。',
+    lockUnchecked: '读不出这份数据上的搬运锁，没法确认它仍属于这次搬运，所以搬运先停在这里，之后没有再动数据。如果数据所在的磁盘刚断开过，接好后重试。',
+    lockSiblingTitle: '这个 DSH 的另一个窗口正在用这份数据',
+    lockSibling: '这个 DSH 的另一个窗口或进程正拿着这份数据的搬运锁，所以这次搬运先停在这里，之后没有再动数据。关掉那个窗口后重试。',
+    abandonNote: '也可以放弃这次搬运：DSH 会删掉已经复制到新位置的那一份，然后照常打开原来位置的数据。',
+    abandonMove: '放弃这次搬运',
+    rollBackNote: '也可以撤回这次搬运：DSH 会把数据放回原来的位置，然后照常打开原来位置的数据。新位置上的那一份，还没被用过就删掉，用过就改个名字留下。',
+    rollBackMove: '撤回这次搬运',
     retry: '重试',
     withdrawFailedTitle: '上次的搬运记录没能清除',
     serverStillRunning: 'DSH 没能确认后台服务和它启动的程序都已经停下，所以这次没有开始搬运，你的数据还在原来的位置，一切照旧。请稍后再试；如果一直这样，重新启动电脑后再搬。',
@@ -176,10 +189,15 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     back: 'Back',
     withdrawFailed: (path, detail) => `The last data move, which had not started, could not be withdrawn (${detail}). While its record is there, DSH does not start, so it does not use data that was about to move. Check that the folder "${path}" can be written to, then open DSH again.`,
     lockLostTitle: 'Another DSH may have taken over this data',
-    lockLost: 'The move lock on this data is gone or now belongs to someone else, so another DSH may have taken over the data. This move has stopped, and the data in its original location was not changed. You can abandon this move: DSH deletes the copy it made at the new location, then opens the data in its original location as usual. Or quit and decide later.',
-    abandonMove: 'Abandon this move',
+    lockLost: 'The move lock on this data is gone or now belongs to someone else, so another DSH may have taken over the data. This move has paused here and has not touched the data since.',
     lockUncheckedTitle: 'The move lock could not be checked',
-    lockUnchecked: 'The move lock on this data could not be read, so DSH cannot tell whether it still belongs to this move. The move has paused here and has not touched the data since. You can retry; if this keeps happening, quit, make sure the drive holding the data is connected, and open DSH again.',
+    lockUnchecked: 'The move lock on this data could not be read, so DSH cannot tell whether it still belongs to this move. The move has paused here and has not touched the data since. If the drive holding the data was just disconnected, reconnect it and retry.',
+    lockSiblingTitle: 'Another window of this DSH is using this data',
+    lockSibling: 'Another window or process of this same DSH is holding the move lock on this data, so this move has paused here and has not touched the data since. Close that window, then retry.',
+    abandonNote: 'You can also abandon this move: DSH deletes the copy it made at the new location, then opens the data in its original location as usual.',
+    abandonMove: 'Abandon this move',
+    rollBackNote: 'You can also take this move back: DSH puts the data back in its original location and opens it there as usual. The copy at the new location is deleted if nothing used it yet, and otherwise kept under a new name.',
+    rollBackMove: 'Take this move back',
     retry: 'Retry',
     withdrawFailedTitle: 'The last move\'s record could not be cleared',
     serverStillRunning: 'DSH could not confirm that its background service and the programs it started have stopped, so the move did not start. Your data is still in its original location, and nothing has changed. Try again later; if this keeps happening, restart your computer and then move the data.',

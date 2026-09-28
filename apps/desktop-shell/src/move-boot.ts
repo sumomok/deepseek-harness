@@ -68,14 +68,22 @@ export function bootMove(dir: string): BootMove {
  * that follows neither needs it nor refreshes it, so it would otherwise age
  * into a lock another installation reads as an unfinished move. The hidden
  * original's lock goes with the original when the cleanup deletes it.
+ * The server already runs by then, so a lock that cannot be removed is only
+ * logged: it ages, and the cleanup's end removes it with the others.
  * @param dir - the move directory.
  * @param self - this installation.
- * @throws when there is no journal in phase `switched`, or the lock cannot be removed.
+ * @param log - the desktop log sink.
+ * @throws when there is no journal in phase `switched`.
  */
-export function passHealthCheck(dir: string, self: Pick<LockSelf, 'userData'>): void {
+export function passHealthCheck(dir: string, self: Pick<LockSelf, 'userData'>, log: (line: string) => void): void {
   const journal = readJournal(dir)
   recordHealth(dir, true)
-  if (journal !== undefined) releaseMoveLock([journal.target], self)
+  if (journal === undefined) return
+  try {
+    releaseMoveLock([journal.target], self)
+  } catch (error) {
+    log(`[desktop] data move: could not give back the lock at ${journal.target}: ${String(error)}\n`)
+  }
 }
 
 /**

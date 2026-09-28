@@ -275,6 +275,28 @@ export function abandonMove(dir: string, detail: string): void {
   writeJournal(dir, { ...journal, phase: 'abandoning', failure: { phase: journal.phase, detail } })
 }
 
+/** Guarded phases a move that lost its lock may be taken back from: once hiding began, until the health check. */
+export const WITHDRAWABLE_PHASES: ReadonlySet<MovePhase> = new Set(['hiding-source', 'switching', 'switched'])
+
+/**
+ * Take back a move that lost its lock after hiding began: the journal enters
+ * the rollback, as a step that finds the copy gone does, which restores the
+ * original's identity, removes a copy nothing could have used (and retires
+ * one that could have been), and puts the pointer and the terminal back.
+ * It prints the new location, so it runs on the move's worker.
+ * @param dir - the move directory.
+ * @param detail - why, recorded as the failure.
+ * @param fs - prints the new location.
+ * @throws when there is no journal in one of {@link WITHDRAWABLE_PHASES}.
+ */
+export function rollBackMove(dir: string, detail: string, fs: MoveFs = NODE_MOVE_FS): void {
+  const journal = readJournal(dir)
+  if (journal === undefined || !WITHDRAWABLE_PHASES.has(journal.phase)) {
+    throw new JournalError(`journal: the move cannot be taken back now (phase ${String(journal?.phase)})`)
+  }
+  writeJournal(dir, enterRollback(journal, { failure: { phase: journal.phase, detail } }, targetPrintNow(fs, journal)))
+}
+
 /**
  * Where a move's lock must be now: in the original data wherever it is — at
  * the old path, hidden beside it, or, on one volume, renamed to the new

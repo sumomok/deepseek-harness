@@ -13,7 +13,7 @@ import { readJournal } from './journal.ts'
 import { nodeLockProbes } from '../process-tree.ts'
 import { checkOwnLock, MoveLockLostError } from './lock.ts'
 import {
-  advanceMove, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, type MoveEffects, type ResolveOutcome,
+  advanceMove, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, rollBackMove, type MoveEffects, type ResolveOutcome,
 } from './run.ts'
 import { PROGRESS_INTERVAL_MS } from './worker.ts'
 
@@ -87,6 +87,9 @@ function prepare(moveEffects: MoveEffects): ResolveOutcome | 'recorded' | undefi
       return resolveBlocked(request.dir, before.choice, before.seen, moveEffects.fs)
     case 'health-failed':
       recordHealth(request.dir, false, before.detail, moveEffects.fs)
+      return 'recorded'
+    case 'roll-back':
+      rollBackMove(request.dir, before.detail, moveEffects.fs)
       return 'recorded'
     default:
       return before satisfies never

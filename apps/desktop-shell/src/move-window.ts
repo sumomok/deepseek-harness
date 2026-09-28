@@ -83,6 +83,7 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
       case 'back':
       case 'abandon':
       case 'retry':
+      case 'roll-back':
         answer?.(link)
         answer = undefined
         break

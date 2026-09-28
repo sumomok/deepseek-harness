@@ -1156,7 +1156,7 @@ if (!locked) {
           await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail: verdict.detail })
           return
         }
-        passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') })
+        passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') }, sink)
         cleanUp = true
       }
       view.phase(2)

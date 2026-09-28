@@ -25,6 +25,7 @@
 import { randomBytes } from 'node:crypto'
 import { linkSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeDurably } from '../durable-file.ts'
 
 /** The lock file's name, in the data directory being moved. */
 export const LOCK_FILENAME = '.dsh-move.lock'
@@ -273,8 +274,14 @@ export async function acquireMoveLock(
   throw new Error(`the move lock in ${dir} kept changing while this process tried to take it`)
 }
 
+/**
+ * Why a move's lock is not its own: it could not be read, it is not there, another installation holds it, or another
+ * process of this installation that still runs holds it.
+ */
+export type LockLoss = 'unreadable' | 'missing' | 'foreign' | 'sibling'
+
 /** Whether this move still holds its lock where the data is. */
-export type LockCheck = { kind: 'ours' } | { kind: 'lost'; detail: string }
+export type LockCheck = { kind: 'ours' } | { kind: 'lost'; cause: LockLoss; detail: string }
 
 /**
  * Thrown when a move no longer holds its lock where the data is: another
@@ -306,14 +313,14 @@ export async function checkOwnLock(dirs: readonly string[], self: LockSelf, prob
     try {
       lock = readLock(dir)
     } catch (error) {
-      return { kind: 'lost', detail: `${dir}: the lock cannot be read: ${String(error)}` }
+      return { kind: 'lost', cause: 'unreadable', detail: `${dir}: the lock cannot be read: ${String(error)}` }
     }
-    if (lock.kind === 'none') return { kind: 'lost', detail: `${dir}: no lock` }
-    if (lock.kind === 'unreadable') return { kind: 'lost', detail: `${dir}: ${lock.detail}` }
+    if (lock.kind === 'none') return { kind: 'lost', cause: 'missing', detail: `${dir}: no lock` }
+    if (lock.kind === 'unreadable') return { kind: 'lost', cause: 'unreadable', detail: `${dir}: ${lock.detail}` }
     const owner = lock.owner
-    if (owner.userData !== self.userData) return { kind: 'lost', detail: `${dir}: held by ${owner.userData}` }
+    if (owner.userData !== self.userData) return { kind: 'lost', cause: 'foreign', detail: `${dir}: held by ${owner.userData}` }
     if (owner.pid !== self.pid && owner.startedAt !== '' && await probes.startTimeOf(owner.pid) === owner.startedAt) {
-      return { kind: 'lost', detail: `${dir}: held by process ${String(owner.pid)} of this installation, which still runs` }
+      return { kind: 'lost', cause: 'sibling', detail: `${dir}: held by process ${String(owner.pid)} of this installation, which still runs` }
     }
   }
   return { kind: 'ours' }
@@ -341,12 +348,8 @@ export async function refreshMoveLock(
 ): Promise<LockCheck> {
   const check = await checkOwnLock(dirs, self, probes)
   if (check.kind === 'lost') return check
-  for (const dir of dirs) {
-    const path = join(dir, LOCK_FILENAME)
-    const temporary = `${path}.${String(process.pid)}.tmp`
-    writeFileSync(temporary, lockText({ ...self, heartbeatAt: now.toISOString() }), { mode: 0o600 })
-    renameSync(temporary, path)
-  }
+  // Flushed before the rename, and the directory after it, so a power cut leaves the old lock or the new one, never an empty file.
+  for (const dir of dirs) writeDurably(join(dir, LOCK_FILENAME), Buffer.from(lockText({ ...self, heartbeatAt: now.toISOString() })), 0o600)
   return check
 }
 

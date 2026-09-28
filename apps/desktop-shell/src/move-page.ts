@@ -12,7 +12,7 @@ import { dirname } from 'node:path'
 import type { MoveText } from './move-text.ts'
 import { formatBytes } from './move-text.ts'
 import { CANCELLABLE_PHASES, type BlockedChoice, type MoveJournal } from './move/journal.ts'
-import type { LockState } from './move/lock.ts'
+import type { LockLoss, LockState } from './move/lock.ts'
 import type { MoveOutcome, MoveProgress } from './move/run.ts'
 import { PALETTES, type Appearance } from './theme.ts'
 
@@ -35,6 +35,8 @@ export type MoveLink =
   | { kind: 'abandon' }
   /** Try a move again. */
   | { kind: 'retry' }
+  /** Take back a move that lost its lock after hiding began. */
+  | { kind: 'roll-back' }
 
 /**
  * The link a button carries.
@@ -50,6 +52,7 @@ export function moveLinkUrl(link: MoveLink): string {
     case 'back':
     case 'abandon':
     case 'retry':
+    case 'roll-back':
       return `${MOVE_LINK_SCHEME}//${link.kind}`
     case 'choose':
       return `${MOVE_LINK_SCHEME}//choose?c=${link.choice}`
@@ -89,6 +92,8 @@ export function parseMoveLink(url: string): MoveLink | undefined {
       return { kind: 'abandon' }
     case 'retry':
       return { kind: 'retry' }
+    case 'roll-back':
+      return { kind: 'roll-back' }
     case 'choose': {
       const choice = parsed.searchParams.get('c')
       return choice === 'keep-target' || choice === 'rollback' ? { kind: 'choose', choice } : undefined
@@ -244,21 +249,44 @@ function lockPageBody(text: MoveText, lock: ForeignLock, home: string, platform:
 }
 
 /**
- * The page for a move that stopped because its lock was not this move's.
+ * The page for a move that stopped because its lock was not this move's: why
+ * (the cause), and what can be done besides trying again and quitting.
  * @param text - the sentence set.
- * @param way - what the page offers besides quitting: abandoning the move (before anything but the copy changed), or
- * trying again (the lock could not be read).
+ * @param cause - why the lock is not this move's.
+ * @param way - abandoning the move (while only its copy changed), or taking it back (once hiding began).
  * @returns the page.
  */
-export function lockLostPage(text: MoveText, way: 'abandon' | 'retry'): MovePage {
-  const offer = way === 'abandon'
-    ? { label: text.abandonMove, link: { kind: 'abandon' } as const }
-    : { label: text.retry, link: { kind: 'retry' } as const }
+export function lockLostPage(text: MoveText, cause: LockLoss, way: 'abandon' | 'roll-back'): MovePage {
+  const why = lockLossText(text, cause)
   return {
-    title: way === 'abandon' ? text.lockLostTitle : text.lockUncheckedTitle,
-    paragraphs: [way === 'abandon' ? text.lockLost : text.lockUnchecked],
-    buttons: [offer, { label: text.quit, link: { kind: 'quit' } }],
+    title: why.title,
+    paragraphs: [why.sentence, way === 'abandon' ? text.abandonNote : text.rollBackNote],
+    buttons: [
+      { label: text.retry, link: { kind: 'retry' } },
+      way === 'abandon' ? { label: text.abandonMove, link: { kind: 'abandon' } } : { label: text.rollBackMove, link: { kind: 'roll-back' } },
+      { label: text.quit, link: { kind: 'quit' } },
+    ],
     reveal: [],
+  }
+}
+
+/**
+ * The title and first sentence for why a move's lock is not its own.
+ * @param text - the sentence set.
+ * @param cause - why.
+ * @returns the title and the sentence.
+ */
+function lockLossText(text: MoveText, cause: LockLoss): { title: string; sentence: string } {
+  switch (cause) {
+    case 'unreadable':
+      return { title: text.lockUncheckedTitle, sentence: text.lockUnchecked }
+    case 'missing':
+    case 'foreign':
+      return { title: text.lockLostTitle, sentence: text.lockLost }
+    case 'sibling':
+      return { title: text.lockSiblingTitle, sentence: text.lockSibling }
+    default:
+      return cause satisfies never
   }
 }
 

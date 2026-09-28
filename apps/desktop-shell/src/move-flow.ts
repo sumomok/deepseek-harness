@@ -20,9 +20,9 @@ import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
 import { readJournal } from './move/journal.ts'
-import { claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockProbes, type LockState } from './move/lock.ts'
+import { checkOwnLock, claimLock, HEARTBEAT_INTERVAL_MS, refreshMoveLock, releaseMoveLock, type LockProbes, type LockState } from './move/lock.ts'
 import { keptFolderName, type NameLocale } from './move/names.ts'
-import { ABANDONABLE_PHASES, abandonMove, lockExpectedNow, NODE_MOVE_FS, type MoveOutcome } from './move/run.ts'
+import { ABANDONABLE_PHASES, abandonMove, lockExpectedNow, NODE_MOVE_FS, WITHDRAWABLE_PHASES, type MoveOutcome } from './move/run.ts'
 
 /** The windows a move shows. */
 export interface MoveUi {
@@ -99,29 +99,41 @@ export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
 
 /**
  * Ask the person what to do with a move that stopped because its lock was not
- * this move's. Before anything but the copy was changed, the move may be
- * abandoned ({@link abandonMove}); later the original can no longer be left
- * as it was, so the move may only be tried again (a lock that could not be
- * read reads again; a lock another installation discarded stays lost).
+ * this move's. The page says why, read again now; the move may be tried
+ * again, abandoned while only its copy changed ({@link abandonMove}), or taken
+ * back once hiding began (`rollBackMove`, on the worker, since it prints the
+ * new location).
  * @param deps - the move, the windows, the sentences, and the log.
  * @param detail - where the lock was lost.
- * @returns `go` to carry the move on (abandoned, or tried again), or `quit`.
+ * @returns `quit`, or `go` with the step the worker takes first.
  * @throws when the journal cannot be read or written.
  */
-async function askAfterLostLock(deps: MoveFlowDeps, detail: string): Promise<'go' | 'quit'> {
+async function askAfterLostLock(deps: MoveFlowDeps, detail: string): Promise<{ kind: 'quit' } | { kind: 'go'; before?: ExecutorBefore }> {
   const { request, text, log } = deps
   log(`[desktop] data move: stopped: the move lock is not this move's: ${detail}\n`)
-  const phase = readJournal(request.dir)?.phase
-  if (phase === undefined) return 'quit'
-  const way = ABANDONABLE_PHASES.has(phase) ? 'abandon' : 'retry'
-  const link = await deps.ui.showPage(lockLostPage(text, way))
-  if (link.kind === 'abandon' && way === 'abandon') {
-    abandonMove(request.dir, `the move lock was lost: ${detail}`)
-    log('[desktop] data move: the person abandoned the move after its lock was lost\n')
-    return 'go'
+  const journal = readJournal(request.dir)
+  if (journal === undefined) return { kind: 'quit' }
+  const way = ABANDONABLE_PHASES.has(journal.phase) ? 'abandon' : WITHDRAWABLE_PHASES.has(journal.phase) ? 'roll-back' : undefined
+  if (way === undefined) return { kind: 'quit' }
+  // Read again: the worker's message names only where, and a lock that reads as this move's now could not be read then.
+  const now = await checkOwnLock(lockExpectedNow(NODE_MOVE_FS, journal), request.lockSelf, deps.lockProbes)
+  const link = await deps.ui.showPage(lockLostPage(text, now.kind === 'lost' ? now.cause : 'unreadable', way))
+  const reason = `the move lock was lost: ${detail}`
+  switch (link.kind) {
+    case 'retry':
+      return { kind: 'go' }
+    case 'abandon':
+      if (way !== 'abandon') return { kind: 'quit' }
+      abandonMove(request.dir, reason)
+      log('[desktop] data move: the person abandoned the move after its lock was lost\n')
+      return { kind: 'go' }
+    case 'roll-back':
+      if (way !== 'roll-back') return { kind: 'quit' }
+      log('[desktop] data move: the person took the move back after its lock was lost\n')
+      return { kind: 'go', before: { kind: 'roll-back', detail: reason } }
+    default:
+      return { kind: 'quit' }
   }
-  if (link.kind === 'retry' && way === 'retry') return 'go'
-  return 'quit'
 }
 
 /**
@@ -158,7 +170,9 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
     } catch (error) {
       if (!(error instanceof ExecutorError)) throw error
       if (error.name === 'MoveLockLostError') {
-        if (await askAfterLostLock(deps, error.message) === 'quit') return { kind: 'quit' }
+        const next = await askAfterLostLock(deps, error.message)
+        if (next.kind === 'quit') return { kind: 'quit' }
+        if (next.before !== undefined) before = next.before
         continue
       }
       log(`[desktop] data move: ${error.stalled ? 'stalled' : 'failed'}: ${error.name}: ${error.message}\n`)

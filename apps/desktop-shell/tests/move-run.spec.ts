@@ -25,7 +25,7 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
-  abandonMove, lockExpectedAt, rolledBackPointer, startMove,
+  abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { acquireMoveLock, checkOwnLock, LOCK_FILENAME, MoveLockLostError } from '../src/move/lock.ts'
@@ -760,6 +760,12 @@ describe('a directory a terminal made at the old path', () => {
     const journalText = readFileSync(join(s.setup.dir, JOURNAL_FILENAME), 'utf8')
     writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'hiding-source' }))
     expect(() => { abandonMove(s.setup.dir, 'x') }).toThrow(JournalError)
+    writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), journalText)
+    // Before hiding began, nothing needs taking back: the move is abandoned instead.
+    for (const phase of ['copying', 'verifying', 'catching-up', 'finalizing'] as const) {
+      writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase }))
+      expect(() => { rollBackMove(s.setup.dir, 'x') }).toThrow(JournalError)
+    }
     writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), journalText)
     // Abandoned: the partial copy goes, unguarded, and nothing else changes.
     abandonMove(s.setup.dir, 'the move lock was lost')

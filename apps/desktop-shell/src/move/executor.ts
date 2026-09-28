@@ -53,6 +53,8 @@ export interface ExecutorRequest {
 export type ExecutorBefore =
   | { kind: 'resolve'; choice: BlockedChoice; seen: BlockedView }
   | { kind: 'health-failed'; detail: string }
+  /** Take the move back after it lost its lock ({@link rollBackMove}). */
+  | { kind: 'roll-back'; detail: string }
 
 /** What the step before the move came to. */
 export interface ExecutorPrepared {

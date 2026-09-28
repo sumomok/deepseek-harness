@@ -172,7 +172,7 @@ describe('starting a data move', () => {
     expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(true)
   })
 
-  it('gives back the lock at the new location when the health check passes, and leaves the one in the hidden original', async () => {
+  posixOnly('gives back the lock at the new location when the health check passes, and leaves the one in the hidden original', async () => {
     const { request, probes } = await setup()
     const started = await beginDataMove(request, probes)
     if (started.kind !== 'started') throw new Error(started.kind)
@@ -183,10 +183,22 @@ describe('starting a data move', () => {
       mkdirSync(place, { recursive: true })
       writeFileSync(join(place, LOCK_FILENAME), readFileSync(join(journal.source, LOCK_FILENAME)))
     }
-    passHealthCheck(dir, request)
+    passHealthCheck(dir, request, () => undefined)
     expect(readJournal(dir)?.phase).toBe('cleanup')
     expect(existsSync(join(journal.target, LOCK_FILENAME))).toBe(false)
     expect(existsSync(join(journal.hidden, LOCK_FILENAME))).toBe(true)
+    // A lock that cannot be removed is logged; the health check stays recorded.
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'switched' }))
+    writeFileSync(join(journal.target, LOCK_FILENAME), readFileSync(join(journal.hidden, LOCK_FILENAME)))
+    const logged: string[] = []
+    chmodSync(journal.target, 0o500)
+    try {
+      passHealthCheck(dir, request, (line) => { logged.push(line) })
+    } finally {
+      chmodSync(journal.target, 0o700)
+    }
+    expect(readJournal(dir)?.phase).toBe('cleanup')
+    expect(logged.join('')).toContain('could not give back the lock')
   })
 
   it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {
