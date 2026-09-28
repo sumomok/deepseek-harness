@@ -9,7 +9,7 @@
  */
 
 import { dirname } from 'node:path'
-import type { MoveText } from './move-text.ts'
+import type { MoveText, RollBackCopy } from './move-text.ts'
 import { formatBytes } from './move-text.ts'
 import { CANCELLABLE_PHASES, type BlockedChoice, type MoveJournal } from './move/journal.ts'
 import type { LockLoss, LockState } from './move/lock.ts'
@@ -248,6 +248,9 @@ function lockPageBody(text: MoveText, lock: ForeignLock, home: string, platform:
   }
 }
 
+/** What a lost-lock page offers besides trying again: abandoning, or taking the move back (and what that does with the copy). */
+export type LostLockWay = { kind: 'abandon' } | { kind: 'roll-back'; copy: RollBackCopy }
+
 /**
  * The page for a move that stopped because its lock was not this move's: why
  * (the cause), and what can be done besides trying again and quitting.
@@ -256,14 +259,16 @@ function lockPageBody(text: MoveText, lock: ForeignLock, home: string, platform:
  * @param way - abandoning the move (while only its copy changed), or taking it back (once hiding began).
  * @returns the page.
  */
-export function lockLostPage(text: MoveText, cause: LockLoss, way: 'abandon' | 'roll-back'): MovePage {
+export function lockLostPage(text: MoveText, cause: LockLoss, way: LostLockWay): MovePage {
   const why = lockLossText(text, cause)
   return {
     title: why.title,
-    paragraphs: [why.sentence, way === 'abandon' ? text.abandonNote : text.rollBackNote],
+    paragraphs: [why.sentence, way.kind === 'abandon' ? text.abandonNote : text.rollBackNote(way.copy)],
     buttons: [
       { label: text.retry, link: { kind: 'retry' } },
-      way === 'abandon' ? { label: text.abandonMove, link: { kind: 'abandon' } } : { label: text.rollBackMove, link: { kind: 'roll-back' } },
+      way.kind === 'abandon'
+        ? { label: text.abandonMove, link: { kind: 'abandon' } }
+        : { label: text.rollBackMove, link: { kind: 'roll-back' } },
       { label: text.quit, link: { kind: 'quit' } },
     ],
     reveal: [],

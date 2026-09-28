@@ -16,13 +16,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AbandonedRecordHost, LocationAnswer } from '../src/data-location-boot.ts'
 import { DATA_LOCATION_TEXT } from '../src/data-location-text.ts'
-import { carryMove, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
-import { lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
+import { carryMove, rollBackCopyOf, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
+import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
-import { advanceMove, recordHealth, startMove } from '../src/move/run.ts'
+import { advanceMove, recordHealth, startMove, type MoveFs } from '../src/move/run.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import { harnessEffects, plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
 
@@ -319,11 +319,11 @@ describe('a move that cannot go on', () => {
     expect(readdirSync(f.targetParent).filter(name => name.startsWith('.dsh-data.partial') || name.includes('DSH-Data'))).toEqual([])
   })
 
-  it('says why the lock is not the move\'s, read again when the worker stopped, and goes on after a retry that finds it', async () => {
+  it('tries again without a page when the lock reads as the move\'s again, once in a row, then says why each time', async () => {
     const { setup, f, target } = await started()
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'hiding-source' }))
     const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost' })
-    const threads = [lost(), lost(), lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
+    const threads = [lost(), lost(), lost(), lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
     const self = selfOf(setup)
     const sibling = { ...self, pid: 22222, startedAt: 'P2', heartbeatAt: new Date().toISOString() }
     const ui: MoveUi & { pages: MovePage[] } = recordingUi([{ kind: 'retry' }, { kind: 'retry' }, { kind: 'retry' }])
@@ -340,19 +340,51 @@ describe('a move that cannot go on', () => {
     const deps = depsOf(setup, ui, { start: () => threads.shift() ?? new ScriptedThread(), lockProbes: { startTimeOf: async pid => pid === 22222 ? 'P2' : undefined } })
     expect(await carryMove(deps)).toEqual({ kind: 'relaunch', home: target })
     expect(ui.pages.map(page => [page.title, page.paragraphs[0]])).toEqual([
-      // The lock read as the move's again: it could not be read when the worker looked.
+      // The first loss read as the move's again and was tried again alone; the second in a row could not be read.
       [text.lockUncheckedTitle, text.lockUnchecked],
       [text.lockSiblingTitle, text.lockSibling],
       [text.lockLostTitle, text.lockLost],
     ])
     expect(ui.pages[0]).toMatchObject({
-      paragraphs: [text.lockUnchecked, text.rollBackNote],
+      paragraphs: [text.lockUnchecked, text.rollBackNote('unreachable')],
       buttons: [
         { label: text.retry, link: { kind: 'retry' } }, { label: text.rollBackMove, link: { kind: 'roll-back' } },
         { label: text.quit, link: { kind: 'quit' } },
       ],
     })
     expect(threads).toEqual([])
+    // A single loss that reads as the move's again: no page at all.
+    const again = await started()
+    writeFileSync(join(again.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(again.setup.dir), phase: 'hiding-source' }))
+    const once = [lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
+    const quiet = recordingUi([])
+    expect(await carryMove(depsOf(again.setup, quiet, { start: () => once.shift() ?? new ScriptedThread() }))).toEqual({ kind: 'relaunch', home: again.target })
+    expect(quiet.pages).toEqual([])
+  })
+
+  it('says what taking the move back does with the copy at the new location', async () => {
+    const { setup } = await started()
+    const journal = readJournal(setup.dir)
+    if (journal === undefined) throw new Error('no journal')
+    const there: Pick<MoveFs, 'kind'> = { kind: () => 'dir' }
+    const away: Pick<MoveFs, 'kind'> = { kind: () => 'absent' }
+    expect(rollBackCopyOf({ ...journal, sameVolume: true }, there)).toBe('none')
+    expect(rollBackCopyOf({ ...journal, targetExposed: false }, there)).toBe('deleted')
+    expect(rollBackCopyOf({ ...journal, targetExposed: true }, there)).toBe('kept')
+    expect(rollBackCopyOf({ ...journal, targetExposed: true }, away)).toBe('unreachable')
+    const givenUp = { path: journal.target, bytes: 1 }
+    expect(rollBackCopyOf({ ...journal, leftovers: [givenUp] }, there)).toBe('unreachable')
+    for (const set of [MOVE_TEXT.zh, MOVE_TEXT.en]) {
+      const notes = (['none', 'deleted', 'kept', 'unreachable'] as const).map(copy => set.rollBackNote(copy))
+      expect(new Set(notes).size).toBe(4)
+      for (const copy of ['none', 'deleted', 'kept', 'unreachable'] as const) {
+        expect(lockLostPage(set, 'missing', { kind: 'roll-back', copy }).paragraphs[1]).toBe(set.rollBackNote(copy))
+      }
+    }
+    expect(MOVE_TEXT.zh.rollBackNote('none')).toContain('不会删除任何东西')
+    expect(MOVE_TEXT.zh.rollBackNote('kept')).toContain('改个名字留下')
+    expect(MOVE_TEXT.zh.rollBackNote('deleted')).toContain('删掉')
+    expect(MOVE_TEXT.zh.rollBackNote('unreachable')).toContain('原样留在那里')
   })
 
   posixOnly('takes back a move stopped while hiding the original after its lock was discarded, keeping what was written there since', async () => {

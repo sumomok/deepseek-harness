@@ -68,8 +68,8 @@ export interface MoveText {
   /** What abandoning does, on the page of a move that lost its lock while only its copy changed. */
   abandonNote: string
   abandonMove: string
-  /** What taking the move back does, on the page of a move that lost its lock after hiding began. */
-  rollBackNote: string
+  /** What taking the move back does, on the page of a move that lost its lock after hiding began, by what happens to the copy. */
+  rollBackNote: (copy: RollBackCopy) => string
   rollBackMove: string
   retry: string
   /** Why a move asked for in Settings did not start: the server could not be confirmed stopped. */
@@ -79,6 +79,14 @@ export interface MoveText {
   /** The button that closes a notice. */
   understood: string
 }
+
+/**
+ * What taking a move back does with the copy at the new location: on one volume
+ * there is none (the data is renamed back); otherwise it is deleted (it was
+ * never made the data location), kept under a new name (it was), or left where
+ * it is (it cannot be reached, or its removal was already given up).
+ */
+export type RollBackCopy = 'none' | 'deleted' | 'kept' | 'unreachable'
 
 /** The two sentence sets, keyed by the language they are written in. */
 export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
@@ -135,7 +143,13 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     lockSibling: '这个 DSH 的另一个窗口或进程正拿着这份数据的搬运锁，所以这次搬运先停在这里，之后没有再动数据。关掉那个窗口后重试。',
     abandonNote: '也可以放弃这次搬运：DSH 会删掉已经复制到新位置的那一份，然后照常打开原来位置的数据。',
     abandonMove: '放弃这次搬运',
-    rollBackNote: '也可以撤回这次搬运：DSH 会把数据放回原来的位置，然后照常打开原来位置的数据。新位置上的那一份，还没被用过就删掉，用过就改个名字留下。',
+    rollBackNote: (copy) => {
+      if (copy === 'none') return '也可以撤回这次搬运：DSH 会把数据改回原来的位置，然后照常打开，不会删除任何东西。'
+      const back = '也可以撤回这次搬运：DSH 会把数据放回原来的位置，然后照常打开。'
+      if (copy === 'deleted') return `${back}新位置上的那一份还没设成数据位置，会被删掉。`
+      if (copy === 'kept') return `${back}新位置上的那一份已经设成过数据位置，会改个名字留下，不会删除。`
+      return `${back}新位置上的那一份现在找不到（比如所在的磁盘没接上），会原样留在那里。`
+    },
     rollBackMove: '撤回这次搬运',
     retry: '重试',
     withdrawFailedTitle: '上次的搬运记录没能清除',
@@ -196,7 +210,13 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     lockSibling: 'Another window or process of this same DSH is holding the move lock on this data, so this move has paused here and has not touched the data since. Close that window, then retry.',
     abandonNote: 'You can also abandon this move: DSH deletes the copy it made at the new location, then opens the data in its original location as usual.',
     abandonMove: 'Abandon this move',
-    rollBackNote: 'You can also take this move back: DSH puts the data back in its original location and opens it there as usual. The copy at the new location is deleted if nothing used it yet, and otherwise kept under a new name.',
+    rollBackNote: (copy) => {
+      if (copy === 'none') return 'You can also take this move back: DSH moves the data back to its original location and opens it there as usual. Nothing is deleted.'
+      const back = 'You can also take this move back: DSH puts the data back in its original location and opens it there as usual.'
+      if (copy === 'deleted') return `${back} The copy at the new location was never made the data location, so it is deleted.`
+      if (copy === 'kept') return `${back} The copy at the new location was already made the data location, so it is kept under a new name, not deleted.`
+      return `${back} The copy at the new location cannot be reached now (its drive may be disconnected), so it is left as it is.`
+    },
     rollBackMove: 'Take this move back',
     retry: 'Retry',
     withdrawFailedTitle: 'The last move\'s record could not be cleared',

@@ -751,7 +751,7 @@ export type MoveAction =
  * @param path - the directory.
  * @returns true when a leftover under that path is recorded.
  */
-function leftBehind(journal: MoveJournal, path: string): boolean {
+export function leftBehind(journal: MoveJournal, path: string): boolean {
   return journal.leftovers.some(left => left.path === path || left.path.startsWith(`${path}/`) || left.path.startsWith(`${path}\\`))
 }
 
