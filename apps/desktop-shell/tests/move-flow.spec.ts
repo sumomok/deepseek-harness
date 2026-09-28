@@ -362,6 +362,23 @@ describe('a move that cannot go on', () => {
     expect(quiet.pages).toEqual([])
   })
 
+  it('tries a lost lock again alone once more after a run that completed in between', async () => {
+    const { setup, target } = await started()
+    const journal = readJournal(setup.dir)
+    if (journal === undefined) throw new Error('no journal')
+    writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'hiding-source' }))
+    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost' })
+    const blocked: ExecutorMessage = {
+      type: 'done', outcome: { kind: 'blocked', reason: 'target-occupied', dataAt: [journal.source], choices: ['rollback'], targetPrint: null },
+    }
+    // Lost, tried again alone; that run completes (blocked, answered); lost again, which is again the first in a row.
+    const threads = [lost(), new ScriptedThread(blocked), lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
+    const ui = recordingUi([{ kind: 'choose', choice: 'rollback' }])
+    expect(await carryMove(depsOf(setup, ui, { start: () => threads.shift() ?? new ScriptedThread() }))).toEqual({ kind: 'relaunch', home: target })
+    expect(ui.pages.map(page => page.title)).toEqual([text.blockedTitle])
+    expect(threads).toEqual([])
+  })
+
   it('says what taking the move back does with the copy at the new location', async () => {
     const { setup } = await started()
     const journal = readJournal(setup.dir)
@@ -371,13 +388,20 @@ describe('a move that cannot go on', () => {
     expect(rollBackCopyOf({ ...journal, sameVolume: true }, there)).toBe('none')
     expect(rollBackCopyOf({ ...journal, targetExposed: false }, there)).toBe('deleted')
     expect(rollBackCopyOf({ ...journal, targetExposed: true }, there)).toBe('kept')
-    expect(rollBackCopyOf({ ...journal, targetExposed: true }, away)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, targetExposed: false }, away)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, targetExposed: true }, away)).toBe('unreachable-exposed')
+    // A copy whose removal was given up is left where it is, whether it can be found and whether it was used.
     const givenUp = { path: journal.target, bytes: 1 }
     expect(rollBackCopyOf({ ...journal, leftovers: [givenUp] }, there)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, targetExposed: true, leftovers: [givenUp] }, there)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, targetExposed: true, leftovers: [givenUp] }, away)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, leftovers: [{ path: join(journal.target, 'sessions', 'x'), bytes: 1 }] }, there)).toBe('unreachable')
+    expect(rollBackCopyOf({ ...journal, leftovers: [{ path: `${journal.target}-other`, bytes: 1 }] }, there)).toBe('deleted')
+    const copies = ['none', 'deleted', 'kept', 'unreachable', 'unreachable-exposed'] as const
     for (const set of [MOVE_TEXT.zh, MOVE_TEXT.en]) {
-      const notes = (['none', 'deleted', 'kept', 'unreachable'] as const).map(copy => set.rollBackNote(copy))
-      expect(new Set(notes).size).toBe(4)
-      for (const copy of ['none', 'deleted', 'kept', 'unreachable'] as const) {
+      const notes = copies.map(copy => set.rollBackNote(copy))
+      expect(new Set(notes).size).toBe(5)
+      for (const copy of copies) {
         expect(lockLostPage(set, 'missing', { kind: 'roll-back', copy }).paragraphs[1]).toBe(set.rollBackNote(copy))
       }
     }
@@ -385,6 +409,8 @@ describe('a move that cannot go on', () => {
     expect(MOVE_TEXT.zh.rollBackNote('kept')).toContain('改个名字留下')
     expect(MOVE_TEXT.zh.rollBackNote('deleted')).toContain('删掉')
     expect(MOVE_TEXT.zh.rollBackNote('unreachable')).toContain('原样留在那里')
+    expect(MOVE_TEXT.zh.rollBackNote('unreachable-exposed')).toContain('再问你一次')
+    expect(MOVE_TEXT.en.rollBackNote('unreachable-exposed')).toContain('asks you again')
   })
 
   posixOnly('takes back a move stopped while hiding the original after its lock was discarded, keeping what was written there since', async () => {

@@ -5,14 +5,14 @@
  * @module
  */
 
-import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join, win32 } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   cloudRoots, DATA_DIR_NAME, evaluatePreflight, fileSystemOf, gatherPreflightFacts, iCloudSyncsDesktopAndDocuments,
   inspectTarget, isVolumeRootOnDisk, nodePreflightProbes, parseDarwinMounts, PROBE_DRIVE_ENV, probeCapabilities, realPathOf, requiredSpace,
-  resolveMoveTarget, SPACE_RESERVE_BYTES, windowsFileSystem, WINDOWS_PATH_BUDGET,
+  resolveMoveTarget, SPACE_RESERVE_BYTES, tempRoots, windowsFileSystem, WINDOWS_PATH_BUDGET,
   type PreflightFacts, type PreflightProbes, type PreflightRequest, type TargetState,
 } from '../src/move/preflight.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
@@ -58,6 +58,7 @@ function facts(overrides: Partial<PreflightFacts> = {}): PreflightFacts {
       updateCache: '/Users/p/Library/Caches/@deepseek-aidsh-desktop-updater',
       workspaces: ['/Users/p/proj'],
       cloud: ['/Users/p/Library/Mobile Documents'],
+      temp: ['/private/var/folders'],
     },
     ...overrides,
   }
@@ -76,7 +77,7 @@ function windowsFacts(target: string, overrides: Partial<PreflightFacts> = {}): 
     target: { target, parent: win32.dirname(target), preexisting: false },
     realTarget: target,
     fileSystem: { type: 'ntfs', network: false },
-    forbidden: { ...facts().forbidden, install: [], workspaces: [], cloud: [] },
+    forbidden: { ...facts().forbidden, install: [], workspaces: [], cloud: [], temp: [] },
     ...overrides,
   })
 }
@@ -102,6 +103,7 @@ describe('evaluatePreflight', () => {
     expect(refusedAt('/USERS/P/.DSH/DSH-Data')).toEqual(['inside-source'])
     expect(refusedAt('/applications/dsh desktop.app/x')).toEqual(['inside-install'])
     expect(refusedAt('/Users/p/library/mobile documents/x')).toEqual(['cloud-synced'])
+    expect(refusedAt('/PRIVATE/VAR/folders/ab/T/x')).toEqual(['inside-temp'])
     expect(evaluatePreflight(facts({ platform: 'linux', realTarget: '/USERS/P/.DSH/x' })).refusals).toEqual([])
   })
 
@@ -118,7 +120,7 @@ describe('evaluatePreflight', () => {
     const typed = fixture.home.replace('src-parent', 'SRC-PARENT')
     if (!existsSync(typed)) return
     const gathered = await gatherPreflightFacts(
-      { platform: process.platform, source: fixture.home, chosen: typed, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      { platform: process.platform, source: fixture.home, chosen: typed, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [], temp: [] } },
       probes,
     )
     expect(evaluatePreflight(gathered).refusals.map(r => r.kind)).toContain('inside-source')
@@ -242,7 +244,7 @@ describe('the target folder', () => {
       },
     }
     const gathered = await gatherPreflightFacts(
-      { platform: process.platform, source: fixture.home, chosen: usb, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      { platform: process.platform, source: fixture.home, chosen: usb, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [], temp: [] } },
       probes,
     )
     expect(gathered.target).toEqual({ target: join(usb, DATA_DIR_NAME), parent: usb, preexisting: false })
@@ -257,7 +259,7 @@ describe('the target folder', () => {
     mkdirSync(picked)
     const probes: PreflightProbes = { ...nodePreflightProbes(process.platform), isVolumeRoot: () => undefined }
     const gathered = await gatherPreflightFacts(
-      { platform: process.platform, source: fixture.home, chosen: picked, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [] } },
+      { platform: process.platform, source: fixture.home, chosen: picked, forbidden: { install: [], userData: '/x', updateCache: '/y', workspaces: [], cloud: [], temp: [] } },
       probes,
     )
     expect(gathered.target.target).toBe(join(picked, DATA_DIR_NAME))
@@ -374,9 +376,43 @@ describe('probeCapabilities', () => {
   })
 })
 
+describe('tempRoots', () => {
+  it('lists the process folder, /tmp in both spellings, and the per-user folders on macOS', () => {
+    expect(tempRoots({ platform: 'darwin', env: {}, tmpdir: '/var/folders/ab/T' }))
+      .toEqual(['/var/folders/ab/T', '/tmp', '/private/tmp', '/private/var/folders'])
+  })
+
+  it('lists %TEMP%, %TMP%, and the process folder once each on Windows, skipping blanks', () => {
+    expect(tempRoots({ platform: 'win32', env: { TEMP: 'C:\\T', TMP: ' ' }, tmpdir: 'C:\\T' })).toEqual(['C:\\T'])
+    expect(tempRoots({ platform: 'win32', env: { TEMP: 'C:\\A', TMP: 'C:\\B' }, tmpdir: 'C:\\A' })).toEqual(['C:\\A', 'C:\\B'])
+  })
+
+  it('lists the process folder, /tmp, and /var/tmp elsewhere', () => {
+    expect(tempRoots({ platform: 'linux', env: {}, tmpdir: '/tmp' })).toEqual(['/tmp', '/var/tmp'])
+  })
+})
+
+describe('evaluatePreflight on temporary folders', () => {
+  it('refuses a folder inside one, naming it', () => {
+    expect(evaluatePreflight(facts({ realTarget: '/private/var/folders/ab/T/DSH-Data' })).refusals)
+      .toEqual([{ kind: 'inside-temp', root: '/private/var/folders' }])
+  })
+})
+
 describe('gatherPreflightFacts', () => {
-  const forbidden = { install: [], userData: '/nonexistent/user-data', updateCache: '/nonexistent/cache', workspaces: [], cloud: [] }
+  const forbidden = { install: [], userData: '/nonexistent/user-data', updateCache: '/nonexistent/cache', workspaces: [], cloud: [], temp: [] }
   const request = (source: string, chosen: string): PreflightRequest => ({ platform: process.platform, source, chosen, forbidden })
+
+  it('compares a temporary folder by its real path, so a link to it does not get past', async () => {
+    fixture = await buildFixture({ bigBytes: 1000 })
+    const linked = join(fixture.root, 'temp-link')
+    symlinkSync(fixture.targetParent, linked)
+    const gathered = await gatherPreflightFacts(
+      { platform: process.platform, source: fixture.home, chosen: fixture.targetParent, forbidden: { ...forbidden, temp: [linked] } },
+      nodePreflightProbes(process.platform),
+    )
+    expect(evaluatePreflight(gathered).refusals.map(one => one.kind)).toEqual(['inside-temp'])
+  })
 
   it('takes an empty picked folder as the target itself', async () => {
     fixture = await buildFixture({ bigBytes: 1000 })

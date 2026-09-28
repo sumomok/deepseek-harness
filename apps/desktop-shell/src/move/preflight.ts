@@ -155,6 +155,8 @@ export interface ForbiddenPlaces {
   workspaces: readonly string[]
   /** Folders a sync client uploads (iCloud, OneDrive, …). */
   cloud: readonly string[]
+  /** The system's temporary folders, which the system empties on its own. */
+  temp: readonly string[]
 }
 
 /** Everything {@link evaluatePreflight} decides on. */
@@ -195,6 +197,7 @@ export type PreflightRefusal =
   | { kind: 'inside-update-cache' }
   | { kind: 'inside-workspace'; workspace: string }
   | { kind: 'cloud-synced'; root: string }
+  | { kind: 'inside-temp'; root: string }
   | { kind: 'not-empty' }
   | { kind: 'harness-data' }
   | { kind: 'not-a-folder' }
@@ -255,6 +258,8 @@ export function evaluatePreflight(facts: PreflightFacts): PreflightResult {
   if (workspace !== undefined) refusals.push({ kind: 'inside-workspace', workspace })
   const cloud = forbidden.cloud.find(inside)
   if (cloud !== undefined) refusals.push({ kind: 'cloud-synced', root: cloud })
+  const temp = forbidden.temp.find(inside)
+  if (temp !== undefined) refusals.push({ kind: 'inside-temp', root: temp })
   switch (facts.targetState) {
     case 'absent':
     case 'empty':
@@ -334,6 +339,26 @@ export function cloudRoots(input: {
       .filter((value): value is string => value !== undefined && value.trim().length > 0)
   }
   return []
+}
+
+/**
+ * The system's temporary folders, which the system or a cleanup tool empties
+ * without asking. On macOS: the process's temporary folder, `/tmp`, and the
+ * per-user folders under `/private/var/folders` (`/tmp` is a link to
+ * `/private/tmp`; both spellings are listed and compared as real paths). On
+ * Windows: `%TEMP%`, `%TMP%`, and the process's temporary folder. Elsewhere:
+ * the process's temporary folder, `/tmp`, and `/var/tmp`.
+ * @param input - the platform, the environment, and `os.tmpdir()`.
+ * @returns absolute folder paths, without duplicates or blanks.
+ */
+export function tempRoots(input: { platform: NodeJS.Platform; env: NodeJS.ProcessEnv; tmpdir: string }): string[] {
+  const { platform, env, tmpdir } = input
+  const roots = platform === 'darwin'
+    ? [tmpdir, '/tmp', '/private/tmp', '/private/var/folders']
+    : platform === 'win32'
+      ? [env['TEMP'] ?? '', env['TMP'] ?? '', tmpdir]
+      : [tmpdir, '/tmp', '/var/tmp']
+  return [...new Set(roots.map(root => root.trim()).filter(root => root.length > 0))]
 }
 
 /**
@@ -614,6 +639,7 @@ export async function gatherPreflightFacts(request: PreflightRequest, probes: Pr
     updateCache: real(request.forbidden.updateCache),
     workspaces: request.forbidden.workspaces.map(real),
     cloud: request.forbidden.cloud.map(real),
+    temp: request.forbidden.temp.map(real),
   }
   const scan = await probes.scan(source)
   let parentExists: boolean

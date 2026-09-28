@@ -63,6 +63,28 @@ export function bootMove(dir: string): BootMove {
 }
 
 /**
+ * Removals of the old copy that must each have left something behind before
+ * Settings says so and offers to try again: until then every launch retries
+ * in the background, and a file a program held open is usually free by then.
+ */
+export const CLEANUP_PROMPT_AFTER = 3
+
+/**
+ * What Settings says about a finished move's cleanup: the bytes the last
+ * removal left, once {@link CLEANUP_PROMPT_AFTER} removals in a row left
+ * something.
+ * @param dir - the move directory.
+ * @returns the bytes left, or undefined when there is nothing to say (no journal, another phase, too few attempts,
+ * or a journal that cannot be read).
+ */
+export function cleanupPrompt(dir: string): { leftoverBytes: number } | undefined {
+  const boot = bootMove(dir)
+  if (boot.kind !== 'cleanup') return undefined
+  const { cleanupAttempts, cleanupLeftoverBytes } = boot.journal
+  return cleanupAttempts >= CLEANUP_PROMPT_AFTER && cleanupLeftoverBytes > 0 ? { leftoverBytes: cleanupLeftoverBytes } : undefined
+}
+
+/**
  * Record a passed health check and give back the lock at the new location:
  * on one volume the data was renamed there with its lock, and the cleanup
  * that follows neither needs it nor refreshes it, so it would otherwise age

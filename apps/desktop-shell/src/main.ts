@@ -22,6 +22,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { pinAppIdentity } from './app-identity.ts'
@@ -37,7 +38,8 @@ import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
-import { bootMove, checkHealth, countSessions, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
+import { bootMove, checkHealth, cleanupPrompt, countSessions, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
+import { singleFlight } from './single-flight.ts'
 import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage, type ForeignLock } from './move-page.ts'
 import {
@@ -50,7 +52,7 @@ import type { ExecutorBefore } from './move/executor.ts'
 import { JOURNAL_FILENAME, moveDir, readMoveResult, type MoveJournal } from './move/journal.ts'
 import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
-import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes } from './move/preflight.ts'
+import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes, tempRoots } from './move/preflight.ts'
 import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
 import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
@@ -558,12 +560,22 @@ async function thisLockSelf(): Promise<LockSelf> {
 }
 
 /**
+ * The one cleanup of a finished move that may run at a time: the launch's own
+ * and a retry asked for from Settings share it, so two never delete the old
+ * copy side by side.
+ */
+const moveCleanup = singleFlight((error) => {
+  logLine(`[desktop] data move: cleanup failed, retried next launch: ${String(error)}\n`)
+})
+
+/**
  * Delete the old copy of a move that switched and passed its health check,
  * in the background once the interface is shown; a failure is logged and
  * retried on the next launch.
  * @param window - the app window, for the launch prompts' parent.
+ * @returns false when a cleanup is already running, and this one was not started.
  */
-function cleanUpMoveInBackground(window: BrowserWindow): void {
+function cleanUpMoveInBackground(window: BrowserWindow): boolean {
   const silent: MoveUi = {
     cancel: new AbortController().signal,
     showProgress: () => undefined,
@@ -572,10 +584,10 @@ function cleanUpMoveInBackground(window: BrowserWindow): void {
       return Promise.resolve({ kind: 'quit' })
     },
   }
-  void thisLockSelf().then(self => carryMove(appMoveFlowDeps(window, silent, logLine, self))).then(
-    (end) => { logLine(`[desktop] data move: cleanup ${JSON.stringify(end)}\n`) },
-    (error: unknown) => { logLine(`[desktop] data move: cleanup failed, retried next launch: ${String(error)}\n`) },
-  )
+  return moveCleanup.run(async () => {
+    const end = await carryMove(appMoveFlowDeps(window, silent, logLine, await thisLockSelf()))
+    logLine(`[desktop] data move: cleanup ${JSON.stringify(end)}\n`)
+  })
 }
 
 /**
@@ -616,6 +628,7 @@ function settingsMoveRequest(body: MoveBody): MoveRequest {
       cloud: cloudRoots({
         platform: process.platform, home, env: process.env, iCloudDesktopAndDocuments: iCloudSyncsDesktopAndDocuments(home),
       }),
+      temp: tempRoots({ platform: process.platform, env: process.env, tmpdir: tmpdir() }),
     },
   }
 }
@@ -686,9 +699,11 @@ function dataLocationActions(): DataLocationServiceSpec {
   return {
     state: () => {
       const result = readMoveResult(dir)
+      const cleanup = cleanupPrompt(dir)
       return {
         home: resolveHarnessHome(),
         moving: existsSync(join(dir, JOURNAL_FILENAME)),
+        ...cleanup === undefined ? {} : { cleanup },
         ...result === undefined ? {} : { lastResult: result },
         ...lastMoveRefusal === undefined ? {} : { lastRefusal: lastMoveRefusal },
         ...settledTerminal === undefined ? {} : { terminal: settledTerminal },
@@ -707,10 +722,11 @@ function dataLocationActions(): DataLocationServiceSpec {
     begin: beginMoveFromSettings,
     carry: carryMoveFromSettings,
     retryCleanup: () => {
+      if (bootMove(dir).kind !== 'cleanup') return 'none-waiting'
+      if (moveCleanup.running()) return 'running'
       const window = mainWindow()
-      if (window === undefined || bootMove(dir).kind !== 'cleanup') return false
-      cleanUpMoveInBackground(window)
-      return true
+      if (window === undefined) return 'no-window'
+      return cleanUpMoveInBackground(window) ? 'started' : 'running'
     },
   }
 }

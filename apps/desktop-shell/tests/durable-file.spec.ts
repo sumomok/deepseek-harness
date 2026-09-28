@@ -43,6 +43,16 @@ describe('durable file writes', () => {
     expect(readdirSync(root).sort()).toEqual(['copy', 's'])
   })
 
+  it('names every temporary file apart, so two writers of one process never share one', () => {
+    const names: string[] = []
+    for (let i = 0; i < 2; i += 1) replaceDurably(join(root, '.dsh-move.lock'), (temporary) => { names.push(temporary); writeFileSync(temporary, 'x') })
+    expect(names[0]).not.toBe(names[1])
+    for (const name of names) {
+      expect(name.startsWith(join(root, '.dsh-move.lock.'))).toBe(true)
+      expect(name).toMatch(new RegExp(`\\.${String(process.pid)}\\.[0-9a-f]{8}\\.tmp$`))
+    }
+  })
+
   it('removes the temporary file when writing it fails partway, and leaves the destination as it was', () => {
     const file = join(root, 'f')
     writeFileSync(file, 'old')

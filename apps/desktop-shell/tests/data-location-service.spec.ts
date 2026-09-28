@@ -44,7 +44,7 @@ async function start(changes: Partial<DataLocationServiceSpec> = {}): Promise<{ 
     preflight: async (body) => { calls.push({ route: 'preflight', body }); return VERDICT },
     begin: async (body) => { calls.push({ route: 'begin', body }); return { kind: 'started', journal, preflight: VERDICT } },
     carry: (carried) => { calls.push({ route: 'carry', journal: carried }) },
-    retryCleanup: () => { calls.push({ route: 'retry' }); return true },
+    retryCleanup: () => { calls.push({ route: 'retry' }); return 'started' },
     ...changes,
   })
   services.push(service)
@@ -139,11 +139,41 @@ describe('the data location service', () => {
     expect(neverCarried).toEqual([])
   })
 
-  it('carries a waiting cleanup on again, and says when none is waiting', async () => {
+  it('carries a waiting cleanup on again, and says why not when it does not', async () => {
     const { handle } = await start()
     expect((await call(handle, RETRY_CLEANUP_PATH)).status).toBe(202)
-    const none = await start({ retryCleanup: () => false })
-    expect((await call(none.handle, RETRY_CLEANUP_PATH)).status).toBe(409)
+    for (const reason of ['none-waiting', 'running', 'no-window'] as const) {
+      const refused = await start({ retryCleanup: () => reason })
+      const response = await call(refused.handle, RETRY_CLEANUP_PATH)
+      expect(response.status, reason).toBe(409)
+      expect(await response.json(), reason).toEqual({ reason })
+    }
+  })
+
+  it('opens one folder picker at a time, and another once it closed', async () => {
+    let close: (picked: string | undefined) => void = () => undefined
+    let opened = 0
+    const { handle } = await start({
+      choose: () => { opened += 1; return new Promise((resolve) => { close = resolve }) },
+    })
+    const first = call(handle, CHOOSE_PATH)
+    await expect.poll(() => opened).toBe(1)
+    const second = await call(handle, CHOOSE_PATH)
+    expect(second.status).toBe(409)
+    expect(await second.json()).toEqual({ reason: 'choosing' })
+    close('/Volumes/Data')
+    expect(await (await first).json()).toEqual({ path: '/Volumes/Data' })
+    const third = call(handle, CHOOSE_PATH)
+    await expect.poll(() => opened).toBe(2)
+    close(undefined)
+    expect(await (await third).json()).toEqual({})
+  })
+
+  it('frees the picker slot when the picker fails', async () => {
+    let attempts = 0
+    const { handle } = await start({ choose: async () => { attempts += 1; if (attempts === 1) throw new Error('no window'); return '/x' } })
+    expect((await call(handle, CHOOSE_PATH)).status).toBe(500)
+    expect(await (await call(handle, CHOOSE_PATH)).json()).toEqual({ path: '/x' })
   })
 
   it('answers 500 with the error when a route fails', async () => {

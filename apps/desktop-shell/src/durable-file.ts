@@ -5,10 +5,13 @@
  * the rename itself reaches the disk.
  *
  * A crash before the rename leaves the temporary sibling,
- * `<file>.<pid>.tmp`, beside the destination; nothing removes it later.
+ * `<file>.<pid>.<8 hex digits>.tmp`, beside the destination; nothing removes
+ * it later. The random part keeps two writers of one process (the main thread
+ * and a worker, which share the pid) from writing the same temporary file.
  * @module @deepseek-ai/dsh-desktop-shell/durable-file
  */
 
+import { randomBytes } from 'node:crypto'
 import { closeSync, copyFileSync, fsyncSync, openSync, renameSync, rmSync, writeSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -21,7 +24,7 @@ import { dirname } from 'node:path'
  * @throws what `produce` or the rename threw.
  */
 export function replaceDurably(file: string, produce: (temporary: string) => void): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`
+  const temporary = `${file}.${String(process.pid)}.${randomBytes(4).toString('hex')}.tmp`
   try {
     produce(temporary)
     renameSync(temporary, file)

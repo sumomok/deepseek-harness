@@ -101,11 +101,14 @@ export async function carryMove(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
  * What taking a move back would do with the copy at the new location, for its page.
  * @param journal - the journal.
  * @param fs - looks at the new location.
- * @returns none on one volume; otherwise unreachable, kept (it was made the data location), or deleted.
+ * @returns none on one volume; unreachable when its removal was given up, or when it cannot be found and was never
+ * made the data location; unreachable-exposed when it cannot be found and was (the take-back then stops at the page
+ * for a missing new location and asks again); otherwise kept (it was made the data location) or deleted.
  */
 export function rollBackCopyOf(journal: MoveJournal, fs: Pick<MoveFs, 'kind'>): RollBackCopy {
   if (journal.sameVolume) return 'none'
-  if (fs.kind(journal.target) === 'absent' || leftBehind(journal, journal.target)) return 'unreachable'
+  if (leftBehind(journal, journal.target)) return 'unreachable'
+  if (fs.kind(journal.target) === 'absent') return journal.targetExposed ? 'unreachable-exposed' : 'unreachable'
   return journal.targetExposed ? 'kept' : 'deleted'
 }
 

@@ -5,7 +5,7 @@
  * @module
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -83,7 +83,7 @@ describe('pointer file', () => {
     writePointer(userData, second)
     expect(readPointer(userData)).toEqual({ kind: 'ok', pointer: second })
     expect(JSON.parse(readFileSync(join(userData, POINTER_BACKUP_FILENAME), 'utf8'))).toEqual(first)
-    expect(existsSync(join(userData, `${POINTER_FILENAME}.${String(process.pid)}.tmp`))).toBe(false)
+    expect(readdirSync(userData).filter(name => name.endsWith('.tmp'))).toEqual([])
   })
 
   it('reports a corrupt main file as corrupt, carrying the backup only as a suggestion', () => {

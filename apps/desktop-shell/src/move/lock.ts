@@ -256,16 +256,17 @@ export function claimLock(path: string, expected: LockOwner): 'claimed' | 'chang
  * @param dir - the data directory.
  * @param self - this installation and process.
  * @param probes - the process start times and the clock.
- * @returns `taken`, or what holds it.
+ * @returns `taken` with the lock exactly as written, or what holds it.
  * @throws when the lock cannot be written, or other processes keep changing it.
  */
 export async function acquireMoveLock(
   dir: string, self: LockSelf, probes: LockProbes,
-): Promise<{ kind: 'taken' } | Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>> {
+): Promise<{ kind: 'taken'; owner: LockOwner } | Exclude<LockState, { kind: 'none' } | { kind: 'ours' }>> {
   const path = join(dir, LOCK_FILENAME)
-  const text = lockText({ ...self, heartbeatAt: probes.now().toISOString() })
+  const owner: LockOwner = { ...self, heartbeatAt: probes.now().toISOString() }
+  const text = lockText(owner)
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (createExclusively(path, text)) return { kind: 'taken' }
+    if (createExclusively(path, text)) return { kind: 'taken', owner }
     const state = await inspectMoveLock(dir, self, probes)
     if (state.kind === 'none') continue
     if (state.kind !== 'ours') return state

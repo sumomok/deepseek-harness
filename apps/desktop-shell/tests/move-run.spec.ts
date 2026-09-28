@@ -337,6 +337,7 @@ describe('a move to another volume', () => {
     await advanceMove(s.setup.dir, stubborn, { pid: PID })
     recordHealth(s.setup.dir, true)
     expect(await advanceMove(s.setup.dir, stubborn, { pid: PID })).toEqual({ kind: 'cleanup-incomplete', attempts: 1, leftoverBytes: 35 })
+    expect(readJournal(s.setup.dir)).toMatchObject({ phase: 'cleanup', cleanupAttempts: 1, cleanupLeftoverBytes: 35 })
     expect(await advanceMove(s.setup.dir, stubborn, { pid: PID })).toEqual({ kind: 'cleanup-incomplete', attempts: 2, leftoverBytes: 35 })
     expect(await advanceMove(s.setup.dir, real, { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
   })
@@ -781,7 +782,8 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('never copies, prints, or checks the lock\'s temporary files or the AppleDouble companions of the markers', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     const leftovers = [
-      `._${LOCK_FILENAME}`, '._.dsh-data-id', `${LOCK_FILENAME}.4242.tmp`, `${LOCK_FILENAME}.claim-4242-0a1b2c3d`, `._${LOCK_FILENAME}.4242.tmp`,
+      `._${LOCK_FILENAME}`, '._.dsh-data-id', `${LOCK_FILENAME}.4242.tmp`, `${LOCK_FILENAME}.4242.0a1b2c3d.tmp`,
+      `${LOCK_FILENAME}.claim-4242-0a1b2c3d`, `._${LOCK_FILENAME}.4242.tmp`,
     ]
     for (const name of leftovers) writeFileSync(join(s.f.home, name), 'left over')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
@@ -1045,7 +1047,7 @@ describe('nextAction', () => {
     targetPreexisting: false, partial: '/p', hidden: '/h', sameVolume: false, dataId: HARNESS_ID, pointerBefore: {},
     terminalBefore: { kind: 'unset' }, terminalSnapshot: { kind: 'unknown', detail: '' }, homeLinkBefore: { kind: 'absent' }, baseline: { sessions: 0, workspaces: 0, quarantined: [] },
     linkRewrites: [], repairRounds: 0, pointerWritten: false, terminalWritten: false, homeLinkRestored: false, targetExposed: false,
-    retiredInPlace: false, originalGeneration: 0, cleanupAttempts: 0,
+    retiredInPlace: false, originalGeneration: 0, cleanupAttempts: 0, cleanupLeftoverBytes: 0,
     awaitingChoice: false, keepTarget: false, keepOriginal: false, targetAbandoned: false, originalAbandoned: false,
     leftovers: [], startedAt: '', ...changes,
   })

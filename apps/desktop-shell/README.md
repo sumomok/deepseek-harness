@@ -362,15 +362,19 @@ The snapshot is one JSON object. `phase` and `currentVersion` are always present
 
 | Route | Answer |
 |---|---|
-| `GET /state` | `200` — the data directory in use, whether a move is recorded, the last move's result, why the last move asked for was taken back after it was accepted, and what this launch's write of the terminal's setting came to |
-| `POST /choose` | `200` — `{ "path": … }` from the native folder picker over the app window, or `{}` when it was cancelled |
+| `GET /state` | `200` — the data directory in use, whether a move is recorded, the last move's result, why the last move asked for was taken back after it was accepted, what this launch's write of the terminal's setting came to, and — once three removals of a finished move's old copy in a row left files behind — `cleanup: { leftoverBytes }` |
+| `POST /choose` | `200` — `{ "path": … }` from the native folder picker over the app window, or `{}` when it was cancelled; `409` — `{ "reason": "choosing" }` while a picker is already open |
 | `POST /preflight` | `200` — the check's verdict for `{ "target", "workspaces" }`, with every reason it refuses; nothing is written |
-| `POST /start` | `202` — `{ "ok": true }` once the move is checked again and its journal written; `409` — why it did not start. After the answer the server and every process it started are stopped and the move runs in its own window |
-| `POST /retry-cleanup` | `202` when a move that left files behind is cleaned up again; `409` when none is waiting |
+| `POST /start` | `202` — `{ "ok": true }` once the move is checked again and its journal written; `409` — why it did not start, `{ "kind": "in-progress" }` among them while another `/start` is still checking. After the answer the server and every process it started are stopped and the move runs in its own window; a refusal that comes only then (the server's processes could not be confirmed stopped) is the next `/state`'s `lastRefusal` |
+| `POST /retry-cleanup` | `202` when the finished move's cleanup is carried again; `409` — `{ "reason" }`: `none-waiting` (no finished move waits for its cleanup), `running` (a cleanup is running, the launch's own or an earlier retry), or `no-window` (the app window is not open) |
 | any other path or method | `404`, decided before the token |
 | a missing or wrong token | `401` |
 
-A body over 256 KB is `413`, and one that is not `{ "target": string, "workspaces": string[] }` is `400`. The workspace folders are places the data may not go, and their count is the health check's baseline.
+A body over 256 KB is `413`, and one that is not `{ "target": string, "workspaces": string[] }` is `400`. The workspace folders are places the data may not go, and their count is the health check's baseline. The system's temporary folders are refused too (`inside-temp`): the process's own, `/tmp` and `/private/tmp` and `/private/var/folders` on macOS, `%TEMP%` and `%TMP%` on Windows, each compared as its real path.
+
+**One of each at a time.** A second `/start` while one is still checking is `in-progress`, so two requests cannot both pass the journal check and take one lock; the check is made again once the lock is held, and a failed start removes the lock only if it still reads exactly as that start wrote it. One cleanup of a finished move runs at a time, the launch's own and a retry sharing one slot, and one folder picker is open at a time.
+
+**The data token is in reach of every plugin the server runs**, like the update token: any code in the server process, a third-party plugin included, can read `DSH_DESKTOP_DATA_TOKEN` and call these routes. That grants nothing the plugin does not have already. It runs as the same user with the data directory's whole contents open to it; the routes move that data only to a folder the shell checks as it would the person's own pick, never delete it outside a move's own cleanup, and every move stops the server and shows its progress window, so it cannot happen unseen. What a caller can cause is a move the person did not ask for, to a place that passed every check. An audit of a third-party plugin therefore covers whether it reads `DSH_DESKTOP_DATA_TOKEN`.
 
 ## Where your data lives
 
@@ -416,7 +420,7 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - A move is given up as hung only after two minutes without a single file operation; one very large tree walked by the target's print counts as one operation.
 - A terminal that exported `DSH_HOME` before the location changed keeps the old value until it is reopened, and an app launched from it takes that value for a newer one.
 - A block that is no longer the last thing in its profile, because lines were added after it, is removed alone, and the file is not guaranteed to come back byte for byte.
-- A crash before a rename leaves the temporary file `<file>.<pid>.tmp` beside the profile or the pointer, and nothing removes it later.
+- A crash before a rename leaves a temporary file beside the profile (`<file>.<pid>.tmp`) or the pointer (`<file>.<pid>.<8 hex digits>.tmp`), and nothing removes it later.
 - `<file>.dsh-backup` and `data-location.json.bak` are overwritten on every write, so each keeps only the version before the last write.
 - The profile writer honours `$ZDOTDIR` only when the app's own environment carries it; an app opened from Finder does not see one set in `~/.zshenv`, and writes `~/.zshrc`. That case, and a `DSH_HOME` assigned in a file the shell reads later such as `~/.zlogin`, leave terminals on their own value; the app reports them as not synced in `dsh-server.log` and does not follow that value back.
 - A link at `~/.dsh` that you made yourself is re-pointed at the data folder while a pointer exists; the folder it pointed to is left as it is.

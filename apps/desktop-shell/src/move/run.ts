@@ -133,7 +133,7 @@ export const MOVE_MARKERS: readonly string[] = [
 ]
 
 /**
- * The markers, the lock's temporary files (`<lock>.<pid>.tmp`, `<lock>.claim-…`),
+ * The markers, the lock's temporary files (`<lock>.<pid>.<hex>.tmp`, `<lock>.claim-…`),
  * and their AppleDouble companions (`._<name>`), which macOS writes beside a
  * file on a file system without extended attributes (exFAT, FAT, SMB): what a
  * move neither copies, prints, nor checks. Entries ending in `*` match by
@@ -796,7 +796,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       const report = await effects.remove(journal.hidden)
       if (report.leftovers.length === 0) return undefined
       const attempts = journal.cleanupAttempts + 1
-      save({ ...journal, cleanupAttempts: attempts })
+      save({ ...journal, cleanupAttempts: attempts, cleanupLeftoverBytes: report.leftoverBytes })
       return { kind: 'cleanup-incomplete', attempts, leftoverBytes: report.leftoverBytes }
     }
     case 'remove-partial':

@@ -47,7 +47,7 @@ afterEach(async () => {
 describe('the move lock', () => {
   it('is created complete, with the holder\'s start time and heartbeat, and is never copied with the data', async () => {
     expect(await inspectMoveLock(dir, self, probes({}))).toEqual({ kind: 'none' })
-    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'taken' })
+    expect(await acquireMoveLock(dir, self, probes({}))).toMatchObject({ kind: 'taken' })
     expect(lockFile()).toEqual({ ...self, heartbeatAt: NOW.toISOString() })
     expect(readdirSync(dir)).toEqual([LOCK_FILENAME])
     expect(await inspectMoveLock(dir, self, probes({}))).toMatchObject({ kind: 'ours' })
@@ -85,7 +85,7 @@ describe('the move lock', () => {
 
   it('takes over this installation\'s own lock from an earlier process by renaming it away first', async () => {
     writeFileSync(join(dir, LOCK_FILENAME), JSON.stringify({ ...self, pid: 999, heartbeatAt: '2026-01-01T00:00:00Z' }))
-    expect(await acquireMoveLock(dir, self, probes({}))).toEqual({ kind: 'taken' })
+    expect(await acquireMoveLock(dir, self, probes({}))).toMatchObject({ kind: 'taken' })
     expect(lockFile()).toEqual({ ...self, heartbeatAt: NOW.toISOString() })
     expect(readdirSync(dir)).toEqual([LOCK_FILENAME])
   })

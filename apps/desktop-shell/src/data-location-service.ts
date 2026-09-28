@@ -14,10 +14,14 @@
  * | Route | Body | Answer |
  * |---|---|---|
  * | `GET /state` | — | `200` — the {@link DataLocationState} |
- * | `POST /choose` | — | `200` — `{ "path": "…" }`, or `{}` when the picker was cancelled |
+ * | `POST /choose` | — | `200` — `{ "path": "…" }`, or `{}` if cancelled; `409` — `{ "reason": "choosing" }` |
  * | `POST /preflight` | {@link MoveBody} | `200` — the {@link PreflightResult} |
  * | `POST /start` | {@link MoveBody} | `202` — `{ "ok": true }` once the journal is written; `409` — the {@link MoveRefusal} |
- * | `POST /retry-cleanup` | — | `202` — `{ "ok": true }` when a cleanup is carried on again; `409` when none is waiting |
+ * | `POST /retry-cleanup` | — | `202` — `{ "ok": true }` when the cleanup runs again; `409` — `{ "reason" }` |
+ *
+ * One picker is open at a time (`choosing`); a `/start` while another is still
+ * checking is refused as `in-progress`; `/retry-cleanup`'s reasons are
+ * {@link RetryCleanupAnswer}.
  *
  * Every other path and method is `404`, decided before the token is read; a
  * missing or wrong token is `401`; a body over {@link MAX_BODY_BYTES} is
@@ -79,6 +83,12 @@ export interface DataLocationState {
   home: string
   /** Whether a move is recorded on disk (in progress, or waiting for its cleanup). */
   moving: boolean
+  /**
+   * The finished move's cleanup kept leaving files behind, and Settings says
+   * so and offers `/retry-cleanup`: present only while the journal is in phase
+   * `cleanup` and enough removals in a row left something (`cleanupPrompt`).
+   */
+  cleanup?: { leftoverBytes: number }
   /** The last finished move's result, with what it left where. */
   lastResult?: MoveResult
   /** Why the last move asked for from Settings was taken back after `/start` answered. */
@@ -119,10 +129,18 @@ export interface DataLocationServiceSpec {
   carry: (journal: MoveJournal) => void
   /**
    * Carry a move that finished but left files behind through its cleanup again.
-   * @returns whether a cleanup was waiting.
+   * @returns `started`, or why not.
    */
-  retryCleanup: () => boolean
+  retryCleanup: () => RetryCleanupAnswer
 }
+
+/**
+ * What asking for the cleanup again came to: `started`; `none-waiting` when no
+ * finished move waits for its cleanup; `running` when a cleanup is already
+ * running (the launch's own, or an earlier retry); `no-window` when the app
+ * window the cleanup's prompts would belong to is not open.
+ */
+export type RetryCleanupAnswer = 'started' | 'none-waiting' | 'running' | 'no-window'
 
 /** A listening data-location service: where it is, what opens it, and how it stops. */
 export interface DataLocationServiceHandle {
@@ -183,6 +201,7 @@ export function parseMoveBody(text: string): MoveBody | string {
  */
 export async function startDataLocationService(spec: DataLocationServiceSpec): Promise<DataLocationServiceHandle> {
   const token = mintToken()
+  let choosing = false
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
@@ -205,15 +224,27 @@ export async function startDataLocationService(spec: DataLocationServiceSpec): P
         return
       case 'choose': {
         request.resume()
-        const picked = await spec.choose()
-        sendJson(response, 200, picked === undefined ? {} : { path: picked })
+        // One picker at a time: a second request would stack a second dialog over the first.
+        if (choosing) {
+          sendJson(response, 409, { reason: 'choosing' })
+          return
+        }
+        choosing = true
+        try {
+          const picked = await spec.choose()
+          sendJson(response, 200, picked === undefined ? {} : { path: picked })
+        } finally {
+          choosing = false
+        }
         return
       }
-      case 'retry-cleanup':
+      case 'retry-cleanup': {
         request.resume()
-        if (spec.retryCleanup()) sendJson(response, 202, { ok: true })
-        else sendText(response, 409, 'no move is waiting for its cleanup')
+        const answer = spec.retryCleanup()
+        if (answer === 'started') sendJson(response, 202, { ok: true })
+        else sendJson(response, 409, { reason: answer })
         return
+      }
       case 'preflight':
       case 'start': {
         const text = await readBody(request, MAX_BODY_BYTES)

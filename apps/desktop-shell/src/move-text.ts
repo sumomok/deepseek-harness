@@ -84,9 +84,12 @@ export interface MoveText {
  * What taking a move back does with the copy at the new location: on one volume
  * there is none (the data is renamed back); otherwise it is deleted (it was
  * never made the data location), kept under a new name (it was), or left where
- * it is (it cannot be reached, or its removal was already given up).
+ * it is (it cannot be reached, or its removal was already given up). A copy
+ * that was made the data location and cannot be reached now stops the take-back
+ * once more at the page for a new location that cannot be found, which asks
+ * again (`unreachable-exposed`).
  */
-export type RollBackCopy = 'none' | 'deleted' | 'kept' | 'unreachable'
+export type RollBackCopy = 'none' | 'deleted' | 'kept' | 'unreachable' | 'unreachable-exposed'
 
 /** The two sentence sets, keyed by the language they are written in. */
 export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
@@ -148,6 +151,9 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
       const back = '也可以撤回这次搬运：DSH 会把数据放回原来的位置，然后照常打开。'
       if (copy === 'deleted') return `${back}新位置上的那一份还没设成数据位置，会被删掉。`
       if (copy === 'kept') return `${back}新位置上的那一份已经设成过数据位置，会改个名字留下，不会删除。`
+      if (copy === 'unreachable-exposed') {
+        return `${back}新位置上的那一份现在找不到（比如所在的磁盘没接上），而它已经设成过数据位置，所以撤回时 DSH 会先停下来再问你一次：等那块盘接上，或者不等它直接回到原来的位置。`
+      }
       return `${back}新位置上的那一份现在找不到（比如所在的磁盘没接上），会原样留在那里。`
     },
     rollBackMove: '撤回这次搬运',
@@ -215,6 +221,9 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
       const back = 'You can also take this move back: DSH puts the data back in its original location and opens it there as usual.'
       if (copy === 'deleted') return `${back} The copy at the new location was never made the data location, so it is deleted.`
       if (copy === 'kept') return `${back} The copy at the new location was already made the data location, so it is kept under a new name, not deleted.`
+      if (copy === 'unreachable-exposed') {
+        return `${back} The copy at the new location cannot be reached now (its drive may be disconnected), and it was already made the data location, so DSH stops once more while taking the move back and asks you again: wait for that drive, or go back to the original location without it.`
+      }
       return `${back} The copy at the new location cannot be reached now (its drive may be disconnected), so it is left as it is.`
     },
     rollBackMove: 'Take this move back',

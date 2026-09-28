@@ -20,7 +20,7 @@ import { countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts
 import {
   ABANDONED_FILENAME, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, moveDir, readAbandonedCopies, readJournal, type MoveJournal,
 } from './move/journal.ts'
-import { acquireMoveLock, releaseMoveLock, START_TIME_UNKNOWN, type LockProbes, type LockSelf, type LockState } from './move/lock.ts'
+import { acquireMoveLock, claimLock, LOCK_FILENAME, releaseMoveLock, START_TIME_UNKNOWN, type LockProbes, type LockSelf, type LockState } from './move/lock.ts'
 import {
   evaluatePreflight, gatherPreflightFacts, type ForbiddenPlaces, type PreflightProbes, type PreflightResult,
 } from './move/preflight.ts'
@@ -107,22 +107,43 @@ export function installPlaces(input: { platform: NodeJS.Platform; execPath: stri
 }
 
 /**
+ * The installations a {@link beginDataMove} call of this process is checking
+ * right now. A second call for the same installation is refused while the
+ * first runs: both would pass the journal check, and the second would take
+ * the first's lock over as its own.
+ */
+const beginning = new Set<string>()
+
+/**
  * Check a move and, when every check passes, take the lock and write the
- * journal in phase `requested`.
+ * journal in phase `requested`. A call made while another call for the same
+ * installation is still checking is refused as `in-progress`.
  * @param request - where to, from where, and the places the data may not go.
  * @param probes - the disk, terminal, and process reads.
  * @returns the journal, or why the move did not start.
  * @throws when a probe fails, or the lock or the journal cannot be written.
  */
 export async function beginDataMove(request: MoveRequest, probes: MoveStartProbes): Promise<MoveStartOutcome> {
+  if (beginning.has(request.userData)) return { kind: 'refused', refusal: { kind: 'in-progress' } }
+  beginning.add(request.userData)
+  try {
+    return await beginOnce(request, probes)
+  } finally {
+    beginning.delete(request.userData)
+  }
+}
+
+/**
+ * One {@link beginDataMove} call, alone for its installation in this process.
+ * @param request - where to, from where, and the places the data may not go.
+ * @param probes - the disk and terminal reads.
+ * @returns the journal, or why the move did not start.
+ * @throws when a probe fails, or the journal or the lock cannot be written.
+ */
+async function beginOnce(request: MoveRequest, probes: MoveStartProbes): Promise<MoveStartOutcome> {
   const dir = moveDir(request.userData)
   const refused = (refusal: MoveRefusal): MoveStartOutcome => ({ kind: 'refused', refusal })
-  try {
-    if (readJournal(dir) !== undefined) return refused({ kind: 'in-progress' })
-  } catch (error) {
-    if (!(error instanceof JournalError)) throw error
-    return refused({ kind: 'in-progress' })
-  }
+  if (journalPresent(dir)) return refused({ kind: 'in-progress' })
   try {
     readAbandonedCopies(dir)
   } catch (error) {
@@ -143,7 +164,15 @@ export async function beginDataMove(request: MoveRequest, probes: MoveStartProbe
   const self = await lockSelf(request, probes.lock)
   const lock = await acquireMoveLock(source, self, probes.lock)
   if (lock.kind !== 'taken') return refused({ kind: 'locked', lock })
+  // Only the lock exactly as this call wrote it is removed: one another process put in its place stays.
+  const releaseOwn = (): void => { claimLock(join(source, LOCK_FILENAME), lock.owner) }
   try {
+    // Checked again now that the lock is held: a move another process of this
+    // installation started meanwhile wrote its journal before taking the lock.
+    if (journalPresent(dir)) {
+      releaseOwn()
+      return refused({ kind: 'in-progress' })
+    }
     const pointer = readPointer(request.userData)
     const aliases = [source, request.home]
     if (sameReal(request.defaultHome, source)) aliases.push(request.defaultHome)
@@ -168,8 +197,22 @@ export async function beginDataMove(request: MoveRequest, probes: MoveStartProbe
     }, { pid: request.pid, now: request.now })
     return { kind: 'started', journal, preflight }
   } catch (error) {
-    releaseMoveLock([source], self)
+    releaseOwn()
     throw error
+  }
+}
+
+/**
+ * Whether a journal is on disk, readable or not.
+ * @param dir - the move directory.
+ * @returns true when a move is recorded there.
+ */
+function journalPresent(dir: string): boolean {
+  try {
+    return readJournal(dir) !== undefined
+  } catch (error) {
+    if (!(error instanceof JournalError)) throw error
+    return true
   }
 }
 
@@ -224,23 +267,39 @@ export function withdrawRequestAtBoot(boot: BootMove, request: Pick<MoveRequest,
 
 /**
  * Hand the data over to a move that was just requested: stop the server and
- * everything it started. When some of it cannot be confirmed gone the move is
- * taken back before anything was copied and the server is started again.
+ * everything it started. When some of it cannot be confirmed gone, or the
+ * stop itself fails, the move is taken back before anything was copied and
+ * the server is started again; the server is started again even when taking
+ * the move back fails, so a failure here never leaves the application
+ * without its server.
  * @param journal - the journal {@link beginDataMove} wrote.
  * @param request - the installation and process that took the lock.
  * @param deps - the stop of the server's whole tree (the processes still running) and its restart.
  * @returns `go` when the move may run, or the refusal to report.
- * @throws when the move cannot be taken back.
+ * @throws what the stop threw, after the take-back and the restart; or, when the move cannot be taken back, that
+ * failure, after the restart.
  */
 export async function handOverToMove(
   journal: MoveJournal,
   request: Pick<MoveRequest, 'userData' | 'pid'>,
   deps: { stopServerTree: () => Promise<TreeCheck>; restartServer: () => Promise<unknown> },
 ): Promise<{ kind: 'go' } | { kind: 'refused'; refusal: MoveRefusal }> {
-  const check = await deps.stopServerTree()
+  const takeBack = async (): Promise<void> => {
+    try {
+      withdrawRequestedMove(journal, request)
+    } finally {
+      await deps.restartServer()
+    }
+  }
+  let check: TreeCheck
+  try {
+    check = await deps.stopServerTree()
+  } catch (error) {
+    await takeBack()
+    throw error
+  }
   if (check.kind === 'gone') return { kind: 'go' }
-  withdrawRequestedMove(journal, request)
-  await deps.restartServer()
+  await takeBack()
   const pids = check.kind === 'running' ? check.survivors.map(entry => entry.pid) : []
   return { kind: 'refused', refusal: { kind: 'server-still-running', pids } }
 }

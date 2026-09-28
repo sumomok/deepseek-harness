@@ -35,7 +35,7 @@ afterEach(async () => {
 describe('the move lock without hard links', () => {
   it('is created by an exclusive write, and a second one is refused', async () => {
     expect(() => { fs.linkSync(join(dir, 'a'), join(dir, 'b')) }).toThrow('ENOTSUP')
-    expect(await acquireMoveLock(dir, self, { startTimeOf: async () => undefined, now: () => NOW })).toEqual({ kind: 'taken' })
+    expect(await acquireMoveLock(dir, self, { startTimeOf: async () => undefined, now: () => NOW })).toMatchObject({ kind: 'taken' })
     expect(JSON.parse(fs.readFileSync(join(dir, LOCK_FILENAME), 'utf8'))).toEqual({ ...self, heartbeatAt: NOW.toISOString() })
     expect(fs.readdirSync(dir)).toEqual([LOCK_FILENAME])
   })

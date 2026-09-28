@@ -156,7 +156,10 @@ export interface MoveJournal {
    * and no step deletes it.
    */
   targetExposed: boolean
+  /** Removals of the hidden original that left something behind, in phase `cleanup`. */
   cleanupAttempts: number
+  /** Bytes the last of those removals left behind; zero before any did. */
+  cleanupLeftoverBytes: number
   /**
    * The move stopped as blocked while rolling back; it goes on only after the
    * person chooses (see `resolveBlocked`), even once the obstruction is gone.
@@ -293,6 +296,7 @@ export function newJournal(start: MoveStart, options: { pid: number; now: Date; 
     targetExposed: false,
     retiredInPlace: false,
     cleanupAttempts: 0,
+    cleanupLeftoverBytes: 0,
     awaitingChoice: false,
     keepTarget: false,
     keepOriginal: false,
@@ -429,6 +433,7 @@ export function validateJournal(value: unknown): MoveJournal {
     retiredInPlace: flag('retiredInPlace'),
     originalGeneration: count('originalGeneration'),
     cleanupAttempts: count('cleanupAttempts'),
+    cleanupLeftoverBytes: count('cleanupLeftoverBytes'),
     awaitingChoice: flag('awaitingChoice'),
     keepTarget: flag('keepTarget'),
     keepOriginal: flag('keepOriginal'),

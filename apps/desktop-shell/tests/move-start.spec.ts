@@ -11,7 +11,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  bootMove, checkHealth, countSessions, lockPlaces, passHealthCheck, quarantinedPlugins, relaunchHome,
+  bootMove, checkHealth, CLEANUP_PROMPT_AFTER, cleanupPrompt, countSessions, lockPlaces, passHealthCheck, quarantinedPlugins, relaunchHome,
 } from '../src/move-boot.ts'
 import {
   beginDataMove, checkDataMove, handOverToMove, installPlaces, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest,
@@ -53,7 +53,7 @@ async function setup(snapshot: TerminalSnapshot = SNAPSHOT, isAlive = (): boolea
   mkdirSync(userData)
   const request: MoveRequest = {
     chosen: f.targetParent, home: f.home, userData, defaultHome: join(f.root, 'os-home', '.dsh'), platform: process.platform,
-    forbidden: { install: [], userData, updateCache: join(f.root, 'cache'), workspaces: [], cloud: [] },
+    forbidden: { install: [], userData, updateCache: join(f.root, 'cache'), workspaces: [], cloud: [], temp: [] },
     workspaces: 3, pid: process.pid, now: new Date('2026-09-28T00:00:00Z'),
   }
   const probes: MoveStartProbes = {
@@ -260,6 +260,55 @@ describe('starting a data move', () => {
     expect(handed).toEqual({ kind: 'go' })
     expect(restarts).toBe(2)
     expect(readJournal(moveDir(request.userData))?.phase).toBe('requested')
+  })
+
+  it('prompts about a cleanup only once enough removals in a row left files behind, and only in phase cleanup', async () => {
+    const { request, probes } = await setup()
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    const dir = moveDir(request.userData)
+    const write = (fields: Partial<MoveJournal>): void => {
+      writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...started.journal, ...fields }))
+    }
+    expect(cleanupPrompt(dir)).toBeUndefined()
+    write({ phase: 'cleanup', cleanupAttempts: CLEANUP_PROMPT_AFTER - 1, cleanupLeftoverBytes: 35 })
+    expect(cleanupPrompt(dir)).toBeUndefined()
+    write({ phase: 'cleanup', cleanupAttempts: CLEANUP_PROMPT_AFTER, cleanupLeftoverBytes: 35 })
+    expect(cleanupPrompt(dir)).toEqual({ leftoverBytes: 35 })
+    write({ phase: 'cleanup', cleanupAttempts: CLEANUP_PROMPT_AFTER, cleanupLeftoverBytes: 0 })
+    expect(cleanupPrompt(dir)).toBeUndefined()
+    write({ phase: 'switched', cleanupAttempts: CLEANUP_PROMPT_AFTER, cleanupLeftoverBytes: 35 })
+    expect(cleanupPrompt(dir)).toBeUndefined()
+    writeFileSync(join(dir, JOURNAL_FILENAME), '{')
+    expect(cleanupPrompt(dir)).toBeUndefined()
+    expect(CLEANUP_PROMPT_AFTER).toBe(3)
+  })
+
+  it('takes the move back and restarts the server when stopping it fails', async () => {
+    const { f, request, probes } = await setup()
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    let restarts = 0
+    await expect(handOverToMove(started.journal, request, {
+      stopServerTree: async () => { throw new Error('taskkill: access denied') },
+      restartServer: async () => { restarts += 1 },
+    })).rejects.toThrow('taskkill: access denied')
+    expect(restarts).toBe(1)
+    expect(readJournal(moveDir(request.userData))).toBeUndefined()
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+  })
+
+  it('restarts the server even when the move cannot be taken back', async () => {
+    const { request, probes } = await setup()
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    let restarts = 0
+    // The journal names another move by now, so taking this one back is refused.
+    await expect(handOverToMove({ ...started.journal, moveId: 'other' as typeof started.journal.moveId }, request, {
+      stopServerTree: async () => ({ kind: 'unconfirmed', detail: 'ps failed' }),
+      restartServer: async () => { restarts += 1 },
+    })).rejects.toThrow('no longer only requested')
+    expect(restarts).toBe(1)
   })
 
   posixOnly('gives the lock back when the journal cannot be written', async () => {
