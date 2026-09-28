@@ -215,7 +215,9 @@
 # The same row mounts the Host half, which adds `protectedDirsPrompt` to every
 # session's system prompt as the global section
 # `desktop:protected-directories`, after the persona suffix. A preset whose
-# persona is `complete` (`minimal`) replaces the whole prompt and drops it. The
+# persona is `complete` (`minimal`) replaces the whole prompt and drops it, a
+# known limitation the sandbox protection covers later. The skills folder is
+# exempt because agent-authored skills are written there. The
 # text names the data directory by the `DSH_HOME` environment variable, which
 # the managed shell environment sets in every bash and PowerShell call; it
 # names the installation directory without a path. Why the line earns its
@@ -225,7 +227,7 @@
     - id: desktop-brand
       name: '@deepseek-ai/dsh-desktop-app'
       config:
-        protectedDirsPrompt: Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable).
+        protectedDirsPrompt: Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable), except its skills folder.
 
 # The server's own log records in the desktop log file. Plugins log through
 # `ctx.logger`, and no row in the shipped bundles registers an exporter for it,

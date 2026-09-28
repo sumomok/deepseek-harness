@@ -12,13 +12,15 @@ Status: implemented
 
 **一行全局系统提示词。** `apps/desktop-app/cordis.patch.yml` 里的 `desktop-brand` 行写明 `protectedDirsPrompt`，本包的 Host 半边（`apps/desktop-app/src/index.ts`）经 `ctx.inject(['systemPrompt'], …)` 把它注册为段落 `desktop:protected-directories`，按字面文本，位于 `DEPLOYMENT_PERSONA_SUFFIX` 顺位。文字是：
 
-`Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable).`
+`Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable), except its skills folder.`
 
 **位置。** 同顺位的段落按名字排序，`desktop:…` 排在 `deployment:persona-suffix` 之后，所以这一行是系统提示词的最后一段。预设的 `dsh-persona` 行只在自己的作用域里遮蔽 `deployment:persona-prefix` 与 `deployment:persona-suffix` 两段，进程内委派的子会话只加自己的 prefix，所以这个全局段落留在每个 `standard`、`ptc`、`cordis` 会话及其子会话里。`complete: true` 的 persona 替换整个提示词；`minimal` 预设用的就是它，它的会话不带这一行。
 
 **不改核心。** 这一行、这个插件和这段文字都属于桌面自己的组合层。系统提示词以 `system/message` 进入会话日志（`packages/core/agent-loop/src/agent.ts`），所以带这一行的每份提示词都有记录，重放会话能还原它。
 
-**上下文成本。** 这一行 26 个词，按词数估算约 35 个 token；仓库里没有 tokenizer 可以精确测量。每个桌面会话的每次请求都会发送它。已有会话只看到一次新提示词：桌面的 `deepseek-flash` 行声明了 `systemPromptUpdate: in-history`，所以变化后的提示词追加在已缓存的历史之后，而不是改写 0 号系统节点。这个成本值得付，因为这一行在完全权限下也生效，而那里没有任何沙箱规则；并且在有围墙的档位下，把这些目录当作禁区的模型不会为了动它们去申请升级。
+**技能目录是例外。** agent 自写的技能写在 `$DSH_HOME/skills`，写技能是 agent 跨会话保留所学的方式，所以这一行把该目录点名为例外。用户级的 `$DSH_HOME/AGENTS.md` 没有点名；数据目录下还有哪些路径保持可写，由沙箱保护决定。
+
+**上下文成本。** 这一行 30 个词，按词数估算约 40 个 token；仓库里没有 tokenizer 可以精确测量。每个桌面会话的每次请求都会发送它。已有会话只看到一次新提示词：桌面的 `deepseek-flash` 行声明了 `systemPromptUpdate: in-history`，所以变化后的提示词追加在已缓存的历史之后，而不是改写 0 号系统节点。这个成本值得付，因为这一行在完全权限下也生效，而那里没有任何沙箱规则；并且在有围墙的档位下，把这些目录当作禁区的模型不会为了动它们去申请升级。
 
 ## 考虑过的替代方案
 
@@ -26,7 +28,7 @@ Status: implemented
 
 **逐个修改预设的 persona 行。** 四行都要为加一句话而重述各自的 persona，之后新增的预设、或在 Web 预设编辑器里改过的预设，都不会带上它。
 
-**在文字里写 `$DSH_HOME`。** 较短的草稿用 `$DSH_HOME` 指数据目录，约 25 个 token。`$VAR` 是 bash 语法；Windows 上的 PowerShell 工具把同一组变量描述为 `$env:DSH_*`（`packages/shell/tool-pwsh/src/index.ts`）。用文字点名环境变量，在两种 shell 下读起来一样。
+**在文字里写 `$DSH_HOME`。** 较短的草稿用 `$DSH_HOME` 指数据目录、不含技能目录例外，约 25 个 token。`$VAR` 是 bash 语法；Windows 上的 PowerShell 工具把同一组变量描述为 `$env:DSH_*`（`packages/shell/tool-pwsh/src/index.ts`）。用文字点名环境变量，在两种 shell 下读起来一样。
 
 **写出具体路径。** 安装目录在打包的应用与开发启动之间、在不同平台之间都不同；写死在这一行里的路径会对某些启动方式出错。这一行点名两个目录但不写路径。
 
@@ -34,9 +36,11 @@ Status: implemented
 
 ## 后果
 
-这一行是建议，不是强制：模型仍可能无视它；不经过模型自身判断的事（用户明确要求、在文件沙箱之外运行的工具）不受影响。`minimal` 会话，以及运行外部 CLI 的子代理（`subagent_codex`、`subagent_claude_code`），都不带它。安装目录没有对应的环境变量，所以模型只能从自己所在的进程得知它。
+这一行是建议，不是强制：模型仍可能无视它；不经过模型自身判断的事（用户明确要求、在文件沙箱之外运行的工具）不受影响。运行外部 CLI 的子代理（`subagent_codex`、`subagent_claude_code`）不带它。
 
-数据目录包含写入 agent 自写技能的 `$DSH_HOME/skills`，以及用户级的 `$DSH_HOME/AGENTS.md`。按现在的写法，这一行会让模型除非用户要求，否则不往那里写。这一行是否为技能目录开例外，尚未决定。
+**已知限制：`minimal` 会话不带这一行。** `minimal` 预设的 persona 是 `complete: true`，按设计替换整个系统提示词，桌面层不修改这个预设。沙箱保护落地后覆盖这些会话。安装目录没有对应的环境变量，所以模型只能从自己所在的进程得知它。
+
+技能目录例外让 agent 自写的技能无需用户要求即可写入。数据目录下的其他文件，包括用户级的 `$DSH_HOME/AGENTS.md`，在沙箱保护决定它们的状态之前都受这一行约束。
 
 修改文字只需改 `apps/desktop-app/cordis.patch.yml` 里的一行，以及组合测试用来比对它的那个常量。
 

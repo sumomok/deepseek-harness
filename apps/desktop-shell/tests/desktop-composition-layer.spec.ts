@@ -52,7 +52,7 @@ import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
 
 /** The protected-directories instruction the desktop row states. */
-const PROTECTED_DIRS_PROMPT = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory or its data directory (the path in the DSH_HOME environment variable).'
+const PROTECTED_DIRS_PROMPT = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory or its data directory (the path in the DSH_HOME environment variable), except its skills folder.'
 
 /** The composed-entry fields these cases read. */
 interface Entry {
