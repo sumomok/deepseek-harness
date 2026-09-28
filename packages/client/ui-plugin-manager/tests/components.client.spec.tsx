@@ -269,6 +269,32 @@ describe('PluginManagerPage', () => {
     expect(locked.getAttribute('title')).toBe(en.reasonManagementRequired)
   })
 
+  it('locks a bundle and a row the deployment requires, saying so in its own words rather than plugin management\'s', () => {
+    const name = '@haoran/dsh-crash-resume'
+    const required = row({ entryId: 'include:crash-resume' as PluginEntryId, rowId: 'crash-resume', moduleName: name, readOnlyReason: 'deployment-required' })
+    const { actions, setLanguage } = renderTab({
+      packages: [pkg({ name, installed: false, shipped: true, readOnlyReason: 'deployment-required', rows: [required] })],
+    })
+    for (const dict of [en, zh]) {
+      setLanguage(dict)
+      const locked = screen.getByRole('switch', { name: dict.enableToggle.replace('{name}', name) })
+      expect(locked).toHaveProperty('disabled', true)
+      expect(locked.getAttribute('title')).toBe(dict.reasonDeploymentRequired)
+    }
+    expect(zh.reasonDeploymentRequired).toBe('应用必需，不能停用或卸载')
+    expect(en.reasonDeploymentRequired).not.toBe(en.reasonManagementRequired)
+    fireEvent.click(screen.getByRole('switch', { name: zh.enableToggle.replace('{name}', name) }))
+    expect(actions.setEnabled).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: zh.openDetail.replace('{name}', name) }))
+    const detail = document.querySelector('[data-plugin-detail]') as HTMLElement
+    expect(within(detail).getByText(zh.reasonDeploymentRequired)).toBeTruthy()
+    expect(within(detail).queryByText(zh.reasonManagementRequired)).toBeNull()
+    const part = within(detail.querySelector<HTMLElement>('[data-plugin-row="include:crash-resume"]')!)
+      .getByRole('switch', { name: zh.partToggle.replace('{name}', name) })
+    expect(part).toHaveProperty('disabled', true)
+    expect(part.getAttribute('title')).toBe(zh.reasonDeploymentRequired)
+  })
+
   it('omits built-in profile dependencies from cards and counts while retaining optional and third-party bundles', () => {
     renderTab({
       packages: [

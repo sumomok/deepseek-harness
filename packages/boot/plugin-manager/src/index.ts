@@ -30,7 +30,7 @@ import { checkGithubConnection } from './github-connection.ts'
 import type {
   BundleInfo, BundleRowInfo, ChangeResult, InspectOptions, InstallBundleOptions, ManagementError, PackageResult, PluginChange,
   PluginEntryId, PluginInfo, PluginInspectProblem, PluginInstallCancellation, PluginInstallProgress, PluginInstallRequestId,
-  PluginRegistries, PluginSpecInspection, Registry,
+  PluginRegistries, PluginSpecInspection, ReadOnlyReason, Registry,
 } from './types.ts'
 export type * from './types.ts'
 export { classifyInstallFailure, type InstallFailureFacts } from './install-failure.ts'
@@ -58,11 +58,19 @@ export interface Config {
    * unless that is npm's own registry or one of these.
    */
   fallbackRegistries?: string[]
+  /**
+   * Module names this deployment requires, in addition to the manager's own management components. A plugin row
+   * naming one, and every bundle whose patch inserts such a row, cannot be switched off or removed and reads
+   * `deployment-required`, or `management-required` for a bundle that also inserts a management component. A name that
+   * no started bundle inserts is logged as one warning when the manager starts.
+   */
+  requiredModules?: string[]
 }
 
 /** An http(s) URL, as pnpm's `--registry` takes it. */
 const REGISTRY_URL = /^https?:\/\/\S+$/
 
+/** The modules the manager's own management depends on; a deployment adds its own through `requiredModules`. */
 const protectedModules = new Set([
   '@deepseek-ai/dsh-plugin-manager', '@deepseek-ai/cordis-plugin-loader',
   '@deepseek-ai/cordis-plugin-include', '@deepseek-ai/dsh-api-gateway',
@@ -184,9 +192,12 @@ export class PluginManager extends TypertRemoteService {
     idleTimeoutMs: z.number().step(1).min(1000).default(600000),
     registry: z.string().pattern(REGISTRY_URL),
     fallbackRegistries: z.array(z.string().pattern(REGISTRY_URL)).default([NPMMIRROR_REGISTRY]),
+    requiredModules: z.array(z.string().min(1)).default([]),
   })
-  /** Management bundles remain protected if their files become unreadable. */
-  private readonly managementBundles = new Set<string>()
+  /** Protected bundles and why, kept protected if their files become unreadable. */
+  private readonly protectedBundles = new Map<string, ReadOnlyReason>()
+  /** The modules `requiredModules` names. */
+  private readonly requiredModules: ReadonlySet<string>
   /** The last unusable `dsh.profile.shipped` value warned about, as JSON, so a repeated read warns once. */
   private warnedShipped: string | undefined
   private readonly ownerEntryId: string | undefined
@@ -209,7 +220,9 @@ export class PluginManager extends TypertRemoteService {
     this.ownerEntryId = ctx.fiber.entry?.id
     this.ownerContext = ctx
     this.profile = ctx.profileContext
-    for (const name of this.profile.startedBundles) this.protectsManager(name)
+    this.requiredModules = new Set((config as Required<Config>).requiredModules)
+    for (const name of this.profile.startedBundles) this.protectionOf(name)
+    this.warnUnmatchedRequired()
     this.outputBytes = (config as Required<Config>).outputBytes
     this.lockWaitMs = (config as Required<Config>).lockWaitMs
     this.inspectTimeoutMs = (config as Required<Config>).inspectTimeoutMs
@@ -265,6 +278,7 @@ export class PluginManager extends TypertRemoteService {
       if (protectedModules.has(entry.moduleName) || entry.entryId === this.ownerEntryId) {
         return { ...entry, readOnlyReason: 'management-required' as const }
       }
+      if (this.requiredModules.has(entry.moduleName)) return { ...entry, readOnlyReason: 'deployment-required' as const }
       if (candidate === undefined || candidates.length > 1 || candidate.name !== entry.moduleName
         || actual?.parent.tree.ctx.fiber.entry?.id !== 'include') {
         return { ...entry, readOnlyReason: 'unaddressable' as const }
@@ -295,7 +309,7 @@ export class PluginManager extends TypertRemoteService {
       const shipped = shippedNames.includes(name)
       const removable = installed && !Object.hasOwn(installation.dependencies ?? {}, name)
       const enabled = selected.includes(name)
-      const readOnlyReason = this.protectsManager(name) ? 'management-required' as const : undefined
+      const readOnlyReason = this.protectionOf(name)
       try {
         const info = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
         if (info === undefined) {
@@ -730,13 +744,14 @@ export class PluginManager extends TypertRemoteService {
       }
     }
     if (!enabled && previous.includes(name)) {
-      if (this.protectsManager(name)) throw new ManagementFailure('management-required')
+      const reason = this.protectionOf(name)
+      if (reason !== undefined) throw new ManagementFailure(reason)
     }
     const bundles = enabled ? [...previous, ...previous.includes(name) ? [] : [name]] : previous.filter(item => item !== name)
     if (JSON.stringify(previous) === JSON.stringify(bundles)) return
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
-    if (enabled) this.protectsManager(name)
+    if (enabled) this.protectionOf(name)
   }
 
   /**
@@ -761,16 +776,36 @@ export class PluginManager extends TypertRemoteService {
     return flatten(composeEntries([bundlePatchPaths(dir, info.dsh.bundle).flatMap(file => loadOverlayPatches('dsh', file))]))
   }
 
-  private protectsManager(name: string): boolean {
-    if (this.managementBundles.has(name)) return true
+  /** Why a bundle cannot be switched off or removed: it inserts a management row, else a row the deployment requires. */
+  private protectionOf(name: string): ReadOnlyReason | undefined {
+    const known = this.protectedBundles.get(name)
+    if (known !== undefined) return known
     let rows: EntryOptions[]
     try { rows = this.bundleRows(name) } catch (_error) {
       // Unreadable bundles contribute no new rows; listBundles reports their diagnostics.
-      return false
+      return undefined
     }
-    const protectedBundle = rows.some(row => protectedModules.has(row.name) || `include:${row.id}` === this.ownerEntryId)
-    if (protectedBundle) this.managementBundles.add(name)
-    return protectedBundle
+    const reason = rows.some(row => protectedModules.has(row.name) || `include:${row.id}` === this.ownerEntryId)
+      ? 'management-required' as const
+      : rows.some(row => this.requiredModules.has(row.name)) ? 'deployment-required' as const : undefined
+    if (reason !== undefined) this.protectedBundles.set(name, reason)
+    return reason
+  }
+
+  /** Warn about each `requiredModules` name that no row of the started bundles inserts. */
+  private warnUnmatchedRequired(): void {
+    if (this.requiredModules.size === 0) return
+    const inserted = new Set<string>()
+    for (const name of this.profile.startedBundles) {
+      try {
+        for (const row of this.bundleRows(name)) inserted.add(row.name)
+      } catch (_error) {
+        // An unreadable bundle inserts nothing; listBundles reports its diagnostic.
+      }
+    }
+    for (const name of this.requiredModules) {
+      if (!inserted.has(name)) this.ownerContext.logger.warn(`requiredModules names ${name}, which no started bundle of profile ${this.profile.name} inserts`)
+    }
   }
 
   private configure<T>(operation: () => Promise<T>): Promise<T> {

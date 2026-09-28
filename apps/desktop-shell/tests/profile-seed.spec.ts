@@ -22,7 +22,7 @@ import {
   AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_COMPOSITION_BUNDLE, DESKTOP_PROFILE, describeSeed,
   ensureLink,
   MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
-  readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
+  readMigrationMarker, removeLink, REQUIRED_WEB_BUNDLES, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 
@@ -476,6 +476,36 @@ describe('seedBuiltinBundles on a built-in the user switched off', () => {
     expect(bundlesNow()).toContain(quote)
     expect(bundlesNow()).not.toContain(screenshot)
     expect(shippedNow()).toEqual(shippedNames)
+  })
+
+  it('puts a required built-in back on the next launch and keeps the shipped record naming it', () => {
+    const required = '@haoran/dsh-crash-resume'
+    expect(REQUIRED_WEB_BUNDLES).toContain(required)
+    seedBuiltinBundles({ home, serverModules })
+    expect(shippedNow()).toContain(required)
+    switchOff(required)
+    expect(bundlesNow()).not.toContain(required)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.keptOff).toEqual([])
+    expect(report.seeded).toEqual([required])
+    expect(describeSeed(report)).toContain(`seeded built-in bundles ${required}`)
+    const bundles = bundlesNow() as string[]
+    expect(bundles.indexOf(required)).toBeGreaterThanOrEqual(0)
+    expect(bundles.indexOf(required)).toBeLessThan(bundles.indexOf(DESKTOP_COMPOSITION_BUNDLE))
+    expect(shippedNow()).toEqual(shippedNames)
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+  })
+
+  it('puts a required built-in back beside one the user keeps off', () => {
+    const required = '@haoran/dsh-crash-resume'
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    switchOff(required)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.keptOff).toEqual([screenshot])
+    expect(report.seeded).toEqual([required])
+    expect(bundlesNow()).toContain(required)
+    expect(bundlesNow()).not.toContain(screenshot)
   })
 
   it('always puts the composition layer back, which the record never names', () => {

@@ -173,12 +173,23 @@
 # Node (`apps/desktop-shell/src/pnpm-launcher.ts`); a development launch names
 # nothing, and the service falls back to the developer's own `pnpm`.
 #
+# `requiredModules` names the plugins this application cannot run without.
+# The service refuses to switch their rows off, or to switch off or remove a
+# bundle that inserts one, and the Plugins page shows those switches locked
+# with 应用必需，不能停用或卸载. It lists module names, and each name here is
+# also the bundle package that inserts it; it is the same list as
+# `REQUIRED_WEB_BUNDLES` in `apps/desktop-shell/src/profile-seed.ts`, which
+# puts a required bundle a profile switched off back on at every launch, and
+# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds the two
+# equal. `@haoran/dsh-crash-resume` continues a turn a server crash cut short.
+#
 # The row carries `config` alone, so dsh-base's `disabled` expression, which
 # mounts the service only under a profile, still applies. dsh-base's row
 # carries no config, so this whole-config replacement drops nothing.
 - id: plugin-manager
   config:
     pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'
+    requiredModules: ['@haoran/dsh-crash-resume']
 
 # No Office preview. The `office-to-pdf` Host row starts LibreOffice converters
 # for the right Sidebar's document tab, and the payload carries no LibreOffice

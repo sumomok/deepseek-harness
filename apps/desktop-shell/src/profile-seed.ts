@@ -123,6 +123,8 @@
  * missing built-in back only when the list does not name it — a plugin this
  * build adds, or any missing one in a profile no build of this shell recorded
  * the list in yet — and rewrites the list to this payload's built-in plugins.
+ * A name in {@link REQUIRED_WEB_BUNDLES} is the exception: the page shows it
+ * locked, and a launch puts it back even when the list names it.
  * Disabling one of a plugin's rows in
  * `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` still turns off that row
  * alone.
@@ -180,8 +182,22 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
+  '@haoran/dsh-crash-resume',
   DESKTOP_COMPOSITION_BUNDLE,
 ]
+
+/**
+ * Built-in plugins this application cannot run without, which the Plugins page
+ * shows locked and a launch always puts back into the bundle list.
+ *
+ * The lock itself is the `plugin-manager` row's `requiredModules` in
+ * `apps/desktop-app/cordis.patch.yml`, which matches plugin rows by module
+ * name, while this list holds bundle package names. Each name here is both:
+ * the bundle's own patch layer inserts one row whose module is the package
+ * itself. `tests/desktop-composition-layer.spec.ts` holds the composed
+ * `requiredModules` equal to this list.
+ */
+export const REQUIRED_WEB_BUNDLES: readonly string[] = ['@haoran/dsh-crash-resume']
 
 /**
  * Plugin packages an earlier build seeded and this payload no longer carries.
@@ -2011,7 +2027,8 @@ function reportShadowing(spec: SeedSpec, profileDir: string, name: string, repor
  * A built-in plugin goes missing from a profile this shell seeded when a build
  * adds one, or when the Plugins page switches one off, which removes its name
  * from the bundle list and leaves it in `dsh.profile.shipped`. Only the first
- * is added back; the second is reported in {@link SeedReport.keptOff}. A
+ * is added back; the second is reported in {@link SeedReport.keptOff}, unless
+ * it is in {@link REQUIRED_WEB_BUNDLES}, which is added back either way. A
  * profile with no recorded list has never had a built-in switched off from the
  * page this list serves, so every missing plugin there is added back. An added
  * plugin goes before the composition layer: appended at the end, it would
@@ -2032,7 +2049,8 @@ function seedExistingManifest(manifestPath: string, available: readonly string[]
     return
   }
   const recorded = recordedShipped(manifest)
-  const keptOff = shippedPlugins(available).filter(name => !bundles.includes(name) && recorded?.includes(name) === true)
+  const keptOff = shippedPlugins(available)
+    .filter(name => !bundles.includes(name) && recorded?.includes(name) === true && !REQUIRED_WEB_BUNDLES.includes(name))
   const placed = placeBuiltins(bundles, available.filter(name => !keptOff.includes(name)))
   const shipped = shippedPlugins(available)
   report.keptOff.push(...keptOff)

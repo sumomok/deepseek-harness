@@ -43,12 +43,13 @@ import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/ds
 import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
+import { PluginManager } from '@deepseek-ai/dsh-plugin-manager'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { LOG_DIR_ENV, UPDATE_CACHE_DIR_ENV, USER_DATA_DIR_ENV } from '../src/app-dirs.ts'
 import { INSTALL_DIR_ENV } from '../src/install-dir.ts'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
-import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
+import { BUILTIN_WEB_BUNDLES, REQUIRED_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
 const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
@@ -333,8 +334,29 @@ describe('the composed plugin-manager rows', () => {
     expect(entry(desktop, 'ui-plugin-manager').disabled).toBeUndefined()
   })
 
-  it('sets pnpmCommand and nothing else', () => {
-    expect(Object.keys(entry(desktop, 'plugin-manager').config ?? {})).toEqual(['pnpmCommand'])
+  it('sets pnpmCommand and requiredModules and nothing else', () => {
+    expect(Object.keys(entry(desktop, 'plugin-manager').config ?? {})).toEqual(['pnpmCommand', 'requiredModules'])
+  })
+
+  // The seed puts a required bundle back into the profile at every launch and
+  // the service locks the rows it names, so the two lists are one decision.
+  it('requires exactly the bundles the shell seed puts back on at every launch', () => {
+    expect(entry(desktop, 'plugin-manager').config?.['requiredModules']).toEqual([...REQUIRED_WEB_BUNDLES])
+  })
+
+  it('names in requiredModules only built-ins whose own layer inserts a row of that module', () => {
+    for (const name of REQUIRED_WEB_BUNDLES) {
+      expect(BUILTIN_WEB_BUNDLES).toContain(name)
+      const inserted = composeEntries([bundlePatches(name)]) as (Entry & { name?: string })[]
+      expect(inserted.map(row => row.name)).toContain(name)
+    }
+  })
+
+  it('composes a config the plugin manager accepts', () => {
+    const config = entry(desktop, 'plugin-manager').config ?? {}
+    const resolved = PluginManager.Config({ ...config, pnpmCommand: String(evaluateWithEnv(config['pnpmCommand'], {})) })
+    expect(resolved.requiredModules).toEqual([...REQUIRED_WEB_BUNDLES])
+    expect(resolved.pnpmCommand).toBe('pnpm')
   })
 
   // The packaged shell names the launcher in this variable; a development

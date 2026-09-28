@@ -41,6 +41,8 @@ A plugin toggle updates only `disabled` in the last matching override in the pro
 
 A selected bundle that cannot load remains in `listBundles` with an `error`; `enabled` records the saved selection, not successful loading. The plugin page shows the error and allows deselection. A broken bundle cannot be enabled. Management bundles remain protected if their files become unreadable.
 
+A deployment names the modules it cannot run without in `requiredModules`. A plugin row naming one reads `readOnlyReason: 'deployment-required'`, and so does every bundle whose patch inserts such a row, unless that bundle also inserts a management component and reads `management-required`. Neither can be switched off or removed, through the plugin page or the `plugin_manager` tool, and such a bundle stays protected if its files become unreadable. A name that no started bundle inserts is logged as one warning when the manager starts.
+
 `listBundles` includes optional display `meta` for each bundle and its declared plugin rows, including disabled bundles. The Client selects a language from these values. The separate `description` field is the bundle's raw `package.json.description`; a metadata diagnostic does not block management. The `plugin_manager` tool omits UI display metadata from list results.
 
 `inspect(spec, options)` reads what a spec names before anything installs: a registry name is asked of the registry through `pnpm view`, run in the profile directory so the same proxy and authentication settings apply as to the install; an absolute path has its `package.json` read; a git address or tarball answers only its form and the `host` it is fetched from. The answer carries the name, version, description, whether the package declares a bundle, and the `registry` that answered, or a `problem`: `invalid-spec`, `already-installed`, `not-found`, `not-a-package`, `not-a-bundle`, `network`, or `unknown`, with the `registries` asked. A caller's `signal` or `inspectTimeoutMs` ends the lookup.
@@ -79,6 +81,7 @@ The CLI exposes `dsh plugin --profile <profile> version-exemptions`, `allow-vers
 | `fallbackRegistries` | `['https://registry.npmmirror.com/']` | Registries asked in turn, as http(s) URLs, while the one before is unreachable or holds no copy of the package; pnpm's own registry joins the order only while it names npm's own registry or one of these. |
 | `outputBytes` | `16384` | Maximum pnpm diagnostic bytes returned per operation; the full output remains in the returned log path. |
 | `lockWaitMs` | `120000` | Maximum time in milliseconds to acquire the profile write lock. |
+| `requiredModules` | `[]` | Module names this deployment requires besides the management components; their rows and the bundles inserting them cannot be switched off or removed. |
 | `idleTimeoutMs` | `600000` | Maximum time in milliseconds a service package run may capture no output before the manager terminates it; a run with inherited descriptors (`dsh plugin`) is never bound. |
 
 -----
@@ -129,7 +132,10 @@ Tool results append to the transcript. Enabling or disabling other tools can cha
 - Web approves the entire displayed pending group; it has no per-package selection.
 - Package replacements require restarting the process to load a fresh JavaScript module generation.
 - Startup-only profiles cannot remove packages used to start the current process; stop it and use `dsh plugin`.
-- The manager cannot disable its own management components, change another profile, or edit an agent preset's composition.
+- The manager cannot disable its own management components or the modules `requiredModules` names, change another profile, or edit an agent preset's composition.
+- The plugin page locks both directions of a bundle with a `readOnlyReason`, while the service and the `plugin_manager` tool can still switch a switched-off required bundle back on with `set_bundle(name, true)`.
+- A required module's row that a patch disables is refused by `set_plugin(row, true)` as well, so neither the page nor the tool can turn it on, as with `management-required`; the launcher that seeds the profile is responsible for keeping required bundles on.
+- The startup warning scans only the rows started bundles insert: a required module that the base `cordis.yml` or the profile's own patch inserts is still locked but is also reported as unmatched.
 - A failed removal may leave dependencies partially changed, and a failed or cancelled installation can leave downloaded files under `node_modules` or the pnpm store. Inactive dependencies with missing files remain removable. Diagnostic logs remain under the profile's `.plugin-manager/logs` directory.
 - Management results describe Host activation. Browser synchronization failures appear separately in the Settings plugin list.
 - Desktop package operations remain owned by the Desktop shell.

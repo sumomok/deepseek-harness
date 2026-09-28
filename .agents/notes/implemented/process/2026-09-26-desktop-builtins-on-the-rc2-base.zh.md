@@ -32,7 +32,7 @@ Status: implemented
 
 ## 后果
 
-载荷里有十三个 vendor 的 tarball,其中十二个带浏览器那一半;`@haoran/dsh-default-model` 只有 patch 层。`@sumomok/dsh-balance` 0.6.0 与 `@sumomok/dsh-quote-message` 0.4.0 走在 npm 之前,npm 上分别止于 0.4.0 与 0.3.1。
+载荷里有十四个 vendor 的 tarball,其中十三个带浏览器那一半;`@haoran/dsh-default-model` 只有 patch 层。`@sumomok/dsh-balance` 0.6.1 与 `@sumomok/dsh-quote-message` 0.4.0 走在 npm 之前,npm 上分别止于 0.4.0 与 0.3.1。
 
 只要还有 0.1.0-rc.33 或更早的安装可能升级到这一版,`WITHDRAWN_WEB_BUNDLES` 里这一条就必须留着。提前删掉,rc.33 播种过的每个 profile 都会留着这个名字,每次启动都多一行 `skipping profile bundle`。
 
