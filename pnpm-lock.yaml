@@ -1215,8 +1215,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-vision-switch-0.3.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-model-selection@packages+client+ui-model-selection)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@sumomok/dsh-balance':
-        specifier: file:./vendor/sumomok-dsh-balance-0.6.1.tgz
-        version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz(c5c0cebf35d8885464e3d3d8e119dd9b)
+        specifier: file:./vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz
+        version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz(c5c0cebf35d8885464e3d3d8e119dd9b)
       '@sumomok/dsh-quote-message':
         specifier: file:./vendor/sumomok-dsh-quote-message-0.4.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-input-trigger@packages+client+ui-input-trigger)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -18033,9 +18033,9 @@ packages:
     peerDependencies:
       eslint: ^9.0.0 || ^10.0.0
 
-  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz':
-    resolution: {integrity: sha512-FK5DynYct61IdmyXJtGbXT5mamvQluwyUdl0hixtJwhQSvMK+32e4utM57Z80uXOvdidsgL1fuRYUzrFJPPZTw==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz}
-    version: 0.6.1
+  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz':
+    resolution: {integrity: sha512-P88qQ53k3x2u14pYPVKyZkEZWn22DhHWFVqWSitBcFbQsl5TAEpGRsDAf80b/DBqU0HT4losyU1EdtH0Q2jjMA==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz}
+    version: 0.6.2-rc34.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.3
       '@deepseek-ai/dsh-api-remotes': '>=0.1.7-rc.1 <0.2.0-0'
@@ -25417,7 +25417,7 @@ snapshots:
       estraverse: 5.3.0
       picomatch: 4.0.4
 
-  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz(c5c0cebf35d8885464e3d3d8e119dd9b)':
+  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz(c5c0cebf35d8885464e3d3d8e119dd9b)':
     dependencies:
       zod: 4.4.3
     optionalDependencies:

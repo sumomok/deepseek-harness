@@ -103,7 +103,7 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@haoran/dsh-office-preview-notice': { repo: 'apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.1.0.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.6.0.tgz' },
   '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.3.0.tgz' },
-  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.6.1.tgz' },
+  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.6.2-rc34.1.tgz' },
   '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.4.0.tgz' },
   // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
 }
