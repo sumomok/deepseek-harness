@@ -23,6 +23,12 @@ import { Group } from '@deepseek-ai/cordis-plugin-loader'
 import * as operations from '../src/operations.ts'
 import * as githubConnection from '../src/github-connection.ts'
 import { parse, parseDocument } from 'yaml'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import * as managementTool from '../src/tools.ts'
 
 async function fixture(reload: 'live' | 'startup' = 'live', overlay = false, prepare?: (ctx: Context) => void, config: Config = {}, packageManager?: ProfileContext['packageManager'], prepareFiles?: (dir: string) => void) {
   const temporaryHome = mkdtempSync(join(tmpdir(), 'plugin-manager-'))
@@ -1448,5 +1454,121 @@ it.each([false, true])('rechecks installed bundle peers before accepting a disab
     expect(result.error).toMatchObject({ code: 'incompatible-version', incompatible: [{ name: 'incompatible', version: '1.0.0' }] })
     expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
   }
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
+})
+
+/** A module a deployment names in `requiredModules`; the rows naming it are disabled, so nothing resolves it. */
+const REQUIRED = '@acme/dsh-required'
+
+/** Replace the `extra` bundle's patch before the profile boots, so the manager starts with it. */
+function requiredExtra(rows: unknown[]): (dir: string) => void {
+  return (dir) => { writeFileSync(join(dir, 'node_modules', 'extra', 'cordis.patch.yml'), JSON.stringify([{ insert: rows }])) }
+}
+
+it('defaults requiredModules to none and refuses a name that is not a non-empty string at load', () => {
+  expect(PluginManager.Config({}).requiredModules).toEqual([])
+  expect(() => PluginManager.Config({ requiredModules: [''] })).toThrow()
+  expect(() => PluginManager.Config({ requiredModules: REQUIRED as never })).toThrow()
+})
+
+it('leaves a module and its bundle switchable while requiredModules does not name it', async () => {
+  const { manager } = await fixture('startup', false, undefined, {}, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)).toMatchObject({ patchId: 'required' })
+  const extra = (await manager.listBundles()).find(row => row.name === 'extra')!
+  expect(extra.readOnlyReason).toBeUndefined()
+  expect(extra.removable).toBe(true)
+})
+
+it('locks a module requiredModules names, and the bundle inserting it, as deployment-required', async () => {
+  const { manager, dir, profile } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }, { id: 'managed', name: './plugin.mjs' }]))
+  const plugins = await manager.listPlugins()
+  const entry = plugins.find(row => row.moduleName === REQUIRED)!
+  expect(entry).toMatchObject({ readOnlyReason: 'deployment-required' })
+  expect(plugins.find(row => row.entryId === 'include:managed')).toMatchObject({ patchId: 'managed' })
+  const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
+  const patch = readFileSync(profile.patchPath, 'utf8')
+  for (const enabled of [false, true]) {
+    expect(await manager.setPluginEnabled(entry.entryId, enabled)).toMatchObject({
+      changed: false, application: 'failed', error: { code: 'deployment-required' },
+    })
+  }
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    removable: false, readOnlyReason: 'deployment-required',
+  })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'deployment-required' },
+  })
+  expect(await manager.removeBundle('extra')).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'not-removable' },
+  })
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(patch)
+})
+
+it('reads a bundle inserting both a management and a required module as management-required', async () => {
+  const { manager } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined, requiredExtra([
+    { id: 'required', name: REQUIRED, disabled: true },
+    { id: 'dependency', name: '@deepseek-ai/dsh-api-remotes', disabled: true },
+  ]))
+  expect((await manager.listBundles()).find(row => row.name === 'extra')?.readOnlyReason).toBe('management-required')
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({ error: { code: 'management-required' } })
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)?.readOnlyReason).toBe('deployment-required')
+})
+
+it('reads a required module the profile patch cannot address as deployment-required', async () => {
+  const { manager, profile } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  const duplicate = composeEntries([readProfilePatches('test', profile)]).find(row => row.id === 'required')!
+  writeFileSync(profile.patchPath, JSON.stringify([{ insert: [duplicate] }]))
+  expect((await manager.listPlugins()).find(row => row.moduleName === REQUIRED)?.readOnlyReason).toBe('deployment-required')
+})
+
+it('warns once at start about each required module no started bundle inserts', async () => {
+  const warned: string[] = []
+  await fixture('startup', false, (ctx) => {
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warned.push(String(message)) })
+    onTestFinished(() => { warn.mockRestore() })
+  }, { requiredModules: [REQUIRED, '@acme/dsh-absent'] }, undefined, requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  expect(warned.filter(message => message.includes('requiredModules'))).toEqual(['requiredModules names @acme/dsh-absent, which no started bundle of profile test inserts'])
+})
+
+it('refuses the plugin_manager tool\'s set actions on a required module and its bundle without changing the profile', async () => {
+  const { ctx, dir, profile, manager } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjections)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access' })
+  await ctx.plugin(managementTool)
+  const call = async (args: object): Promise<unknown> => {
+    const result = await ctx.tools.execute({ name: 'plugin_manager', arguments: args, callId: ToolCallId('required-call'), signal: new AbortController().signal })
+    if (typeof result.value !== 'string') throw new Error('Expected a serialized manager result')
+    return JSON.parse(result.value)
+  }
+  const entry = (await manager.listPlugins()).find(row => row.moduleName === REQUIRED)!
+  const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
+  const patch = readFileSync(profile.patchPath, 'utf8')
+  const refused = { changed: false, application: 'failed', error: { code: 'deployment-required' } }
+  expect(await call({ action: 'set_plugin', target: entry.entryId, enabled: false })).toMatchObject(refused)
+  expect(await call({ action: 'set_bundle', target: 'extra', enabled: false })).toMatchObject(refused)
+  expect(await call({ action: 'remove_bundle', target: 'extra' })).toMatchObject({ application: 'failed', error: { code: 'not-removable' } })
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(patch)
+})
+
+it.each(['missing patch', 'invalid patch'])('keeps a started required bundle protected with a %s', async (failure) => {
+  const { manager, dir } = await fixture('startup', false, undefined, { requiredModules: [REQUIRED] }, undefined,
+    requiredExtra([{ id: 'required', name: REQUIRED, disabled: true }]))
+  const patch = join(dir, 'node_modules', 'extra', 'cordis.patch.yml')
+  if (failure === 'missing patch') rmSync(patch)
+  else writeFileSync(patch, '[invalid')
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: true, readOnlyReason: 'deployment-required', removable: false, error: { code: 'operation-error' },
+  })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'deployment-required' },
+  })
   expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
 })

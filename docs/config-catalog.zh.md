@@ -2304,6 +2304,13 @@ export interface Config {
    * unless that is npm's own registry or one of these.
    */
   fallbackRegistries?: string[]
+  /**
+   * Module names this deployment requires, in addition to the manager's own management components. A plugin row
+   * naming one, and every bundle whose patch inserts such a row, cannot be switched off or removed and reads
+   * `deployment-required`, or `management-required` for a bundle that also inserts a management component. A name that
+   * no started bundle inserts is logged as one warning when the manager starts.
+   */
+  requiredModules?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plugin-manager -->
