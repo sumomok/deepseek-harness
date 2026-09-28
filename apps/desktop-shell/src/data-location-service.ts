@@ -84,11 +84,16 @@ export interface DataLocationState {
   /** Whether a move is recorded on disk (in progress, or waiting for its cleanup). */
   moving: boolean
   /**
-   * Whether this launch is removing a finished move's old copy right now. False
-   * while a move is recorded means the removal waits for the next launch or a
-   * `/retry-cleanup`; always false when no move is recorded.
+   * Whether this launch is removing a finished move's old copy right now; true
+   * only while the journal is in the cleanup phase.
    */
   cleanupRunning: boolean
+  /**
+   * Whether the journal is in the cleanup phase and no removal runs now: the
+   * removal carries on at the next launch or a `/retry-cleanup`. False in every
+   * other phase, including a move asked for and not yet carried.
+   */
+  cleanupWaiting: boolean
   /**
    * The finished move's cleanup kept leaving files behind, and Settings says
    * so and offers `/retry-cleanup`: present only while the journal is in phase

@@ -288,13 +288,22 @@ describe('starting a data move', () => {
   it('tells /state whether a move is recorded, whether its cleanup runs now, and the cleanup prompt', async () => {
     const { request, probes } = await setup()
     const dir = moveDir(request.userData)
-    expect(moveFacts(dir, true)).toEqual({ moving: false, cleanupRunning: false })
+    const idle = { moving: false, cleanupRunning: false, cleanupWaiting: false }
+    expect(moveFacts(dir, true)).toEqual(idle)
+    expect(moveFacts(dir, false)).toEqual(idle)
     const started = await beginDataMove(request, probes)
     if (started.kind !== 'started') throw new Error(started.kind)
+    const neither = { moving: true, cleanupRunning: false, cleanupWaiting: false }
+    // A move asked for and not yet carried, and one switched and waiting for its health check, remove nothing.
+    expect(moveFacts(dir, true)).toEqual(neither)
+    expect(moveFacts(dir, false)).toEqual(neither)
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify({ ...started.journal, phase: 'switched' }))
+    expect(moveFacts(dir, true)).toEqual(neither)
+    expect(moveFacts(dir, false)).toEqual(neither)
     const cleanup = { ...started.journal, phase: 'cleanup', cleanupAttempts: CLEANUP_PROMPT_AFTER, cleanupLeftoverBytes: 7 }
     writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify(cleanup))
-    expect(moveFacts(dir, false)).toEqual({ moving: true, cleanupRunning: false, cleanup: { leftoverBytes: 7 } })
-    expect(moveFacts(dir, true)).toEqual({ moving: true, cleanupRunning: true, cleanup: { leftoverBytes: 7 } })
+    expect(moveFacts(dir, false)).toEqual({ moving: true, cleanupRunning: false, cleanupWaiting: true, cleanup: { leftoverBytes: 7 } })
+    expect(moveFacts(dir, true)).toEqual({ moving: true, cleanupRunning: true, cleanupWaiting: false, cleanup: { leftoverBytes: 7 } })
   })
 
   it('takes the move back and restarts the server when stopping it fails', async () => {

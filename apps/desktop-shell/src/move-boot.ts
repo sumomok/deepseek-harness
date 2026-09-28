@@ -88,17 +88,25 @@ export function cleanupPrompt(dir: string): { leftoverBytes: number } | undefine
  * The move facts `/state` carries.
  * @param dir - the move directory.
  * @param cleanupRunning - whether this launch is removing a finished move's old copy right now.
- * @returns whether a move is recorded; whether the old copy's removal is running now, false when no move is recorded;
- * and the cleanup prompt, when {@link cleanupPrompt} has one.
+ * @returns whether a move is recorded; whether the journal is in the cleanup phase ({@link bootMove} answers
+ * `cleanup`) with the old copy's removal running now (`cleanupRunning`) or waiting for the next launch or a retry
+ * (`cleanupWaiting`), both false in every other phase; and the cleanup prompt, when {@link cleanupPrompt} has one.
  */
 export function moveFacts(dir: string, cleanupRunning: boolean): {
   moving: boolean
   cleanupRunning: boolean
+  cleanupWaiting: boolean
   cleanup?: { leftoverBytes: number }
 } {
   const moving = existsSync(join(dir, JOURNAL_FILENAME))
+  const inCleanup = bootMove(dir).kind === 'cleanup'
   const cleanup = cleanupPrompt(dir)
-  return { moving, cleanupRunning: moving && cleanupRunning, ...cleanup === undefined ? {} : { cleanup } }
+  return {
+    moving,
+    cleanupRunning: inCleanup && cleanupRunning,
+    cleanupWaiting: inCleanup && !cleanupRunning,
+    ...cleanup === undefined ? {} : { cleanup },
+  }
 }
 
 /**
