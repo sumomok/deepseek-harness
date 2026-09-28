@@ -216,24 +216,44 @@
 # directories to every session's system prompt as the global section
 # `desktop:protected-directories`, after the persona suffix. A preset whose
 # persona is `complete` (`minimal`) replaces the whole prompt and drops it, a
-# known limitation the sandbox protection covers later. The Host half fills
-# `{installDir}` from `installDir`, which the shell names in
-# `DSH_DESKTOP_INSTALL_DIR` for a packaged launch; `{dataDir}` with the harness
-# home the server's plugins resolve (`$DSH_HOME`, else `~/.dsh`); and
-# `{skillsDir}` with its `skills` folder, where agent-authored skills are
-# written and which is therefore exempt. Each path is quoted in backticks. A
-# development launch names no installation directory and gets
-# `protectedDirsPromptDataOnly`. Each template must contain exactly its
-# placeholders, or the row refuses to mount. Why the line earns its context
-# cost:
+# known limitation the sandbox protection covers later.
+#
+# The line lists one clause per directory the launch knows, in a fixed order,
+# joined with the two separators below: the installation directory the shell
+# names in `DSH_DESKTOP_INSTALL_DIR` for a packaged launch; the harness home
+# the server's plugins resolve (`$DSH_HOME`, else `~/.dsh`), always; and the
+# shell's own Electron `userData` directory, log directory, and update
+# download cache, which it names in `DSH_DESKTOP_USER_DATA_DIR`,
+# `DSH_DESKTOP_LOG_DIR`, and `DSH_DESKTOP_UPDATE_CACHE_DIR`. The logs are
+# named on their own because on macOS they sit outside `userData`, under
+# `~/Library/Logs`. A development launch of the shell names no installation
+# directory; `dsh --profile desktop-shell` started by hand names only the
+# harness home. `{skillsDir}` is the home's `skills` folder, where
+# agent-authored skills are written, and is exempt. Each path is quoted in
+# backticks. The line must contain exactly `{directories}` and `{skillsDir}`,
+# and each clause exactly its own placeholder, or the row refuses to mount.
+# Why the line earns its context cost:
 # .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md.
+#
+# A layer that patches this row by id replaces its whole `config`, so it must
+# restate every key below, or the row refuses to mount and the line is gone.
 - insert:
     - id: desktop-brand
       name: '@deepseek-ai/dsh-desktop-app'
       config:
-        protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app''s installation directory ({installDir}) or its data directory ({dataDir}), except the skills folder {skillsDir}.'
-        protectedDirsPromptDataOnly: 'Unless the user explicitly asks, do not modify, move, or delete this app''s data directory ({dataDir}), except the skills folder {skillsDir}.'
+        protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app''s own directories: {directories}. The skills folder {skillsDir} is exempt.'
+        directoryClauses:
+          installDir: 'the installation directory ({installDir})'
+          dataDir: 'the data directory ({dataDir})'
+          appDataDir: 'the settings folder ({appDataDir})'
+          logDir: 'the logs folder ({logDir})'
+          updateCacheDir: 'the update download folder ({updateCacheDir})'
+        directorySeparator: ', '
+        directoryLastSeparator: ' and '
         installDir: !!js process.env.DSH_DESKTOP_INSTALL_DIR
+        appDataDir: !!js process.env.DSH_DESKTOP_USER_DATA_DIR
+        logDir: !!js process.env.DSH_DESKTOP_LOG_DIR
+        updateCacheDir: !!js process.env.DSH_DESKTOP_UPDATE_CACHE_DIR
 
 # The server's own log records in the desktop log file. Plugins log through
 # `ctx.logger`, and no row in the shipped bundles registers an exporter for it,

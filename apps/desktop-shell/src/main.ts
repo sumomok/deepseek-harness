@@ -34,6 +34,7 @@ import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerP
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { shellLanguage } from './menu-text.ts'
+import { appDirsEnv } from './app-dirs.ts'
 import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
@@ -64,7 +65,7 @@ import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
-import { launchGate, setupUpdates, updateActions, type UpdateHost } from './updater.ts'
+import { launchGate, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
 import { superviseAppLoad, type AppLoader } from './window-load.ts'
 
 // First statement of the process: every directory below is derived from the
@@ -846,6 +847,8 @@ if (!locked) {
       sink(installDir === undefined
         ? '[desktop] install dir: none in a development launch\n'
         : `[desktop] install dir: ${installDir}\n`)
+      const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
+      for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
       // The server appends its own logger records to the same file, as one
       // write per record, rather than printing them into the streams above.
       // After the orphan sweep and the loopback services: an orphan can still
@@ -853,7 +856,7 @@ if (!locked) {
       const port = await choosePort(readState().serverPort, isPortFree)
       sink(port.line)
       const started = await startOnPort(
-        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, [SERVER_LOG_ENV]: logFile }, port: port.port },
+        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, [SERVER_LOG_ENV]: logFile }, port: port.port },
         startEmbeddedServer, sink,
       )
       server = started.server

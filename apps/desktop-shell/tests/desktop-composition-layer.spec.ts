@@ -44,6 +44,7 @@ import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
+import { LOG_DIR_ENV, UPDATE_CACHE_DIR_ENV, USER_DATA_DIR_ENV } from '../src/app-dirs.ts'
 import { INSTALL_DIR_ENV } from '../src/install-dir.ts'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
@@ -54,9 +55,25 @@ const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
 
 /** The protected-directories templates the desktop row states. */
 const PROTECTED_DIRS_TEMPLATES = {
-  protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory ({installDir}) or its data directory ({dataDir}), except the skills folder {skillsDir}.',
-  protectedDirsPromptDataOnly: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s data directory ({dataDir}), except the skills folder {skillsDir}.',
+  protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s own directories: {directories}. The skills folder {skillsDir} is exempt.',
+  directoryClauses: {
+    installDir: 'the installation directory ({installDir})',
+    dataDir: 'the data directory ({dataDir})',
+    appDataDir: 'the settings folder ({appDataDir})',
+    logDir: 'the logs folder ({logDir})',
+    updateCacheDir: 'the update download folder ({updateCacheDir})',
+  },
+  directorySeparator: ', ',
+  directoryLastSeparator: ' and ',
 }
+
+/** The directory each variable the shell sets on the server names, keyed by the row's field. */
+const SHELL_DIRECTORY_ENV = {
+  installDir: INSTALL_DIR_ENV,
+  appDataDir: USER_DATA_DIR_ENV,
+  logDir: LOG_DIR_ENV,
+  updateCacheDir: UPDATE_CACHE_DIR_ENV,
+} as const
 
 /** The composed-entry fields these cases read. */
 interface Entry {
@@ -370,14 +387,17 @@ describe('the composed brand row', () => {
     expect(entry(desktop, 'desktop-brand')).toEqual({
       id: 'desktop-brand',
       name: DESKTOP_APP,
-      config: { ...PROTECTED_DIRS_TEMPLATES, installDir: { __jsExpr: `process.env.${INSTALL_DIR_ENV}` } },
+      config: {
+        ...PROTECTED_DIRS_TEMPLATES,
+        ...Object.fromEntries(Object.entries(SHELL_DIRECTORY_ENV).map(([field, name]) => [field, { __jsExpr: `process.env.${name}` }])),
+      },
     })
   })
 
-  it('names the installation directory the shell names, and none in a development launch', () => {
-    const installDir = entry(desktop, 'desktop-brand').config?.['installDir']
-    expect(evaluateWithEnv(installDir, { [INSTALL_DIR_ENV]: '/Applications/北冥.app' })).toBe('/Applications/北冥.app')
-    expect(evaluateWithEnv(installDir, {})).toBeUndefined()
+  it.each(Object.entries(SHELL_DIRECTORY_ENV))('takes %s from %s, and nothing when the shell sets none', (field, name) => {
+    const expression = entry(desktop, 'desktop-brand').config?.[field]
+    expect(evaluateWithEnv(expression, { [name]: '/some/北冥 dir' })).toBe('/some/北冥 dir')
+    expect(evaluateWithEnv(expression, {})).toBeUndefined()
   })
 })
 
@@ -408,9 +428,14 @@ describe('the protected-directories section in composed sessions', () => {
   }
   const INSTALL_DIR = '/Applications/北冥.app'
   const DATA_DIR = '/Users/test user/.dsh'
+  const USER_DATA_DIR = '/Users/test user/Library/Application Support/@deepseek-ai/dsh-desktop'
+  const LOG_DIR = '/Users/test user/Library/Logs/@deepseek-ai/dsh-desktop'
+  const UPDATE_CACHE_DIR = '/Users/test user/Library/Caches/dsh-desktop-updater'
   // `resolveDshHome` resolves the home with the platform's path rules.
-  const LINE = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory (`/Applications/北冥.app`) '
-    + `or its data directory (\`${resolve(DATA_DIR)}\`), except the skills folder \`${join(resolve(DATA_DIR), 'skills')}\`.`
+  const LINE = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s own directories: '
+    + `the installation directory (\`${INSTALL_DIR}\`), the data directory (\`${resolve(DATA_DIR)}\`), `
+    + `the settings folder (\`${USER_DATA_DIR}\`), the logs folder (\`${LOG_DIR}\`) and the update download folder (\`${UPDATE_CACHE_DIR}\`). `
+    + `The skills folder \`${join(resolve(DATA_DIR), 'skills')}\` is exempt.`
   const roots: Context[] = []
   beforeEach(() => {
     vi.stubEnv('DSH_HOME', DATA_DIR)
@@ -434,8 +459,15 @@ describe('the protected-directories section in composed sessions', () => {
     root.systemPrompt.variable('model', () => 'deepseek-flash')
     const hostDir = resolveBundleDir('test', DESKTOP_APP, installAnchor, serverDir)
     const host = await import(pathToFileURL(join(hostDir, 'src', 'index.ts')).href) as RowPlugin
-    const brand = entry(desktop, 'desktop-brand').config
-    await root.plugin(host, { ...brand, installDir: evaluateWithEnv(brand?.['installDir'], { [INSTALL_DIR_ENV]: INSTALL_DIR }) })
+    const brand = entry(desktop, 'desktop-brand').config ?? {}
+    const env = {
+      [INSTALL_DIR_ENV]: INSTALL_DIR,
+      [USER_DATA_DIR_ENV]: USER_DATA_DIR,
+      [LOG_DIR_ENV]: LOG_DIR,
+      [UPDATE_CACHE_DIR_ENV]: UPDATE_CACHE_DIR,
+    }
+    const evaluated = Object.fromEntries(Object.keys(SHELL_DIRECTORY_ENV).map(field => [field, evaluateWithEnv(brand[field], env)]))
+    await root.plugin(host, { ...brand, ...evaluated })
     const presetKey: ScopeKey = { preset: presetId }
     await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
     const agent = createScope(root, { agent: presetId }, { parent: presetKey })

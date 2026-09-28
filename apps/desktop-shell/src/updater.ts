@@ -711,7 +711,7 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
  * as it does — so the two never disagree about where a staged file goes.
  * @returns the absolute cache directory.
  */
-function updaterCacheDir(): string {
+export function updaterCacheDir(): string {
   const configured = ((): string | undefined => {
     try {
       const parsed = load(readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8'))
