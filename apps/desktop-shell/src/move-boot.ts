@@ -17,7 +17,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-boot
  */
 
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, profileDirectory, readMigrationMarker } from './profile-seed.ts'
 import {
@@ -82,6 +82,23 @@ export function cleanupPrompt(dir: string): { leftoverBytes: number } | undefine
   if (boot.kind !== 'cleanup') return undefined
   const { cleanupAttempts, cleanupLeftoverBytes } = boot.journal
   return cleanupAttempts >= CLEANUP_PROMPT_AFTER && cleanupLeftoverBytes > 0 ? { leftoverBytes: cleanupLeftoverBytes } : undefined
+}
+
+/**
+ * The move facts `/state` carries.
+ * @param dir - the move directory.
+ * @param cleanupRunning - whether this launch is removing a finished move's old copy right now.
+ * @returns whether a move is recorded; whether the old copy's removal is running now, false when no move is recorded;
+ * and the cleanup prompt, when {@link cleanupPrompt} has one.
+ */
+export function moveFacts(dir: string, cleanupRunning: boolean): {
+  moving: boolean
+  cleanupRunning: boolean
+  cleanup?: { leftoverBytes: number }
+} {
+  const moving = existsSync(join(dir, JOURNAL_FILENAME))
+  const cleanup = cleanupPrompt(dir)
+  return { moving, cleanupRunning: moving && cleanupRunning, ...cleanup === undefined ? {} : { cleanup } }
 }
 
 /**

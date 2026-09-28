@@ -11,7 +11,8 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  bootMove, checkHealth, CLEANUP_PROMPT_AFTER, cleanupPrompt, countSessions, lockPlaces, passHealthCheck, quarantinedPlugins, relaunchHome,
+  bootMove, checkHealth, CLEANUP_PROMPT_AFTER, cleanupPrompt, countSessions, lockPlaces, moveFacts, passHealthCheck, quarantinedPlugins,
+  relaunchHome,
 } from '../src/move-boot.ts'
 import {
   beginDataMove, checkDataMove, handOverToMove, installPlaces, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest,
@@ -282,6 +283,18 @@ describe('starting a data move', () => {
     writeFileSync(join(dir, JOURNAL_FILENAME), '{')
     expect(cleanupPrompt(dir)).toBeUndefined()
     expect(CLEANUP_PROMPT_AFTER).toBe(3)
+  })
+
+  it('tells /state whether a move is recorded, whether its cleanup runs now, and the cleanup prompt', async () => {
+    const { request, probes } = await setup()
+    const dir = moveDir(request.userData)
+    expect(moveFacts(dir, true)).toEqual({ moving: false, cleanupRunning: false })
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    const cleanup = { ...started.journal, phase: 'cleanup', cleanupAttempts: CLEANUP_PROMPT_AFTER, cleanupLeftoverBytes: 7 }
+    writeFileSync(join(dir, JOURNAL_FILENAME), JSON.stringify(cleanup))
+    expect(moveFacts(dir, false)).toEqual({ moving: true, cleanupRunning: false, cleanup: { leftoverBytes: 7 } })
+    expect(moveFacts(dir, true)).toEqual({ moving: true, cleanupRunning: true, cleanup: { leftoverBytes: 7 } })
   })
 
   it('takes the move back and restarts the server when stopping it fails', async () => {

@@ -39,7 +39,7 @@ async function start(changes: Partial<DataLocationServiceSpec> = {}): Promise<{ 
   const calls: Call[] = []
   const journal = { moveId: 'm1' } as Pick<MoveJournal, 'moveId'> as MoveJournal
   const service = await startDataLocationService({
-    state: () => ({ home: '/Users/p/.dsh', moving: false }),
+    state: () => ({ home: '/Users/p/.dsh', moving: false, cleanupRunning: false }),
     choose: async () => { calls.push({ route: 'choose' }); return '/Volumes/Data' },
     preflight: async (body) => { calls.push({ route: 'preflight', body }); return VERDICT },
     begin: async (body) => { calls.push({ route: 'begin', body }); return { kind: 'started', journal, preflight: VERDICT } },
@@ -92,7 +92,7 @@ describe('the data location service', () => {
 
   it('reports the state, and what the folder picker returned', async () => {
     const { handle } = await start()
-    expect(await (await call(handle, STATE_PATH, { method: 'GET' })).json()).toEqual({ home: '/Users/p/.dsh', moving: false })
+    expect(await (await call(handle, STATE_PATH, { method: 'GET' })).json()).toEqual({ home: '/Users/p/.dsh', moving: false, cleanupRunning: false })
     expect(await (await call(handle, CHOOSE_PATH)).json()).toEqual({ path: '/Volumes/Data' })
     const cancelled = await start({ choose: async () => undefined })
     expect(await (await call(cancelled.handle, CHOOSE_PATH)).json()).toEqual({})

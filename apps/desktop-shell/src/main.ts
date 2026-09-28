@@ -38,7 +38,7 @@ import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
-import { bootMove, checkHealth, cleanupPrompt, countSessions, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
+import { bootMove, checkHealth, countSessions, moveFacts, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import { singleFlight } from './single-flight.ts'
 import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage, type ForeignLock } from './move-page.ts'
@@ -49,7 +49,7 @@ import {
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import type { ExecutorBefore } from './move/executor.ts'
-import { JOURNAL_FILENAME, moveDir, readMoveResult, type MoveJournal } from './move/journal.ts'
+import { moveDir, readMoveResult, type MoveJournal } from './move/journal.ts'
 import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
 import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes, tempRoots } from './move/preflight.ts'
@@ -699,11 +699,9 @@ function dataLocationActions(): DataLocationServiceSpec {
   return {
     state: () => {
       const result = readMoveResult(dir)
-      const cleanup = cleanupPrompt(dir)
       return {
         home: resolveHarnessHome(),
-        moving: existsSync(join(dir, JOURNAL_FILENAME)),
-        ...cleanup === undefined ? {} : { cleanup },
+        ...moveFacts(dir, moveCleanup.running()),
         ...result === undefined ? {} : { lastResult: result },
         ...lastMoveRefusal === undefined ? {} : { lastRefusal: lastMoveRefusal },
         ...settledTerminal === undefined ? {} : { terminal: settledTerminal },

@@ -362,7 +362,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 | 路由 | 回答 |
 |---|---|
-| `GET /state` | `200` —— 正在用的数据目录、盘上是否记着一次搬迁、上一次搬迁的结果、上一次已接受的搬迁请求为什么又被撤回、这次启动写终端设置的结果，以及——搬完后删旧数据连续三次都有删不掉的文件时——`cleanup: { leftoverBytes }` |
+| `GET /state` | `200` —— 正在用的数据目录、盘上是否记着一次搬迁、这次启动此刻是否在删搬完后的旧数据（`cleanupRunning`；记着搬迁却为 false，说明删除要等下次启动或 `/retry-cleanup` 再继续）、上一次搬迁的结果、上一次已接受的搬迁请求为什么又被撤回、这次启动写终端设置的结果，以及——搬完后删旧数据连续三次都有删不掉的文件时——`cleanup: { leftoverBytes }` |
 | `POST /choose` | `200` —— 应用窗口上原生文件夹选择框选中的 `{ "path": … }`，取消时是 `{}`；已经有一个选择框开着时回 `409` —— `{ "reason": "choosing" }` |
 | `POST /preflight` | `200` —— 对 `{ "target", "workspaces" }` 的检查结论，列出每一条拒绝原因；不写任何东西 |
 | `POST /start` | `202` —— 重新检查通过并写好日志后回 `{ "ok": true }`；`409` —— 没有开始的原因，另一个 `/start` 还在检查时是 `{ "kind": "in-progress" }`。回答之后停掉服务端和它启动的所有进程，在搬迁窗口里搬；到那时才出现的拒绝（服务端的进程没能确认停下）由下一次 `/state` 的 `lastRefusal` 报出 |
