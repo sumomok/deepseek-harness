@@ -212,22 +212,28 @@
 # Settings → General's current-version row, since the desktop's release version
 # is on the update settings page.
 #
-# The same row mounts the Host half, which adds `protectedDirsPrompt` to every
-# session's system prompt as the global section
+# The same row mounts the Host half, which adds a line naming the app's own
+# directories to every session's system prompt as the global section
 # `desktop:protected-directories`, after the persona suffix. A preset whose
 # persona is `complete` (`minimal`) replaces the whole prompt and drops it, a
-# known limitation the sandbox protection covers later. The skills folder is
-# exempt because agent-authored skills are written there. The
-# text names the data directory by the `DSH_HOME` environment variable, which
-# the managed shell environment sets in every bash and PowerShell call; it
-# names the installation directory without a path. Why the line earns its
-# context cost:
+# known limitation the sandbox protection covers later. The Host half fills
+# `{installDir}` from `installDir`, which the shell names in
+# `DSH_DESKTOP_INSTALL_DIR` for a packaged launch; `{dataDir}` with the harness
+# home the server's plugins resolve (`$DSH_HOME`, else `~/.dsh`); and
+# `{skillsDir}` with its `skills` folder, where agent-authored skills are
+# written and which is therefore exempt. Each path is quoted in backticks. A
+# development launch names no installation directory and gets
+# `protectedDirsPromptDataOnly`. Each template must contain exactly its
+# placeholders, or the row refuses to mount. Why the line earns its context
+# cost:
 # .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md.
 - insert:
     - id: desktop-brand
       name: '@deepseek-ai/dsh-desktop-app'
       config:
-        protectedDirsPrompt: Unless the user explicitly asks, do not modify, move, or delete this app's installation directory or its data directory (the path in the DSH_HOME environment variable), except its skills folder.
+        protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app''s installation directory ({installDir}) or its data directory ({dataDir}), except the skills folder {skillsDir}.'
+        protectedDirsPromptDataOnly: 'Unless the user explicitly asks, do not modify, move, or delete this app''s data directory ({dataDir}), except the skills folder {skillsDir}.'
+        installDir: !!js process.env.DSH_DESKTOP_INSTALL_DIR
 
 # The server's own log records in the desktop log file. Plugins log through
 # `ctx.logger`, and no row in the shipped bundles registers an exporter for it,

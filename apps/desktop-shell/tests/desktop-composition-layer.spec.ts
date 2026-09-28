@@ -32,10 +32,10 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Plugin } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as Persona from '@deepseek-ai/dsh-persona'
@@ -44,6 +44,7 @@ import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
+import { INSTALL_DIR_ENV } from '../src/install-dir.ts'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
@@ -51,8 +52,11 @@ import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 /** The bundle under test, which is also this repository's own composition layer. */
 const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
 
-/** The protected-directories instruction the desktop row states. */
-const PROTECTED_DIRS_PROMPT = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory or its data directory (the path in the DSH_HOME environment variable), except its skills folder.'
+/** The protected-directories templates the desktop row states. */
+const PROTECTED_DIRS_TEMPLATES = {
+  protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory ({installDir}) or its data directory ({dataDir}), except the skills folder {skillsDir}.',
+  protectedDirsPromptDataOnly: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s data directory ({dataDir}), except the skills folder {skillsDir}.',
+}
 
 /** The composed-entry fields these cases read. */
 interface Entry {
@@ -362,12 +366,18 @@ describe('the composed brand row', () => {
     expect(below.find(row => row.id === 'desktop-brand')).toBeUndefined()
   })
 
-  it('mounts this package with the protected-directories prompt its Host half registers', () => {
+  it('mounts this package with the protected-directories templates its Host half fills', () => {
     expect(entry(desktop, 'desktop-brand')).toEqual({
       id: 'desktop-brand',
       name: DESKTOP_APP,
-      config: { protectedDirsPrompt: PROTECTED_DIRS_PROMPT },
+      config: { ...PROTECTED_DIRS_TEMPLATES, installDir: { __jsExpr: `process.env.${INSTALL_DIR_ENV}` } },
     })
+  })
+
+  it('names the installation directory the shell names, and none in a development launch', () => {
+    const installDir = entry(desktop, 'desktop-brand').config?.['installDir']
+    expect(evaluateWithEnv(installDir, { [INSTALL_DIR_ENV]: '/Applications/北冥.app' })).toBe('/Applications/北冥.app')
+    expect(evaluateWithEnv(installDir, {})).toBeUndefined()
   })
 })
 
@@ -396,8 +406,17 @@ describe('the protected-directories section in composed sessions', () => {
       ...typeof includeRuntimeContext === 'boolean' ? { includeRuntimeContext } : {},
     }
   }
+  const INSTALL_DIR = '/Applications/北冥.app'
+  const DATA_DIR = '/Users/test user/.dsh'
+  // `resolveDshHome` resolves the home with the platform's path rules.
+  const LINE = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s installation directory (`/Applications/北冥.app`) '
+    + `or its data directory (\`${resolve(DATA_DIR)}\`), except the skills folder \`${join(resolve(DATA_DIR), 'skills')}\`.`
   const roots: Context[] = []
+  beforeEach(() => {
+    vi.stubEnv('DSH_HOME', DATA_DIR)
+  })
   afterEach(async () => {
+    vi.unstubAllEnvs()
     await Promise.all(roots.splice(0).map(root => root.fiber.dispose()))
   })
 
@@ -415,7 +434,8 @@ describe('the protected-directories section in composed sessions', () => {
     root.systemPrompt.variable('model', () => 'deepseek-flash')
     const hostDir = resolveBundleDir('test', DESKTOP_APP, installAnchor, serverDir)
     const host = await import(pathToFileURL(join(hostDir, 'src', 'index.ts')).href) as RowPlugin
-    await root.plugin(host, entry(desktop, 'desktop-brand').config)
+    const brand = entry(desktop, 'desktop-brand').config
+    await root.plugin(host, { ...brand, installDir: evaluateWithEnv(brand?.['installDir'], { [INSTALL_DIR_ENV]: INSTALL_DIR }) })
     const presetKey: ScopeKey = { preset: presetId }
     await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
     const agent = createScope(root, { agent: presetId }, { parent: presetKey })
@@ -432,7 +452,7 @@ describe('the protected-directories section in composed sessions', () => {
   it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('ends the prompt of a %s session', async (presetId) => {
     const { root, agent } = await session(presetId)
     const text = await prompt(root, agent)
-    expect(text.endsWith(`Your working directory is /workspace.\n\n${PROTECTED_DIRS_PROMPT}`)).toBe(true)
+    expect(text.endsWith(`Your working directory is /workspace.\n\n${LINE}`)).toBe(true)
   })
 
   it('ends the prompt of a child that session delegates to, under the child\'s own persona', async () => {
@@ -449,7 +469,7 @@ describe('the protected-directories section in composed sessions', () => {
     if (child === undefined) throw new Error('the child was not composed')
     const text = await prompt(root, child)
     expect(text).toContain('You review one file.')
-    expect(text.endsWith(PROTECTED_DIRS_PROMPT)).toBe(true)
+    expect(text.endsWith(LINE)).toBe(true)
   })
 
   // `minimal`'s persona is `complete`, which replaces every other section.
