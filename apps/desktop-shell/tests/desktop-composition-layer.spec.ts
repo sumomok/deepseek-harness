@@ -430,7 +430,7 @@ describe('the protected-directories section in composed sessions', () => {
   const DATA_DIR = '/Users/test user/.dsh'
   const USER_DATA_DIR = '/Users/test user/Library/Application Support/@deepseek-ai/dsh-desktop'
   const LOG_DIR = '/Users/test user/Library/Logs/@deepseek-ai/dsh-desktop'
-  const UPDATE_CACHE_DIR = '/Users/test user/Library/Caches/dsh-desktop-updater'
+  const UPDATE_CACHE_DIR = '/Users/test user/Library/Caches/@deepseek-aidsh-desktop-updater'
   // `resolveDshHome` resolves the home with the platform's path rules.
   const LINE = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s own directories: '
     + `the installation directory (\`${INSTALL_DIR}\`), the data directory (\`${resolve(DATA_DIR)}\`), `

@@ -14,11 +14,11 @@ describe('appDirsEnv', () => {
     expect(appDirsEnv({
       userData: '/Users/张三/Library/Application Support/@deepseek-ai/dsh-desktop',
       logs: '/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop',
-      updateCache: '/Users/张三/Library/Caches/@deepseek-ai/dsh-desktop-updater',
+      updateCache: '/Users/张三/Library/Caches/@deepseek-aidsh-desktop-updater',
     })).toEqual({
       [USER_DATA_DIR_ENV]: '/Users/张三/Library/Application Support/@deepseek-ai/dsh-desktop',
       [LOG_DIR_ENV]: '/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop',
-      [UPDATE_CACHE_DIR_ENV]: '/Users/张三/Library/Caches/@deepseek-ai/dsh-desktop-updater',
+      [UPDATE_CACHE_DIR_ENV]: '/Users/张三/Library/Caches/@deepseek-aidsh-desktop-updater',
     })
   })
 

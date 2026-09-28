@@ -58,13 +58,13 @@ describe('the protected-directories section', () => {
       installDir: '/Applications/北冥 Beta.app',
       appDataDir: '/Users/张三/Library/Application Support/@deepseek-ai/dsh-desktop',
       logDir: '/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop',
-      updateCacheDir: '/Users/张三/Library/Caches/dsh-desktop-updater',
+      updateCacheDir: '/Users/张三/Library/Caches/@deepseek-aidsh-desktop-updater',
     })
 
     const assembly = await root.systemPrompt.assemble()
     const text = `Keep install \`/Applications/北冥 Beta.app\`, data \`${home}\`, `
       + 'settings `/Users/张三/Library/Application Support/@deepseek-ai/dsh-desktop`, '
-      + 'logs `/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop` and updates `/Users/张三/Library/Caches/dsh-desktop-updater`; '
+      + 'logs `/Users/张三/Library/Logs/@deepseek-ai/dsh-desktop` and updates `/Users/张三/Library/Caches/@deepseek-aidsh-desktop-updater`; '
       + `\`${join(home, 'skills')}\` is exempt.`
     expect(assembly.sections.at(-1)).toEqual({ name: DesktopApp.PROTECTED_DIRECTORIES_SECTION, text, interpolate: false })
     expect(renderPrompt(assembly).endsWith(`Deployment suffix.\n\n${text}`)).toBe(true)
@@ -92,14 +92,14 @@ describe('the protected-directories section', () => {
   })
 
   it('fills Windows paths verbatim, and never rescans an inserted path', () => {
-    const dataDir = 'C:\\Users\\张三\\.dsh {logDir}'
+    const dataDir = 'C:\\Users\\张三\\.dsh {skillsDir}'
     expect(DesktopApp.renderProtectedDirsPrompt(TEMPLATES, {
       installDir: 'C:\\Users\\张三\\AppData\\Local\\Programs\\北冥',
       dataDir,
       appDataDir: 'C:\\Users\\张三\\AppData\\Roaming\\@deepseek-ai\\dsh-desktop',
       skillsDir: win32.join(dataDir, 'skills'),
-    })).toBe('Keep install `C:\\Users\\张三\\AppData\\Local\\Programs\\北冥`, data `C:\\Users\\张三\\.dsh {logDir}` '
-      + 'and settings `C:\\Users\\张三\\AppData\\Roaming\\@deepseek-ai\\dsh-desktop`; `C:\\Users\\张三\\.dsh {logDir}\\skills` is exempt.')
+    })).toBe('Keep install `C:\\Users\\张三\\AppData\\Local\\Programs\\北冥`, data `C:\\Users\\张三\\.dsh {skillsDir}` '
+      + 'and settings `C:\\Users\\张三\\AppData\\Roaming\\@deepseek-ai\\dsh-desktop`; `C:\\Users\\张三\\.dsh {skillsDir}\\skills` is exempt.')
   })
 
   it('leaves the prompt when the row is disposed', async () => {
