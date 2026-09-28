@@ -14,7 +14,7 @@
  */
 
 import { realpathSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { readDataId, readGeneration, readPointer } from './data-location.ts'
 import { countSessions, quarantinedPlugins, type BootMove } from './move-boot.ts'
 import {
@@ -75,6 +75,36 @@ export type MoveRefusal =
 export type MoveStartOutcome =
   | { kind: 'started'; journal: MoveJournal; preflight: PreflightResult }
   | { kind: 'refused'; refusal: MoveRefusal }
+
+/**
+ * Check a move to a folder without writing anything: the Settings window's
+ * check before it asks for confirmation. {@link beginDataMove} checks again.
+ * @param request - where to, from where, and the places the data may not go.
+ * @param probes - the disk reads.
+ * @returns the verdict.
+ * @throws when a probe fails.
+ */
+export async function checkDataMove(
+  request: Pick<MoveRequest, 'chosen' | 'home' | 'platform' | 'forbidden'>, probes: PreflightProbes,
+): Promise<PreflightResult> {
+  return evaluatePreflight(await gatherPreflightFacts(
+    { platform: request.platform, source: request.home, chosen: request.chosen, forbidden: request.forbidden }, probes,
+  ))
+}
+
+/**
+ * Where the running application is installed, which the data may not go
+ * inside: on macOS the `.app` bundle holding the executable, otherwise the
+ * executable's folder; and the application's own code (the source tree in a
+ * development launch).
+ * @param input - the platform, `process.execPath`, and `app.getAppPath()`.
+ * @returns absolute folder paths.
+ */
+export function installPlaces(input: { platform: NodeJS.Platform; execPath: string; appPath: string }): string[] {
+  const api = input.platform === 'win32' ? win32 : posix
+  const bundle = input.platform === 'darwin' ? /^(.*?\.app)(?:\/|$)/.exec(input.execPath)?.[1] : undefined
+  return [...new Set([bundle ?? api.dirname(input.execPath), input.appPath])]
+}
 
 /**
  * Check a move and, when every check passes, take the lock and write the

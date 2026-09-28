@@ -14,7 +14,8 @@ import {
   bootMove, checkHealth, countSessions, lockPlaces, passHealthCheck, quarantinedPlugins, relaunchHome,
 } from '../src/move-boot.ts'
 import {
-  beginDataMove, handOverToMove, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest, type MoveStartProbes,
+  beginDataMove, checkDataMove, handOverToMove, installPlaces, withdrawRequestAtBoot, withdrawRequestedMove, type MoveRequest,
+  type MoveStartProbes,
 } from '../src/move-start.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, moveDir, readJournal, type MoveJournal } from '../src/move/journal.ts'
 import { LOCK_FILENAME } from '../src/move/lock.ts'
@@ -199,6 +200,26 @@ describe('starting a data move', () => {
     }
     expect(readJournal(dir)?.phase).toBe('cleanup')
     expect(logged.join('')).toContain('could not give back the lock')
+  })
+
+  it('checks a move without writing anything, and knows where the application is installed', async () => {
+    const { f, request, probes } = await setup()
+    const verdict = await checkDataMove(request, probes.preflight)
+    expect(verdict.ok).toBe(true)
+    expect(readJournal(moveDir(request.userData))).toBeUndefined()
+    expect(existsSync(join(f.home, LOCK_FILENAME))).toBe(false)
+    // The check names the same place the start then moves to.
+    const started = await beginDataMove(request, probes)
+    if (started.kind !== 'started') throw new Error(started.kind)
+    expect(started.journal.target).toBe(verdict.target.target)
+    withdrawRequestedMove(started.journal, request)
+    const inside = await checkDataMove({ ...request, chosen: join(f.home, 'sessions') }, probes.preflight)
+    expect(inside.ok).toBe(false)
+    expect(installPlaces({ platform: 'darwin', execPath: '/Applications/Beiming.app/Contents/MacOS/Beiming', appPath: '/x/app.asar' }))
+      .toEqual(['/Applications/Beiming.app', '/x/app.asar'])
+    expect(installPlaces({ platform: 'win32', execPath: 'C:\\Program Files\\DSH\\DSH.exe', appPath: 'C:\\Program Files\\DSH\\resources\\app.asar' }))
+      .toEqual(['C:\\Program Files\\DSH', 'C:\\Program Files\\DSH\\resources\\app.asar'])
+    expect(installPlaces({ platform: 'linux', execPath: '/opt/dsh/dsh', appPath: '/opt/dsh' })).toEqual(['/opt/dsh'])
   })
 
   it('hands the data to the move only once the server tree is gone, and otherwise takes the move back and restarts the server', async () => {

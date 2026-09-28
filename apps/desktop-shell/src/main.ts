@@ -27,7 +27,11 @@ import { app, BrowserWindow, dialog, Notification, session, shell, systemPrefere
 import { pinAppIdentity } from './app-identity.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { defaultHarnessHome, exportPointerHome, settleDataLocation } from './data-location-boot.ts'
+import { defaultHarnessHome, exportPointerHome, settleDataLocation, type TerminalSync } from './data-location-boot.ts'
+import {
+  ENDPOINT_ENV as DATA_ENDPOINT_ENV, startDataLocationService, TOKEN_ENV as DATA_TOKEN_ENV, type DataLocationServiceHandle,
+  type DataLocationServiceSpec, type MoveBody,
+} from './data-location-service.ts'
 import { appDataLocationHost } from './data-location-window.ts'
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
@@ -37,15 +41,16 @@ import { bootMove, checkHealth, countSessions, passHealthCheck, quarantinedPlugi
 import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage, type ForeignLock } from './move-page.ts'
 import {
-  beginDataMove, handOverToMove, lockSelf, withdrawRequestAtBoot, type MoveRequest, type MoveStartOutcome,
+  beginDataMove, checkDataMove, handOverToMove, installPlaces, lockSelf, withdrawRequestAtBoot, type MoveRefusal, type MoveRequest,
+  type MoveStartOutcome,
 } from './move-start.ts'
 import { moveText } from './move-text.ts'
 import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
 import type { ExecutorBefore } from './move/executor.ts'
-import { moveDir } from './move/journal.ts'
+import { JOURNAL_FILENAME, moveDir, readMoveResult, type MoveJournal } from './move/journal.ts'
 import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
 import { nameLocale } from './move/names.ts'
-import { nodePreflightProbes } from './move/preflight.ts'
+import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes } from './move/preflight.ts'
 import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
 import { samePathText } from './path-text.ts'
 import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
@@ -73,7 +78,7 @@ import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
-import { launchGate, setupUpdates, updateActions, type UpdateHost } from './updater.ts'
+import { launchGate, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
 
 // First statement of the process: every directory below is derived from the
 // application name, and the state of an existing installation lives under the
@@ -124,6 +129,11 @@ function resolveSpec(): LaunchSpec {
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
+let dataLocationService: DataLocationServiceHandle | undefined
+/** Why the last move asked for from Settings was taken back after the service answered; reported by `/state`. */
+let lastMoveRefusal: MoveRefusal | undefined
+/** What this launch's write of the terminal's data location came to. */
+let settledTerminal: TerminalSync | undefined
 let quitting = false
 /**
  * The data move this process is carrying, while its window is up: asking it
@@ -589,40 +599,138 @@ async function retireReturnedCopies(home: string): Promise<void> {
 }
 
 /**
- * Start a data move the person confirmed in Settings (the loopback service's
- * `/start`, A9): check it and write its journal, then stop the server, close
- * the app window, and carry the move in its own window to the relaunch.
- * @param input - the folder picked, the places the data may not go, and the server's workspace count.
- * @returns why the move did not start; after a start the application relaunches or exits before this settles.
+ * The move the Settings window asks about, with the places the data may not go.
+ * @param body - the folder picked and the workspace folders the server knows.
+ * @returns the request, dated now.
  */
-export async function startDataMoveFromSettings(input: Pick<MoveRequest, 'chosen' | 'forbidden' | 'workspaces'>): Promise<MoveStartOutcome> {
-  const terminal: TerminalEnvHost = {
+function settingsMoveRequest(body: MoveBody): MoveRequest {
+  const home = app.getPath('home')
+  return {
+    chosen: body.target, home: resolveHarnessHome(), userData: app.getPath('userData'), defaultHome: defaultHarnessHome(home),
+    platform: process.platform, pid: process.pid, now: new Date(), workspaces: body.workspaces.length,
+    forbidden: {
+      install: installPlaces({ platform: process.platform, execPath: process.execPath, appPath: app.getAppPath() }),
+      userData: app.getPath('userData'),
+      updateCache: updaterCacheDir(),
+      workspaces: body.workspaces,
+      cloud: cloudRoots({
+        platform: process.platform, home, env: process.env, iCloudDesktopAndDocuments: iCloudSyncsDesktopAndDocuments(home),
+      }),
+    },
+  }
+}
+
+/**
+ * How the shell reads and writes the terminal's data location, for a move.
+ * @returns the host.
+ */
+function moveTerminalHost(): TerminalEnvHost {
+  return {
     platform: process.platform, env: process.env, home: app.getPath('home'),
     powershell: systemPowerShell(process.env['SystemRoot'] ?? 'C:\\Windows', 15_000), shellTimeoutMs: LOGIN_SHELL_TIMEOUT_MS,
   }
-  const outcome = await beginDataMove({
-    ...input, home: resolveHarnessHome(), userData: app.getPath('userData'), defaultHome: defaultHarnessHome(app.getPath('home')),
-    platform: process.platform, pid: process.pid, now: new Date(),
-  }, {
+}
+
+/**
+ * Check a move the person confirmed in Settings again and, when it may start,
+ * write its journal (the data-location service's `/start`, before it answers).
+ * @param body - the folder picked and the workspace folders.
+ * @returns the journal, or why the move did not start.
+ */
+async function beginMoveFromSettings(body: MoveBody): Promise<MoveStartOutcome> {
+  const terminal = moveTerminalHost()
+  lastMoveRefusal = undefined
+  return await beginDataMove(settingsMoveRequest(body), {
     preflight: nodePreflightProbes(process.platform, terminal.powershell),
     snapshotTerminal: () => snapshotTerminal(terminal),
     readTerminal: () => readPersistentDshHome(terminal),
     lock: nodeLockProbes(process.platform),
   })
-  if (outcome.kind === 'refused') return outcome
-  logLine(`[desktop] data move: requested to ${outcome.journal.target}; stopping the server and every process it started\n`)
-  // stop() marks the exit expected, so supervision does not answer it with a rebind. Nothing is copied while
-  // something the server started may still write to the data: then the move is taken back.
-  const handed = await handOverToMove(outcome.journal, { userData: app.getPath('userData'), pid: process.pid }, {
-    stopServerTree: stopServerCompletely,
-    restartServer: async () => {
-      logLine('[desktop] data move: withdrawn before copying anything; starting the server again\n')
-      return await performRebind()
+}
+
+/**
+ * Carry a move whose journal the data-location service just wrote, after its
+ * answer: stop the server and every process it started, close the app window,
+ * and carry the move in its own window to the relaunch. When some process
+ * cannot be confirmed stopped, the move is taken back and the server started
+ * again, and the next `/state` says why.
+ * @param journal - the journal just written.
+ */
+function carryMoveFromSettings(journal: MoveJournal): void {
+  logLine(`[desktop] data move: requested to ${journal.target}; stopping the server and every process it started\n`)
+  const run = async (): Promise<void> => {
+    // stop() marks the exit expected, so supervision does not answer it with a rebind. Nothing is copied while
+    // something the server started may still write to the data: then the move is taken back.
+    const handed = await handOverToMove(journal, { userData: app.getPath('userData'), pid: process.pid }, {
+      stopServerTree: stopServerCompletely,
+      restartServer: async () => {
+        logLine('[desktop] data move: withdrawn before copying anything; starting the server again\n')
+        return await performRebind()
+      },
+    })
+    if (handed.kind === 'refused') {
+      lastMoveRefusal = handed.refusal
+      return
+    }
+    await runMoveToEnd(logLine, mainWindow())
+  }
+  run().catch((error: unknown) => { logLine(`[desktop] data move: could not carry the move from Settings: ${String(error)}\n`) })
+}
+
+/**
+ * What the data-location service drives in this application.
+ * @returns the service's spec.
+ */
+function dataLocationActions(): DataLocationServiceSpec {
+  const dir = moveDir(app.getPath('userData'))
+  return {
+    state: () => {
+      const result = readMoveResult(dir)
+      return {
+        home: resolveHarnessHome(),
+        moving: existsSync(join(dir, JOURNAL_FILENAME)),
+        ...result === undefined ? {} : { lastResult: result },
+        ...lastMoveRefusal === undefined ? {} : { lastRefusal: lastMoveRefusal },
+        ...settledTerminal === undefined ? {} : { terminal: settledTerminal },
+      }
     },
-  })
-  if (handed.kind === 'refused') return handed
-  await runMoveToEnd(logLine, mainWindow())
-  return outcome
+    choose: async () => {
+      const window = mainWindow()
+      const options = { properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> }
+      const picked = window === undefined ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options)
+      return picked.canceled ? undefined : picked.filePaths[0]
+    },
+    preflight: async (body) => {
+      const request = settingsMoveRequest(body)
+      return await checkDataMove(request, nodePreflightProbes(process.platform, moveTerminalHost().powershell))
+    },
+    begin: beginMoveFromSettings,
+    carry: carryMoveFromSettings,
+    retryCleanup: () => {
+      const window = mainWindow()
+      if (window === undefined || bootMove(dir).kind !== 'cleanup') return false
+      cleanUpMoveInBackground(window)
+      return true
+    },
+  }
+}
+
+/**
+ * Start the data-location service for the server about to be spawned.
+ * @param log - the desktop log sink.
+ * @returns the environment variables that tell the server where it is, or none when it could not start.
+ */
+async function startDataLocationForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
+  let started: DataLocationServiceHandle
+  try {
+    started = await startDataLocationService(dataLocationActions())
+  } catch (error) {
+    log(`[desktop] data location service unavailable (${error instanceof Error ? error.message : String(error)}); Settings shows no move\n`)
+    return {}
+  }
+  dataLocationService = started
+  log(`[desktop] data location service on ${started.endpoint}\n`)
+  return { [DATA_ENDPOINT_ENV]: started.endpoint, [DATA_TOKEN_ENV]: started.token }
 }
 
 /**
@@ -992,6 +1100,7 @@ if (!locked) {
     // this quit must not wait on a render that is still running.
     void renderService?.close()
     void updateService?.close()
+    void dataLocationService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -1090,6 +1199,7 @@ if (!locked) {
       }
       // Every step below reads the Harness home this exports.
       const location = await settleDataLocation(appDataLocationHost(view.window, view.block, sink), launchDshHome)
+      settledTerminal = location?.terminal
       if (location === undefined) {
         clearInterval(ticker)
         app.quit()
@@ -1132,12 +1242,13 @@ if (!locked) {
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
       const updateEnv = await startUpdateForServer(host, sink)
+      const dataEnv = await startDataLocationForServer(sink)
       const pnpmEnv = pnpmLauncherEnv({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform })
       const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
       sink(launcher === undefined
         ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
         : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv } }
+      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv } }
       server = await startServerWithQuarantine(
         activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
       )
