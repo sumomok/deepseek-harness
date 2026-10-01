@@ -35,6 +35,8 @@
   - button "编辑快捷键"
   - text: 繁忙时的发送行为 智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送"
+  - text: 繁忙时的压缩行为 智能体运行时输入 /compact 的处理方式：立即打断在当前步骤结束后压缩，排队等候在本轮结束后压缩
+  - button "排队等候"
   - text: 性能与用量 选择性能与用量信息展示的详细程度
   - button "详细"
   - text: 在使用官方模型 API 时上传 Session Log 帮助改进 DeepSeek 模型与产品

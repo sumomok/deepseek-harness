@@ -8,8 +8,8 @@
     - tab "Trajectory"
 - text: {{long-prompt}}{{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}"
+- status: Completed
+- button "Completed in {{duration}}"
 - button "compact Compacted 2 history items (~{{tokens}} tokens)"
 - paragraph: notes.txt says event sourcing stores changes as events.
 - button "Copy"

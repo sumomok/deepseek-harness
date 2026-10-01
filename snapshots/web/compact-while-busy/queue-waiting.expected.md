@@ -8,9 +8,9 @@
     - tab "Trajectory"
 - text: {{long-prompt}}{{clock}}
 - button "Copy"
-- status: Deep diving...
-- button "Deep diving for {{duration}}" [disabled]
 - text: "Running compact Waiting to compact… Failed compact Compaction is unavailable: another compaction is running or waiting, or the agent is not idle."
+- status: Deep diving
+- text: Deep diving for {{duration}} ···
 - textbox "Message or run a task, / commands, @ files or sessions":
   - paragraph
 - button "Add files or run commands"
