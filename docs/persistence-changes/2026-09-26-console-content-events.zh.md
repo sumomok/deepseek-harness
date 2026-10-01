@@ -9,7 +9,7 @@ kind: persistence-change
 
 ## 概述
 
-新增产品控制台的六个内容事件，以及它的三种仅作归属用途的消息来源种类（content-surface、content-frame、content-component）。
+新增产品控制台的六个内容事件，以及 Host 聚合声明的两种仅作归属用途的消息来源种类（content-surface、content-component）；content-frame 的来源种类声明在 Host 聚合之外的一个 Client 包里，不在本记录内。
 
 ## 目录
 
@@ -71,7 +71,7 @@ changes:
 <a id="compatibility"></a>
 ## 兼容性
 
-六个事件是新的普通事件类型，三种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式，排在本记录之前的用户提问回复来源也是如此。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这三种来源种类及其元数据，不校验也不回放它们。content-component 种类由 component-surface 的动作通知写入。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
+六个事件是新的普通事件类型，两种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式，排在本记录之前的用户提问回复来源也是如此。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这两种来源种类及其元数据，不校验也不回放它们。content-component 种类由 component-surface 的动作通知写入。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
 
 <a id="verification"></a>
 ## 验证

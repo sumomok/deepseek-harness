@@ -9,7 +9,7 @@ English | [中文](2026-09-26-console-content-events.zh.md)
 
 ## Summary
 
-Adds the product console's six content events and its three attribution-only message source kinds (content-surface, content-frame, content-component).
+Adds the product console's six content events and its two attribution-only message source kinds that the Host aggregate declares (content-surface, content-component); content-frame's source kind is declared in a Client package outside the Host aggregate and is not part of this record.
 
 ## Table of Contents
 
@@ -71,7 +71,7 @@ changes:
 <a id="compatibility"></a>
 ## Compatibility
 
-The six events are new ordinary event types and the three source kinds are qualified with @persistenceAttribution, so every existing record keeps its schema and replay, including the user-question reply source that precedes this record. An older reader that does not know the six events refuses a log that carries them, because they are not marked ignorable; a reader without the producers preserves the three source kinds and their metadata without validating or replaying them. component-surface's action notices write the content-component kind. Logs written before the rc.2 base recorded these sources as kind plugin, which the V3 to V4 migration rewrites to plugin:content-surface and the like, and the console does not map those back.
+The six events are new ordinary event types and the two source kinds are qualified with @persistenceAttribution, so every existing record keeps its schema and replay, including the user-question reply source that precedes this record. An older reader that does not know the six events refuses a log that carries them, because they are not marked ignorable; a reader without the producers preserves the two source kinds and their metadata without validating or replaying them. component-surface's action notices write the content-component kind. Logs written before the rc.2 base recorded these sources as kind plugin, which the V3 to V4 migration rewrites to plugin:content-surface and the like, and the console does not map those back.
 
 <a id="verification"></a>
 ## Verification
