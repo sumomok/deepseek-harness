@@ -6,7 +6,7 @@
   "extends": "./tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": ".",
-    "outDir": "lib/vue2-test-types",
+    "outDir": "lib/vue2-tests/types",
     "emitDeclarationOnly": true,
     "rewriteRelativeImportExtensions": false,
     "types": ["node"]
@@ -32,7 +32,7 @@
     { "path": "./packages/client/ui-renderer" },
     { "path": "./packages/experimental/auth-gate" },
     { "path": "./packages/experimental/component-kit" },
-    { "path": "./packages/experimental/component-surface" },
+    { "path": "./packages/experimental/component-surface/tsconfig.client.json" },
     { "path": "./packages/experimental/content-column" },
     { "path": "./packages/experimental/vue2-echarts-poc" },
     { "path": "./packages/host/webserver" },
