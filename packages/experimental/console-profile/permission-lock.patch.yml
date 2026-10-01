@@ -1,11 +1,12 @@
 # The console's lock: the rows a deployment applies above the profile patch,
 # with `dsh --profile <name> --patch <this file>` (or as the home patch,
 # `$DSH_HOME/cordis.patch.yml`). They are not part of this package's bundle
-# layer on purpose. `permission.defaultPreset` and
-# `agent-preset-registry.selectedDefault` are volatile Config, so the settings
-# service writes them into the profile patch on request, and the
-# `remote.settings` method answers any browser the deployment admits. Composed
-# in a layer above the profile patch, these rows outrank any such write:
+# layer on purpose. `permission.defaultPreset`,
+# `agent-preset-registry.selectedDefault`, and `session-log-deepseek.enabled`
+# are volatile Config, so the settings service writes them into the profile
+# patch on request, and the `remote.settings` method answers any browser the
+# deployment admits. Composed in a layer above the profile patch, these rows
+# outrank any such write:
 # config-editor refuses it, and a value an earlier release stored in
 # `settings.yaml` stays in `settings.yaml.imported` instead of being imported.
 # The bundle layer below carries the rows the settings service must be able to
@@ -77,3 +78,15 @@
   name: '@deepseek-ai/dsh-agent-preset-registry'
   config:
     default: console
+
+# Session-log upload to the official model API stays off for every session. The
+# switch that writes `enabled` is disabled in the bundle layer
+# (`ui-settings-session-log`), but `enabled` is volatile Config and the
+# `remote.settings` method still accepts a write from any browser the deployment
+# admits; below the lock, that one write would set the upload for every session
+# the host serves. This row replaces the base bundle's `config` wholesale, so
+# `maxBytes` falls to the plugin default, as it does there.
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+  config:
+    enabled: false

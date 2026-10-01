@@ -58,7 +58,7 @@ The console bundle composes these changes over the shipped Web profile:
 | `preset-standard-as-console` | Inserted: a `standard` Agent preset with exactly `console`'s plugins; a session resumes under the preset id it was created with, and sessions a console deployment created before `console` existed carry `standard` |
 | `preset-standard`, `preset-ptc`, `preset-minimal`, `preset-cordis` | Disabled: they carry the shell and the other developer rows, `cordis` also mounts `tool-cordis` and a skill that lists every workspace package, and `session.create` accepts an `agentPreset` over RPC, so hiding the picker is not enough; every session runs `console`'s plugins, under the id `console` or `standard` |
 
-The lock overlay restates two rows. The `permission` row carries three presets with customer-facing names, `defaultPreset: workspace-write`, and `isolate: { commands: true }`, which keeps `/permission` unregistered. The `agent-preset-registry` row carries `default: console` and no `selectedDefault`, so every new session runs the `console` preset.
+The lock overlay restates three rows. The `permission` row carries three presets with customer-facing names, `defaultPreset: workspace-write`, and `isolate: { commands: true }`, which keeps `/permission` unregistered. The `agent-preset-registry` row carries `default: console` and no `selectedDefault`, so every new session runs the `console` preset. The `session-log-deepseek` row carries `enabled: false`, so no session uploads its Session log to the official model API.
 
 -----
 
@@ -68,14 +68,14 @@ The lock overlay restates two rows. The `permission` row carries three presets w
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The layer order decides which file each row belongs in. A bundle layer composes below the profile patch, and `dsh-config-editor` writes a row's configuration into that profile patch only when the resulting effective configuration equals the value it wrote. A row a `--patch` overlay or the home patch inserts or configures outranks the write, and the editor refuses it. The sidebar's `workflows`, `groups`, and `workbenchSessionId` are volatile Config the sidebar saves, so the row must sit in the bundle layer. `permission.defaultPreset` and `agent-preset-registry.selectedDefault` are also volatile Config, and the `remote.settings` method answers any browser the deployment admits, so both rows must sit above the profile patch. A stored `selectedDefault` naming a preset the console does not declare would fail every new session with `agent-preset/not-found`.
+The layer order decides which file each row belongs in. A bundle layer composes below the profile patch, and `dsh-config-editor` writes a row's configuration into that profile patch only when the resulting effective configuration equals the value it wrote. A row a `--patch` overlay or the home patch inserts or configures outranks the write, and the editor refuses it. The sidebar's `workflows`, `groups`, and `workbenchSessionId` are volatile Config the sidebar saves, so the row must sit in the bundle layer. `permission.defaultPreset`, `agent-preset-registry.selectedDefault`, and `session-log-deepseek.enabled` are also volatile Config, and the `remote.settings` method answers any browser the deployment admits, so these three rows must sit above the profile patch. A stored `selectedDefault` naming a preset the console does not declare would fail every new session with `agent-preset/not-found`.
 
 Disable rows address shipped entries by id alone. A bundle's plugin rows resolve through the bundle's own `dependencies`, which `scripts/verify-cordis-config.ts` enforces, and a disable row loads nothing.
 
 | File | Role |
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, MCP capability, library skills, the `console` Agent preset, and every disable row |
-| [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission` and `agent-preset-registry` rows, applied above the profile patch |
+| [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission`, `agent-preset-registry`, and `session-log-deepseek` rows, applied above the profile patch |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the two patch files are the runtime content |
 | — | No runtime invariant companion is published; the package owns no mutable relationship. Loader and the profile's patch files own the composition. |
 
@@ -106,7 +106,7 @@ None beyond the composed plugins' own; the skill catalog is prefix-stable while 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, and a `defaultPreset` any settings write can change. Its Agent-preset default is the Web bundle's `standard`, which this bundle disables, so every new session fails with `agent-preset/not-found`.
+- **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, a `defaultPreset` any settings write can change, and a Session-log upload one settings write away from on. Its Agent-preset default is the Web bundle's `standard`, which this bundle disables, so every new session fails with `agent-preset/not-found`.
 - **The MCP server list is deployment Config, not a setting.** `console-mcp.servers` sits in the bundle layer like the sidebar's menu, but it is not a `.volatile()` field: the settings service projects no form for it and refuses a write with `Plugin entry "console-mcp" has no volatile fields`, so no browser the deployment admits can add a server. A deployment names its servers by patching the row's `config` in its own layer, and a changed list takes effect when the row reloads. A bridged MCP tool declares no approval gate, so it runs under every access preset, under the credential the row's `auth` names.
 - **The `console` preset keeps the file tools.** `tool-fs` lets the agent write the skills it distils into `<workspace>/.dsh/skills`, and it also lets it write any other file the `permission` preset's sandbox admits.
 

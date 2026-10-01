@@ -177,11 +177,13 @@ describe('the console bundle manifest', () => {
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
     expect(manifest.files).toContain('permission-lock.patch.yml')
-    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry'])
+    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek'])
     // In the bundle layer each row would sit below the profile patch, where a
-    // settings write to `defaultPreset` or `selectedDefault` outranks it.
+    // settings write to `defaultPreset`, `selectedDefault`, or `enabled`
+    // outranks it.
     expect(idsOf(CONSOLE_PATCH)).not.toContain('permission')
     expect(idsOf(CONSOLE_PATCH)).not.toContain('agent-preset-registry')
+    expect(idsOf(CONSOLE_PATCH)).not.toContain('session-log-deepseek')
   })
 })
 
@@ -331,6 +333,20 @@ describe('the lock overlay\'s Agent-preset registry row', () => {
     // refused settings write leaves in effect.
     expect(registry?.config).toEqual({ default: 'console' })
     expect(idsOf(CONSOLE_PATCH)).toContain('preset-console')
+  })
+})
+
+describe('the lock overlay\'s Session-log row', () => {
+  const sessionLog = rowOf(LOCK_PATCH, 'session-log-deepseek')
+
+  it('patches the shipped row by id and by package name', () => {
+    expect(sessionLog).toMatchObject({ id: 'session-log-deepseek', name: '@deepseek-ai/dsh-session-log-deepseek' })
+  })
+
+  it('holds the upload off with `enabled: false` in the config it restates', () => {
+    // The row replaces the base bundle's config: without `enabled: false` here
+    // the plugin's own default, which is on, would apply.
+    expect(sessionLog?.config).toEqual({ enabled: false })
   })
 })
 

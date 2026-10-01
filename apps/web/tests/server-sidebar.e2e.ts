@@ -944,6 +944,13 @@ describe('web e2e: the product-console sidebar', () => {
     await scaffold.ctx.settings.update(SERVER_SIDEBAR_NAMESPACE, { workbenchSessionId: workbenchSessionId })
   })
 
+  it('refuses a settings write that would turn on Session-log upload', async () => {
+    // The page has no switch for it (`ui-settings-session-log` is disabled),
+    // and the lock holds `enabled: false` against the same RPC write.
+    await expect(scaffold.ctx.settings.update('session-log-deepseek', { enabled: true }))
+      .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+  })
+
   it('mounts the MCP capability with no server, and offers no settings form that could add one', async () => {
     // `servers` is ordinary Config of a bundle-layer row: the settings service
     // projects no form for it and refuses a write, so no admitted browser can

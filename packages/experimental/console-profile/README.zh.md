@@ -58,7 +58,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `preset-standard-as-console` | 插入：一个插件与 `console` 完全相同的 `standard` Agent 预设；会话按创建时记下的预设 id 恢复，控制台部署在 `console` 出现之前建的会话记的是 `standard` |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；每个会话运行的都是 `console` 的插件，id 为 `console` 或 `standard` |
 
-锁 overlay 重述两行。`permission` 行带三个面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。`agent-preset-registry` 行带 `default: console`、不带 `selectedDefault`，所以每个新会话都跑 `console` 预设。
+锁 overlay 重述三行。`permission` 行带三个面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。`agent-preset-registry` 行带 `default: console`、不带 `selectedDefault`，所以每个新会话都跑 `console` 预设。`session-log-deepseek` 行带 `enabled: false`，所以没有会话会把 Session log 上传到官方模型 API。
 
 -----
 
@@ -68,14 +68,14 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <details>
 <summary>实现细节——点击展开</summary>
 
-层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset` 与 `agent-preset-registry.selectedDefault` 同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以这两行必须位于 profile 补丁之上。存下的 `selectedDefault` 若指向控制台没有声明的预设，每个新会话都会以 `agent-preset/not-found` 失败。
+层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset`、`agent-preset-registry.selectedDefault` 与 `session-log-deepseek.enabled` 同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以这三行必须位于 profile 补丁之上。存下的 `selectedDefault` 若指向控制台没有声明的预设，每个新会话都会以 `agent-preset/not-found` 失败。
 
 禁用行只按 id 指向出厂条目。bundle 的插件行通过 bundle 自己的 `dependencies` 解析，这一点由 `scripts/verify-cordis-config.ts` 强制；禁用行不加载任何东西。
 
 | 文件 | 作用 |
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、MCP 能力、库技能、`console` Agent 预设，以及全部禁用行 |
-| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission` 行与 `agent-preset-registry` 行，叠在 profile 补丁之上应用 |
+| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission`、`agent-preset-registry` 与 `session-log-deepseek` 三行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
 | — | 不发布运行时 invariant 伴生插件；本包不拥有任何可变关系。组合由 Loader 与 profile 的补丁文件拥有。 |
 
@@ -106,7 +106,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，以及一个任何设置写入都能改的 `defaultPreset`。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
+- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，一个任何设置写入都能改的 `defaultPreset`，以及一次设置写入就能打开的 Session log 上传。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
 - **MCP 服务器列表是部署 Config，不是设置。** `console-mcp.servers` 和侧栏菜单一样位于 bundle 层，但它不是 `.volatile()` 字段：设置服务不为它投影表单，写入时以 `Plugin entry "console-mcp" has no volatile fields` 拒绝，所以部署放行的任何浏览器都加不了服务器。部署在自己的层里给这一行打 `config` 补丁来点名服务器，改过的列表在这一行重新加载时生效。桥接进来的 MCP 工具不声明审批闸门，所以在每个访问预设下都会直接运行，用的是这一行 `auth` 点名的凭据。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
