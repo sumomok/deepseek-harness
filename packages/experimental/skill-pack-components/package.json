@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-skill-pack-components",
   "description": "The adapter between the component catalog and the pack root: it publishes the components this deployment offers as the parts a skill pack requires, judges each pack view against the catalog that would draw it, and feeds every active pack's views to the content surface",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",

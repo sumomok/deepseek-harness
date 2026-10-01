@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-biz-backend",
   "description": "Two reads of a deployment's own data backend — one page of a resource model's rows, and one model's attribute names — performed with the access token of the person using the deployment",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",

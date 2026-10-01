@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-console-profile",
   "description": "Private bundle that composes the customer console over the Web profile: the service shell, the product sidebar, and the rows that keep internal vocabulary and developer surfaces off a customer page",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",

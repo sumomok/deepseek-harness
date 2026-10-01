@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-system-map",
   "description": "Three credentialed reads that let the agent find its way around a deployment's own business system — its subject areas, the data models each holds, and one model in full with what the signed-in person may do with it",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",

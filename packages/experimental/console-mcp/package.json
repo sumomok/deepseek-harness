@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-console-mcp",
   "description": "The console's MCP capability as one composition row: a deployment-owned list of Streamable HTTP servers reached under named credentials, idle while the list is empty",
-  "version": "0.1.7-rc.2",
+  "version": "0.2.0-rc.2",
   "private": true,
   "repository": {
     "type": "git",
