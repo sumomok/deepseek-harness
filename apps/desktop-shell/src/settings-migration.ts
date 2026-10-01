@@ -23,7 +23,8 @@
  *   `file-reference-local` row's excluded directories; everything else in it
  *   has no counterpart and is recorded, then dropped.
  * - The four plugin sections keep only the keys their plugin declares
- *   volatile, each with a value that plugin accepts.
+ *   volatile, each with a value that plugin accepts, except the keys
+ *   {@link DISCARDED_PLUGIN_KEYS} names, which are dropped with its reason.
  * - `llm-deepseek.baseURL` on `api.deepseek.com` is dropped: every such
  *   address served the chat-completions protocol, and this build's adapter
  *   speaks Messages at its own default. Any other host is kept, and the user is
@@ -150,11 +151,6 @@ export interface SettingsMigrationReport {
 /** A predicate over one value read from `settings.yaml`, mirroring how the plugin's schema would judge it. */
 export type SettingCheck = (value: unknown) => boolean
 
-/** Absent or null: the schema substitutes a default, or keeps the absence. */
-function isNullable(value: unknown): value is null | undefined {
-  return value === null || value === undefined
-}
-
 /** A plain mapping, as the schema library accepts one. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -178,75 +174,10 @@ function number(range: { min?: number; max?: number; step?: number } = {}): Sett
     && (step === undefined || (value - (min ?? 0)) % step === 0)
 }
 
-/** A value that may be absent: absent passes, or is judged as `fallback` when the schema substitutes one. */
-function optional(check: SettingCheck, fallback?: unknown): SettingCheck {
-  return value => (isNullable(value) ? fallback === undefined || check(fallback) : check(value))
-}
-
-/** A value that must be present. */
-function required(check: SettingCheck): SettingCheck {
-  return value => !isNullable(value) && check(value)
-}
-
-/** A list whose every member passes `member`, which judges absent members itself. */
-function list(member: SettingCheck): SettingCheck {
-  return value => Array.isArray(value) && value.every(member)
-}
-
-/** A mapping whose declared fields pass; undeclared fields are carried, as the schema carries them. */
-function fields(shape: Record<string, SettingCheck>): SettingCheck {
-  return value => isRecord(value) && Object.entries(shape).every(([key, check]) => check(value[key]))
-}
-
-/** A mapping whose every value passes `member`. */
-function dictionary(member: SettingCheck): SettingCheck {
-  return value => isRecord(value) && Object.values(value).every(member)
-}
-
-/** One price rate block (`@sumomok/dsh-balance` `rates`). */
-const rates = fields({
-  input: optional(number({ min: 0 })),
-  inputCacheHit: optional(number({ min: 0 })),
-  output: optional(number({ min: 0 })),
-  cacheWrite: optional(number({ min: 0 })),
-  reasoning: optional(number({ min: 0 })),
-})
-
-/** One time window of a price schedule. */
-const priceWindow = fields({
-  start: required(text),
-  end: required(text),
-  days: optional(list(optional(number({ min: 0, max: 6, step: 1 }))), []),
-})
-
-/** One price schedule. */
-const schedule = fields({
-  name: required(text),
-  windows: required(list(optional(priceWindow, {}))),
-  rates: optional(rates, {}),
-  multiplier: optional(number({ min: 0 })),
-})
-
-/** One model's price entry. */
-const priceEntry = fields({
-  model: required(text),
-  provider: optional(text),
-  per: optional(number({ min: 1 }), 1_000_000),
-  base: required(rates),
-  baseName: optional(text),
-  timezone: optional(text, 'UTC'),
-  schedules: optional(list(optional(schedule, {})), []),
-})
-
-/** The whole price table `@sumomok/dsh-balance` 0.6.0 takes in `prices`. */
-const priceTable = fields({
-  asOf: required(text),
-  tables: optional(dictionary(optional(fields({ entries: optional(list(optional(priceEntry, {})), []) }), {})), {}),
-})
-
 /**
  * The keys each plugin section may carry into the import, with the values the
- * plugin's own `Config` accepts for each: exactly the plugin's volatile fields.
+ * plugin's own `Config` accepts for each: exactly the plugin's volatile fields
+ * other than {@link DISCARDED_PLUGIN_KEYS}.
  * The shell cannot import the plugins, so this is a copy;
  * `tests/settings-migration-whitelist.spec.ts` holds it to the vendored
  * packages' schemas key for key and value for value.
@@ -269,7 +200,17 @@ export const PLUGIN_SECTION_KEYS: Readonly<Record<string, Readonly<Record<string
     lowBalance: number({ min: 0 }),
     criticalBalance: number({ min: 0 }),
     maskBalance: flag,
-    prices: priceTable,
+  },
+}
+
+/**
+ * Volatile plugin keys the migration drops rather than imports, each with the
+ * reason `settings-migration.json` records. `tests/settings-migration-whitelist.spec.ts`
+ * holds each to a key the vendored package still declares volatile.
+ */
+export const DISCARDED_PLUGIN_KEYS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  balance: {
+    prices: 'balance 0.7 prices from the plugin maintainer\'s read-only price feed and ignores a stored table, logging a warning on every load that finds one',
   },
 }
 
@@ -673,6 +614,11 @@ function stripPluginSections(document: Document, marker: SettingsMigrationMarker
       continue
     }
     for (const [key, value] of Object.entries(values)) {
+      const discarded = DISCARDED_PLUGIN_KEYS[section]?.[key]
+      if (discarded !== undefined) {
+        drop(document, marker, { section, key, value, reason: discarded })
+        continue
+      }
       const check = keys[key]
       if (check !== undefined && check(value)) continue
       if (section === 'llm-permission-gateway' && key === 'mode') marker.gatewayModeDropped = value
