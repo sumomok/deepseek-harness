@@ -1,5 +1,5 @@
 {
-  "extends": "../../../tsconfig.base.client.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
@@ -15,7 +15,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../component-surface"
+      "path": "../component-surface/tsconfig.host.json"
     },
     {
       "path": "../skill-pack"

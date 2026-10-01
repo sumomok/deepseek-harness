@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'
 import {
   SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
@@ -25,6 +25,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { QuotaNoticeInjected } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { PerformanceUsageRowInjected } from '../src/client/settings/PerformanceUsageRow.tsx'
+import type { BusyCompactionRowInjected } from '../src/client/settings/BusyCompactionRow.tsx'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
@@ -132,27 +133,59 @@ describe('Chat apply wiring', () => {
     expect(b.runtime.slots.entries('conversation.composer.dock').map(row => row.options.id))
       .toEqual(['stats'])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
-      .toEqual(['transcript-view', 'performance-usage', 'link-opening', 'composer-enter'])
+      .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'busy-compaction', 'performance-usage'])
     expect(b.runtime.slots.entries('conversation.approval.detail').map(row => row.options.key))
       .toEqual(['bash', 'pwsh'])
     await b.runtime.dispose()
   })
 
-  it('mirrors the Host transcript preference into its Settings row', async () => {
+  it.each([
+    { desktop: false, initial: 'detailed', choice: 'standard' },
+    { desktop: true, initial: 'standard', choice: 'detailed' },
+  ] as const)('mirrors the Host transcript preference into its Settings row (desktop: $desktop)', async ({ desktop, initial, choice }) => {
+    if (desktop) {
+      vi.stubGlobal('dshDesktop', {})
+      onTestFinished(() => { vi.unstubAllGlobals() })
+    }
     const b = await bench()
+    onTestFinished(() => b.runtime.dispose())
     const row = b.runtime.slots.entries('settings.general.item')
       .find(entry => entry.options.id === 'transcript-view')!
     const face = (row.inject as unknown as () => TranscriptViewRowInjected)()
 
-    expect(face.hooks.transcriptView.getSnapshot()).toBe('standard')
-    face.setTranscriptView('detailed')
-    expect(face.hooks.transcriptView.getSnapshot()).toBe('detailed')
-    expect(b.chatSettings.set).toHaveBeenCalledWith('transcriptView', 'detailed')
+    expect(face.hooks.transcriptView.getSnapshot()).toBe(initial)
+    face.setTranscriptView(choice)
+    expect(face.hooks.transcriptView.getSnapshot()).toBe(choice)
+    expect(b.chatSettings.set).toHaveBeenCalledWith('transcriptView', choice)
 
     b.chatSettings.publish({
-      status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed' }, revision: 1, writable: true,
+      status: 'ready', value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed', busyCompaction: 'turn-end' }, revision: 1, writable: true,
     })
     expect(face.hooks.transcriptView.getSnapshot()).toBe('compact')
+  })
+
+  it('mirrors the Host busy-state compaction timing into its Settings row next to busy Enter', async () => {
+    const b = await bench()
+    const row = b.runtime.slots.entries('settings.general.item')
+      .find(entry => entry.options.id === 'busy-compaction')!
+    expect(row.options.order).toBe(21)
+    const injected = row.inject?.() ?? {}
+    const face: BusyCompactionRowInjected = {
+      hooks: injected['hooks'] as BusyCompactionRowInjected['hooks'],
+      setBusyCompaction: injected['setBusyCompaction'] as BusyCompactionRowInjected['setBusyCompaction'],
+    }
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    face.setBusyCompaction('next-step')
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('next-step')
+    expect(b.chatSettings.set).toHaveBeenCalledWith('busyCompaction', 'next-step')
+    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'detailed', busyCompaction: 'turn-end' } })
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    b.chatSettings.publish({ value: undefined })
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('turn-end')
+    b.chatSettings.set.mockRejectedValueOnce(new Error('settings unavailable'))
+    face.setBusyCompaction('next-step')
+    await Promise.resolve()
+    expect(face.hooks.busyCompaction.getSnapshot()).toBe('next-step')
     await b.runtime.dispose()
   })
 
@@ -163,7 +196,7 @@ describe('Chat apply wiring', () => {
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('detailed')
     face.setPerformanceUsage('compact')
     expect(b.chatSettings.set).toHaveBeenCalledWith('performanceUsage', 'compact')
-    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact' } })
+    b.chatSettings.publish({ value: { linkOpening: 'sidebar', transcriptView: 'compact', performanceUsage: 'compact', busyCompaction: 'turn-end' } })
     expect(face.hooks.performanceUsage.getSnapshot()).toBe('compact')
     for (const entry of [
       b.runtime.slots.entries('conversation.composer.dock').find(entry => entry.options.id === 'stats')!,

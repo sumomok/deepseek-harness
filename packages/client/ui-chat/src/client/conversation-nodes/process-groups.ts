@@ -11,7 +11,8 @@ import { isVisibleChatNode } from '../contract/chat-visibility.ts'
 import { processActivity } from './process-activity.ts'
 
 const INDEPENDENT = new Set([
-  'user', 'steering', 'turn-trigger', 'model-retry', 'compaction-running', 'turn-error', 'turn-max-tokens', 'turn-tail',
+  'user', 'steering', 'turn-trigger', 'model-retry', 'compaction-running', 'manual-compaction',
+  'compaction-failure', 'turn-error', 'turn-max-tokens', 'turn-tail',
 ])
 type ProcessInput = ConversationGroupInput<ChatConversationViewNode>
 
@@ -53,6 +54,15 @@ function readNode(input: ProcessInput, key: NodeKey): ChatNode {
   const node = input.readNode(key) as ChatNode | undefined
   if (node === undefined) throw new Error(`Chat grouping input is missing Node ${key}`)
   return node
+}
+
+function questionReplyIds(input: ProcessInput, keys: readonly NodeKey[]): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const key of keys) {
+    const node: ChatConversationViewNode = readNode(input, key)
+    if (node.kind === 'question-reply') ids.add(node.id)
+  }
+  return ids
 }
 
 /** One group's members and cached summary, refreshed together when its content changes. */
@@ -145,17 +155,22 @@ class TurnGroups {
     }
     let previous: NodeKey | undefined
     let followed = false
-    for (const key of input.readTurn(this.turn)) {
+    const keys = input.readTurn(this.turn)
+    const replies = questionReplyIds(input, keys)
+    for (const key of keys) {
       const position = readPosition(input, key)
       if (previous !== undefined && position.previous !== previous) flush(true)
       previous = key
       followed = position.next !== undefined
       const node = readNode(input, key)
+      // Both Definitions retain the same message id; only its question presentation renders.
+      if (node.kind === 'turn-trigger' && replies.has(node.id)) continue
       if (INDEPENDENT.has(node.kind)) {
         flush(true)
         emit(key, { kind: 'node', key })
       } else if (node.kind === 'turn-process') {
-        emit(key, { kind: 'node', key })
+        // A coalesced opening reply can sort before the control that folds its group.
+        emit(pending[0]?.key ?? key, { kind: 'node', key })
       } else if (node.kind === 'assistant-step') {
         if (reasoning(node)) pending.push({ kind: 'node', key, groupPart: 'reasoning' })
         if (reply(node)) {
@@ -279,9 +294,14 @@ export class ProcessState {
   }
 
   private rootEntries(input: ProcessInput): RenderEntry[] {
+    const unscoped = input.order.filter(key => readPosition(input, key).turn === undefined)
+    const replies = questionReplyIds(input, unscoped)
     return input.order.flatMap<RenderEntry>((key) => {
       const turn = readPosition(input, key).turn
-      if (turn === undefined) return [{ kind: 'node', key }]
+      if (turn === undefined) {
+        const node = readNode(input, key)
+        return node.kind === 'turn-trigger' && replies.has(node.id) ? [] : [{ kind: 'node', key }]
+      }
       const groups = this.turns.get(turn)
       if (groups === undefined) throw new Error(`Chat grouping order is missing Turn ${turn}`)
       return groups.references(key)

@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-command-compact` 为聊天 UI 添加 `/compact` 命令：输入它，对话就会按需压缩（compaction）——即使尚未触发自动压力，较早历史也会被替换为一条摘要。该命令适用于任何压缩后端，且不消耗模型轮次；完成后你会看到压缩了多少历史项以及估算节省的 token 数。当 agent（智能体）正在执行轮次或压缩已在运行时，它会告诉你压缩暂不可用。运行期间你发送的提示词会保持排队，并在压缩结束后才开始。
+`dsh-command-compact` 为聊天 UI 添加 `/compact` 命令：输入它，对话就会按需压缩（compaction）——即使尚未触发自动压力，较早历史也会被替换为一条摘要。它适用于任何压缩后端，不消耗模型轮次，并报告压缩了多少历史项以及估算节省的 token 数。在 agent（智能体）执行轮次期间输入时，它等到轮次结束，或在时机设置如此要求时等到下一个 step 边界。运行期间你发送的提示词在压缩结束后才开始。
 
 ## 目录
 
@@ -34,6 +34,7 @@ kind: "package-reference"
 | `/compact` | 即使未达到自动压力，也压缩一段有效、平衡的较早范围，然后报告被替换的历史项数量与估算 token 数。 |
 | `/compact`，但没有可压缩历史 | `No compactable history yet.`——不会有任何改变。 |
 | `/compact <anything>` | `Usage: /compact (no arguments)`——该命令不接受参数。 |
+| 轮次运行中输入 `/compact` | 等待，并在挂载的 `ctx.manualCompactionTiming` 指定的边界压缩：`turn-end` 在轮次结束后、任何排队轮次的首个请求之前；`next-step` 在该轮次的下一个 step 边界，若之后没有 step 边界则在轮次结束后。没有该提供方时按下表拒绝。 |
 
 ### 你会看到什么
 
@@ -41,13 +42,13 @@ kind: "package-reference"
 
 | 情形 | 你看到的消息 |
 |---|---|
-| 压缩已在运行，或 agent 正在轮次中 | `Compaction is unavailable because this process has an active compaction, or the agent is not idle.` |
+| 压缩已在运行、已有另一个请求在等待，或 agent 正在轮次中且没有时机提供方 | `Compaction is unavailable because this process has an active compaction, or the agent is not idle.` |
 | 压缩过程中历史发生了变化 | `The history selected for compaction changed before it could be replaced. The attempt is recorded in the session log.` |
 | 无法产生有用的摘要 | `Compaction could not produce a useful summary. The attempt is recorded in the session log.` |
 | 压缩未干净地完成 | `Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.` |
 | 会话无法保存 | `Compaction finished, but the session could not be saved.` |
 
-取消命令会停止等待：后端完成必需的清理，命令以 `Compaction cancelled.` 结算，UI 停止等待。除这些预期情形外的失败会以错误形式呈现，而不会被静默转换。
+取消命令会停止等待：后端完成必需的清理，命令以 `Compaction cancelled.` 结算，UI 停止等待。等待运行中轮次的请求在 Stop 结束该轮次、发起它的 UI 请求关闭或本插件停止时，以同样方式结算。上面两张表里的固定文本从不依赖 cordis 的 `@deepseek-ai/dsh-command-compact/result-text` 叶模块导出，客户端可以据此识别并本地化它们。除这些预期情形外的失败会以错误形式呈现，而不会被静默转换。
 
 ### 组合命令
 
@@ -62,7 +63,7 @@ kind: "package-reference"
   name: '@deepseek-ai/dsh-command-compact'
 ```
 
-随附 `dsh` 基础配置把它挂载在默认后端旁，Web 客户端提供命令适配器。未组合命令适配器的自动化接口只保留自动压缩。
+随附 `dsh` 基础配置把它挂载在默认后端旁，Web 客户端提供命令适配器；Web 对话插件还依据「设置 → 通用 → 繁忙时的压缩行为」提供 `ctx.manualCompactionTiming`。未组合命令适配器的自动化接口只保留自动压缩。
 
 ### 对话会发生什么
 
@@ -82,19 +83,20 @@ kind: "package-reference"
 
 该命令建立在三项承诺之上：
 
-- **与后端无关的控制。** 处理器只依赖 `compactNow(agent, signal)`，因此可与任何 `CompactionEngine` 实现协作。调用该命令的 agent 就是操作的确切目标，发起分发的 UI 会通过 seam 转发取消信号。
+- **与后端无关的控制。** 处理器只依赖 `compactNow(agent, signal, commandId, whileBusy)`，因此可与任何 `CompactionEngine` 实现协作。调用该命令的 agent 就是操作的确切目标，发起分发的 UI 会通过 seam 转发取消信号，`whileBusy` 是可选提供方的实时回答，每个请求读取一次。
 - **命令生命周期不进入模型历史。** `command/run` 与 `command/done` 都是仅日志事件；`sourceEventSeq` 将成功结果与 `compaction/summary` 事件关联，不依赖文本或行相邻关系。
-- **资源销毁必须完全停稳。** 生命周期 effect 会先注销 `/compact`，再等待已开始处理器结算，因此已中止命令的闭合与 flush 工作会在根级资源释放完成前结算完毕。
+- **资源销毁必须完全停稳。** 生命周期 effect 会先注销 `/compact`，中止每个处理器转发的信号，再等待已开始处理器结算，因此仍在等待轮次的请求会结算，已中止命令的闭合与 flush 工作会在根级资源释放完成前结算完毕。
 
 ### 生命周期与关联
 
-每次完成的调用都会记录执行器所属的仅日志事件对 `command/run` / `command/done`；两者都不进入模型历史。成功时，`command/done.sourceEventSeq` 会指明该事务的 `compaction/summary` 事件，让呈现层无须解析结果文本或假定两行相邻，即可将命令生命周期归并到对应检查点中。busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，而早于最新 `session/end-seed` 的标记已陈旧，不会阻塞。插件会跟踪每个真实处理器 promise，并在排空已开始处理器之前注销 `/compact`，因此根级 teardown 不会越过已中止命令的闭合或 flush 边界。压缩运行期间提交的提示词仍会按 agent 的普通 FIFO 获得接纳，并且只在压缩的显式持久性检查点和接纳预留释放后启动；空闲注入的上下文可以位于 `compaction/start` 与 `compaction/end` 之间，并在检查点之后保持可见。
+每次完成的调用都会记录执行器所属的仅日志事件对 `command/run` / `command/done`；两者都不进入模型历史。成功时，`command/done.sourceEventSeq` 会指明该事务的 `compaction/summary` 事件，让呈现层无须解析结果文本或假定两行相邻，即可将命令生命周期归并到对应检查点中。busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，而早于最新 `session/end-seed` 的标记已陈旧，不会阻塞。插件会跟踪每个真实处理器 promise，并在中止并排空已开始处理器之前注销 `/compact`，因此根级 teardown 不会越过已中止命令的闭合或 flush 边界，等待轮次的请求也不会让排空一直挂起。压缩运行期间提交的提示词仍会按 agent 的普通 FIFO 获得接纳，并且只在压缩的显式持久性检查点和接纳预留释放后启动；空闲注入的上下文可以位于 `compaction/start` 与 `compaction/end` 之间，并在检查点之后保持可见。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`/compact` 注册、参数拒绝、错误码映射、生命周期排空 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`/compact` 注册、参数拒绝、忙时时机、错误码映射、生命周期排空 |
+| [`src/result-text.ts`](src/result-text.ts) | 不依赖 cordis 的固定结果文本，以 `./result-text` 导出 |
 | — | 不发布运行时不变式伴随条目；该命令适配器不拥有任何状态或事件流；压缩 seam 拥有平衡且具持久性的事务，命令注册表拥有注册与分发生命周期。 |
 
 </details>
@@ -121,7 +123,7 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-斜杠输入与直接结果绝不会进入模型请求。已获接纳的压缩会另外在独立的 `compaction/* { turn: null }` 标记对内，用后端的 user 角色检查点替换一段较早范围。
+斜杠输入与直接结果绝不会进入模型请求。已获接纳的压缩会另外在 `compaction/*` 标记对内，用后端的 user 角色检查点替换一段较早范围：轮次之间是独立的 `turn: null`，等待中的请求在 step 边界压缩时由运行中的轮次拥有。
 
 #### Token 影响
 
@@ -138,7 +140,7 @@ kind: "package-reference"
 
 这些限制说明该命令何时不合适；它们是当前包约束。
 
-- **仅限空闲状态**——当轮次或已获接纳的唤醒提示词拥有优先权时，`/compact` 会报告压缩暂不可用；命令本身不会排队。
+- **等待依赖时机提供方**——没有 `ctx.manualCompactionTiming` 时，轮次或已获接纳的唤醒提示词拥有优先权期间，`/compact` 会报告压缩暂不可用。有它时每个 agent 可以有一个请求等待；关闭发起它的 UI 请求（例如刷新页面）会取消它。
 - **不接受范围或策略参数**——无参数形式使各命令适配器的行为保持稳定。显式范围仍由编程接口 `compactRegion()` 处理。
 - **仅限命令适配器**——没有 `ctx.commands` 的接口无法调用该命令，只能依赖自动压力压缩。
 
@@ -150,7 +152,6 @@ kind: "package-reference"
 
 本开发备注是维护者的工作上下文，明确不具权威性；已交付行为以上文、包代码与所链接的 Agent Note 为准。
 
-- **命令排队，尚未决定**——轮次拥有优先权时提交的 `/compact` 会报告 `busy`；将请求排队而非拒绝仍是开放方向。
 - **范围与策略参数，尚未决定**——无参数形式的稳定性是有意的；增加参数需要在每个命令适配器间共享语法。
 
 </details>

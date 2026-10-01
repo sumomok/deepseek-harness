@@ -1,0 +1,28 @@
+- banner:
+  - navigation "Session hierarchy": Read notes.txt and summarize it.
+  - text: Standard mode
+  - button "More actions"
+  - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: {{long-prompt}}{{clock}}
+- button "Copy"
+- status: Completed
+- button "Completed in {{duration}}"
+- button "compact Compacted 2 history items (~{{tokens}} tokens)"
+- paragraph: notes.txt says event sourcing stores changes as events.
+- button "Copy"
+- button "Good response"
+- button "Bad response"
+- button "Branch into a new conversation"
+- text: {{clock}}
+- textbox "Message or run a task, / commands, @ files or sessions":
+  - paragraph
+- button "Add files or run commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
+- button "Send message" [disabled]
+- button "1 turns 2 steps · {{throughput}} tok/s"
+- button "6K tok · Cache hit 0%"
+- button "2% of context used": 2%

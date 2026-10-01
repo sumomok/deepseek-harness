@@ -36,7 +36,7 @@
       "path": "../biz-backend"
     },
     {
-      "path": "../component-surface"
+      "path": "../component-surface/tsconfig.client.json"
     },
     {
       "path": "../vue2-echarts-poc"

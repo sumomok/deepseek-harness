@@ -48,6 +48,8 @@ export interface CompactionPolicy {
 
 渲染器沿用 max-tokens 提示的形状——一行 `role="status"`、一个警告圆点、一条 locale 标题、一行详情——因为它就是这种东西：一条持久的、有位置的提示，说明一件用户没有要求过的事没有做成。原因是后端自己的文本，所以它是数据不是文案；它以 `text-overflow: ellipsis` 保持单行，完整字符串放在 `title` 上，让一条很长的收敛失败链仍然可达而不会把转录撑开。
 
+轮次内的失败落在该轮的过程内容中间，而 `compact` 与 `standard` 两档工作步骤展示在轮次运行时折叠过程组。因此 `process-groups.ts` 把 `compaction-failure` 列入独立根，与 `compaction-running`、`manual-compaction` 并列，组折叠时这一行照样可见。`contract/turn-process.ts` 还把它与 `manual-compaction` 并列，列入已完成轮次整轮折叠之外的类别，所以轮次收起成用时控件后这一行仍然可见。
+
 手动 `/compact` 的失败不会走到这张卡，也不应该走。`command-compact` 调用的是同一个标记对，因此标记对内的手动失败写下同样出错的 `compaction/end`——但每一条手动生命周期事件都带 `sourceCommandId`，而 `compactionDefinition.match` 一向排除它，把它交给 `commandDefinition` 与那张已经渲染 `command/done` 失败文本的命令卡。一次失败出两张卡比一张更糟。标记对之前的手动失败（`busy`：agent 不空闲，或已有活动压缩）根本不写事件，同样经命令结果抵达用户。
 
 取消的回合不能产生这张卡。`region.ts` 对任何抛出都以 `compaction/end{error}` 闭合标记对，因此摘要途中按下「停止」会把一次取消记成与失败一模一样，转录就会声称有东西坏了。结构化证据没能留下：摘要器把适配器的 `ABORTED` 失败抛成一个 `Error`，其 code 被 `errorChain` 丢弃；回合级信号也到不了这个 Definition——它的 Context 以 `compactionId` 为键，之后的 `turn/end{aborted}` 没有可匹配的 id，而 `turn-process` 与 `turn-tail` 都不把回合结束原因发布成 turn data。剩下的只有文本，而每一个随产品发布的取消来源都写出了这个词：`DeepSeek request aborted by caller`、`pi-ai request aborted by caller`、`pi-ai stream aborted`，以及裸信号原因的 `This operation was aborted`，或消息为空时的 `AbortError`。Definition 匹配链首段里的 `abort` 并不出卡。接受的代价是：措辞里恰好含该词的真实上游失败也不出卡；这是更安全的方向，且宿主仍会记日志。抛出的非 Error 渲染成 `[object Object]`、带敌意访问器的值渲染成 `<unrenderable value>`，两者都不是原因，因此出卡但只有 locale 文案、没有 `title`。两者都不按取消处理：`AgentCancelCause` 的渲染结果虽然相同，却到不了这条路径——出厂适配器会在传播之前把被中止的请求改写成 `… request aborted by caller`。

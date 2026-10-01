@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-native-command` runs host executables without a shell and opens Host filesystem paths through the desktop. The command runner captures utf8 output, propagates cancellation, and hides transient Windows consoles. The path opener supports default-application and text-editor intents, browser-renderable documents, WSL translation, and desktop availability checks. It is a library, not a plugin: no `ctx`, no state, no events.
+`dsh-native-command` runs host executables without a shell and opens Host filesystem paths through the desktop. The command runner captures utf8 output, propagates cancellation, and requires explicit Windows startup visibility. The path opener supports default-application and text-editor intents, browser-renderable documents, WSL translation, and desktop availability checks. It is a library, not a plugin: no `ctx`, no state, no events.
 
 ## Table of Contents
 
@@ -34,14 +34,14 @@ import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
 
 declare const script: string
 declare const signal: AbortSignal
-const { stdout, stderr } = await runNativeCommand('osascript', ['-e', script], signal)
+const { stdout, stderr } = await runNativeCommand('osascript', ['-e', script], signal, 'hidden')
 ```
 
-On exit 0 the call resolves with captured stdout and stderr. On any failure it rejects with the exit `code` and both captured streams attached, so a caller can tell a missing tool (`ENOENT`), a cancellation (`ABORT_ERR`), and a real command failure apart without re-running the command.
+On exit 0 the call resolves with captured stdout and stderr. On any failure it rejects with the exit `code` and both captured streams attached, so a caller can tell a missing tool (`ENOENT`), a cancellation (`ABORT_ERR`), and a real command failure apart without re-running the command. The required fourth argument, `window: 'hidden' | 'visible'`, controls Windows startup visibility and has no effect on other platforms. Background commands pass `'hidden'`; GUI launchers pass `'visible'`. The path opener selects `'visible'` for Explorer, including WSL handoffs and file selection, because hiding Explorer also hides its folder window.
 
 ### Injecting the command boundary
 
-The `NativeCommandRunner` type is the injectable command boundary for host integrations: pass the function (or a wrapper) where the integration needs a testable boundary, so tests can substitute a fake runner. The optional fourth argument, `NativeCommandOptions`, carries per-command process options: a call that omits it starts the command with a hidden Windows window, and `{ windowsHide: false }` shows it. The path opener passes `{ windowsHide: false }` only to Explorer, whose folder or selection window is the result of the call; every other command it runs stays hidden.
+The `NativeCommandRunner` type is the injectable command boundary for host integrations: pass the function (or a wrapper) where the integration needs a testable boundary, so tests can substitute a fake runner.
 
 ### Opening a Host path
 
@@ -72,7 +72,7 @@ The command runner is a thin wrapper over Node's `execFile`. The path opener sel
 
 ### What execFile gives the runner
 
-`execFile` spawns the executable directly with an argv array — no shell string, no shell interpretation of the arguments. The `signal` option terminates the child when the caller's abort fires; `windowsHide` takes the value from the call's options, true when the call passes none, which suppresses the transient console window on Windows. A hidden start also hides the first window of a GUI program, which is why Explorer is started visible. On a non-zero exit or spawn error, the callback attaches `code`, `stdout`, and `stderr` to the rejected error and keeps the original error as `cause`.
+`execFile` spawns the executable directly with an argv array — no shell string, no shell interpretation of the arguments. The `signal` option terminates the child when the caller's abort fires; the runner maps `window` to Node's `windowsHide` option. On a non-zero exit or spawn error, the callback attaches `code`, `stdout`, and `stderr` to the rejected error and keeps the original error as `cause`.
 
 </details>
 

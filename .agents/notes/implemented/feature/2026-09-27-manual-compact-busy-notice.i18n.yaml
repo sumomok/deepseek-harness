@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-27-manual-compact-busy-notice.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-27-manual-compact-busy-notice.md
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses:
+  en: ffe9af84a0e23eee
+  zh: 0d50ae80c144694d
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/problem:
+  en: f3b3874054d78d39
+  zh: 35a9b17c34387c12
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/decision:
+  en: 2de1640df883c030
+  zh: fe4e3920d6067839
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/alternatives-considered:
+  en: 4c6db1bb1267a02e
+  zh: 2e5b1c06ea80eeb3
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/consequences:
+  en: 5c7c79e888a83f4c
+  zh: 80c760988f40bbb5
+/agent-note-a-manual-compact-during-a-reply-waits-for-the-boundary-a-setting-chooses/testing:
+  en: 60c7a6d23f5c39b7
+  zh: eb1bbf9401c6c466

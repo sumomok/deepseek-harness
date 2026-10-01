@@ -1,0 +1,62 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "lib/tsconfig.host.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/client",
+    "src/css-modules.d.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../biz-backend"
+    },
+    {
+      "path": "../content-surface"
+    }
+  ]
+}

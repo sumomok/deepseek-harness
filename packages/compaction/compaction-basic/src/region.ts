@@ -61,6 +61,8 @@ interface CompactionTransactionOptions {
   readonly flush?: () => Promise<void>
   /** Manual command that initiated this transaction, when present. */
   readonly sourceCommandId?: CommandId
+  /** Whether failures are classified as {@link ManualCompactionError} for a manual caller. */
+  readonly manual: boolean
 }
 
 interface CompactionEntryState {
@@ -260,7 +262,7 @@ export async function compactSurfaceRegion(
 
   if (options.owner === null) signal?.throwIfAborted()
   if (failure !== undefined) {
-    if (options.owner === null) throwManualFailure(failure)
+    if (options.manual) throwManualFailure(failure)
     throw failure.error
   }
   if (flushFailure !== undefined) {

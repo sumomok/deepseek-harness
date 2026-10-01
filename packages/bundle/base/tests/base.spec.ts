@@ -67,6 +67,11 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
     })
+    // The OTel service row serves only the OTel reporters, which ship off.
+    expect(rows.find(row => row.id === 'otel')).toMatchObject({
+      name: '@deepseek-ai/dsh-otel',
+      disabled: true,
+    })
     // The third DeepSeek-bound path answers to the plugin's own schema field,
     // so this row carries `enabled: false`.
     expect(rows.find(row => row.id === 'session-log-deepseek')).toMatchObject({
@@ -132,8 +137,8 @@ describe('dsh-base bundle', () => {
     // The third DeepSeek-bound path ships on by its own schema default, so the
     // off-switch that reaches it is the row's `config`, resolved here through
     // that same schema.
-    expect(SessionLogConfig({}).enabled).toBe(true)
+    expect(SessionLogConfig({}).enabled.get()).toBe(true)
     const sessionLog = patchRows().find(row => row.id === 'session-log-deepseek')
-    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
+    expect(SessionLogConfig(sessionLog?.config).enabled.get()).toBe(false)
   })
 })

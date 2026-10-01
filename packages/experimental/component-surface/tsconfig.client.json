@@ -1,0 +1,76 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "types": [
+      "node"
+    ],
+    "tsBuildInfoFile": "lib/tsconfig.client.tsbuildinfo"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-chat/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-renderer"
+    },
+    {
+      "path": "../../client/ui-conversation/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../biz-backend"
+    },
+    {
+      "path": "../content-column"
+    },
+    {
+      "path": "../content-surface"
+    }
+  ]
+}

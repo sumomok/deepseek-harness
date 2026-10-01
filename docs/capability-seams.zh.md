@@ -115,11 +115,15 @@ flowchart LR
   pkg_api_account_controller["api-account-controller"]
   pkg_authorization["authorization"]
   svc_authorization["ctx.authorization<br/>Authorization flow registry"]
+  pkg_client_product_analytics["client-product-analytics"]
+  svc_productAnalytics["ctx.productAnalytics<br/>Desktop interaction collection"]
+  pkg_otel["otel"]
+  svc_otel["ctx.otel<br/>Shared OTel reporting channels"]
   pkg_host_product_telemetry_otel["host-product-telemetry-otel"]
+  pkg_session_telemetry_otel["session-telemetry-otel"]
   svc_productTelemetry["ctx.productTelemetry<br/>Product usage event sender"]
   pkg_session_telemetry["session-telemetry"]
   svc_sessionTelemetry["ctx.sessionTelemetry<br/>Session telemetry seam"]
-  pkg_session_telemetry_otel["session-telemetry-otel"]
   pkg_storage["storage"]
   svc_storage["ctx.storage<br/>Non-session storage hub"]
   pkg_storage_json["storage-json"]
@@ -166,6 +170,7 @@ flowchart LR
   svc_sessionProjectionCache["ctx.sessionProjectionCache<br/>Persisted projection cache"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
+  pkg_sandbox_windows_acl["sandbox-windows-acl"]
   pkg_skill_badge["skill-badge"]
   pkg_skill_filesystem["skill-filesystem"]
   pkg_skill_office["skill-office"]
@@ -230,6 +235,9 @@ flowchart LR
   pkg_fs_observation_policy["fs-observation-policy"]
   pkg_compaction["compaction"]
   svc_compaction["ctx.compaction<br/>Compaction seam"]
+  svc_manualCompactionTiming["ctx.manualCompactionTiming<br/>Busy-state manual compaction timing"]
+  pkg_client_ui_chat["client-ui-chat"]
+  pkg_command_compact["command-compact"]
   pkg_subagent["subagent"]
   svc_subagents["ctx.subagents<br/>Subagent provider and continuation service"]
   pkg_subagent_spawn_in_process["subagent-spawn-in-process"]
@@ -314,10 +322,13 @@ flowchart LR
   pkg_client_connection --> svc_connection
   pkg_client_file_upload --> svc_fileUploads
   pkg_client_modules --> svc_clientModules
+  pkg_client_product_analytics --> svc_productAnalytics
+  pkg_client_ui_chat --> svc_manualCompactionTiming
   pkg_client_ui_plugin_manager --> svc_pluginRegistryProbe
   pkg_command_feedback --> svc_sessionFeedback
   pkg_commands --> svc_commands
   pkg_compaction --> svc_compaction
+  pkg_compaction --> svc_manualCompactionTiming
   pkg_compaction_basic --> svc_compaction
   pkg_compaction_basic --> svc_compactionPolicy
   pkg_compaction_tool_result_pruner --> svc_toolResultPruner
@@ -370,6 +381,7 @@ flowchart LR
   pkg_mcp_resources --> svc_mcpResources
   pkg_message_feedback --> svc_messageFeedback
   pkg_office_to_pdf --> svc_officeToPdf
+  pkg_otel --> svc_otel
   pkg_permission_presets --> svc_permissionPresets
   pkg_plan_mode --> svc_planMode
   pkg_plugin_manager --> svc_pluginManager
@@ -381,6 +393,7 @@ flowchart LR
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
   pkg_sandbox_ssh --> svc_sandbox
+  pkg_sandbox_windows_acl --> svc_skills
   pkg_schedule --> svc_schedule
   pkg_session --> svc_sessions
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
@@ -504,8 +517,11 @@ flowchart LR
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
   svc_lsp --> pkg_tool_lsp
+  svc_manualCompactionTiming --> pkg_command_compact
   svc_mcpResources --> pkg_mcp_resources
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
+  svc_otel --> pkg_host_product_telemetry_otel
+  svc_otel --> pkg_session_telemetry_otel
   svc_pluginManager --> pkg_plugin_manager
   svc_pluginManager --> pkg_ui_settings_plugin_inventory
   svc_pluginRegistryProbe --> pkg_client_ui_plugin_manager
@@ -641,6 +657,8 @@ flowchart LR
 | `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`api-settings-controller`](../packages/api/settings-controller), [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | 配置携带对机密信息的引用；提供方拥有实际值。消费方按操作解析，因此轮换后的凭据会在紧接着的下一次请求中生效；settings controller 提供不含实际值的视图和只写存储。 |
 | `ctx.deepseekAccount` | `seam` | [`deepseek-account`](../packages/credentials/deepseek-account) | [`deepseek-account-platform`](../packages/credentials/deepseek-account-platform) | [`api-account-controller`](../packages/api/account-controller), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | Host 负责浏览器授权和本地凭证；UI 使用方只接收不含 token 的状态。 |
 | `ctx.authorization` | `seam` | [`authorization`](../packages/credentials/authorization) | - | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | flow 由知道如何取得某份凭据的插件注册，并以其写入的记录为键；seam 拥有这段对话与"每个键同时只跑一次尝试"的生命周期，而非协议本身。 |
+| `ctx.productAnalytics` | `service` | [`client-product-analytics`](../packages/client/product-analytics) | - | - | - | 根据 Host 动态采集策略接收指定桌面事件、补充可用登录身份并监听实时压缩。 |
+| `ctx.otel` | `service` | [`otel`](../packages/telemetry/otel) | - | [`host-product-telemetry-otel`](../packages/host/product-telemetry-otel), [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | - | 产品埋点和 Session 反馈适配器通过同一个注入服务创建独立上报通道。 |
 | `ctx.productTelemetry` | `service` | [`host-product-telemetry-otel`](../packages/host/product-telemetry-otel) | - | - | - | 通过 OTLP/HTTP 发送显式提交的分析事件；仅挂载插件不会采集信息。 |
 | `ctx.sessionTelemetry` | `seam` | [`session-telemetry`](../packages/session/session-telemetry) | [`session-telemetry-otel`](../packages/session/session-telemetry-otel) | - | - | 该 seam 捕获会话记录、进行脱敏并交给一个后端；没有其他组件消费该服务，其输出会离开当前进程。 |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | 各后端以不同名称并列注册；数据形态（领域优先）挂载到枢纽上，并将类型化操作转换为不透明的 KV 单元原语。 |
@@ -660,7 +678,7 @@ flowchart LR
 | `ctx.commands` | `core` | [`commands`](../packages/interaction/commands) | - | - | - | 插件注册直接面向人的命令，而不会把调用发送给模型。 |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session/session-projection) | - | [`api-session-controller`](../packages/api/session-controller), [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session/session-title) | - | 各领域注册由状态驱动的折叠单元；主动驱动过程维护每个会话的水位状态，Session controller 提供 baseline 并推送发生变化的值。 |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session/session-projection-cache) | - | [`api-session-controller`](../packages/api/session-controller), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference) | - | 按会话持久保存投影单元状态的检查点（节流检查点，以及轮次／结束／分离时的必选检查点），提供缓存投影视图，并加速 prepared Session 的投影恢复。 |
-| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office), `skill-pack` | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
+| `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl), [`skill-badge`](../packages/skill/skill-badge), [`skill-filesystem`](../packages/skill/skill-filesystem), [`skill-office`](../packages/skill/skill-office), `skill-pack` | [`tool-skill`](../packages/skill/tool-skill) | - | 合并提供方的 skill（技能）目录；tool-skill 渲染会话前缀目录，并加载完整的 skill 正文。 |
 | `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | 装着侧栏列出、`/show-content-view` 打开的那些视图，来源是这套部署自己的配置和任何注册了来源的包；每个视图都由一次 show_component 调用所走的同一道判定来判，而组件目录拒绝的那些被贡献视图会被丢掉并留下一行 error，而不是让控制台起不来。 |
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | 拥有一个技能包根目录：它拿每个技能包去对已注册的组件部件做判定，只把其中激活的那些贡献给 ctx.skills，并在它自己的路由上公布每个技能包的状态与未满足的要求。 |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | 声明技能包的要求拿什么来判——每个已注册部件的 id、拥有它的插件包名和版本——外加一条变更通知；没挂上 Provider 时部件表为空，于是每个点名了部件的技能包都被摁在未激活。 |
@@ -681,6 +699,7 @@ flowchart LR
 | `ctx.ptcRuntime` | `seam` | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node), [`experimental-ptc-runtime-python`](../packages/experimental/ptc-runtime-python) | [`tools`](../packages/core/tools), [`workflow-ptc`](../packages/workflow/workflow-ptc) | - | 使用 Host 提供的异步绑定运行程序；tools 负责 PTC 呈现，workflow-ptc 负责工作流编排。 |
 | `ctx.fs` | `seam` | [`fs`](../packages/fs/fs) | [`fs-local`](../packages/fs/fs-local), [`fs-sandbox`](../packages/fs/fs-sandbox), [`fs-ssh`](../packages/ssh/fs-ssh) | [`tool-fs`](../packages/fs/tool-fs) | [`fs-observation-policy`](../packages/fs/fs-observation-policy) | tool-fs 通过 ctx.fs 执行读取／写入／编辑；fs-sandbox 按共享沙箱模式限制变更；fs-observation-policy 通过 fs/* 事件门禁贡献基于观测状态的检查。 |
 | `ctx.compaction` | `seam` | [`compaction`](../packages/compaction/compaction) | [`compaction-basic`](../packages/compaction/compaction-basic) | [`compaction-basic`](../packages/compaction/compaction-basic) | - | 基础后端消费步骤后的压力事件和请求错误恢复事件；不存在面向模型的压缩工具。 |
+| `ctx.manualCompactionTiming` | `seam` | [`compaction`](../packages/compaction/compaction) | [`client-ui-chat`](../packages/client/ui-chat) | [`command-compact`](../packages/compaction/command-compact) | - | Web 对话插件依据用户设置回答：轮次运行期间发送的 /compact 等到下一个 step 边界还是等到轮次结束；没有提供方时请求以 busy 被拒绝。 |
 | `ctx.subagents` | `seam` | [`subagent`](../packages/subagent/subagent) | [`subagent-spawn-in-process`](../packages/subagent/subagent-spawn-in-process), [`subagent-fork-in-process`](../packages/subagent/subagent-fork-in-process), [`subagent-acp`](../packages/subagent/subagent-acp), [`subagent-codex`](../packages/subagent/subagent-codex), [`subagent-claude-code`](../packages/subagent/subagent-claude-code), [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-subagent-control`](../packages/subagent/tool-subagent-control), [`tool-ralph`](../packages/workflow/tool-ralph) | - | 提供方实现传输；该服务还负责可选的、基于 Activation 的延续编排，tool-subagent 选择一次性或可延续委派，tool-subagent-control 传递后续消息，而 tool-ralph 要求一条全新的结构化输出路由。 |
 | `ctx.speechToText` | `seam` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text) | [`experimental-speech-to-text-sensevoice`](../packages/experimental/speech-to-text-sensevoice) | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | - | 路由显式选择的识别器；浏览器使用带认证的 Remote，并在提交前将转写保留在草稿中。 |
 | `ctx.agentTeams` | `core` | [`experimental-agent-team`](../packages/experimental/agent-team) | - | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team) | - | 负责隐式 Root roster、持久 peer mailbox、共享任务 DAG 与 continuable child 生命周期；tool-agent-team 提供模型控制工具。 |
