@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-01-server-console-on-the-0-2-0-rc-2-base.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-01-server-console-on-the-0-2-0-rc-2-base.md
+/agent-note-the-product-console-line-on-the-0-2-0-rc-2-base-compiler-faces-rebased-persistence-records-the-session-log-switch:
+  en: f4904865552a10c4
+  zh: 1fc151c50d2b1e89
+/agent-note-the-product-console-line-on-the-0-2-0-rc-2-base-compiler-faces-rebased-persistence-records-the-session-log-switch/problem:
+  en: 1e6fb421fb3097e1
+  zh: 55aba1b978d31845
+/agent-note-the-product-console-line-on-the-0-2-0-rc-2-base-compiler-faces-rebased-persistence-records-the-session-log-switch/decision:
+  en: 17dd03e496e2add0
+  zh: d618c4cda7856b43
+/agent-note-the-product-console-line-on-the-0-2-0-rc-2-base-compiler-faces-rebased-persistence-records-the-session-log-switch/alternatives-considered:
+  en: f832d5ec3f6dc85f
+  zh: c421b26915a5fadb
+/agent-note-the-product-console-line-on-the-0-2-0-rc-2-base-compiler-faces-rebased-persistence-records-the-session-log-switch/consequences:
+  en: 4ead3bd6a7feea6a
+  zh: ed56d398a96e250a

@@ -51,11 +51,3 @@ Status: implemented
 右栏现在是 root scope，会话切换不再让它重挂；它的占用者自己绑定会话。旧基座上 `details` 装的是工具详情；`rightbar` 装的是 `ui-sidebar-right` 渲染的东西。
 
 旧基座上重述的 `recentWorkspace` 仍留在 `session-resolution.ts` 里；原因由 [alpha-5 那篇 Note](2026-09-03-server-console-on-the-alpha-5-base.zh.md) 负责。
-
-## The 0.2.0-rc.2 base
-
-**`component-surface` 分出 Host 与 Client 两个编译面。** 在 0.2.0-rc.2 上，浏览器侧 `ClientRemote` 的增补只存在于 Host 那遍 tsdown 生成的 `lib/typert.remote-client.d.ts` 里，而 `pnpm run typecheck` 先跑 Host `tsc -b`、后跑那一遍，所以 Host 聚合能够到的工程都不能编译读取生成的 `ctx.remote` 命名空间的 Client 代码。`tsconfig.host.json` → `skill-pack-components` → `component-surface`（单一 Client 配置）→ `ui-chat` 这条链正好够到这类代码，干净树上每处读取都报 `TS2339: Property '<namespace>' does not exist on type 'ClientRemote'`，例如 `ui-chat/src/client/apply.ts` 里的 `ctx.remote.session`。因此 `component-surface` 有一个 `tsconfig.host.json`（`src/client/` 以外的源文件，只引 Host 工程）、一个 `tsconfig.client.json`（整份 `src` 与 Client 引用）和一个只做引用的根 `tsconfig.json`，与上游 `inspector` 的布局相同。`skill-pack-components` 继承 Host 基础配置并引用 Host 叶子；`tsconfig.host.json` 引用 Host 叶子，Typert 的 Host 面才仍然登记 `ctx.componentCatalog` 与 `ctx.componentViews`；`tsconfig.client.json`、`tsconfig.vue2-tests.json` 与 `component-kit` 引用 Client 叶子。
-
-**本线的持久化确认记录接在上游记录之后。** 上游的 `2026-09-21-user-question-reply` 与本线的 `2026-09-26-console-content-events` 都从 V4 记录出发改动 `agent/inbox/spliced`、`developer/message`、`session/title-llm-request` 与 `user/message`，而历史校验拒绝同一前驱的两个后继。本线在这四个根上还有第二份记录 `2026-09-27-console-content-component-source`，接在 `2026-09-26-console-content-events` 之后；后继改不了前驱的 `previous`，上游记录随 `dsh-v0.2.0-rc.2` 发布，所以让步的是本线记录的机器声明。`2026-09-26-console-content-events` 以 `persistence-changes --update` 重算，把 `2026-09-21-user-question-reply` 写成四个根的前驱，并按当前树确认控制台的全部三种来源种类；`2026-09-27-console-content-component-source` 已不存在。这两份记录都已在 `origin/product/server-console` 上，而[记录规则](../../../../docs/persistence-changes/README.zh.md)要求保留已接受记录的机器声明与 schema 快照；本线已合并的记录算不算已接受、同步时能不能改写它们，尚未决定。
-
-**Session 日志上传开关被禁用，设置值被钉在关闭。** 0.2.0-rc.2 的 Web bundle 新增 `ui-settings-session-log`，即「设置 → 通用」里的一个开关，通过编辑 volatile 的 `session-log-deepseek.enabled` 把 Session 日志上传到官方模型 API。控制台 bundle 层把这一行与其他官方品牌界面一起禁用。锁 overlay 以 `enabled: false` 重述 `session-log-deepseek` 行，理由与它携带 `permission` 和 `agent-preset-registry` 相同：放在锁之下时，任何被放行的浏览器经 `remote.settings` 写一次，值就落进部署共用的 profile 补丁，让主机服务的每个会话都开始上传。
