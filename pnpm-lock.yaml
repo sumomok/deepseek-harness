@@ -16437,7 +16437,7 @@ packages:
         optional: true
 
   '@haoran/dsh-office-preview-notice@file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz':
-    resolution: {integrity: sha512-A6jAVeviGiZzM71xiCetQ66EOE6Qu07lxI51UyroOpk4RG/GvXiSh9weoMJaioOTMRa1nnSdVBA8XhXoFxlTvA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz}
+    resolution: {integrity: sha512-ewa9SXok6xm77yz1s6K4kL/NBvs/kGob6h4n6m3gtzoD8thboCXy7iyJiiJN472NNy94FYOh+uc8MqZaRWa9cQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.2.1.tgz}
     version: 0.2.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.3
