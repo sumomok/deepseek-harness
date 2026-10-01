@@ -583,7 +583,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
               continue
             }
             assertNotAborted(signal)
-            // A header conflict is a configuration error and fails the whole observation.
+            // Listed and stored headers that disagree fail the whole observation with
+            // SESSION_QUERY_SOURCE_CONFLICT; only a failed read or extraction is confined to its own log.
             assertSessionHeadersCompatible(entry.header, loaded.header)
             try {
               entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)

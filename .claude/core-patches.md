@@ -438,7 +438,7 @@
 - **退役条件**：上游让全文搜索在单份日志读失败时继续（判据 `git show <tag>:packages/session-query/session-query-sqlite/src/index.ts | grep -n -A6 "readColdSessionLog(persistence"`，读调用不再处在整次失败的 try 里即人工复核）；上游形式不同时退役本族，改用上游的做法。
 - **状态**：在役（`feature/core-patches`，基座 `dsh-v0.2.0-rc.2`）。核实依据：`dsh-v0.2.0-rc.2` 的 `_observeStable` 里 `readColdSessionLog` 的任何抛出都落进外层 catch，转成 `SESSION_QUERY_PERSISTENCE_FAILED` 让整次搜索失败。
 - **已知取舍**：后端整体坏掉而列举仍成功时（每份日志都读失败），搜索不再失败，只返回实时会话与上一轮已索引、修订未变的会话，同时每份日志各记一行警告；读失败的日志每次搜索都会被重读一次，代价随读不出的份数增长。
-- **复核修正（本轮复核）**：告警原先按修订去重；旧世代 JSONL 日志的修订带一个随库内任何写入变化的语料后缀，库里任何会话一有写入，每份被拒日志就再告警一次，改为按会话去重。`searchEvents` 原先把提取失败也包成 `SESSION_QUERY_PERSISTENCE_FAILED`，改为保留提取自身的代码。提取原先排在 header 兼容性检查之前，一份 header 冲突且 surface 非法的日志会被当作读不出而跳过，不像上游那样让整次搜索以 `SESSION_QUERY_SOURCE_CONFLICT` 失败；header 冲突是配置错误，改为先查 header、再在第二个 try 里提取。新增断言各经变异验证：提取不受 try 保护、不可读集合只增不减、删掉取消守卫、header 检查挪回提取之后，四种改动各自让对应断言失败，现实现上全部通过。Agent Note `v0-migration-legacy-shapes` 在 `implemented/` 下，按「改了什么」所述补句。
+- **复核修正（本轮复核）**：告警原先按修订去重；旧世代 JSONL 日志的修订带一个随库内任何写入变化的语料后缀，库里任何会话一有写入，每份被拒日志就再告警一次，改为按会话去重。`searchEvents` 原先把提取失败也包成 `SESSION_QUERY_PERSISTENCE_FAILED`，改为保留提取自身的代码。提取原先排在 header 兼容性检查之前，一份 header 冲突且 surface 非法的日志会被当作读不出而跳过，不像上游那样让整次搜索以 `SESSION_QUERY_SOURCE_CONFLICT` 失败；列出的 header 与存储的 header 不一致（同一会话源的两次观测对不上）应让整次观测失败，只有读取或提取失败才限于该份日志，因此改为先查 header、再在第二个 try 里提取。新增断言各经变异验证：提取不受 try 保护、不可读集合只增不减、删掉取消守卫、header 检查挪回提取之后，四种改动各自让对应断言失败，现实现上全部通过。Agent Note `v0-migration-legacy-shapes` 在 `implemented/` 下，按「改了什么」所述补句。
 - **路径**：`packages/session-query/session-query-sqlite/README.*` `packages/session-query/session-query-sqlite/src/index.ts` `packages/session-query/session-query-sqlite/tests/sqlite.spec.ts`
 
 ## settings-navigation-groups — 设置页导航两级化
