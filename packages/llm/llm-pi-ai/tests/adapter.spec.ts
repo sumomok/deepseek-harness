@@ -224,7 +224,7 @@ describe('PiAiAdapter provider routing', () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
     const tools = [{ name: 'submit_verdict', description: 'Submit the verdict', parameters: { type: 'object' } }]
-    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], tools, toolChoice: { type: 'any' } })
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [], tools, toolChoice: { type: 'any' } })
     expect(result.finish).toMatchObject({
       kind: 'error', failure: { code: 'UNSUPPORTED_OPTION', message: expect.stringContaining('GenerateOptions.toolChoice') as string },
     })
