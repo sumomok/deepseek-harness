@@ -354,9 +354,11 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-swapped-shortcut'))
     await openSettings(page, 'en')
     const dialog = page.getByRole('dialog', { name: 'Settings' })
-    await dialog.getByRole('button', { name: 'Queue' }).click()
+    // "Compaction while busy" offers a "Queue" choice too; scope to the busy-send row.
+    const busySend = dialog.getByText('Send behavior while busy', { exact: true }).locator('xpath=../..')
+    await busySend.getByRole('button', { name: 'Queue' }).click()
     await page.getByRole('menuitem', { name: 'Steer' }).click()
-    await dialog.getByRole('button', { name: 'Steer' }).waitFor({ timeout: 10_000 })
+    await busySend.getByRole('button', { name: 'Steer' }).waitFor({ timeout: 10_000 })
     await page.keyboard.press('Escape')
 
     const input = page.locator('[data-composer-input]').first()
