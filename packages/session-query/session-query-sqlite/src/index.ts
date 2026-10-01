@@ -26,6 +26,7 @@ import SessionQueryEngine, {
   readColdSessionLog,
 } from '@deepseek-ai/dsh-session-query'
 import type {
+  ColdSessionLog,
   Config as SessionQueryConfig,
   SessionEventSearchDocument,
   SessionEventSearchHit,
@@ -317,8 +318,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       assertNotAborted(signal)
       const unreadable = this._unreadable.get(normalized.sessionId)
       if (unreadable !== undefined) {
-        // Same taxonomy as the observation before a log could be skipped: a typed
-        // extraction failure keeps its own code, anything else is a persistence failure.
+        // A SessionQueryError from the read or extraction, such as SESSION_QUERY_INVALID_SURFACE,
+        // keeps its code as in `_observeStable`'s outer catch; any other failure is a persistence failure.
         if (unreadable.error instanceof SessionQueryError) throw unreadable.error
         throw new SessionQueryError(
           `session-search could not read session "${normalized.sessionId}": ${errorMessage(unreadable.error)}`,
@@ -571,10 +572,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
             // live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
             assertNotAborted(signal)
-            let observed: ObservedSession
+            let loaded: ColdSessionLog
             try {
-              const loaded = await readColdSessionLog(persistence, entry.header.id, signal)
-              observed = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
+              loaded = await readColdSessionLog(persistence, entry.header.id, signal)
             } catch (error: unknown) {
               // Cancellation keeps the abort mapping below; any other failure belongs to this one
               // log, which is left out of the index while the remaining sessions stay searchable.
@@ -583,8 +583,13 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
               continue
             }
             assertNotAborted(signal)
-            assertSessionHeadersCompatible(entry.header, observed.header)
-            entry.loaded = observed
+            // A header conflict is a configuration error and fails the whole observation.
+            assertSessionHeadersCompatible(entry.header, loaded.header)
+            try {
+              entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
+            } catch (error: unknown) {
+              entry.unreadable = { error }
+            }
           }
           assertNotAborted(signal)
           const afterSnapshots = await persistence.list(listOptions)

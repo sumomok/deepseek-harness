@@ -1214,6 +1214,39 @@ describe('SQLite reconciliation and source lifecycle', () => {
     warn.mockRestore()
   })
 
+  it('fails the whole search on a header conflict even when the same log has an invalid surface', async () => {
+    const readable = header('readable-conflict-peer')
+    const conflicted = header('conflicted-surface', 1)
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      {
+        meta: conflicted,
+        events: [{
+          type: 'user/message',
+          seq: SessionSeq(0),
+          time: 1,
+          data: createUserMessage({ content: [{ type: 'text', text: 'conflicted needle' }], source: { kind: 'user' } }),
+          surfaceOp: { op: 'replace', startSeq: SessionSeq(9), endSeq: SessionSeq(9) },
+        }],
+      },
+    ])
+    // The listed header disagrees with the stored one on an immutable field.
+    TestPersistence.listOverride = () => [
+      { header: readable, revision: SessionPersistenceRevision('conflict-peer:1') },
+      { header: header('conflicted-surface', 2), revision: SessionPersistenceRevision('conflicted:1') },
+    ]
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: conflicted.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('keeps cancellation when a cold read fails after its signal aborts', async () => {
     const durable = header('aborted-failing-read')
     TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
