@@ -125,6 +125,12 @@ win:
     - provider: generic
       url: https://lhr.ink/dsh-updates/win
       channel: latest
+# The NSIS 3.12 toolset bundle, whose makensis runs natively on every packaging
+# host. The builder's default legacy toolset (NSIS 3.0.4.1) ships only an
+# x86_64 macOS makensis, which an Apple-silicon host without Rosetta cannot
+# start ("Bad CPU type in executable").
+toolsets:
+  nsis: '1.2.1'
 # No per-file details pane: the builder's NSIS template extracts one app-64.7z
 # through a plugin, so the NSIS details list has no File entries to show —
 # progress is the byte-based bar only. Install speed comes from payload size.
