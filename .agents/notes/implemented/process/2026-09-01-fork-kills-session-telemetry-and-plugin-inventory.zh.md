@@ -10,9 +10,9 @@ Status: implemented
 
 ## 决定
 
-`packages/bundle/base/cordis.patch.yml` 里的两行,以及 `packages/bundle/sdk-minimal/cordis.patch.yml` 里的 `plugin-package-inventory-deepseek` 那一行,现在都带上了 `disabled: true`。一条被禁用的 Cordis 条目的 `apply()` 永远不会运行,所以这是一个结构性保证,而不是运行时判断:无论由哪个 bundle 构建出的哪个 profile,这两个插件都不会构造出 HTTP 客户端、OTel 导出器,或 Loader 注册表读取器。`session-telemetry-otel` 下的 `config` 块被保留而非删除,好让 `DSH_TELEMETRY_MODE`/`DSH_TELEMETRY_OTLP_URL` 继续说明上游这一行本来期望的字段,供未来某个想重新启用它的、消费这些 bundle 包的下游使用。
+`packages/bundle/base/cordis.patch.yml` 里的两行,以及 `packages/bundle/sdk-minimal/cordis.patch.yml` 里的 `plugin-package-inventory-deepseek` 那一行,现在都带上了 `disabled: true`。一条被禁用的 Cordis 条目的 `apply()` 永远不会运行,所以这是一个结构性保证,而不是运行时判断:无论由哪个 bundle 构建出的哪个 profile,这两个插件都不会构造出 HTTP 客户端、OTel 导出器,或 Loader 注册表读取器。`session-telemetry-otel` 下的 `config` 块被保留而非删除,好让 `DSH_TELEMETRY_MODE`/`DSH_TELEMETRY_OTLP_URL` 继续说明上游这一行本来期望的字段,供未来某个想重新启用它的、消费这些 bundle 包的下游使用。base 还挂载一行 `otel`,它只向 OTel 上报方提供 `ctx.otel`,自身不发送任何内容;由于它的两个消费方都出厂关闭,它同样带 `disabled: true`。
 
-第三行答的是另一个开关。`session-log-deepseek` 从自己的 schema 读 `enabled`,上游把该字段默认为 `true`,因此它在 `packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 里的两行都带 `config: { enabled: false }`。该插件的 `apply()` 按这个取值在注册 `dsh_session_log` 请求贡献之前就返回,而那条贡献是它贡献的全部,所以结果与另外两行一致;与 `disabled: true` 的唯一差别是模块仍被导入、`apply()` 仍运行一次且什么都不注册。选这个字段,是因为它就是该插件自己写明的开关。
+第三行答的是另一个开关。`session-log-deepseek` 从自己的 schema 读 `enabled`,上游把该字段默认为 `true`,因此它在 `packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 里的两行都带 `config: { enabled: false }`。该字段是 volatile 的,每次请求时读取:插件照常注册 `dsh_session_log` 请求贡献,字段取值为 false 时不向请求附加任何内容,所以结果与另外两行一致。选这个字段,是因为它就是该插件自己写明的开关,也因为这一行保持挂载,上游的「设置 → 通用 → 在使用官方模型 API 时上传 Session Log」开关才可用:开关显示出厂的 false,在那里保存的选择会写进位于本 bundle 层之上的 profile patch。
 
 `packages/bundle/base/tests/base.spec.ts` 与 `packages/bundle/sdk-minimal/tests/sdk-minimal.spec.ts`(两者本就通过 `entryListSchema` 解析 `cordis.patch.yml` 来检查其他行的 `disabled`/`config` 结构)各自断言本 bundle 里每一行的字面取值,并把 `session-log-deepseek` 行再经该插件自身的 schema 解析一遍,让断言钉住插件实际会读到的值,而不只是文件里的文本。
 

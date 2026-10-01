@@ -610,7 +610,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // names in the ambient environment). This fork ships the row off
     // (packages/bundle/base/cordis.patch.yml), so a scenario that pins a local
     // collector also has to turn it back on: those scenarios are about the
-    // row's own behavior, not about whether it is mounted by default.
+    // row's own behavior, not about whether it is mounted by default. The
+    // `otel` service row it injects ships off with it and comes back with it.
+    ...options.telemetryUrl === undefined ? [] : [{ id: 'otel', disabled: false }],
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {

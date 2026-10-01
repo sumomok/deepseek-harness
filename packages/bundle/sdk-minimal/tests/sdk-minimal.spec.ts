@@ -86,10 +86,10 @@ describe('dsh-sdk-minimal bundle', () => {
     // the only thing holding the DeepSeek session-log contribution shut. The
     // plugin's schema defaults `enabled` to true, so pin both the row's literal
     // config and the value that schema resolves it to.
-    expect(SessionLogConfig({}).enabled).toBe(true)
+    expect(SessionLogConfig({}).enabled.get()).toBe(true)
     const sessionLog = rows.find(row => row.id === 'session-log-deepseek')
     expect(sessionLog?.config).toEqual({ enabled: false })
-    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
+    expect(SessionLogConfig(sessionLog?.config).enabled.get()).toBe(false)
     expect(rows.find(row => row.id === 'terminal-bash')).toMatchObject({
       disabled: { __jsExpr: "process.platform === 'win32'" },
     })

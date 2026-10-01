@@ -40,11 +40,12 @@
     - id: session
       name: '@deepseek-ai/dsh-session'
 
-    # Held shut by the plugin's own schema field: `enabled: false` makes
-    # `apply()` return before registering the `dsh_session_log` request
-    # contribution, which is everything this plugin contributes. Against
-    # `disabled: true` the only difference is that the module still loads and
-    # `apply()` still runs, registering nothing.
+    # Held shut by the plugin's own volatile field: `enabled: false` is the
+    # shipped value of the Settings → General switch "Upload Session Log when
+    # using the official model API". The plugin stays mounted, so that switch
+    # is served; its `dsh_session_log` contribution adds nothing to a request
+    # while the field reads false. A choice saved from the switch is written
+    # into the profile patch and replaces this bundle-layer value.
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
       config:
@@ -194,8 +195,13 @@
         writeEveryEvents: 200
         writeIntervalMs: 5000
 
+    # Disabled: this fork product sends nothing to DeepSeek's OTel collector.
+    # The row only serves `ctx.otel`; both of its consumers, the
+    # session-telemetry-otel row below and the web bundle's desktop product
+    # telemetry row, ship off, and re-enabling either needs this row too.
     - id: otel
       name: '@deepseek-ai/dsh-otel'
+      disabled: true
 
     # OTel releases a Session-log prefix only after explicit user feedback,
     # regardless of model provider. Ordinary activity never triggers capture.
