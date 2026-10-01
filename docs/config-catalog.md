@@ -535,13 +535,13 @@ export interface Config {
 ## `@deepseek-ai/dsh-client-ui-chat`
 
 - `refs`: [`ManualCompactionWhileBusy`](subsystems/compaction.md) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/client/ui-chat/src/index.ts:21`](../packages/client/ui-chat/src/index.ts)
+- `source`: [`packages/client/ui-chat/src/index.ts:22`](../packages/client/ui-chat/src/index.ts)
 
 ```ts config-catalog
 /** Runtime preferences projected to the browser. */
 export interface Config {
   /** Completed turn transcript presentation. */
-  transcriptView: Volatile<TranscriptViewMode>
+  transcriptView: Volatile<ChatSettings['transcriptView']>
   /** Performance and usage detail level. */
   performanceUsage: Volatile<PerformanceUsageMode>
   /** Default destination for Chat HTTP(S) links. */
@@ -550,14 +550,26 @@ export interface Config {
   busyCompaction: Volatile<ManualCompactionWhileBusy>
 }
 
-/** Work-details presentation mode. */
-export type TranscriptViewMode = typeof TRANSCRIPT_VIEW_MODES[number]
+/** Durable Chat section shared by the Host schema and browser scope. */
+export interface ChatSettings {
+  /** Work-details preference; absence uses the client default, and legacy saved values remain accepted. */
+  transcriptView?: TranscriptViewMode | typeof LEGACY_TRANSCRIPT_VIEW_MODE | typeof LEGACY_EXPANDED_TRANSCRIPT_VIEW_MODE | null
+  /** Detail level for composer statistics and completed-Turn usage. */
+  performanceUsage: PerformanceUsageMode
+  /** Default destination for Chat HTTP(S) links. */
+  linkOpening: LinkOpening
+  /** When `/compact` runs if the agent is running a turn. */
+  busyCompaction: ManualCompactionWhileBusy
+}
 
 /** Performance and usage presentation. */
 export type PerformanceUsageMode = typeof PERFORMANCE_USAGE_MODES[number]
 
 /** Destinations for ordinary clicks on Chat HTTP(S) links. */
 export type LinkOpening = 'sidebar' | 'new-tab'
+
+/** Work-details presentation mode. */
+export type TranscriptViewMode = typeof TRANSCRIPT_VIEW_MODES[number]
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-chat -->
 

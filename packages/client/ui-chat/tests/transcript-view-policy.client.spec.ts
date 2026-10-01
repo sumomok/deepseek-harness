@@ -44,7 +44,7 @@ describe('TranscriptViewPolicy', () => {
     const host = stubConfigForm<ChatSettings>()
     const policy = new TranscriptViewPolicy(host.scope, 'standard')
 
-    host.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: mode, performanceUsage: 'detailed' }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { linkOpening: 'sidebar', transcriptView: mode, performanceUsage: 'detailed', busyCompaction: 'turn-end' }, revision: 1, writable: true })
     expect(policy.mode.getSnapshot()).toBe('detailed')
     expect(host.set).not.toHaveBeenCalled()
     policy.setMode('detailed')

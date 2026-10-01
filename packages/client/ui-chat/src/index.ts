@@ -1,7 +1,8 @@
 /** Host registration for browser Chat preferences and the busy-state `/compact` timing. */
 import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: the `ctx.manualCompactionTiming` Context merge this plugin provides.
-import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
+import type {} from '@deepseek-ai/dsh-compaction'
+import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction/types'
 
 import type { Volatile, Context } from '@deepseek-ai/cordis'
 import type { ChatSettings, LinkOpening, PerformanceUsageMode } from './chat-settings.ts'
