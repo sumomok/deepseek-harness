@@ -247,7 +247,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _closed = false
   private _closePromise: Promise<void> | undefined
   private readonly _optionalPersistenceFiber: Fiber
-  /** Stored sessions the last stable observation could not read; drives once-per-revision warnings. */
+  /** Stored sessions the last stable observation could not read; drives the once-per-failure warnings. */
   private _unreadable = new Map<SessionId, UnreadableSession>()
 
   constructor(ctx: Context, config: Config) {
@@ -317,6 +317,9 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       assertNotAborted(signal)
       const unreadable = this._unreadable.get(normalized.sessionId)
       if (unreadable !== undefined) {
+        // Same taxonomy as the observation before a log could be skipped: a typed
+        // extraction failure keeps its own code, anything else is a persistence failure.
+        if (unreadable.error instanceof SessionQueryError) throw unreadable.error
         throw new SessionQueryError(
           `session-search could not read session "${normalized.sessionId}": ${errorMessage(unreadable.error)}`,
           'SESSION_QUERY_PERSISTENCE_FAILED',
@@ -521,15 +524,19 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   }
 
   /**
-   * Replace the unreadable set with this observation's and warn once for each
-   * stored revision that was not already unreadable in the previous one.
+   * Replace the unreadable set with this observation's and warn for each session
+   * that was readable in the previous observation or now fails with a different
+   * message. A session that stays unreadable with the same error warns once, even
+   * when its revision changes: older-generation revisions carry a suffix that
+   * moves with any write to the store.
    * @param unreadable - persisted sessions whose cold read or extraction threw, by id.
    */
   private _recordUnreadable(unreadable: Map<SessionId, UnreadableSession>): void {
     const previous = this._unreadable
     this._unreadable = unreadable
     for (const [id, { revision, error }] of unreadable) {
-      if (previous.get(id)?.revision === revision) continue
+      const prior = previous.get(id)
+      if (prior !== undefined && errorMessage(prior.error) === errorMessage(error)) continue
       this.ctx.logger.warn(
         `session-search: left session "${id}" (revision ${revision}) out of the index; `
         + `its stored log could not be read: ${errorMessage(error)}`,

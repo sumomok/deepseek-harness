@@ -68,7 +68,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。某份存储日志读取或文档提取失败时，`searchSessions` 不失败：该会话不进入索引，此前由它较早修订建立的索引行被删除，每个修订记录一次指明会话与修订的警告，下一次搜索再读一次；以它为目标的 `searchEvents` 以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败，读取错误作为 `cause`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
+带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。某份存储日志读取或文档提取失败时，`searchSessions` 不失败：该会话不进入索引，此前由它较早修订建立的索引行被删除，持续不可读期间只记录一次指明会话与修订的警告（错误变化时再记录一次），下一次搜索再读一次；以它为目标的 `searchEvents` 以提取自身的 `SessionQueryError` 代码失败（例如 `SESSION_QUERY_INVALID_SURFACE`），否则以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败，读取或提取错误作为 `cause`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
 
 -----
 
