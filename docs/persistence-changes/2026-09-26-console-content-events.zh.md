@@ -27,8 +27,8 @@ id: 2026-09-26-console-content-events
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-16-session-format-v4"
-    after: "688bda1d52cd4e79ea57451c511621e4c7ac107615e75cfd76a3a5257c956bef"
+    previous: "2026-09-21-user-question-reply"
+    after: "94843f9d9fa8e11376be659407d5cf543a2dd707aaf4f15699e408ee6fc3fa4b"
     decision: same-version
   - root: "event:content-component/resolved"
     previous: null
@@ -55,28 +55,28 @@ changes:
     after: "a21aefcdb207a9f214b3a5e7ea13a96aa085fcc10b6555b9750679f5be02673c"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-16-session-format-v4"
-    after: "bdfe3bfb16b6e037153249a74f7adad41a3708e25cf1183257977ccc8ec79913"
+    previous: "2026-09-21-user-question-reply"
+    after: "6bd2e61a23f063b07cf0559b77267357890438a905e420620b198689ee7e8e4c"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-16-session-format-v4"
-    after: "039a5be0827030b0530e2c3c2f83f85f5c22f94d97a9a440da927f18c6f15d6e"
+    previous: "2026-09-21-user-question-reply"
+    after: "fa70c64552504733734b7d05d6708074cfaee19fce00bfc7bb6c50555a20680c"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-16-session-format-v4"
-    after: "ebc9df9b986ccc625872fb686fcbd0a4e66909ee0b4e3113d2bbe89e1f0fd48a"
+    previous: "2026-09-21-user-question-reply"
+    after: "703fa13cdf1e1acf2cd64be1aee29a2eb062367d41125e3f1d8182047e3ffc14"
     decision: same-version
 ```
 
 <a id="compatibility"></a>
 ## 兼容性
 
-六个事件是新的普通事件类型，三种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这三种来源种类及其元数据，不校验也不回放它们。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
+六个事件是新的普通事件类型，三种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式，排在本记录之前的用户提问回复来源也是如此。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这三种来源种类及其元数据，不校验也不回放它们。content-component 种类由 component-surface 的动作通知写入。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
 
 <a id="verification"></a>
 ## 验证
 
-pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface：72 个文件、1625 个测试通过。在 packages/session/session-persistence-jsonl 中放置的临时 spec 以会话格式 4 写入六个事件中的每一个，并读回了同一条记录。
+pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface：75 个文件、1738 个测试通过。pnpm run verify-persistence-changes 通过。
 
 <a id="dev-note"></a>
 ## 开发备注

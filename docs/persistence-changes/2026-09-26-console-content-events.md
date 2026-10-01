@@ -27,8 +27,8 @@ id: 2026-09-26-console-content-events
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-16-session-format-v4"
-    after: "688bda1d52cd4e79ea57451c511621e4c7ac107615e75cfd76a3a5257c956bef"
+    previous: "2026-09-21-user-question-reply"
+    after: "94843f9d9fa8e11376be659407d5cf543a2dd707aaf4f15699e408ee6fc3fa4b"
     decision: same-version
   - root: "event:content-component/resolved"
     previous: null
@@ -55,28 +55,28 @@ changes:
     after: "a21aefcdb207a9f214b3a5e7ea13a96aa085fcc10b6555b9750679f5be02673c"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-16-session-format-v4"
-    after: "bdfe3bfb16b6e037153249a74f7adad41a3708e25cf1183257977ccc8ec79913"
+    previous: "2026-09-21-user-question-reply"
+    after: "6bd2e61a23f063b07cf0559b77267357890438a905e420620b198689ee7e8e4c"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-16-session-format-v4"
-    after: "039a5be0827030b0530e2c3c2f83f85f5c22f94d97a9a440da927f18c6f15d6e"
+    previous: "2026-09-21-user-question-reply"
+    after: "fa70c64552504733734b7d05d6708074cfaee19fce00bfc7bb6c50555a20680c"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-16-session-format-v4"
-    after: "ebc9df9b986ccc625872fb686fcbd0a4e66909ee0b4e3113d2bbe89e1f0fd48a"
+    previous: "2026-09-21-user-question-reply"
+    after: "703fa13cdf1e1acf2cd64be1aee29a2eb062367d41125e3f1d8182047e3ffc14"
     decision: same-version
 ```
 
 <a id="compatibility"></a>
 ## Compatibility
 
-The six events are new ordinary event types and the three source kinds are qualified with @persistenceAttribution, so every existing record keeps its schema and replay. An older reader that does not know the six events refuses a log that carries them, because they are not marked ignorable; a reader without the producers preserves the three source kinds and their metadata without validating or replaying them. Logs written before the rc.2 base recorded these sources as kind plugin, which the V3 to V4 migration rewrites to plugin:content-surface and the like, and the console does not map those back.
+The six events are new ordinary event types and the three source kinds are qualified with @persistenceAttribution, so every existing record keeps its schema and replay, including the user-question reply source that precedes this record. An older reader that does not know the six events refuses a log that carries them, because they are not marked ignorable; a reader without the producers preserves the three source kinds and their metadata without validating or replaying them. component-surface's action notices write the content-component kind. Logs written before the rc.2 base recorded these sources as kind plugin, which the V3 to V4 migration rewrites to plugin:content-surface and the like, and the console does not map those back.
 
 <a id="verification"></a>
 ## Verification
 
-pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface: 72 files, 1625 tests passed. A temporary spec in packages/session/session-persistence-jsonl wrote each of the six events at session format 4 and read the same record back.
+pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface: 75 files, 1738 tests passed. pnpm run verify-persistence-changes passed.
 
 <a id="dev-note"></a>
 ## Dev Note
