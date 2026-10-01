@@ -32,13 +32,13 @@ Status: implemented
 
 **折叠状态与 显示更多 存在浏览器里，不进部署自己的文档。** 落在 `localStorage` 的 `dsh.server-sidebar.view.v1` 下，由那两个视图动作手写读写，而不是走 `defineStore` 的 `persist`：那套机制存取的是整份 state，会让一份过期的工作流列表在每次页面加载时盖掉这个 store 赖以初始化的、从服务端读回的文档。读与写各自被兜住——连 `typeof localStorage` 这道守卫也在 `try` 里面而不是在它前面，因为一个禁用站点数据的浏览器会在那个全局变量自己的 getter 上抛，守卫本身就是会失败的那条语句。没有 `localStorage`、彻底拒绝它、配额写满、或文本读不出来的浏览器，一律回落成全部展开，并且当时那次点击照常生效。这张表在这个 store 见到的两份文档上都按权威分组列表裁剪——加载时的那一份，以及每次保存后答复回来的那一份——因为一台只读不写的浏览器否则会把一个已删分组的折叠记录永远留着；折叠记录是这里唯一一件会随浏览器档案的寿命不断累积的东西。
 
-**invariant 伴生插件对已提交的文档重跑 `validateServerMenu`。** v2b 曾以「没有任何界面能产出违反这些约束的文档」为由，把分组约束从伴生插件里豁免掉。这一片正是那个界面，所以豁免随之撤销：伴生插件调用与路由 `validate` 钩子同一个函数，而不是重述它的规则。
+**这一行在加载时对已提交的菜单重跑 `validateServerMenu`。** v2b 曾以「没有任何界面能产出违反这些约束的文档」为由，把分组约束从对已提交文档的检查里豁免掉。这一片正是那个界面，所以豁免随之撤销：加载时的检查调用与路由写入路径同一个函数，而不是重述它的规则。
 
-### 本次改动逼出的两条构建事实
+### 两条构建事实
 
 **`TEMPORARY_GROUP_ID` 与 `MAX_GROUP_NAME_LENGTH` 迁到 `src/menu-constants.ts`——一个什么都不 import 的模块。** 浏览器半边把这两个都当值读：保留的分组 id 是临时段在自己折叠表里的键，长度上限则给命名输入框自己封顶，让一次注定被拒的写入根本不必跑到路由。折叠表是这个保留 id 唯一的实际用途：任何持久数据都不携带它，`validateServerMenu` 既拒绝占用它的存储分组，也拒绝归在它名下的工作流。而 `src/workflows.ts` 为了持久 schema 引入了 `@deepseek-ai/dsh-settings` 与 `@deepseek-ai/schemastery`，从客户端树对该模块做值导入会把这两个都拽进浏览器 bundle，客户端 bundle 纯度门禁会拒绝。`src/route.ts` 早就出于同样的理由收着本包的 HTTP 路径。
 
-**本包的两个 Node 入口改为各自独立成包。** 伴生插件一旦重跑 `validateServerMenu`，`lib/types/index.js` 与 `lib/types/invariant.js` 就都会走到 `src/workflows.ts`，原来的单次双入口构建会把它提升成一个哈希命名的共享 chunk，而本包精确的 `files` 列表发布不了它——publint 与 `verify-built-package-invariants` 都会拒绝那份产物。`tsdown.config.ts` 现在把 invariant 入口作为 companion 配置传入，`packages/core/agent` 出于同样的理由早已这么做；`clientLibraryConfig` 从 `packages/client/tsdown.client.ts` 导出，因此这次拆分没有重述任何依赖规则。
+**本包的 Node 半边只有一个入口。** `tsdown.config.ts` 只把 `lib/types/index.js` 交给 `clientBundle`，路由与加载时检查都会走到的 `src/workflows.ts` 因此打进 `lib/index.js`。若有第二个 Node 入口走到同一模块，tsdown 会把它提升成一个哈希命名的共享 chunk，而本包精确的 `files` 列表发布不了它，publint 与 `verify-built-package-invariants` 都会拒绝那份产物。本包为什么没有 invariant 伴生插件，由 [rc.2 基座那篇 Note](2026-09-26-server-console-on-the-rc-2-base.zh.md) 记录。
 
 ## Alternatives considered
 
@@ -52,7 +52,7 @@ Status: implemented
 
 **把折叠状态存进 server-menu 文档。** 否决。谁折了哪条车道是每浏览器的显示偏好，不是关于这个部署的事实；放进文档会让一个浏览器的视图状态变成所有其他浏览器都得读的一次写入，还会为一件清一次缓存就该忘掉的事去动持久格式。
 
-**让分组约束继续留在 invariant 伴生插件之外。** 连同它所依赖的前提一起否决。v2b 的理由是没有界面能产出违反这些约束的文档；这一片就是那个界面。
+**让分组约束继续留在对已提交菜单的检查之外。** 连同它所依赖的前提一起否决。v2b 的理由是没有界面能产出违反这些约束的文档；这一片就是那个界面。
 
 ## Consequences
 
@@ -64,4 +64,4 @@ Status: implemented
 
 ## Testing
 
-包内单测在 `src` 上逐文件 100%：车道变换与五条成员谓词对着数组测、两个组件对着渲染树测、路由的三键补丁（含一次只带 `groups`、且会让某个 `groupId` 变孤儿的补丁被整份拒收）、以及伴生插件对着五份被破坏的已提交文档。`apps/web/tests/server-sidebar.e2e.ts` 承担真实组合上的浏览器证据——新建分组、把一条工作流移进去、置顶、折叠后刷新、然后在 临时工作流 里找到一段未保存的对话并把它移出列表——它的禁词断言覆盖本包字典这次新增的每一条字符串。其中三步守的是代码本身证明不了的承诺：从一行自己的名字按钮按一次 Tab 落在 移动到… 上——键盘的可达范围就到这里，README 的 Known Limitations 有记——对 移出列表 的一次真实双击之后那一行还在原处，以及把屏幕上打开的那一行移出之后页面落在工作台、整页文字不匹配任何一条禁词。
+包内单测在 `src` 上逐文件 100%：车道变换与五条成员谓词对着数组测、两个组件对着渲染树测、路由的三键补丁（含一次只带 `groups`、且会让某个 `groupId` 变孤儿的补丁被整份拒收）、以及 `validateServerMenu` 对着它拒收的每一类被破坏的文档。`apps/web/tests/server-sidebar.e2e.ts` 承担真实组合上的浏览器证据——新建分组、把一条工作流移进去、置顶、折叠后刷新、然后在 临时工作流 里找到一段未保存的对话并把它移出列表——它的禁词断言覆盖本包字典这次新增的每一条字符串。其中三步守的是代码本身证明不了的承诺：从一行自己的名字按钮按一次 Tab 落在 移动到… 上——键盘的可达范围就到这里，README 的 Known Limitations 有记——对 移出列表 的一次真实双击之后那一行还在原处，以及把屏幕上打开的那一行移出之后页面落在工作台、整页文字不匹配任何一条禁词。
