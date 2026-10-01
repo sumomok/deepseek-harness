@@ -1,7 +1,7 @@
 /**
  * The installation directory, named to the server child for the permission
- * gateway plugin (`@haoran/dsh-llm-permission-gateway`), which reads it from
- * 0.6.0 on; the vendored 0.5.0 does not.
+ * gateway plugin (`@haoran/dsh-llm-permission-gateway`), whose vendored 0.5.3
+ * lists it in the review prompt among the app's own directories.
  *
  * The directory is the one an installer creates and an update replaces: on
  * macOS the `.app` bundle, two levels above `Contents/Resources`; on Windows
@@ -13,7 +13,7 @@
 import { posix, win32 } from 'node:path'
 import type { LauncherLocation } from './pnpm-launcher.ts'
 
-/** Environment variable naming the installation directory, set on the server child alone. The gateway reads it from 0.6.0 on. */
+/** Environment variable naming the installation directory, set on the server child alone. The vendored gateway 0.5.3 reads it. */
 export const INSTALL_DIR_ENV = 'DSH_DESKTOP_INSTALL_DIR'
 
 /**

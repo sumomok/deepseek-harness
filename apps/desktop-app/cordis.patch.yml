@@ -139,9 +139,8 @@
 # the layer below to exactly those two keys and this row to those two plus
 # `alwaysAsk`. `walledReview` and the three judge fields stay out of this row
 # on purpose: they are volatile fields the settings page writes, and a value
-# written here would become the form's base, so "use the installed setting"
-# would clear a field back to this row's value instead of to the schema
-# default.
+# written here would become the form's base, so clearing one of them would
+# return it to this row's value instead of to the schema default.
 #
 # This row stops reaching a machine once that machine writes the gate's row
 # itself. The first save from the gate's settings page or `/review`, and the
