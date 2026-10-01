@@ -68,7 +68,7 @@ kind: "package-reference"
 
 ### 失败与恢复
 
-带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
+带类型的 `SessionQueryError` 失败携带稳定代码：搜索配置为关闭时 `SESSION_QUERY_SEARCH_DISABLED`；索引无法打开或对账时 `SESSION_QUERY_INDEX_FAILED`；搜索目标不存在时 `SESSION_QUERY_SESSION_NOT_FOUND`；语料库在分页之间变化时 `SESSION_QUERY_STALE_CURSOR`——请重试完整的搜索调用；游标不属于该请求时 `SESSION_QUERY_INVALID_CURSOR`。某份存储日志读取或文档提取失败时，`searchSessions` 不失败：该会话不进入索引，此前由它较早修订建立的索引行被删除，每个修订记录一次指明会话与修订的警告，下一次搜索再读一次；以它为目标的 `searchEvents` 以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败，读取错误作为 `cause`。取消在同步 SQLite 调用之间被尊重；已在 JavaScript 线程上执行的语句无法被中断。
 
 -----
 
@@ -102,7 +102,7 @@ kind: "package-reference"
 
 ### 索引生命周期
 
-持久化 FTS 行存放在专用派生数据库中并跨重启保留；实时会话使用连接本地 TEMP 表，遮蔽同一会话的持久化基库，并在实时所有者脱离后再次显示基库。两类表都在数字 `seed_length` 中保留精确继承切点；重建的 header 只公开 `isSeeded`，而切点参与实时指纹与持久来源修订。每次搜索执行一次串行化观察：列出持久化快照、把逐会话修订与已索引行比较、只通过读取句柄读取新增或已更改日志（在内存中补齐被中断的末尾轮次，从不写回）、提取语义文档，并在运行查询前于一个事务中提交对账。重复查询与不变的重新打开不读取任何内容；切换存储或观察到新增、已更改、已删除或经外部修复的来源时，会在下次稳定观察时对账。来源或事务失败不提交任何内容，下一次搜索重试。
+持久化 FTS 行存放在专用派生数据库中并跨重启保留；实时会话使用连接本地 TEMP 表，遮蔽同一会话的持久化基库，并在实时所有者脱离后再次显示基库。两类表都在数字 `seed_length` 中保留精确继承切点；重建的 header 只公开 `isSeeded`，而切点参与实时指纹与持久来源修订。每次搜索执行一次串行化观察：列出持久化快照、把逐会话修订与已索引行比较、只通过读取句柄读取新增或已更改日志（在内存中补齐被中断的末尾轮次，从不写回）、提取语义文档，并在运行查询前于一个事务中提交对账。重复查询与不变的重新打开除此前读取失败的日志外不读取任何内容；切换存储或观察到新增、已更改、已删除或经外部修复的来源时，会在下次稳定观察时对账。持久化列举、来源冲突或事务失败不提交任何内容，下一次搜索重试；单份无法读取的存储日志则按「失败与恢复」所述留在索引之外。
 
 ### Schema 归属
 

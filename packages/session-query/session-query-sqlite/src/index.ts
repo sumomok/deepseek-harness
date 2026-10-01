@@ -142,6 +142,14 @@ interface ObservedPersistedSession {
   header: SessionHeader
   revision: SessionPersistenceRevision
   loaded?: ObservedSession
+  /** Set when this revision's cold read or document extraction threw; the session stays out of the index. */
+  unreadable?: { readonly error: unknown }
+}
+
+/** A stored revision whose cold read or document extraction threw, with the thrown value. */
+interface UnreadableSession {
+  readonly revision: SessionPersistenceRevision
+  readonly error: unknown
 }
 
 interface PersistenceBinding {
@@ -239,6 +247,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   private _closed = false
   private _closePromise: Promise<void> | undefined
   private readonly _optionalPersistenceFiber: Fiber
+  /** Stored sessions the last stable observation could not read; drives once-per-revision warnings. */
+  private _unreadable = new Map<SessionId, UnreadableSession>()
 
   constructor(ctx: Context, config: Config) {
     // The assignment expression resolves before the base constructor can
@@ -305,6 +315,14 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       await this._ensureReady(signal)
       const persistenceBinding = await this._reconcile(signal)
       assertNotAborted(signal)
+      const unreadable = this._unreadable.get(normalized.sessionId)
+      if (unreadable !== undefined) {
+        throw new SessionQueryError(
+          `session-search could not read session "${normalized.sessionId}": ${errorMessage(unreadable.error)}`,
+          'SESSION_QUERY_PERSISTENCE_FAILED',
+          { cause: unreadable.error },
+        )
+      }
       const target = this._targetObservation(normalized.sessionId, persistenceBinding)
       const fingerprint = requestFingerprint(normalized)
       const offset = normalized.cursor === undefined
@@ -421,9 +439,17 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     const persistentChanges = observation.persistenceBinding.service === undefined
       ? []
       : [...observation.persisted.values()].filter(entry => entry.loaded !== undefined)
+    const unreadable = new Map<SessionId, UnreadableSession>()
+    for (const entry of observation.persisted.values()) {
+      if (entry.unreadable !== undefined) {
+        unreadable.set(entry.header.id, { revision: entry.revision, error: entry.unreadable.error })
+      }
+    }
+    // A row indexed from an earlier revision of an unreadable log is removed, so hits only
+    // come from revisions this index could read.
     const persistentDeletes = observation.persistenceBinding.service === undefined
       ? []
-      : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
+      : persistedRows.filter(row => unreadable.has(row.id as SessionId) || !observation.persisted.has(row.id as SessionId))
     const liveChanges = [...observation.live.values()].filter((entry) => {
       const indexed = liveById.get(entry.header.id)
       const persisted = observation.persisted.has(entry.header.id) ? 1 : 0
@@ -490,7 +516,25 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     if (pointerChanged) this._persistenceEpoch += 1
     this._localGeneration = nextLocalGeneration
     this._lastPersistenceIdentity = observation.persistenceBinding.identity
+    this._recordUnreadable(unreadable)
     return observation.persistenceBinding
+  }
+
+  /**
+   * Replace the unreadable set with this observation's and warn once for each
+   * stored revision that was not already unreadable in the previous one.
+   * @param unreadable - persisted sessions whose cold read or extraction threw, by id.
+   */
+  private _recordUnreadable(unreadable: Map<SessionId, UnreadableSession>): void {
+    const previous = this._unreadable
+    this._unreadable = unreadable
+    for (const [id, { revision, error }] of unreadable) {
+      if (previous.get(id)?.revision === revision) continue
+      this.ctx.logger.warn(
+        `session-search: left session "${id}" (revision ${revision}) out of the index; `
+        + `its stored log could not be read: ${errorMessage(error)}`,
+      )
+    }
   }
 
   private async _observeStable(
@@ -520,10 +564,20 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
             // live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
             assertNotAborted(signal)
-            const loaded = await readColdSessionLog(persistence, entry.header.id, signal)
+            let observed: ObservedSession
+            try {
+              const loaded = await readColdSessionLog(persistence, entry.header.id, signal)
+              observed = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
+            } catch (error: unknown) {
+              // Cancellation keeps the abort mapping below; any other failure belongs to this one
+              // log, which is left out of the index while the remaining sessions stay searchable.
+              if (signal?.aborted) throw error
+              entry.unreadable = { error }
+              continue
+            }
             assertNotAborted(signal)
-            assertSessionHeadersCompatible(entry.header, loaded.header)
-            entry.loaded = observeSession(loaded.header, loaded.inheritedEventCount, loaded.events)
+            assertSessionHeadersCompatible(entry.header, observed.header)
+            entry.loaded = observed
           }
           assertNotAborted(signal)
           const afterSnapshots = await persistence.list(listOptions)

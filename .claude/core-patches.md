@@ -426,6 +426,16 @@
 - **`dsh-v0.1.7-rc.2` 那一轮适配**：无改动，自动合并。上游 #4311、#4635 给历史 revision 加的后缀，在本轮 3→4 升级中会重读同一批会话，与本补丁部分重叠；是否退役留到下一轮（§9 Q16）。
 - **路径**：`packages/session-query/session-query-sqlite/README.*` `packages/session-query/session-query-sqlite/src/index.ts` `packages/session-query/session-query-sqlite/src/schema.ts` `packages/session-query/session-query-sqlite/tests/sqlite.spec.ts`
 
+## session-query-skip-unreadable-session — 全文搜索跳过读不出的会话日志
+
+- **改了什么**：`packages/session-query/session-query-sqlite/src/index.ts` 的 `_observeStable` 把逐会话的冷读（`readColdSessionLog`）与文档提取（`observeSession`）包进逐条 try：非取消的失败记在该条观测上，跳过该会话，其余会话照常读；取消仍走原来的 `SESSION_QUERY_ABORTED` 映射。`_reconcile` 把读不出的会话此前修订留下的索引行一并删掉，提交后用本次读不出的集合替换 `_unreadable`，对不在上一次集合里、或修订已变的条目经 `ctx.logger.warn` 记一行（会话 id、修订、错误信息），同一修订只记一次。`searchEvents` 的目标若在该集合里，以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败并把原错误挂在 `cause` 上。持久化列举失败、来源 header 冲突、事务失败仍让整次搜索失败。`tests/sqlite.spec.ts` 给测试持久化加按会话的读失败表与两例；README 双语的「Failures and recovery」与「Index lifecycle」改述。
+- **为什么**：上游任何一份存储日志读失败（文件损坏、校验或迁移拒读），`searchSessions` 都整次抛 `SESSION_QUERY_PERSISTENCE_FAILED`，`session-controller` 的会话搜索把错误原样抛给客户端，Web 侧栏的远端搜索进入 `error` 状态、结果只剩本地标题匹配。rc.31 时本机 128 份旧日志里一份损坏的日志就让所有会话的正文搜索失效。
+- **要达到的效果**：一份读不出的日志只让它自己搜不到，其余会话的正文搜索照常；日志里留下是哪一份、哪个修订、什么错误；每次搜索都重读一次，日志修好或被改写后下一次搜索自动收回；对这一份做会话内搜索时仍报出原错误，不伪装成「会话不存在」。
+- **退役条件**：上游让全文搜索在单份日志读失败时继续（判据 `git show <tag>:packages/session-query/session-query-sqlite/src/index.ts | grep -n -A6 "readColdSessionLog(persistence"`，读调用不再处在整次失败的 try 里即人工复核）；上游形式不同时退役本族，改用上游的做法。
+- **状态**：在役（`feature/core-patches`，基座 `dsh-v0.2.0-rc.2`）。核实依据：`dsh-v0.2.0-rc.2` 的 `_observeStable` 里 `readColdSessionLog` 的任何抛出都落进外层 catch，转成 `SESSION_QUERY_PERSISTENCE_FAILED` 让整次搜索失败。
+- **已知取舍**：后端整体坏掉而列举仍成功时（每份日志都读失败），搜索不再失败，只返回实时会话与上一轮已索引、修订未变的会话，同时每份日志各记一行警告；读失败的日志每次搜索都会被重读一次，代价随读不出的份数增长。
+- **路径**：`packages/session-query/session-query-sqlite/README.*` `packages/session-query/session-query-sqlite/src/index.ts` `packages/session-query/session-query-sqlite/tests/sqlite.spec.ts`
+
 ## settings-navigation-groups — 设置页导航两级化
 
 - **改了什么**：`ui-settings-general` 新增 `nav-groups.ts`（分组键闭合联合 `SettingsNavGroupKey`、固定分组表与兜底「其他」组、纯投影 `groupNavRows(rows)`）。`SettingsRoot.tsx` 用按组键取图标的 `GROUP_ICONS` 取代按分区 id 取图标的 `navIcon()`，导航栏改为「组（`role="group"` + `aria-labelledby` 指向不可点击的组标题）+ 组内成员行」两级，成员行不画图标；`SettingsRoot.module.css` 让导航可滚并加两级版式；`locales.ts` 中英各加 7 条 `nav.group.*`；`index.ts` 的分区投影改用 `entriesOfSlot(...)`，同 id 的遮蔽条目只出一行。成员行与组标题重名时改成员行文案：`general.nav` 英文 `General settings`，`ui-settings-models` 的 `nav` 英文 `Providers & models`、中文「提供方与模型」；随之改两包的 README 入口句、`docs/user/guide/{index,providers}` 的导航指引、两包 `apply.client.spec.ts` 的文案断言，以及 `apps/web/tests/` 下六个 e2e 的导航定位器。
