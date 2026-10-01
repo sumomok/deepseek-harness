@@ -39,7 +39,13 @@ import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
-import { PNPM_LAUNCHER_ENV, pnpmLauncherEnv } from './pnpm-launcher.ts'
+import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
+import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionToKeep } from './office-engine.ts'
+import {
+  confirmDialogOptions, DECLINE_COOLDOWN_MS, ENDPOINT_ENV as OFFICE_ENGINE_ENDPOINT_ENV, INSTALL_TIMEOUT_MS, OfficeEngineManager,
+  startOfficeEngineService,
+  TOKEN_ENV as OFFICE_ENGINE_TOKEN_ENV, type EngineConfirmRequest, type OfficeEngineServiceHandle,
+} from './office-engine-service.ts'
 import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
@@ -75,9 +81,9 @@ pinAppIdentity(app)
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded
- * from. The environment additions are not part of it: they carry the render
- * and update services' addresses, which do not exist yet when the paths are
- * resolved.
+ * from. The environment additions are not part of it: they carry the render,
+ * update, and Office engine services' addresses, which do not exist yet when
+ * the paths are resolved.
  */
 interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
@@ -119,6 +125,7 @@ function resolveSpec(logDir: string): LaunchSpec {
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
+let officeEngineService: OfficeEngineServiceHandle | undefined
 let quitting = false
 /**
  * The desktop log sink. Until the log file is known there is nowhere durable
@@ -484,6 +491,75 @@ async function startUpdateForServer(host: UpdateHost, log: (chunk: string) => vo
 }
 
 /**
+ * Put the Office engine download question on screen.
+ *
+ * A native modal rather than anything the web UI draws: the page asking for a
+ * download is one a plugin paints, and this window is the one it cannot paint
+ * over or answer for. It is parented to the main window when there is one, so
+ * it is modal to the app rather than a dialog the person can lose behind it.
+ * @param request - what the engine service wants asked.
+ * @returns true when the person chose the download button.
+ */
+async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boolean> {
+  const options = confirmDialogOptions(request)
+  const window = mainWindow()
+  const answer = window === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(window, options)
+  return answer.response === 0
+}
+
+/**
+ * Prepare the Office engine for this launch and return what the server child
+ * needs to use and install it.
+ *
+ * The engine lives under the data directory, one directory per version; every
+ * version but the one the kit declares ([[versionToKeep]]) and every staging
+ * directory an interrupted download left is removed here, also on a launch
+ * that offers no engine, before any converter can hold one open. `NODE_PATH` names the
+ * current version's directory whether or not it is installed yet, so an
+ * engine downloaded while the server runs is found by the next conversion.
+ * Failing to open the loopback listener is not a reason to refuse the launch:
+ * the server still finds an engine installed earlier, and only the download is
+ * out of reach until the next launch.
+ * @param spec - this launch's paths, for the shipped kit and the bundled Node.
+ * @param log - the server log sink; never receives the token.
+ * @returns the environment additions for the server process; empty when this host has no engine to offer.
+ */
+async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
+  const requirement = readEngineRequirement(spec.builtinModules, process.platform, process.arch)
+  const root = officeEngineRoot(resolveHarnessHome())
+  const pruned = pruneEngineRoot(root, versionToKeep(requirement))
+  for (const name of pruned.removed) log(`[desktop] office engine: removed ${name} from ${root}\n`)
+  for (const line of pruned.failed) log(`[desktop] office engine: could not remove ${line}\n`)
+  if (!requirement.ok) log(`[desktop] office engine: none offered (${requirement.reason})\n`)
+  const manager = new OfficeEngineManager({
+    requirement,
+    root,
+    pnpm: pnpmInvocation({
+      packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, nodeBin: spec.nodeBin,
+    }),
+    confirm: confirmOfficeEngine,
+    log,
+    installTimeoutMs: INSTALL_TIMEOUT_MS,
+    declineCooldownMs: DECLINE_COOLDOWN_MS,
+  })
+  const engineEnv = requirement.ok ? engineServerEnv(root, requirement.requirement, process.env.NODE_PATH) : {}
+  if (requirement.ok) log(`[desktop] office engine: ${requirement.requirement.name}@${requirement.requirement.version} under ${root} (${manager.snapshot().phase})\n`)
+  let started: OfficeEngineServiceHandle
+  try {
+    started = await startOfficeEngineService(manager)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] office engine service unavailable (${message}); the preview engine cannot be downloaded this launch\n`)
+    return engineEnv
+  }
+  officeEngineService = started
+  log(`[desktop] office engine service on ${started.endpoint}\n`)
+  return { ...engineEnv, [OFFICE_ENGINE_ENDPOINT_ENV]: started.endpoint, [OFFICE_ENGINE_TOKEN_ENV]: started.token }
+}
+
+/**
  * Windows groups taskbar buttons, jump lists, and — the reason it is set here —
  * **toast notifications** by an Application User Model ID. A process without
  * one gets whatever the shortcut that launched it carried, and a launch that
@@ -720,6 +796,7 @@ if (!locked) {
     // this quit must not wait on a render that is still running.
     void renderService?.close()
     void updateService?.close()
+    void officeEngineService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -836,6 +913,7 @@ if (!locked) {
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
       const updateEnv = await startUpdateForServer(host, sink)
+      const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
       const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
       const pnpmEnv = pnpmLauncherEnv(location)
       const installEnv = installDirEnv(location)
@@ -856,7 +934,11 @@ if (!locked) {
       const port = await choosePort(readState().serverPort, isPortFree)
       sink(port.line)
       const started = await startOnPort(
-        { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, [SERVER_LOG_ENV]: logFile }, port: port.port },
+        {
+          ...spec,
+          env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile },
+          port: port.port,
+        },
         startEmbeddedServer, sink,
       )
       server = started.server

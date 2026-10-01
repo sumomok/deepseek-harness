@@ -4,9 +4,9 @@
  * cap, and how one answer is written.
  *
  * The shell lends the embedded server capabilities it cannot have on its own —
- * a Chromium to render with, a package manager to update plugins with — and it
- * lends each of them over its own HTTP listener rather than over one shared
- * surface. Each service mints its own token, so admission to one is never
+ * a Chromium to render with, the application's own update channel, a package
+ * manager to install the Office engine with — and it lends each of them over
+ * its own HTTP listener rather than over one shared surface. Each service mints its own token, so admission to one is never
  * admission to another. What they have in common is only this module: the
  * loopback address, a 32-byte token compared in constant time, and the two
  * answer writers. There is no CORS handling anywhere, because no browser origin

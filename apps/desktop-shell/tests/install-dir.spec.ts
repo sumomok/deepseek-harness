@@ -52,6 +52,6 @@ describe('the server launch in main.ts', () => {
   })
 
   it('adds it to the environment of the server it starts', () => {
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
   })
 })

@@ -88,6 +88,20 @@ describe('rebindOnNewPort', () => {
     expect(asked).toEqual([0])
     expect(started.spec.port).toBe(52_000)
   })
+
+  it('starts the new server with the recorded environment, the loopback services\' variables included', async () => {
+    const env = {
+      NODE_PATH: '/data/engines/office/0.1.1/node_modules',
+      DSH_DESKTOP_OFFICE_ENGINE_ENDPOINT: 'http://127.0.0.1:53000',
+      DSH_DESKTOP_OFFICE_ENGINE_TOKEN: 'secret',
+    }
+    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
+    const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env, port: 49_321 }
+    const seen: Array<Record<string, string>> = []
+    const started = await rebindOnNewPort(spec, async (s) => { seen.push(s.env); return handle }, () => {})
+    expect(seen).toEqual([env])
+    expect(started.spec.env).toEqual(env)
+  })
 })
 
 describe('stopForQuit', () => {

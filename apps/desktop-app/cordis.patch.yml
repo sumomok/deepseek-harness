@@ -191,16 +191,18 @@
     pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'
     requiredModules: ['@haoran/dsh-crash-resume']
 
-# No Office preview. The `office-to-pdf` Host row starts LibreOffice converters
-# for the right Sidebar's document tab, and the payload carries no LibreOffice
-# engine for them to run: `platformDirRules` in
-# `apps/desktop-shell/scripts/platform-dir-rules.ts` drops every
-# `@deepseek-ai/libreoffice-kit-*` engine from both targets. With the row off,
-# nothing creates a converter, so nothing resolves an engine; the kit's entry
-# package stays in the payload because `@deepseek-ai/dsh-office-to-pdf` imports
-# it.
-- id: office-to-pdf
-  disabled: true
+# Office preview carries no row here: dsh-web-app's `office-to-pdf` Host row,
+# which starts LibreOffice converters for the right Sidebar's document tab,
+# stays on as that layer ships it. The payload carries no LibreOffice engine —
+# `platformDirRules` in `apps/desktop-shell/scripts/platform-dir-rules.ts`
+# drops every `@deepseek-ai/libreoffice-kit-*` engine from both targets — and
+# the shell downloads the one engine the shipped kit declares into the data
+# directory when the person asks for it (`apps/desktop-shell/src/office-engine.ts`),
+# naming its directory in the server's `NODE_PATH` from launch on. Until it is
+# there a conversion fails and `office-to-pdf` drops the converter it tried to
+# create, so the first preview after the download creates a new one and
+# succeeds without a restart. `@haoran/dsh-office-preview-notice` is what the
+# document tab shows for Word and PowerPoint files until then.
 
 # Work details start compact: a process group's header names its categories
 # only, where `standard`, the form's own default, adds the live task detail,

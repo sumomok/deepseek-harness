@@ -42,6 +42,6 @@ describe('the server launch in main.ts', () => {
 
   it('logs each one and adds them to the environment of the server it starts', () => {
     expect(source).toContain('for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\\n`)')
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
   })
 })

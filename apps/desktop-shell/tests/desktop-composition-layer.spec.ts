@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer patches seven rows and inserts two of its own.
+ * The layer patches six rows and inserts two of its own.
  * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
  * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
@@ -15,12 +15,12 @@
  * gate otherwise takes from the pair its own layer ships, and sends every
  * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
- * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
- * `ui-chat` starts work details compact. The rows it inserts are
- * `desktop-brand`, this package itself, whose browser half names the product
- * in the sidebar and whose Host half ends every session's system prompt with
- * the protected-directories instruction, and `desktop-server-log`, which
- * appends the server's own logger records to the desktop log file.
+ * and `ui-chat` starts work details compact. `office-to-pdf` is left as the
+ * layers below ship it: the shell downloads its engine on request. The rows it
+ * inserts are `desktop-brand`, this package itself, whose browser half names
+ * the product in the sidebar and whose Host half ends every session's system
+ * prompt with the protected-directories instruction, and `desktop-server-log`,
+ * which appends the server's own logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -383,10 +383,12 @@ describe('the composed office-to-pdf row', () => {
     expect(entry(below, 'office-to-pdf').disabled).toBeUndefined()
   })
 
-  // The payload rules drop every engine package, so a converter this row
-  // started would fail on its first conversion.
-  it('is off once the desktop layer applies', () => {
-    expect(entry(desktop, 'office-to-pdf').disabled).toBe(true)
+  // The payload carries no engine; the shell downloads one into the data
+  // directory on request and the converter the next preview creates finds it,
+  // so the row stays on from launch.
+  it('stays on once the desktop layer applies', () => {
+    expect(entry(desktop, 'office-to-pdf')).toEqual(entry(below, 'office-to-pdf'))
+    expect(entry(desktop, 'office-to-pdf').disabled).toBeUndefined()
   })
 })
 
@@ -552,7 +554,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly seven rows, adds its own two, and nothing else', () => {
+  it('changes exactly six rows, adds its own two, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -560,7 +562,7 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'desktop-brand', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager',
+      'desktop-brand', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'plugin-manager',
       'session-query-sqlite', 'ui-chat', 'vision-switch',
     ])
   })
