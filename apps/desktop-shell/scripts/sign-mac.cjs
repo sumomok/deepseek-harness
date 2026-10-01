@@ -49,7 +49,7 @@ const DEFAULT_P12 = join(DEFAULT_SIGNING_DIR, 'dsh-desktop-signing.p12')
 
 /**
  * Entitlements the hardened runtime this app is signed with needs granted back.
- * The list is electron-builder's own default set; it lives in a plist because
+ * The first three are electron-builder's own default set; the list lives in a plist because
  * `codesign` takes a file, and that file carries no comments of its own because
  * AMFI's plist parser rejects them.
  *
@@ -57,8 +57,11 @@ const DEFAULT_P12 = join(DEFAULT_SIGNING_DIR, 'dsh-desktop-signing.p12')
  * - `allow-unsigned-executable-memory`: the older V8 and Chromium mappings that
  *   `allow-jit` alone does not cover.
  * - `disable-library-validation`: the embedded server loads N-API addons
- *   (node-pty, koffi, sharp) carrying their own publishers' signatures, and
- *   library validation admits only libraries signed by this app's own team.
+ *   (node-pty, koffi, sharp, sherpa-onnx) carrying their own publishers'
+ *   signatures, and library validation admits only libraries signed by this
+ *   app's own team.
+ * - `device.audio-input`: the voice input records from the microphone, and a
+ *   hardened-runtime app without it is refused the microphone without a prompt.
  *
  * `--deep` applies the same set to every nested binary it signs, which is what
  * the bundled Node runtime needs as well.

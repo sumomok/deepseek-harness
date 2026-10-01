@@ -12,7 +12,7 @@ import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules, type PayloadPlatform, type PlatformDirRule,
 } from '../scripts/payload-gate.ts'
 import {
-  isOfficeEngine, OFFICE_KIT, officeEnginePackages, platformDirRules, type PayloadTarget,
+  isOfficeEngine, namesWindowsX64, OFFICE_KIT, officeEnginePackages, pinnedVariantVersion, platformDirRules, type PayloadTarget,
 } from '../scripts/platform-dir-rules.ts'
 import { findWithheldDirectories } from '../scripts/staged-boot-gate.ts'
 
@@ -81,6 +81,7 @@ const MAC_HOST_STAGED = [
   '@vscode/ripgrep', '@vscode/ripgrep-darwin-arm64', '@vscode/ripgrep-win32-x64',
   'node-addon-require-builtin-darwin-arm64', 'node-addon-require-builtin-win32-x64-msvc',
   '@deepseek-ai/node-addon-system', '@deepseek-ai/node-addon-system-darwin-arm64',
+  'sherpa-onnx-node', 'sherpa-onnx-darwin-arm64', 'sherpa-onnx-win-x64',
   `${OFFICE_KIT}-darwin-arm64`,
 ]
 
@@ -125,6 +126,19 @@ describe('platformDirRules', () => {
     expect(deepseek('win')?.keep('node-addon-system')).toBe(true)
   })
 
+  it('keeps sherpa-onnx-node on both targets and only the target\'s own member', () => {
+    const rules = platformDirRules('arm64')
+    const top = (target: PayloadTarget): PlatformDirRule | undefined => rules[target].find(rule => rule.parent === '.')
+    for (const target of ['darwin', 'win'] as const) expect(top(target)?.keep('sherpa-onnx-node')).toBe(true)
+    expect(top('darwin')?.keep('sherpa-onnx-darwin-arm64')).toBe(true)
+    expect(top('darwin')?.keep('sherpa-onnx-darwin-x64')).toBe(false)
+    expect(top('darwin')?.keep('sherpa-onnx-win-x64')).toBe(false)
+    expect(top('win')?.keep('sherpa-onnx-win-x64')).toBe(true)
+    expect(top('win')?.keep('sherpa-onnx-win-ia32')).toBe(false)
+    expect(top('win')?.keep('sherpa-onnx-darwin-arm64')).toBe(false)
+    expect(top('win')?.keep('yaml')).toBe(true)
+  })
+
   it('drops something with every rule on the tree a macOS host stages', async () => {
     await expect(verifyPruneRules(staged(MAC_HOST_STAGED), platformDirRules('arm64'))).resolves.toBeUndefined()
   })
@@ -166,5 +180,62 @@ describe('the payload gate on the Office engines', () => {
       `node_modules/${OFFICE_KIT}-darwin-arm64`,
       `node_modules/${OFFICE_KIT}-win32-x64`,
     ])
+  })
+})
+
+describe('namesWindowsX64', () => {
+  it('names the Windows x64 member under either platform spelling', () => {
+    for (const name of ['@img/sharp-win32-x64', '@koromix/koffi-win32-x64', 'node-addon-require-builtin-win32-x64-msvc', 'sherpa-onnx-win-x64']) {
+      expect(namesWindowsX64(name)).toBe(true)
+    }
+  })
+
+  it('names no other platform or architecture', () => {
+    for (const name of ['sherpa-onnx-win-ia32', 'sherpa-onnx-darwin-arm64', '@img/sharp-win32-arm64', 'sherpa-onnx-node', 'window-x64']) {
+      expect(namesWindowsX64(name)).toBe(false)
+    }
+  })
+})
+
+describe('pinnedVariantVersion', () => {
+  it('fetches an exact version as written', () => {
+    expect(pinnedVariantVersion('@img/sharp-win32-x64', '0.35.4', [])).toBe('0.35.4')
+    expect(pinnedVariantVersion('x-win32-x64', '1.0.0-rc.2', [])).toBe('1.0.0-rc.2')
+  })
+
+  it('pins a range to the one version the installed siblings share', () => {
+    expect(pinnedVariantVersion('sherpa-onnx-win-x64', '^1.13.8', ['1.13.8'])).toBe('1.13.8')
+  })
+
+  it('refuses a range with no sibling, or with siblings that disagree', () => {
+    expect(() => pinnedVariantVersion('sherpa-onnx-win-x64', '^1.13.8', [])).toThrow(/no installed sibling/)
+    expect(() => pinnedVariantVersion('sherpa-onnx-win-x64', '^1.13.8', ['1.13.8', '1.13.9'])).toThrow(/1\.13\.8, 1\.13\.9/)
+  })
+})
+
+describe('the payload gate on sherpa-onnx members', () => {
+  /**
+   * Run the gate on a payload derived with some rules and the whole staged tree.
+   * @param target - the payload target.
+   * @param rules - the rules the payload is derived with.
+   * @returns the gate's settled promise.
+   */
+  async function gate(target: PayloadTarget, rules: readonly PlatformDirRule[]): Promise<void> {
+    const root = staged(MAC_HOST_STAGED)
+    const { payload, dropped } = derive(root, rules)
+    await verifyPrunedPayload({
+      target, runsOn: runsOn(target, 'arm64'), staged: await snapshotPayload(root),
+      afterPlatformPrune: await snapshotPayload(payload), payload, droppedByRules: dropped,
+    })
+  }
+
+  it('reads a win- member as a Windows variant, so the win payload that lacks it fails', async () => {
+    const dropsSherpa = [...platformDirRules('arm64').win, { parent: '.', keep: (name: string) => name !== 'sherpa-onnx-win-x64' }]
+    await expect(gate('win', dropsSherpa)).rejects.toThrow(/sherpa-onnx-win-x64 names win32-x64 and is missing from the win payload/)
+  })
+
+  it('refuses the win member riding into the darwin payload', async () => {
+    const keepsSherpa = platformDirRules('arm64').darwin.filter(rule => rule.parent !== '.')
+    await expect(gate('darwin', keepsSherpa)).rejects.toThrow(/sherpa-onnx-win-x64 names win32-x64 and rode into the darwin payload/)
   })
 })

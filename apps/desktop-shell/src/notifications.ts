@@ -79,7 +79,10 @@
  * **The two platforms are told differently, and on purpose.** Windows gets a
  * system toast that raises the window when clicked, with buttons on the ones
  * that want an answer. macOS gets a Dock badge and one bounce, and no
- * notification centre entry at all.
+ * notification centre entry at all. The badge counts finished runs plus the
+ * requests still waiting: a request's count is taken off when a `cancel` frame
+ * says someone answered it, or when its generation is stopped, and the whole
+ * badge is cleared when an app window takes focus.
  * @module @deepseek-ai/dsh-desktop-shell/notifications
  */
 
@@ -220,8 +223,17 @@ export function approvalActions(reject: () => void, reveal: () => void): ToastAc
   return [{ text: '拒绝', press: reject }, { text: '去看看', press: reveal }]
 }
 
-/** Unseen attention events, which is what the macOS Dock badge counts. */
-let badge = 0
+/**
+ * Finished runs announced since an app window last had focus. The macOS Dock
+ * badge shows this plus {@link Generation.badged}'s size.
+ */
+let finishedRuns = 0
+
+/**
+ * What {@link announce} raised: a toast to hold until the request behind it is
+ * over, or one more count on the macOS Dock badge for the caller to own.
+ */
+type Announcement = { readonly kind: 'toast'; readonly toast: Notification } | { readonly kind: 'badge' }
 
 /**
  * One call to {@link setupNotifications}'s worth of stream and reconnect
@@ -260,6 +272,15 @@ interface Generation {
    * the minute the shell is entitled to answer in.
    */
   toasts: Map<string, Notification>
+  /**
+   * Deliveries counted on the macOS Dock badge. An id leaves when a `cancel`
+   * frame arrives for it, when an app window takes focus, or when this
+   * generation is stopped. The shell's own grace answer does not remove it:
+   * the page still holds the request after the shell abstains, and the Host
+   * sends no `cancel` to a client that already answered, so the count stays
+   * until the window takes focus.
+   */
+  badged: Set<string>
   /**
    * Deliveries the user refused on a toast, kept for as long as a replay can
    * ask again. The refusal's POST can fail, or the socket can close before the
@@ -307,25 +328,23 @@ function unattended(): boolean {
  * message that asks for nothing. Each `press` is responsible for closing the
  * toast it was pressed on, which is what {@link closeToast} does for the
  * approval buttons.
- * @returns the toast that was raised, or undefined when none was: the window
- * is attended, macOS badges the Dock instead, or the platform posts no
- * notifications at all.
+ * @returns the toast that was raised, `badge` when macOS bounced the Dock and
+ * the caller is to add one count to the badge, or undefined when nothing was
+ * raised: the window is attended, or the platform posts no notifications.
  */
-function announce(host: NotifyHost, title: string, body: string, actions: readonly ToastAction[] = []): Notification | undefined {
+function announce(host: NotifyHost, title: string, body: string, actions: readonly ToastAction[] = []): Announcement | undefined {
   if (!unattended()) return undefined
   host.log(`[desktop] notify: ${title} — ${body}\n`)
   if (process.platform === 'darwin') {
-    badge += 1
-    app.dock?.setBadge(String(badge))
     app.dock?.bounce('informational')
-    return undefined
+    return { kind: 'badge' }
   }
   if (!Notification.isSupported()) return undefined
   const notification = new Notification({ title, body, actions: toastButtons(actions, process.platform) })
   notification.on('click', () => { host.reveal() })
   notification.on('action', ({ actionIndex }) => { actions[actionIndex]?.press() })
   notification.show()
-  return notification
+  return { kind: 'toast', toast: notification }
 }
 
 /**
@@ -343,10 +362,26 @@ function closeToast(generation: Generation, eventId: string): void {
   toast.close()
 }
 
+/** Show the current count on the Dock badge, or no badge at zero. */
+function renderBadge(): void {
+  const count = finishedRuns + (current?.badged.size ?? 0)
+  app.dock?.setBadge(count > 0 ? String(count) : '')
+}
+
+/**
+ * Take one delivery's count off the Dock badge, if it carries one.
+ * @param generation - the generation the delivery belongs to.
+ * @param eventId - the delivery that is over.
+ */
+function unbadge(generation: Generation, eventId: string): void {
+  if (generation.badged.delete(eventId)) renderBadge()
+}
+
 /** Drop the Dock badge; the user is looking at the window. */
 function clearBadge(): void {
-  badge = 0
-  app.dock?.setBadge('')
+  finishedRuns = 0
+  current?.badged.clear()
+  renderBadge()
 }
 
 /**
@@ -626,10 +661,10 @@ function onWindowCreated(): void {
  * @param sessionId - the session to name.
  * @param eventId - the delivery the message is about.
  * @param post - raises the message, given the subject phrase for the session;
- * returns the toast it raised, for the platforms and moments that raise one.
+ * returns what {@link announce} raised.
  */
 function announceDelivery(
-  generation: Generation, sessionId: string, eventId: string, post: (who: string) => Notification | undefined,
+  generation: Generation, sessionId: string, eventId: string, post: (who: string) => Announcement | undefined,
 ): void {
   void subject(generation, sessionId).then((who) => {
     if (!generation.pending.has(eventId)) {
@@ -638,8 +673,12 @@ function announceDelivery(
       generation.host.log(`[desktop] delivery ${eventId} was settled while its session was being named; nothing announced\n`)
       return
     }
-    const toast = post(who)
-    if (toast !== undefined) generation.toasts.set(eventId, toast)
+    const announced = post(who)
+    if (announced?.kind === 'toast') generation.toasts.set(eventId, announced.toast)
+    if (announced?.kind === 'badge') {
+      generation.badged.add(eventId)
+      renderBadge()
+    }
   })
 }
 
@@ -679,7 +718,9 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       // user is watching happen.
       if (!unattended()) return
       void subject(generation, sessionId).then((who) => {
-        announce(host, '任务已完成', `${who}已经跑完,可以回来看结果了。`)
+        if (announce(host, '任务已完成', `${who}已经跑完,可以回来看结果了。`)?.kind !== 'badge') return
+        finishedRuns += 1
+        renderBadge()
       })
       return
     }
@@ -723,6 +764,7 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       // Someone answered: the toast is asking for a decision that has been
       // made, and Windows would keep it in the action centre until dismissed.
       closeToast(generation, eventId)
+      unbadge(generation, eventId)
       dropPending(generation, eventId)
       return
     }
@@ -861,7 +903,7 @@ export function setupNotifications(host: NotifyHost, authenticatedUrl: string): 
   stopCurrentGeneration()
   const generation: Generation = {
     stopped: false, socket: undefined, authenticatedUrl, cookie: undefined, clientId: undefined,
-    pending: new Map(), announced: new Set(), toasts: new Map(), rejected: new Set(), running: new Set(), host,
+    pending: new Map(), announced: new Set(), toasts: new Map(), badged: new Set(), rejected: new Set(), running: new Set(), host,
   }
   current = generation
   subscribe(generation, host)
@@ -886,4 +928,7 @@ function stopCurrentGeneration(): void {
   // Every button on them answers a delivery of a server this shell is done
   // with — either quitting, or rebinding to a new one whose ids are fresh.
   closeAllToasts(current)
+  // The same holds for the requests the badge counts.
+  current.badged.clear()
+  renderBadge()
 }

@@ -51,6 +51,49 @@ export async function officeEnginePackages(staged: string): Promise<string[]> {
   return Object.keys(optionalDependencies ?? {}).filter(isOfficeEngine).sort()
 }
 
+/** Name prefixes of the unscoped platform-split families whose members sit at the top of `node_modules`. */
+const TOP_LEVEL_FAMILIES = ['node-addon-require-builtin-', 'sherpa-onnx-']
+
+/** Entry packages that share a family prefix and carry no platform of their own. */
+const TOP_LEVEL_ENTRIES = new Set(['sherpa-onnx-node'])
+
+/**
+ * Whether an optional dependency is the Windows x64 member of a platform-split
+ * family, under either spelling a family uses for the platform: `win32-x64`
+ * (`@img/sharp-win32-x64`, `node-addon-require-builtin-win32-x64-msvc`) or
+ * `win-x64` (`sherpa-onnx-win-x64`).
+ * @param name - an optional dependency's package name.
+ * @returns true for a Windows x64 member, false for every other platform and architecture.
+ */
+export function namesWindowsX64(name: string): boolean {
+  return /(?:^|[-_./])win(?:32)?-x64(?:$|[-_.])/.test(name)
+}
+
+/**
+ * The exact version of a Windows member to fetch on a macOS host, which never
+ * installed it.
+ *
+ * An exact spec is fetched as written. A range is pinned to the version of a
+ * sibling member the host did install, because a family's members are
+ * published together and the entry package loads whichever member matches the
+ * platform: sherpa-onnx-node declares its members as `^1.13.8`, and fetching
+ * the newest match could pair a Windows binary with a JavaScript entry from an
+ * older release.
+ * @param dependency - the Windows member's package name, for the error.
+ * @param spec - the version or range the entry package declares.
+ * @param installedSiblings - the versions of the same entry's other optional members found in the staged tree.
+ * @returns the version to fetch.
+ * @throws when the spec is a range and the installed siblings name no single version.
+ */
+export function pinnedVariantVersion(dependency: string, spec: string, installedSiblings: readonly string[]): string {
+  if (/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(spec)) return spec
+  const versions = [...new Set(installedSiblings)]
+  if (versions.length !== 1) {
+    throw new Error(`package: ${dependency}@${spec} is a range, and the staged tree holds ${versions.length === 0 ? 'no installed sibling' : `siblings at ${versions.join(', ')}`} to pin it to.`)
+  }
+  return versions[0] as string
+}
+
 /**
  * Platform-split artifact directories, relative to node_modules: keep only the
  * target's. Both lists must name the same parents wherever a family has members
@@ -74,6 +117,12 @@ export async function officeEnginePackages(staged: string): Promise<string[]> {
  * whole: a macOS host installs only `node-addon-system-darwin-<arch>`, which is
  * the one variant the macOS payload must carry.
  *
+ * `.` addresses the unscoped families whose members sit beside their entry at
+ * the top of `node_modules`: `node-addon-require-builtin-*` and `sherpa-onnx-*`,
+ * the speech recognizer's native runtime. sherpa-onnx names its Windows member
+ * `win-x64` rather than `win32-x64`, and its entry package `sherpa-onnx-node`
+ * shares the family prefix, so the entry is kept by name on both targets.
+ *
  * `verifyPruneRules` fails the build for a rule that drops nothing, which is
  * what a rule addressed at the wrong directory looks like from the outside.
  * @param arch - the `process.arch` of the host building the macOS payload, which is the architecture it runs on.
@@ -81,6 +130,8 @@ export async function officeEnginePackages(staged: string): Promise<string[]> {
  */
 export function platformDirRules(arch: string): Record<PayloadTarget, PlatformDirRule[]> {
   const shipsFromDeepseek = (name: string): boolean => !isOfficeEngine(`@deepseek-ai/${name}`)
+  const topLevel = (member: (name: string) => boolean) => (name: string): boolean =>
+    TOP_LEVEL_ENTRIES.has(name) || !TOP_LEVEL_FAMILIES.some(prefix => name.startsWith(prefix)) || member(name)
   return {
     win: [
       { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
@@ -88,7 +139,7 @@ export function platformDirRules(arch: string): Record<PayloadTarget, PlatformDi
       { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
       { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
       { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === 'ripgrep-win32-x64' },
-      { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
+      { parent: '.', keep: topLevel(name => name === 'node-addon-require-builtin-win32-x64-msvc' || name === 'sherpa-onnx-win-x64') },
     ],
     darwin: [
       { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${arch}` },
@@ -96,7 +147,7 @@ export function platformDirRules(arch: string): Record<PayloadTarget, PlatformDi
       { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
       { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${arch}` },
       { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === `ripgrep-darwin-${arch}` },
-      { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name.startsWith(`node-addon-require-builtin-darwin-${arch}`) },
+      { parent: '.', keep: topLevel(name => name.startsWith(`node-addon-require-builtin-darwin-${arch}`) || name === `sherpa-onnx-darwin-${arch}`) },
     ],
   }
 }

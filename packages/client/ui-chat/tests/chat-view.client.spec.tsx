@@ -39,7 +39,7 @@ import { en, zh } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
+  CompactionFailureNodeView, CompactionNodeView, CompactionRunningNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
@@ -364,6 +364,8 @@ function makeHarness(
         return <CompactionNodeView {...nodeProps} node={nodeOwner.node} />
       case 'compaction-running':
         return <CompactionRunningNodeView t={nodeProps.t} />
+      case 'compaction-failure':
+        return <CompactionFailureNodeView node={nodeOwner.node} t={nodeProps.t} />
       case 'model-retry':
         return <RetryNodeView {...nodeProps} node={nodeOwner.node} />
       case 'turn-error':
@@ -821,6 +823,147 @@ describe('ChatView', () => {
     expect(view.container.querySelector('[data-chat-flow-kind="compaction-running"]')).toBeNull()
     const marker = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction"]')!
     expect(marker.closest('[data-chat-group-key]')).not.toBeNull()
+  })
+
+  it('keeps a manual /compact refused inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const refusal = 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'
+    const refused: ChatNode<'manual-compaction'> = {
+      key: 'fixture:manual-compaction:4', id: '4', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 4, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: {
+        command: command({
+          seq: 4, commandId: 'cmd-busy' as CommandNode['commandId'], name: 'compact', args: null,
+          outcome: { kind: 'error', text: refusal },
+        }),
+        compaction: null,
+        waiting: false,
+        exited: false,
+      },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [refused]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="manual-compaction"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain(zh['message.compaction.result.busy'])
+    expect(card.textContent).not.toContain(refusal)
+  })
+
+  it('keeps a failed automatic compaction inside a running Turn outside the collapsed process group', () => {
+    const legacy = [userInTurn(1, 'question', 1), reasoningAssistant(2, 'analysis', 1, 1), toolResult(3, 'before')]
+    const fixture = chatSnapshotFixture({ nodes: legacy, turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: { reason: 'summarizer unavailable' },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [failed]) }, { running: true })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const group = view.container.querySelector<HTMLElement>('[data-chat-group-key]')!
+    expect(group.querySelector('[data-step-process-body]')!.hasAttribute('hidden')).toBe(true)
+    const card = view.container.querySelector<HTMLElement>('[data-chat-flow-kind="compaction-failure"]')!
+    expect(card.closest('[data-chat-group-key]')).toBeNull()
+    expect(card.closest('[hidden]')).toBeNull()
+    expect(card.textContent).toContain('上下文压缩失败')
+  })
+
+  it('keeps manual compaction cards and the failure row visible after a completed Turn folds', () => {
+    const first = {
+      ...assistant(2, 'earlier reply', 1, 1),
+      blocks: [
+        { kind: 'reasoning' as const, text: 'inspect the repository' },
+        { kind: 'text' as const, text: 'earlier reply' },
+      ],
+    }
+    const fixture = chatSnapshotFixture({
+      nodes: [user(1, 'question'), first, toolResult(3, 'a'), assistant(7, 'final answer', 1, 2)],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 5_000 }]]),
+      turnEnds: new Map([[1, 8]]),
+    })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected a closed Turn')
+    const location = { kind: 'turn' as const, turn }
+    const waited: ChatNode<'manual-compaction'> = {
+      key: 'fixture:manual-compaction:4', id: '4', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 4, location, visibility: 'visible',
+      data: {
+        command: command({
+          seq: 4, commandId: 'cmd-step' as CommandNode['commandId'], name: 'compact', args: null,
+          outcome: { kind: 'error', text: 'Compaction could not produce a useful summary. The attempt is recorded in the session log.' },
+        }),
+        compaction: null,
+        waiting: false,
+        exited: false,
+      },
+    }
+    const failed: ChatNode<'compaction-failure'> = {
+      key: 'fixture:compaction-failure:5', id: '5', target: 'chat', kind: 'compaction-failure',
+      anchorSeq: 5, location, visibility: 'visible',
+      data: { reason: 'summarizer unavailable' },
+    }
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const state = new ProcessState()
+    const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [waited, failed]) })
+    h.setGrouped(groups)
+    const view = render(<h.ChatView {...h.props} />)
+    const toggle = view.getByRole('button', { name: '用时 4秒' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
+    expect(members.length).toBeGreaterThan(0)
+    expect(members.every(member => member.getAttribute('hidden') === 'until-found')).toBe(true)
+    for (const kind of ['manual-compaction', 'compaction-failure']) {
+      const row = view.container.querySelector<HTMLElement>(`[data-chat-flow-kind="${kind}"]`)!
+      expect(row.closest('[data-turn-process-member]')).toBeNull()
+      expect(row.closest('[hidden]')).toBeNull()
+    }
+    expect(view.container.querySelector('[data-chat-flow-kind="manual-compaction"]')!.textContent)
+      .toContain(zh['message.compaction.result.summary'])
+    expect(view.getByText('final answer')).toBeTruthy()
+  })
+
+  it('labels a manual compaction that waits for the running Turn, and one whose Host exited', () => {
+    const fixture = chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)], turnTimings: new Map([[1, { startTime: 0 }]]) })
+    const turn = fixture.timeline.turns.get(1)
+    if (turn === undefined) throw new Error('expected an open Turn')
+    const pending = (waiting: boolean, exited = false): ChatNode<'manual-compaction'> => ({
+      key: 'fixture:manual-compaction:2', id: '2', target: 'chat', kind: 'manual-compaction',
+      anchorSeq: 2, location: { kind: 'turn', turn }, visibility: 'visible',
+      data: {
+        command: command({ seq: 2, commandId: 'cmd-wait' as CommandNode['commandId'], name: 'compact', args: null, outcome: null }),
+        compaction: null,
+        waiting,
+        exited,
+      },
+    })
+    const h = makeHarness({ chat: chatSnapshotFixture({ nodes: [userInTurn(1, 'question', 1)] }) }, { running: true })
+    const builder = new ChatSnapshotBuilder()
+    const groups = new ConversationGroupStore<ProcessGroupData>()
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(true)]) }) })
+    const card = (): HTMLElement => view.container.querySelector<HTMLElement>('[data-chat-flow-kind="manual-compaction"]')!
+    expect(card().textContent).toContain(zh['message.compaction.waiting'])
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false)]) }) })
+    expect(card().textContent).toContain(zh['message.compaction.running'])
+    act(() => { h.set({ chat: installGroupedSnapshot(builder, new ProcessState(), groups, fixture, [pending(false, true)]) }) })
+    expect(card().textContent).toContain(zh['message.compaction.exited'])
+    expect(card().textContent).not.toContain(zh['message.compaction.running'])
   })
 
   it.each([

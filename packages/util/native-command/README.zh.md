@@ -41,7 +41,7 @@ const { stdout, stderr } = await runNativeCommand('osascript', ['-e', script], s
 
 ### 注入命令边界
 
-`NativeCommandRunner` 类型是宿主集成的可注入命令边界：在集成需要一个可测试边界的位置传入该函数（或其包装层），测试即可替换为假运行器。
+`NativeCommandRunner` 类型是宿主集成的可注入命令边界：在集成需要一个可测试边界的位置传入该函数（或其包装层），测试即可替换为假运行器。可选的第四个参数 `NativeCommandOptions` 携带单条命令的进程选项：不传时以隐藏的 Windows 窗口启动命令，传 `{ windowsHide: false }` 则显示窗口。路径打开器只对 Explorer 传 `{ windowsHide: false }`，因为它打开的文件夹或选中窗口就是这次调用的结果；它运行的其他命令一律隐藏。
 
 ### 打开 Host 路径
 
@@ -72,7 +72,7 @@ const { stdout, stderr } = await runNativeCommand('osascript', ['-e', script], s
 
 ### execFile 给了运行器什么
 
-`execFile` 以 argv 数组直接 spawn 可执行文件——没有 shell 字符串，参数不经 shell 解释。`signal` 选项在调用方中止触发时终止子进程；`windowsHide` 在 Windows 上抑制瞬时控制台窗口。遇到非零退出或 spawn 错误时，回调把 `code`、`stdout`、`stderr` 挂到被拒绝的错误上，并保留原始错误作为 `cause`。
+`execFile` 以 argv 数组直接 spawn 可执行文件——没有 shell 字符串，参数不经 shell 解释。`signal` 选项在调用方中止触发时终止子进程；`windowsHide` 取调用选项里的值，调用未传选项时为 true，在 Windows 上抑制瞬时控制台窗口。隐藏启动也会隐藏 GUI 程序的第一个窗口，所以 Explorer 以可见窗口启动。遇到非零退出或 spawn 错误时，回调把 `code`、`stdout`、`stderr` 挂到被拒绝的错误上，并保留原始错误作为 `cause`。
 
 </details>
 

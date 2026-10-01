@@ -11,7 +11,8 @@ import { isVisibleChatNode } from '../contract/chat-visibility.ts'
 import { processActivity } from './process-activity.ts'
 
 const INDEPENDENT = new Set([
-  'user', 'steering', 'turn-trigger', 'model-retry', 'compaction-running', 'turn-error', 'turn-max-tokens', 'turn-tail',
+  'user', 'steering', 'turn-trigger', 'model-retry', 'compaction-running', 'manual-compaction',
+  'compaction-failure', 'turn-error', 'turn-max-tokens', 'turn-tail',
 ])
 type ProcessInput = ConversationGroupInput<ChatConversationViewNode>
 

@@ -19,6 +19,7 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 - [Command and failure rows](#command-and-failure-rows)
 - [Turn token usage](#turn-token-usage)
 - [Automatic compaction](#automatic-compaction)
+- [Manual compaction](#manual-compaction)
 - [Completed-turn footer](#completed-turn-footer)
 - [Turn Process Folding](#turn-process-folding)
 - [Grouped rendering](#grouped-rendering)
@@ -66,7 +67,12 @@ Preference menus restore focus to their trigger without scrolling before publish
 <a id="automatic-compaction"></a>
 ## Automatic compaction
 
-An automatic compaction owns one row for its whole lifetime: `Compacting context…` while its bracket is open, then `Context compacted` with the shadowed item and approximate token counts once the replacement lands, expandable to the summary the backend wrote. A bracket cancelled by Stop leaves no row, one that closes on an error shows the failure notice instead, and a bracket whose start is outside the loaded window shows only its landed marker. Inside a Turn the running row stands outside the process group, so a collapsed group never hides it; the landed marker joins the group like other process content.
+An automatic compaction owns one row for its whole lifetime: `Compacting context…` while its bracket is open, then `Context compacted` with the shadowed item and approximate token counts once the replacement lands, expandable to the summary the backend wrote. A bracket cancelled by Stop leaves no row, one that closes on an error shows the failure notice instead, and a bracket whose start is outside the loaded window shows only its landed marker. Inside a Turn the running row and the failure notice stand outside the process group, so a collapsed group never hides them; the failure notice also stays outside the whole-Turn fold once the Turn completes. The landed marker joins the group like other process content.
+
+<a id="manual-compaction"></a>
+## Manual compaction
+
+Settings → General → Compaction while busy stores `ui-chat.busyCompaction`, and this package's Host plugin provides it live as `ctx.manualCompactionTiming`, so a bare `/compact` sent while a Turn runs follows it: Queue (`turn-end`, default) compacts after the Turn ends, before any queued Turn's first request; Interrupt (`next-step`) compacts at the running Turn's next step boundary without cancelling it, or after the Turn when no boundary follows. Queue is the default because the running Turn then finishes on the history it started with, matching Queue as the busy-Enter default. An argued `/compact …` line is not a bare invocation and is sent as a message. Until its bracket opens the `/compact` card reads `Waiting to compact…`. Inside a Turn the card stands outside the process group and outside the whole-Turn fold, so neither a collapsed group nor a completed Turn hides it. The Host's fixed English result texts are shown in the reader's language.
 
 <a id="completed-turn-footer"></a>
 ## Completed-turn footer

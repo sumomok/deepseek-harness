@@ -15,7 +15,7 @@
 import { release as osRelease } from 'node:os'
 import { dirname, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { runNativeCommand, type NativeCommandRunner } from './runner.ts'
+import { runNativeCommand, type NativeCommandOptions, type NativeCommandRunner } from './runner.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type PathOpenerRunner = NativeCommandRunner
@@ -123,6 +123,12 @@ function explorerTarget(windowsPath: string): string {
 }
 
 /**
+ * Explorer starts with a visible window: the folder or selection window it
+ * opens is the result, and a hidden start show state hides that window.
+ */
+const EXPLORER_WINDOW: NativeCommandOptions = { windowsHide: false }
+
+/**
  * Hand one target to Explorer, accepting its delegated-handoff exit code.
  *
  * Explorer exits 1 after handing the request to the desktop process already
@@ -135,7 +141,7 @@ function explorerTarget(windowsPath: string): string {
  */
 async function runExplorer(args: readonly string[], signal: AbortSignal, run: PathOpenerRunner): Promise<void> {
   try {
-    await run('explorer.exe', args, signal)
+    await run('explorer.exe', args, signal, EXPLORER_WINDOW)
   } catch (error: unknown) {
     signal.throwIfAborted()
     // Explorer can exit 1 after delegating to the existing desktop process.

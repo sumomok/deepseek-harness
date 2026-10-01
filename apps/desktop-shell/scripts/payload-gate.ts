@@ -96,8 +96,15 @@ for (const [check, table] of Object.entries(EXEMPTIONS)) {
   }
 }
 
-/** Platform names that can appear as a segment of a platform-split directory name. */
-const PLATFORM_SEGMENTS = new Set(['darwin', 'win32', 'linux', 'android', 'freebsd', 'openbsd', 'sunos', 'aix'])
+/**
+ * Segments that name a platform in a platform-split directory name, each
+ * against the `process.platform` value it stands for. `win` is the spelling
+ * sherpa-onnx gives its Windows members (`sherpa-onnx-win-x64`).
+ */
+const PLATFORM_SEGMENTS = new Map([
+  ['darwin', 'darwin'], ['win32', 'win32'], ['win', 'win32'], ['linux', 'linux'], ['android', 'android'],
+  ['freebsd', 'freebsd'], ['openbsd', 'openbsd'], ['sunos', 'sunos'], ['aix', 'aix'],
+])
 
 /** Architecture names that can appear as a segment of a platform-split directory name. */
 const ARCH_SEGMENTS = new Set(['x64', 'arm64', 'arm', 'ia32', 'x86', 'ppc64', 's390x', 'riscv64', 'loong64', 'mips64el'])
@@ -131,7 +138,8 @@ function variantOf(name: string): PayloadPlatform | undefined {
   let platform: string | undefined
   let arch: string | undefined
   for (const segment of name.split(/[-_.]/)) {
-    if (PLATFORM_SEGMENTS.has(segment)) platform ??= segment
+    const named = PLATFORM_SEGMENTS.get(segment)
+    if (named !== undefined) platform ??= named
     else if (ARCH_SEGMENTS.has(segment)) arch ??= segment
   }
   if (platform === undefined || arch === undefined) return undefined

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-09-26-desktop-voice-input.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-26-desktop-voice-input.md
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off:
+  en: 4967a3ddf889e483
+  zh: b8a743ca73fa3a36
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off/problem:
+  en: 1f5519a83b0bc71d
+  zh: ca0b7b595ad83baf
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off/decision:
+  en: 4817adfb4f1e0010
+  zh: 4201608a1562fe58
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off/alternatives-considered:
+  en: c3d4d49f1c941633
+  zh: 83aff2bc6a490dcf
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off/consequences:
+  en: 03b71d3bae43643d
+  zh: 89fd8406c46f9dd4
+/agent-note-the-desktop-ships-upstream-s-voice-input-switched-off/related:
+  en: 6e549cac996c2ba0
+  zh: 2adbd6bc58cdf558

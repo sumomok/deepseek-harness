@@ -65,14 +65,18 @@ import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
-import { showInstalling } from './progress-window.ts'
+import { closeInstalling, showInstalling } from './progress-window.ts'
 import {
-  CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError,
+  CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, checkFailureDetail, classifyDownloadError,
   describeDownloadError, httpErrorCode, transferWithFallback, withRetry,
 } from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 import { UpdateState, type UpdateSnapshot } from './update-state.ts'
-import { appCacheDir, discardStaleParts, partFileFor, placeInPendingCache } from './pending-cache.ts'
+import { readState, setInstalledUpdate } from './desktop-state.ts'
+import {
+  appCacheDir, discardStaleParts, type InstalledPendingSweep, partFileFor, placeInPendingCache, readStagedArtifact,
+  sweepInstalledPending,
+} from './pending-cache.ts'
 import { discardPart, resumeDownload } from './resumable-download.ts'
 import type { UpdateServiceSpec } from './update-service.ts'
 
@@ -157,6 +161,14 @@ export interface UpdateHost {
    * control to an installer that replaces the app directory.
    */
   prepareQuit: () => Promise<void>
+  /**
+   * Undo [[prepareQuit]] after the installer this run handed over to failed
+   * and left the process running: clear the quitting state, restart the
+   * server unless the mandatory block holds the app, and show the window.
+   * @param blocking - whether the mandatory-update block holds the app.
+   * @returns once the app is back.
+   */
+  resumeAfterFailedInstall: (blocking: boolean) => Promise<void>
 }
 
 /** One entry of the `files` list in a `latest*.yml` manifest. */
@@ -454,6 +466,8 @@ export function setupUpdates(host: UpdateHost): () => void {
   // development launch, where startup problems are just as likely.
   buildMenu(manual, host.openLog)
   if (!app.isPackaged) return manual
+  // Before the first check, so no download of this run can be staged yet.
+  sweepAfterInstall(host)
   const first = setTimeout(() => { check('startup') }, FIRST_CHECK_DELAY_MS)
   const recurring = setInterval(() => { check('scheduled') }, CHECK_INTERVAL_MS)
   app.once('before-quit', () => {
@@ -697,7 +711,7 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
  * as it does — so the two never disagree about where a staged file goes.
  * @returns the absolute cache directory.
  */
-function updaterCacheDir(): string {
+export function updaterCacheDir(): string {
   const configured = ((): string | undefined => {
     try {
       const parsed = load(readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8'))
@@ -872,7 +886,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
   // What the in-place check failed with when the tier survived that failure,
   // which is what makes the answer below a fallback rather than this build's
   // own tier.
-  let fallbackReason: string | undefined
+  let fallback: { error: unknown } | undefined
   try {
     if (canInstallInPlace()) {
       try {
@@ -884,10 +898,10 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         // costs this check, which [[checkGeneric]] answers below, not the tier
         // for the rest of the run.
         if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
-        else fallbackReason = describeDownloadError(error)
+        else fallback = { error }
       }
     }
-    await checkGeneric(host, reason, fallbackReason)
+    await checkGeneric(host, reason, fallback)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
@@ -896,7 +910,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: `${message}\n\n稍后再试,或到发布页手动下载新版本。`,
+        detail: checkFailureDetail(error, '稍后再试,或到发布页手动下载新版本。'),
         buttons: ['好'],
       })
     }
@@ -995,6 +1009,12 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   })
   built.on('error', (error) => {
     host.log(`[updater] error: ${error.message}\n`)
+    // An install already handed over reports its failure only here: Squirrel's
+    // staging and signature check, or the NSIS installer failing to start.
+    if (handedOff !== undefined) {
+      void installFailed(host, handedOff, error)
+      return
+    }
     // A failure while a download is in flight is delivered twice: here, and to
     // whoever awaited downloadUpdate(). [[download]] owns that one — it decides
     // whether to retry, keeps the progress window for the retry to write to,
@@ -1076,6 +1096,61 @@ async function offerInstall(host: UpdateHost, version: string): Promise<void> {
 }
 
 /**
+ * Record which staged artifact the install about to start takes, so the
+ * launch after it can recognize that artifact in `pending` and remove it
+ * ([[sweepAfterInstall]]).
+ * @param host - logging from the main process.
+ */
+function rememberInstall(host: UpdateHost): void {
+  const staged = readStagedArtifact(updaterCacheDir())
+  if (staged === undefined) {
+    host.log('[updater] pending holds no record to remember for this install\n')
+    return
+  }
+  setInstalledUpdate({ fromVersion: app.getVersion(), ...staged })
+}
+
+/**
+ * Remove the artifact an earlier launch installed from electron-updater's
+ * `pending` directory, which the library itself leaves there until the next
+ * update's download starts ([[sweepInstalledPending]] decides what may go).
+ * The remembered install is forgotten once `pending` no longer holds it, and
+ * kept while it still might: an install that did not land, or an entry that
+ * could not be removed, which the next launch tries again.
+ * @param host - logging from the main process.
+ */
+function sweepAfterInstall(host: UpdateHost): void {
+  const installed = readState().installedUpdate
+  if (installed === undefined) return
+  let sweep: InstalledPendingSweep
+  try {
+    sweep = sweepInstalledPending(updaterCacheDir(), installed, app.getVersion())
+  } catch (error) {
+    host.log(`[updater] could not sweep ${installed.fileName} from pending: ${describeDownloadError(error)}\n`)
+    return
+  }
+  switch (sweep.kind) {
+    case 'not-landed':
+      return
+    case 'incomplete':
+      host.log(`[updater] removed ${sweep.removed.join(', ') || 'nothing'} from pending; ${sweep.failed.join(', ')} remain until the next launch\n`)
+      return
+    case 'emptied':
+      host.log(`[updater] removed the installed ${installed.fileName} from pending (${sweep.removed.join(', ')})\n`)
+      setInstalledUpdate(undefined)
+      return
+    case 'absent':
+    case 'replaced':
+      setInstalledUpdate(undefined)
+      return
+    default: {
+      const unreachable: never = sweep
+      throw new Error(`unhandled pending sweep: ${JSON.stringify(unreachable)}`)
+    }
+  }
+}
+
+/**
  * Replace the application with the update already on disk.
  *
  * **No dialog stands between this and the click that reached it.** The button in
@@ -1096,6 +1171,7 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     mainWindow()?.hide()
     showInstalling(version)
   }
+  rememberInstall(host)
   host.log(`[updater] stopping the server before installing ${version}\n`)
   await host.prepareQuit()
   if (process.platform === 'darwin') {
@@ -1107,6 +1183,7 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
     // it swaps the bundles. The relaunch is Squirrel's `open`, so the new
     // process inherits neither this one's argv nor its environment.
     host.log(`[updater] handing ${version} to Squirrel\n`)
+    handedOff = version
     updater?.quitAndInstall()
     return
   }
@@ -1135,7 +1212,53 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
   // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
   // before any page exists, so neither mode can land anywhere but the directory
   // the app already occupies.
+  handedOff = version
   updater?.quitAndInstall(false, true)
+}
+
+/**
+ * The version handed to the installer, from the hand-off until the installer
+ * fails. Set only once the server is stopped and the window hidden, so an
+ * `error` while it is set belongs to the install.
+ */
+let handedOff: string | undefined
+
+/**
+ * Recover from an installer that failed after the hand-off. The app is still
+ * running with its server stopped and, on macOS, its window hidden behind the
+ * install notice; without this it stays that way with nothing the user can
+ * reach. The notice comes down, the update entry shows the failure through
+ * [[UpdateState.markUnavailable]] — on macOS through [[demoteMac]], which also
+ * drops the run to the download page — and the host brings the app back.
+ * Under the mandatory block the app stays closed and the only choices are
+ * installing again or quitting.
+ * @param host - logging and quit coordination from the main process.
+ * @param version - the version whose install failed.
+ * @param error - what the installer reported.
+ */
+async function installFailed(host: UpdateHost, version: string, error: unknown): Promise<void> {
+  handedOff = undefined
+  const message = error instanceof Error ? error.message : String(error)
+  host.log(`[updater] installing ${version} failed (${message}); bringing the app back\n`)
+  closeInstalling()
+  if (process.platform === 'darwin') demoteMac(host, error)
+  else updateState().markUnavailable(`install failed: ${message}`)
+  await host.resumeAfterFailedInstall(blocking)
+  if (!blocking) return
+  const answer = await ask({
+    type: 'error',
+    title: '更新安装失败',
+    message: `v${version} 没有安装成功`,
+    detail: '可以重试安装,或退出应用稍后再启动。',
+    buttons: ['重试', '退出应用'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (answer === 0) {
+    await installStaged(host, version)
+    return
+  }
+  app.quit()
 }
 
 /**
@@ -1153,11 +1276,11 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
  * and a silent check says nothing, the red line included.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
- * @param fallbackReason - what the in-place check failed with when this call is
+ * @param fallback - what the in-place check failed with when this call is
  * answering for a tier that survived that failure; undefined when the download
  * page is this build's own tier.
  */
-async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReason?: string): Promise<void> {
+async function checkGeneric(host: UpdateHost, reason: CheckReason, fallback?: { error: unknown }): Promise<void> {
   updateState().checkStarted()
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   const version = feed.version
@@ -1171,7 +1294,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
   if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
   const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
   updateState().checkSucceeded(new Date().toISOString(), version, notes)
-  if (fallbackReason === undefined) {
+  if (fallback === undefined) {
     // This build's own tier: replacing the app by hand is the only way this
     // version gets installed, for the rest of the run.
     updateState().markUnavailable('this build installs an update by replacing it by hand')
@@ -1180,6 +1303,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
     // build can still replace itself, so what is reported is the check that
     // did not get through — which the next check starts over from — rather
     // than a verdict about this build.
+    const fallbackReason = describeDownloadError(fallback.error)
     host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
     updateState().checkFailed(new Date().toISOString(), fallbackReason)
     // The answer stops here rather than continuing into the download page: a
@@ -1192,7 +1316,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: `${fallbackReason}\n\n稍后会自动重试,新版本已记录在设置里。`,
+        detail: checkFailureDetail(fallback.error, '稍后会自动重试,新版本已记录在设置里。'),
         buttons: ['好'],
       })
     } else if (isMandatory(feed.minimumVersion)) {

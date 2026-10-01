@@ -173,12 +173,23 @@
 # Node (`apps/desktop-shell/src/pnpm-launcher.ts`); a development launch names
 # nothing, and the service falls back to the developer's own `pnpm`.
 #
+# `requiredModules` names the plugins this application cannot run without.
+# The service refuses to switch their rows off, or to switch off or remove a
+# bundle that inserts one, and the Plugins page shows those switches locked
+# with 应用必需，不能停用或卸载. It lists module names, and each name here is
+# also the bundle package that inserts it; it is the same list as
+# `REQUIRED_WEB_BUNDLES` in `apps/desktop-shell/src/profile-seed.ts`, which
+# puts a required bundle a profile switched off back on at every launch, and
+# `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` holds the two
+# equal. `@haoran/dsh-crash-resume` continues a turn a server crash cut short.
+#
 # The row carries `config` alone, so dsh-base's `disabled` expression, which
 # mounts the service only under a profile, still applies. dsh-base's row
 # carries no config, so this whole-config replacement drops nothing.
 - id: plugin-manager
   config:
     pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'
+    requiredModules: ['@haoran/dsh-crash-resume']
 
 # Office preview carries no row here: dsh-web-app's `office-to-pdf` Host row,
 # which starts LibreOffice converters for the right Sidebar's document tab,
@@ -204,3 +215,73 @@
 - id: ui-chat
   config:
     transcriptView: compact
+
+# The sidebar brand row: the fish logo at 30px where ui-sidebar asks for 24,
+# and the product name, 北冥 in Chinese and Beiming in English, at 18px. This
+# package's browser half occupies `sidebar.brand.mark` and `sidebar.brand.name`,
+# which dsh-web-app leaves to ui-sidebar's fallbacks because its own
+# `ui-brand-official` row registers only under the `official` client build
+# profile, one this application never builds. The same half shadows
+# Settings → General's current-version row, since the desktop's release version
+# is on the update settings page.
+#
+# The same row mounts the Host half, which adds a line naming the app's own
+# directories to every session's system prompt as the global section
+# `desktop:protected-directories`, after the persona suffix. A preset whose
+# persona is `complete` (`minimal`) replaces the whole prompt and drops it, a
+# known limitation the sandbox protection covers later.
+#
+# The line lists one clause per directory the launch knows, in a fixed order,
+# joined with the two separators below: the installation directory the shell
+# names in `DSH_DESKTOP_INSTALL_DIR` for a packaged launch; the harness home
+# the server's plugins resolve (`$DSH_HOME`, else `~/.dsh`), always; and the
+# shell's own Electron `userData` directory, log directory, and update
+# download cache, which it names in `DSH_DESKTOP_USER_DATA_DIR`,
+# `DSH_DESKTOP_LOG_DIR`, and `DSH_DESKTOP_UPDATE_CACHE_DIR`. The logs are
+# named on their own because on macOS they sit outside `userData`, under
+# `~/Library/Logs`. A development launch of the shell names no installation
+# directory; `dsh --profile desktop-shell` started by hand names only the
+# harness home. `{skillsDir}` is the home's `skills` folder, where
+# agent-authored skills are written, and is exempt. Each path is quoted in
+# backticks. The line must contain exactly `{directories}` and `{skillsDir}`,
+# and each clause exactly its own placeholder, or the row refuses to mount.
+# Why the line earns its context cost:
+# .agents/notes/implemented/feature/2026-09-28-desktop-protected-directories-prompt.md.
+#
+# A layer that patches this row by id replaces its whole `config`, so it must
+# restate every key below, or the row refuses to mount and the line is gone.
+- insert:
+    - id: desktop-brand
+      name: '@deepseek-ai/dsh-desktop-app'
+      config:
+        protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app''s own directories: {directories}. The skills folder {skillsDir} is exempt.'
+        directoryClauses:
+          installDir: 'the installation directory ({installDir})'
+          dataDir: 'the data directory ({dataDir})'
+          appDataDir: 'the settings folder ({appDataDir})'
+          logDir: 'the logs folder ({logDir})'
+          updateCacheDir: 'the update download folder ({updateCacheDir})'
+        directorySeparator: ', '
+        directoryLastSeparator: ' and '
+        installDir: !!js process.env.DSH_DESKTOP_INSTALL_DIR
+        appDataDir: !!js process.env.DSH_DESKTOP_USER_DATA_DIR
+        logDir: !!js process.env.DSH_DESKTOP_LOG_DIR
+        updateCacheDir: !!js process.env.DSH_DESKTOP_UPDATE_CACHE_DIR
+
+# The server's own log records in the desktop log file. Plugins log through
+# `ctx.logger`, and no row in the shipped bundles registers an exporter for it,
+# so without this row those records live only in the logger's in-memory buffer.
+# The shell names its log file in `DSH_DESKTOP_SERVER_LOG` for the server child
+# alone, and the packaging run's staged boot names one too, so the row mounts
+# there and its module must resolve from the payload; a boot without the
+# variable — `dsh --profile desktop-shell` started by hand — leaves the row off. `level: 2` is the
+# threshold cordis compares against its own order, ERROR 0 < INFO 1 < WARN 2
+# < DEBUG 3, so it keeps warnings — the level the webserver reports a failed
+# listen at — and drops debug.
+- insert:
+    - id: desktop-server-log
+      name: '@deepseek-ai/dsh-desktop-app/server-log'
+      disabled: !!js "!process.env.DSH_DESKTOP_SERVER_LOG"
+      config:
+        file: !!js process.env.DSH_DESKTOP_SERVER_LOG
+        level: 2

@@ -116,10 +116,18 @@
  * `tests/profile-seed.spec.ts` compares what this writes against what
  * `initProfile` writes, so an edit to either side fails there.
  *
- * Turning a shipped plugin off is a profile-level decision, not a shell one:
- * disable its row in `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`.
- * Deleting the name from `dsh.profile.bundles` only lasts until the next
- * launch.
+ * **A built-in plugin the user switched off stays off.** The manifest's
+ * `dsh.profile.shipped` lists the built-in plugins this shell has put into the
+ * profile; the Plugins page lists every name there, switched on or off, and
+ * switching one off removes it from `dsh.profile.bundles` only. A launch adds a
+ * missing built-in back only when the list does not name it — a plugin this
+ * build adds, or any missing one in a profile no build of this shell recorded
+ * the list in yet — and rewrites the list to this payload's built-in plugins.
+ * A name in {@link REQUIRED_WEB_BUNDLES} is the exception: the page shows it
+ * locked, and a launch puts it back even when the list names it.
+ * Disabling one of a plugin's rows in
+ * `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` still turns off that row
+ * alone.
  * @module @deepseek-ai/dsh-desktop-shell/profile-seed
  */
 
@@ -174,8 +182,22 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
+  '@haoran/dsh-crash-resume',
   DESKTOP_COMPOSITION_BUNDLE,
 ]
+
+/**
+ * Built-in plugins this application cannot run without, which the Plugins page
+ * shows locked and a launch always puts back into the bundle list.
+ *
+ * The lock itself is the `plugin-manager` row's `requiredModules` in
+ * `apps/desktop-app/cordis.patch.yml`, which matches plugin rows by module
+ * name, while this list holds bundle package names. Each name here is both:
+ * the bundle's own patch layer inserts one row whose module is the package
+ * itself. `tests/desktop-composition-layer.spec.ts` holds the composed
+ * `requiredModules` equal to this list.
+ */
+export const REQUIRED_WEB_BUNDLES: readonly string[] = ['@haoran/dsh-crash-resume']
 
 /**
  * Plugin packages an earlier build seeded and this payload no longer carries.
@@ -281,6 +303,11 @@ export interface SeedSpec {
 export interface SeedReport {
   /** Bundle names added to `dsh.profile.bundles` this run. */
   seeded: string[]
+  /**
+   * Built-in plugins `dsh.profile.shipped` already named that this run left out
+   * of `dsh.profile.bundles`, because the user switched them off.
+   */
+  keptOff: string[]
   /** The built-in plugin {@link DESKTOP_COMPOSITION_BUNDLE} was moved after this run, when it was moved. */
   reordered?: string
   /** Flat-fallback links created or re-pointed this run. */
@@ -326,7 +353,7 @@ export interface SeedReport {
 
 /** The manifest fields this module reads and writes; every other key is carried through verbatim. */
 interface ProfileManifest {
-  dsh?: { profile?: { bundles?: string[] }; bundle?: unknown }
+  dsh?: { profile?: { bundles?: string[]; shipped?: unknown }; bundle?: unknown }
   [key: string]: unknown
 }
 
@@ -409,14 +436,40 @@ function expandHome(path: string): string {
   return path
 }
 
-/** The manifest `initProfile` writes for a fresh profile, with this profile's name and layers. */
-function templateManifest(bundles: readonly string[]): ProfileManifest {
+/**
+ * The manifest `initProfile` writes for a fresh profile, with this profile's
+ * name and layers, plus the `dsh.profile.shipped` record of its built-in plugins.
+ */
+function templateManifest(bundles: readonly string[], shipped: readonly string[]): ProfileManifest {
   return {
     name: `dsh-profile-${DESKTOP_PROFILE}`,
     private: true,
     dependencies: {},
-    dsh: { profile: { bundles: [...bundles] } },
+    dsh: { profile: { bundles: [...bundles], shipped: [...shipped] } },
   }
+}
+
+/**
+ * The built-in plugins a payload carries, as `dsh.profile.shipped` records them:
+ * every available name but {@link DESKTOP_COMPOSITION_BUNDLE}, which is no plugin
+ * and is kept out of the Plugins page.
+ * @param available - the built-ins the shipped closure carries, in bundle order.
+ * @returns the names to record.
+ */
+function shippedPlugins(available: readonly string[]): string[] {
+  return available.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+}
+
+/**
+ * The `dsh.profile.shipped` list a manifest records, or undefined when it
+ * records none: a profile seeded before this build, or a value that is not a
+ * list of strings, which a hand edit left and which this run replaces.
+ * @param manifest - the parsed profile manifest.
+ * @returns the recorded names, or undefined.
+ */
+function recordedShipped(manifest: ProfileManifest): string[] | undefined {
+  const value = manifest.dsh?.profile?.shipped
+  return Array.isArray(value) && value.every(name => typeof name === 'string') ? value : undefined
 }
 
 /** The shipped template's own bundle list (`PROFILE_TEMPLATES.web` in dsh-app-boot). */
@@ -468,14 +521,15 @@ export function writeAtomic(path: string, content: string | Uint8Array, mode?: n
  * that is already there.
  * @param dir - the profile directory.
  * @param bundles - the bundle list a manifest written by this call declares.
+ * @param shipped - the built-in plugins a manifest written by this call records in `dsh.profile.shipped`.
  * @returns true when this call wrote the manifest, false when one was already there.
  * @throws when the directory or any of the three files cannot be written.
  */
-function initDesktopProfile(dir: string, bundles: readonly string[]): boolean {
+function initDesktopProfile(dir: string, bundles: readonly string[], shipped: readonly string[]): boolean {
   mkdirSync(dir, { recursive: true })
   const manifestPath = join(dir, 'package.json')
   const created = !existsSync(manifestPath)
-  if (created) writeAtomic(manifestPath, `${JSON.stringify(templateManifest(bundles), undefined, 2)}\n`)
+  if (created) writeAtomic(manifestPath, `${JSON.stringify(templateManifest(bundles, shipped), undefined, 2)}\n`)
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
   if (!existsSync(patchPath)) writeAtomic(patchPath, PROFILE_PATCH_TEMPLATE)
   const workspacePath = join(dir, PROFILE_WORKSPACE_FILENAME)
@@ -568,7 +622,7 @@ export function removeLink(link: string): void {
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
+    seeded: [], keptOff: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
     disabled: [], removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
@@ -583,7 +637,7 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   adoptLegacyProfile(spec.home, profileDir, report)
   const manifestPath = join(profileDir, 'package.json')
   try {
-    report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available])
+    report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available], shippedPlugins(available))
   } catch (error) {
     report.failed = `${profileDir}: ${String(error)}`
     return report
@@ -1963,16 +2017,23 @@ function reportShadowing(spec: SeedSpec, profileDir: string, name: string, repor
 
 /**
  * Add the missing built-in names to an existing manifest's bundle list, keeping
- * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin. A manifest
- * that does not parse, or that declares no bundle list at all, is left exactly
- * as it is: the first is something the server reports with the diagnostic it
- * owns, and the second is a composition written by hand, where adding the
- * built-in names would produce a profile that mounts them and nothing else.
+ * {@link DESKTOP_COMPOSITION_BUNDLE} after every built-in plugin, and record the
+ * payload's built-in plugins in `dsh.profile.shipped`. A manifest that does not
+ * parse, or that declares no bundle list at all, is left exactly as it is: the
+ * first is something the server reports with the diagnostic it owns, and the
+ * second is a composition written by hand, where adding the built-in names
+ * would produce a profile that mounts them and nothing else.
  *
  * A built-in plugin goes missing from a profile this shell seeded when a build
- * adds one, or when upstream's Plugins page disables one, which removes its
- * name from the list. Appended at the end, it would follow the composition
- * layer, and that layer's rows for the ids it inserts would match nothing.
+ * adds one, or when the Plugins page switches one off, which removes its name
+ * from the bundle list and leaves it in `dsh.profile.shipped`. Only the first
+ * is added back; the second is reported in {@link SeedReport.keptOff}, unless
+ * it is in {@link REQUIRED_WEB_BUNDLES}, which is added back either way. A
+ * profile with no recorded list has never had a built-in switched off from the
+ * page this list serves, so every missing plugin there is added back. An added
+ * plugin goes before the composition layer: appended at the end, it would
+ * follow that layer, and the layer's rows for the ids it inserts would match
+ * nothing.
  */
 function seedExistingManifest(manifestPath: string, available: readonly string[], report: SeedReport): void {
   let manifest: ProfileManifest
@@ -1987,14 +2048,21 @@ function seedExistingManifest(manifestPath: string, available: readonly string[]
     report.skipped.push(`${manifestPath}: declares no dsh.profile.bundles list; not rewriting a hand-composed profile`)
     return
   }
-  const placed = placeBuiltins(bundles, available)
-  if (placed.bundles.length === bundles.length && placed.bundles.every((name, index) => name === bundles[index])) return
+  const recorded = recordedShipped(manifest)
+  const keptOff = shippedPlugins(available)
+    .filter(name => !bundles.includes(name) && recorded?.includes(name) === true && !REQUIRED_WEB_BUNDLES.includes(name))
+  const placed = placeBuiltins(bundles, available.filter(name => !keptOff.includes(name)))
+  const shipped = shippedPlugins(available)
+  report.keptOff.push(...keptOff)
+  const sameList = (left: readonly string[], right: readonly string[] | undefined): boolean =>
+    right !== undefined && left.length === right.length && left.every((name, index) => name === right[index])
+  if (sameList(placed.bundles, bundles) && sameList(shipped, recorded)) return
   const updated: ProfileManifest = {
     ...manifest,
-    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: placed.bundles } },
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: placed.bundles, shipped } },
   }
   writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
-  report.seeded.push(...available.filter(name => !bundles.includes(name)))
+  report.seeded.push(...available.filter(name => !bundles.includes(name) && !keptOff.includes(name)))
   if (placed.after !== undefined) report.reordered = placed.after
 }
 
@@ -2041,6 +2109,7 @@ export function describeSeed(report: SeedReport): string | undefined {
   if (report.seeded.length > 0) {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
   }
+  if (report.keptOff.length > 0) parts.push(`left switched off built-in ${report.keptOff.join(', ')}`)
   if (report.reordered !== undefined) parts.push(`moved ${DESKTOP_COMPOSITION_BUNDLE} after ${report.reordered}`)
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
   if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)

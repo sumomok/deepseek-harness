@@ -511,6 +511,38 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-shortcuts -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-chat -->
+<a id="deepseek-aidsh-client-ui-chat"></a>
+
+## `@deepseek-ai/dsh-client-ui-chat`
+
+- `refs`: [`ManualCompactionWhileBusy`](subsystems/compaction.zh.md) · `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/ui-chat/src/index.ts:21`](../packages/client/ui-chat/src/index.ts)
+
+```ts config-catalog
+/** Runtime preferences projected to the browser. */
+export interface Config {
+  /** Completed turn transcript presentation. */
+  transcriptView: Volatile<TranscriptViewMode>
+  /** Performance and usage detail level. */
+  performanceUsage: Volatile<PerformanceUsageMode>
+  /** Default destination for Chat HTTP(S) links. */
+  linkOpening: Volatile<LinkOpening>
+  /** When `/compact` runs if the agent is running a turn. */
+  busyCompaction: Volatile<ManualCompactionWhileBusy>
+}
+
+/** Work-details presentation mode. */
+export type TranscriptViewMode = typeof TRANSCRIPT_VIEW_MODES[number]
+
+/** Performance and usage presentation. */
+export type PerformanceUsageMode = typeof PERFORMANCE_USAGE_MODES[number]
+
+/** Destinations for ordinary clicks on Chat HTTP(S) links. */
+export type LinkOpening = 'sidebar' | 'new-tab'
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-chat -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 <a id="deepseek-aidsh-client-ui-plugin-manager"></a>
 
@@ -2272,6 +2304,13 @@ export interface Config {
    * unless that is npm's own registry or one of these.
    */
   fallbackRegistries?: string[]
+  /**
+   * Module names this deployment requires, in addition to the manager's own management components. A plugin row
+   * naming one, and every bundle whose patch inserts such a row, cannot be switched off or removed and reads
+   * `deployment-required`, or `management-required` for a bundle that also inserts a management component. A name that
+   * no started bundle inserts is logged as one warning when the manager starts.
+   */
+  requiredModules?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plugin-manager -->
@@ -4315,7 +4354,6 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-approval` | — | [`packages/client/ui-approval/src/index.ts`](../packages/client/ui-approval/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-attachment` | — | [`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-brand-official` | — | [`packages/client/ui-brand-official/src/index.ts`](../packages/client/ui-brand-official/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-chat` | — | [`packages/client/ui-chat/src/index.ts`](../packages/client/ui-chat/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-conversation` | — | [`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-cordis` | — | [`packages/extensions/ui-cordis/src/index.ts`](../packages/extensions/ui-cordis/src/index.ts) |

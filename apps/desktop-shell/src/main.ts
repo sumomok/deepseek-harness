@@ -23,14 +23,21 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, session, shell, type DownloadItem } from 'electron'
+import { app, BrowserWindow, dialog, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
+import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { pinAppIdentity } from './app-identity.ts'
+import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
+import { bootPage } from './boot-page.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { recordRun } from './desktop-state.ts'
+import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
-import { isExternalNavigationTarget } from './navigation.ts'
+import { shellLanguage } from './menu-text.ts'
+import { appDirsEnv } from './app-dirs.ts'
+import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
+import { installMicrophonePermissions } from './microphone-permissions.ts'
+import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement } from './office-engine.ts'
@@ -50,14 +57,22 @@ import {
   classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
   runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
 } from './server-supervision.ts'
-import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
-import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
+import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { choosePort, isPortFree, startOnPort } from './server-port.ts'
+import {
+  markIntentionalStop, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
+  stopServerForQuit,
+} from './server-lifecycle.ts'
+import { watchSessionEnd } from './session-end.ts'
+import { PALETTES, resolveAppearance } from './theme.ts'
+import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import {
   ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
   TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
 } from './update-service.ts'
-import { launchGate, setupUpdates, updateActions, type UpdateHost } from './updater.ts'
+import { launchGate, setupUpdates, updateActions, updaterCacheDir, type UpdateHost } from './updater.ts'
+import { superviseAppLoad, type AppLoader } from './window-load.ts'
 
 // First statement of the process: every directory below is derived from the
 // application name, and the state of an existing installation lives under the
@@ -81,9 +96,11 @@ interface LaunchSpec extends Omit<ServerSpec, 'env'> {
  * exec electron lib/main.js`) uses the checkout's built CLI on the
  * development Node found in PATH, with the built-in plugins coming from the
  * same `apps/desktop-server` closure the packaged payload is deployed from.
+ * @param logDir - the desktop log directory, which also receives the server's
+ * diagnostic reports.
  * @returns the launch spec.
  */
-function resolveSpec(): LaunchSpec {
+function resolveSpec(logDir: string): LaunchSpec {
   const home = app.getPath('home')
   if (app.isPackaged) {
     const modules = join(process.resourcesPath, 'server', 'node_modules')
@@ -92,6 +109,7 @@ function resolveSpec(): LaunchSpec {
       entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
       builtinModules: modules,
       cwd: home,
+      reportDirectory: logDir,
     }
   }
   const apps = join(app.getAppPath(), '..')
@@ -100,6 +118,7 @@ function resolveSpec(): LaunchSpec {
     entry: join(apps, 'cli', 'lib', 'bin.js'),
     builtinModules: join(apps, 'desktop-server', 'node_modules'),
     cwd: home,
+    reportDirectory: logDir,
   }
 }
 
@@ -125,6 +144,10 @@ let logLine: (chunk: string) => void = (chunk) => {
 /** Set once the log file's own path is known, for the L2 "打开日志" button. */
 let logFile = ''
 
+// `logLine` is read at report time, so a write that fails before the file
+// sink exists goes to stderr like every other early line.
+reportStateWritesTo((line) => { logLine(line) })
+
 /**
  * Where a crash report goes. `log` reads {@link logLine} at report time, not
  * at construction, so the same host serves both the handlers registered once
@@ -137,10 +160,11 @@ const CRASH_LOG_HOST: CrashLogHost = {
 
 /**
  * The launch spec the running server was started (or last rebound) with —
- * paths plus the loopback-service environment additions. Recorded once the
- * first startup succeeds; every automatic or manual rebind reuses it
- * unchanged, since the loopback services it points at keep running across a
- * server-only crash.
+ * paths, the loopback-service environment additions, and the port it listens
+ * on. Recorded once the first startup succeeds; every automatic or manual
+ * rebind reuses its paths and environment, since the loopback services it
+ * points at keep running across a server-only crash, but not its port: see
+ * [[performRebind]].
  */
 let activeServerSpec: ServerSpec | undefined
 
@@ -173,23 +197,27 @@ const isRecoveryRelaunch = isRecoveryRelaunchInstance(process.argv)
 const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
 
 /**
- * Stop the server, giving up after `STOP_TIMEOUT_MS`. The caller exits either
- * way; a stop that timed out leaves an orphan for the next launch to sweep,
- * which is recoverable, while waiting forever is not.
+ * Stop the server for a quit, giving up after `STOP_TIMEOUT_MS`. The caller
+ * exits either way; a stop that timed out leaves an orphan for the next launch
+ * to sweep, which is recoverable, while waiting forever is not. The
+ * intentional-stop sentinel is written first unless the server already
+ * crashed — {@link server} keeps a crashed server's handle — and the sign-in
+ * cookies are removed within a short bound before the stop
+ * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  * @returns resolves when the server stopped or the deadline passed.
  */
 async function stopServerBounded(): Promise<void> {
   const handle = server
   if (handle === undefined) return
-  let timer: NodeJS.Timeout | undefined
-  const deadline = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => { resolve('timeout') }, STOP_TIMEOUT_MS)
-  })
-  const outcome = await Promise.race([handle.stop().then(() => 'stopped' as const), deadline])
-  clearTimeout(timer)
-  if (outcome === 'timeout') {
-    logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
-  }
+  await stopServerForQuit(handle, { home: resolveHarnessHome(), log: logLine, clearCookies: clearAuthCookies, timeoutMs: STOP_TIMEOUT_MS })
+}
+
+/**
+ * Remove the served UI's sign-in cookies from the default session.
+ * @returns the number removed.
+ */
+function clearAuthCookies(): Promise<number> {
+  return clearStaleAuthCookies(session.defaultSession.cookies, logLine)
 }
 
 /**
@@ -203,9 +231,16 @@ async function stopServerBounded(): Promise<void> {
  */
 function retargetWindows(url: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isResizable() && !window.isDestroyed()) void window.loadURL(url)
+    if (window.isResizable() && !window.isDestroyed()) appLoaders.get(window)?.load(url)
   }
 }
+
+/**
+ * The served-UI loader of every app window, so a retarget after a rebind goes
+ * through the same logged, retried load as the window's first one. Every
+ * resizable window is created by [[createBootWindow]], which registers it.
+ */
+const appLoaders = new WeakMap<BrowserWindow, AppLoader>()
 
 /**
  * Tell the user an L0 rebind is under way, on both platforms — the window
@@ -220,17 +255,21 @@ function notifyRecovering(): void {
 
 /**
  * Attempt one rebind of the embedded server: start it again from
- * {@link activeServerSpec}, and on success retarget every window and the
- * notification streams, and resume supervising the new child. Used both by
- * the L0 ladder and by the L2 dialog's manual retry.
+ * {@link activeServerSpec} on a port the system picks, and on success
+ * retarget every window and the notification streams, and resume supervising
+ * the new child. Used both by the L0 ladder and by the L2 dialog's manual
+ * retry. Why the port changes is in
+ * [[@deepseek-ai/dsh-desktop-shell/server-lifecycle]].
  * @returns true once the server is back up.
  */
 async function performRebind(): Promise<boolean> {
   const spec = activeServerSpec
   if (spec === undefined) return false
   try {
-    const handle = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+    const started = await rebindOnNewPort(spec, startEmbeddedServer, logLine)
+    const handle = started.server
     server = handle
+    rememberServerPort(started.spec)
     logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
     retargetWindows(handle.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
@@ -240,6 +279,52 @@ async function performRebind(): Promise<boolean> {
     const message = error instanceof Error ? error.message : String(error)
     logLine(`[desktop] rebind attempt failed: ${message}\n`)
     return false
+  }
+}
+
+/**
+ * Start the embedded server with the migrated-plugin quarantine, logging to the
+ * current {@link logLine}.
+ * @param spec - the launch.
+ * @returns the running server.
+ */
+function startEmbeddedServer(spec: ServerSpec): Promise<ServerHandle> {
+  return startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+}
+
+/**
+ * Record the spec a server was started with, and its port for the next launch.
+ * @param spec - the spec [[startOnPort]] returned, carrying the port the server listens on.
+ */
+function rememberServerPort(spec: ServerSpec): void {
+  activeServerSpec = spec
+  if (spec.port !== undefined && spec.port !== 0) setServerPort(spec.port)
+}
+
+/**
+ * Start the server again after an install that stopped it failed, through the
+ * ordinary start: the remembered port when it is free, otherwise one the
+ * system picks. On success every window and the notification streams move to
+ * it and supervision resumes; on failure the stopped-server dialog offers a
+ * retry, as after repeated crashes.
+ * @returns once the server is up or the dialog is shown.
+ */
+async function restartAfterFailedInstall(): Promise<void> {
+  const spec = activeServerSpec
+  if (spec === undefined) return
+  try {
+    const port = await choosePort(readState().serverPort, isPortFree)
+    logLine(port.line)
+    const started = await startOnPort({ ...spec, port: port.port }, startEmbeddedServer, logLine)
+    server = started.server
+    rememberServerPort(started.spec)
+    logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
+    retargetWindows(started.server.authenticatedUrl)
+    setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
+    attachSupervision()
+  } catch (error) {
+    logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
+    void runStoppedDialog()
   }
 }
 
@@ -269,10 +354,17 @@ async function handleUnexpectedServerExit(): Promise<void> {
   // `expected` and never reaches here, but a second, unrelated crash racing
   // the same teardown must not start a rebind the quit is about to undo.
   if (quitting) return
-  const { state, outcome } = await runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
-    sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
-    notifyRecovering,
-    rebind: performRebind,
+  // Before the ladder, whatever it decides: the dead server's port must not be
+  // asked for again and its cookie must not be sent to it meanwhile.
+  const { state, outcome } = await respondToCrash({
+    forgetPort: forgetServerPort,
+    clearCookies: clearAuthCookies,
+    log: logLine,
+    ladder: () => runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
+      sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
+      notifyRecovering,
+      rebind: performRebind,
+    }),
   })
   supervisorState = state
   if (outcome === 'relaunch') relaunchForRecovery()
@@ -281,11 +373,12 @@ async function handleUnexpectedServerExit(): Promise<void> {
 
 /**
  * Escalate to L1: relaunch the whole app once, marked so the next instance
- * knows it is this relaunch (the L2 guard reads it). Goes through
- * `app.quit()`, not `app.exit()`, so the ordinary `before-quit` teardown
- * (closing the loopback services, `quitting` already true here so the tray's
- * close guard stands aside) still runs — there is nothing left to stop on the
- * server itself, which already exited.
+ * knows it is this relaunch (the L2 guard reads it). `quitting` is raised
+ * first so the tray's close guard stands aside, which also makes the
+ * `before-quit` handler return at once: nothing is left for it to do, since
+ * the server already exited and [[handleUnexpectedServerExit]] forgot its port
+ * and removed the cookies before the ladder chose this, and the loopback
+ * services close with the process.
  */
 function relaunchForRecovery(): void {
   logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
@@ -480,152 +573,6 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
  */
 const APP_USER_MODEL_ID = 'dev.dsh.desktop'
 
-/**
- * The boot page: a self-contained `data:` document (no external resource, no
- * preload) that the main process drives through `window.__dsh`. It shows one
- * phase at a time — the one actually running — because a checklist of things
- * that have not happened yet is a list of ways to wonder what went wrong.
- * @param version - the app version shown at the bottom of the page.
- * @param appearance - which palette to paint.
- * @param receipt - one line confirming an update, when this launch is the first
- * of a new version. It is baked into the document rather than pushed into it,
- * because the push path tolerates a page that has not finished loading by
- * dropping what it carries, which is right for a phase and wrong for this.
- * @returns the `data:` URL to load.
- */
-function bootPage(version: string, appearance: Appearance, receipt: string | undefined): string {
-  const colors = PALETTES[appearance]
-  return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; height: 100vh; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-    background: ${colors.gradient};
-    color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
-  }
-  /* Dot grid and vignette, both purely decorative and both behind the column. */
-  body::before {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    background-image: radial-gradient(circle, ${colors.grid} 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-  body::after {
-    content: ""; position: fixed; inset: 0; pointer-events: none;
-    box-shadow: inset 0 0 180px 40px ${colors.vignette};
-  }
-  main { position: relative; width: 100%; max-width: 460px; padding: 0 32px; }
-  .glow {
-    position: absolute; left: 4px; top: -88px; width: 320px; height: 320px;
-    pointer-events: none; transform-origin: center;
-    background: radial-gradient(circle, ${colors.glow} 0%, transparent 68%);
-    animation: breathe 8s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%, 100% { transform: scale(1); opacity: .75; }
-    50% { transform: scale(1.12); opacity: 1; }
-  }
-  .enter { opacity: 0; animation: enter .32s ease-out forwards; }
-  @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .wordmark { position: relative; font-size: 40px; font-weight: 700; line-height: 1.15; animation-delay: 0ms; }
-  /* The Chinese glyphs take a real CJK face; only the caret stays monospace,
-     which is the one character a mono stack renders better than a text face. */
-  .wordmark .zh {
-    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-    color: ${colors.text}; letter-spacing: .02em;
-  }
-  .caret {
-    display: inline-block; margin-left: 8px; color: ${colors.accent};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    animation: blink 1.1s steps(2) infinite;
-  }
-  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-  /* Fixed height and stacked rows: one phase replaces another without the
-     column below it moving. */
-  .phases { position: relative; height: 30px; margin-top: 36px; }
-  .phase {
-    position: absolute; inset: 0; display: flex; align-items: baseline; gap: 10px;
-    font: 13px/2.1 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: ${colors.text}; opacity: 0; transition: opacity .28s ease;
-  }
-  .phase.showing { opacity: 1; }
-  .mark { flex: none; width: 1em; color: ${colors.accent}; animation: pulse 1.6s ease-in-out infinite; }
-  .phase.failed .mark { color: ${colors.danger}; animation: none; }
-  @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
-  .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
-  .elapsed { color: ${colors.muted}; }
-  .receipt { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.accent}; }
-  .hint { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.muted}; }
-  .failure { position: relative; margin-top: 16px; display: none; }
-  body.failed .failure { display: block; }
-  .summary {
-    font-size: 13px; color: ${colors.text}; word-break: break-all; user-select: text;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
-  }
-  .lead { margin-top: 12px; font-size: 13px; color: ${colors.muted}; }
-  footer {
-    position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-    font-size: 11px; color: ${colors.muted};
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .glow, .caret, .mark, .enter { animation: none; }
-    .enter { opacity: 1; }
-  }
-</style></head><body>
-<main>
-  <div class="glow"></div>
-  <div class="wordmark enter"><span class="zh">从这里开始</span><span class="caret">▮</span></div>
-  <div class="phases" id="phases">
-    <div class="phase" data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></div>
-    <div class="phase" data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></div>
-  </div>
-  ${receipt === undefined ? '' : `<div class="receipt">${receipt}</div>`}
-  <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
-  <div class="failure" id="failure">
-    <div class="summary" id="summary"></div>
-    <div class="lead">完整日志:菜单 帮助 → 查看日志</div>
-  </div>
-</main>
-<footer>v${version}</footer>
-<script>
-  const rows = [...document.querySelectorAll('.phase')]
-  let current = 0
-  setTimeout(() => { document.getElementById('hint').hidden = false }, 8000)
-  window.__dsh = {
-    phase(index) {
-      current = index
-      rows.forEach((row, position) => {
-        row.classList.toggle('showing', position === index)
-        if (position !== index) row.querySelector('.elapsed').textContent = ''
-      })
-    },
-    elapsed(seconds) {
-      const cell = rows[current]?.querySelector('.elapsed')
-      if (cell) cell.textContent = seconds < 3 ? '' : ' · ' + seconds + 's'
-    },
-    fail(message) {
-      const row = rows[current]
-      if (row) {
-        row.classList.add('failed')
-        row.querySelector('.mark').textContent = '✕'
-        row.querySelector('.elapsed').textContent = ''
-      }
-      document.getElementById('hint').hidden = true
-      document.getElementById('summary').textContent = message
-      document.body.classList.add('failed')
-    },
-    block(message) {
-      const hint = document.getElementById('hint')
-      hint.textContent = message
-      hint.hidden = false
-    },
-  }
-  window.__dsh.phase(0)
-</script></body></html>`)
-}
-
 /** One window whose boot page the main process can drive. */
 interface BootView {
   window: BrowserWindow
@@ -633,11 +580,15 @@ interface BootView {
   phase: (index: number) => void
   /** Update the seconds suffix on the running phase. */
   elapsed: (seconds: number) => void
-  /** Fail the running phase and show the error summary. */
+  /**
+   * Fail the running phase and show the error summary. Once the served UI has
+   * replaced the boot page, the boot page is loaded again with the failure
+   * shown on its last phase.
+   */
   fail: (message: string) => void
   /** Replace the hint line with why the app is holding at this phase. */
   block: (message: string) => void
-  /** Stop driving the boot page and load the served UI. */
+  /** Stop driving the boot page and load the served UI, through the window's [[AppLoader]]. */
   showApp: (url: string) => void
 }
 
@@ -745,15 +696,28 @@ function createBootWindow(receipt?: string): BootView {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
-    if (server === undefined || !target.startsWith(server.url)) {
+    if (server === undefined || !isServerNavigation(target, server.url)) {
       event.preventDefault()
       if (isExternalNavigationTarget(target)) void shell.openExternal(target)
     }
   })
   guardWindowClose(window)
   attachDownloadHandling(window)
+  // The language chosen in the settings, else the system's, as the menus use.
+  restateAppBootPage(window.webContents, () => appBootCss(storedLanguagePreference(resolveHarnessHome()) ?? shellLanguage()))
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
+  const showFailure = (message: string): void => {
+    if (window.isDestroyed()) return
+    window.loadURL(bootPage(app.getVersion(), appearance, undefined, { phase: 2, message })).catch(() => {
+      // The failure page is a `data:` document with nothing to fetch; a
+      // rejection means the window was closed while it loaded.
+    })
+  }
+  // `logLine` is read at call time: the file sink replaces it after this
+  // window already exists.
+  const loader = superviseAppLoad(window.webContents, { log: (line) => { logLine(line) }, giveUp: (summary) => { view.fail(summary) } })
+  appLoaders.set(window, loader)
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
     window.webContents.executeJavaScript(script).catch(() => {
@@ -761,17 +725,21 @@ function createBootWindow(receipt?: string): BootView {
       // carried is also in the log file.
     })
   }
-  return {
+  const view: BootView = {
     window,
     phase: (index) => { push(`window.__dsh.phase(${String(index)})`) },
     elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
-    fail: (message) => { push(`window.__dsh.fail(${JSON.stringify(message)})`) },
+    fail: (message) => {
+      if (booting) push(`window.__dsh.fail(${JSON.stringify(message)})`)
+      else showFailure(message)
+    },
     block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
     showApp: (url) => {
       booting = false
-      if (!window.isDestroyed()) void window.loadURL(url)
+      loader.load(url)
     },
   }
+  return view
 }
 
 /** Open a plain window directly on the served UI (reopen path). */
@@ -785,14 +753,19 @@ function createAppWindow(url: string): void {
  * one on the served UI when it has none. Every route back into the app — the
  * tray icon, a clicked notification, a second launch, the macOS Dock — ends
  * here, so all of them behave the same whether the window is hidden in the
- * tray, minimized, merely behind something, or gone.
+ * tray, minimized, merely behind something, or gone. Once a quit has begun it
+ * does nothing.
  */
 function reveal(): void {
-  if (mainWindow() !== undefined) {
-    revealMainWindow()
-    return
-  }
-  if (server !== undefined) createAppWindow(server.authenticatedUrl)
+  revealApp({
+    quitting: () => quitting,
+    revealExisting: () => {
+      if (mainWindow() === undefined) return false
+      revealMainWindow()
+      return true
+    },
+    openWindow: () => { if (server !== undefined) createAppWindow(server.authenticatedUrl) },
+  })
 }
 
 const locked = app.requestSingleInstanceLock()
@@ -833,6 +806,25 @@ if (!locked) {
 
   void app.whenReady().then(async () => {
     app.setAppUserModelId(APP_USER_MODEL_ID)
+    // Before the first window, which on Windows is what reports the end. A
+    // Windows session end emits no `before-quit`, so this is the only point at
+    // which the shell can record that the coming end of the server is not a crash.
+    watchSessionEnd({
+      platform: process.platform,
+      powerMonitor,
+      eachWindow: (listener) => {
+        for (const window of BrowserWindow.getAllWindows()) listener(window)
+        app.on('browser-window-created', (_event, window) => { listener(window) })
+      },
+    }, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })
+    // Before the first window, so no page ever runs under the default policy.
+    installMicrophonePermissions(session.defaultSession, {
+      primary: () => mainWindow()?.webContents,
+      serverOrigin: () => server?.url,
+      platform: process.platform,
+      microphoneStatus: () => systemPreferences.getMediaAccessStatus('microphone'),
+      askForMicrophone: () => systemPreferences.askForMediaAccess('microphone'),
+    })
     const upgradedFrom = recordRun()
     const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
     const logDir = app.getPath('logs')
@@ -842,6 +834,8 @@ if (!locked) {
     } catch {
       // Logging must never block the app; a failed sink drops chunks only.
     }
+    // Before the first write, so nothing holds the file while it is renamed.
+    const retention = [rotateLog(logFile, LOG_ROTATE_BYTES), pruneReports(logDir, KEPT_REPORTS)]
     // Every server byte lands in the file; the boot page shows phases only.
     const sink = (chunk: string): void => {
       try {
@@ -851,6 +845,7 @@ if (!locked) {
       }
     }
     logLine = sink
+    for (const line of retention) if (line !== undefined) sink(line)
     // Before the updater and the server: from here on a main-process
     // exception is in the file the user is asked to send, rather than only in
     // the box Electron opens over it.
@@ -859,11 +854,12 @@ if (!locked) {
     const ticker = setInterval(() => {
       view.elapsed(Math.round((Date.now() - startedAt) / 1000))
     }, 1000)
-    const spec = resolveSpec()
+    const spec = resolveSpec(logDir)
     sink(`[desktop] ${new Date().toISOString()} version=${app.getVersion()} packaged=${String(app.isPackaged)} platform=${process.platform} arch=${process.arch}\n`)
     sink(`[desktop] node runtime: ${spec.nodeBin} (exists: ${String(existsSync(spec.nodeBin) || spec.nodeBin === 'node')})\n`)
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
+    sink(`[desktop] server diagnostic reports: ${spec.reportDirectory}\n`)
     if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
     if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
     view.phase(1)
@@ -881,6 +877,12 @@ if (!locked) {
         quitting = true
         await stopServerBounded()
       },
+      resumeAfterFailedInstall: (blocking: boolean) => resumeAfterFailedInstall({
+        blocking,
+        clearQuitting: () => { quitting = false },
+        restartServer: restartAfterFailedInstall,
+        reveal,
+      }),
     }
     const checkForUpdates = setupUpdates(host)
     setupTray({ log: sink, reveal, checkForUpdates, isQuitting: () => quitting })
@@ -914,15 +916,35 @@ if (!locked) {
       const renderEnv = await startRenderServiceForServer(sink)
       const updateEnv = await startUpdateForServer(host, sink)
       const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
-      const pnpmEnv = pnpmLauncherEnv({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform })
+      const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
+      const pnpmEnv = pnpmLauncherEnv(location)
+      const installEnv = installDirEnv(location)
       const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
       sink(launcher === undefined
         ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
         : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...officeEngineEnv } }
-      server = await startServerWithQuarantine(
-        activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
+      const installDir = installEnv[INSTALL_DIR_ENV]
+      sink(installDir === undefined
+        ? '[desktop] install dir: none in a development launch\n'
+        : `[desktop] install dir: ${installDir}\n`)
+      const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
+      for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
+      // The server appends its own logger records to the same file, as one
+      // write per record, rather than printing them into the streams above.
+      // After the orphan sweep and the loopback services: an orphan can still
+      // hold the remembered port, and a service bound to port 0 can land on it.
+      const port = await choosePort(readState().serverPort, isPortFree)
+      sink(port.line)
+      const started = await startOnPort(
+        {
+          ...spec,
+          env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile },
+          port: port.port,
+        },
+        startEmbeddedServer, sink,
       )
+      server = started.server
+      rememberServerPort(started.spec)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)
@@ -931,7 +953,7 @@ if (!locked) {
         // server goes down with it, so nothing here is usable until the
         // update the updater is now driving has been installed.
         sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await server.stop()
+        await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })
         server = undefined
         return
       }

@@ -61,6 +61,11 @@ const OURS = '@deepseek-ai'
  * `node-addon-require-builtin-darwin-*`, while the darwin payload still carried
  * the Windows ripgrep it cannot run. `@koromix/koffi-darwin-*` survived only
  * because koffi's JavaScript requires it statically.
+ *
+ * `sherpa-onnx-node` loads its member by a relative path,
+ * `require('../sherpa-onnx-darwin-arm64/sherpa-onnx.node')`, which names no
+ * package, and that `.node` finds `libonnxruntime.dylib` beside itself through
+ * the dynamic library search; its Windows member is spelled `win-x64`.
  */
 const NATIVE = [
   'node-pty',
@@ -70,6 +75,7 @@ const NATIVE = [
   '@vscode/ripgrep', '@vscode/ripgrep-win32-x64', `@vscode/ripgrep-darwin-${process.arch}`,
   'node-addon-require-builtin', 'node-addon-require-builtin-win32-x64-msvc',
   `node-addon-require-builtin-darwin-${process.arch}`,
+  'sherpa-onnx-node', 'sherpa-onnx-win-x64', `sherpa-onnx-darwin-${process.arch}`,
 ]
 
 /**

@@ -9,6 +9,14 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
 
+/**
+ * The environment variable naming the desktop log file to the server child.
+ * `@deepseek-ai/dsh-desktop-app`'s `desktop-server-log` row reads it: set, the
+ * server appends its own logger records to that file; unset, the row stays
+ * off.
+ */
+export const SERVER_LOG_ENV = 'DSH_DESKTOP_SERVER_LOG'
+
 /** The web-app readiness line; capture group 1 is the authenticated URL carrying the launch token. */
 const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/
 
@@ -26,6 +34,43 @@ const STOP_GRACE_MS = 8_000
  * gone to `logSink`).
  */
 const RECENT_OUTPUT_TAIL_LINES = 15
+
+/**
+ * How long an exit waits, after the process itself is gone, for its output
+ * pipes to close. `exit` can arrive while the last chunks the child wrote are
+ * still in the pipes, so an autopsy taken on `exit` misses the lines written
+ * just before the death — the ones that say why. `close` comes once both pipes
+ * are drained; the bound covers a pipe that never closes because a process the
+ * server started inherited it and outlived the server.
+ */
+const CLOSE_WAIT_MS = 2_000
+
+/**
+ * The Node flags that make the server process write a diagnostic report into
+ * `directory` when it dies of a V8 fatal error (out of memory above all) or of
+ * an exception no handler caught.
+ *
+ * They go on the server's own command line, not in `NODE_OPTIONS`: an
+ * environment variable reaches every process the server starts, so every
+ * Node program the agent runs for the user would write its reports into this
+ * directory too. The report leaves out the environment and the network
+ * interfaces (`--report-exclude-env`, `--report-exclude-network`): the
+ * environment is where the provider key lives, and neither is needed to read
+ * a crash. Once the CLI installs its own `uncaughtException` handler an
+ * exception ends the process through that handler, which writes its own
+ * stderr line, so the uncaught-exception report covers the boot before it.
+ * @param directory - where reports are written; the desktop log directory.
+ * @returns the flags, to put before the entry script.
+ */
+export function diagnosticReportFlags(directory: string): string[] {
+  return [
+    '--report-on-fatalerror',
+    '--report-uncaught-exception',
+    `--report-directory=${directory}`,
+    '--report-exclude-env',
+    '--report-exclude-network',
+  ]
+}
 
 /**
  * Kill server processes left behind by an earlier run of this same install.
@@ -127,6 +172,8 @@ export interface ServerSpec {
   entry: string
   /** Working directory the server (and its sessions) start in. */
   cwd: string
+  /** Where the server process writes a Node diagnostic report when it dies; see {@link diagnosticReportFlags}. */
+  reportDirectory: string
   /**
    * Variables added to the inherited environment for this child alone — the
    * endpoint and token of each loopback service the shell lends it, the
@@ -137,6 +184,12 @@ export interface ServerSpec {
    * other process the shell starts would inherit them from there.
    */
   env: Record<string, string>
+  /**
+   * The port passed as `--port`. Absent or 0 lets the system pick one; see
+   * [[@deepseek-ai/dsh-desktop-shell/server-port]] for why the shell asks for
+   * the previous launch's port.
+   */
+  port?: number
 }
 
 /** What one server-child exit tells the caller. */
@@ -152,7 +205,11 @@ export interface ServerExitInfo {
    * for unexpected death must act only when this is false.
    */
   expected: boolean
-  /** The last {@link RECENT_OUTPUT_TAIL_LINES} lines of stdout/stderr the child produced before exiting. */
+  /**
+   * The last {@link RECENT_OUTPUT_TAIL_LINES} lines of stdout/stderr the child
+   * produced, read once both pipes closed or {@link CLOSE_WAIT_MS} after the
+   * exit, whichever came first.
+   */
   tail: string
 }
 
@@ -165,9 +222,17 @@ export interface ServerHandle {
   /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
   /**
+   * Whether the child process has exited, by any cause. True as soon as the
+   * process reported its exit, before {@link onExit} listeners hear it.
+   * @returns true once the child is gone.
+   */
+  exited: () => boolean
+  /**
    * Register a listener for the child's own exit. Fires exactly once, whether
    * the child already exited by the time this is called (synchronously, with
-   * the recorded info) or exits later.
+   * the recorded info) or exits later. It fires once the output pipes closed
+   * after the exit, or {@link CLOSE_WAIT_MS} after it, so the tail holds what
+   * the child wrote last.
    * @param listener - receives the exit info.
    */
   onExit: (listener: (info: ServerExitInfo) => void) => void
@@ -270,13 +335,15 @@ function forEachLine(stream: NodeJS.ReadableStream, onLine: (line: string) => vo
 
 /**
  * Start the embedded server and resolve once its UI URL is known.
- * @param spec - launch paths and working directory.
+ * @param spec - launch paths, working directory, and report directory.
  * @param logSink - receives every server stdout/stderr chunk (for the log file).
  * @param onLine - receives every line of stdout and of stderr, each stream
  * split on its own, for as long as the process writes: before the URL line and
  * after it.
  * @returns the running server handle; rejects when the process exits or stays
  * silent past the startup timeout, with the collected output in the message.
+ * An exit before the URL line rejects once the output pipes closed (or
+ * {@link CLOSE_WAIT_MS} after it), so the collected output is complete.
  */
 export async function startServer(
   spec: ServerSpec, logSink: (chunk: string) => void, onLine?: (line: string) => void,
@@ -287,7 +354,9 @@ export async function startServer(
   // window is the browser for this server, so `--no-open` declines the handoff
   // the web app performs by default; without it every start, including the
   // relaunch after an update, adds a 127.0.0.1 tab.
-  const child = spawn(spec.nodeBin, [spec.entry, '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
+  const child = spawn(spec.nodeBin, [
+    ...diagnosticReportFlags(spec.reportDirectory), spec.entry, '--profile', DESKTOP_PROFILE, '--port', String(spec.port ?? 0), '--no-open',
+  ], {
     cwd: spec.cwd,
     // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch
     // (packages/boot/app-boot/src/profile-context.ts's
@@ -308,11 +377,23 @@ export async function startServer(
   let expectedExit = false
   let exitInfo: ServerExitInfo | undefined
   const exitListeners: Array<(info: ServerExitInfo) => void> = []
+  // The startup race below registers here to hear the same drained exit.
+  let onDrainedExit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined
+  let pipesClosed = false
+  child.once('close', () => { pipesClosed = true })
   // `.once`, not tied to the startup race below: an exit autopsy must see
   // every exit, including one long after the URL was already reported.
   child.once('exit', (code, signal) => {
-    exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
-    for (const listener of exitListeners) listener(exitInfo)
+    const report = (): void => {
+      if (exitInfo !== undefined) return
+      clearTimeout(bound)
+      exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
+      onDrainedExit?.(code, signal)
+      for (const listener of exitListeners) listener(exitInfo)
+    }
+    const bound = setTimeout(report, CLOSE_WAIT_MS)
+    if (pipesClosed) report()
+    else child.once('close', report)
   })
   const authenticatedUrl = await new Promise<string>((resolve, reject) => {
     let settled = false
@@ -346,14 +427,14 @@ export async function startServer(
     child.once('error', (error) => {
       settle(() => { reject(new Error(`dsh server failed to spawn: ${error.message}`)) })
     })
-    child.once('exit', (code, signal) => {
+    onDrainedExit = (code, signal) => {
       settle(() => {
         reject(new ServerExitedBeforeUrl(
           `dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`,
           collected,
         ))
       })
-    })
+    }
   })
   return {
     url: new URL(authenticatedUrl).origin,
@@ -362,6 +443,7 @@ export async function startServer(
       expectedExit = true
       return killTree(child)
     },
+    exited: () => child.exitCode !== null || child.signalCode !== null,
     onExit: (listener) => {
       if (exitInfo !== undefined) {
         listener(exitInfo)

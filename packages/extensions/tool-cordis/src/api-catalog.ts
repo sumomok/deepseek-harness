@@ -653,9 +653,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the compaction result, or `null` if no compaction was needed.',
       },
       {
-        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>',
-        description: 'Explicitly compact useful history even below automatic pressure thresholds. Implementations synchronously start an idle task before any asynchronous work, select a useful range without writing on a no-op, then append a standalone `compaction/start` before summarization. That durable marker is the compaction lock until one `compaction/end` attempt. Later waking prompts remain accepted in FIFO order and start only after the optional durability checkpoint and idle-task settlement. Context injected while the summary runs may sit between the marker pair; only the selected span must remain stable.',
-        parameters: [{ name: 'agent', description: 'idle agent whose durable history should be compacted.' }, { name: 'signal', description: 'cancellation scoped to this compaction request.' }, { name: 'sourceCommandId', description: 'initiating command identity for a manual compaction.' }],
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, whileBusy?: ManualCompactionWhileBusy, ): Promise<CompactionResult | null>',
+        description: 'Explicitly compact useful history even below automatic pressure thresholds. For an idle agent, implementations synchronously start an idle task before any asynchronous work, select a useful range without writing on a no-op, then append a standalone `compaction/start` before summarization. That durable marker is the compaction lock until one `compaction/end` attempt. Later waking prompts remain accepted in FIFO order and start only after the optional durability checkpoint and idle-task settlement. Context injected while the summary runs may sit between the marker pair; only the selected span must remain stable.\n\nWith `whileBusy` and a `running` agent, the request waits instead of failing: `next-step` compacts at the running turn\'s next step boundary with a bracket owned by that turn; `next-step` without a later boundary in that turn, and `turn-end`, compact once the turn ends — at the first step boundary of a turn the loop chains without going idle, else as the idle task above. A `turn-end` request made after a `turn/end` or `turn/start` and before that turn\'s first `step/start` is due at once and compacts at the next step boundary. One request waits per agent. A turn that ends aborted cancels the waiting request.',
+        parameters: [{ name: 'agent', description: 'agent whose durable history should be compacted.' }, { name: 'signal', description: 'cancellation scoped to this compaction request, including its wait.' }, { name: 'sourceCommandId', description: 'initiating command identity for a manual compaction.' }, { name: 'whileBusy', description: 'timing for a `running` agent; omitted refuses a running agent as `busy`.' }],
         returns: 'the compaction result, or `null` when no safe useful range exists.',
         throws: ['{@link ManualCompactionError} for expected busy, agent-cancellation, changed-span, summarization/shrink, commit-stage, or persistence failures; an aborted request preserves its exact abort reason. Failed attempts remain visible in the log.'],
       },
@@ -1492,6 +1492,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'manualCompactionTiming',
+    summary: 'Live choice of when `/compact` runs if its agent is running a turn.',
+    description: 'Live choice of when `/compact` runs if its agent is running a turn. A host-plane plugin that owns the user\'s setting provides it; a manual compaction consumer reads it once per request and passes the answer to CompactionEngine.compactNow. Without a provider a busy request is refused as `busy`.',
+    methods: [
+      {
+        signature: 'whileBusy(): ManualCompactionWhileBusy',
+        description: 'Read the setting in force for the next request.',
+        parameters: [],
+        returns: 'the timing a request made during a running turn uses.',
+      },
+    ],
+  },
+  {
     key: 'mcpResources',
     summary: 'Scoped resource access plus three tools shared by configured MCP servers.',
     description: 'Scoped resource access plus three tools shared by configured MCP servers.',
@@ -1648,9 +1661,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote listBundles(): Promise<BundleInfo[]>',
-        description: 'Read the profile\'s installed bundles, the bundles this dsh installation supplies, and the selected names that are not bundles. A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.',
+        description: 'Read the profile\'s installed bundles, the bundles this dsh installation supplies, the bundles the profile manifest\'s `dsh.profile.shipped` names, and the selected names that are not bundles. A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.',
         parameters: [],
-        returns: 'Package versions, manifest descriptions, rows, optional display metadata, activation selections, whether the installation offers the bundle, and removal availability.',
+        returns: 'Package versions, manifest descriptions, rows, optional display metadata, activation selections, whether the installation offers the bundle, whether the launcher ships it, and removal availability.',
       },
       {
         signature: '@Remote async registries(): Promise<PluginRegistries>',
@@ -4657,7 +4670,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BundleInfo',
-    declaration: 'export interface BundleInfo {\n    name: string;\n    version?: string;\n    meta?: PluginLocalizedMeta;\n    description?: string;\n    enabled: boolean;\n    installed: boolean;\n    optional: boolean;\n    removable: boolean;\n    readOnlyReason?: ReadOnlyReason;\n    error?: ManagementError;\n    rows: BundleRowInfo[];\n    overrides: string[];\n}',
+    declaration: 'export interface BundleInfo {\n    name: string;\n    version?: string;\n    meta?: PluginLocalizedMeta;\n    description?: string;\n    enabled: boolean;\n    installed: boolean;\n    optional: boolean;\n    shipped: boolean;\n    removable: boolean;\n    readOnlyReason?: ReadOnlyReason;\n    error?: ManagementError;\n    rows: BundleRowInfo[];\n    overrides: string[];\n}',
   },
   {
     name: 'BundleRowInfo',
@@ -5637,7 +5650,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ManualCompactAgentContext',
-    declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
+    declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    readonly status: \'idle\' | \'running\';\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
+  },
+  {
+    name: 'ManualCompactionWhileBusy',
+    declaration: 'export type ManualCompactionWhileBusy = \'next-step\' | \'turn-end\';',
   },
   {
     name: 'McpResourceProvider',
@@ -6085,7 +6102,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ReadOnlyReason',
-    declaration: 'export type ReadOnlyReason = \'management-required\' | \'unaddressable\';',
+    declaration: 'export type ReadOnlyReason = \'management-required\' | \'deployment-required\' | \'unaddressable\';',
   },
   {
     name: 'ReadResultView',
