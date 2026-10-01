@@ -123,8 +123,15 @@ export interface EngineRequirement {
   integrity: string
 }
 
-/** The outcome of reading the requirement: the engine, or why this launch can offer none. */
-export type RequirementResult = { ok: true; requirement: EngineRequirement } | { ok: false; reason: string }
+/**
+ * The outcome of reading the requirement: the engine, or why this launch can
+ * offer none. `declaredVersion` is the exact version the kit declares when
+ * {@link ENGINE_DOWNLOADS} does not register it, and absent for every other
+ * refusal.
+ */
+export type RequirementResult =
+  | { ok: true; requirement: EngineRequirement }
+  | { ok: false; reason: string; declaredVersion?: string }
 
 /**
  * The kit's target name for a host, as the kit itself computes it for macOS
@@ -175,7 +182,9 @@ export function readEngineRequirement(serverModules: string, platform: NodeJS.Pl
     return { ok: false, reason: `the LibreOffice kit declares no exact version of ${name}` }
   }
   const download = ENGINE_DOWNLOADS[`${name}@${version}`]
-  if (download === undefined) return { ok: false, reason: `this version of the preview component is not registered yet (${name}@${version})` }
+  if (download === undefined) {
+    return { ok: false, reason: `this version of the preview component is not registered yet (${name}@${version})`, declaredVersion: version }
+  }
   return { ok: true, requirement: { target, name, version, downloadBytes: download.bytes, integrity: download.integrity } }
 }
 
@@ -265,6 +274,17 @@ function holdsEngine(modules: string, requirement: EngineRequirement): boolean {
  */
 export function engineInstalled(root: string, requirement: EngineRequirement): boolean {
   return holdsEngine(engineModulesDir(root, requirement.version), requirement)
+}
+
+/**
+ * The engine version a launch's prune keeps: the version the kit declares,
+ * whether or not {@link ENGINE_DOWNLOADS} registers it, and none when the kit
+ * declares no exact version for this host or cannot be read.
+ * @param result - this launch's {@link readEngineRequirement}.
+ * @returns the version directory {@link pruneEngineRoot} must not remove.
+ */
+export function versionToKeep(result: RequirementResult): string | undefined {
+  return result.ok ? result.requirement.version : result.declaredVersion
 }
 
 /** What one prune removed and what it could not. */

@@ -193,6 +193,24 @@ describe('startOnPort', () => {
     expect(calls).toBe(2)
   })
 
+  // A rebind and the restart after a failed install start from the spec this
+  // returns, so the loopback services' variables must survive the fallback.
+  it('starts both attempts with the launch environment and returns it unchanged', async () => {
+    const env = {
+      NODE_PATH: '/data/engines/office/0.1.1/node_modules',
+      DSH_DESKTOP_OFFICE_ENGINE_ENDPOINT: 'http://127.0.0.1:53000',
+      DSH_DESKTOP_OFFICE_ENGINE_TOKEN: 'secret',
+    }
+    const seen: Array<Record<string, string>> = []
+    const started = await startOnPort({ ...SPEC, env, port: 49_321 }, async (spec) => {
+      seen.push(spec.env)
+      if (spec.port === 49_321) throw IN_USE
+      return handleOn(52_000)
+    }, () => {})
+    expect(seen).toEqual([env, env])
+    expect(started.spec.env).toEqual(env)
+  })
+
   it('keeps the asked port when the origin names none', async () => {
     const started = await startOnPort({ ...SPEC, port: 49_321 }, async () => ({ ...handleOn(1), url: 'http://127.0.0.1' }), () => {})
     expect(started.spec.port).toBe(49_321)

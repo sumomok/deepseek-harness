@@ -40,7 +40,7 @@ import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
-import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement } from './office-engine.ts'
+import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionToKeep } from './office-engine.ts'
 import {
   confirmDialogOptions, DECLINE_COOLDOWN_MS, ENDPOINT_ENV as OFFICE_ENGINE_ENDPOINT_ENV, INSTALL_TIMEOUT_MS, OfficeEngineManager,
   startOfficeEngineService,
@@ -514,8 +514,9 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
  * needs to use and install it.
  *
  * The engine lives under the data directory, one directory per version; every
- * other version and every staging directory an interrupted download left is
- * removed here, before any converter can hold one open. `NODE_PATH` names the
+ * version but the one the kit declares ([[versionToKeep]]) and every staging
+ * directory an interrupted download left is removed here, also on a launch
+ * that offers no engine, before any converter can hold one open. `NODE_PATH` names the
  * current version's directory whether or not it is installed yet, so an
  * engine downloaded while the server runs is found by the next conversion.
  * Failing to open the loopback listener is not a reason to refuse the launch:
@@ -528,13 +529,10 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
 async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
   const requirement = readEngineRequirement(spec.builtinModules, process.platform, process.arch)
   const root = officeEngineRoot(resolveHarnessHome())
-  if (requirement.ok) {
-    const pruned = pruneEngineRoot(root, requirement.requirement.version)
-    for (const name of pruned.removed) log(`[desktop] office engine: removed ${name} from ${root}\n`)
-    for (const line of pruned.failed) log(`[desktop] office engine: could not remove ${line}\n`)
-  } else {
-    log(`[desktop] office engine: none offered (${requirement.reason})\n`)
-  }
+  const pruned = pruneEngineRoot(root, versionToKeep(requirement))
+  for (const name of pruned.removed) log(`[desktop] office engine: removed ${name} from ${root}\n`)
+  for (const line of pruned.failed) log(`[desktop] office engine: could not remove ${line}\n`)
+  if (!requirement.ok) log(`[desktop] office engine: none offered (${requirement.reason})\n`)
   const manager = new OfficeEngineManager({
     requirement,
     root,
