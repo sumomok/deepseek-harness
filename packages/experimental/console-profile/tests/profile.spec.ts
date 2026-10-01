@@ -236,7 +236,7 @@ describe('the console layer over the shipped Web bundles', () => {
     for (const id of [
       'ui-layout', 'ui-sidebar', 'ui-agent-preset', 'ui-brand-official', 'ui-cordis', 'ui-trajectory',
       'ui-model-selection', 'session-log-download', 'ui-settings-models', 'ui-permission',
-      'ui-settings-plugins', 'ui-settings-plugin-inventory',
+      'ui-settings-plugins', 'ui-settings-plugin-inventory', 'ui-settings-session-log',
     ]) {
       expect(byId.get(id)?.disabled).toBe(true)
     }

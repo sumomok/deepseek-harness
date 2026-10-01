@@ -51,7 +51,7 @@ The console bundle composes these changes over the shipped Web profile:
 | `console-mcp` | Inserted with `servers: []`: the MCP capability, idle until a deployment names a server |
 | `library-skills` | Inserted: an isolated `skill-filesystem` provider over `@deepseek-ai/dsh-experimental-library-skills` |
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
-| `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission` | Disabled: internal vocabulary, official branding, and developer surfaces |
+| `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission`, `ui-settings-session-log` | Disabled: internal vocabulary, official branding, and developer surfaces |
 | `ui-settings-plugins`, `ui-settings-plugin-inventory` | Disabled: Settings → Plugins, both tabs; the settings shell `ui-settings-general` stays |
 | `ui-chat` | Configured with `performanceUsage: compact`: Settings → General → Performance & usage starts at compact, so a completed answer shows no per-Turn token usage; a user's own choice is saved into the profile patch and outranks this default |
 | `preset-console` | Inserted: the `console` Agent preset — persona, `tool-fs`, `skill-filesystem`, `tool-skill`, the compaction group, `tool-ask-user`, and `tool-todo`; no shell, search, job, goal, plan, delegation, web, or `present` row |

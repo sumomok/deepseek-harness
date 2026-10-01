@@ -903,6 +903,10 @@ describe('web e2e: the product-console sidebar', () => {
     // form is drawn for `console-mcp`: its server list is not volatile.
     await expect.poll(() => dialog.locator('nav').innerText(), { timeout: 10_000 })
       .toBe('Settings\nGeneral\nGeneral settings')
+    // The General panel is drawn, and the disabled `ui-settings-session-log`
+    // row leaves no upload switch in it.
+    await expect.poll(() => dialog.getByText('Appearance', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    expect(await dialog.getByText(/Session Log/).count()).toBe(0)
     const header = await dialog.evaluate((panel) => {
       const row = panel.querySelector('[class$="_header"]')
       const actions = row?.querySelector(':scope > [class$="_actions"]')

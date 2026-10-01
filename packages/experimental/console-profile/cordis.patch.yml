@@ -142,6 +142,16 @@
 - id: ui-permission
   disabled: true
 
+# The Settings → General switch "Upload Session Log when using the official model
+# API / Help improve DeepSeek models and products" names the official vendor and
+# the banned word, and a save from it lands in the deployment's shared profile
+# patch, so one visitor's choice would apply to every session the host serves.
+# The package's only other registration is the toast that reports such a save.
+# The host row the switch edits, `session-log-deepseek`, stays mounted at the
+# base bundle's `enabled: false`.
+- id: ui-settings-session-log
+  disabled: true
+
 # Settings → General → Performance & usage starts at compact for a console user:
 # no per-Turn token usage under a completed answer. The composer statistics row
 # is hidden in either mode by `terminology-guard.ts`. `performanceUsage` is
