@@ -931,7 +931,7 @@ describe('ChatView', () => {
     const h = makeHarness({ chat: installGroupedSnapshot(builder, state, groups, fixture, [waited, failed]) })
     h.setGrouped(groups)
     const view = render(<h.ChatView {...h.props} />)
-    const toggle = view.getByRole('button', { name: '用时 4秒' })
+    const toggle = view.getByRole('button', { name: '已完成，用时 4秒' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
     expect(members.length).toBeGreaterThan(0)
