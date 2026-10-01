@@ -1,6 +1,7 @@
 # Agent Note: Explorer starts with a visible window
 
 Status: implemented
+Archived: 2026-10-01
 
 English | [中文](2026-09-27-explorer-visible-window.zh.md)
 

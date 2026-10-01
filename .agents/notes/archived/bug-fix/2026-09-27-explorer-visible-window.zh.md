@@ -1,6 +1,7 @@
 # Agent Note: Explorer 以可见窗口启动
 
 Status: implemented
+Archived: 2026-10-01
 
 [English](2026-09-27-explorer-visible-window.md) | 中文
 
