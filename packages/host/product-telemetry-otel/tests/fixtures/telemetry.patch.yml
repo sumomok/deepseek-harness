@@ -1,3 +1,7 @@
+# This fork ships the `otel` service row off (packages/bundle/base/cordis.patch.yml);
+# the telemetry row under test injects it, so it comes back on with that row.
+- id: otel
+  disabled: false
 - id: session-telemetry-otel
   disabled: true
 - id: headless-startup
