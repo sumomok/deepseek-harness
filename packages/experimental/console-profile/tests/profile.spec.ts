@@ -162,7 +162,6 @@ describe('the console bundle manifest', () => {
     // resolves to the workspace copy only through this manifest.
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
       '@deepseek-ai/dsh-agent-preset',
-      '@deepseek-ai/dsh-command-compact',
       '@deepseek-ai/dsh-compaction-basic',
       '@deepseek-ai/dsh-compaction-tool-result-pruner',
       '@deepseek-ai/dsh-experimental-console-mcp',
@@ -344,10 +343,14 @@ describe('the console layer over the shipped Web bundles', () => {
     // which both the `console` preset and its `standard` twin carry.
     for (const id of ['preset-console', 'preset-standard-as-console']) {
       const plugins = (byId.get(id)?.config as { plugins?: Row[] } | undefined)?.plugins ?? []
-      expect(plugins.find(row => row.id === 'compaction')).toMatchObject({
+      const group = plugins.find(row => row.id === 'compaction')
+      expect(group).toMatchObject({
         name: 'cordis:group',
         isolate: { compaction: true },
       })
+      // No `command-compact`: the console offers no typed `/compact`, whose
+      // card shows counts and the English summary.
+      expect((group?.config as Row[] | undefined)?.map(row => row.id)).toEqual(['compaction-basic', 'tool-result-pruner'])
     }
   })
 

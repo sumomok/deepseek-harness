@@ -200,7 +200,8 @@
 # `permission-lock.patch.yml` would make config-editor refuse that write.
 #
 # The same package's "Compaction while busy" row, which picks when a `/compact`
-# typed during a running turn runs, is withheld by `server-sidebar`
+# typed during a running turn runs, a command the console's presets do not
+# compose, is withheld by `server-sidebar`
 # (`settings-entries.ts`); `busyCompaction` keeps its default, `turn-end`, and is
 # not restated here.
 - id: ui-chat
@@ -354,7 +355,11 @@
 # answered through the content column, whose tools (`content_show`,
 # `show_component`, and the reads the `content-frame` row registers) live on the
 # host plane and reach every preset. `tool-fs` stays so the agent can write the
-# skills it distils into `<workspace>/.dsh/skills`. The persona carries no
+# skills it distils into `<workspace>/.dsh/skills`. The compaction group carries
+# the engine and the tool-result pruner but not `command-compact`: the card a
+# typed `/compact` draws shows item and token counts and opens the English
+# summary, and the console compacts on its own at 60% (the `auto-compact` row
+# above), so the slash menu offers no 压缩. The persona carries no
 # working-directory suffix, unlike the shipped presets'. Its last sentence asks
 # for Chinese in everything a user sees, the reasoning included: the
 # conversation's process rows show the model's reasoning text.
@@ -388,8 +393,6 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
                 config:
@@ -435,8 +438,6 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
                 config:

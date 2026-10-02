@@ -58,9 +58,9 @@ export const CONTENT_COLUMN_PRESET: PresetDefinition = {
 /**
  * The customer console's own Agent preset, restated from the `preset-console`
  * row of `packages/experimental/console-profile/cordis.patch.yml`: its persona,
- * the file tools, the skill catalog and loader, compaction, the question tool
- * and the todo list — no shell, no file search, no web tool, and no working
- * directory in the persona.
+ * the file tools, the skill catalog and loader, compaction without the
+ * `/compact` command, the question tool and the todo list — no shell, no file
+ * search, no web tool, and no working directory in the persona.
  *
  * The scenarios about reading markup compose this, because the `standard`
  * preset hands the model a shell, a file search and a web fetch, and with those
@@ -88,7 +88,6 @@ export const CONSOLE_PRESET: PresetDefinition = {
       isolate: { compaction: true, toolResultPruner: true },
       config: [
         { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' },
-        { id: 'command-compact', name: '@deepseek-ai/dsh-command-compact' },
         {
           id: 'tool-result-pruner',
           name: '@deepseek-ai/dsh-compaction-tool-result-pruner',

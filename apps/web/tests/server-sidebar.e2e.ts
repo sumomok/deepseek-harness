@@ -177,13 +177,13 @@ const RENAMED_PRESET = '可修改文件'
  * the console bundle isolates `commands` from the `permission-presets` row, so that
  * package's command child never activates. `Goal` and `Plan` are absent too:
  * they belong to the shipped presets' `command-goal` and `plan-mode` rows,
- * which the `console` Agent preset does not mount. Pinning the whole set rather
+ * which the `console` Agent preset does not mount, and so is `Compact`, whose
+ * `command-compact` row its compaction group leaves out. Pinning the whole set rather
  * than the one absence is what also fails on a command this composition gains.
  */
 const CONSOLE_COMMANDS = [
   'File',
   'Feedback',
-  'Compact',
   'content-navigated',
   'dismiss-content-entry',
   'select-content-entry',

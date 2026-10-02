@@ -8123,9 +8123,6 @@ importers:
       '@deepseek-ai/dsh-agent-preset':
         specifier: workspace:*
         version: link:../../preset/agent-preset
-      '@deepseek-ai/dsh-command-compact':
-        specifier: workspace:*
-        version: link:../../compaction/command-compact
       '@deepseek-ai/dsh-compaction-basic':
         specifier: workspace:*
         version: link:../../compaction/compaction-basic

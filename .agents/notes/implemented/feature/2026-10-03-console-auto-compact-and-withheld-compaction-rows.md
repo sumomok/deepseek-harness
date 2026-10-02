@@ -22,6 +22,8 @@ The console's Agent presets mount `compaction-basic` inside an isolated `compact
 
 **The rows for a landed or failed compaction are the console's own.** `conversation.chat.node` is a keyed slot, and only a key's lowest-priority entry renders, so `server-sidebar`'s [`CompactionRows.tsx`](../../../../packages/experimental/server-sidebar/src/client/CompactionRows.tsx) registers a row at priority -1 under the `compaction` and `compaction-failure` keys, in its own locale: 已压缩较早的对话 (Earlier conversation compacted) and 较早的对话压缩失败 (Couldn’t compact the earlier conversation). Neither shows a count or a token figure, and neither opens the summary. `ui-chat` still decides where the row sits: before a turn's first request, the running and failed rows sit above the message that started the turn, which enters the conversation only after the compaction, and a landed row sits below it among the turn's process rows.
 
+**The console's presets compose no `/compact`.** Both presets' `compaction` groups carry `compaction-basic` and the tool-result pruner but not `command-compact`, so the slash menu offers no 压缩. The command's card, `ui-chat`'s `manual-compaction` row, shows a title, the item and token counts, and the English summary, and the console already compacts on its own at 60%.
+
 ## Alternatives considered
 
 **Disabling `ui-chat` to remove its row.** The package draws the Chat column; disabling it removes the conversation.
@@ -29,6 +31,8 @@ The console's Agent presets mount `compaction-basic` inside an isolated `compact
 **Hiding the entries with the terminology guard's CSS.** A rule couples to rendered class names and leaves the control in the DOM, focusable by keyboard. A shadowing entry couples to the list id alone, and the control never mounts.
 
 **Keeping `ui-chat`'s landed and failed rows.** The marker states how many history items and tokens were condensed and opens a summary written in English, and the failure row promises another attempt the plugin does not make within the turn: figures, a language, and a promise a console customer has no use for.
+
+**Shadowing the `manual-compaction` key as well.** The command's card has waiting, running, refused, cancelled, and failed states, each with its own text, that a single fixed sentence would have to restate; leaving the command out removes the card and its states together.
 
 **Changing `ui-chat`'s rows in a core patch.** The shipped Web profile and the desktop line keep the marker as it is, and the keyed slot reaches the console's wording without a patch.
 
@@ -46,7 +50,7 @@ The console's Agent presets mount `compaction-basic` inside an isolated `compact
 
 A console conversation is compacted before a model request once the history recorded before it takes more than 60% of the window, the first request of a turn included, or earlier on a model whose window minus reserved output and the backend's headroom is smaller; a failed attempt is not repeated within the same turn. The check before a turn's first request does not count the message just sent, so a long message can carry that request past 60% without a compaction. Pressing Stop during a compaction before a turn's first request ends the turn and drops that message, which never enters the conversation; this is the harness's own behavior, which the lower trigger reaches more often. From that request on, the model reads long tool results cut to their start and end and, when that is not enough, a summary of the older history.
 
-What a customer sees of a compaction is `ui-chat`'s 正在压缩… while it runs; then, among the turn's process rows, 已压缩较早的对话; or 较早的对话压缩失败 as a row of its own when the summary fails. For a compaction before a turn's first request, the running and failed rows appear above the message the customer just sent. The summary `compaction-basic` writes, in English as its summarizer prompt asks, is out of a customer's reach, and a key `ui-chat` renames un-shadows its row. A `/compact` typed in the composer still draws `ui-chat`'s command card, with the counts and the summary.
+What a customer sees of a compaction is `ui-chat`'s 正在压缩… while it runs; then, among the turn's process rows, 已压缩较早的对话; or 较早的对话压缩失败 as a row of its own when the summary fails. For a compaction before a turn's first request, the running and failed rows appear above the message the customer just sent. The summary `compaction-basic` writes, in English as its summarizer prompt asks, is out of a customer's reach, and a key `ui-chat` renames un-shadows its row. A deployment that wants `/compact` back restores the `command-compact` row in both presets' `compaction` groups and gets `ui-chat`'s card with the counts and the summary.
 
 The page offers no control for the three settings. `busyCompaction`, `enabled`, and `thresholdPercent` remain volatile, so the `remote.settings` method still accepts a write to them from any browser the deployment admits.
 
