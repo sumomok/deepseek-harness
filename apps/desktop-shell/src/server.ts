@@ -274,7 +274,8 @@ export class ServerExitedBeforeUrl extends Error {
  * end with the server listening on it: the preload reported a failure, the
  * socket could not be sent, the process exited before it took the socket, or
  * the server printed its URL line without the preload's `listening` line. The
- * process has been stopped. The caller starts the server without the socket.
+ * process has exited by the time this is thrown, so the caller can start the
+ * server without the socket at once.
  */
 export class ListenHandoffFailed extends Error {
   /** Why the handoff failed, in one line. */
@@ -378,8 +379,8 @@ function forEachLine(stream: NodeJS.ReadableStream, onLine: (line: string) => vo
  * An exit before the URL line rejects once the output pipes closed (or
  * {@link CLOSE_WAIT_MS} after it), so the collected output is complete. With
  * {@link ServerSpec.listen} set, a handoff that did not leave the server
- * listening on the held socket rejects with {@link ListenHandoffFailed}; an
- * exit after the socket was sent rejects as without it.
+ * listening on the held socket rejects with {@link ListenHandoffFailed} once
+ * the process exited; an exit after the socket was sent rejects as without it.
  */
 export async function startServer(
   spec: ServerSpec, logSink: (chunk: string) => void, onLine?: (line: string) => void,
@@ -458,12 +459,13 @@ export async function startServer(
       })
     }, STARTUP_TIMEOUT_MS)
     // A handoff failure is this shell's own decision to stop the server, like
-    // the startup timeout above.
+    // the startup timeout above. It rejects only once the process is gone,
+    // because the caller then starts another server on the same Harness home
+    // and, at launch, on the same port.
     const failHandoff = (reason: string): void => {
       settle(() => {
         expectedExit = true
-        void killTree(child)
-        reject(new ListenHandoffFailed(reason, collected))
+        void killTree(child).then(() => { reject(new ListenHandoffFailed(reason, collected)) })
       })
     }
     // Whether the socket reached the child: set once the send completed.

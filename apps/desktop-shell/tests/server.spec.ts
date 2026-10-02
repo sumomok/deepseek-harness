@@ -520,16 +520,22 @@ describe('a start with a held socket', () => {
     expect((rejection as ListenHandoffFailed).reason).toMatch(/^the server exited \(code \d+\) before it took the socket$/u)
   })
 
-  it('rejects as a handoff failure when the URL line comes from a server that bound its own port', async () => {
+  it('rejects as a handoff failure, once the process is gone, when the URL line comes from a server that bound its own port', async () => {
     const socket = hold()
+    // A server whose own stop takes a while, as the real one's does.
     const entry = entryScript('own-port.mjs', `
       import http from 'node:http'
+      process.on('SIGTERM', () => { setTimeout(() => { process.exit(0) }, 300) })
+      console.log('pid ' + String(process.pid))
       const server = http.createServer((req, res) => { res.end() })
       server.listen(0, '127.0.0.1', () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') })
     `)
     const rejection = await failure(heldSpec(entry, socket))
     expect(rejection).toBeInstanceOf(ListenHandoffFailed)
     expect((rejection as ListenHandoffFailed).reason).toBe('the server printed its URL line without listening on the held socket')
+    const pid = Number(/^pid (\d+)$/mu.exec((rejection as ListenHandoffFailed).output)?.[1])
+    expect(pid).toBeGreaterThan(0)
+    expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
   })
 
   it('rejects as without a socket when the server exits after it took the socket, so the quarantine retry still applies', async () => {
