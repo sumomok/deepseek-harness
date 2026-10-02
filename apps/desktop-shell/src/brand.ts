@@ -5,9 +5,10 @@
  * download-failure dialog, and, through `scripts/client-build.ts`, the served
  * UI's browser title. It is display text only: `productName` in
  * `electron-builder.yml`, which the artifact names and the app bundle are
- * built from, stays `DSH Desktop`, and so does what reads it through
- * `app.getName()` (the tray tooltip and menu, the macOS application menu, the
- * About dialog).
+ * built from, stays `DSH Desktop`. What reads `app.getName()` (the tray
+ * tooltip and menu, the macOS application menu's About item, the About
+ * dialog) shows neither: it shows the name
+ * [[@deepseek-ai/dsh-desktop-shell/app-identity]] pins.
  * @module @deepseek-ai/dsh-desktop-shell/brand
  */
 
