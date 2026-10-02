@@ -174,7 +174,7 @@
 #
 # The same package's "Compaction while busy" row, which picks when a `/compact`
 # typed during a running turn runs, is withheld by `server-sidebar`
-# (`settings-rows.ts`); `busyCompaction` keeps its default, `turn-end`, and is
+# (`settings-entries.ts`); `busyCompaction` keeps its default, `turn-end`, and is
 # not restated here.
 - id: ui-chat
   config:
@@ -287,11 +287,11 @@
         includeDefaultRoots: false
         bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"
 
-# Automatic compaction at 60% of the context window. Between two steps of a
-# turn, once the next model request would take more than 60% of the window (or
-# the window minus the reserved output and the compaction backend's headroom,
-# whichever is less), the conversation is condensed before that request and the
-# turn carries on. `@haoran/dsh-auto-compact` is an out-of-repo plugin, vendored
+# Automatic compaction at 60% of the context window. Before each model request
+# of a turn, the first included, the conversation is condensed when that request
+# would take more than 60% of the window (or the window minus the reserved
+# output and the compaction backend's headroom, whichever is less), and the turn
+# carries on. `@haoran/dsh-auto-compact` is an out-of-repo plugin, vendored
 # as `vendor/haoran-dsh-auto-compact-0.5.1.tgz` and declared under
 # `dependencies` as a `file:` tarball.
 #
@@ -301,14 +301,16 @@
 # it for each agent through `ctx.agentPresets.serviceFor(agent, 'compaction')`,
 # so `console` and its `standard` twin are both covered. Once it reaches an
 # engine, its `compactionPolicy` service turns off `compaction-basic`'s own
-# between-steps pressure check, which this row's step path replaces; the
-# backend's overflow recovery is unaffected.
+# between-steps pressure check, which this row's check before each request
+# replaces; the backend's overflow recovery is unaffected.
 #
 # Both fields are volatile, so these are the inherited values: a settings write
 # saves a different value into the profile patch, which outranks this layer.
 # The page offers no control for either: `server-sidebar` withholds the plugin's
-# Settings → General row. A compaction in progress still shows as a row in the
-# conversation; that row is the harness's own, not this plugin's.
+# Settings → General row. The rows a compaction draws in the conversation are
+# `ui-chat`'s, not this plugin's, and this bundle replaces none of them; the
+# package README's Known Limitations states what they show, a token count and
+# an English summary included.
 - insert:
     - id: auto-compact
       name: '@haoran/dsh-auto-compact'

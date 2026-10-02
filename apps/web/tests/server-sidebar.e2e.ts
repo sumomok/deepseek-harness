@@ -36,9 +36,15 @@
  * connection-loss notice in `server-layout`'s overlay layer, clear of the
  * composer.
  *
- * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
- * for a pure client-layout scenario: every session this scenario opens is
- * created live through the UI with no message ever typed into the composer.
+ * The last describe block owns the `console-auto-compact` Web snapshot: it
+ * replays an authored conversation through the same composition and checks
+ * that automatic compaction runs at the bundle's 60% inside both console
+ * presets, and not below it.
+ *
+ * Every other describe makes zero model calls, the same shape
+ * `rail-search-expand.e2e.ts` uses for a pure client-layout scenario: every
+ * session those describes open is created live through the UI with no message
+ * ever typed into the composer.
  * The one exception is the "Save as workflow" and de-terminology scenario,
  * which needs a real user-authored message on the log to satisfy decision
  * ③'s visibility gate and a real closed step to satisfy the turns/steps row's
@@ -65,8 +71,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
-import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
+import { createMessage, createUserMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-commands/types'
@@ -75,7 +82,8 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 // Type-only: the `compaction` and `compactionPolicy` Context merges.
 import type {} from '@deepseek-ai/dsh-compaction-basic'
 import {
-  acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  launchWebScaffold, watchConsole, webSnapshotMode, type LaunchOptions, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft, ZH_BROWSER_LOCALE } from './support.ts'
 
@@ -239,6 +247,11 @@ async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string]
   return home
 }
 
+/** The replay options {@link launchConsole} passes through to the scaffold. */
+type ConsoleReplayOptions = Pick<
+  LaunchOptions, 'replayFixture' | 'replayOverride' | 'replayContextWindow' | 'compareReplaySession' | 'paceMs'
+>
+
 /**
  * Launch the scaffold over a profile carrying the console bundle and one
  * deployment layer, both enabled in `dsh.profile.bundles` after the shipped
@@ -249,12 +262,14 @@ async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string]
  * @param deployment - the deployment layer's patch file.
  * @param lockForm - `home` copies the lock to the home patch; `command-line`
  *   passes it where the launcher's `--patch` goes and leaves no home patch.
+ * @param replay - the scaffold's replay options, for a scenario that calls a model.
  * @returns the launched scaffold.
  */
 async function launchConsole(
   harnessHome: string,
   deployment: string,
   lockForm: 'home' | 'command-line' = 'home',
+  replay: ConsoleReplayOptions = {},
 ): Promise<WebScaffold> {
   const dir = join(harnessHome, 'console-e2e-deployment')
   await mkdir(dir, { recursive: true })
@@ -264,6 +279,7 @@ async function launchConsole(
   await copyFile(deployment, join(dir, 'cordis.patch.yml'))
   if (lockForm === 'home') await copyFile(PERMISSION_LOCK, join(harnessHome, 'cordis.patch.yml'))
   return await launchWebScaffold({
+    ...replay,
     harnessHome,
     profile: { packages: [{ dir: CONSOLE_BUNDLE, enabled: true }, { dir, enabled: true }] },
     ...lockForm === 'command-line' ? { commandLinePatchPath: PERMISSION_LOCK } : {},
@@ -1055,8 +1071,8 @@ describe('web e2e: the product-console sidebar', () => {
       expect(ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()).toEqual(CONSOLE_TOOLS)
       // Automatic compaction is a host-plane row; the engine it calls is this
       // preset's own, inside the isolated `compaction` group, which only the
-      // preset registry can address. Reaching it is what makes the plugin's
-      // policy stand the backend's own between-steps check down.
+      // preset registry can address. Reaching it is what lets the plugin's
+      // policy turn off the backend's own between-steps check.
       expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
       expect(ctx.get('compaction')).toBeUndefined()
       expect(ctx.get('compactionPolicy')?.isEnabled()).toBe(false)
@@ -1734,5 +1750,273 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+  })
+})
+
+/**
+ * The console's automatic-compaction scenario. Its snapshot directory owns the
+ * recorded session, the system-prompt and tool-schema pins of the console
+ * composition, and the Chat column's ARIA once the conversation is compacted.
+ */
+const AUTO_COMPACT_DIR = join(REPO_ROOT, 'snapshots/web/console-auto-compact')
+const AUTO_COMPACT_FIXTURE = join(AUTO_COMPACT_DIR, 'session.v4.jsonl')
+const AUTO_COMPACT_EXPECTED = join(AUTO_COMPACT_DIR, 'compacted.expected.md')
+/**
+ * The replay models' context window. Above 163,840 tokens, 60% of the window
+ * is below the window minus the compaction backend's 65,536-token headroom, so
+ * the bundle's share is the term that decides; the backend's own 80% would
+ * not trigger until 134,464.
+ */
+const AUTO_COMPACT_WINDOW = 200_000
+/** The usage the second reply reports: 62.5% of the window. */
+const ABOVE_SHARE = 125_000
+/** The usage the negative control's second reply reports: 57.5% of the window. */
+const BELOW_SHARE = 115_000
+/** The replay route every scenario session selects. */
+const AUTO_COMPACT_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash' } as const
+/**
+ * A prompt of `repeats` sentences, priced by the token meter at four
+ * characters a token.
+ * @param label - the prompt's first word.
+ * @param repeats - how many times the sentence repeats.
+ * @returns the prompt text.
+ */
+const longPrompt = (label: string, repeats: number): string =>
+  `${label} ${'event sourcing keeps every change as an event. '.repeat(repeats)}`
+/**
+ * The second prompt alone (about 35,000 tokens) fills the verbatim tail the
+ * compaction backend keeps, 16% of the window, so the first turn is the span a
+ * compaction condenses. The first prompt (about 9,400 tokens) is large enough
+ * that condensing it brings the third turn's request back under 60%, so one
+ * compaction settles the turn.
+ */
+const AUTO_COMPACT_PROMPTS = [
+  longPrompt('First', 800), longPrompt('Second', 3_000), 'Now summarize what we discussed.',
+] as const
+const SUMMARY = '## Summary\n\nThe user sent two long notes about event sourcing: every change is kept as an event.'
+const ANSWER = 'Event sourcing keeps every change as an event.'
+
+/**
+ * One scripted text reply.
+ * @param text - the reply text.
+ * @param inputTokens - the prompt usage the reply reports.
+ * @returns the replay entry.
+ */
+function textReply(text: string, inputTokens: number): ReplayEntry {
+  return {
+    kind: 'chunks',
+    chunks: [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text },
+      { type: 'block-end', index: 0, block: { type: 'text', text } },
+      { type: 'usage', usage: { inputTokens, outputTokens: 2 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ] satisfies StreamChunk[],
+  }
+}
+
+/**
+ * The model calls of the three prompts: two replies, then, when the second
+ * reply's usage passes the share, the compaction summary before the third.
+ * @param secondUsage - the usage the second reply reports.
+ * @returns the whole replay script.
+ */
+function autoCompactScript(secondUsage: number): ReplayEntry[] {
+  return [
+    textReply('READY', 200),
+    textReply('READY', secondUsage),
+    ...secondUsage > AUTO_COMPACT_WINDOW * 0.6 ? [textReply(SUMMARY, 40_000)] : [],
+    textReply(ANSWER, 300),
+  ]
+}
+
+/** The snapshot mode; the scenario's recording is authored, so a record run skips it. */
+const AUTO_COMPACT_MODE = webSnapshotMode()
+
+describe.skipIf(AUTO_COMPACT_MODE === 'record')('web e2e: automatic compaction in the console at 60% of the context window', () => {
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+  let harnessHome: string | undefined
+  let scriptDir: string | undefined
+  let scaffold: WebScaffold | undefined
+  let browser: Browser | undefined
+  const events = new Map<string, SessionEvent[]>()
+
+  afterEach(async () => {
+    const failures: unknown[] = []
+    await browser?.close().catch((error: unknown) => failures.push(error))
+    browser = undefined
+    // The scaffold's own close compares the replayed session with the fixture
+    // and checks every scripted call was consumed.
+    await scaffold?.close().catch((error: unknown) => failures.push(error))
+    scaffold = undefined
+    for (const dir of [harnessHome, scriptDir]) {
+      if (dir !== undefined) await rm(dir, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+    }
+    harnessHome = undefined
+    scriptDir = undefined
+    events.clear()
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'console auto-compact teardown failed')
+  })
+
+  /**
+   * Launch the console over the replay route with a registered workspace.
+   * @param replay - the fixture or scripted override the route replays.
+   * @returns the scaffold and the workspace directory.
+   */
+  async function launch(replay: ConsoleReplayOptions): Promise<{ live: WebScaffold; workspaceDir: string }> {
+    harnessHome = await harnessHomeWithRowLinks()
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    const live = await launchConsole(harnessHome, OVERLAY, 'home', {
+      replayContextWindow: AUTO_COMPACT_WINDOW, paceMs: 10, ...replay,
+    })
+    scaffold = live
+    live.ctx.on('session/event', (session, event: SessionEvent) => {
+      const log = events.get(session.id) ?? []
+      log.push(event)
+      events.set(session.id, log)
+    })
+    const workspaceDir = join(live.workspaceCwd, 'server-sidebar-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await live.ctx.workspaceRegistry.create(workspaceDir)
+    return { live, workspaceDir }
+  }
+
+  /**
+   * Write a whole-script override for one launch.
+   * @param secondUsage - the usage the second reply reports.
+   * @returns the override file's path.
+   */
+  async function scriptFile(secondUsage: number): Promise<string> {
+    scriptDir = await mkdtemp(join(tmpdir(), 'dsh-console-auto-compact-'))
+    const path = join(scriptDir, 'replay.override.json')
+    await writeFile(path, JSON.stringify(autoCompactScript(secondUsage)))
+    return path
+  }
+
+  /**
+   * Run the three prompts on a session of the given preset, created on the
+   * Host as a session RPC creates one.
+   * @param live - the running scaffold.
+   * @param workspaceDir - the session's working directory.
+   * @param preset - the Agent preset the session runs under.
+   * @returns the session's events.
+   */
+  async function runOnPreset(live: WebScaffold, workspaceDir: string, preset: 'console' | 'standard'): Promise<SessionEvent[]> {
+    const sessionId = SessionId(`console-auto-compact-${preset}`)
+    const handle = await live.ctx.agents.create({
+      sessionId,
+      meta: { cwd: workspaceDir, agentPreset: preset },
+      agentOptions: AUTO_COMPACT_ROUTE,
+      setup: agentCtx => live.ctx.agentPresets.mount(agentCtx, preset).then(() => undefined),
+    })
+    try {
+      for (const prompt of AUTO_COMPACT_PROMPTS) {
+        handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }))
+        await handle.agent.whenIdle()
+      }
+      return events.get(sessionId) ?? []
+    } finally {
+      await handle.dispose()
+    }
+  }
+
+  /**
+   * The turn each compaction opened in, in log order.
+   * @param log - one session's events.
+   * @returns the `turn` of every `compaction/start`.
+   */
+  function compactionTurns(log: readonly SessionEvent[]): (number | null | undefined)[] {
+    return log.flatMap(event => event.type === 'compaction/start' ? [event.data.turn] : [])
+  }
+
+  it('compacts the workbench conversation before the third prompt\'s first request, and the Chat column shows it', async () => {
+    const { live } = await launch({ replayFixture: AUTO_COMPACT_FIXTURE })
+    browser = await chromium.launch()
+    const page = await newEnglishPage(browser)
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-console-auto-compact'))
+    const tripwire = watchConsole(page)
+    await page.goto(live.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+    await workbenchButton(page).click()
+    await expect.poll(() => readServerMenu(live).workbenchSessionId, { timeout: 15_000 }).toBeDefined()
+    const sessionId = SessionId(readServerMenu(live).workbenchSessionId!)
+    await expect.poll(() => live.ctx.agents.get(sessionId) !== undefined, { timeout: 15_000 }).toBe(true)
+    const selected = await live.ctx.sessionController.selectModel({ sessionId, ...AUTO_COMPACT_ROUTE })
+    expect(selected.selected).toMatchObject(AUTO_COMPACT_ROUTE)
+
+    const input = page.locator('[data-composer-input]').first()
+    for (const prompt of AUTO_COMPACT_PROMPTS) {
+      await input.waitFor({ timeout: 15_000 })
+      const settled = live.whenTurnSettled(60_000)
+      await input.fill(prompt)
+      await input.press('Enter')
+      expect(await settled).toBe(sessionId)
+    }
+
+    // The bundle's 60% decided: the second reply reported 62.5% of the
+    // window, which the backend's own check would have let pass, and the
+    // conversation was compacted inside the third turn, before its first
+    // model request.
+    const log = events.get(sessionId) ?? []
+    expect(live.ctx.sessionProjections.stateOf(live.ctx.agents.get(sessionId)!.session, 'agentPreset')).toBe('console')
+    expect(compactionTurns(log)).toEqual([3])
+    const start = log.findIndex(event => event.type === 'compaction/start')
+    const firstReply = log.findIndex(event => event.type === 'assistant/message' && event.data.turn === 3)
+    expect(start).toBeGreaterThan(-1)
+    expect(start).toBeLessThan(firstReply)
+    const end = log.find(event => event.type === 'compaction/end')
+    expect(end?.data).toMatchObject({ turn: 3 })
+    expect(end?.data.sourceCommandId).toBeUndefined()
+
+    // What a customer sees: every process group open, so the compaction
+    // marker among the third turn's process rows is in the capture, and the
+    // conversation scrolled to its end.
+    await page.getByText(ANSWER, { exact: true }).waitFor({ timeout: 15_000 })
+    const controls = page.locator('[data-turn-process], [data-process-activity]')
+    for (let index = 0; index < await controls.count(); index++) {
+      const control = controls.nth(index)
+      if (await control.isVisible() && await control.getAttribute('aria-expanded') === 'false') await control.click()
+    }
+    const scroll = page.locator('[data-shell-column="chat"] [data-conversation-scroll]')
+    await expect.poll(async () => {
+      const distance = await scroll.evaluate((host) => {
+        host.scrollTop = host.scrollHeight
+        return host.scrollHeight - host.clientHeight - host.scrollTop
+      })
+      return Math.abs(distance) <= 1 && await page.getByRole('button', { name: 'Back to bottom', exact: true }).count() === 0
+    }, { timeout: 10_000 }).toBe(true)
+    const aria = await captureStableAria(page, '[data-shell-column="chat"]', live.workspaceCwd, {
+      replacements: [[AUTO_COMPACT_PROMPTS[0], '{{first-prompt}}'], [AUTO_COMPACT_PROMPTS[1], '{{second-prompt}}']],
+    })
+    await compareOrRefreshGolden(AUTO_COMPACT_EXPECTED, aria, AUTO_COMPACT_MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 180_000)
+
+  it('leaves the conversation whole when the second reply reports 57.5% of the window', async () => {
+    const { live, workspaceDir } = await launch({
+      replayFixture: AUTO_COMPACT_FIXTURE, replayOverride: await scriptFile(BELOW_SHARE), compareReplaySession: false,
+    })
+    // The script holds no summary, so a compaction would consume the third
+    // answer and leave the third turn's request unanswered.
+    expect(compactionTurns(await runOnPreset(live, workspaceDir, 'console'))).toEqual([])
+  }, 180_000)
+
+  it('compacts a session of the `standard` twin at the same share', async () => {
+    const { live, workspaceDir } = await launch({
+      replayFixture: AUTO_COMPACT_FIXTURE, replayOverride: await scriptFile(ABOVE_SHARE), compareReplaySession: false,
+    })
+    expect(compactionTurns(await runOnPreset(live, workspaceDir, 'standard'))).toEqual([3])
+  }, 180_000)
+
+  it('keeps its snapshot inventory closed', async () => {
+    await assertFixtureInventory(AUTO_COMPACT_DIR, [
+      'compacted.expected.md',
+      'session.v4.jsonl',
+      'system-prompt.expected.md',
+      'tool-schemas.expected.json',
+    ])
   })
 })

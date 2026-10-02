@@ -1,0 +1,8 @@
+version: 1
+scenario: console-auto-compact
+profile: web
+composition: web-console
+recording: authored
+header:
+  class: web-console
+  pin: true

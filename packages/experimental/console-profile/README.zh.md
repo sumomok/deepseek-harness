@@ -56,7 +56,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
 | `ui-chat` | 配置 `performanceUsage: compact`：设置 → 通用设置 → 性能与用量初始为「简洁」，已完成的回答下不显示每轮 token 用量；用户自己的选择保存进 profile 补丁，并覆盖这个默认值。它的「繁忙时的压缩行为」行由 `server-sidebar` 隐去，`busyCompaction` 保持默认值 `turn-end` |
-| `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮的两步之间，下一次模型请求一旦会占用上下文窗口的 60% 以上，就先压缩对话再发这次请求。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；正在进行的压缩仍在对话里显示它的那一行 |
+| `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮里的每一次模型请求之前（包括第一次），只要这次请求会占用上下文窗口的 60% 以上，就先压缩对话。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；压缩在对话里画出的行属于 `ui-chat`，列在「已知限制」里 |
 | `preset-console` | 插入：`console` Agent 预设——persona、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`；没有 shell、搜索、后台任务、目标、计划、委派、web 与 `present` 行 |
 | `preset-standard-as-console` | 插入：一个插件与 `console` 完全相同的 `standard` Agent 预设；会话按创建时记下的预设 id 恢复，控制台部署在 `console` 出现之前建的会话记的是 `standard` |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；每个会话运行的都是 `console` 的插件，id 为 `console` 或 `standard` |
@@ -103,7 +103,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从某次请求会占用上下文窗口 60% 以上的那一步起，模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从一次会占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
@@ -115,7 +115,8 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 
 - **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，一个任何设置写入都能改的 `defaultPreset`，以及一次设置写入就能打开的 Session log 上传。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
 - **MCP 服务器列表是部署 Config，不是设置。** `console-mcp.servers` 和侧栏菜单一样位于 bundle 层，但它不是 `.volatile()` 字段：设置服务不为它投影表单，写入时以 `Plugin entry "console-mcp" has no volatile fields` 拒绝，所以部署放行的任何浏览器都加不了服务器。部署在自己的层里给这一行打 `config` 补丁来点名服务器，改过的列表在这一行重新加载时生效。桥接进来的 MCP 工具不声明审批闸门，所以在每个访问预设下都会直接运行，用的是这一行 `auth` 点名的凭据。
-- **隐去的两项压缩设置仍可写入。** `auto-compact.enabled`、`auto-compact.thresholdPercent` 与 `ui-chat.busyCompaction` 是 bundle 层里的 volatile Config，所以页面上没有控件，而 `remote.settings` 方法仍接受部署放行的任何浏览器的写入。
+- **压缩会显示 token 数和一段英文摘要。** 压缩进行时，对话里显示 `ui-chat` 的「正在压缩…」（Compacting context…）。压缩落定后，这一轮的过程行里出现标记「上下文已压缩 · 已压缩 N 条历史记录（约 N tokens）」，点开它会展开 `compaction-basic` 写下的摘要，而它的摘要提示词要求用英文写。一次失败的尝试会单独显示一行「上下文压缩失败」。控制台没有替换这些行中的任何一行，所以 persona 里只用中文的那句话管不到这段摘要，`performanceUsage: compact` 也去不掉标记里的 token 数。
+- **隐去的压缩设置仍可写入。** `auto-compact.enabled`、`auto-compact.thresholdPercent` 与 `ui-chat.busyCompaction` 是 bundle 层里的 volatile Config，所以页面上没有控件，而 `remote.settings` 方法仍接受部署放行的任何浏览器的写入。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
 <a id="dev-note"></a>
@@ -127,5 +128,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 `permission-lock.patch.yml` 通过 `scripts/check-workspace-constraints.ts` 里的 `packageFileExtras` 表发布。
 
 要替换 vendored 的 `@haoran/dsh-auto-compact`，从插件仓库某个已推送提交的干净副本构建，而不是从 `lib/` 可能比源码旧的工作检出构建，运行 `pnpm pack`，把 tarball 放到 `vendor/` 下，更新 `file:` 说明符、`tests/profile.spec.ts` 与 `scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 里的归档路径，再运行 `pnpm install`。e2e 脚手架把解包在 `node_modules/@haoran/dsh-auto-compact` 下的那一份链接进它的 profile（`apps/web/tests/server-sidebar.e2e.ts`）。
+
+Web 快照 `console-auto-compact`（`snapshots/web/console-auto-compact`，由 `apps/web/tests/server-sidebar.e2e.ts` 驱动）经由本 bundle、作为 home 补丁的锁与一个部署层，在一条模型报告 200,000 token 窗口的回放路由上重放一段编写好的对话。它钉住这个组合的系统提示词与工具 schema、第二次回复报告占用窗口 62.5% 之后在第三轮第一次请求之前发生的那次压缩，以及压缩落定后的 Chat 栏；同一个 describe 里另有两次无 key 的运行，检查 57.5% 时什么都不压缩、`standard` 孪生预设在 62.5% 时同样压缩。改动 persona、技能目录或任何被组合的工具都会改变这个钉子：用 `DSH_SNAPSHOT=refresh` 重跑那个 describe，并审阅这些附属文件。
 
 </details>
