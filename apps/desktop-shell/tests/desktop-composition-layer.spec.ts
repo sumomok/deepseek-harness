@@ -8,7 +8,8 @@
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
  * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
- * reads from the provider's own `retryPolicy` rather than from its own config.
+ * reads from the provider's own `retryPolicy` rather than from its own config,
+ * and sets no model catalog, so the picker lists the adapter's own.
  * `vision-switch` names where an image sent on a text-only model moves the
  * session, which the plugin otherwise takes from a constant compiled into it,
  * and `llm-permission-gateway` names the review model's own route, which the
@@ -43,7 +44,7 @@ import * as Persona from '@deepseek-ai/dsh-persona'
 import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
+import { Config as DeepSeekConfig } from '@deepseek-ai/dsh-llm-deepseek'
 import { PluginManager } from '@deepseek-ai/dsh-plugin-manager'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
 import { LOG_DIR_ENV, UPDATE_CACHE_DIR_ENV, USER_DATA_DIR_ENV } from '../src/app-dirs.ts'
@@ -569,58 +570,25 @@ describe('the desktop composition layer as a whole', () => {
     ])
   })
 
-  // The invariant the catalog restatement broke once: this layer replaces
-  // `llm-deepseek`'s whole config, so a default the layer below moved onto a
-  // row this table does not carry composes a session on a model the picker
-  // does not list.
-  it('lists the model the composed default starts every session on', () => {
-    const models = entry(desktop, 'llm-deepseek').config?.['models'] as { id: string }[]
-    expect(models.map(row => row.id))
-      .toContain(entry(desktop, 'agent-default-model').config?.['model'])
+  // No layer of this payload picks the default model: a session starts on
+  // dsh-base's own `agent-default-model`, the value upstream ships.
+  it('starts sessions on dsh-base\'s own default model', () => {
+    const base = composeEntries([shippedLayers[0] ?? []]) as Entry[]
+    expect(entry(desktop, 'agent-default-model')).toEqual(entry(base, 'agent-default-model'))
   })
 
-  // A whole-table replacement never merges with the adapter's own catalog
-  // (`resolveModels` reads `config.models ?? DEFAULT_MODELS`), which is what
-  // lets this table drop the retired models the adapter still carries — and
-  // what makes every field of the row it keeps this layer's responsibility.
-  // The adapter now ships `deepseek-flash` itself, so the row is a restatement
-  // of the shipped one: the keys are compared against it rather than listed
-  // here, so a field upstream adds fails this case instead of composing a row
-  // that quietly drops it. The vendored plugin one layer below ships its own
-  // comparison against the adapter version its devDependencies pin — not the
-  // one this payload carries, and whose test suite no gate here runs — so the
-  // shipped row is pinned against the shipped adapter here instead.
-  it('restates the adapter\'s own deepseek-flash row, naming only the label', () => {
-    const factory = DeepSeekConfig({})
-    const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
-    expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
-    const shipped = factory.models.get().find(row => row.id === 'deepseek-flash')
-    if (shipped === undefined) throw new Error('the shipped adapter carries no deepseek-flash row')
-    // `description` is the one key the row adds; everything else the adapter
-    // declares must be present with the adapter's value, and `name` is the only
-    // one allowed to differ.
-    expect(Object.keys(composed[0] ?? {}).sort())
-      .toEqual([...new Set([...Object.keys(shipped), 'description'])].sort())
-    const restated = Object.fromEntries(
-      Object.entries(shipped).filter(([key]) => key !== 'name'),
-    )
-    expect(Object.fromEntries(
-      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && key !== 'description'),
-    )).toEqual(restated)
-    // The label keys this deployment owns: a dotted product name and the line
-    // the picker shows under it.
-    expect(composed[0]?.name).toBe('DeepSeek-V4.1-Flash')
-    expect(composed[0]?.description).toBe('V4.1 Flash · 文本与图片')
-    // Without this the loop rewrites system node 0 on a mid-session prompt
-    // change instead of appending after the cached history.
-    expect(composed[0]?.systemPromptUpdate).toBe('in-history')
-    // Without this a tool that joins mid-session changes the declarations
-    // ahead of the cached history instead of arriving as an addition.
-    expect(composed[0]?.toolUpdate).toBe('addition-only')
-    // The capacity the row states. The comparison above ties it to the shipped
-    // adapter; this literal is what fails when the context window moves.
-    expect(composed[0]?.contextWindow).toBe(1_000_000)
-    expect(factory.defaultContextWindow.get()).toBe(1_000_000)
-    expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
+  // `resolveModels` reads `config.models ?? DEFAULT_MODELS`, so a row without
+  // `models` leaves the picker on the adapter's own catalog, and a table any
+  // layer sets would replace that catalog whole.
+  it('sets no model catalog, so the picker lists the adapter\'s own', () => {
+    const composed = entry(desktop, 'llm-deepseek').config ?? {}
+    expect(Object.keys(composed)).toEqual(['retryPolicy'])
+    expect(DeepSeekConfig(composed).models.get()).toEqual(DeepSeekConfig({}).models.get())
+  })
+
+  it('lists the model the composed default starts every session on', () => {
+    const models = DeepSeekConfig(entry(desktop, 'llm-deepseek').config ?? {}).models.get()
+    expect(entry(desktop, 'agent-default-model').config?.['provider']).toBe('deepseek-official')
+    expect(models.map(row => row.id)).toContain(entry(desktop, 'agent-default-model').config?.['model'])
   })
 })
