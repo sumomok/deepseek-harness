@@ -101,10 +101,12 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads one el
     expect(attributes.some(text => text.includes('data-op="edit"') || text.includes('data-op="delete"'))).toBe(true)
     expect(attributes.some(text => text.includes('data-machine="mill-01"'))).toBe(true)
     // The tool reads nothing out of them: the answer's word for the operation
-    // is the model's, from the attribute the page wrote.
+    // is the model's, from the attribute the page wrote. The console persona
+    // asks for Chinese, so the answer names each one by the attribute's value
+    // or by its Chinese name.
     const answer = lastAnswerText(sessionEvents)
-    expect(answer.toLowerCase()).toContain('edit')
-    expect(answer.toLowerCase()).toContain('delete')
+    expect(answer).toMatch(/edit|编辑/iu)
+    expect(answer).toMatch(/delete|删除/iu)
     if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 300_000)
 
