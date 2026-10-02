@@ -30,7 +30,7 @@ Status: implemented
 
 上游的 `deepseek-v4-pro` 一行既没有声明 `systemPromptUpdate: in-history`,也没有声明 `toolUpdate: addition-only`,而它的 `deepseek-flash` 一行两者都声明了。因此在 V4 Pro 会话里,会话中途系统提示词变化时,循环改写系统节点 0,而不是追加在缓存的历史之后;每次请求都声明完整的工具列表,会话中途加入的工具会改动缓存历史之前的声明;两者都让供应商的前缀缓存从第一个 token 起失效。这是上游出厂目录的样子,本部署不为补这两个字段去重述那一行。
 
-V4 Pro 会话里发送的图片会经过 `@haoran/dsh-vision-switch`,它在发送前通过 `session.selectModel` 把会话切到 `deepseek-flash`。这次调用同时把 Flash 存为默认模型,所以之后新建的会话也从 Flash 起步,而这个会话会停在 Flash,直到用户再选回 Pro。
+V4 Pro 会话里发送的图片会经过 `@haoran/dsh-vision-switch`。`deepseek-official` 配置了凭据时,这个插件在发送前通过 `session.selectModel` 把会话切到 `deepseek-flash`。这次调用同时把 Flash 存为默认模型,所以之后新建的会话也从 Flash 起步,而这个会话会停在 Flash,直到用户再选回 Pro。没有这份凭据时,插件列出所在服务配置了凭据的其他支持图片的模型;一个都没有时,它原样发送,由宿主拒绝并把草稿留在输入框里。
 
 壳没有定义 `dshDesktop` 全局变量,所以上游的页面像在 `dsh web` 下那样组合:0.2 的「预览版说明」会注册,并在第一次进入空白新对话页时显示一次;账号登录那一节不注册,所以这个应用不提供 DeepSeek 账号登录。
 
