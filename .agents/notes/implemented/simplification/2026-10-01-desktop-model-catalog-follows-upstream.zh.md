@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-直到 0.1.0-rc.36,桌面端选择器只列出一个 DeepSeek 模型,而上游列出两个。[桌面组合层](../feature/2026-09-06-desktop-composition-layer-content-search.zh.md)的 `llm-deepseek` 行重述了一张只有一行的 `models` 表——`deepseek-flash`,名为 `DeepSeek-V4.1-Flash`,下面一句中文 `V4.1 Flash · 文本与图片`——而 `models` 会整表替换适配器的 `DEFAULT_MODELS`。上游在 0.2.0-rc.2 基座上的目录是 `deepseek-flash`(`DeepSeek-V41-Flash`,文本与图片)和 `deepseek-v4-pro`(`DeepSeek-V4-Pro`,只收文本)。那张表删掉 V4 Pro,依据的是 DeepSeek 关于 2026-09-14 起 V4 Pro 请求转给 V4.1 Flash 的公告;DeepSeek 在 2026-09-10 的更新日志里撤回了这一安排,它的定价页仍以 V4 Pro 自己的价格列出 `deepseek-v4-pro`。所有者在 2026-10-01 定下:模型清单以上游为准。
+从 0.1.0-rc.32 到 rc.36,桌面端选择器只列出一个 DeepSeek 模型,而上游列出两个。[桌面组合层](../feature/2026-09-06-desktop-composition-layer-content-search.zh.md)的 `llm-deepseek` 行重述了一张只有一行的 `models` 表——`deepseek-flash`,名为 `DeepSeek-V4.1-Flash`,下面一句中文 `V4.1 Flash · 文本与图片`——而 `models` 会整表替换适配器的 `DEFAULT_MODELS`。上游在 0.2.0-rc.2 基座上的目录是 `deepseek-flash`(`DeepSeek-V41-Flash`,文本与图片)和 `deepseek-v4-pro`(`DeepSeek-V4-Pro`,只收文本)。那张表删掉 V4 Pro,依据的是 DeepSeek 关于 2026-09-14 起 V4 Pro 请求转给 V4.1 Flash 的公告;DeepSeek 在 2026-09-10 的更新日志里撤回了这一安排,它的定价页仍以 V4 Pro 自己的价格列出 `deepseek-v4-pro`。所有者在 2026-10-01 定下:模型清单以上游为准。
 
 差异来自本 fork 的两处。组合层的那张表是一处。[`@haoran/dsh-default-model`](../feature/2026-08-23-desktop-builtin-default-model.zh.md) 是另一处:它设的 `agent-default-model` 与 dsh-base 出厂的是同一对,它设的 `models` 表又总被组合层整块替换,而插件页仍把它描述为一个只有一个模型的选择器的来源。
 
