@@ -9,8 +9,8 @@
   en: 9c8e429d982fb476
   zh: 3d71a1062a512676
 /agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/decision:
-  en: 8bfe14856231e34f
-  zh: a7c4196c118bff0a
+  en: 2ebca75939ede324
+  zh: 3b1a4ef56272ed81
 /agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/why-fork-code-and-not-a-core-patch:
   en: 5a6251554b09d1e3
   zh: 4d2dc1e8600b5479
@@ -18,11 +18,11 @@
   en: 685f087dabb1a6c5
   zh: a5974c48eaf2711d
 /agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/testing:
-  en: d474a5cb8a347165
-  zh: dfdc3a6d2f1a465a
+  en: 47a422e6c31251f4
+  zh: 7dfac00914266d75
 /agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/alternatives-considered:
   en: a9adcd6a9f4abe5e
   zh: f5c85418170d3a51
 /agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/consequences:
-  en: 91033b7edcb7aee3
-  zh: c315667cded589e7
+  en: a2bc765d115223f2
+  zh: 4fa4443e50d7f111
