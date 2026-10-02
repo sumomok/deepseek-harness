@@ -150,7 +150,7 @@ describe('rebindOnHeldSocket', () => {
     const handoff: ListenHandoff = { socket: recordingSocket(steps), preload: '/lib/listen-handoff.mjs' }
     const asked: ServerSpec[] = []
     const started = await rebindOnHeldSocket(spec, handoff, async (s) => { asked.push(s); return handle }, {
-      log: () => {}, forgetPort: () => { steps.push('forget') },
+      log: () => {}, forgetPort: () => { steps.push('forget') }, release: () => { steps.push('release') },
     })
     expect(asked.map(s => [s.port, s.listen])).toEqual([[49_321, handoff]])
     expect(started.held).toBe(handoff)
@@ -168,8 +168,8 @@ describe('rebindOnHeldSocket', () => {
       steps.push(s.listen === undefined ? 'start' : 'start held')
       if (s.listen !== undefined) throw new ListenHandoffFailed('no socket arrived within 10s', '')
       return { ...handle, url: 'http://127.0.0.1:52000' }
-    }, { log: (line) => { lines.push(line) }, forgetPort: () => { steps.push('forget') } })
-    expect(steps).toEqual(['start held', 'forget', 'close', 'start'])
+    }, { log: (line) => { lines.push(line) }, forgetPort: () => { steps.push('forget') }, release: () => { steps.push('release') } })
+    expect(steps).toEqual(['start held', 'release', 'forget', 'close', 'start'])
     expect(asked).toEqual([49_321, 0])
     expect(started.held).toBeUndefined()
     expect(started.spec.port).toBe(52_000)
@@ -180,9 +180,21 @@ describe('rebindOnHeldSocket', () => {
     const steps: string[] = []
     const failure = new Error('boom')
     await expect(rebindOnHeldSocket(spec, { socket: recordingSocket(steps), preload: '/p.mjs' }, async () => { throw failure }, {
-      log: () => {}, forgetPort: () => { steps.push('forget') },
+      log: () => {}, forgetPort: () => { steps.push('forget') }, release: () => { steps.push('release') },
     })).rejects.toBe(failure)
     expect(steps).toEqual([])
+  })
+
+  it('has released the socket it closed when the start without it fails too', async () => {
+    const steps: string[] = []
+    const failure = new Error('no server at all')
+    await expect(rebindOnHeldSocket(spec, { socket: recordingSocket(steps), preload: '/p.mjs' }, async (s) => {
+      if (s.listen !== undefined) throw new ListenHandoffFailed('no socket arrived within 10s', '')
+      throw failure
+    }, {
+      log: () => {}, forgetPort: () => { steps.push('forget') }, release: () => { steps.push('release') },
+    })).rejects.toBe(failure)
+    expect(steps).toEqual(['release', 'forget', 'close'])
   })
 })
 
@@ -390,7 +402,10 @@ describe('main.ts', () => {
     ].join(''), 'u'))
     expect(body('handleUnexpectedServerExit')).toContain('ladder: () => runRecoveryLadder(')
     expect(body('performRebind')).toContain('await rebindOnNewPort(spec, startEmbeddedServer, logLine)')
-    expect(body('performRebind')).toContain('await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort })')
+    expect(body('performRebind')).toContain(
+      'await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort, release: releaseHeld })',
+    )
+    expect(body('releaseHeld')).toContain('held = undefined')
     expect(body('stopServerBounded')).toMatch(/await stopServerForQuit\(handle, \{ home: resolveHarnessHome\(\), log: logLine, clearCookies: clearAuthCookies,/u)
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([

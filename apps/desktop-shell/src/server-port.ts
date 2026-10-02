@@ -203,9 +203,10 @@ export interface HandoffFallback {
   /** One log line, ending in a newline. */
   log: (line: string) => void
   /**
-   * Runs once before the held socket is closed. A crash rebind forgets the
-   * remembered port here, so the port is no longer asked for by the time
-   * another process can bind it.
+   * Runs once before the held socket is closed, whether or not the start
+   * without it then succeeds. A crash rebind stops naming the socket as held
+   * and forgets the remembered port here, so the port is no longer asked for
+   * by the time another process can bind it.
    */
   beforeClose: () => void
 }

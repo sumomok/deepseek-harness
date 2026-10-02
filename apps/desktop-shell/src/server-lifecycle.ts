@@ -153,23 +153,35 @@ export interface HeldRebindHooks {
   log: (line: string) => void
   /** Drop the remembered server port; runs only when the handoff fails, before the socket is closed. */
   forgetPort: () => void
+  /**
+   * Stop naming the socket as held; runs with {@link forgetPort}, before the
+   * socket is closed, so a start without the socket that then fails too
+   * leaves no closed socket for the next attempt to send.
+   */
+  release: () => void
 }
 
 /**
  * Start a crash rebind on the socket the shell holds, so the window keeps its
  * origin. When the handoff fails, the rebind becomes what it is without the
- * socket: the remembered port is forgotten, the socket closed, and the server
- * started on a port the system picks.
+ * socket: the socket is released, the remembered port forgotten, the socket
+ * closed, and the server started on a port the system picks.
  * @param spec - the recorded launch spec.
  * @param handoff - the held socket and the preload.
  * @param start - starts one server.
- * @param hooks - the log and the port removal.
+ * @param hooks - the log, the port removal and the release of the socket.
  * @returns the running server, its spec, and the handoff it took or undefined after a fallback.
  */
 export async function rebindOnHeldSocket(
   spec: ServerSpec, handoff: ListenHandoff, start: (spec: ServerSpec) => Promise<ServerHandle>, hooks: HeldRebindHooks,
 ): Promise<HeldStart> {
-  return startHeldOrFallback({ ...spec, port: 0 }, handoff, start, { log: hooks.log, beforeClose: hooks.forgetPort })
+  return startHeldOrFallback({ ...spec, port: 0 }, handoff, start, {
+    log: hooks.log,
+    beforeClose: () => {
+      hooks.release()
+      hooks.forgetPort()
+    },
+  })
 }
 
 /** What a quit's server stop needs. */

@@ -185,6 +185,11 @@ let activeServerSpec: ServerSpec | undefined
  */
 let held: ListenHandoff | undefined
 
+/** Stop naming a socket as {@link held}; a failed handoff calls it before it closes that socket. */
+function releaseHeld(): void {
+  held = undefined
+}
+
 /**
  * Where the stopped-server dialog stands: not shown, on screen, or dismissed
  * with the backend left down. `dismissed` lasts until a server starts again,
@@ -299,7 +304,7 @@ async function performRebind(): Promise<boolean> {
   try {
     const started: HeldStart = held === undefined
       ? { ...await rebindOnNewPort(spec, startEmbeddedServer, logLine), held: undefined }
-      : await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort })
+      : await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort, release: releaseHeld })
     held = started.held
     const handle = started.server
     server = handle
