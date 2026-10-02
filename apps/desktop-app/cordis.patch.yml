@@ -203,17 +203,28 @@
 # succeeds without a restart. `@haoran/dsh-office-preview-notice` is what the
 # document tab shows for Word and PowerPoint files until then.
 
-# Work details start compact: a process group's header names its categories
-# only, where `standard`, the form's own default, adds the live task detail,
-# commands and paths included. `transcriptView` is a volatile field of the
-# `ui-chat` settings form, so this row sets its base. Once a user saves a Chat
-# display preference, the row's config is written into
-# `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`, and from then on a
-# change here reaches only machines that never saved one. dsh-web-app's row
-# carries no config, so this replacement drops nothing.
-- id: ui-chat
-  config:
-    transcriptView: compact
+# Work details carry no row here: dsh-web-app's `ui-chat` row ships no config,
+# so the Chat form's own default applies, which is `detailed` in this shell
+# because it defines no `dshDesktop` global. A Chat display preference a user
+# saved is in `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` and still
+# applies.
+
+# Product analytics stays off. dsh-web-app inserts `desktop-product-telemetry`,
+# which exports product events through `ctx.otel` to DeepSeek's OTel
+# collector unless `DSH_PRODUCT_ANALYTICS_OTLP_URL` names another, and
+# `product-analytics`, its browser half, each with a `disabled` expression
+# that leaves the row on only under a profile named `desktop`. This product's
+# profile is `desktop-shell`, so both compose off already; `disabled: true`
+# states that off here, so neither a change to that expression nor a profile
+# rename turns reporting to DeepSeek on. A patch replaces only the fields it
+# names, so each row keeps the config dsh-web-app gives it. `otel`, the
+# service the Host row reports through, ships disabled in dsh-base and needs
+# no row here.
+- id: desktop-product-telemetry
+  disabled: true
+
+- id: product-analytics
+  disabled: true
 
 # The sidebar brand row: the fish logo at 30px where ui-sidebar asks for 24,
 # and the product name, 北冥 in Chinese and Beiming in English, at 18px. This

@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer patches six rows and inserts two of its own.
+ * The layer patches seven rows and inserts two of its own.
  * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
  * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
@@ -15,8 +15,11 @@
  * gate otherwise takes from the pair its own layer ships, and sends every
  * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
- * and `ui-chat` starts work details compact. `office-to-pdf` is left as the
- * layers below ship it: the shell downloads its engine on request. The rows it
+ * and `desktop-product-telemetry` and `product-analytics` are switched off
+ * outright rather than by dsh-web-app's profile-name expression.
+ * `office-to-pdf` is left as the layers below ship it: the shell downloads
+ * its engine on request, and so is `ui-chat`, whose work details take the
+ * form's own default. The rows it
  * inserts are `desktop-brand`, this package itself, whose browser half names
  * the product in the sidebar and whose Host half ends every session's system
  * prompt with the protected-directories instruction, and `desktop-server-log`,
@@ -397,8 +400,11 @@ describe('the composed ui-chat row', () => {
     expect(entry(below, 'ui-chat').config).toBeUndefined()
   })
 
-  it('starts work details compact once the desktop layer applies', () => {
-    expect(entry(desktop, 'ui-chat').config).toEqual({ transcriptView: 'compact' })
+  // No base value for `transcriptView`, so work details start at the form's
+  // own default, as on upstream's Web client.
+  it('stays as the layers below ship it once the desktop layer applies', () => {
+    expect(entry(desktop, 'ui-chat')).toEqual(entry(below, 'ui-chat'))
+    expect(entry(desktop, 'ui-chat').config).toBeUndefined()
   })
 })
 
@@ -545,16 +551,29 @@ describe('the composed telemetry rows', () => {
   // layer — the `DSH_TELEMETRY_DISABLED` this shell puts on the spawned server,
   // which reaches the telemetry row alone — belongs to `tests/server.spec.ts`.
   it('composes every DeepSeek-bound reporter off, through every bundle layer', () => {
+    expect(entry(desktop, 'otel').disabled).toBe(true)
     expect(entry(desktop, 'session-telemetry-otel').disabled).toBe(true)
     expect(entry(desktop, 'plugin-package-inventory-deepseek').disabled).toBe(true)
-    // Mounted rather than disabled: its own `enabled: false` makes `apply()`
-    // return before it registers the request contribution.
+    // The desktop layer's own two; below it, an expression on the profile
+    // name keeps them off.
+    expect(entry(desktop, 'desktop-product-telemetry').disabled).toBe(true)
+    expect(entry(desktop, 'product-analytics').disabled).toBe(true)
+    // Mounted rather than disabled, so Settings → General serves its upload
+    // switch; `enabled: false` is that switch's shipped value, and the
+    // request contribution adds nothing while it reads false.
     expect(entry(desktop, 'session-log-deepseek').config).toEqual({ enabled: false })
+  })
+
+  it('switches the product analytics rows off without replacing their config', () => {
+    for (const id of ['desktop-product-telemetry', 'product-analytics']) {
+      expect(entry(below, id).disabled).not.toBe(true)
+      expect(entry(desktop, id).config).toEqual(entry(below, id).config)
+    }
   })
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly six rows, adds its own two, and nothing else', () => {
+  it('changes exactly seven rows, adds its own two, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -562,8 +581,8 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'desktop-brand', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway', 'plugin-manager',
-      'session-query-sqlite', 'ui-chat', 'vision-switch',
+      'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway',
+      'plugin-manager', 'product-analytics', 'session-query-sqlite', 'vision-switch',
     ])
   })
 
