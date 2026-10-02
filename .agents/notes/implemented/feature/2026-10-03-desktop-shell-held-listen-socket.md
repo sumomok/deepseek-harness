@@ -20,7 +20,7 @@ Every server child is started with `--import lib/listen-handoff.mjs`, an IPC cha
 
 - removes the variable, registers its `message` listener, and writes `dsh-desktop listen handoff: ready`; the shell sends the socket on that line, because a message that arrives before a listener exists is dropped (observed);
 - closes the IPC channel as soon as the socket arrived, before any server code runs, so nothing the server runs can write into the shell's main process or inherit the channel; the shell never registers a `message` listener;
-- replaces `net.Server.prototype.listen` so the first call for the handed port on `127.0.0.1` (positional or options object, the form `@deepseek-ai/dsh-host-webserver` uses) listens on the socket, and passes every other call through;
+- replaces `net.Server.prototype.listen` so the first call for the handed port on `127.0.0.1` (positional, the form `@deepseek-ai/dsh-host-webserver` uses, or an options object) listens on the socket, and passes every other call through;
 - after that listen, checks the server listens on `127.0.0.1` and the handed port and writes `dsh-desktop listen handoff: listening on 127.0.0.1:<port>` before the CLI's URL line, on the same stream;
 - on any failure writes `dsh-desktop listen handoff failed: <reason>` and exits 1, including a second listen for the held port: its own copy of the socket is closed by then.
 

@@ -20,7 +20,7 @@ Status: implemented
 
 - 删掉这个变量,注册自己的 `message` 监听,然后写出 `dsh-desktop listen handoff: ready`;壳见到这一行才发送套接字,因为在监听注册之前到达的消息会被丢弃(实测);
 - 套接字一到就关闭 IPC 通道,早于任何服务器代码运行,所以服务器运行的任何东西都无法往壳的主进程写入,也继承不到这条通道;壳从不注册 `message` 监听;
-- 替换 `net.Server.prototype.listen`,第一个请求 `127.0.0.1` 上该端口的调用(位置参数或选项对象,`@deepseek-ai/dsh-host-webserver` 用的写法)改在套接字上监听,其他调用原样放行;
+- 替换 `net.Server.prototype.listen`,第一个请求 `127.0.0.1` 上该端口的调用(位置参数,即 `@deepseek-ai/dsh-host-webserver` 用的写法,或选项对象)改在套接字上监听,其他调用原样放行;
 - 这次监听之后,检查服务器确实监听在 `127.0.0.1` 和该端口上,并在 CLI 的 URL 行之前、在同一个输出流上写出 `dsh-desktop listen handoff: listening on 127.0.0.1:<端口>`;
 - 任何失败都写出 `dsh-desktop listen handoff failed: <原因>` 并以 1 退出,对该端口的第二次 listen 也是如此:那时它自己那份套接字已经关闭了。
 
