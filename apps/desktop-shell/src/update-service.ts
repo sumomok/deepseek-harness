@@ -23,8 +23,12 @@
  * | `POST /download` | `202` — `{ "ok": true }`; the transfer of the version already found is (re)started |
  * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
  *
- * The three `POST` routes answer alike. `/check` and `/download` answer once
- * the work is started, and `GET /state` reports how that work goes.
+ * `/check` and `/download` refuse nothing: each calls its action and, once the
+ * action returns, answers `{ "ok": true }`. That answer means the request
+ * reached the update channel, not that new work began, because the action may
+ * start nothing; `GET /state` is the only report of what follows, and an
+ * action that throws is a `500`. `/install` answers the same body, but only in
+ * the `ready` phase and before it acts.
  *
  * Every other path and method is `404`, decided before the token is read, so
  * the answer says nothing about what this service offers to a caller that
@@ -77,12 +81,14 @@ export interface UpdateServiceSpec {
   state: () => UpdateSnapshot
   /**
    * Start a background check, which downloads whatever it finds. Returns at
-   * once; the check reports through [[state]].
+   * once; the check reports through [[state]]. The implementation may start
+   * nothing, and the route answers the same either way.
    */
   check: () => void
   /**
    * Start or restart the transfer of the version the last check found, running
-   * a check first when none is known. Returns at once.
+   * a check first when none is known. Returns at once. The implementation may
+   * start nothing, and the route answers the same either way.
    */
   download: () => void
   /**
