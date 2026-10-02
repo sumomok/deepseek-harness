@@ -100,6 +100,23 @@ export const CONSOLE_PRESET: PresetDefinition = {
   ],
 }
 
+/**
+ * The patch layer restating the console bundle's rows that change the system
+ * prompt outside its presets: no `harness:source` or `app:web-surface` section
+ * from `web-runtime`, and no `ui-deliverables` section about `present`.
+ */
+export const CONSOLE_PROMPT_OVERLAY = join(REPO_ROOT, 'apps/web/tests/console-prompt.overlay.yml')
+
+/**
+ * What a scenario composed as the customer console passes: {@link CONSOLE_PRESET}
+ * and {@link CONSOLE_PROMPT_OVERLAY} together, so its requests carry the
+ * system prompt and tools a console deployment sends.
+ */
+export const CONSOLE_COMPOSITION = {
+  preset: CONSOLE_PRESET,
+  layers: [CONSOLE_PROMPT_OVERLAY],
+} as const satisfies Pick<ContentColumnScenario, 'preset' | 'layers'>
+
 /** Every tool a session composed from {@link CONSOLE_PRESET} is offered: the preset's and the content column's. */
 export const CONSOLE_OFFERED = [
   'ask_user_question',
@@ -298,10 +315,12 @@ export interface ContentColumnScenario {
   /**
    * The patch layer to compose instead of this package's own, for a scenario
    * whose composition differs — a route declaring image input, say. It must
-   * carry everything the package's own overlay does: the scaffold takes exactly
-   * one, so a scenario's layer replaces rather than extends it.
+   * carry everything the package's own overlay does, because it replaces that
+   * overlay rather than extending it.
    */
   overlay?: string
+  /** Patch layers composed above the overlay, in order. */
+  layers?: readonly string[]
   /**
    * The preset this scenario's session is composed from, declared to the
    * preset registry beside the shipped ones.
@@ -363,7 +382,7 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
   process.env.DSH_CONTENT_APP_ROOT = scenario.appRoot
   const scaffold = await launchWebScaffold({
     harnessHome,
-    extraOverlayPath: scenario.overlay ?? OVERLAY,
+    extraOverlayPath: [scenario.overlay ?? OVERLAY, ...scenario.layers ?? []],
     ...(scenario.preset === undefined
       ? {}
       : { agentPresets: { default: 'standard', definitions: [scenario.preset] } }),

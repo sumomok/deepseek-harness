@@ -26,4 +26,4 @@ Status: implemented
 
 ## Consequences
 
-控制台的模型请求里有 persona、内容栏的规则、文件与技能工具的指引，没有任何内容提到 DeepSeek Harness 检出目录、开发服务器或 `present`。控制台页面在收尾回答里不画改动文件卡片、交付卡片或文件链接。内容读取场景的 `web-content-console` 钉子不变：这些场景组合的是 Web bundle、内容栏与控制台预设的一份副本，不是本 bundle。
+控制台的模型请求里有 persona、内容栏的规则、文件与技能工具的指引，没有任何内容提到 DeepSeek Harness 检出目录、开发服务器或 `present`。控制台页面在收尾回答里不画改动文件卡片、交付卡片或文件链接。内容读取场景组合的是 Web bundle、内容栏、控制台预设的一份副本，以及重述这两行的 `apps/web/tests/console-prompt.overlay.yml`；它们的 `web-content-console` 钉子与 `console-auto-compact` 钉子里的系统提示词相同，`apps/web/tests/console-preset.spec.ts` 拿两份副本与本 bundle 逐一核对。

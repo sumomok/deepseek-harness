@@ -10,6 +10,12 @@
  * `config.plugins`. `name`, `description`, and `order` exist only on the test
  * definition, which the preset registry requires and the shipped row leaves to
  * its schema defaults.
+ *
+ * The same lanes compose `CONSOLE_PROMPT_OVERLAY`, which restates the bundle's
+ * two rows that change the system prompt outside the presets: `web-runtime`'s
+ * `surfaceContext` and the `ui-deliverables` disable. Each must match the
+ * bundle's row, or the pinned `web-content-console` prompt is one no console
+ * deployment sends.
  */
 
 import { readFileSync } from 'node:fs'
@@ -17,7 +23,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
-import { CONSOLE_PRESET } from './content-column.ts'
+import { CONSOLE_PRESET, CONSOLE_PROMPT_OVERLAY } from './content-column.ts'
 import { REPO_ROOT } from './support.ts'
 
 /** The console bundle's own patch file. */
@@ -26,8 +32,20 @@ const CONSOLE_PATCH = join(REPO_ROOT, 'packages/experimental/console-profile/cor
 interface PresetRow {
   id?: string
   name?: string
-  config?: { id?: unknown; plugins?: unknown }
+  disabled?: boolean
+  config?: { id?: unknown; plugins?: unknown; surfaceContext?: unknown }
   insert?: PresetRow[]
+}
+
+/**
+ * The rows of one composition file.
+ * @param file - absolute path of the file.
+ * @returns its top-level rows.
+ */
+function rowsOf(file: string): PresetRow[] {
+  const parsed = yaml.load(readFileSync(file, 'utf8'), { schema: entryListSchema })
+  if (!Array.isArray(parsed)) throw new Error(`composition file at ${file} must be a list`)
+  return parsed as PresetRow[]
 }
 
 /**
@@ -35,9 +53,7 @@ interface PresetRow {
  * @returns the row, or `undefined` when the patch declares none.
  */
 function shippedRow(): PresetRow | undefined {
-  const parsed = yaml.load(readFileSync(CONSOLE_PATCH, 'utf8'), { schema: entryListSchema })
-  if (!Array.isArray(parsed)) throw new Error(`composition file at ${CONSOLE_PATCH} must be a list`)
-  return (parsed as PresetRow[]).flatMap(row => row.insert ?? []).find(row => row.id === 'preset-console')
+  return rowsOf(CONSOLE_PATCH).flatMap(row => row.insert ?? []).find(row => row.id === 'preset-console')
 }
 
 describe('the console e2e preset', () => {
@@ -53,5 +69,25 @@ describe('the console e2e preset', () => {
 
   it('declares the shipped plugin rows, their names, and their config', () => {
     expect(CONSOLE_PRESET.plugins).toEqual(row?.config?.plugins)
+  })
+})
+
+describe('the console e2e prompt layer', () => {
+  const bundle = new Map(rowsOf(CONSOLE_PATCH).flatMap(entry => entry.id === undefined ? [] : [[entry.id, entry] as const]))
+  const layer = rowsOf(CONSOLE_PROMPT_OVERLAY)
+
+  it('patches only the web-runtime and ui-deliverables rows', () => {
+    expect(layer.map(entry => entry.id)).toEqual(['web-runtime', 'ui-deliverables'])
+  })
+
+  it('carries the bundle\'s surface-context choice', () => {
+    const own = layer.find(entry => entry.id === 'web-runtime')
+    expect(bundle.get('web-runtime')?.config?.surfaceContext).toBe(false)
+    expect(own?.config?.surfaceContext).toBe(bundle.get('web-runtime')?.config?.surfaceContext)
+  })
+
+  it('disables ui-deliverables as the bundle does', () => {
+    expect(bundle.get('ui-deliverables')?.disabled).toBe(true)
+    expect(layer.find(entry => entry.id === 'ui-deliverables')?.disabled).toBe(true)
   })
 })

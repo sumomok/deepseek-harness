@@ -1,0 +1,16 @@
+# The console bundle's rows that change the system prompt outside its Agent
+# presets, restated from `packages/experimental/console-profile/cordis.patch.yml`
+# for the content-read scenarios composed from `CONSOLE_PRESET`: the
+# `web-runtime` row registers no `harness:source` or `app:web-surface` section,
+# and `ui-deliverables`, whose section tells the model when to call `present`,
+# is disabled. `console-preset.spec.ts` checks that both rows match the bundle's.
+#
+# The scaffold re-applies `web-runtime` with its own `openBrowser` and
+# `printUrl` and carries over the `surfaceContext` this layer composes, so the
+# row names only that field.
+- id: web-runtime
+  config:
+    surfaceContext: false
+
+- id: ui-deliverables
+  disabled: true

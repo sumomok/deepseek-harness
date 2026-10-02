@@ -33,7 +33,7 @@ import {
   recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import {
-  COMPOSER, CONSOLE_OFFERED, CONSOLE_PRESET, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn,
+  COMPOSER, CONSOLE_COMPOSITION, CONSOLE_OFFERED, FRAME_DIR, fixtureFor, isRecorded, lastAnswerText, openContentColumn,
   recordedUserPrompts, toolResults,
 } from './content-column.ts'
 import { saveFailureShot } from './support.ts'
@@ -67,7 +67,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent reads the pa
 
   beforeAll(async () => {
     ({ close, page, scaffold, sessionId: seeded, tripwire } = await openContentColumn({
-      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, preset: CONSOLE_PRESET,
+      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, ...CONSOLE_COMPOSITION,
     }))
   }, 180_000)
 
