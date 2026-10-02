@@ -50,6 +50,7 @@ import {
   WITHHELD_PACKAGES,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
+import { verifyStagedOfficeEngines } from './office-engine-gate.ts'
 import {
   snapshotPayload, verifyPrunedPayload, verifyPruneRules,
   type PayloadPlatform, type PayloadSnapshot,
@@ -951,6 +952,10 @@ async function main(buildHome: string): Promise<void> {
   // repository owns, and verifyStaging checks them whatever else was skipped.
   await stagePnpmLaunchers(PNPM_LAUNCHER_STAGING)
   await verifyStaging()
+  // `--skip-deploy` included: a reused staging carries the kit an earlier
+  // deploy resolved, and that kit is the one the packaged app reads.
+  const engines = verifyStagedOfficeEngines(join(SERVER_STAGING, 'node_modules'))
+  console.log(`package: staged Office engines registered: ${engines.join(', ')}`)
   // Every target's rules, whichever targets this run builds: whether a rule
   // matches is a property of the rule table and the staged tree.
   await verifyPruneRules(SERVER_STAGING, PLATFORM_DIR_RULES)

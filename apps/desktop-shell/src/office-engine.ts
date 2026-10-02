@@ -102,8 +102,9 @@ export interface EngineDownload {
  * read. The packaged server closure comes from the legacy hoisted
  * `pnpm deploy`, which does not take the lockfile's pin and resolves the
  * kit's `^0.1.1` range to the newest published release (0.1.3), which the
- * packaged app reads. The spec fails when the workspace kit declares an engine for
- * either desktop target that this table does not carry.
+ * packaged app reads. The spec fails when the workspace kit declares an
+ * engine for either desktop target that this table does not carry, and
+ * `scripts/office-engine-gate.ts` fails a package run whose staged kit does.
  */
 export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
