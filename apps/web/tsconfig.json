@@ -63,6 +63,7 @@
     "tests/auth-gate.e2e.ts",
     "tests/base-path.e2e.ts",
     "tests/server-sidebar.e2e.ts",
+    "tests/page-refresh.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/library-skills.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",

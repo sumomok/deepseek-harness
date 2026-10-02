@@ -1,0 +1,9 @@
+# The two rows the customer console composes for an open page's build: live
+# client plugin replacement off, and the build check that reloads the page
+# instead (see packages/experimental/console-profile/cordis.patch.yml).
+- id: client-hmr
+  disabled: true
+
+- insert:
+    - id: page-refresh
+      name: '@deepseek-ai/dsh-experimental-page-refresh'
