@@ -106,9 +106,12 @@
  * hook. `dsh-client-ui-settings-general` is the settings shell itself — the
  * panel, the navigation, the General section — so its row cannot be disabled,
  * and it registers the **Open configuration file** action into its own
- * `settings.action` list slot with no Config field gating it. The slot admits
- * no withdrawal either: `ctx.slots.register()` hands its disposer to the
- * registrant, so no other plugin can take an entry off a list slot.
+ * `settings.action` list slot with no Config field gating it. No other plugin
+ * can withdraw the entry: `ctx.slots.register()` hands its disposer to the
+ * registrant. An entry registered under the same list id (`open-document`) at
+ * a lower priority would keep it from rendering — the shadowing
+ * `settings-rows.ts` applies to a General row — and this action is hidden
+ * by the rule below instead.
  *
  * That action is the shell's only `settings.action` registrant in this
  * repository, so hiding the row that holds it hides exactly it. It is guarded

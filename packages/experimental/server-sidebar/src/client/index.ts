@@ -41,6 +41,9 @@
  * default priority 0 — customer overlays also disable that package outright
  * (see the package README), so this is belt-and-suspenders for a deployment
  * that forgets to.
+ *
+ * A fourth set of entries withholds Settings → General rows by shadowing their
+ * list ids (`settings-rows.ts`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -69,6 +72,7 @@ import {
 } from './workflow-actions.ts'
 import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
+import { withholdGeneralRows } from './settings-rows.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { en, zh, type ServerSidebarKey } from './locales.ts'
 
@@ -130,10 +134,11 @@ async function landOnWorkbench(
 }
 
 /**
- * Client plugin body: dictionaries, the terminology guard, and the hero
- * brand-mark takeover, then the read-before-register fetches (this package's
- * own settings-read pattern, matching `dsh-experimental-content-frame`'s),
- * then the two slot registrations.
+ * Client plugin body: dictionaries, the terminology guard, the hero
+ * brand-mark takeover, and the withheld Settings rows, then the
+ * read-before-register fetches (this package's own settings-read pattern,
+ * matching `dsh-experimental-content-frame`'s), then the two slot
+ * registrations.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
@@ -146,6 +151,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     )),
     'server-sidebar: hero brand-mark takeover',
   )
+  withholdGeneralRows(ctx)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),

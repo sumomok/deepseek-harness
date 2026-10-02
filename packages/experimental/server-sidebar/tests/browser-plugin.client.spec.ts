@@ -5,7 +5,8 @@
  * package's own server-menu document), the `sidebar` slot registration and
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
- * registration for the "存为工作流" action, the workbench/workflow/page
+ * registration for the "存为工作流" action, the withheld Settings → General
+ * row, the workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
@@ -20,6 +21,7 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject, type ServerSidebarInjected } from '../src/client/index.ts'
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
+import { WITHHELD_GENERAL_ROWS } from '../src/client/settings-rows.ts'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -112,12 +114,21 @@ function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown 
   }))
 }
 
-/** Declare the layout-owned `sidebar`/`conversation` slots and ui-conversation's header-actions seat, as the real shells do. */
+/**
+ * Declare the layout-owned `sidebar`/`conversation` slots, ui-conversation's
+ * header-actions seat, and the Settings General section's item list, as the
+ * real shells do.
+ */
 function declareSlots(ctx: Context): void {
   ctx.slots.register(
     {
       name: 'root',
-      children: { sidebar: { kind: 'single', scope: 'root' }, conversation: { kind: 'single', scope: 'session-maybe' } },
+      children: {
+        sidebar: { kind: 'single', scope: 'root' },
+        conversation: { kind: 'single', scope: 'session-maybe' },
+        // Declared by ui-settings-general's General section in the real page.
+        'settings.general.item': { kind: 'list', scope: 'root' },
+      },
     } as never,
     () => null,
   )
@@ -279,6 +290,31 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const [winner] = ctx.slots.entriesOfSlot('conversation.hero.brand.mark')
     expect(winner?.options.priority).toBe(-1)
     disposeCompetitor()
+  })
+
+  it('shadows each withheld Settings → General row at priority -1 with an entry that renders nothing', async () => {
+    const { ctx } = await bench()
+    expect(WITHHELD_GENERAL_ROWS).toEqual(['busy-compaction'])
+    for (const id of WITHHELD_GENERAL_ROWS) {
+      const ours = ctx.slots.entries('settings.general.item').find(entry => entry.options.id === id)
+      expect(ours?.options.priority).toBe(-1)
+      expect((ours?.component as (() => null) | undefined)?.()).toBeNull()
+    }
+    // The owning package registers its row at the default priority 0
+    // (`ui-chat`'s busy-compaction row), in either order relative to this one;
+    // the cell's winner stays the empty entry, and an unrelated row keeps its
+    // own cell.
+    const disposeOwners = WITHHELD_GENERAL_ROWS.map(id => ctx.slots.register(
+      { name: 'settings.general.item', id, order: 21 },
+      () => null,
+    ))
+    const disposeOther = ctx.slots.register({ name: 'settings.general.item', id: 'performance-usage', order: 30 }, () => null)
+    const winners = ctx.slots.entriesOfSlot('settings.general.item')
+    for (const id of WITHHELD_GENERAL_ROWS) {
+      expect(winners.filter(entry => entry.options.id === id).map(entry => entry.options.priority)).toEqual([-1])
+    }
+    expect(winners.map(entry => entry.options.id)).toContain('performance-usage')
+    for (const dispose of [...disposeOwners, disposeOther]) dispose()
   })
 
   it('wires both fetched catalogs onto the injected face, pages first', async () => {
@@ -606,6 +642,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.spec('sidebar.brand.mark')).toBeUndefined()
     expect(ctx.slots.spec('sidebar.footer.action')).toBeUndefined()
     expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
+    expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
   })
 })
 
