@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * `UntitledTitle`: which sessions get the console's own header title, and the
- * mark `terminology-guard.ts` keys the crumb rule on. The guard rule itself is
+ * `UntitledTitle`: which sessions get the console's own header title, which
+ * label each gets, and the mark `terminology-guard.ts` keys the crumb rule on. The guard rule itself is
  * applied to a header tree built the way `ConversationSessionHeader` renders
  * it, so the pairing of the mark and the selector is checked in one place.
  */
@@ -9,7 +9,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { installTerminologyGuard } from '../src/client/terminology-guard.ts'
-import { lacksDurableTitle, UntitledTitle, type UntitledTitleProps } from '../src/client/UntitledTitle.tsx'
+import { lacksDurableTitle, untitledLabel, UntitledTitle, type UntitledTitleProps } from '../src/client/UntitledTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
 /** The session list `useSessions` selects from. */
@@ -22,8 +22,13 @@ const SESSION = SessionId('session-a')
  * Render the component over a session list carrying at most one row.
  * @param row - the session's own title fields, or undefined while its row has not arrived.
  * @param dictionary - the locale table `t` reads.
+ * @param workbenchSessionId - the workbench conversation's id; by default the rendered session.
  */
-function renderTitle(row: { title?: string; origin?: 'subagent' } | undefined, dictionary: typeof zh = zh): void {
+function renderTitle(
+  row: { title?: string; origin?: 'subagent' } | undefined,
+  dictionary: typeof zh = zh,
+  workbenchSessionId: string | undefined = SESSION,
+): void {
   const list: SessionList = {
     ids: row === undefined ? [] : [SESSION],
     phase: 'ready',
@@ -33,8 +38,9 @@ function renderTitle(row: { title?: string; origin?: 'subagent' } | undefined, d
       : { [SESSION]: { id: SESSION, displayTitle: 'workspace', running: false, retainedBy: {}, blank: false, updatedAt: 0, ...row } },
   }
   const useSessions: UntitledTitleProps['useSessions'] = selector => selector(list)
+  const useWorkbenchSessionId: UntitledTitleProps['useWorkbenchSessionId'] = selector => selector(workbenchSessionId)
   const t: UntitledTitleProps['t'] = key => (dictionary as Record<string, string>)[key] ?? key
-  const props = { sessionId: SESSION, useSessions, t } as UntitledTitleProps
+  const props = { sessionId: SESSION, useSessions, useWorkbenchSessionId, t } as UntitledTitleProps
   render(<UntitledTitle {...props} />)
 }
 
@@ -59,21 +65,44 @@ describe('lacksDurableTitle', () => {
   })
 })
 
+describe('untitledLabel', () => {
+  it('names the workbench conversation by the sidebar\'s 工作台 entry', () => {
+    expect(untitledLabel('session-a', 'session-a')).toBe('workbench.label')
+  })
+
+  it('names every other conversation by the 临时工作流 rows\' copy, including before a workbench exists', () => {
+    expect(untitledLabel('session-a', 'session-b')).toBe('temporary.untitled')
+    expect(untitledLabel('session-a', undefined)).toBe('temporary.untitled')
+  })
+})
+
 describe('UntitledTitle', () => {
-  it('renders the console\'s title under the guard\'s mark for an untitled conversation', () => {
+  it('renders 工作台 under the guard\'s mark for the untitled workbench conversation', () => {
     renderTitle({})
     const title = screen.getByText('工作台')
     expect(title.hasAttribute('data-server-sidebar-untitled-title')).toBe(true)
-  })
-
-  it('reads the sidebar\'s own name for the workbench conversation', () => {
-    renderTitle({}, en)
-    expect(screen.getByText(en['workbench.label'])).toBeTruthy()
     expect(zh['workbench.label']).toBe('工作台')
   })
 
-  it('renders nothing for a titled conversation, so the shipped crumb stays', () => {
+  it('renders 未命名对话 under the same mark for any other untitled conversation', () => {
+    renderTitle({}, zh, 'workbench-session')
+    const title = screen.getByText('未命名对话')
+    expect(title.hasAttribute('data-server-sidebar-untitled-title')).toBe(true)
+    expect(zh['temporary.untitled']).toBe('未命名对话')
+  })
+
+  it('reads the English copy of both labels', () => {
+    renderTitle({}, en)
+    expect(screen.getByText(en['workbench.label'])).toBeTruthy()
+    cleanup()
+    renderTitle({}, en, 'workbench-session')
+    expect(screen.getByText(en['temporary.untitled'])).toBeTruthy()
+  })
+
+  it('renders nothing for a titled conversation, workbench or not, so the shipped crumb stays', () => {
     renderTitle({ title: '周报' })
+    expect(document.querySelector('[data-server-sidebar-untitled-title]')).toBeNull()
+    renderTitle({ title: '周报' }, zh, 'workbench-session')
     expect(document.querySelector('[data-server-sidebar-untitled-title]')).toBeNull()
   })
 })

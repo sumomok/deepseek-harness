@@ -1283,11 +1283,11 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await page.locator('[data-composer-card]').innerText()).not.toMatch(/workspace/i)
   }, 30_000)
 
-  it('titles a conversation with no durable title 工作台 in the session header, in place of its directory name', async () => {
+  it('titles a conversation with no durable title by the label its sidebar row shows, in place of its directory name', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-untitled-header'))
     // Make the current workbench draft an untitled conversation — a closed
     // turn with no prompt — then displace it with a workbench click, so it is
-    // reachable from the temporary section.
+    // reachable from the temporary section, where its row reads Untitled chat.
     const untitled = workbenchSessionId
     seedUntitledTurn(scaffold, untitled)
     const warningStart = tripwire.warnings.length
@@ -1305,29 +1305,39 @@ describe('web e2e: the product-console sidebar', () => {
     expect(scaffold.ctx.sessionTitle.get(scaffold.ctx.agents.get(SessionId(untitled))!.session)).toBeUndefined()
 
     // The session list's `displayTitle` for this conversation is the
-    // directory's basename; the header shows this package's copy instead, and
-    // the crumb that would carry the basename is present and renders nothing.
+    // directory's basename; the header shows the temporary row's copy instead,
+    // and the crumb that would carry the basename is present and renders
+    // nothing. The click above made another conversation the workbench, so
+    // this one no longer reads Workbench.
     const header = page.locator('header').filter({ has: page.locator('[class*="titleCluster"]') })
     const title = header.locator('[data-server-sidebar-untitled-title]')
     await expect.poll(() => title.isVisible(), { timeout: 15_000 }).toBe(true)
-    await expect(title.innerText()).resolves.toBe('Workbench')
+    await expect(title.innerText()).resolves.toBe('Untitled chat')
     await expectGuardHides(header, 'crumbs')
     const headerText = await header.innerText()
     expect(headerText).not.toContain('server-sidebar-workspace')
     expect(headerText).not.toContain(untitled)
     await evidence(page, 'web-e2e-server-sidebar-untitled-header')
 
-    // The same conversation on a page that advertises Chinese reads 工作台.
+    // The new workbench draft becomes untitled too. A page loaded with no
+    // conversation open lands on the workbench whatever it carries, and its
+    // header reads the sidebar's 工作台 entry; the displaced conversation on
+    // the same page reads 未命名对话.
+    seedUntitledTurn(scaffold, workbenchSessionId)
     const zhPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     try {
       await zhPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
       await sidebar(zhPage).waitFor({ timeout: 30_000 })
-      const zhTemporary = sidebar(zhPage).locator('[data-server-sidebar-section="temporary"]')
-      await zhTemporary.getByRole('button', { name: /未命名对话/ }).click()
-      const zhTitle = zhPage.locator('header [data-server-sidebar-untitled-title]')
+      const zhHeader = zhPage.locator('header').filter({ has: zhPage.locator('[class*="titleCluster"]') })
+      const zhTitle = zhHeader.locator('[data-server-sidebar-untitled-title]')
       await expect.poll(() => zhTitle.isVisible(), { timeout: 15_000 }).toBe(true)
       await expect(zhTitle.innerText()).resolves.toBe('工作台')
-      await expectGuardHides(zhPage.locator('header').filter({ has: zhPage.locator('[class*="titleCluster"]') }), 'crumbs')
+      await expectGuardHides(zhHeader, 'crumbs')
+      await evidence(zhPage, 'web-e2e-server-sidebar-workbench-header-zh')
+      const zhTemporary = sidebar(zhPage).locator('[data-server-sidebar-section="temporary"]')
+      await zhTemporary.getByRole('button', { name: /未命名对话/ }).click()
+      await expect.poll(() => zhTitle.innerText(), { timeout: 15_000 }).toBe('未命名对话')
+      await expectGuardHides(zhHeader, 'crumbs')
       await evidence(zhPage, 'web-e2e-server-sidebar-untitled-header-zh')
     } finally {
       await zhPage.close()

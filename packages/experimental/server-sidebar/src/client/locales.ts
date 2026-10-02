@@ -3,8 +3,9 @@
  * 导航 / 我的工作流), the 临时工作流 section under it, and the two
  * session-header entries this package registers alongside them — the
  * "存为工作流" action and the title of an untitled conversation, which reads
- * `workbench.label` (`UntitledTitle.tsx`), and the conversation's rows for a
- * compaction that landed or failed (`CompactionRows.tsx`). No
+ * `workbench.label` or `temporary.untitled` (`UntitledTitle.tsx`), and the
+ * conversation's rows for a compaction that landed or failed
+ * (`CompactionRows.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.

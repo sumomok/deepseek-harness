@@ -44,8 +44,10 @@
  *
  * A fourth registration seats `UntitledTitle.tsx` in the same
  * `conversation.session.header.actions` list, ahead of every other action: the
- * console's own title for a conversation with no durable title, which
- * `terminology-guard.ts` puts in place of the header's crumb. A fifth set of
+ * label the sidebar gives a conversation with no durable title, which
+ * `terminology-guard.ts` puts in place of the header's crumb. It learns which
+ * conversation is the workbench from `workbench-source.ts`, which every
+ * server-menu answer feeds alongside the sidebar's store. A fifth set of
  * entries withholds two Settings → General rows and the Settings header's
  * configuration-file action by shadowing their list ids (`settings-entries.ts`),
  * and a sixth replaces the conversation's rows for a compaction that landed or
@@ -81,7 +83,8 @@ import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAct
 import { withholdSettingsEntries } from './settings-entries.ts'
 import { replaceCompactionRows } from './CompactionRows.tsx'
 import { installTerminologyGuard } from './terminology-guard.ts'
-import { UntitledTitle } from './UntitledTitle.tsx'
+import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
+import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
 import { en, zh, type ServerSidebarKey } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
@@ -115,16 +118,19 @@ export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale
 
 /**
  * Persist a server-menu patch and commit the server's authoritative answer
- * into the given bound actions, or surface the failure inline.
+ * into the given bound actions and the header's workbench source, or surface
+ * the failure inline.
  * @param patch - the fields to change (see `workflow-api.ts#saveServerMenu`).
  * @param actions - the bound actions to commit the result (or the failure) into.
+ * @param workbench - the header's copy of the workbench id, published from the same answer.
  */
 async function persistServerMenu(
-  patch: ServerMenuPatch, actions: BoundWorkflowActions,
+  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource,
 ): Promise<void> {
   try {
     const saved = await saveServerMenu(patch)
     actions.setServerMenu(saved)
+    workbench.publish(saved.workbenchSessionId)
   } catch (error) {
     actions.setError(error instanceof Error ? error.message : String(error))
   }
@@ -140,20 +146,22 @@ async function persistServerMenu(
  * @param workbenchSessionId - the recorded id, or `undefined` before first use.
  * @param isLive - whether that id names a session the workspace domain still lists.
  * @param actions - the bound actions a created id is committed through.
+ * @param workbench - the header's copy of the workbench id, published with it.
  */
 async function landOnWorkbench(
-  ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean, actions: BoundWorkflowActions,
+  ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean,
+  actions: BoundWorkflowActions, workbench: WorkbenchSource,
 ): Promise<void> {
   const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
-  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
+  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
 }
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, the untitled-conversation title, the withheld
- * Settings entries, and the compaction rows, then the read-before-register fetches (this package's own
+ * brand-mark takeover, the withheld Settings entries, and the compaction
+ * rows, then the read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
- * two slot registrations.
+ * sidebar and the two session-header entries.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
@@ -165,15 +173,6 @@ export async function apply(ctx: ClientContext): Promise<void> {
       () => null,
     )),
     'server-sidebar: hero brand-mark takeover',
-  )
-  ctx.effect(
-    () => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-      name: 'conversation.session.header.actions',
-      id: 'untitled-title',
-      order: UNTITLED_TITLE_ORDER,
-      locale: NS,
-    }, UntitledTitle)),
-    'server-sidebar: untitled conversation title',
   )
   withholdSettingsEntries(ctx)
   replaceCompactionRows(ctx)
@@ -197,6 +196,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // (see `mergeNavCatalogs`).
   const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
   const workflowStore = createWorkflowStore(initialMenu)
+  const workbench = createWorkbenchSource(initialMenu.workbenchSessionId)
   const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
@@ -225,12 +225,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
           ...home === undefined ? {} : { home },
           onOpenNavItem: target => openNavItem(ctx, target),
           onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (
-            landOnWorkbench(ctx, workbenchSessionId, isLive, actions)
+            landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench)
           ),
           onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
-            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
+            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
             // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
             // configured automatic home always belongs on it; a reused draft
@@ -254,13 +254,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
             const next = current.workflows.map(candidate => (
               candidate.id === workflow.id ? { ...candidate, homeSessionId: outcome.sessionId } : candidate
             ))
-            await persistServerMenu({ workflows: next }, actions)
+            await persistServerMenu({ workflows: next }, actions, workbench)
           },
           // One patch rather than a call per list: deleting a group has to
           // clear its members' `groupId` in the same write, and the route
           // refuses the intermediate document either half would leave behind
           // (see `src/index.ts` and `validateServerMenu`).
-          onSaveMenu: patch => persistServerMenu(patch, actions),
+          onSaveMenu: patch => persistServerMenu(patch, actions, workbench),
           onOpenTemporary: sessionId => openTemporarySession(ctx, sessionId),
           onDismissTemporary: async (sessionId, workbenchSessionId, workbenchIsLive) => {
             // Read the selection before the archive, not after: the workspace
@@ -284,7 +284,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // The console always rests on a conversation: archiving the one on
             // screen leaves none selected, and the shell's own load-time
             // landing is a one-shot that never fires a second time.
-            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions)
+            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions, workbench)
           },
           onSignOut: () => {
             if (authGate === undefined) {
@@ -325,7 +325,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
           }
           const next = [...current.workflows, workflow]
           if (sidebarActions !== undefined) {
-            await persistServerMenu({ workflows: next }, sidebarActions)
+            await persistServerMenu({ workflows: next }, sidebarActions, workbench)
             return
           }
           // Defensive: the sidebar is always resident in the shipped
@@ -341,5 +341,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
       }),
     }, SaveWorkflowAction)),
     'server-sidebar: save-workflow header action',
+  )
+
+  ctx.effect(
+    () => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+      name: 'conversation.session.header.actions',
+      id: 'untitled-title',
+      order: UNTITLED_TITLE_ORDER,
+      locale: NS,
+      inject: (): UntitledTitleInjected => ({ hooks: { workbenchSessionId: workbench } }),
+    }, UntitledTitle)),
+    'server-sidebar: untitled conversation title',
   )
 }

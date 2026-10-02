@@ -18,7 +18,7 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { BoundActions, HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject, type ServerSidebarInjected } from '../src/client/index.ts'
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
@@ -259,6 +259,19 @@ function injectSidebar(ctx: Context): { injected: ServerSidebarInjected; actions
  */
 function headerAction(ctx: Context, id: string): ReturnType<Context['slots']['entries']>[number] | undefined {
   return ctx.slots.entries('conversation.session.header.actions').find(entry => entry.options.id === id)
+}
+
+/**
+ * The workbench source the untitled-title entry's inject factory hands its component.
+ * @param ctx - the bench context.
+ * @returns the observable workbench id.
+ */
+function workbenchSourceOf(ctx: Context): HostObservable<string | undefined> {
+  const hooks = headerAction(ctx, 'untitled-title')?.inject?.()['hooks']
+  if (typeof hooks !== 'object' || hooks === null || !('workbenchSessionId' in hooks)) {
+    throw new Error('the untitled-title entry injects no workbenchSessionId hook')
+  }
+  return hooks.workbenchSessionId as HostObservable<string | undefined>
 }
 
 /** Read the save-workflow header action's inject factory for the given session. */
@@ -709,6 +722,23 @@ describe('server-sidebar browser half: untitled-conversation title', () => {
     // The lowest shipped order in this list is the subagent catalog's -30.
     const [first] = ctx.slots.entriesOfSlot('conversation.session.header.actions')
     expect(first?.options.id).toBe('untitled-title')
+  })
+
+  it('hands the title the workbench id of the menu it loaded, then of each document a save answers with', async () => {
+    const { ctx } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const source = workbenchSourceOf(ctx)
+    expect(source.getSnapshot()).toBeUndefined()
+    const changed = vi.fn()
+    source.subscribe(changed)
+    const { injected } = injectSidebar(ctx)
+    stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
+    await injected.onOpenWorkbench(undefined, false, false, false)
+    expect(source.getSnapshot()).toBe('new-session')
+    expect(changed).toHaveBeenCalledTimes(1)
+    // A refused save commits nothing, to the store or to the title.
+    stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, body: {} } })
+    await injected.onSaveMenu({ workbenchSessionId: 'other-session' })
+    expect(source.getSnapshot()).toBe('new-session')
   })
 })
 
