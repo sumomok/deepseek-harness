@@ -6,7 +6,7 @@
  * @module
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,7 +40,7 @@ const PATCH_HEADER = `# Your patch layer for this dsh profile, applied after eve
 # overrides, disables, and insert lists; \`!!js\` expressions allowed).
 `
 
-/** The `models` block of the rc.34 to rc.36 table, as a save from the Models page writes it under `config`. */
+/** The `models` block of the rc.34 to rc.36.1 table, as a save from the Models page writes it under `config`. */
 const RC34_MODELS_BLOCK = `    models:
       - id: deepseek-flash
         name: DeepSeek-V4.1-Flash
@@ -327,7 +327,7 @@ auto-compact:
       kept: [],
       skipped: [],
     })
-    // The profile step ran on the first launch only, as the marker's one profile entry says.
+    // The profile, cleared on the first launch, had nothing left to remove.
     expect(second.lines).toEqual(['removed the rc32-rc33 models table from settings.yaml\'s llm-deepseek row'])
     expect(profileRows().find(row => row.id === 'llm-deepseek')?.config).not.toHaveProperty('models')
   })
@@ -339,12 +339,70 @@ auto-compact:
     expect(settingsSections()['llm-deepseek']).toEqual({ baseURL: 'https://deepseek.example/anthropic' })
   })
 
+  // The settings migration stopped at its first step, so the server of that
+  // launch imported settings.yaml as rc.33 left it, table included, into the
+  // profile; the settings migration finishes on the next launch.
+  it('clears a table the server imported into the profile while the settings migration was unfinished', () => {
+    writeFileSync(settingsPath(), RC33_SETTINGS)
+    writeFileSync(patchPath(), `${PATCH_HEADER}[]\n`)
+    // A non-empty directory where the original moves to makes that move fail.
+    mkdirSync(join(home, 'settings.yaml.pre-rc34', 'occupied'), { recursive: true })
+
+    expect(migrateLegacySettings(home, profileDir).lines[0]).toMatch(/^settings migration stopped and will run again next launch: /)
+    expect(existsSync(settingsPath())).toBe(true)
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual(['left settings.yaml for a launch whose settings-migration.json reads done'])
+    // That launch's server: the import renames the file and writes the section into the profile row.
+    renameSync(settingsPath(), `${settingsPath()}.imported`)
+    writeFileSync(patchPath(), profileWithModels(SHIPPED_MODEL_TABLES['rc32-rc33']))
+    rmSync(join(home, 'settings.yaml.pre-rc34'), { recursive: true })
+
+    migrateLegacySettings(home, profileDir)
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual([
+      'removed the rc32-rc33 models table from cordis.patch.yml\'s llm-deepseek row',
+      'removed the rc32-rc33 models table from settings.yaml\'s llm-deepseek row',
+    ])
+    expect(profileRows()).toEqual([{
+      id: 'llm-deepseek',
+      name: '@deepseek-ai/dsh-llm-deepseek-api-key',
+      config: { retryPolicy: { mode: 'normal', backoff: { maxDelayMs: 300_000 } }, baseURL: 'https://deepseek.example/anthropic' },
+    }])
+    expect(settingsSections()['llm-deepseek']).toEqual({ baseURL: 'https://deepseek.example/anthropic' })
+    expect(readModelCatalogMigrationMarker(markerPath())).toEqual({
+      state: 'done',
+      removed: [{ file: 'cordis.patch.yml', table: 'rc32-rc33' }, { file: 'settings.yaml', table: 'rc32-rc33' }],
+      kept: [],
+      skipped: [],
+    })
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual([])
+  })
+
   it('says nothing more while it keeps waiting', () => {
     writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), `${JSON.stringify({ state: 'pending', rows: [], dropped: [], skipped: [] })}\n`)
     migrateModelCatalog(home, profileDir)
     const before = statSync(markerPath()).mtimeMs
     expect(migrateModelCatalog(home, profileDir).lines).toEqual(['left settings.yaml for a launch whose settings-migration.json reads done'])
     expect(statSync(markerPath()).mtimeMs).toBe(before)
+  })
+
+  it.each([
+    ['an edited table', profileWithModels([{ id: 'deepseek-flash', name: 'Mine' }]), 'kept the edited models table in cordis.patch.yml\'s llm-deepseek row; recorded in model-catalog-migration.json'],
+    ['a layer it cannot edit', 'llm-deepseek: {}\n', 'skipped cordis.patch.yml: not a YAML sequence this shell can edit'],
+  ])('records %s once while it keeps waiting', (_label, text, line) => {
+    writeFileSync(join(profileDir, SETTINGS_MIGRATION_MARKER), `${JSON.stringify({ state: 'pending', rows: [], dropped: [], skipped: [] })}\n`)
+    writeFileSync(patchPath(), text)
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual([line, 'left settings.yaml for a launch whose settings-migration.json reads done'])
+    const marker = readFileSync(markerPath(), 'utf8')
+    const before = statSync(markerPath()).mtimeMs
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual(['left settings.yaml for a launch whose settings-migration.json reads done'])
+    expect(readFileSync(markerPath(), 'utf8')).toBe(marker)
+    expect(statSync(markerPath()).mtimeMs).toBe(before)
+    expect(readFileSync(patchPath(), 'utf8')).toBe(text)
+
+    settingsMigrationDone()
+    expect(migrateModelCatalog(home, profileDir).lines).toEqual([])
+    const done = readModelCatalogMigrationMarker(markerPath())
+    expect(done?.state).toBe('done')
+    expect((done?.kept.length ?? 0) + (done?.skipped.length ?? 0)).toBe(1)
   })
 })
 

@@ -1,9 +1,9 @@
 /**
  * Clear the DeepSeek model tables earlier desktop builds froze into a
- * machine's own settings, once, before the first server of a build that
- * carries this starts.
+ * machine's own settings, before the server starts, on each launch of a build
+ * that carries this until the run is done.
  *
- * Through 0.1.0-rc.36 a bundle layer of this payload set `models` on the
+ * Through 0.1.0-rc.36.1 a bundle layer of this payload set `models` on the
  * `llm-deepseek` row, which replaces the adapter's own catalog whole. From
  * 0.1.0-rc.34 a save from the Models page writes the composed row's whole
  * `config` into the profile's own patch layer
@@ -26,13 +26,21 @@
  * until then that migration may still write its migrated copy back from
  * `settings.yaml.pre-rc34` on a later launch, and the server would import
  * whatever table that copy carries. A launch that finds it unfinished clears
- * the profile and records `settingsDeferred`, and a later launch clears the
- * file the finished migration left, before that launch's server imports it.
+ * the profile and records `settingsDeferred`. Each later launch before `done`
+ * clears the profile again: a settings migration that stopped before it moved
+ * `settings.yaml` aside, or after it wrote the migrated copy, leaves a file
+ * the server of the same launch imports into the profile's `llm-deepseek`
+ * row, table included, and no bundle layer of this build sets a shipped
+ * table. The launch that finds the settings migration done also clears the
+ * file it left, before that launch's server imports it.
  *
  * {@link MODEL_CATALOG_MIGRATION_MARKER} records every removal and every table
- * kept. It is written after the files it describes, and `done` makes every
- * later launch skip the run, so a table the user builds again afterwards
- * stays. A marker that cannot be read counts as absent.
+ * kept. A table kept and a file skipped are recorded once however many
+ * launches find them, so a launch that stays `pending` and finds nothing new
+ * leaves the marker unwritten. It is written after the files it describes,
+ * and `done` makes every later launch skip the run, so a table the user
+ * builds again afterwards stays. A marker that cannot be read counts as
+ * absent.
  * @module @deepseek-ai/dsh-desktop-shell/model-catalog-migration
  */
 
@@ -60,8 +68,8 @@ export type ShippedModelTable = 'rc34-rc36' | 'rc32-rc33' | 'rc20-rc30'
  * as the parsed YAML value the row held.
  *
  * - `rc34-rc36`: `apps/desktop-app/cordis.patch.yml` at tags
- *   `desktop-v0.1.0-rc.34` and `desktop-v0.1.0-rc.34.1`, and in the rc.35 and
- *   rc.36 releases.
+ *   `desktop-v0.1.0-rc.34` and `desktop-v0.1.0-rc.34.1`, and in the rc.35,
+ *   rc.35.1, rc.36, and rc.36.1 releases.
  * - `rc32-rc33`: the same file at tags `desktop-v0.1.0-rc.32` and
  *   `desktop-v0.1.0-rc.33`.
  * - `rc20-rc30`: `cordis.patch.yml` inside the vendored
@@ -108,7 +116,7 @@ export interface ModelCatalogMigrationMarker {
   settingsDeferred?: boolean
   /** Each table removed: the file it was in and which shipped table it equalled. */
   removed: { file: string; table: ShippedModelTable }[]
-  /** Each table left in place because it equals no shipped table, with its value. */
+  /** Each table left in place because it equals no shipped table, with its value; one entry per file and value. */
   kept: { file: string; models: unknown }[]
   /** One line per file left alone, each saying why. */
   skipped: string[]
@@ -188,8 +196,8 @@ function runMigration(home: string, profileDir: string, report: ModelCatalogMigr
     : { ...previous, removed: [...previous.removed], kept: [...previous.kept], skipped: [...previous.skipped] }
   const run: Run = { marker, report }
 
-  // A pending marker is written only after the profile was cleared.
-  if (previous === undefined) clearProfileTables(join(profileDir, PROFILE_PATCH_FILENAME), run)
+  // Before `done`, the last launch's server may have imported a shipped table into the profile.
+  clearProfileTables(join(profileDir, PROFILE_PATCH_FILENAME), run)
 
   const settingsReady = readSettingsMigrationMarker(join(profileDir, SETTINGS_MIGRATION_MARKER))?.state === 'done'
   if (settingsReady) {
@@ -229,8 +237,10 @@ function clearTable(section: YAMLMap, file: string, run: Run): boolean {
   const models: unknown = isMap(node) || isSeq(node) ? node.toJSON() : section.get('models')
   const table = shippedTable(models)
   if (table === undefined) {
-    run.marker.kept.push({ file, models })
-    run.report.lines.push(`kept the edited models table in ${file}'s ${LLM_DEEPSEEK} row; recorded in ${MODEL_CATALOG_MIGRATION_MARKER}`)
+    if (!run.marker.kept.some(entry => entry.file === file && isDeepStrictEqual(entry.models, models))) {
+      run.marker.kept.push({ file, models })
+      run.report.lines.push(`kept the edited models table in ${file}'s ${LLM_DEEPSEEK} row; recorded in ${MODEL_CATALOG_MIGRATION_MARKER}`)
+    }
     return false
   }
   section.delete('models')
@@ -240,11 +250,12 @@ function clearTable(section: YAMLMap, file: string, run: Run): boolean {
 }
 
 /**
- * Record a file left alone.
+ * Record a file left alone, unless an earlier launch recorded the same line.
  * @param line - the file name and why.
  * @param run - extended with the line.
  */
 function skip(line: string, run: Run): void {
+  if (run.marker.skipped.includes(line)) return
   run.marker.skipped.push(line)
   run.report.lines.push(`skipped ${line}`)
 }
