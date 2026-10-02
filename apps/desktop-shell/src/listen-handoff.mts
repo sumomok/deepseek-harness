@@ -31,8 +31,14 @@
  * `listening` line must reach the shell before the URL line the CLI prints
  * there, and a failure line must be complete before the process exits. A
  * failure writes `dsh-desktop listen handoff failed: <reason>` and exits 1,
- * which the shell answers by starting the server without the socket. The
- * module imports Node built-ins only, because the packaged app runs it from
+ * which the shell answers by starting the server without the socket; the
+ * process exits whether or not the line could be written. Once the server
+ * opened `process.stdout` on a pipe, macOS makes the descriptor non-blocking,
+ * so a write while the shell has not read the pipe fails with `EAGAIN`; such
+ * a write is retried for up to {@link WRITE_WAIT_MS}, and the part of a
+ * `listening` line still unwritten after that goes through `process.stdout`,
+ * which queues it ahead of the URL line on the same stream. The module
+ * imports Node built-ins only, because the packaged app runs it from
  * `app.asar.unpacked`, beside no other module of this package.
  * @module @deepseek-ai/dsh-desktop-shell/listen-handoff
  */
@@ -61,21 +67,50 @@ const LOOPBACK = '127.0.0.1'
 const SOCKET_WAIT_MS = 10_000
 
 /**
- * Write one protocol line to standard output, synchronously.
- * @param line - the line, without its newline.
+ * How long a protocol line's write keeps retrying while standard output is a
+ * full non-blocking pipe. The shell reads the pipe continuously, so the bound
+ * only ends the wait on a shell whose main thread stopped reading.
  */
-function writeLine(line: string): void {
-  writeSync(1, `${line}\n`)
+const WRITE_WAIT_MS = 2_000
+
+/** The word {@link Atomics.wait} sleeps on between two write attempts; nothing ever wakes it. */
+const RETRY_SLEEP = new Int32Array(new SharedArrayBuffer(4))
+
+/**
+ * Write one protocol line to standard output synchronously, retrying while
+ * the pipe is full.
+ * @param line - the line, without its newline.
+ * @returns the line's bytes, newline included, and how many of them were
+ * written: fewer than all when the pipe stayed full for {@link WRITE_WAIT_MS}
+ * or the write failed with another error.
+ */
+function writeLine(line: string): { bytes: Buffer; written: number } {
+  const bytes = Buffer.from(`${line}\n`)
+  const deadline = Date.now() + WRITE_WAIT_MS
+  let written = 0
+  while (written < bytes.length) {
+    try {
+      written += writeSync(1, bytes, written)
+    } catch (error) {
+      if (field(error, 'code') !== 'EAGAIN' || Date.now() >= deadline) break
+      Atomics.wait(RETRY_SLEEP, 0, 0, 1)
+    }
+  }
+  return { bytes, written }
 }
 
 /**
- * Write the failure line and end the process.
+ * Write the failure line and end the process, whether or not the line could
+ * be written.
  * @param reason - why the handoff failed.
  * @returns never; the process exits.
  */
 function fail(reason: string): never {
-  writeLine(`${LINE_PREFIX} failed: ${reason}`)
-  process.exit(1)
+  try {
+    writeLine(`${LINE_PREFIX} failed: ${reason}`)
+  } finally {
+    process.exit(1)
+  }
 }
 
 /**
@@ -149,7 +184,8 @@ function listenOnHandle(port: number, handle: object): void {
       if (address === null || typeof address === 'string' || address.address !== LOOPBACK || address.port !== port) {
         fail(`listening on ${JSON.stringify(address)}, not ${LOOPBACK}:${String(port)}`)
       }
-      writeLine(`${LINE_PREFIX}: listening on ${LOOPBACK}:${String(port)}`)
+      const listening = writeLine(`${LINE_PREFIX}: listening on ${LOOPBACK}:${String(port)}`)
+      if (listening.written < listening.bytes.length) process.stdout.write(listening.bytes.subarray(listening.written))
       if (typeof callback === 'function') Reflect.apply(callback, this, [])
     })
   }

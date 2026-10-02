@@ -10,7 +10,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Readable } from 'node:stream'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import * as net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -31,10 +31,21 @@ const PRELOAD_URL = pathToFileURL(PRELOAD).href
  * request with its name and what it saw at startup, and kills itself on
  * `/die`. `ENTRY_BEHAVIOR` picks how it listens: positionally (the default,
  * as the web server does), with an options object, after another server on a
- * port of its own, twice on the same port, or after a worker thread ran.
+ * port of its own, twice on the same port, after a worker thread ran, or on
+ * the wildcard address. The second listen runs inside a promise executor, as
+ * the web server's does, so a throw from it would only reject that promise,
+ * and a timer keeps the process alive the way a running server is.
+ *
+ * With `EAGAIN_LINE` set, standard-output writes through `fs.writeSync` of a
+ * line containing it fail with `EAGAIN`, as they do on a full non-blocking
+ * pipe, `EAGAIN_TIMES` times (`always` for every attempt), each failure
+ * appending one `x` to the file `EAGAIN_LOG`: before the first listen for
+ * `listening-eagain`, before the second one for `second-listen`.
  */
 const ENTRY = `
+import fs from 'node:fs'
 import http from 'node:http'
+import { syncBuiltinESMExports } from 'node:module'
 import { Worker } from 'node:worker_threads'
 const port = Number(process.argv[process.argv.indexOf('--port') + 1])
 const name = process.env.ENTRY_NAME ?? 'server'
@@ -45,6 +56,22 @@ const server = http.createServer((req, res) => {
   res.end(name + ' ' + JSON.stringify(seen))
 })
 const announce = () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') }
+const failWrites = () => {
+  const line = process.env.EAGAIN_LINE
+  if (line === undefined) return
+  const times = process.env.EAGAIN_TIMES === 'always' ? Infinity : Number(process.env.EAGAIN_TIMES)
+  const original = fs.writeSync
+  let failed = 0
+  fs.writeSync = (fd, data, ...rest) => {
+    if (fd === 1 && failed < times && String(data).includes(line)) {
+      failed += 1
+      fs.appendFileSync(process.env.EAGAIN_LOG, 'x')
+      throw Object.assign(new Error('EAGAIN: resource temporarily unavailable, write'), { code: 'EAGAIN' })
+    }
+    return original(fd, data, ...rest)
+  }
+  syncBuiltinESMExports()
+}
 switch (process.env.ENTRY_BEHAVIOR) {
   case 'options':
     server.listen({ port, host: '127.0.0.1' }, announce)
@@ -55,10 +82,21 @@ switch (process.env.ENTRY_BEHAVIOR) {
     break
   }
   case 'second-listen':
+    setInterval(() => {}, 1000)
     server.listen(port, '127.0.0.1', () => {
       announce()
-      setTimeout(() => { server.close(() => { server.listen(port, '127.0.0.1') }) }, 50)
+      setTimeout(() => {
+        failWrites()
+        server.close(() => { new Promise(() => { server.listen(port, '127.0.0.1') }).catch(() => {}) })
+      }, 50)
     })
+    break
+  case 'listening-eagain':
+    failWrites()
+    server.listen(port, '127.0.0.1', announce)
+    break
+  case 'wildcard':
+    server.listen(port, '0.0.0.0', announce)
     break
   case 'worker': {
     const worker = new Worker(new URL('./worker.mjs', import.meta.url), { env: { ${LISTEN_HANDOFF_ENV}: String(port) } })
@@ -276,6 +314,40 @@ describe('a server started on a held socket', () => {
     expect(info.tail).toContain('dsh-desktop listen handoff failed: second listen on the held port')
     expect(await squat(socket.port)).toBe('EADDRINUSE')
   })
+
+  it('ends the server on a second listen while standard output refuses writes, writing the line once it takes them', async () => {
+    const socket = hold()
+    const refusals = join(root, 'refusals.log')
+    const handle = await start(specFor(socket, {
+      ENTRY_BEHAVIOR: 'second-listen', EAGAIN_LINE: 'listen handoff failed', EAGAIN_TIMES: '3', EAGAIN_LOG: refusals,
+    }))
+    const info = await exited(handle)
+    expect(info.code).toBe(1)
+    expect(info.tail).toContain('dsh-desktop listen handoff failed: second listen on the held port')
+    expect(await readFile(refusals, 'utf8')).toBe('xxx')
+  })
+
+  it('ends the server on a second listen when standard output never takes the line', async () => {
+    const socket = hold()
+    const refusals = join(root, 'refusals.log')
+    const handle = await start(specFor(socket, {
+      ENTRY_BEHAVIOR: 'second-listen', EAGAIN_LINE: 'listen handoff failed', EAGAIN_TIMES: 'always', EAGAIN_LOG: refusals,
+    }))
+    const info = await exited(handle)
+    expect(info.code).toBe(1)
+    expect(info.tail).not.toContain('listen handoff failed')
+    expect((await readFile(refusals, 'utf8')).length).toBeGreaterThan(3)
+  }, 15_000)
+
+  it('still writes the listening line ahead of the URL line when standard output refuses synchronous writes', async () => {
+    const socket = hold()
+    const refusals = join(root, 'refusals.log')
+    const handle = await start(specFor(socket, {
+      ENTRY_BEHAVIOR: 'listening-eagain', EAGAIN_LINE: 'listening on', EAGAIN_TIMES: 'always', EAGAIN_LOG: refusals,
+    }))
+    expect(handle.url).toBe(`http://127.0.0.1:${String(socket.port)}`)
+    expect((await readFile(refusals, 'utf8')).length).toBeGreaterThan(3)
+  }, 15_000)
 })
 
 describe('a handoff that cannot hold', () => {
