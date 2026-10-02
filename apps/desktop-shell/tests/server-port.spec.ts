@@ -343,8 +343,8 @@ describe('the launch sequence in main.ts', () => {
   })
 
   it('starts every server of a run through the held socket when there is one, and records the port and the socket', () => {
-    expect([...source.matchAll(/await startHeldOrFallback\(/g)]).toHaveLength(2)
-    expect([...source.matchAll(/await rebindOnHeldSocket\(/g)]).toHaveLength(1)
+    expect([...source.matchAll(/await startHeldOrFallback\(/g)]).toHaveLength(1)
+    expect([...source.matchAll(/await rebindOnHeldSocket\(/g)]).toHaveLength(2)
     expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(2)
     expect([...source.matchAll(/rememberServerPort\(started\.spec\)/g)]).toHaveLength(3)
     expect([...source.matchAll(/held = started\.held/g)]).toHaveLength(3)

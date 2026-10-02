@@ -413,7 +413,10 @@ describe('main.ts', () => {
       '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
     ].join(''), 'u'))
     expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
-    expect(body('restartAfterFailedInstall')).toContain('{ ...spec, port: held.socket.port }, held, startEmbeddedServer,')
+    expect(body('restartAfterFailedInstall')).toMatch(new RegExp([
+      'await rebindOnHeldSocket\\(\\s*spec, held, startEmbeddedServer,',
+      ' \\{ log: logLine, forgetPort: forgetServerPort, release: releaseHeld \\}',
+    ].join(''), 'u'))
     expect(body('reveal')).toContain("backendStopped: () => stoppedDialog === 'dismissed',")
     expect(body('runStoppedDialog')).toContain("stoppedDialog = 'dismissed'")
   })

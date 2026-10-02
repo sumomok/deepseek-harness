@@ -341,12 +341,14 @@ function rememberServerPort(spec: ServerSpec): void {
 }
 
 /**
- * Start the server again after an install that stopped it failed, through the
- * ordinary start: on the {@link held} socket when the shell holds one, and
- * otherwise on the remembered port when it is free, else one the system
- * picks. On success every window and the notification streams move to it and
- * supervision resumes; on failure the stopped-server dialog offers a retry, as
- * after repeated crashes.
+ * Start the server again after an install that stopped it failed: on the
+ * {@link held} socket when the shell holds one, as a crash rebind does, and
+ * otherwise through the ordinary start, on the remembered port when it is
+ * free, else one the system picks. A handoff that fails then falls back as in
+ * a crash rebind, to a port the system picks and not the held one, because a
+ * window may still be open on that origin. On success every window and the
+ * notification streams move to it and supervision resumes; on failure the
+ * stopped-server dialog offers a retry, as after repeated crashes.
  * @returns once the server is up or the dialog is shown.
  */
 async function restartAfterFailedInstall(): Promise<void> {
@@ -361,8 +363,8 @@ async function restartAfterFailedInstall(): Promise<void> {
     } else {
       // Not through `choosePort`: its probe finds the socket this shell holds
       // and reports the port taken.
-      started = await startHeldOrFallback(
-        { ...spec, port: held.socket.port }, held, startEmbeddedServer, { log: logLine, beforeClose: () => {} },
+      started = await rebindOnHeldSocket(
+        spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort, release: releaseHeld },
       )
     }
     held = started.held

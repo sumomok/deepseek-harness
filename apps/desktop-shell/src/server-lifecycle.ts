@@ -69,8 +69,9 @@
  *   dialog again rather than a window on a server that is not running.
  * - An install that failed after the quit began undoes the quit: it clears
  *   the quitting state first, so the window can be shown again, restarts the
- *   server through the ordinary start unless the mandatory-update block holds
- *   the app, and then shows the window.
+ *   server unless the mandatory-update block holds the app — on the held
+ *   socket as a crash rebind does, or through the ordinary start without
+ *   one — and then shows the window.
  * @module @deepseek-ai/dsh-desktop-shell/server-lifecycle
  */
 
@@ -147,7 +148,7 @@ export async function rebindOnNewPort(
   return startOnPort({ ...spec, port: 0 }, start, log)
 }
 
-/** What a crash rebind on the held socket needs besides the start. */
+/** What a start on the held socket after the server stopped needs besides the start. */
 export interface HeldRebindHooks {
   /** One log line, ending in a newline. */
   log: (line: string) => void
@@ -162,10 +163,12 @@ export interface HeldRebindHooks {
 }
 
 /**
- * Start a crash rebind on the socket the shell holds, so the window keeps its
- * origin. When the handoff fails, the rebind becomes what it is without the
- * socket: the socket is released, the remembered port forgotten, the socket
- * closed, and the server started on a port the system picks.
+ * Start the server again on the socket the shell holds, after a crash or after
+ * a failed install stopped it, so the window keeps its origin. When the
+ * handoff fails, the start becomes a crash rebind without the socket: the
+ * socket is released, the remembered port forgotten, the socket closed, and
+ * the server started on a port the system picks, never the held one, since a
+ * window may be open on that origin.
  * @param spec - the recorded launch spec.
  * @param handoff - the held socket and the preload.
  * @param start - starts one server.
