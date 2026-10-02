@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { HeldListenSocket, NativeListenHandle } from '../src/listen-socket.ts'
+import { handoffListeningLine, type HeldListenSocket, type NativeListenHandle } from '../src/listen-socket.ts'
 import {
   choosePort, holdLaunchSocket, isAddressInUse, isListenPort, isPortFree, listenOutcome, portOf, startHeldOrFallback, startOnPort,
 } from '../src/server-port.ts'
@@ -305,6 +305,15 @@ describe('startHeldOrFallback', () => {
       expect(lines[0]).toMatch(/^\[desktop\] listen handoff unavailable \(.+\); this run changes origin on every crash rebind\n$/u)
     })
   }
+
+  it('propagates a taken port that was not the held one, once the server listened on the held socket, and keeps the socket held', async () => {
+    const steps: string[] = []
+    const failure = new ServerExitedBeforeUrl('exit', `${handoffListeningLine(49_321)}\nError: listen EADDRINUSE: address already in use 127.0.0.1:9229\n`)
+    await expect(startHeldOrFallback(SPEC, { socket: socketOn(steps), preload: '/p.mjs' }, async () => { throw failure }, {
+      log: () => {}, beforeClose: () => { steps.push('before close') },
+    })).rejects.toBe(failure)
+    expect(steps).toEqual([])
+  })
 
   it('propagates any other failure and keeps the socket held', async () => {
     const steps: string[] = []

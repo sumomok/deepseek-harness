@@ -35,7 +35,7 @@
  */
 
 import { createServer } from 'node:net'
-import { holdLoopbackPort, LOOPBACK, type HeldListenSocket, type ListenHandoff } from './listen-socket.ts'
+import { handoffListeningLine, holdLoopbackPort, LOOPBACK, type HeldListenSocket, type ListenHandoff } from './listen-socket.ts'
 import { ListenHandoffFailed, ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from './server.ts'
 
 /**
@@ -213,13 +213,19 @@ export interface HandoffFallback {
 /**
  * Whether a start failure is a handoff failure, and why.
  * @param error - what the start rejected with.
- * @returns the reason, or undefined for any other failure.
+ * @param port - the held port.
+ * @returns the reason, or undefined for any other failure. A `listen
+ * EADDRINUSE` exit counts only when the server never wrote the preload's
+ * `listening` line: after that line the server listened on the held socket,
+ * and the taken port was some other listener's.
  */
-function handoffFailure(error: unknown): string | undefined {
+function handoffFailure(error: unknown, port: number): string | undefined {
   if (error instanceof ListenHandoffFailed) return error.reason
   // The preload did not take the `listen` call, and the server's own bind
   // found the address the shell holds.
-  if (isAddressInUse(error)) return 'the server bound the held port itself (listen EADDRINUSE)'
+  if (error instanceof ServerExitedBeforeUrl && isAddressInUse(error) && !error.output.includes(handoffListeningLine(port))) {
+    return 'the server bound the held port itself (listen EADDRINUSE)'
+  }
   return undefined
 }
 
@@ -244,7 +250,7 @@ export async function startHeldOrFallback(
     const server = await start({ ...spec, port, listen: handoff })
     return { server, spec: { ...spec, port }, held: handoff }
   } catch (error) {
-    const reason = handoffFailure(error)
+    const reason = handoffFailure(error, port)
     if (reason === undefined) throw error
     fallback.beforeClose()
     handoff.socket.close()
