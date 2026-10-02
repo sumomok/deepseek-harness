@@ -927,6 +927,19 @@ export function setupNotifications(host: NotifyHost, authenticatedUrl: string): 
 }
 
 /**
+ * Stop watching the server: close the stream, end its reconnect loop and its
+ * cookie exchanges, and close every toast and badge count it raised. The
+ * shell calls it when the server exits unexpectedly, before the recovery
+ * ladder: a stream left running would keep presenting its cookie to the dead
+ * server's port, and mint a new one from the old launch token, for as long as
+ * no rebind replaces it. Idempotent; the next {@link setupNotifications} call
+ * starts a new stream.
+ */
+export function stopNotifications(): void {
+  stopCurrentGeneration()
+}
+
+/**
  * Close the active generation's socket and stop its reconnect loop.
  * Idempotent, and a no-op before the first `setupNotifications` call.
  */
@@ -937,7 +950,7 @@ function stopCurrentGeneration(): void {
   current.socket = undefined
   dropAllPending(current)
   // Every button on them answers a delivery of a server this shell is done
-  // with — either quitting, or rebinding to a new one whose ids are fresh.
+  // with — quitting, or a server that exited, whose successor's ids are fresh.
   closeAllToasts(current)
   // The same holds for the requests the badge counts.
   current.badged.clear()
