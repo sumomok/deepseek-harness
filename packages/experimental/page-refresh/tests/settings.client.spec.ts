@@ -1,7 +1,7 @@
 /**
  * The browser half's reading of the settings global: the four fields the node
- * half publishes are accepted as they are, and anything else fails the row
- * with the global and the field named.
+ * half publishes are accepted as they are, and anything else is refused with
+ * the global and the field named.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -14,9 +14,11 @@ describe('the settings global', () => {
     expect(readPageRefreshSettings({ ...VALID, extra: 'ignored' })).toEqual(VALID)
   })
 
-  it.each([undefined, null, 'settings'])('fails the row when the page carries %s', (value) => {
-    expect(() => readPageRefreshSettings(value))
-      .toThrow(`page-refresh: the page carries no usable __DSH_PAGE_REFRESH_CONFIG__: ${String(value)}`)
+  it.each([undefined, null, 'settings'])('refuses a page that carries %s, naming the node half', (value) => {
+    expect(() => readPageRefreshSettings(value)).toThrow(
+      `page-refresh: the page carries no usable __DSH_PAGE_REFRESH_CONFIG__: ${String(value)}. `
+      + 'The row\'s node half publishes it when it activates; a missing value means it did not, and the host\'s startup warning names why.',
+    )
   })
 
   it.each([
@@ -28,7 +30,7 @@ describe('the settings global', () => {
     ['stuckAfterSeconds', 0, '0'],
     ['stuckAfterSeconds', '60', '"60"'],
     ['stuckAfterSeconds', 2_147_484, '2147484'],
-  ])('fails the row naming %s when it is %s', (field, value, shown) => {
+  ])('refuses %s when it is %s, naming the field', (field, value, shown) => {
     expect(() => readPageRefreshSettings({ ...VALID, [field]: value }))
       .toThrow(`page-refresh: __DSH_PAGE_REFRESH_CONFIG__.${field} is unusable: ${shown}`)
   })

@@ -24,12 +24,14 @@ function integerWithin(value: unknown, min: number, max: number): value is numbe
  * @param value - the page global's value, however malformed.
  * @returns the settings.
  * @throws {Error} naming the global and the first field that is missing or out
- * of range, so the row fails rather than running on settings the deployment did
- * not write.
+ * of range. The error fails this plugin's activation, and the web client then
+ * fails the whole page's boot rather than run on settings the deployment did not
+ * write. A missing global means the row's node half did not activate.
  */
 export function readPageRefreshSettings(value: unknown): Config {
   if (typeof value !== 'object' || value === null) {
-    throw new Error(`page-refresh: the page carries no usable ${PAGE_REFRESH_CONFIG_GLOBAL}: ${String(value)}`)
+    throw new Error(`page-refresh: the page carries no usable ${PAGE_REFRESH_CONFIG_GLOBAL}: ${String(value)}. `
+      + 'The row\'s node half publishes it when it activates; a missing value means it did not, and the host\'s startup warning names why.')
   }
   const field = (key: keyof Config): unknown => Reflect.get(value, key)
   const checkOnVisible = field('checkOnVisible')

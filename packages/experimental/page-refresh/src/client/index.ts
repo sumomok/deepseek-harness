@@ -40,7 +40,8 @@ export const inject = ['connection']
  * Client plugin body: read the settings the served index carries, then start
  * the build check, the connection notices, and the banner for this page.
  * @param ctx - client root context.
- * @throws {Error} when the served index carries no usable settings.
+ * @throws {Error} when the served index carries no usable settings; the web
+ * client then fails the whole page's boot.
  */
 export function apply(ctx: ClientContext): void {
   installPageRefresh(ctx, {

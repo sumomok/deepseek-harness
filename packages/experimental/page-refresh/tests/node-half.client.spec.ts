@@ -11,8 +11,10 @@
  * check in front of that call belongs to the Host face of the connection
  * package, which this Client-program spec does not load.
  *
- * The configuration cases call the `Config` schema directly: a rejected value
- * never reaches a served index, so there is nothing to observe there.
+ * The configuration cases call the `Config` schema directly. One composition
+ * case boots a row whose config the schema rejects: the row keeps its entry and
+ * a fiber, which is what the client module registry lists a browser half by,
+ * while the served index carries no settings global.
  *
  * The jsdom environment supplies the `DOMParser` the browser half reads the
  * served index's module scripts with.
@@ -185,6 +187,16 @@ describe('configuration', () => {
     [{ disconnectNotice: 1 as never }, '$.disconnectNotice'],
   ])('rejects %o', (config, path) => {
     expect(() => PageRefresh.Config(config)).toThrow(path)
+  })
+
+  it('leaves a rejected row listed but publishes no settings global', async () => {
+    await expect(loadComposition(['stuckAfterSeconds: 0'])).rejects.toThrow('$.stuckAfterSeconds')
+    const ctx = context
+    if (ctx === undefined) throw new Error('the composition did not start')
+    const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'page-refresh')
+    expect(row?.fiber).toBeDefined()
+    expect(row?.disabled).toBeFalsy()
+    expect(servedIndexOf(ctx)).not.toContain('__DSH_PAGE_REFRESH_CONFIG__')
   })
 
   it('names itself and publishes the global the browser half reads', () => {

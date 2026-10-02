@@ -9,7 +9,8 @@
 /**
  * The id the host's boot graph lists this plugin's client bundle under: its
  * package name. A served graph that does not list it would boot a page that
- * never checks its build again.
+ * never checks its build again, so a check reads such a graph as no evidence of
+ * a build, including a graph that lists this plugin under another package name.
  */
 export const PAGE_REFRESH_ENTRY_ID = '@deepseek-ai/dsh-experimental-page-refresh'
 

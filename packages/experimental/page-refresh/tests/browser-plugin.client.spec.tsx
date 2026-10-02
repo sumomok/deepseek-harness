@@ -281,11 +281,12 @@ describe('the plugin body', () => {
     expect(debug).toHaveBeenCalledWith('page-refresh: the page booted without a readable boot graph, so no build is checked')
   })
 
-  it('fails the row when the served index carries no settings', async () => {
+  it('fails to activate, naming the node half, when the served index carries no settings', async () => {
     const ctx = new Context()
     disposers.push(async () => { await ctx.fiber.dispose() })
     ctx.provide('connection', connectionService().service as never)
     await expect(ctx.plugin({ inject, apply }).await())
-      .rejects.toThrow('page-refresh: the page carries no usable __DSH_PAGE_REFRESH_CONFIG__: undefined')
+      .rejects.toThrow('page-refresh: the page carries no usable __DSH_PAGE_REFRESH_CONFIG__: undefined. '
+        + 'The row\'s node half publishes it when it activates; a missing value means it did not, and the host\'s startup warning names why.')
   })
 })
