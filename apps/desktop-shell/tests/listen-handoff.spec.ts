@@ -8,7 +8,7 @@
  * @module
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
@@ -123,6 +123,7 @@ globalThis.setTimeout = (callback, ms, ...rest) => original(callback, ms >= 5000
 let root: string
 const sockets: HeldListenSocket[] = []
 const handles: ServerHandle[] = []
+const children: ChildProcess[] = []
 const listeners: net.Server[] = []
 
 beforeEach(async () => {
@@ -134,6 +135,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map(handle => handle.stop()))
+  await Promise.all(children.splice(0).map(child => new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve()
+      return
+    }
+    child.once('exit', () => { resolve() })
+    child.kill('SIGKILL')
+  })))
   for (const socket of sockets.splice(0)) socket.close()
   await Promise.all(listeners.splice(0).map(listener => new Promise((resolve) => { listener.close(resolve) })))
   await rm(root, { recursive: true, force: true })
@@ -172,6 +181,29 @@ async function start(spec: ServerSpec): Promise<ServerHandle> {
   const handle = await startServer(spec, () => {})
   handles.push(handle)
   return handle
+}
+
+/**
+ * Run a start that must fail, and return what it rejected with; a start that
+ * succeeded instead is stopped after the case.
+ * @param spec - the launch.
+ * @returns the rejection, or undefined when the start succeeded.
+ */
+async function failure(spec: ServerSpec): Promise<unknown> {
+  return startServer(spec, () => {}).then((handle) => { handles.push(handle); return undefined }, (error: unknown) => error)
+}
+
+/**
+ * Spawn the stand-in directly, with the preloads before it, killed after the case.
+ * @param preloads - the `--import` URLs, in order.
+ * @param port - the `--port` argument.
+ * @param options - the environment and the stdio.
+ * @returns the child.
+ */
+function spawnEntry(preloads: string[], port: string, options: { env?: NodeJS.ProcessEnv; stdio: StdioOptions }): ChildProcess {
+  const child = spawn(process.execPath, [...preloads.flatMap(url => ['--import', url]), join(root, 'entry.mjs'), '--port', port], options)
+  children.push(child)
+  return child
 }
 
 /**
@@ -360,14 +392,14 @@ describe('a handoff that cannot hold', () => {
     if (typeof unbound === 'number') return
     const socket: HeldListenSocket = { port: taken, handle: unbound, close: () => { unbound.close() } }
     sockets.push(socket)
-    const failure = await startServer(specFor(socket), () => {}).then(() => undefined, (error: unknown) => error)
-    expect(failure).toBeInstanceOf(ListenHandoffFailed)
-    expect((failure as ListenHandoffFailed).reason).toMatch(/not 127\.0\.0\.1:|listen on the held socket failed/)
+    const rejection = await failure(specFor(socket))
+    expect(rejection).toBeInstanceOf(ListenHandoffFailed)
+    expect((rejection as ListenHandoffFailed).reason).toMatch(/not 127\.0\.0\.1:|listen on the held socket failed/)
   })
 
   it('writes the failure line and exits when no socket arrives', async () => {
     const socket = hold()
-    const child = spawn(process.execPath, ['--import', pathToFileURL(join(root, 'fast-timers.mjs')).href, '--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', String(socket.port)], {
+    const child = spawnEntry([pathToFileURL(join(root, 'fast-timers.mjs')).href, PRELOAD_URL], String(socket.port), {
       env: { ...process.env, [LISTEN_HANDOFF_ENV]: String(socket.port) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
     let output = ''
@@ -379,9 +411,7 @@ describe('a handoff that cannot hold', () => {
   })
 
   it('writes the failure line and exits when the shell closes the channel without sending', async () => {
-    const child = spawn(process.execPath, ['--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', '1'], {
-      env: { ...process.env, [LISTEN_HANDOFF_ENV]: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    })
+    const child = spawnEntry([PRELOAD_URL], '1', { env: { ...process.env, [LISTEN_HANDOFF_ENV]: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
     let output = ''
     stdoutOf(child).on('data', (chunk: Buffer) => {
       output += chunk.toString()
@@ -393,11 +423,11 @@ describe('a handoff that cannot hold', () => {
   })
 
   it('does nothing in a process started without the variable', async () => {
-    const child = spawn(process.execPath, ['--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawnEntry([PRELOAD_URL], '0', { stdio: ['ignore', 'pipe', 'pipe'] })
     const gone = new Promise((resolve) => { child.once('exit', resolve) })
     const output = await new Promise<string>((resolve) => {
       let text = ''
-      child.stdout.on('data', (chunk: Buffer) => {
+      stdoutOf(child).on('data', (chunk: Buffer) => {
         text += chunk.toString()
         if (text.includes('dsh web:')) resolve(text)
       })

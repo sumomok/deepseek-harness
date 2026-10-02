@@ -433,9 +433,22 @@ const PRELOAD = fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.u
 
 describe('a start with a held socket', () => {
   const sockets: HeldListenSocket[] = []
-  afterEach(() => {
+  const handles: ServerHandle[] = []
+  afterEach(async () => {
+    await Promise.all(handles.splice(0).map(handle => handle.stop()))
     for (const socket of sockets.splice(0)) socket.close()
   })
+
+  /**
+   * Start `spec`, stopped after the case.
+   * @param spec - the launch.
+   * @returns the running server.
+   */
+  async function started(spec: ServerSpec): Promise<ServerHandle> {
+    const handle = await startServer(spec, () => {})
+    handles.push(handle)
+    return handle
+  }
 
   /**
    * Hold a loopback port the system picks, closed after the case.
@@ -465,7 +478,7 @@ describe('a start with a held socket', () => {
    * @returns the rejection.
    */
   async function failure(spec: ServerSpec): Promise<unknown> {
-    return startServer(spec, () => {}).then(async (handle) => { await handle.stop(); return undefined }, (error: unknown) => error)
+    return started(spec).then(() => undefined, (error: unknown) => error)
   }
 
   it('without one, carries no preload, no IPC channel and no handoff variable', async () => {
@@ -477,9 +490,8 @@ describe('a start with a held socket', () => {
       process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
       setInterval(() => {}, 1000)
     `)
-    const handle = await startServer(specFor(entry), () => {})
+    await started(specFor(entry))
     expect(JSON.parse(readFileSync(reportFile, 'utf8'))).toEqual({ execArgv: diagnosticReportFlags(root), send: 'undefined', variable: null })
-    await handle.stop()
   })
 
   it('puts the preload after the report flags and before the entry, and asks for the held port', async () => {
@@ -493,13 +505,12 @@ describe('a start with a held socket', () => {
       const server = http.createServer((req, res) => { res.end() })
       server.listen(port, '127.0.0.1', () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') })
     `)
-    const handle = await startServer(heldSpec(entry, socket), () => {})
+    const handle = await started(heldSpec(entry, socket))
     expect(handle.url).toBe(`http://127.0.0.1:${String(socket.port)}`)
     expect(JSON.parse(readFileSync(reportFile, 'utf8'))).toEqual({
       execArgv: [...diagnosticReportFlags(root), '--import', pathToFileURL(PRELOAD).href],
       argv: ['--profile', DESKTOP_PROFILE, '--port', String(socket.port), '--no-open'],
     })
-    await handle.stop()
   })
 
   it('rejects with the reason the preload wrote when it failed', async () => {
