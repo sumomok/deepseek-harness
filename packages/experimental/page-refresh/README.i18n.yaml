@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/page-refresh/README.md
+/:
+  en: cc097d143bf7a445
+  zh: 1f24b9e43d454632
+/deepseek-ai-dsh-experimental-page-refresh:
+  en: 309a7bf50f07708c
+  zh: f5f0968494f109ce
+/deepseek-ai-dsh-experimental-page-refresh/summary:
+  en: 3de2d36824314271
+  zh: 1dc05c390513d15c
+/deepseek-ai-dsh-experimental-page-refresh/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 567cbc298d08aecc
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package:
+  en: c45b465324c4fa26
+  zh: a7a4290246d5d1b4
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/when-to-choose-it:
+  en: ff8d0eec8536070e
+  zh: ea1b9b98a2f27205
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/minimal-configuration:
+  en: 7174727fec3b232b
+  zh: 557defb19721f8ca
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/when-the-build-is-checked:
+  en: 79a02cc7c6975181
+  zh: a43cabad24048665
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/what-counts-as-a-build:
+  en: 3b1a37081c5135ef
+  zh: b298ecd8a98d816f
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/what-a-different-build-does:
+  en: 8af72d21114fc4d4
+  zh: 26c56655c8d7f46f
+/deepseek-ai-dsh-experimental-page-refresh/use-this-package/the-banner:
+  en: 9ef421affe6f0bcb
+  zh: d293ebe3888c3f3d
+/deepseek-ai-dsh-experimental-page-refresh/understand-the-implementation:
+  en: a37bdbc0ef242970
+  zh: cad3d8158d30fdde
+/deepseek-ai-dsh-experimental-page-refresh/further-exploration:
+  en: f087151dab9a2869
+  zh: 35254ede1b490099
+/deepseek-ai-dsh-experimental-page-refresh/model-experience:
+  en: 8d7579b009c6c111
+  zh: 8d7579b009c6c111
+/deepseek-ai-dsh-experimental-page-refresh/model-experience/kv-cache-effect:
+  en: e921a9b9b9eb6c92
+  zh: e921a9b9b9eb6c92
+/deepseek-ai-dsh-experimental-page-refresh/known-limitations-and-deferred-work:
+  en: d2685d14e6fa080f
+  zh: 653686b95b04c35f
+/deepseek-ai-dsh-experimental-page-refresh/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

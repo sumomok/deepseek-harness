@@ -1,0 +1,71 @@
+/* Top-center of the viewport, inside the shell's overlay layer: clear of the
+   composer at the bottom of the chat column, and narrower than the viewport by
+   the narrow frame's hamburger and its margin on either side, so it never
+   covers that button. The layer passes pointer events to its children; this
+   box is sized by its content, so only the banner itself takes them. */
+.banner {
+  position: fixed;
+  /* Above the narrow frame's drawer scrim (1), drawer (2), and hamburger (3)
+     in the same layer: a notice about the page outranks the navigation. */
+  z-index: 4;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 120px));
+  min-height: 36px;
+  padding: 4px 12px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--dsw-radius-sm);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  animation: page-refresh-enter 150ms ease-out;
+}
+
+@keyframes page-refresh-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+.warning {
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-label) 20%, transparent);
+}
+
+.success {
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 20%, transparent);
+}
+
+.info {
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-business-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 20%, transparent);
+}
+
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+.text {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner {
+    animation: none;
+  }
+}

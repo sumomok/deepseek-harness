@@ -52,6 +52,7 @@ The experimental group contains prototype capabilities whose contracts can chang
 | [`content-surface`](content-surface/README.md) | Host half of the content surface: extractors fold logged events into a per-session stream of typed content entries | `ctx.contentSurface` |
 | [`inspector`](inspector/README.md) | Cross-realm CDP hub for Host debugging, Client Runtime inspection, network capture, and Cordis trees | `ctx.inspector` |
 | [`library-skills`](library-skills/README.md) | Ships component-library conventions as bundled SKILLs mounted at the lowest skill rank | — |
+| [`page-refresh`](page-refresh/README.md) | Reloads an open page once when its server comes back with a different build, and shows the page's connection state in one banner | — |
 | [`server-base`](server-base/README.md) | Tells the browser whether reaching the served page means owning the Host behind it, and carries the nginx sample for a prefixed console | — |
 | [`server-layout`](server-layout/README.md) | Service-line shell: a permanent four-track frame (session, content, chat, details) replacing the shipped one | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.md) | Product console sidebar: a fixed workbench/navigation/workflows console replacing the shipped one, plus the de-terminology layer a customer-form page needs | — |

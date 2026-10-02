@@ -13,6 +13,7 @@ export const PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES: readonly string[] = [
   'packages/experimental/content-frame',
   'packages/experimental/content-surface',
   'packages/experimental/library-skills',
+  'packages/experimental/page-refresh',
   'packages/experimental/server-base',
   'packages/experimental/server-layout',
   'packages/experimental/server-sidebar',

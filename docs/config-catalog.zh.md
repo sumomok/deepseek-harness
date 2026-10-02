@@ -1555,6 +1555,49 @@ export interface InspectorOptions {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-inspector -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-page-refresh -->
+<a id="deepseek-aidsh-experimental-page-refresh"></a>
+
+## `@deepseek-ai/dsh-experimental-page-refresh`
+
+- `source`: [`packages/experimental/page-refresh/src/index.ts:33`](../packages/experimental/page-refresh/src/index.ts)
+
+```ts config-catalog
+/**
+ * Plugin config: when the browser half checks the build, how it reloads, and
+ * which connection notices it shows. There is no switch for the whole plugin; a
+ * deployment that does not want it disables the row.
+ */
+export interface Config {
+  /**
+   * Also check the build each time the page returns to the foreground, in
+   * addition to each time the connection to the server is established. Default
+   * `true`.
+   */
+  checkOnVisible: boolean
+  /**
+   * Milliseconds between deciding to reload and reloading. Default `0`, which
+   * reloads at once: the page that has just found a different build may already
+   * be failing to draw against the new server, so it does not wait. A positive
+   * delay shows the reloading notice for that long first.
+   */
+  reloadDelayMs: number
+  /**
+   * Show the connection notices: the loss notice once a loss has lasted a
+   * moment, the reconnected confirmation after it, and the unreachable notice
+   * with its reload button. Default `true`.
+   */
+  disconnectNotice: boolean
+  /**
+   * Seconds a connection loss lasts, while the browser reports itself online,
+   * before the loss notice becomes the unreachable notice with a page reload
+   * button. A positive integer; default `60`.
+   */
+  stuckAfterSeconds: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-page-refresh -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-ptc-runtime-python -->
 <a id="deepseek-aidsh-experimental-ptc-runtime-python"></a>
 

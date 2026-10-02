@@ -196,6 +196,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-experimental-content-frame` | yes | Gives the agent the service-line shell's content column: a named webserver route over one directory, the content_show tool over its configured pages, the session projection that records what each column shows, and the browser half that keeps one live frame per session |
 | `@deepseek-ai/dsh-experimental-content-surface` | no | Host half of the content surface: extractors turn logged session events into one per-session stream of typed content entries, published as the contentSurface projection |
 | `@deepseek-ai/dsh-experimental-inspector` | yes | Experimental cross-realm CDP hub for Host debugging and Client Runtime inspection |
+| `@deepseek-ai/dsh-experimental-page-refresh` | yes | Reloads an open console page once after the server it was served from comes back with a different build, and shows the page's connection state in one banner |
 | `@deepseek-ai/dsh-experimental-ptc-runtime-python` | yes | CPython subprocess implementation of the DeepSeek Harness PTC execution seam |
 | `@deepseek-ai/dsh-experimental-server-base` | yes | Tells the browser whether reaching a served dsh page means owning the Host behind it: injects a __DSH_TRANSPORT__ carrier declaring ownsHost into the served index |
 | `@deepseek-ai/dsh-experimental-server-layout` | no | Service-line shell: a permanent four-track AppFrame (session | content | chat | details) that replaces ui-layout through a patch overlay |

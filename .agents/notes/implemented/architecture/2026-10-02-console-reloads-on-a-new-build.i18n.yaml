@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-02-console-reloads-on-a-new-build.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-02-console-reloads-on-a-new-build.md
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live:
+  en: 444139ef5dc47da5
+  zh: edd79e53007a5d3a
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/problem:
+  en: 9de83490cd70c429
+  zh: a4e5e747d65df746
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/decision:
+  en: 0174a5a4d25c5b56
+  zh: e332ddbe4605e1b9
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/why-fork-code-and-not-a-core-patch:
+  en: 5a6251554b09d1e3
+  zh: 4d2dc1e8600b5479
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/why-the-index-and-not-a-route:
+  en: 685f087dabb1a6c5
+  zh: a5974c48eaf2711d
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/testing:
+  en: d3c94286b64f9329
+  zh: 979d316e53056352
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/alternatives-considered:
+  en: a9adcd6a9f4abe5e
+  zh: f5c85418170d3a51
+/agent-note-the-console-reloads-an-open-page-on-a-new-build-instead-of-replacing-client-plugins-live/consequences:
+  en: ef7ab2e2005bbca0
+  zh: eef9a9f405ca5101

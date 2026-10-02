@@ -269,6 +269,7 @@ flowchart TD
     pkg_experimental_content_surface["experimental-content-surface"]
     pkg_experimental_inspector["experimental-inspector"]
     pkg_experimental_library_skills["experimental-library-skills"]
+    pkg_experimental_page_refresh["experimental-page-refresh"]
     pkg_experimental_ptc_runtime_python["experimental-ptc-runtime-python"]
     pkg_experimental_schedule_bundle["experimental-schedule-bundle"]
     pkg_experimental_server_base["experimental-server-base"]
@@ -1594,6 +1595,7 @@ flowchart TD
 | [`experimental-biz-backend`](../packages/experimental/biz-backend) | `experimental` | — |
 | [`experimental-console-profile`](../packages/experimental/console-profile) | `experimental` | — |
 | [`experimental-library-skills`](../packages/experimental/library-skills) | `experimental` | — |
+| [`experimental-page-refresh`](../packages/experimental/page-refresh) | `experimental` | — |
 | [`experimental-schedule-bundle`](../packages/experimental/schedule-bundle) | `experimental` | — |
 | [`experimental-voice-input-bundle`](../packages/experimental/voice-input-bundle) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |
