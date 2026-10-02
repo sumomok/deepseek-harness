@@ -42,6 +42,7 @@
     "@deepseek-ai/dsh-experimental-content-column": "workspace:*",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:*",
     "@deepseek-ai/dsh-experimental-library-skills": "workspace:*",
+    "@deepseek-ai/dsh-experimental-page-refresh": "workspace:*",
     "@deepseek-ai/dsh-experimental-server-layout": "workspace:*",
     "@deepseek-ai/dsh-experimental-server-sidebar": "workspace:*",
     "@deepseek-ai/dsh-persona": "workspace:*",

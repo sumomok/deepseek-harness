@@ -164,6 +164,7 @@ describe('the console bundle manifest', () => {
       '@deepseek-ai/dsh-experimental-content-column',
       '@deepseek-ai/dsh-experimental-content-surface',
       '@deepseek-ai/dsh-experimental-library-skills',
+      '@deepseek-ai/dsh-experimental-page-refresh',
       '@deepseek-ai/dsh-experimental-server-layout',
       '@deepseek-ai/dsh-experimental-server-sidebar',
       '@deepseek-ai/dsh-persona',
@@ -200,8 +201,8 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(warnings).toEqual([])
   })
 
-  it('inserts the shell, the sidebar, the MCP capability, and the library-skills provider at stable ids', () => {
-    for (const id of ['server-layout', 'content-surface', 'content-column', 'server-sidebar', 'console-mcp', 'library-skills']) {
+  it('inserts the shell, the sidebar, the page\'s build check, the MCP capability, and the library-skills provider at stable ids', () => {
+    for (const id of ['server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'console-mcp', 'library-skills']) {
       expect(byId.has(id)).toBe(true)
       expect(byId.get(id)?.disabled).not.toBe(true)
     }
@@ -269,6 +270,26 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('ui-chat')).toMatchObject({ name: '@deepseek-ai/dsh-client-ui-chat', config: { performanceUsage: 'compact' } })
     // Above the profile patch, config-editor would refuse the user's write.
     expect(idsOf(LOCK_PATCH)).not.toContain('ui-chat')
+  })
+
+  it('turns live client plugin replacement off by id, while the shipped Web bundle still composes it', () => {
+    // An open page that took the new bundles of an upgrade into its loaded
+    // shell fails to draw; the page reloads instead (the next case).
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    expect(rowOf(CONSOLE_PATCH, 'client-hmr')).toEqual({ id: 'client-hmr', disabled: true })
+    expect(shipped.get('client-hmr')).toMatchObject({ name: '@deepseek-ai/dsh-client-hmr' })
+    expect(shipped.get('client-hmr')?.disabled).not.toBe(true)
+    expect(byId.get('client-hmr')?.disabled).toBe(true)
+  })
+
+  it('mounts the page\'s build check by package name in the bundle layer, stating its config', () => {
+    expect(byId.get('page-refresh')).toMatchObject({
+      name: '@deepseek-ai/dsh-experimental-page-refresh',
+      config: { checkOnVisible: true, reloadDelayMs: 0, disconnectNotice: true, stuckAfterSeconds: 60 },
+    })
+    expect(byId.get('page-refresh')?.disabled).not.toBe(true)
+    // No field is volatile, so nothing a settings write could reach needs the lock.
+    expect(idsOf(LOCK_PATCH)).not.toContain('page-refresh')
   })
 
   it('mounts the MCP capability by package name with an empty server list it states rather than defaults', () => {

@@ -8144,6 +8144,9 @@ importers:
       '@deepseek-ai/dsh-experimental-library-skills':
         specifier: workspace:*
         version: link:../library-skills
+      '@deepseek-ai/dsh-experimental-page-refresh':
+        specifier: workspace:*
+        version: link:../page-refresh
       '@deepseek-ai/dsh-experimental-server-layout':
         specifier: workspace:*
         version: link:../server-layout

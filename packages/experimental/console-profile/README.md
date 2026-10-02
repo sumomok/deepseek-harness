@@ -50,6 +50,8 @@ The console bundle composes these changes over the shipped Web profile:
 | `server-sidebar` | Inserted with `displayNameClaim: login_uname`; its menu is saved into the profile patch |
 | `console-mcp` | Inserted with `servers: []`: the MCP capability, idle until a deployment names a server |
 | `library-skills` | Inserted: an isolated `skill-filesystem` provider over `@deepseek-ai/dsh-experimental-library-skills` |
+| `page-refresh` | Inserted with its default config stated: an open page reloads once when its server comes back with a different build, and a banner reports a lost connection; see [`dsh-experimental-page-refresh`](../page-refresh/README.md) |
+| `client-hmr` | Disabled: an open page takes no new plugin bundles into the shell it already runs, so a bundle rebuilt by `pnpm run dev:web` reaches an open console page only on its next load |
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
 | `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission`, `ui-settings-session-log` | Disabled: internal vocabulary, official branding, and developer surfaces |
 | `ui-settings-plugins`, `ui-settings-plugin-inventory` | Disabled: Settings → Plugins, both tabs; the settings shell `ui-settings-general` stays |
@@ -74,7 +76,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 
 | File | Role |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, MCP capability, library skills, the `console` Agent preset, and every disable row |
+| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, the page's build check, MCP capability, library skills, the `console` Agent preset, and every disable row |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission`, `agent-preset-registry`, and `session-log-deepseek` rows, applied above the profile patch |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the two patch files are the runtime content |
 | — | No runtime invariant companion is published; the package owns no mutable relationship. Loader and the profile's patch files own the composition. |
@@ -88,6 +90,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 
 - [Experimental packages](../README.md) — incubation status and release exclusion.
 - [Product console sidebar](../server-sidebar/README.md) — the sidebar the bundle inserts, its menu fields, and the de-terminology rules.
+- [Page refresh](../page-refresh/README.md) — the build check and connection banner the bundle inserts, and why live plugin replacement is off.
 - [Profile bundles](../../bundle/README.md) — how `dsh --profile` stacks installable layers.
 - [Config editor](../../boot/config-editor/README.md) — which layer a settings write lands in, and when it is refused.
 

@@ -119,6 +119,16 @@
 - id: ui-settings-plugin-inventory
   disabled: true
 
+# Live client plugin replacement off. `dsh-web-app` composes `client-hmr`,
+# which swaps new plugin bundles into an open page that keeps running its
+# loaded shell; after an upgrade that page fails to draw, and a page still
+# running the previous client does not work against the new server either. The
+# `page-refresh` row below reloads such a page instead. With this row, a bundle
+# rebuilt by `pnpm run dev:web` reaches an open console page only on its next
+# load.
+- id: client-hmr
+  disabled: true
+
 # The internal-testing notice ("内测声明") is `ui-settings-models`'s own
 # `settings.onboarding` step, shown once per acknowledgement version; the same
 # package registers the Models settings section and the DeepSeek credential
@@ -177,6 +187,22 @@
         # person's display name, shown in the sidebar's footer; toy-core's
         # sign-on writes it as `login_uname`.
         displayNameClaim: login_uname
+
+# The page's build check and connection banner. Each time an open page
+# reconnects or returns to the foreground it compares the build it booted with
+# against the build the server now serves, and reloads once when they differ;
+# the banner reports a lost connection and offers a reload when it lasts. The
+# config states the plugin's own defaults. None of its fields is volatile, so
+# the settings service offers no form for them and refuses a write to them,
+# and a deployment changes them in its own layer.
+- insert:
+    - id: page-refresh
+      name: '@deepseek-ai/dsh-experimental-page-refresh'
+      config:
+        checkOnVisible: true
+        reloadDelayMs: 0
+        disconnectNotice: true
+        stuckAfterSeconds: 60
 
 # The MCP capability, mounted with no server. This row is what makes reaching
 # an external MCP server a deployment's decision rather than a build's: the

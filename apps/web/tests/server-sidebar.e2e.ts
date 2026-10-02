@@ -102,6 +102,7 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
   ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
   ['@deepseek-ai/dsh-experimental-console-mcp', join(REPO_ROOT, 'packages/experimental/console-mcp')],
+  ['@deepseek-ai/dsh-experimental-page-refresh', join(REPO_ROOT, 'packages/experimental/page-refresh')],
 ] as const
 /**
  * Identical to {@link OVERLAY}, plus the component rows and one configured

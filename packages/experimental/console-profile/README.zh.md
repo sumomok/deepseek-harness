@@ -50,6 +50,8 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `server-sidebar` | 带 `displayNameClaim: login_uname` 插入；它的菜单保存进 profile 补丁 |
 | `console-mcp` | 带 `servers: []` 插入：MCP 能力，在部署点名服务器之前不做任何事 |
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
+| `page-refresh` | 插入，并写明它的默认配置：服务端换了构建后，已打开的页面重连时刷新一次，横幅提示连接断开；见 [`dsh-experimental-page-refresh`](../page-refresh/README.zh.md) |
+| `client-hmr` | 禁用：已打开的页面不再把新的插件包换进它正在运行的外壳，所以 `pnpm run dev:web` 重新构建的插件包要等控制台页面下一次加载才生效 |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
@@ -74,7 +76,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 
 | 文件 | 作用 |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、MCP 能力、库技能、`console` Agent 预设，以及全部禁用行 |
+| [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、页面构建检查、MCP 能力、库技能、`console` Agent 预设，以及全部禁用行 |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission`、`agent-preset-registry` 与 `session-log-deepseek` 三行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
 | — | 不发布运行时 invariant 伴生插件；本包不拥有任何可变关系。组合由 Loader 与 profile 的补丁文件拥有。 |
@@ -88,6 +90,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 
 - [实验性包](../README.zh.md)——孵化状态与发布排除规则。
 - [产品控制台侧栏](../server-sidebar/README.zh.md)——本 bundle 插入的侧栏、它的菜单字段与去术语化规则。
+- [页面刷新](../page-refresh/README.zh.md)——本 bundle 插入的构建检查与连接横幅，以及为什么关掉插件热替换。
 - [Profile bundle](../../bundle/README.zh.md)——`dsh --profile` 如何叠放可安装的层。
 - [Config editor](../../boot/config-editor/README.zh.md)——一次设置写入落在哪一层，以及何时被拒绝。
 
