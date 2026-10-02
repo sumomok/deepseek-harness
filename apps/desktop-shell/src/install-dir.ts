@@ -1,6 +1,6 @@
 /**
  * The installation directory, named to the server child for the permission
- * gateway plugin (`@haoran/dsh-llm-permission-gateway`), whose vendored 0.5.3
+ * gateway plugin (`@haoran/dsh-llm-permission-gateway`), whose vendored 0.6.0
  * lists it in the review prompt among the app's own directories: an instruction
  * to the review model, wherever the gateway reviews a call, not an enforced block.
  *
@@ -14,7 +14,7 @@
 import { posix, win32 } from 'node:path'
 import type { LauncherLocation } from './pnpm-launcher.ts'
 
-/** Environment variable naming the installation directory, set on the server child alone. The vendored gateway 0.5.3 reads it. */
+/** Environment variable naming the installation directory, set on the server child alone. The vendored gateway 0.6.0 reads it. */
 export const INSTALL_DIR_ENV = 'DSH_DESKTOP_INSTALL_DIR'
 
 /**

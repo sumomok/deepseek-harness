@@ -2,7 +2,7 @@
  * The shell's own per-user directories, named to the server child so the
  * desktop composition layer can list them in the model's system prompt
  * (`@deepseek-ai/dsh-desktop-app`'s `desktop-brand` row reads each variable)
- * and the vendored permission gateway 0.5.3 can list them in its review prompt.
+ * and the vendored permission gateway 0.6.0 can list them in its review prompt.
  *
  * Electron's `userData` holds the shell's preferences, cookies, login
  * partitions, and `desktop-state.json`; `logs` holds the shell's and the
