@@ -99,7 +99,11 @@ const EVENTS_ENDPOINT = '$events'
 /** The unary endpoint a waterfall delivery is answered through (`REMOTE_EVENT_RESULT_ENDPOINT`). */
 const RESULT_ENDPOINT = '$events/result'
 
-/** The unary endpoint listing sessions with their projected titles. */
+/**
+ * The unary endpoint listing sessions with their projected titles. Its server
+ * method takes one parameter, `_request`, so its `args` record is
+ * `{ _request: {} }`.
+ */
 const LIST_ENDPOINT = 'session/list'
 
 /**
@@ -388,15 +392,16 @@ function clearBadge(): void {
  * What a message calls the session it is about: its projected title in
  * corner brackets, or the plain word for a session when it has none yet or
  * the lookup fails. Looked up per message rather than cached — a title is
- * assigned after the first turn and can change later.
- * @param generation - the generation whose cookie authenticates the lookup.
+ * assigned after the first turn and can change later. A failed lookup writes
+ * one log line with its reason.
+ * @param generation - the generation whose cookie authenticates the lookup and whose host logs a failure.
  * @param sessionId - the session the message is about.
  * @returns the subject phrase.
  */
 async function subject(generation: Generation, sessionId: string): Promise<string> {
   let title: string | undefined
   try {
-    const value = await rpc(generation, LIST_ENDPOINT, {})
+    const value = await rpc(generation, LIST_ENDPOINT, { _request: {} })
     const items = value?.['items']
     const list = Array.isArray(items) ? items as unknown[] : []
     for (const item of list) {
@@ -406,10 +411,13 @@ async function subject(generation: Generation, sessionId: string): Promise<strin
       const values = nested(nested(summary, 'projections') ?? {}, 'values')
       title = values === undefined ? undefined : text(values, 'title')
     }
-  } catch {
-    // The message is still worth sending without the name: the lookup is
-    // decoration, and nothing else can fail here — `rpc` wraps every carrier
-    // and endpoint failure into the one rejection this swallows.
+  } catch (error) {
+    // The message is still worth sending without the name. `rpc` rejects for
+    // a failed cookie mint, a carrier failure, and a refusal by the endpoint
+    // or the gateway in front of it; the logged reason is what tells a lookup
+    // that failed from a session that has no title yet.
+    const message = error instanceof Error ? error.message : String(error)
+    generation.host.log(`[desktop] session ${sessionId} could not be named: ${message}\n`)
   }
   return title === undefined ? '会话' : `「${title}」`
 }
@@ -497,7 +505,8 @@ async function mintCookie(generation: Generation): Promise<string> {
  * the generation's cookie.
  * @param generation - the generation whose cookie and origin are used.
  * @param endpoint - the Remote endpoint, e.g. `session/list`.
- * @param args - the endpoint's request record.
+ * @param args - the endpoint's `args` record; for a service method, one field
+ * per parameter under its wire name, and the gateway refuses a missing or extra field.
  * @returns the endpoint's value, or undefined for a void endpoint.
  * @throws when the carrier or the endpoint reports a failure.
  */
