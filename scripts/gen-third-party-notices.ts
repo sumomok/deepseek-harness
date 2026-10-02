@@ -91,7 +91,7 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
   // Vendored as tarballs; the archive committed here, not a registry version, is
   // the artifact this payload ships, so the archive is what the notice names.
-  '@haoran/dsh-auto-compact': { repo: 'apps/desktop-server/vendor/haoran-dsh-auto-compact-0.5.0.tgz' },
+  '@haoran/dsh-auto-compact': { repo: 'apps/desktop-server/vendor/haoran-dsh-auto-compact-0.5.1.tgz' },
   '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz' },
   '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz' },
   '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz' },
