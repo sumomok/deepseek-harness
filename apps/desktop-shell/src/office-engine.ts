@@ -15,7 +15,8 @@
  * - **Which engine.** {@link readEngineRequirement} reads the package name and
  *   the exact version from the shipped kit's own `optionalDependencies`, the
  *   same pair the kit's resolver checks every engine against, so a kit upgrade
- *   moves the download with it.
+ *   moves the download with it once {@link ENGINE_DOWNLOADS} registers the
+ *   engine version the new kit declares.
  * - **Where it lives.** One directory per version under
  *   {@link officeEngineRoot}, which is a function of the data directory it is
  *   given rather than of the home directory, so a relocated data directory
