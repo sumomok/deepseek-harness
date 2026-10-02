@@ -521,12 +521,13 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
  * The engine lives under the data directory, one directory per version. Every
  * version but the ones [[versionsToKeep]] names — the one the kit declares
  * and, while that one is not installed, a complete engine of another version
- * the person downloaded before — and every staging directory an interrupted
- * download left is removed here, also on a launch that offers no engine,
- * before any converter can hold one open. When that earlier engine is kept
- * and the declared version is registered, the manager begins its upgrade here,
- * so the state reads `installing` before the server starts; the download
- * itself waits for [[officeEngine]]'s `runUpgrade` once the app is shown.
+ * that a confirmed download, or an upgrade from one, left — and every staging
+ * directory an interrupted download left is removed here, also on a launch
+ * that offers no engine, before any converter can hold one open. When that
+ * earlier engine is kept and the declared version is registered, the manager
+ * begins its upgrade here, so the state reads `installing` before the server
+ * starts; the download itself waits for [[officeEngine]]'s `runUpgrade` once
+ * the app is shown.
  * `NODE_PATH` names the current version's directory whether or not it is
  * installed yet, so an engine downloaded while the server runs is found by the
  * next conversion. Failing to open the loopback listener is not a reason to

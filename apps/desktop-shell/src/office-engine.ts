@@ -24,8 +24,8 @@
  * - **Which versions stay.** {@link versionsToKeep} names the version the kit
  *   declares and, while that one is not installed, a complete engine of
  *   another version ({@link supersededEngine}): the engine an earlier kit
- *   declared, which only a confirmed download put there.
- *   {@link pruneEngineRoot} removes every other version.
+ *   declared, which only a confirmed download, or an upgrade from one, put
+ *   there. {@link pruneEngineRoot} removes every other version.
  * - **How the server finds it.** {@link engineServerEnv} names the current
  *   version's `node_modules` in `NODE_PATH` whether or not it exists yet. Node
  *   reads `NODE_PATH` once at startup and caches only resolutions that
@@ -318,9 +318,10 @@ export function engineInstalled(root: string, requirement: EngineRequirement): b
 /**
  * The highest version, other than the declared one, whose directory under the
  * root holds a complete engine of the declared package. Only an install the
- * person confirmed puts such a directory there, so finding one is the record
- * that they downloaded the engine before; a kit that declares another version
- * makes it unusable, because the kit accepts its own exact version only.
+ * person confirmed, or an upgrade from one, puts such a directory there, so
+ * finding one is the record that they agreed to keep the engine; a kit that
+ * declares another version makes it unusable, because the kit accepts its own
+ * exact version only.
  * @param root - {@link officeEngineRoot}.
  * @param declared - the engine the kit declares.
  * @returns the version directory's name, or undefined when no other version directory holds a complete engine.
@@ -357,8 +358,8 @@ export interface KeptVersions {
 /**
  * The engine versions a launch's prune keeps: the version the kit declares,
  * whether or not {@link ENGINE_DOWNLOADS} registers it, and, while that
- * version is not installed, the complete engine of another version the person
- * downloaded earlier.
+ * version is not installed, the complete engine of another version that a
+ * confirmed download, or an upgrade from one, left.
  * @param root - {@link officeEngineRoot}.
  * @param result - this launch's {@link readEngineRequirement}.
  * @returns the version directories {@link pruneEngineRoot} must not remove.

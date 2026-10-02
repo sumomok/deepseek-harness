@@ -40,9 +40,15 @@ export interface DesktopEngineHost {
  * `ENGINE_DOWNLOADS` (published size, `dist.integrity`, and a conversion
  * checked with that version), then run a fresh deploy once that kit is a day
  * old. Every person who downloaded the engine then downloads the new version
- * once, without being asked, on the first launch of that build. To keep the
- * current version while a newer kit is published, package with
- * `--skip-deploy` over a staging this check accepts.
+ * once, without being asked, on the first launch of that build.
+ *
+ * `--skip-deploy` over a staging this check accepts keeps the current
+ * version, but that staging also carries everything else its deploy staged:
+ * the workspace packages with their client bundles, and the vendored plugins.
+ * It therefore fits only a repackage that changes nothing outside this shell.
+ * Once a newer kit is a day old, any other release has to register that kit's
+ * engines and raise the version here, or pin the kit through `overrides` in
+ * `pnpm-workspace.yaml`, which is a core patch.
  */
 export const DESKTOP_ENGINE_HOSTS: readonly DesktopEngineHost[] = [
   { platform: 'darwin', arch: 'arm64', engineVersion: '0.1.5' },
