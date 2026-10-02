@@ -38,13 +38,13 @@ export interface PageRefreshBrowser {
    */
   bootGraph(): unknown
   /**
-   * Absolute URLs of this document's module scripts — the web shell's own
-   * bundle, whose file name carries its build hash.
+   * Absolute URLs of this document's module scripts under its base directory —
+   * the web shell's own bundle, whose file name carries its build hash.
    * @returns the URLs, sorted.
    */
   moduleScripts(): string[]
   /**
-   * Absolute URLs of the module scripts in one served index.
+   * Absolute URLs of the module scripts under the base directory of one served index.
    * @param html - the index body.
    * @param url - the address it was served from, which its relative URLs and
    * its `<base href>` resolve against.
@@ -127,17 +127,23 @@ export interface PageGlobals {
 }
 
 /**
- * Absolute URLs of every module script that names its source under one
- * document root. An inline module script names none and is not part of the
- * build's identity.
+ * Absolute URLs of the module scripts under one document root whose source
+ * lies under the base directory, the directory the shell serves its bundle
+ * from. A module script that names no source, or a source elsewhere — such as
+ * one a browser extension adds to the page — is not part of the build's
+ * identity. The live page and the served index are both read through this
+ * function, so both sides of a comparison apply the same rule.
  * @param root - the document to read.
  * @param base - the URL relative sources resolve against.
  * @returns the URLs, sorted.
  */
 export function moduleScriptsOf(root: Pick<ParentNode, 'querySelectorAll'>, base: string): string[] {
+  const directory = new URL('./', base).href
   return [...root.querySelectorAll('script[type="module"]')].flatMap((script) => {
     const src = script.getAttribute('src')
-    return src === null ? [] : [new URL(src, base).href]
+    if (src === null) return []
+    const url = new URL(src, base).href
+    return url.startsWith(directory) ? [url] : []
   }).sort()
 }
 

@@ -75,13 +75,24 @@ export class BuildCheck {
     void this.run(controller)
   }
 
-  /** Abort the check in progress and cancel a pending reload. */
+  /**
+   * Abort the check in progress and cancel a pending reload. A cancelled reload
+   * also takes its record out of session storage: the tab never reloaded for
+   * that build, so the next check that finds it reloads instead of offering to.
+   */
   dispose(): void {
     this.disposed = true
     this.inFlight?.abort()
     this.inFlight = undefined
-    this.cancelReload?.()
+    if (this.cancelReload === undefined) return
+    this.cancelReload()
     this.cancelReload = undefined
+    try {
+      this.options.browser.removeSession(RELOADED_FOR_STORAGE_KEY)
+    } catch (_sessionStorageUnavailable) {
+      // Storage that refuses the removal now accepted the write moments ago;
+      // the record left behind turns the next reload for this build into an offer.
+    }
   }
 
   private async run(controller: AbortController): Promise<void> {

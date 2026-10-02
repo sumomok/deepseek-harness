@@ -102,6 +102,31 @@ describe('a served index', () => {
     expect(moduleScriptsOf(root, 'https://x.example/')).toEqual(['https://x.example/a.js', 'https://x.example/b.js'])
   })
 
+  it('leaves out module scripts whose source lies outside the base directory', () => {
+    const root = new DOMParser().parseFromString(
+      '<script type="module" src="./assets/index-A.js"></script>'
+        + '<script type="module" src="https://extension.invalid/main-world-inject.js"></script>'
+        + '<script type="module" src="/elsewhere/inject.js"></script>'
+        + '<script type="module" src="chrome-extension://abc/inject.js"></script>',
+      'text/html',
+    )
+    expect(moduleScriptsOf(root, 'https://console.example/console/'))
+      .toEqual(['https://console.example/console/assets/index-A.js'])
+    // A base that names a file reads its directory.
+    expect(moduleScriptsOf(root, 'https://console.example/console/index.html'))
+      .toEqual(['https://console.example/console/assets/index-A.js'])
+  })
+
+  it('reads the same build from a live page carrying a foreign module script as from its served index', () => {
+    const { browser, document } = bench()
+    const foreign = document.createElement('script')
+    foreign.type = 'module'
+    foreign.src = 'https://extension.invalid/main-world-inject.js'
+    document.head.append(foreign)
+    const served = '<html><head><base href="./"><script type="module" src="./assets/index-A.js"></script></head></html>'
+    expect(browser.moduleScripts()).toEqual(browser.moduleScriptsIn(served, 'https://console.example/console/'))
+  })
+
   it('requests it uncached, without following redirects, with the page\'s own cookies', async () => {
     const { browser, fetch } = bench()
     const signal = new AbortController().signal

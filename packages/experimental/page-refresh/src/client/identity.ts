@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-experimental-page-refresh/src/client/identity
  */
 
+import { PAGE_REFRESH_ENTRY_ID } from '../config.ts'
 import type { PageRefreshBrowser } from './browser.ts'
 
 /** One build of the web page. */
@@ -119,7 +120,10 @@ export function buildKey(identity: BuildIdentity): string {
 /**
  * Request the index the document was served from and read the build it carries.
  * Only a 200 answer of type `text/html` that carries the boot graph markup with
- * a valid graph is a known build; every other answer is unknown.
+ * a valid graph listing this plugin is a known build; every other answer is
+ * unknown. A graph without this plugin is what a host that is still composing
+ * its plugins serves, and what a deployment that removed this row serves;
+ * reloading onto either would leave a page that never checks again.
  * @param browser - the page operations.
  * @param url - the document URL.
  * @param signal - aborts the request.
@@ -142,5 +146,6 @@ export async function readServedBuild(
   if ('reason' in read) return { kind: 'unknown', reason: read.reason }
   const entries = bootEntriesOf(read.graph)
   if (entries === undefined) return { kind: 'unknown', reason: 'the boot graph lists no valid entries' }
+  if (!entries.has(PAGE_REFRESH_ENTRY_ID)) return { kind: 'unknown', reason: 'the boot graph does not list this plugin' }
   return { kind: 'known', identity: { entries, shell: browser.moduleScriptsIn(html, url) } }
 }

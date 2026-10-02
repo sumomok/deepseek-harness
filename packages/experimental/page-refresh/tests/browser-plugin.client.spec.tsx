@@ -3,7 +3,8 @@
  * The browser half wired into a real slot tree: the banner lands in the
  * frame-wide `shell.overlay` seat and draws through the production renderer
  * in the visitor's language; `connection/reset` and, where configured, the
- * page returning to the foreground start the build check; the connection
+ * page returning to the foreground start the build check, the former ahead of
+ * every other `connection/reset` listener; the connection
  * notices follow the connection service where configured; the check runs in a
  * context that offers no slot or locale service; and fiber disposal removes
  * the banner and leaves nothing that can still reload (HMR safety). The plugin
@@ -97,6 +98,25 @@ describe('the build check', () => {
     await settle()
     expect(page.reloads).toBe(1)
     expect(page.session.has(RELOADED_FOR_STORAGE_KEY)).toBe(true)
+  })
+
+  it('runs ahead of a `connection/reset` listener that throws, even one registered before it', async () => {
+    const ctx = new Context()
+    disposers.push(async () => { await ctx.fiber.dispose() })
+    ctx.provide('connection', connectionService().service as never)
+    ctx.on('connection/reset', () => { throw new TypeError('a client that no longer matches its server') })
+    const page = new FakePage()
+    await ctx.plugin({
+      inject,
+      apply: (pluginCtx: Context) => {
+        installPageRefresh(pluginCtx, { browser: page, settings: DEFAULTS, banners: createBannerStore(), log: () => {} })
+      },
+    }).await()
+    expect(() => { ctx.emit('connection/reset') }).toThrow(TypeError)
+    await settle()
+    page.lastRequest().answer({ body: NEWER })
+    await settle()
+    expect(page.reloads).toBe(1)
   })
 
   it('offers the reload in the banner when this tab already reloaded for the served build', async () => {

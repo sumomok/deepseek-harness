@@ -11,6 +11,7 @@
 
 import { renderIndexInjections } from '@deepseek-ai/dsh-host-webserver'
 import { moduleScriptsInIndex, type PageRefreshBrowser, type ServedDocument } from '../src/client/browser.ts'
+import { PAGE_REFRESH_ENTRY_ID } from '../src/config.ts'
 
 /** The origin every fake page is served from. */
 export const ORIGIN = 'https://console.example'
@@ -24,11 +25,24 @@ export interface Entry {
   rev: string
 }
 
-/** A boot graph with the fields the host serves, around the given entries. */
+/** This plugin's own row, which every graph a page running it boots with lists. */
+export const SELF: Entry = { id: PAGE_REFRESH_ENTRY_ID, rev: 'self-1' }
+
+/**
+ * Revisions by plugin id for the given entries, {@link SELF} included, as the
+ * build check reads them out of a {@link bootGraph}.
+ * @param entries - the entries besides {@link SELF}.
+ * @returns the revisions.
+ */
+export function revisions(entries: Record<string, string>): Map<string, string> {
+  return new Map([[SELF.id, SELF.rev], ...Object.entries(entries)])
+}
+
+/** A boot graph with the fields the host serves, around {@link SELF} and the given entries. */
 export function bootGraph(entries: readonly Entry[]): object {
   return {
     rev: 'graph-rev',
-    entries: entries.map(entry => ({ ...entry, url: `plugins/??${entry.id}/client.js&rev=${entry.rev}` })),
+    entries: [SELF, ...entries].map(entry => ({ ...entry, url: `plugins/??${entry.id}/client.js&rev=${entry.rev}` })),
     batches: [],
   }
 }

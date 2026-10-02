@@ -67,8 +67,10 @@ export function installPageRefresh(ctx: ClientContext, install: PageRefreshInsta
       log,
     })
     ctx.effect(() => () => { check.dispose() }, 'page-refresh: build check')
-    // Emitted on every established connection, the first one included.
-    ctx.on('connection/reset', () => { check.trigger() })
+    // Emitted on every established connection, the first one included. `emit`
+    // stops at the first listener that throws, and a page on a client that no
+    // longer matches its server is where one may; the check runs first.
+    ctx.on('connection/reset', () => { check.trigger() }, { prepend: true })
     if (settings.checkOnVisible) {
       ctx.effect(() => browser.onVisible(() => { check.trigger() }), 'page-refresh: foreground check')
     }

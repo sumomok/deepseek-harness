@@ -4,8 +4,9 @@
  * reloads once and records it, the same build again offers the reload instead,
  * an unusable session storage offers it too, the same build clears the record,
  * an answer without a readable build changes nothing, a later trigger
- * supersedes an open request, and nothing reloads or shows a notice after the
- * check is disposed.
+ * supersedes an open request, nothing reloads or shows a notice after the
+ * check is disposed, and a delayed reload cancelled by disposal takes back its
+ * record.
  *
  * The fake page is what makes the reload count observable at all: a real one
  * would have left before the assertion.
@@ -15,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import type { RefreshNotice } from '../src/client/banner-state.ts'
 import { BuildCheck, RELOADED_FOR_STORAGE_KEY } from '../src/client/check.ts'
 import { bootEntriesOf, buildKey } from '../src/client/identity.ts'
-import { DOCUMENT_URL, FakePage, ORIGIN, servedIndex, settle, type Entry } from './fake-browser.client.ts'
+import { bootGraph, DOCUMENT_URL, FakePage, ORIGIN, revisions, servedIndex, settle, type Entry } from './fake-browser.client.ts'
 
 /** The build the page booted with. */
 const BOOTED: Entry[] = [{ id: 'a', rev: '1' }, { id: 'b', rev: '2' }]
@@ -24,17 +25,16 @@ const SAME = servedIndex([{ id: 'b', rev: '2' }, { id: 'a', rev: '1' }])
 /** A build with one revision moved on. */
 const NEWER = servedIndex([{ id: 'a', rev: '1' }, { id: 'b', rev: '3' }])
 /** The guard key of {@link NEWER}. */
-const NEWER_KEY = buildKey({ entries: new Map([['a', '1'], ['b', '3']]), shell: [`${ORIGIN}/assets/index-A.js`] })
+const NEWER_KEY = buildKey({ entries: revisions({ a: '1', b: '3' }), shell: [`${ORIGIN}/assets/index-A.js`] })
 
-/** A check over a fresh fake page, recording its notices and diagnostics. */
-function bench(reloadDelayMs = 0) {
-  const page = new FakePage()
+/** A check over a fake page, a fresh one unless given, recording its notices and diagnostics. */
+function bench(reloadDelayMs = 0, page = new FakePage()) {
   const notices: (RefreshNotice | null)[] = []
   const logs: string[] = []
   const check = new BuildCheck({
     browser: page,
     documentUrl: DOCUMENT_URL,
-    current: { entries: bootEntriesOf({ entries: BOOTED })!, shell: page.moduleScripts() },
+    current: { entries: bootEntriesOf(bootGraph(BOOTED))!, shell: page.moduleScripts() },
     reloadDelayMs,
     showNotice: (notice) => { notices.push(notice) },
     log: (message) => { logs.push(message) },
@@ -211,13 +211,35 @@ describe('disposal', () => {
     expect({ reloads: page.reloads, notices, logs }).toEqual({ reloads: 0, notices: [], logs: [] })
   })
 
-  it('cancels a reload waiting out its delay', async () => {
+  it('cancels a reload waiting out its delay, and takes back its record', async () => {
     const { page, check, answer } = bench(1500)
     await answer(NEWER)
     check.dispose()
     page.advance(1500)
     expect(page.reloads).toBe(0)
     expect(page.pendingTimers()).toBe(0)
+    expect(page.session.has(RELOADED_FOR_STORAGE_KEY)).toBe(false)
+    // The tab never reloaded for that build, so the next check in it does.
+    const next = bench(0, page)
+    await next.answer(NEWER)
+    expect(page.reloads).toBe(1)
+    expect(next.notices).toEqual([])
+  })
+
+  it('leaves the record of a cancelled reload when session storage refuses the removal', async () => {
+    const { page, check, answer } = bench(1500)
+    await answer(NEWER)
+    page.failRemove = true
+    expect(() => { check.dispose() }).not.toThrow()
+    expect(page.session.get(RELOADED_FOR_STORAGE_KEY)).toBe(NEWER_KEY)
+  })
+
+  it('keeps the record of a reload already under way', async () => {
+    const { page, check, answer } = bench()
+    await answer(NEWER)
+    check.dispose()
+    expect(page.reloads).toBe(1)
+    expect(page.session.get(RELOADED_FOR_STORAGE_KEY)).toBe(NEWER_KEY)
   })
 
   it('makes later triggers do nothing', async () => {

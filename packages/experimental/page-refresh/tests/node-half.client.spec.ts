@@ -18,7 +18,7 @@
  * served index's module scripts with.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -28,9 +28,10 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import * as PageRefresh from '../src/index.ts'
+import { PAGE_REFRESH_ENTRY_ID } from '../src/config.ts'
 import { readServedBuild } from '../src/client/identity.ts'
 import { readPageRefreshSettings } from '../src/client/settings.ts'
-import { bootGraph, FakePage } from './fake-browser.client.ts'
+import { bootGraph, FakePage, revisions } from './fake-browser.client.ts'
 
 /** A dist index in the form the shell build emits under `base: './'`. */
 const DIST_INDEX = [
@@ -162,7 +163,7 @@ describe('the build the served index carries', () => {
     }, SERVED_URL, new AbortController().signal)
     expect(served).toEqual({
       kind: 'known',
-      identity: { entries: new Map([['a', '1'], ['b', '2']]), shell: [`${SERVED_URL}assets/index-abc.js`] },
+      identity: { entries: revisions({ a: '1', b: '2' }), shell: [`${SERVED_URL}assets/index-abc.js`] },
     })
   })
 })
@@ -189,5 +190,10 @@ describe('configuration', () => {
   it('names itself and publishes the global the browser half reads', () => {
     expect(PageRefresh.name).toBe('page-refresh')
     expect(PageRefresh.PAGE_REFRESH_CONFIG_GLOBAL).toBe('__DSH_PAGE_REFRESH_CONFIG__')
+  })
+
+  it('looks for its own row in a served boot graph under its package name, the id the host lists a client bundle under', async () => {
+    const manifest: unknown = JSON.parse(await readFile(join(import.meta.dirname, '../package.json'), 'utf8'))
+    expect(manifest).toMatchObject({ name: PAGE_REFRESH_ENTRY_ID })
   })
 })

@@ -18,7 +18,7 @@ import {
   sameBuild,
   type BuildIdentity,
 } from '../src/client/identity.ts'
-import { DOCUMENT_URL, FakePage, ORIGIN, servedIndex, settle } from './fake-browser.client.ts'
+import { DOCUMENT_URL, FakePage, ORIGIN, revisions, servedIndex, settle } from './fake-browser.client.ts'
 
 /** A build with the given entries and shell. */
 function build(entries: Record<string, string>, shell: readonly string[] = [`${ORIGIN}/assets/index-A.js`]): BuildIdentity {
@@ -118,7 +118,7 @@ describe('reading the served build', () => {
     const served = await read({ body: servedIndex([{ id: 'a', rev: '1' }], ['./assets/index-A.js', './assets/vendor.js']) })
     expect(served).toEqual({
       kind: 'known',
-      identity: { entries: new Map([['a', '1']]), shell: [`${ORIGIN}/assets/index-A.js`, `${ORIGIN}/assets/vendor.js`] },
+      identity: { entries: revisions({ a: '1' }), shell: [`${ORIGIN}/assets/index-A.js`, `${ORIGIN}/assets/vendor.js`] },
     })
   })
 
@@ -136,6 +136,9 @@ describe('reading the served build', () => {
     ['a page without the boot graph', { body: '<html></html>' }, 'the index carries no boot graph'],
     ['a boot graph that is not JSON', { body: `${BOOT_MARKUP_PREFIX}{</script>` }, 'the boot graph is not JSON'],
     ['a boot graph without valid entries', { body: `${BOOT_MARKUP_PREFIX}{"entries":[{"id":1}]}</script>` }, 'the boot graph lists no valid entries'],
+    // What a host still composing its plugins serves, or one whose deployment removed this row.
+    ['a boot graph that does not list this plugin', { body: `${BOOT_MARKUP_PREFIX}{"entries":[{"id":"a","rev":"1"}]}</script>` }, 'the boot graph does not list this plugin'],
+    ['an empty boot graph', { body: `${BOOT_MARKUP_PREFIX}{"entries":[]}</script>` }, 'the boot graph does not list this plugin'],
   ])('knows nothing from %s', async (_case, answer, reason) => {
     expect(await read({ body: servedIndex([{ id: 'a', rev: '1' }]), ...answer })).toEqual({ kind: 'unknown', reason })
   })

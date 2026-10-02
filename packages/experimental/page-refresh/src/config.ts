@@ -1,9 +1,17 @@
 /**
- * The values both halves of this plugin share: the page global the node half
+ * This plugin's fixed values, kept out of both halves' entry modules: the id
+ * the host's boot graph lists this plugin under, the page global the node half
  * publishes its resolved settings under, and the bounds that keep every
  * configured delay inside what a browser timer waits for.
  * @module @deepseek-ai/dsh-experimental-page-refresh/src/config
  */
+
+/**
+ * The id the host's boot graph lists this plugin's client bundle under: its
+ * package name. A served graph that does not list it would boot a page that
+ * never checks its build again.
+ */
+export const PAGE_REFRESH_ENTRY_ID = '@deepseek-ai/dsh-experimental-page-refresh'
 
 /**
  * Page global the node half assigns the resolved settings to, through one
