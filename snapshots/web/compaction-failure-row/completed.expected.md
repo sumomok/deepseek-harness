@@ -12,8 +12,8 @@
   - button "Jump to turn 3"
 - text: {{first-prompt}}{{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}" [disabled]
+- status: Completed
+- button "Completed in {{duration}}" [disabled]
 - paragraph: READY
 - button "Copy"
 - button "Good response"
@@ -21,8 +21,8 @@
 - button "Branch into a new conversation"
 - text: {{clock}} {{second-prompt}}{{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}" [disabled]
+- status: Completed
+- button "Completed in {{duration}}" [disabled]
 - paragraph: READY
 - button "Copy"
 - button "Good response"
@@ -30,8 +30,8 @@
 - button "Branch into a new conversation"
 - text: {{clock}} Read notes.txt and summarize it. {{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}"
+- status: Completed
+- button "Completed in {{duration}}"
 - status: Context compaction failed The summary could not be written this time. It will be tried again.
 - paragraph: notes.txt says event sourcing stores changes as events.
 - button "Copy"

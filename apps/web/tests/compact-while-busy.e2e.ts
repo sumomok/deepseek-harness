@@ -26,6 +26,9 @@ import { connectFreshWorkspace, newEnglishPage, openSettings, saveFailureShot } 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/compact-while-busy', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/session.v3.jsonl', import.meta.url))
 const MODE = webSnapshotMode()
+// Standard is the work-details view in which a running Turn's process groups
+// and a completed Turn fold; the Web client defaults to Detailed.
+const STANDARD_VIEW_OVERLAY = '- id: ui-chat\n  config:\n    transcriptView: standard\n'
 const GOLDENS = ['settings-row.expected.md', 'interrupt-completed.expected.md', 'queue-waiting.expected.md', 'queue-completed.expected.md']
 
 // A long first prompt gives the manual compaction a span its summary shrinks.
@@ -100,9 +103,12 @@ describe('web e2e: /compact while a Turn is running', () => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-compact-while-busy-'))
     const overridePath = join(overrideDir, 'replay.override.json')
     await writeFile(overridePath, JSON.stringify(replay))
+    const overlayPath = join(overrideDir, 'standard-view.overlay.yml')
+    await writeFile(overlayPath, STANDARD_VIEW_OVERLAY)
     const events: SessionEvent[] = []
     const live = await launchWebScaffold({
       replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false, paceMs: PACE_MS,
+      extraOverlayPath: overlayPath,
     })
     scaffold = live
     live.ctx.on('session/event', (_session, event: SessionEvent) => { events.push(event) })
@@ -135,7 +141,7 @@ describe('web e2e: /compact while a Turn is running', () => {
   }
 
   async function expectCardOutsideFold(page: Page): Promise<void> {
-    await page.getByRole('button', { name: /^Took / }).waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: /^Completed in / }).waitFor({ timeout: 15_000 })
     const card = page.locator('[data-chat-flow-kind="manual-compaction"]').first()
     await card.waitFor()
     expect(await card.evaluate(element => element.closest('[data-turn-process-member]') === null)).toBe(true)

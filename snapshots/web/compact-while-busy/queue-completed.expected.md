@@ -8,8 +8,8 @@
     - tab "Trajectory"
 - text: {{long-prompt}}{{clock}}
 - button "Copy"
-- status: Worked
-- button "Took {{duration}}"
+- status: Completed
+- button "Completed in {{duration}}"
 - text: "Failed compact Compaction is unavailable: another compaction is running or waiting, or the agent is not idle."
 - paragraph: notes.txt says event sourcing stores changes as events.
 - button "Copy"

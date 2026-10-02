@@ -27,6 +27,9 @@ const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/live-interactions/
 const FAILED_EXPECTED = join(SNAPSHOT_DIR, 'failed.expected.md')
 const COMPLETED_EXPECTED = join(SNAPSHOT_DIR, 'completed.expected.md')
 const MODE = webSnapshotMode()
+// Standard is the work-details view in which a running Turn's process groups
+// and a completed Turn fold; the Web client defaults to Detailed.
+const STANDARD_VIEW_OVERLAY = '- id: ui-chat\n  config:\n    transcriptView: standard\n'
 
 // Two long earlier prompts give the pressure path a compactable span older
 // than its retained tail; the scripted usage alone decides when it triggers.
@@ -95,6 +98,8 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
   ): Promise<{ live: WebScaffold; events: SessionEvent[]; settled: Promise<unknown> }> {
     overrideDir ??= await mkdtemp(join(tmpdir(), 'dsh-web-compaction-failure-'))
     const overridePath = join(overrideDir, 'replay.override.json')
+    const overlayPath = join(overrideDir, 'standard-view.overlay.yml')
+    await writeFile(overlayPath, STANDARD_VIEW_OVERLAY)
     const replay: ReplayEntry[] = [
       textReply('READY', 200),
       textReply('READY', 200),
@@ -107,6 +112,7 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     const sessionEvents: SessionEvent[] = []
     const live = await launchWebScaffold({
       replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false, paceMs: PACE_MS,
+      extraOverlayPath: overlayPath,
     })
     scaffold = live
     live.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
@@ -162,7 +168,7 @@ describe('web e2e: failed automatic compaction inside a Turn', () => {
     const { live, settled } = await failInsideTurn(textReply('notes.txt says event sourcing stores changes as events.', 200))
     const tripwire = watchConsole(page)
     await settled
-    await page.getByRole('button', { name: /^Took / }).last().waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: /^Completed in / }).last().waitFor({ timeout: 15_000 })
     const row = page.locator('[data-chat-flow-kind="compaction-failure"]')
     await row.waitFor({ timeout: 10_000 })
     expect(await row.evaluate(element => element.closest('[data-turn-process-member]') === null)).toBe(true)

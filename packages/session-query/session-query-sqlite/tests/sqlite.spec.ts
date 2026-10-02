@@ -100,6 +100,7 @@ class TestHandle implements SessionHandle {
     TestPersistence.reads.set(this.id, (TestPersistence.reads.get(this.id) ?? 0) + 1)
     TestPersistence.readSignals.push(options?.signal)
     if (TestPersistence.failure !== undefined) throw TestPersistence.failure
+    if (TestPersistence.readFailures.has(this.id)) throw TestPersistence.readFailures.get(this.id)
     const entry = TestPersistence.entries.get(this.id)
     if (entry === undefined) throw new SessionPersistenceNotFoundError(this.id)
     await TestPersistence.readEffect?.(entry, options?.signal)
@@ -146,6 +147,7 @@ class TestPersistence extends SessionPersistence {
   static listEffect: ((signal?: AbortSignal) => void | Promise<void>) | undefined
   static listOverride: (() => SessionPersistenceSnapshot[]) | undefined
   static failure: unknown
+  static readFailures = new Map<SessionIdType, unknown>()
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map()
@@ -160,6 +162,7 @@ class TestPersistence extends SessionPersistence {
     this.listEffect = undefined
     this.listOverride = undefined
     this.failure = undefined
+    this.readFailures = new Map()
   }
 
   static set(entry: { meta: SessionHeader; events: SessionEvent[] }): void {
@@ -1123,6 +1126,145 @@ describe('SQLite reconciliation and source lifecycle', () => {
 
     await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+  })
+
+  it('leaves a stored log it cannot read out of the index, warns once while it stays unreadable, and searches the rest', async () => {
+    const readable = header('readable-log')
+    const broken = header('broken-log')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      { meta: broken, events: messageEvents('broken needle') },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const failure = new Error('torn record at line 7')
+    TestPersistence.readFailures.set(broken.id, failure)
+
+    const first = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(first.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"broken-log"'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('torn record at line 7'))
+
+    const signal = new AbortController().signal
+    const second = await ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal })
+    expect(second.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(TestPersistence.reads.get(readable.id)).toBe(1)
+    expect(TestPersistence.reads.get(broken.id)).toBe(2)
+
+    // A new revision that fails the same way stays one warning.
+    TestPersistence.set({ meta: broken, events: messageEvents('moved needle') })
+    const moved = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(moved.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(1)
+
+    const changedFailure = new Error('checksum mismatch at line 9')
+    TestPersistence.readFailures.set(broken.id, changedFailure)
+    await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('checksum mismatch at line 9'))
+
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_PERSISTENCE_FAILED', cause: changedFailure })
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: readable.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ sessionId: readable.id }] })
+
+    TestPersistence.readFailures.delete(broken.id)
+    const repaired = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(repaired.items.map(item => item.header.id).sort()).toEqual([broken.id, readable.id].sort())
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ sessionId: broken.id }] })
+
+    TestPersistence.set({ meta: broken, events: messageEvents('rewritten needle') })
+    TestPersistence.readFailures.set(broken.id, 'not an Error')
+    const rebroken = await ctx.sessionQuery.searchSessions({ query: 'needle' })
+    expect(rebroken.items.map(item => item.header.id)).toEqual([readable.id])
+    expect(warn).toHaveBeenCalledTimes(3)
+    expect(warn).toHaveBeenLastCalledWith(expect.stringContaining('unknown error'))
+    warn.mockRestore()
+  })
+
+  it('leaves a stored log whose documents cannot be extracted out of the index and keeps its error code', async () => {
+    const readable = header('readable-surface')
+    const broken = header('broken-surface')
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      {
+        meta: broken,
+        events: [{
+          type: 'user/message',
+          seq: SessionSeq(0),
+          time: 1,
+          data: createUserMessage({ content: [{ type: 'text', text: 'broken needle' }], source: { kind: 'user' } }),
+          surfaceOp: { op: 'replace', startSeq: SessionSeq(9), endSeq: SessionSeq(9) },
+        }],
+      },
+    ])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    expect((await ctx.sessionQuery.searchSessions({ query: 'needle' })).items.map(item => item.header.id))
+      .toEqual([readable.id])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"broken-surface"'))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: broken.id, query: 'needle' }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_INVALID_SURFACE' })
+    warn.mockRestore()
+  })
+
+  it('fails the whole search on a header conflict even when the same log has an invalid surface', async () => {
+    const readable = header('readable-conflict-peer')
+    const conflicted = header('conflicted-surface', 1)
+    TestPersistence.reset([
+      { meta: readable, events: messageEvents('readable needle') },
+      {
+        meta: conflicted,
+        events: [{
+          type: 'user/message',
+          seq: SessionSeq(0),
+          time: 1,
+          data: createUserMessage({ content: [{ type: 'text', text: 'conflicted needle' }], source: { kind: 'user' } }),
+          surfaceOp: { op: 'replace', startSeq: SessionSeq(9), endSeq: SessionSeq(9) },
+        }],
+      },
+    ])
+    // The listed header disagrees with the stored one on an immutable field.
+    TestPersistence.listOverride = () => [
+      { header: readable, revision: SessionPersistenceRevision('conflict-peer:1') },
+      { header: header('conflicted-surface', 2), revision: SessionPersistenceRevision('conflicted:1') },
+    ]
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: conflicted.id, query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('keeps cancellation when a cold read fails after its signal aborts', async () => {
+    const durable = header('aborted-failing-read')
+    TestPersistence.reset([{ meta: durable, events: messageEvents('durable needle') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const controller = new AbortController()
+    const readError = new Error('read torn by cancellation')
+    TestPersistence.readEffect = () => {
+      TestPersistence.readEffect = undefined
+      controller.abort()
+      throw readError
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }, { signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'SESSION_QUERY_ABORTED', cause: readError })
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('preserves unchanged persisted generations while reconciling new, changed, and deleted rows', { timeout: 20_000 }, async () => {
