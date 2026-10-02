@@ -47,7 +47,9 @@
  * console's own title for a conversation with no durable title, which
  * `terminology-guard.ts` puts in place of the header's crumb. A fifth set of
  * entries withholds two Settings → General rows and the Settings header's
- * configuration-file action by shadowing their list ids (`settings-entries.ts`).
+ * configuration-file action by shadowing their list ids (`settings-entries.ts`),
+ * and a sixth replaces the conversation's rows for a compaction that landed or
+ * failed by shadowing their node keys (`CompactionRows.tsx`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -77,6 +79,7 @@ import {
 import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
 import { withholdSettingsEntries } from './settings-entries.ts'
+import { replaceCompactionRows } from './CompactionRows.tsx'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle } from './UntitledTitle.tsx'
 import { en, zh, type ServerSidebarKey } from './locales.ts'
@@ -147,8 +150,8 @@ async function landOnWorkbench(
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, the untitled-conversation title, and the withheld
- * Settings entries, then the read-before-register fetches (this package's own
+ * brand-mark takeover, the untitled-conversation title, the withheld
+ * Settings entries, and the compaction rows, then the read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
  * two slot registrations.
  * @param ctx - client root context.
@@ -173,6 +176,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     'server-sidebar: untitled conversation title',
   )
   withholdSettingsEntries(ctx)
+  replaceCompactionRows(ctx)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),

@@ -1,0 +1,48 @@
+/* The console's two compaction rows. The metrics follow ui-chat's own rows
+   they replace (`.compactionRow` and `.turnErrorRow` in
+   MessageItem.module.css), so a conversation's rhythm does not change where
+   a compaction lands. */
+
+.completed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+}
+
+.icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
+}
+
+.icon svg {
+  width: calc(14px + var(--dsh-content-font-delta, 0px));
+  height: calc(14px + var(--dsh-content-font-delta, 0px));
+}
+
+.failed {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 2px 0;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
+}
+
+.failedDot {
+  margin-top: 5px;
+}
+
+.failedTitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-state-warn-primary);
+  font-weight: 600;
+}

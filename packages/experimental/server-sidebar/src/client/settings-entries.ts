@@ -19,9 +19,9 @@
  * - `auto-compact` in Settings → General — `@haoran/dsh-auto-compact`'s
  *   switch-and-slider row. The console bundle composes that plugin with the
  *   share it compacts at (`dsh-experimental-console-profile`'s
- *   `cordis.patch.yml`), and a customer has no reason to move it. The rows a
- *   compaction draws in the conversation belong to `dsh-client-ui-chat`, and
- *   this module leaves them alone.
+ *   `cordis.patch.yml`), and a customer has no reason to move it. The
+ *   conversation's rows for a landed or failed compaction are replaced in
+ *   `CompactionRows.tsx`.
  * - `open-document` in the Settings header — `dsh-client-ui-settings-general`'s
  *   **Open configuration file** action. That package is the settings shell
  *   itself, so its row cannot be disabled, and no Config field gates the

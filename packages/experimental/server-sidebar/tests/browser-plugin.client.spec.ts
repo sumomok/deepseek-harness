@@ -23,6 +23,7 @@ import { apply, inject, type ServerSidebarInjected } from '../src/client/index.t
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
+import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -118,8 +119,8 @@ function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown 
 
 /**
  * Declare the layout-owned `sidebar`/`conversation` slots, ui-conversation's
- * header-actions seat, and the settings shell's General item list and header
- * action list, as the real shells do.
+ * header-actions seat, ui-chat's node renderers, and the settings shell's
+ * General item list and header action list, as the real shells do.
  */
 function declareSlots(ctx: Context): void {
   ctx.slots.register(
@@ -141,6 +142,8 @@ function declareSlots(ctx: Context): void {
       children: {
         'conversation.session.header.actions': { kind: 'list', scope: 'session' },
         'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
+        // Declared by ui-chat's Chat view in the real page.
+        'conversation.chat.node': { kind: 'keyed', scope: 'session' },
       },
     } as never,
     () => null,
@@ -336,6 +339,32 @@ describe('server-sidebar browser half: sidebar registration', () => {
     }
     expect(ctx.slots.entriesOfSlot('settings.general.item').map(entry => entry.options.id)).toContain('performance-usage')
     for (const dispose of [...disposeOwners, disposeOther]) dispose()
+  })
+
+  it('replaces ui-chat\'s landed and failed compaction rows by node key at priority -1, in this package\'s locale', async () => {
+    const { ctx } = await bench()
+    const replaced = [
+      { key: 'compaction', component: CompactedRow },
+      { key: 'compaction-failure', component: CompactionFailedRow },
+    ] as const
+    expect(ctx.slots.entries('conversation.chat.node').map(entry => entry.options.key)).toEqual(['compaction', 'compaction-failure'])
+    for (const { key, component } of replaced) {
+      const ours = ctx.slots.entries('conversation.chat.node').find(entry => entry.options.key === key)
+      expect(ours?.options.priority).toBe(-1)
+      expect(ours?.component).toBe(component)
+      expect(ours?.locale).toBe('serverSidebar')
+    }
+    // ui-chat registers its rows at the default priority 0, in either order
+    // relative to these; each key's winner stays this package's row, and the
+    // running row's key keeps ui-chat's own.
+    const disposeOwners = replaced.map(({ key }) => ctx.slots.register({ name: 'conversation.chat.node', key }, () => null))
+    const disposeRunning = ctx.slots.register({ name: 'conversation.chat.node', key: 'compaction-running' }, () => null)
+    const winners = ctx.slots.entriesOfSlot('conversation.chat.node')
+    for (const { key, component } of replaced) {
+      expect(winners.filter(entry => entry.options.key === key).map(entry => entry.component)).toEqual([component])
+    }
+    expect(winners.filter(entry => entry.options.key === 'compaction-running').map(entry => entry.options.priority)).toEqual([undefined])
+    for (const dispose of [...disposeOwners, disposeRunning]) dispose()
   })
 
   it('wires both fetched catalogs onto the injected face, pages first', async () => {
@@ -666,6 +695,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
     expect(ctx.slots.entries('settings.action')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.chat.node')).toHaveLength(0)
   })
 })
 

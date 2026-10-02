@@ -335,9 +335,9 @@
 # saves a different value into the profile patch, which outranks this layer.
 # The page offers no control for either: `server-sidebar` withholds the plugin's
 # Settings → General row. The rows a compaction draws in the conversation are
-# `ui-chat`'s, not this plugin's, and this bundle replaces none of them; the
-# package README's Known Limitations states what they show, a token count and
-# an English summary included.
+# not this plugin's: the running row is `ui-chat`'s, and `server-sidebar`
+# replaces the landed and failed ones with one fixed sentence each; the package
+# README's Known Limitations states what they show.
 - insert:
     - id: auto-compact
       name: '@haoran/dsh-auto-compact'

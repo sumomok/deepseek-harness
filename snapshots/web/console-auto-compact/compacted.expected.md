@@ -29,7 +29,7 @@
 - status: Completed
 - button "Completed in {{duration}}" [expanded]
 - button "Analysis completed" [expanded]
-- button "Context compacted Compacted 4 history items (~{{tokens}} tokens)"
+- text: Earlier conversation compacted
 - paragraph: Event sourcing keeps every change as an event.
 - button "Copy"
 - button "Good response"

@@ -1,4 +1,4 @@
-# Agent Note: The console compacts automatically at 60%, and shadows three Settings entries a customer must not use
+# Agent Note: The console compacts automatically at 60%, draws its own compaction rows, and shadows three Settings entries a customer must not use
 
 Status: implemented
 
@@ -18,13 +18,19 @@ The console's Agent presets mount `compaction-basic` inside an isolated `compact
 
 **The plugin arrives as a vendored tarball.** `console-profile` declares `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"`, the form `component-kit` uses for its tarballs. The tarball is packed from a build of a clean copy of the plugin repository's pushed `main`. The package declares its harness packages as optional peers; `console-profile` lists `@deepseek-ai/schemastery`, which the plugin imports at runtime, under `dependencies`, and the type-only peers under `devDependencies`, so the workspace install links every peer to the workspace copy.
 
-**Three Settings entries are withheld by shadowing their list ids.** `settings.general.item` and `settings.action` are list slots whose cell is the entry id, and only the cell's lowest-priority entry renders. `server-sidebar`'s [`settings-entries.ts`](../../../../packages/experimental/server-sidebar/src/client/settings-entries.ts) registers an entry that renders nothing at priority -1 under `busy-compaction`, `auto-compact`, and `open-document`, so the owning entries at the default priority 0 never mount; this replaces the CSS rule for the configuration-file action. The packages keep their Config: `busyCompaction` stays at its default, `turn-end`, and automatic compaction runs at 60%. The rows a compaction draws in the conversation belong to `ui-chat`, the running one through [`auto-compaction-running-card`](2026-09-18-auto-compaction-running-card.md), and the console replaces none of them.
+**Three Settings entries are withheld by shadowing their list ids.** `settings.general.item` and `settings.action` are list slots whose cell is the entry id, and only the cell's lowest-priority entry renders. `server-sidebar`'s [`settings-entries.ts`](../../../../packages/experimental/server-sidebar/src/client/settings-entries.ts) registers an entry that renders nothing at priority -1 under `busy-compaction`, `auto-compact`, and `open-document`, so the owning entries at the default priority 0 never mount; this replaces the CSS rule for the configuration-file action. The packages keep their Config: `busyCompaction` stays at its default, `turn-end`, and automatic compaction runs at 60%. The running row a compaction draws in the conversation stays `ui-chat`'s, through [`auto-compaction-running-card`](2026-09-18-auto-compaction-running-card.md).
+
+**The rows for a landed or failed compaction are the console's own.** `conversation.chat.node` is a keyed slot, and only a key's lowest-priority entry renders, so `server-sidebar`'s [`CompactionRows.tsx`](../../../../packages/experimental/server-sidebar/src/client/CompactionRows.tsx) registers a row at priority -1 under the `compaction` and `compaction-failure` keys, in its own locale: 已压缩较早的对话 (Earlier conversation compacted) and 较早的对话压缩失败 (Couldn’t compact the earlier conversation). Neither shows a count or a token figure, and neither opens the summary. `ui-chat` still decides where the row sits in a turn.
 
 ## Alternatives considered
 
 **Disabling `ui-chat` to remove its row.** The package draws the Chat column; disabling it removes the conversation.
 
 **Hiding the entries with the terminology guard's CSS.** A rule couples to rendered class names and leaves the control in the DOM, focusable by keyboard. A shadowing entry couples to the list id alone, and the control never mounts.
+
+**Keeping `ui-chat`'s landed and failed rows.** The marker states how many history items and tokens were condensed and opens a summary written in English, and the failure row promises another attempt the plugin does not make within the turn: figures, a language, and a promise a console customer has no use for.
+
+**Changing `ui-chat`'s rows in a core patch.** The shipped Web profile and the desktop line keep the marker as it is, and the keyed slot reaches the console's wording without a patch.
 
 **Composing the `auto-compact` row in the lock overlay.** Above the profile patch, config-editor refuses every write to the two fields, so a deployment could change the share only by editing the lock. The bundle-layer value keeps 60% as the console's default while the profile patch can still carry a deployment's own share.
 
@@ -40,7 +46,7 @@ The console's Agent presets mount `compaction-basic` inside an isolated `compact
 
 A console conversation is compacted before a model request that would take more than 60% of the window, the first request of a turn included, or earlier on a model whose window minus reserved output and the backend's headroom is smaller; a failed attempt is not repeated within the same turn. From that request on, the model reads long tool results cut to their start and end and, when that is not enough, a summary of the older history.
 
-What a customer sees of a compaction is `ui-chat`'s: 正在压缩… while it runs; then, among the turn's process rows, the marker 上下文已压缩 · 已压缩 N 条历史记录（约 N tokens）, which expands to the summary `compaction-basic` wrote in English, as its summarizer prompt asks; or 上下文压缩失败 as a row of its own when the summary fails. The persona's Chinese-only line does not reach that summary, and the marker shows a token count that `performanceUsage: compact` removes from completed answers. `conversation.chat.node` is a keyed slot, so a console entry at priority -1 under the `compaction` and `compaction-failure` keys could replace both rows without a core patch.
+What a customer sees of a compaction is `ui-chat`'s 正在压缩… while it runs; then, among the turn's process rows, 已压缩较早的对话; or 较早的对话压缩失败 as a row of its own when the summary fails. The summary `compaction-basic` writes, in English as its summarizer prompt asks, is out of a customer's reach, and a key `ui-chat` renames un-shadows its row. A `/compact` typed in the composer still draws `ui-chat`'s command card, with the counts and the summary.
 
 The page offers no control for the three settings. `busyCompaction`, `enabled`, and `thresholdPercent` remain volatile, so the `remote.settings` method still accepts a write to them from any browser the deployment admits.
 

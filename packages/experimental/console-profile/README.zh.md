@@ -58,7 +58,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
 | `ui-chat` | 配置 `performanceUsage: compact`：设置 → 通用设置 → 性能与用量初始为「简洁」，已完成的回答下不显示每轮 token 用量；用户自己的选择保存进 profile 补丁，并覆盖这个默认值。它的「繁忙时的压缩行为」行由 `server-sidebar` 隐去，`busyCompaction` 保持默认值 `turn-end` |
-| `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮里的每一次模型请求之前（包括第一次），只要这次请求会占用上下文窗口的 60% 以上，就先压缩对话。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；压缩在对话里画出的行属于 `ui-chat`，列在「已知限制」里 |
+| `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮里的每一次模型请求之前（包括第一次），只要这次请求会占用上下文窗口的 60% 以上，就先压缩对话。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；压缩在对话里画出什么，列在「已知限制」里 |
 | `preset-console` | 插入：`console` Agent 预设——persona、`tool-fs`、`skill-filesystem`、`tool-skill`、压缩组、`tool-ask-user` 与 `tool-todo`；没有 shell、搜索、后台任务、目标、计划、委派、web 与 `present` 行 |
 | `preset-standard-as-console` | 插入：一个插件与 `console` 完全相同的 `standard` Agent 预设；会话按创建时记下的预设 id 恢复，控制台部署在 `console` 出现之前建的会话记的是 `standard` |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；每个会话运行的都是 `console` 的插件，id 为 `console` 或 `standard` |
@@ -117,7 +117,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 
 - **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，一个任何设置写入都能改的 `defaultPreset`，以及一次设置写入就能打开的 Session log 上传。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
 - **MCP 服务器列表是部署 Config，不是设置。** `console-mcp.servers` 和侧栏菜单一样位于 bundle 层，但它不是 `.volatile()` 字段：设置服务不为它投影表单，写入时以 `Plugin entry "console-mcp" has no volatile fields` 拒绝，所以部署放行的任何浏览器都加不了服务器。部署在自己的层里给这一行打 `config` 补丁来点名服务器，改过的列表在这一行重新加载时生效。桥接进来的 MCP 工具不声明审批闸门，所以在每个访问预设下都会直接运行，用的是这一行 `auth` 点名的凭据。
-- **压缩会显示 token 数和一段英文摘要。** 压缩进行时，对话里显示 `ui-chat` 的「正在压缩…」（Compacting context…）。压缩落定后，这一轮的过程行里出现标记「上下文已压缩 · 已压缩 N 条历史记录（约 N tokens）」，点开它会展开 `compaction-basic` 写下的摘要，而它的摘要提示词要求用英文写。一次失败的尝试会单独显示一行「上下文压缩失败」。控制台没有替换这些行中的任何一行，所以 persona 里只用中文的那句话管不到这段摘要，`performanceUsage: compact` 也去不掉标记里的 token 数。
+- **客户看不到压缩摘要。** 压缩进行时，对话里显示 `ui-chat` 的「正在压缩…」（Compacting context…）。压缩落定后，这一轮的过程行里出现 `server-sidebar` 的「已压缩较早的对话」（Earlier conversation compacted），一次失败的尝试会单独显示一行「较早的对话压缩失败」（Couldn’t compact the earlier conversation）；两行都不显示计数或 token 数。没有哪一行能打开 `compaction-basic` 写下的摘要（它的摘要提示词要求用英文写），所以客户读不到模型用来代替较早对话的那段内容。在输入框里手动输入的 `/compact` 仍画出 `ui-chat` 的卡片，带着条数、token 数和那段摘要。
 - **隐去的压缩设置仍可写入。** `auto-compact.enabled`、`auto-compact.thresholdPercent` 与 `ui-chat.busyCompaction` 是 bundle 层里的 volatile Config，所以页面上没有控件，而 `remote.settings` 方法仍接受部署放行的任何浏览器的写入。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 

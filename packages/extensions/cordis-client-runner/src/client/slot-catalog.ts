@@ -388,6 +388,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-tool ToolCallTree key \'tool-call\'',
       'client-ui-user-questions QuestionReplyView key \'question-reply\'',
       'client-ui-workflow-run WorkflowRunPanel key \'workflow-run\'',
+      'experimental-server-sidebar CompactedRow key \'compaction\'',
+      'experimental-server-sidebar CompactionFailedRow key \'compaction-failure\'',
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.node\', () => ctx.slots.register(\n      { name: \'conversation.chat.node\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',

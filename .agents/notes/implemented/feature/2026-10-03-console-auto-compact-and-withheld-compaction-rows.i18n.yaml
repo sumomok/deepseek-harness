@@ -2,18 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-03-console-auto-compact-and-withheld-compaction-rows.md
-/agent-note-the-console-compacts-automatically-at-60-and-shadows-three-settings-entries-a-customer-must-not-use:
-  en: d9e6f02cda845cd7
-  zh: f179d46d112de11e
-/agent-note-the-console-compacts-automatically-at-60-and-shadows-three-settings-entries-a-customer-must-not-use/problem:
+/agent-note-the-console-compacts-automatically-at-60-draws-its-own-compaction-rows-and-shadows-three-settings-entries-a-customer-must-not-use:
+  en: 0fa73bd065311db5
+  zh: e433120694102bf0
+/agent-note-the-console-compacts-automatically-at-60-draws-its-own-compaction-rows-and-shadows-three-settings-entries-a-customer-must-not-use/problem:
   en: 872688ee8a4796cc
   zh: 185bd9a7d8aa4bbe
-/agent-note-the-console-compacts-automatically-at-60-and-shadows-three-settings-entries-a-customer-must-not-use/decision:
-  en: cf1235e221bff523
-  zh: 3db89ab7499a67bb
-/agent-note-the-console-compacts-automatically-at-60-and-shadows-three-settings-entries-a-customer-must-not-use/alternatives-considered:
-  en: 8d199eeb40ef088d
-  zh: 6c62d6dc375030b6
-/agent-note-the-console-compacts-automatically-at-60-and-shadows-three-settings-entries-a-customer-must-not-use/consequences:
-  en: 1e1edb704661547f
-  zh: 33a0ca04ea22283a
+/agent-note-the-console-compacts-automatically-at-60-draws-its-own-compaction-rows-and-shadows-three-settings-entries-a-customer-must-not-use/decision:
+  en: 4eea385164969c97
+  zh: fde67de81717c4f1
+/agent-note-the-console-compacts-automatically-at-60-draws-its-own-compaction-rows-and-shadows-three-settings-entries-a-customer-must-not-use/alternatives-considered:
+  en: d2399911c3e6714d
+  zh: cb3a088626e52ef5
+/agent-note-the-console-compacts-automatically-at-60-draws-its-own-compaction-rows-and-shadows-three-settings-entries-a-customer-must-not-use/consequences:
+  en: d6e2814f67be99a5
+  zh: 1661a89df9b58a60

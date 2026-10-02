@@ -1,4 +1,4 @@
-# Agent Note：控制台在 60% 处自动压缩，并遮蔽三个不该给客户用的设置条目
+# Agent Note：控制台在 60% 处自动压缩，自己画压缩行，并遮蔽三个不该给客户用的设置条目
 
 Status: implemented
 
@@ -18,13 +18,19 @@ Status: implemented
 
 **插件以 vendored tarball 的形式进来。** `console-profile` 声明 `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"`，与 `component-kit` 引入它那几个 tarball 的写法相同。tarball 由插件仓库已推送的 `main` 的干净副本构建后打包。该包把它用到的 harness 包声明为可选 peer；`console-profile` 把插件运行时导入的 `@deepseek-ai/schemastery` 列在 `dependencies`，只用于类型的 peer 列在 `devDependencies`，工作区安装因而把每个 peer 都链接到工作区里的那一份。
 
-**三个设置条目都靠遮蔽它们的列表 id 隐去。** `settings.general.item` 与 `settings.action` 都是列表槽位，格子就是条目 id，只有格子里优先级最低的条目才会渲染。`server-sidebar` 的 [`settings-entries.ts`](../../../../packages/experimental/server-sidebar/src/client/settings-entries.ts) 在 `busy-compaction`、`auto-compact` 与 `open-document` 下各以优先级 -1 注册一个什么都不渲染的条目，所属包在默认优先级 0 注册的条目于是永不挂载；打开配置文件动作原先那条 CSS 规则由此取代。各个包都保留各自的 Config：`busyCompaction` 保持默认值 `turn-end`，自动压缩按 60% 运行。压缩在对话里画出的行属于 `ui-chat`，进行中的那一行来自 [`auto-compaction-running-card`](2026-09-18-auto-compaction-running-card.zh.md)，控制台一行也不替换。
+**三个设置条目都靠遮蔽它们的列表 id 隐去。** `settings.general.item` 与 `settings.action` 都是列表槽位，格子就是条目 id，只有格子里优先级最低的条目才会渲染。`server-sidebar` 的 [`settings-entries.ts`](../../../../packages/experimental/server-sidebar/src/client/settings-entries.ts) 在 `busy-compaction`、`auto-compact` 与 `open-document` 下各以优先级 -1 注册一个什么都不渲染的条目，所属包在默认优先级 0 注册的条目于是永不挂载；打开配置文件动作原先那条 CSS 规则由此取代。各个包都保留各自的 Config：`busyCompaction` 保持默认值 `turn-end`，自动压缩按 60% 运行。压缩在对话里画出的进行中那一行仍属于 `ui-chat`，来自 [`auto-compaction-running-card`](2026-09-18-auto-compaction-running-card.zh.md)。
+
+**压缩落定与压缩失败的行是控制台自己的。** `conversation.chat.node` 是键控槽位，每个键下只有优先级最低的条目才会渲染，所以 `server-sidebar` 的 [`CompactionRows.tsx`](../../../../packages/experimental/server-sidebar/src/client/CompactionRows.tsx) 在 `compaction` 与 `compaction-failure` 两个键下各以优先级 -1 注册一行，用它自己的语言表：「已压缩较早的对话」（Earlier conversation compacted）与「较早的对话压缩失败」（Couldn’t compact the earlier conversation）。两行都不显示计数或 token 数，也都打不开摘要。这一行放在一轮里的哪个位置仍由 `ui-chat` 决定。
 
 ## Alternatives considered
 
 **禁用 `ui-chat` 来去掉它的行。** 这个包画出整个 Chat 栏；禁用它就去掉了对话本身。
 
 **用去术语化守卫的 CSS 隐藏这些条目。** CSS 规则耦合在渲染出的类名上，还会把控件留在 DOM 里，键盘仍能聚焦到它。遮蔽条目只耦合在列表 id 上，控件根本不会挂载。
+
+**保留 `ui-chat` 的落定行与失败行。** 那个标记写出被压缩的历史条数与 token 数，点开是英文写的摘要；失败行许诺稍后再试，而插件在同一轮内不会再试：这些数字、这种语言和这个许诺，控制台客户都用不上。
+
+**用核心补丁改 `ui-chat` 的行。** 出厂 Web profile 与桌面线都保留原样的标记，而键控槽位不打补丁就能换上控制台的措辞。
 
 **把 `auto-compact` 行组合进锁 overlay。** 在 profile 补丁之上，config-editor 会拒绝对这两个字段的每一次写入，部署要改比例就只能改锁。放在 bundle 层，60% 是控制台的默认值，而 profile 补丁仍能带上部署自己的比例。
 
@@ -40,7 +46,7 @@ Status: implemented
 
 控制台对话会在一次会占用窗口 60% 以上的模型请求之前被压缩，一轮的第一次请求也算；若模型的窗口减去预留输出与后端余量后更小，则更早压缩；一次失败的尝试在同一轮内不再重复。从那次请求起，模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。
 
-客户看到的压缩是 `ui-chat` 画的：进行中显示「正在压缩…」；落定后，这一轮的过程行里出现标记「上下文已压缩 · 已压缩 N 条历史记录（约 N tokens）」，点开会展开 `compaction-basic` 按其摘要提示词的要求用英文写下的摘要；摘要失败时则单独一行显示「上下文压缩失败」。persona 里只用中文的那句话管不到这段摘要，标记里的 token 数也不受 `performanceUsage: compact` 影响——后者只去掉已完成回答下的用量。`conversation.chat.node` 是一个键控槽位，所以控制台在 `compaction` 与 `compaction-failure` 两个键下以优先级 -1 注册条目，就能不打核心补丁替换这两行。
+客户看到的压缩：进行中是 `ui-chat` 的「正在压缩…」；落定后，这一轮的过程行里出现「已压缩较早的对话」；摘要失败时则单独一行显示「较早的对话压缩失败」。`compaction-basic` 按其摘要提示词的要求用英文写下的摘要，客户够不到；`ui-chat` 改掉的键不再被遮蔽，那一行会恢复原样。在输入框里手动输入的 `/compact` 仍画出 `ui-chat` 的命令卡片，带着计数和摘要。
 
 页面上没有这三项设置的任何控件。`busyCompaction`、`enabled` 与 `thresholdPercent` 仍是 volatile，所以 `remote.settings` 方法仍接受部署放行的任何浏览器对它们的写入。
 

@@ -1971,9 +1971,10 @@ describe.skipIf(AUTO_COMPACT_MODE === 'record')('web e2e: automatic compaction i
     expect(end?.data).toMatchObject({ turn: 3 })
     expect(end?.data.sourceCommandId).toBeUndefined()
 
-    // What a customer sees: every process group open, so the compaction
-    // marker among the third turn's process rows is in the capture, and the
-    // conversation scrolled to its end.
+    // What a customer sees: every process group open, so the console's
+    // compaction row among the third turn's process rows (`server-sidebar`'s
+    // `CompactedRow`, one sentence with no count and nothing to open) is in the
+    // capture, and the conversation scrolled to its end.
     await page.getByText(ANSWER, { exact: true }).waitFor({ timeout: 15_000 })
     const controls = page.locator('[data-turn-process], [data-process-activity]')
     for (let index = 0; index < await controls.count(); index++) {
