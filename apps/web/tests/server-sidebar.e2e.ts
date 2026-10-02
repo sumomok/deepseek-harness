@@ -24,7 +24,12 @@
  * own first click populated and adds no second home-page record, while a
  * draft the visitor has navigated elsewhere in is unclean and takes the
  * create path, which shows the home page again (on the same conversation —
- * see the package README's Known Limitations).
+ * see the package README's Known Limitations). The describe with no
+ * workspace connected also checks that the console serves
+ * `@deepseek-ai/dsh-experimental-page-refresh` in place of `client-hmr`, and
+ * that a second page whose connection the test refuses draws the
+ * connection-loss notice in `server-layout`'s overlay layer, clear of the
+ * composer.
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -53,9 +58,9 @@ import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Browser, Locator, Page } from 'playwright'
+import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
-import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -1548,6 +1553,52 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
       await expect(inertPlaceholder.innerText()).resolves.toContain(LEAKED_PLACEHOLDER)
     },
     30_000,
+  )
+
+  it(
+    'serves the build check in place of live plugin replacement, and draws its connection-loss notice in the overlay layer clear of the composer',
+    async () => {
+      const served = await (await scaffold.hostFetch('/')).text()
+      expect(served).toContain('"@deepseek-ai/dsh-experimental-page-refresh"')
+      expect(served).toContain('__DSH_PAGE_REFRESH_CONFIG__')
+      expect(served).not.toContain('@deepseek-ai/dsh-client-hmr')
+      // client-hmr's event channel, which carries live plugin replacement.
+      expect((await scaffold.hostFetch('/plugins/events')).status).toBe(404)
+
+      // A page of its own, so refusing its connection leaves this describe's page connected.
+      const second = await newEnglishPage(browser)
+      onTestFinished(() => second.close())
+      onTestFailed(() => saveFailureShot(second, 'web-e2e-server-sidebar-connection-notice'))
+      let refuse = false
+      const open: WebSocketRoute[] = []
+      await second.routeWebSocket('**/api/remote.mux', (client) => {
+        if (refuse) {
+          void client.close({ code: 1012, reason: 'test connection refused' })
+          return
+        }
+        const server = client.connectToServer()
+        open.push(client, server)
+        client.onMessage((message) => { server.send(message) })
+        server.onMessage((message) => { client.send(message) })
+      })
+      await second.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await sidebar(second).waitFor({ timeout: 30_000 })
+      const composer = second.locator('[data-composer-input]')
+      await composer.waitFor({ timeout: 15_000 })
+      refuse = true
+      await Promise.all(open.map(route => route.close({ code: 1012, reason: 'test connection loss' })))
+      const notice = second.locator('[data-shell-overlay] [data-page-refresh-notice="lost"]')
+      await notice.waitFor({ timeout: 15_000 })
+      const [noticeBox, composerBox] = await Promise.all([notice.boundingBox(), composer.boundingBox()])
+      expect(noticeBox).not.toBeNull()
+      expect(composerBox).not.toBeNull()
+      const overlaps = noticeBox!.x < composerBox!.x + composerBox!.width
+        && composerBox!.x < noticeBox!.x + noticeBox!.width
+        && noticeBox!.y < composerBox!.y + composerBox!.height
+        && composerBox!.y < noticeBox!.y + noticeBox!.height
+      expect(overlaps).toBe(false)
+    },
+    60_000,
   )
 
   it('leaves the console clean', () => {

@@ -7,7 +7,10 @@
  * build check changes nothing; once the server serves another build — one more
  * client plugin composed live, which the open page never loads — the next
  * reconnect reloads the page exactly once, and the reloaded page, now on the
- * served build, stays put through the reconnect after that.
+ * served build, does not navigate again on the reconnect after that. A module
+ * script that something other than the shell adds to the page — a browser
+ * extension injecting its own code — is part of neither build and reloads
+ * nothing.
  *
  * Zero model calls: no session is opened.
  *
@@ -16,7 +19,7 @@
  * `healProfilesModuleFallback`.
  */
 
-import { mkdir, mkdtemp, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,6 +36,8 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/plugins/fixture-live-client', 
 const FIXTURE_NAME = '@fixture/live-client'
 /** Text the shipped home view draws once the application has mounted. */
 const MOUNTED_TEXT = 'Into the Unknown'
+/** A module script from outside the served shell, as a browser extension adds one to the page. */
+const FOREIGN_SCRIPT = 'https://extension.invalid/main-world-inject.js'
 
 /**
  * A harness home whose profile fallback resolves this package by name.
@@ -58,8 +63,11 @@ function nextBuildCheck(page: Page): Promise<Response> {
 }
 
 it('reloads an open page exactly once after its server starts serving another build', async () => {
+  const harnessHome = await harnessHomeWithPackageLink()
+  // Registered first, so it runs after the scaffold has closed.
+  onTestFinished(() => rm(harnessHome, { recursive: true, force: true }))
   const scaffold = await launchWebScaffold({
-    harnessHome: await harnessHomeWithPackageLink(),
+    harnessHome,
     extraOverlayPath: OVERLAY,
     extraInstallAnchors: [join(FIXTURE, 'package.json')],
   })
@@ -69,6 +77,18 @@ it('reloads an open page exactly once after its server starts serving another bu
   const page = await newEnglishPage(browser)
   const console = watchConsole(page)
   onTestFailed(() => saveFailureShot(page, 'web-e2e-page-refresh'))
+  await page.route(FOREIGN_SCRIPT, route => route.fulfill({ contentType: 'text/javascript', body: '' }))
+  // Added once the document is parsed and before the shell's own module
+  // script runs, the moment an extension injects into the page's main world.
+  await page.addInitScript((src) => {
+    document.addEventListener('readystatechange', () => {
+      if (document.readyState !== 'interactive') return
+      const script = document.createElement('script')
+      script.type = 'module'
+      script.src = src
+      document.head.append(script)
+    })
+  }, FOREIGN_SCRIPT)
   const sockets: { client: WebSocketRoute; server: WebSocketRoute }[] = []
   await page.routeWebSocket('**/api/remote.mux', (client) => {
     const server = client.connectToServer()
@@ -100,6 +120,12 @@ it('reloads an open page exactly once after its server starts serving another bu
   expect((await sameBuildCheck).status()).toBe(200)
   await page.evaluate(() => new Promise<void>((resolve) => { setTimeout(resolve, 200) }))
   expect(navigations).toBe(0)
+  // The foreign script is on the page, and neither check counted it: the page
+  // is still the one it navigated to, with no reload offered.
+  expect(await page.locator(`script[type="module"][src="${FOREIGN_SCRIPT}"]`).count()).toBe(1)
+  expect(await page.evaluate(() => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type))
+    .toBe('navigate')
+  expect(await page.locator('[data-page-refresh-notice="update"]').count()).toBe(0)
 
   expect(await servedEntries()).not.toContain(FIXTURE_NAME)
   await scaffold.ctx.loader.create({ name: FIXTURE_NAME })
@@ -120,5 +146,6 @@ it('reloads an open page exactly once after its server starts serving another bu
   expect((await reloadedCheck).status()).toBe(200)
   await page.evaluate(() => new Promise<void>((resolve) => { setTimeout(resolve, 200) }))
   expect(navigations).toBe(1)
+  expect(await page.locator('[data-page-refresh-notice="update"]').count()).toBe(0)
   expect(console.pageErrors).toEqual([])
 })
