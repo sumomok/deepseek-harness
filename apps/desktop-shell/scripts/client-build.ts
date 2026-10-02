@@ -11,9 +11,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readClientBuildRecord } from '../../../scripts/client-build-environment.ts'
+import { PRODUCT_NAME } from '../src/brand.ts'
 
-/** Browser title of the desktop application, in every UI language. */
-export const DESKTOP_CLIENT_TITLE = '北冥'
+/** Browser title of the desktop application, in every UI language: the Chinese product name. */
+export const DESKTOP_CLIENT_TITLE = PRODUCT_NAME.zh
 
 /** `pnpm` arguments that bundle the desktop-app browser and Host halves and its server-log exporter. */
 export const DESKTOP_APP_BUNDLE_ARGS = ['--filter', '@deepseek-ai/dsh-desktop-app', 'run', 'bundle'] as const
