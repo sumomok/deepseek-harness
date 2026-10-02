@@ -12,7 +12,7 @@ Status: implemented
 
 - **同意从盘上读。** 声明的版本还没装好时,`office-engine.ts` 里的 `versionsToKeep` 除了这个版本,还留下另一个装着所声明包的完整引擎、版本最高的那个版本目录(`supersededEngine`:清单版本等于目录名,`prebuilds.json` 点名了可执行文件,而且它是可运行的文件)。只有确认过的对话框后面的 `installEngine` 会写出这样的目录,所以它在不在,就是用户同意留下引擎的记录,别的什么都不持久化。声明的版本一旦装好,更早的那个就不再留。
 - **状态在服务端起来之前就变。** `startOfficeEngineForServer` 把留下的版本作为 `superseded` 交给 `OfficeEngineManager`,并在引擎服务和服务端启动之前调用 `beginUpgrade()`,于是 phase 读作 `installing`、0 字节,中止控制器也已就位。`@haoran/dsh-office-preview-notice` 只在 `apply` 里读一次 `/state`,之后只在 phase 是 `confirming` 或 `installing` 时轮询;如果那一次读到的是 `absent`、之后才变,提示会一直给出一个服务用 `409 installing` 拒绝的下载,直到页面重新加载。插件不需要改。
-- **下载等启动走完。** `runUpgrade()` 在服务端就绪、启动闸门放行、应用显示出来之后才运行,所以 pnpm 和约 150 MB 的解包排在服务端启动之后,被强制更新拦住的启动什么都不下载。它原样调用 `installEngine`:对照 `ENGINE_DOWNLOADS` 的锁文件完整性校验、完整引擎检查、改名到位。安装之后的清理再删掉更早的引擎。
+- **下载等启动走完。** `runUpgrade()` 在服务端就绪、启动闸门放行、应用显示出来之后才运行,所以 pnpm 和约 150 MB 的解包排在服务端启动之后,被强制更新拦住的启动什么都不下载。引擎服务没能启动的启动改为关闭 manager,因为用户既看不到进度也取消不了这次下载;更早的引擎留给下一次启动。它原样调用 `installEngine`:对照 `ENGINE_DOWNLOADS` 的锁文件完整性校验、完整引擎检查、改名到位。安装之后的清理再删掉更早的引擎。
 - **失败保留记录,取消就是拒绝。** 安装失败读作 `failed` 并带上原因,保留更早的引擎,下次启动再试一次;提示里的重试走确认框,在那里拒绝和失败一样保留引擎。退出会中止下载,同样保留引擎。升级过程中的 `POST /cancel` 把它记为被拒:安装结束之后删掉更早的引擎,下一次下载先询问。下载还没开始的升级立即结束,读作 `absent`。
 - **声明的版本没登记时保留更早的引擎。** 需求读作 `unsupported`,什么都不下载,引擎留给之后登记了这个版本的构建。`RequirementResult` 的拒绝分支在版本旁边带上声明的包名,找更早的引擎要用到它。
 - **打包带的 kit 由闸门钉住。** `scripts/office-engine-gate.ts` 里的 `DESKTOP_ENGINE_HOSTS` 写明每个桌面主机要带的引擎版本(两个都是 0.1.5),暂存的 kit 声明了别的版本时打包停下,所以版本只在有人调高这个值时才变。

@@ -19,7 +19,7 @@
  * |---|---|
  * | `GET /state` | `200` — the {@link EngineSnapshot} |
  * | `POST /install` | `202` — the snapshot, now `confirming`; `409` — an {@link EngineRefusal} |
- * | `POST /cancel` | `202` — the snapshot; `409` — an {@link EngineRefusal} |
+ * | `POST /cancel` | `202` — the snapshot, which during an upgrade also removes the earlier engine; `409` — an {@link EngineRefusal} |
  *
  * Every other path and method is `404`, decided before the token is read. A
  * missing or wrong token is `401`.
@@ -82,7 +82,8 @@ export const DECLINE_COOLDOWN_MS = 30_000
  * - `unsupported` — this launch offers no engine.
  * - `installed` — the engine is already installed.
  * - `confirming` — the confirmation is on screen.
- * - `installing` — a download is running.
+ * - `installing` — a download is running, or an upgrade has begun and its
+ *   download starts once the server is ready.
  * - `declined-recently` — the person declined the confirmation less than
  *   {@link DECLINE_COOLDOWN_MS} ago.
  * - `not-running` — a cancel arrived with no download running.

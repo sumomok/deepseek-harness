@@ -371,6 +371,15 @@ describe('the office engine in main.ts', () => {
     expect([...source.matchAll(/\.runUpgrade\(\)/g)]).toHaveLength(1)
   })
 
+  // Nothing else stops a running download at a quit when the listener is missing.
+  it('closes the manager when the engine service cannot start, so a begun upgrade does not run', () => {
+    const failed = source.indexOf('started = await startOfficeEngineService(manager)\n  } catch (error) {')
+    expect(failed).toBeGreaterThan(-1)
+    const close = source.indexOf('    await manager.close()\n', failed)
+    expect(close).toBeGreaterThan(failed)
+    expect(close).toBeLessThan(source.indexOf('    return engineEnv\n', failed))
+  })
+
   it('starts the engine service before the port check and adds its variables to the launch environment', () => {
     const service = source.indexOf('const officeEngineEnv = await startOfficeEngineForServer(spec, sink)')
     expect(service).toBeGreaterThan(-1)

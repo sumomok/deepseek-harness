@@ -566,6 +566,10 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
     started = await startOfficeEngineService(manager)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // Without the listener the person can neither follow nor cancel an
+    // upgrade, so one begun above does not run; the earlier engine stays for
+    // the next launch.
+    await manager.close()
     log(`[desktop] office engine service unavailable (${message}); the preview engine cannot be downloaded this launch\n`)
     return engineEnv
   }
