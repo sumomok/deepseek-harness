@@ -1294,8 +1294,14 @@ describe('web e2e: the product-console sidebar', () => {
     await page.reload({ waitUntil: 'load' })
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await sidebar(page).waitFor({ timeout: 15_000 })
-    await workbenchButton(page).click()
-    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(untitled)
+    // A click that lands before the reloaded page has listed its sessions and
+    // workspaces finds nowhere to create a conversation and does nothing, so
+    // the click repeats until the server menu names a new workbench. A click
+    // after that point is never made.
+    await expect.poll(async () => {
+      if (readServerMenu(scaffold).workbenchSessionId === untitled) await workbenchButton(page).click()
+      return readServerMenu(scaffold).workbenchSessionId
+    }, { timeout: 15_000, intervals: [1_000] }).not.toBe(untitled)
     await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
     workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
 
