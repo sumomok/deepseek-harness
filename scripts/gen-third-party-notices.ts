@@ -95,7 +95,7 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.3.0.tgz' },
   '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz' },
   '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz' },
-  '@haoran/dsh-crash-resume': { repo: 'apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.0.tgz' },
+  '@haoran/dsh-crash-resume': { repo: 'apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz' },
   '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.3.2.tgz' },
   '@haoran/dsh-desktop-update': { repo: 'apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz' },
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.6.0.tgz' },
