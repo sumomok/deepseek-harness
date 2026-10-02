@@ -9,13 +9,15 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseDshArgs } from '../../cli/src/args.ts'
+import { holdLoopbackPort, LISTEN_HANDOFF_ENV, type HeldListenSocket } from '../src/listen-socket.ts'
 import {
   DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, quarantineLoadFailureFromOutput, readMigrationMarker, WEB_PROFILE, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 import {
-  diagnosticReportFlags, type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer,
+  diagnosticReportFlags, ListenHandoffFailed, type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer,
   startServerWithQuarantine, type ServerHandle, type ServerSpec,
 } from '../src/server.ts'
 
@@ -423,5 +425,121 @@ describe('startServerWithQuarantine', () => {
       startServerWithQuarantine(specFor(entry), () => {}, alwaysQuarantines, root),
     ).rejects.toBeInstanceOf(ServerExitedBeforeUrl)
     expect(await attemptCount(attemptsFile)).toBe(2)
+  })
+})
+
+/** The listen-handoff preload, run from source as Node strips its types. */
+const PRELOAD = fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.url))
+
+describe('a start with a held socket', () => {
+  const sockets: HeldListenSocket[] = []
+  afterEach(() => {
+    for (const socket of sockets.splice(0)) socket.close()
+  })
+
+  /**
+   * Hold a loopback port the system picks, closed after the case.
+   * @returns the held socket.
+   */
+  function hold(): HeldListenSocket {
+    const result = holdLoopbackPort(0)
+    if (result.kind !== 'held') throw new Error(result.reason)
+    sockets.push(result.socket)
+    return result.socket
+  }
+
+  /**
+   * A start of `entry` on the held socket, with `preload` as the preload.
+   * @param entry - the scripted entry.
+   * @param socket - the held socket.
+   * @param preload - the preload path; the real one by default.
+   * @returns the spec.
+   */
+  function heldSpec(entry: string, socket: HeldListenSocket, preload = PRELOAD): ServerSpec {
+    return specFor(entry, { port: 1, listen: { socket, preload } })
+  }
+
+  /**
+   * Run a start that must fail, and return what it rejected with.
+   * @param spec - the launch.
+   * @returns the rejection.
+   */
+  async function failure(spec: ServerSpec): Promise<unknown> {
+    return startServer(spec, () => {}).then(async (handle) => { await handle.stop(); return undefined }, (error: unknown) => error)
+  }
+
+  it('without one, carries no preload, no IPC channel and no handoff variable', async () => {
+    const reportFile = join(root, 'report.json')
+    const entry = entryScript('plain-entry.cjs', `
+      require('node:fs').writeFileSync(${JSON.stringify(reportFile)}, JSON.stringify({
+        execArgv: process.execArgv, send: typeof process.send, variable: process.env.${LISTEN_HANDOFF_ENV} ?? null,
+      }))
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      setInterval(() => {}, 1000)
+    `)
+    const handle = await startServer(specFor(entry), () => {})
+    expect(JSON.parse(readFileSync(reportFile, 'utf8'))).toEqual({ execArgv: diagnosticReportFlags(root), send: 'undefined', variable: null })
+    await handle.stop()
+  })
+
+  it('puts the preload after the report flags and before the entry, and asks for the held port', async () => {
+    const socket = hold()
+    const reportFile = join(root, 'report.json')
+    const entry = entryScript('held-entry.mjs', `
+      import { writeFileSync } from 'node:fs'
+      import http from 'node:http'
+      const port = Number(process.argv[process.argv.indexOf('--port') + 1])
+      writeFileSync(${JSON.stringify(reportFile)}, JSON.stringify({ execArgv: process.execArgv, argv: process.argv.slice(2) }))
+      const server = http.createServer((req, res) => { res.end() })
+      server.listen(port, '127.0.0.1', () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') })
+    `)
+    const handle = await startServer(heldSpec(entry, socket), () => {})
+    expect(handle.url).toBe(`http://127.0.0.1:${String(socket.port)}`)
+    expect(JSON.parse(readFileSync(reportFile, 'utf8'))).toEqual({
+      execArgv: [...diagnosticReportFlags(root), '--import', pathToFileURL(PRELOAD).href],
+      argv: ['--profile', DESKTOP_PROFILE, '--port', String(socket.port), '--no-open'],
+    })
+    await handle.stop()
+  })
+
+  it('rejects with the reason the preload wrote when it failed', async () => {
+    const socket = hold()
+    const preload = entryScript('failing-preload.mjs', `
+      process.stdout.write('dsh-desktop listen handoff failed: the test said so\\n')
+      process.exit(1)
+    `)
+    const rejection = await failure(heldSpec(entryScript('unreached.cjs', ''), socket, preload))
+    expect(rejection).toBeInstanceOf(ListenHandoffFailed)
+    expect((rejection as ListenHandoffFailed).reason).toBe('the test said so')
+  })
+
+  it('rejects as a handoff failure when the preload cannot be loaded at all', async () => {
+    const socket = hold()
+    const rejection = await failure(heldSpec(entryScript('unreached.cjs', ''), socket, join(root, 'no-such-preload.mjs')))
+    expect(rejection).toBeInstanceOf(ListenHandoffFailed)
+    expect((rejection as ListenHandoffFailed).reason).toMatch(/^the server exited \(code \d+\) before it took the socket$/u)
+  })
+
+  it('rejects as a handoff failure when the URL line comes from a server that bound its own port', async () => {
+    const socket = hold()
+    const entry = entryScript('own-port.mjs', `
+      import http from 'node:http'
+      const server = http.createServer((req, res) => { res.end() })
+      server.listen(0, '127.0.0.1', () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') })
+    `)
+    const rejection = await failure(heldSpec(entry, socket))
+    expect(rejection).toBeInstanceOf(ListenHandoffFailed)
+    expect((rejection as ListenHandoffFailed).reason).toBe('the server printed its URL line without listening on the held socket')
+  })
+
+  it('rejects as without a socket when the server exits after it took the socket, so the quarantine retry still applies', async () => {
+    const socket = hold()
+    const entry = entryScript('crashing.cjs', `
+      process.stderr.write(${JSON.stringify(FIELD_LOADER_ERROR)} + '\\n')
+      process.exitCode = 1
+    `)
+    const rejection = await failure(heldSpec(entry, socket))
+    expect(rejection).toBeInstanceOf(ServerExitedBeforeUrl)
+    expect((rejection as ServerExitedBeforeUrl).output).toContain('@yuxianglin/dsh-bridge-browser')
   })
 })

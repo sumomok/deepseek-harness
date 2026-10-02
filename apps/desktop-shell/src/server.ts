@@ -7,6 +7,10 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
+import {
+  HANDOFF_FAILED_PREFIX, HANDOFF_READY_LINE, handoffListeningLine, LISTEN_HANDOFF_ENV, LISTEN_HANDOFF_MESSAGE, type ListenHandoff,
+} from './listen-socket.ts'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
 
 /**
@@ -187,9 +191,17 @@ export interface ServerSpec {
   /**
    * The port passed as `--port`. Absent or 0 lets the system pick one; see
    * [[@deepseek-ai/dsh-desktop-shell/server-port]] for why the shell asks for
-   * the previous launch's port.
+   * the previous launch's port. Not read when {@link listen} is set.
    */
   port?: number
+  /**
+   * A socket the shell holds, for the server to listen on instead of binding
+   * its own ([[@deepseek-ai/dsh-desktop-shell/listen-socket]]). Set, the
+   * server is started with the preload, an IPC channel and the
+   * {@link LISTEN_HANDOFF_ENV} variable, asked for the socket's port, and
+   * sent the socket once the preload is ready.
+   */
+  listen?: ListenHandoff
 }
 
 /** What one server-child exit tells the caller. */
@@ -253,6 +265,27 @@ export class ServerExitedBeforeUrl extends Error {
   constructor(message: string, output: string) {
     super(message)
     this.name = 'ServerExitedBeforeUrl'
+    this.output = output
+  }
+}
+
+/**
+ * Thrown when a start with a held socket ({@link ServerSpec.listen}) did not
+ * end with the server listening on it: the preload reported a failure, the
+ * socket could not be sent, the process exited before it took the socket, or
+ * the server printed its URL line without the preload's `listening` line. The
+ * process has been stopped. The caller starts the server without the socket.
+ */
+export class ListenHandoffFailed extends Error {
+  /** Why the handoff failed, in one line. */
+  readonly reason: string
+  /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
+  readonly output: string
+
+  constructor(reason: string, output: string) {
+    super(`listen handoff failed: ${reason}.\n${tail(output)}`)
+    this.name = 'ListenHandoffFailed'
+    this.reason = reason
     this.output = output
   }
 }
@@ -343,7 +376,10 @@ function forEachLine(stream: NodeJS.ReadableStream, onLine: (line: string) => vo
  * @returns the running server handle; rejects when the process exits or stays
  * silent past the startup timeout, with the collected output in the message.
  * An exit before the URL line rejects once the output pipes closed (or
- * {@link CLOSE_WAIT_MS} after it), so the collected output is complete.
+ * {@link CLOSE_WAIT_MS} after it), so the collected output is complete. With
+ * {@link ServerSpec.listen} set, a handoff that did not leave the server
+ * listening on the held socket rejects with {@link ListenHandoffFailed}; an
+ * exit after the socket was sent rejects as without it.
  */
 export async function startServer(
   spec: ServerSpec, logSink: (chunk: string) => void, onLine?: (line: string) => void,
@@ -354,8 +390,14 @@ export async function startServer(
   // window is the browser for this server, so `--no-open` declines the handoff
   // the web app performs by default; without it every start, including the
   // relaunch after an update, adds a 127.0.0.1 tab.
+  const handoff = spec.listen
+  const port = handoff?.socket.port ?? spec.port ?? 0
+  // The preload goes before the entry so it runs, and takes the socket,
+  // before any server code. A file URL, because a Windows drive path is not a
+  // valid ESM specifier.
+  const preload = handoff === undefined ? [] : ['--import', pathToFileURL(handoff.preload).href]
   const child = spawn(spec.nodeBin, [
-    ...diagnosticReportFlags(spec.reportDirectory), spec.entry, '--profile', DESKTOP_PROFILE, '--port', String(spec.port ?? 0), '--no-open',
+    ...diagnosticReportFlags(spec.reportDirectory), ...preload, spec.entry, '--profile', DESKTOP_PROFILE, '--port', String(port), '--no-open',
   ], {
     cwd: spec.cwd,
     // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch
@@ -364,11 +406,16 @@ export async function startServer(
     // top of the base bundle's own
     // session-telemetry-otel row already shipping disabled. `spec.env` still
     // wins if a caller (a test) sets its own value.
-    env: { ...augmentedEnv(process.env), DSH_TELEMETRY_DISABLED: '1', ...spec.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...augmentedEnv(process.env), DSH_TELEMETRY_DISABLED: '1', ...spec.env,
+      ...(handoff === undefined ? {} : { [LISTEN_HANDOFF_ENV]: String(port) }),
+    },
+    stdio: handoff === undefined ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
     // Without this a console window flashes for the bundled node.exe on Windows.
     windowsHide: true,
   })
+  const { stdout, stderr } = child
+  if (stdout === null || stderr === null) throw new Error('dsh server was spawned without its output pipes')
   let collected = ''
   const recentOutput = tailBuffer(RECENT_OUTPUT_TAIL_LINES)
   // Raised by `stop()` (and by the startup-timeout kill below, which is this
@@ -410,29 +457,80 @@ export async function startServer(
         reject(new Error(`dsh server printed no URL line within ${String(STARTUP_TIMEOUT_MS / 1000)}s.\n${tail(collected)}`))
       })
     }, STARTUP_TIMEOUT_MS)
+    // A handoff failure is this shell's own decision to stop the server, like
+    // the startup timeout above.
+    const failHandoff = (reason: string): void => {
+      settle(() => {
+        expectedExit = true
+        void killTree(child)
+        reject(new ListenHandoffFailed(reason, collected))
+      })
+    }
+    // Whether the socket reached the child: set once the send completed.
+    let handed = false
+    let sent = false
+    const onHandoffLine = (line: string): void => {
+      if (handoff === undefined) return
+      const text = line.trimEnd()
+      if (text === HANDOFF_READY_LINE && !sent) {
+        sent = true
+        // No `message` listener is ever registered on this side, and the
+        // preload closes the channel as soon as the socket arrived, before any
+        // server code runs. The channel is not closed from here: after a
+        // parent-side `disconnect()` Node never emits the child's `close`, so
+        // every exit would wait out CLOSE_WAIT_MS.
+        child.send(LISTEN_HANDOFF_MESSAGE, handoff.socket.handle, (error) => {
+          if (error === null) handed = true
+          else failHandoff(`the socket could not be sent (${error.message})`)
+        })
+      } else if (text.startsWith(HANDOFF_FAILED_PREFIX)) {
+        failHandoff(text.slice(HANDOFF_FAILED_PREFIX.length))
+      }
+    }
     const onChunk = (chunk: Buffer): void => {
       const text = chunk.toString()
       collected += text
       recentOutput.push(text)
       logSink(text)
       const match = URL_LINE.exec(collected)
-      if (match?.[1] !== undefined) settle(() => { resolve(match[1] as string) })
+      const url = match?.[1]
+      if (match === null || url === undefined) return
+      // Both lines are on stdout and the preload writes its own first, so a
+      // URL line that is not preceded by it comes from a server that bound
+      // some other socket.
+      if (handoff !== undefined) {
+        const listening = collected.indexOf(handoffListeningLine(port))
+        if (listening === -1 || listening > match.index || new URL(url).port !== String(port)) {
+          failHandoff('the server printed its URL line without listening on the held socket')
+          return
+        }
+      }
+      settle(() => { resolve(url) })
     }
-    child.stdout.on('data', onChunk)
-    child.stderr.on('data', onChunk)
-    if (onLine !== undefined) {
-      forEachLine(child.stdout, onLine)
-      forEachLine(child.stderr, onLine)
+    stdout.on('data', onChunk)
+    stderr.on('data', onChunk)
+    if (onLine !== undefined || handoff !== undefined) {
+      const eachLine = (line: string): void => {
+        onHandoffLine(line)
+        onLine?.(line)
+      }
+      forEachLine(stdout, eachLine)
+      forEachLine(stderr, eachLine)
     }
-    child.once('error', (error) => {
+    // `on`, not `once`: a later error — a signal that cannot be delivered —
+    // must not reach Electron's main process as an unhandled one.
+    child.on('error', (error) => {
+      logSink(`[desktop] dsh server process error: ${error.message}\n`)
       settle(() => { reject(new Error(`dsh server failed to spawn: ${error.message}`)) })
     })
     onDrainedExit = (code, signal) => {
+      const how = code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`
+      if (handoff !== undefined && !handed) {
+        settle(() => { reject(new ListenHandoffFailed(`the server exited (${how}) before it took the socket`, collected)) })
+        return
+      }
       settle(() => {
-        reject(new ServerExitedBeforeUrl(
-          `dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`,
-          collected,
-        ))
+        reject(new ServerExitedBeforeUrl(`dsh server exited before its URL line (${how}).\n${tail(collected)}`, collected))
       })
     }
   })
