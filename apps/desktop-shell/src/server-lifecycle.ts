@@ -26,7 +26,11 @@
  *    a wildcard address on the same port succeeds on macOS and receives none
  *    of the connections to the loopback address. On Windows a process of the
  *    same user that sets `SO_REUSEADDR` can bind over the address, as it can
- *    over the running server's own socket at any time.
+ *    over the running server's own socket at any time. On Linux, where a
+ *    socket that sets `SO_REUSEADDR` (libuv sets it on every bind there) may
+ *    bind an address no socket listens on, the bind fails only from the first
+ *    child's listen on, so another process can take the port before it; the
+ *    app is packaged for macOS and Windows.
  * 2. The socket stays listening after a child dies, so a connection made
  *    meanwhile waits in its queue and the next child answers it (observed on
  *    macOS). Where it does not, the connection is refused, as with no socket.

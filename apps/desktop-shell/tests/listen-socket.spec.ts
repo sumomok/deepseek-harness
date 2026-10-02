@@ -61,7 +61,11 @@ describe('holdLoopbackPort', () => {
     expect(hold(port).port).toBe(port)
   })
 
-  it('keeps the address from every other listener while it holds it', async () => {
+  // On Linux a socket that sets SO_REUSEADDR, as libuv does on every bind
+  // there, may bind and listen on an address no socket listens on yet; the
+  // address is kept from the first server's listen on, which
+  // listen-handoff.spec.ts checks after a kill.
+  it.skipIf(process.platform === 'linux')('keeps the address from every other listener while it holds it', async () => {
     const socket = hold(0)
     expect(await listenOn(socket.port)).toBe('EADDRINUSE')
   })

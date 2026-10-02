@@ -9,7 +9,10 @@
  * duplicate over an IPC channel and listens on it through the preload in
  * `listen-handoff.mts`. A child that dies closes only its own duplicate: the
  * address stays bound by the shell, so no other process can bind it while the
- * shell lives, and the next child receives the same socket again.
+ * shell lives, and the next child receives the same socket again. On Linux
+ * that holds only from the first child's listen on: there a socket that sets
+ * `SO_REUSEADDR`, as libuv does on every bind, may bind an address that no
+ * socket listens on.
  *
  * A bind that fails does not return a number on every platform. libuv defers
  * `EADDRINUSE` to the listen, so the call can hand back a handle that is not
