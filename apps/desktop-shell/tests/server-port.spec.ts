@@ -1,21 +1,28 @@
 /**
  * The embedded server's port choice: the remembered port is asked for again
  * while it is free, a taken one falls back to a system-picked port, and the
- * port the server actually listens on is what the next launch remembers.
- * Port checks run against real loopback listeners this file opens itself.
+ * port the server actually listens on is what the next launch remembers. The
+ * launch holds that port for its servers, and a handoff that fails falls back
+ * to the start the shell makes without a held socket. Port checks run against
+ * real loopback listeners this file opens itself.
  * @module
  */
 
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
-import { choosePort, isAddressInUse, isListenPort, isPortFree, listenOutcome, portOf, startOnPort } from '../src/server-port.ts'
-import { ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from '../src/server.ts'
+import type { HeldListenSocket, NativeListenHandle } from '../src/listen-socket.ts'
+import {
+  choosePort, holdLaunchSocket, isAddressInUse, isListenPort, isPortFree, listenOutcome, portOf, startHeldOrFallback, startOnPort,
+} from '../src/server-port.ts'
+import { ListenHandoffFailed, ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
-/** Listeners a case opened, closed after it. */
+/** Listeners and held sockets a case opened, closed after it. */
 const listeners: Server[] = []
+const held: HeldListenSocket[] = []
 
 afterEach(async () => {
+  for (const socket of held.splice(0)) socket.close()
   await Promise.all(listeners.splice(0).map(listener => new Promise((resolve) => { listener.close(resolve) })))
 })
 
@@ -217,10 +224,102 @@ describe('startOnPort', () => {
   })
 })
 
+describe('holdLaunchSocket', () => {
+  /**
+   * Keep a socket the function returned for the rest of the case.
+   * @param socket - the socket, or undefined.
+   * @returns the socket.
+   */
+  function kept(socket: HeldListenSocket | undefined): HeldListenSocket {
+    if (socket === undefined) throw new Error('expected a held socket')
+    held.push(socket)
+    return socket
+  }
+
+  it('holds a port the system picks when nothing is remembered, and says nothing', () => {
+    const lines: string[] = []
+    expect(kept(holdLaunchSocket(0, (line) => { lines.push(line) })).port).toBeGreaterThan(0)
+    expect(lines).toEqual([])
+  })
+
+  it('holds the chosen port when it is free', async () => {
+    const port = await holdPort()
+    await new Promise((resolve) => { listeners.pop()?.close(resolve) })
+    expect(kept(holdLaunchSocket(port, () => {})).port).toBe(port)
+  })
+
+  it('holds a port the system picks when the chosen one was taken after the check, and says the origin changes', async () => {
+    const taken = await holdPort()
+    const lines: string[] = []
+    const socket = kept(holdLaunchSocket(taken, (line) => { lines.push(line) }))
+    expect(socket.port).not.toBe(taken)
+    expect(lines.join('')).toContain(`127.0.0.1:${String(taken)}`)
+    expect(lines.join('')).toContain(`holding ${String(socket.port)}, and the UI starts on a new origin`)
+  })
+})
+
+describe('startHeldOrFallback', () => {
+  /**
+   * A held socket stand-in that records when it is closed.
+   * @param steps - receives `close`.
+   * @returns the socket.
+   */
+  function socketOn(steps: string[]): HeldListenSocket {
+    const handle: NativeListenHandle = { getsockname: () => 0, close: () => {} }
+    return { port: 49_321, handle, close: () => { steps.push('close') } }
+  }
+
+  it('starts on the held socket, and returns the handoff with a spec that names the port and carries no socket', async () => {
+    const steps: string[] = []
+    const handoff = { socket: socketOn(steps), preload: '/lib/listen-handoff.mjs' }
+    const asked: ServerSpec[] = []
+    const started = await startHeldOrFallback({ ...SPEC, port: 0 }, handoff, async (spec) => {
+      asked.push(spec)
+      return handleOn(49_321)
+    }, { log: () => {}, beforeClose: () => { steps.push('before close') } })
+    expect(asked).toEqual([{ ...SPEC, port: 49_321, listen: handoff }])
+    expect(started.held).toBe(handoff)
+    expect(started.spec).toEqual({ ...SPEC, port: 49_321 })
+    expect(steps).toEqual([])
+  })
+
+  for (const [name, failure] of [
+    ['a handoff failure', new ListenHandoffFailed('the server exited (code 1) before it took the socket', '')],
+    ['the server binding the held port itself', IN_USE],
+  ] as const) {
+    it(`falls back on ${name}: runs the step before closing, closes the socket, logs once, and starts on the spec's port`, async () => {
+      const steps: string[] = []
+      const lines: string[] = []
+      const asked: Array<[number | undefined, boolean]> = []
+      const started = await startHeldOrFallback({ ...SPEC, port: 50_000 }, { socket: socketOn(steps), preload: '/p.mjs' }, async (spec) => {
+        asked.push([spec.port, spec.listen !== undefined])
+        if (spec.listen !== undefined) throw failure
+        steps.push('start')
+        return handleOn(50_000)
+      }, { log: (line) => { lines.push(line) }, beforeClose: () => { steps.push('before close') } })
+      expect(asked).toEqual([[49_321, true], [50_000, false]])
+      expect(steps).toEqual(['before close', 'close', 'start'])
+      expect(started.held).toBeUndefined()
+      expect(started.spec.port).toBe(50_000)
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatch(/^\[desktop\] listen handoff unavailable \(.+\); this run changes origin on every crash rebind\n$/u)
+    })
+  }
+
+  it('propagates any other failure and keeps the socket held', async () => {
+    const steps: string[] = []
+    const failure = new ServerExitedBeforeUrl('exit', 'Error: boom\n')
+    await expect(startHeldOrFallback(SPEC, { socket: socketOn(steps), preload: '/p.mjs' }, async () => { throw failure }, {
+      log: () => {}, beforeClose: () => { steps.push('before close') },
+    })).rejects.toBe(failure)
+    expect(steps).toEqual([])
+  })
+})
+
 describe('the launch sequence in main.ts', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
 
-  it('checks the remembered port after the orphan sweep and the loopback services, and just before the spawn', () => {
+  it('checks and holds the remembered port after the orphan sweep and the loopback services, and just before the spawn', () => {
     // The launch is the last `choosePort` in the file; the one before it is
     // the restart after a failed install.
     const choice = source.lastIndexOf('await choosePort(')
@@ -228,11 +327,17 @@ describe('the launch sequence in main.ts', () => {
     expect(source.indexOf('await sweepOrphanedServers(')).toBeLessThan(choice)
     expect(source.indexOf('await startRenderServiceForServer(')).toBeLessThan(choice)
     expect(source.indexOf('await startUpdateForServer(')).toBeLessThan(choice)
-    expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(choice)
+    const hold = source.indexOf('holdLaunchSocket(port.port, sink)')
+    expect(hold).toBeGreaterThan(choice)
+    expect(source.lastIndexOf('await startHeldOrFallback(')).toBeGreaterThan(hold)
+    expect(source.lastIndexOf('await startOnPort(')).toBeGreaterThan(hold)
   })
 
-  it('starts the launch and the restart after a failed install through startOnPort and records the port', () => {
+  it('starts every server of a run through the held socket when there is one, and records the port and the socket', () => {
+    expect([...source.matchAll(/await startHeldOrFallback\(/g)]).toHaveLength(2)
+    expect([...source.matchAll(/await rebindOnHeldSocket\(/g)]).toHaveLength(1)
     expect([...source.matchAll(/await startOnPort\(/g)]).toHaveLength(2)
     expect([...source.matchAll(/rememberServerPort\(started\.spec\)/g)]).toHaveLength(3)
+    expect([...source.matchAll(/held = started\.held/g)]).toHaveLength(3)
   })
 })

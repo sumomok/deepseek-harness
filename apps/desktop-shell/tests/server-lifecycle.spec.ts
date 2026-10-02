@@ -1,9 +1,11 @@
 /**
  * The order of the steps around the server's end, run with recording fakes:
- * an unexpected exit forgets the port and removes the cookies before the
- * recovery ladder, a crash rebind asks for a system-picked port, a quit
- * removes the cookies before sending the stop and sends it even when the
- * removal never answers, and reopening while quitting does nothing.
+ * an unexpected exit stops the notification stream, forgets the port unless
+ * the shell holds it, and removes the cookies before the recovery ladder; a
+ * crash rebind keeps a held socket and otherwise asks for a system-picked
+ * port; a quit removes the cookies before sending the stop and sends it even
+ * when the removal never answers; reopening while quitting does nothing, and
+ * reopening after the stopped-server dialog was dismissed shows it again.
  * @module
  */
 
@@ -12,11 +14,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SENTINEL_DIRECTORY, SENTINEL_FILE, writeIntentionalStop } from '../src/crash-resume-sentinel.ts'
+import type { HeldListenSocket, ListenHandoff, NativeListenHandle } from '../src/listen-socket.ts'
 import {
-  COOKIE_CLEAR_BOUND_MS, markIntentionalStop, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
-  stopForMandatoryUpdate, stopForQuit, stopServerForQuit,
+  COOKIE_CLEAR_BOUND_MS, markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
+  stopForMandatoryUpdate, stopForQuit, stopServerForQuit, type RevealHooks,
 } from '../src/server-lifecycle.ts'
-import type { ServerHandle, ServerSpec } from '../src/server.ts'
+import { ListenHandoffFailed, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
 let home: string | undefined
 
@@ -42,15 +45,36 @@ function sentinelHome(): { home: string; sentinel: string } {
 const never = (): Promise<never> => new Promise(() => {})
 
 describe('respondToCrash', () => {
-  it('forgets the port and finishes removing the cookies before the ladder runs', async () => {
+  /**
+   * Respond to a crash with recording fakes.
+   * @param keepsPort - whether the shell holds the port.
+   * @returns the recorded steps once the ladder ran.
+   */
+  async function crashSteps(keepsPort: boolean): Promise<string[]> {
     const steps: string[] = []
-    const outcome = await respondToCrash({
+    await respondToCrash({
+      keepsPort,
+      stopNotifications: () => { steps.push('stop notifications') },
       forgetPort: () => { steps.push('forget') },
       clearCookies: async () => { await Promise.resolve(); steps.push('cleared') },
       ladder: async () => { steps.push('ladder'); return 'relaunch' },
       log: () => {},
     })
-    expect(steps).toEqual(['forget', 'cleared', 'ladder'])
+    return steps
+  }
+
+  it('stops the notification stream, forgets the port and finishes removing the cookies before the ladder runs', async () => {
+    expect(await crashSteps(false)).toEqual(['stop notifications', 'forget', 'cleared', 'ladder'])
+  })
+
+  it('keeps the port the shell holds, and still stops the stream and removes the cookies first', async () => {
+    expect(await crashSteps(true)).toEqual(['stop notifications', 'cleared', 'ladder'])
+  })
+
+  it('returns what the ladder decided', async () => {
+    const outcome = await respondToCrash({
+      keepsPort: false, stopNotifications: () => {}, forgetPort: () => {}, clearCookies: async () => {}, ladder: async () => 'relaunch', log: () => {},
+    })
     expect(outcome).toBe('relaunch')
   })
 
@@ -59,6 +83,8 @@ describe('respondToCrash', () => {
     const lines: string[] = []
     let laddered = false
     const done = respondToCrash({
+      keepsPort: false,
+      stopNotifications: () => {},
       forgetPort: () => {},
       clearCookies: never,
       ladder: async () => { laddered = true; return 'stop' },
@@ -73,7 +99,8 @@ describe('respondToCrash', () => {
 
   it('runs the ladder after a removal that failed', async () => {
     const outcome = await respondToCrash({
-      forgetPort: () => {}, clearCookies: async () => { throw new Error('store gone') }, ladder: async () => 'recovered', log: () => {},
+      keepsPort: false, stopNotifications: () => {}, forgetPort: () => {},
+      clearCookies: async () => { throw new Error('store gone') }, ladder: async () => 'recovered', log: () => {},
     })
     expect(outcome).toBe('recovered')
   })
@@ -101,6 +128,61 @@ describe('rebindOnNewPort', () => {
     const started = await rebindOnNewPort(spec, async (s) => { seen.push(s.env); return handle }, () => {})
     expect(seen).toEqual([env])
     expect(started.spec.env).toEqual(env)
+  })
+})
+
+/**
+ * A held socket stand-in that records when it is closed.
+ * @param steps - receives `close`.
+ * @returns the socket.
+ */
+function recordingSocket(steps: string[]): HeldListenSocket {
+  const handle: NativeListenHandle = { getsockname: () => 0, close: () => {} }
+  return { port: 49_321, handle, close: () => { steps.push('close') } }
+}
+
+describe('rebindOnHeldSocket', () => {
+  const handle: ServerHandle = { url: 'http://127.0.0.1:49321', authenticatedUrl: 'http://127.0.0.1:49321/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
+  const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env: {}, port: 49_321 }
+
+  it('starts the new server on the held socket and keeps it, so the port and the origin stay', async () => {
+    const steps: string[] = []
+    const handoff: ListenHandoff = { socket: recordingSocket(steps), preload: '/lib/listen-handoff.mjs' }
+    const asked: ServerSpec[] = []
+    const started = await rebindOnHeldSocket(spec, handoff, async (s) => { asked.push(s); return handle }, {
+      log: () => {}, forgetPort: () => { steps.push('forget') },
+    })
+    expect(asked.map(s => [s.port, s.listen])).toEqual([[49_321, handoff]])
+    expect(started.held).toBe(handoff)
+    expect(started.spec.port).toBe(49_321)
+    expect(started.spec.listen).toBeUndefined()
+    expect(steps).toEqual([])
+  })
+
+  it('on a failed handoff forgets the port before releasing the socket, then starts on a system-picked port', async () => {
+    const steps: string[] = []
+    const lines: string[] = []
+    const asked: Array<number | undefined> = []
+    const started = await rebindOnHeldSocket(spec, { socket: recordingSocket(steps), preload: '/p.mjs' }, async (s) => {
+      asked.push(s.port)
+      steps.push(s.listen === undefined ? 'start' : 'start held')
+      if (s.listen !== undefined) throw new ListenHandoffFailed('no socket arrived within 10s', '')
+      return { ...handle, url: 'http://127.0.0.1:52000' }
+    }, { log: (line) => { lines.push(line) }, forgetPort: () => { steps.push('forget') } })
+    expect(steps).toEqual(['start held', 'forget', 'close', 'start'])
+    expect(asked).toEqual([49_321, 0])
+    expect(started.held).toBeUndefined()
+    expect(started.spec.port).toBe(52_000)
+    expect(lines.join('')).toContain('listen handoff unavailable (no socket arrived within 10s); this run changes origin on every crash rebind')
+  })
+
+  it('keeps the socket held through a failure that is not the handoff\'s, for the next attempt', async () => {
+    const steps: string[] = []
+    const failure = new Error('boom')
+    await expect(rebindOnHeldSocket(spec, { socket: recordingSocket(steps), preload: '/p.mjs' }, async () => { throw failure }, {
+      log: () => {}, forgetPort: () => { steps.push('forget') },
+    })).rejects.toBe(failure)
+    expect(steps).toEqual([])
   })
 })
 
@@ -221,17 +303,37 @@ describe('markIntentionalStop', () => {
 })
 
 describe('revealApp', () => {
-  it('does nothing while quitting', () => {
+  /**
+   * Reveal with recording fakes.
+   * @param state - whether a quit has begun, a window exists, and the backend was left stopped.
+   * @returns the recorded calls.
+   */
+  function reveal(state: { quitting: boolean; window: boolean; stopped: boolean }): string[] {
     const calls: string[] = []
-    revealApp({ quitting: () => true, revealExisting: () => { calls.push('reveal'); return true }, openWindow: () => { calls.push('open') } })
-    expect(calls).toEqual([])
+    const hooks: RevealHooks = {
+      quitting: () => state.quitting,
+      revealExisting: () => { calls.push('reveal'); return state.window },
+      backendStopped: () => state.stopped,
+      showStopped: () => { calls.push('stopped dialog') },
+      openWindow: () => { calls.push('open') },
+    }
+    revealApp(hooks)
+    return calls
+  }
+
+  it('does nothing while quitting', () => {
+    expect(reveal({ quitting: true, window: true, stopped: false })).toEqual([])
+    expect(reveal({ quitting: true, window: false, stopped: true })).toEqual([])
   })
 
   it('uncovers the existing window, and opens one only when there is none', () => {
-    const calls: string[] = []
-    revealApp({ quitting: () => false, revealExisting: () => { calls.push('reveal'); return true }, openWindow: () => { calls.push('open') } })
-    revealApp({ quitting: () => false, revealExisting: () => { calls.push('reveal'); return false }, openWindow: () => { calls.push('open') } })
-    expect(calls).toEqual(['reveal', 'reveal', 'open'])
+    expect(reveal({ quitting: false, window: true, stopped: false })).toEqual(['reveal'])
+    expect(reveal({ quitting: false, window: false, stopped: false })).toEqual(['reveal', 'open'])
+  })
+
+  it('shows the stopped-server dialog instead of a window once the user left the backend stopped', () => {
+    expect(reveal({ quitting: false, window: false, stopped: true })).toEqual(['reveal', 'stopped dialog'])
+    expect(reveal({ quitting: false, window: true, stopped: true })).toEqual(['reveal'])
   })
 })
 
@@ -249,7 +351,10 @@ describe('resumeAfterFailedInstall', () => {
       clearQuitting: () => { quitting = false; steps.push('clear') },
       restartServer: async () => { await Promise.resolve(); steps.push('restart') },
       reveal: () => {
-        revealApp({ quitting: () => quitting, revealExisting: () => { steps.push('shown'); return true }, openWindow: () => {} })
+        revealApp({
+          quitting: () => quitting, revealExisting: () => { steps.push('shown'); return true },
+          backendStopped: () => false, showStopped: () => {}, openWindow: () => {},
+        })
       },
     })
     return steps
@@ -279,9 +384,13 @@ describe('main.ts', () => {
   }
 
   it('runs these steps at each of the five points', () => {
-    expect(body('handleUnexpectedServerExit')).toMatch(/respondToCrash\(\{\s+forgetPort: forgetServerPort,\s+clearCookies: clearAuthCookies,/u)
+    expect(body('handleUnexpectedServerExit')).toMatch(new RegExp([
+      'respondToCrash\\(\\{\\s+keepsPort: held !== undefined,\\s+stopNotifications,',
+      '\\s+forgetPort: forgetServerPort,\\s+clearCookies: clearAuthCookies,',
+    ].join(''), 'u'))
     expect(body('handleUnexpectedServerExit')).toContain('ladder: () => runRecoveryLadder(')
     expect(body('performRebind')).toContain('await rebindOnNewPort(spec, startEmbeddedServer, logLine)')
+    expect(body('performRebind')).toContain('await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort })')
     expect(body('stopServerBounded')).toMatch(/await stopServerForQuit\(handle, \{ home: resolveHarnessHome\(\), log: logLine, clearCookies: clearAuthCookies,/u)
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([
@@ -289,6 +398,9 @@ describe('main.ts', () => {
       '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
     ].join(''), 'u'))
     expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
+    expect(body('restartAfterFailedInstall')).toContain('{ ...spec, port: held.socket.port }, held, startEmbeddedServer,')
+    expect(body('reveal')).toContain("backendStopped: () => stoppedDialog === 'dismissed',")
+    expect(body('runStoppedDialog')).toContain("stoppedDialog = 'dismissed'")
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
@@ -304,7 +416,9 @@ describe('main.ts', () => {
 describe('an unexpected exit', () => {
   it('leaves no sentinel, so the next start continues the interrupted turns', async () => {
     const { sentinel } = sentinelHome()
-    await respondToCrash({ forgetPort: () => {}, clearCookies: async () => {}, ladder: async () => 'relaunch', log: () => {} })
+    await respondToCrash({
+      keepsPort: true, stopNotifications: () => {}, forgetPort: () => {}, clearCookies: async () => {}, ladder: async () => 'relaunch', log: () => {},
+    })
     expect(existsSync(sentinel)).toBe(false)
   })
 })

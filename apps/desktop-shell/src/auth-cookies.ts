@@ -15,12 +15,15 @@
  * secret the Harness home keeps, so it stays valid, until its expiry, for any
  * later server on the same authority, and a launch asks for the previous
  * launch's port ([[@deepseek-ai/dsh-desktop-shell/server-port]]). The removal
- * at launch keeps a stored copy from being sent again; the removals after a
- * crash and at quit keep the window, still open and still reconnecting, from
- * sending one to a port the server no longer holds
- * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]). A copy taken before a
- * removal — by a process that listened on the port while the window was
- * sending to it — is not revoked by removing the stored cookie.
+ * at launch keeps a stored copy from being sent again; the removal at quit
+ * keeps the window, still open and still reconnecting, from sending one to a
+ * port no server holds ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
+ * After a crash the removal does the same when the shell does not hold the
+ * port. When it holds the port no other process can accept there, and the
+ * removal is kept anyway: it costs the reload one token exchange, and every
+ * crash leaves the same state whichever way the run started. A copy taken
+ * before a removal — by a process that listened on the port while the window
+ * was sending to it — is not revoked by removing the stored cookie.
  *
  * Before the spawn this process has no server yet, so removing every
  * `dsh-auth-*` cookie cannot remove the one this launch is about to be issued.
