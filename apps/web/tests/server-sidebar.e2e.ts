@@ -1301,7 +1301,7 @@ describe('web e2e: the product-console sidebar', () => {
     await expect.poll(async () => {
       if (readServerMenu(scaffold).workbenchSessionId === untitled) await workbenchButton(page).click()
       return readServerMenu(scaffold).workbenchSessionId
-    }, { timeout: 15_000, intervals: [1_000] }).not.toBe(untitled)
+    }, { timeout: 15_000, interval: 1_000 }).not.toBe(untitled)
     await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
     workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
 
