@@ -15,13 +15,16 @@ import { request } from 'node:http'
 import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HANDOFF_READY_LINE, holdLoopbackPort, LISTEN_HANDOFF_ENV, type HeldListenSocket } from '../src/listen-socket.ts'
 import { ListenHandoffFailed, startServer, type ServerExitInfo, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
 /** The preload under test, run from source as Node strips its types. */
 const PRELOAD = fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.url))
+
+/** The preload as `--import` takes it: a Windows drive path is not a valid ESM specifier. */
+const PRELOAD_URL = pathToFileURL(PRELOAD).href
 
 /**
  * The stand-in server. It reads `--port` the way the CLI does, answers every
@@ -246,7 +249,7 @@ describe('a server started on a held socket', () => {
     const handle = await start(specFor(socket))
     const exit = exited(handle)
     expect(await get(socket.port, '/die', 3_000)).toBe('200 dying')
-    expect((await exit).signal).toBe('SIGKILL')
+    expect((await exit).expected).toBe(false)
     expect(await squat(socket.port)).toBe('EADDRINUSE')
   })
 
@@ -292,7 +295,7 @@ describe('a handoff that cannot hold', () => {
 
   it('writes the failure line and exits when no socket arrives', async () => {
     const socket = hold()
-    const child = spawn(process.execPath, ['--import', join(root, 'fast-timers.mjs'), '--import', PRELOAD, join(root, 'entry.mjs'), '--port', String(socket.port)], {
+    const child = spawn(process.execPath, ['--import', pathToFileURL(join(root, 'fast-timers.mjs')).href, '--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', String(socket.port)], {
       env: { ...process.env, [LISTEN_HANDOFF_ENV]: String(socket.port) }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
     let output = ''
@@ -304,7 +307,7 @@ describe('a handoff that cannot hold', () => {
   })
 
   it('writes the failure line and exits when the shell closes the channel without sending', async () => {
-    const child = spawn(process.execPath, ['--import', PRELOAD, join(root, 'entry.mjs'), '--port', '1'], {
+    const child = spawn(process.execPath, ['--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', '1'], {
       env: { ...process.env, [LISTEN_HANDOFF_ENV]: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
     let output = ''
@@ -318,7 +321,7 @@ describe('a handoff that cannot hold', () => {
   })
 
   it('does nothing in a process started without the variable', async () => {
-    const child = spawn(process.execPath, ['--import', PRELOAD, join(root, 'entry.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, ['--import', PRELOAD_URL, join(root, 'entry.mjs'), '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] })
     const gone = new Promise((resolve) => { child.once('exit', resolve) })
     const output = await new Promise<string>((resolve) => {
       let text = ''
