@@ -151,9 +151,6 @@ function builtinRows(): readonly BuiltinRow[] {
 
 const ROWS = builtinRows()
 
-/** Seeded built-in with no browser half: `default-model` composes Host rows only. */
-const WITHOUT_CLIENT_HALF = ['@haoran/dsh-default-model']
-
 /**
  * Compose the boot graph for one selection of rows, ordered the way the Host
  * orders the served graph.
@@ -375,10 +372,10 @@ describe('vendored built-in client halves', () => {
     open = undefined
   })
 
-  it('covers every seeded built-in that carries a browser half', () => {
-    // A seeded package that grows a `dsh.client` declaration joins the rows
-    // automatically and leaves this list stale, which is what says so aloud.
-    expect([...ROWS.map(row => row.id), ...WITHOUT_CLIENT_HALF, ...IN_REPOSITORY].sort())
+  it('covers every seeded built-in, each of which carries a browser half', () => {
+    // Every vendored built-in carries a browser half, so one that stops
+    // declaring `dsh.client` drops out of the rows and fails here.
+    expect([...ROWS.map(row => row.id), ...IN_REPOSITORY].sort())
       .toStrictEqual([...BUILTIN_WEB_BUNDLES].sort())
     const manifest = JSON.parse(readFileSync(serverManifest, 'utf8')) as { dependencies?: Record<string, string> }
     for (const row of ROWS) {

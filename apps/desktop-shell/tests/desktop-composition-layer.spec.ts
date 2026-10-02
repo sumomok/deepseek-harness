@@ -26,11 +26,9 @@
  * which appends the server's own logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
- * restates every key it owns — `path` beside `openAt`, and the whole model
- * catalog beside `retryPolicy`, since a built-in plugin layer below sets it on
- * that same row. Composing every layer here is what catches a restatement that
- * stops replacing what it meant to, a built-in that starts patching one of
- * these rows, and a catalog that moves below without moving here.
+ * restates every key it owns — `path` beside `openAt`. Composing every layer
+ * here is what catches a restatement that stops replacing what it meant to,
+ * and a built-in that starts patching one of these rows.
  * @module
  */
 
@@ -194,21 +192,6 @@ describe('the composed llm-deepseek row', () => {
       mode: 'normal',
       backoff: { maxDelayMs: 300_000 },
     })
-  })
-
-  // The layer below this one owns the picker catalog and this row replaces its
-  // whole config, so the restatement has to track it. It states more than that
-  // layer does — the fields the shipped adapter's own `deepseek-flash` row
-  // declares, which the vendored layer omits to inherit them — so what has to
-  // hold is containment: the same rows in the same order, and every key that
-  // layer states surviving with its value. A model or the vision default
-  // dropped below fails here, which is what this case is for.
-  it('carries every row and key the catalog below composes', () => {
-    const inherited = entry(below, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[] | undefined
-    expect(inherited).toBeDefined()
-    const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
-    expect(composed.map(row => row.id)).toEqual(inherited?.map(row => row.id))
-    for (const [index, row] of (inherited ?? []).entries()) expect(composed[index]).toMatchObject(row)
   })
 })
 
