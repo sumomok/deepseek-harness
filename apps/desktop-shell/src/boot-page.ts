@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/boot-page
  */
 
+import { PRODUCT_NAME } from './brand.ts'
 import { PALETTES, type Appearance } from './theme.ts'
 
 /**
@@ -32,7 +33,7 @@ export function bootPage(
     : `window.__dsh.phase(${String(failure.phase)})\n  window.__dsh.fail(${JSON.stringify(failure.message).replace(/</g, '\\u003c')})`
   const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
+<html lang="zh"><head><meta charset="utf-8"><title>${PRODUCT_NAME.zh}</title><style>
   * { box-sizing: border-box; }
   body {
     margin: 0; height: 100vh; overflow: hidden;

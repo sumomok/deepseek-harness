@@ -8,6 +8,7 @@
 import { JSDOM } from 'jsdom'
 import { describe, expect, it, vi } from 'vitest'
 import { bootPage } from '../src/boot-page.ts'
+import { PRODUCT_NAME } from '../src/brand.ts'
 
 vi.mock('electron', () => ({ nativeTheme: { shouldUseDarkColors: false } }))
 
@@ -45,6 +46,11 @@ describe('the boot page', () => {
     expect(row?.querySelector('.mark')?.textContent).toBe('✕')
     expect(document.body.classList.contains('failed')).toBe(true)
     expect(document.getElementById('summary')?.textContent).toBe(summary)
+  })
+
+  it('titles the window with the Chinese product name while booting and on a baked failure', () => {
+    expect(render(bootPage('0.1.0-rc.36', 'light', undefined)).title).toBe(PRODUCT_NAME.zh)
+    expect(render(bootPage('0.1.0-rc.36', 'dark', undefined, { phase: 2, message: 'x' })).title).toBe(PRODUCT_NAME.zh)
   })
 
   it('shows a summary that contains markup as text, without it closing the script', () => {

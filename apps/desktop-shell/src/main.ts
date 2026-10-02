@@ -411,7 +411,7 @@ async function runStoppedDialog(): Promise<void> {
     const window = mainWindow()
     const options = {
       type: 'error' as const,
-      title: 'DSH Desktop',
+      title: PRODUCT_NAME.zh,
       message: '后台服务多次崩溃,已停止自动恢复',
       buttons: [...STOPPED_DIALOG_BUTTONS],
       defaultId: 0,
@@ -620,7 +620,7 @@ async function showSettingsNotices(window: BrowserWindow, notices: readonly stri
  * @param alert - what to say, from {@link downloadOutcome}.
  */
 function reportDownloadFailure(alert: DownloadAlert): void {
-  const options = { type: 'error' as const, title: 'DSH Desktop', message: alert.message, detail: alert.detail }
+  const options = { type: 'error' as const, title: PRODUCT_NAME.zh, message: alert.message, detail: alert.detail }
   const window = mainWindow()
   // Nothing waits on the answer: the transfer is over either way, and the
   // `done` handler this runs in must not hold the download session open.
@@ -686,7 +686,7 @@ function createBootWindow(receipt?: string): BootView {
     width: 1360,
     height: 900,
     backgroundColor: PALETTES[appearance].background,
-    title: 'DSH Desktop',
+    title: PRODUCT_NAME.zh,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
