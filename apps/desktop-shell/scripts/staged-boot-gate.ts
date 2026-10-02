@@ -271,8 +271,8 @@ export interface HeldSocketBoot extends Omit<ServerSpec, 'port' | 'listen'> {
 /**
  * Start the staged server on a socket held the way the shell holds it, stop
  * it, and start a second server on the same socket, as a crash rebind does;
- * each must listen on the held port and answer a request there, with any
- * HTTP status (a request without a cookie answers 401).
+ * each must listen on the held port and answer a request there with a
+ * success status or 401, which a request without a cookie gets.
  *
  * The handoff's preload matches the `listen(port, '127.0.0.1')` call of
  * `@deepseek-ai/dsh-host-webserver`. When an upstream change makes it listen
