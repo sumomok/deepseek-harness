@@ -14,9 +14,10 @@
  * the sign-out control, both fitting the column),
  * (`@deepseek-ai/dsh-experimental-content-frame`)
  * the session header's own title for a conversation with no durable title,
- * the two Settings → General rows the console withholds (`ui-chat`'s
- * busy-compaction row and the vendored `@haoran/dsh-auto-compact` row) while
- * automatic compaction runs at the bundle's 60% inside both console presets,
+ * the Settings entries the console withholds (`ui-chat`'s busy-compaction row,
+ * the vendored `@haoran/dsh-auto-compact` row, and the Settings header's
+ * configuration-file action) while both console presets reach the compaction
+ * engine the plugin drives,
  * hiding the `show-content-page` command's own chat echo while its durable
  * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
@@ -935,7 +936,7 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await accessChip(page).count()).toBe(0)
   }, 60_000)
 
-  it('draws a Settings dialog with the General section only, the configuration-file action hidden, and the close button at the right', async () => {
+  it('draws a Settings dialog with the General section only, the configuration-file action withheld, and the close button at the right', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-settings-dialog'))
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
@@ -954,19 +955,19 @@ describe('web e2e: the product-console sidebar', () => {
       const close = row?.querySelector(':scope > button')
       const right = (element: Element | null | undefined): number | undefined => element?.getBoundingClientRect().right
       return {
-        actions: [...actions?.children ?? []].map(child => ({
-          text: child.textContent,
-          display: getComputedStyle(child).display,
-        })),
+        actionText: actions?.textContent,
+        actionControls: actions?.querySelectorAll('button, a, [role="button"]').length,
         headerRight: right(row),
         closeRight: right(close),
         actionsRight: right(actions),
       }
     })
-    // `terminology-guard.ts` hides what the header's action row holds and
-    // leaves the row in the layout, which is what keeps the close button at
-    // the header's right edge.
-    expect(header.actions).toEqual([{ text: 'Open configuration file', display: 'none' }])
+    // `settings-entries.ts` shadows the configuration-file action, so it never
+    // mounts; the empty action row stays in the layout, which is what keeps
+    // the close button at the header's right edge.
+    expect(header.actionText).toBe('')
+    expect(header.actionControls).toBe(0)
+    expect(await dialog.getByText('Open configuration file').count()).toBe(0)
     expect(header.closeRight).toBeDefined()
     expect(header.actionsRight).toBeDefined()
     expect(header.closeRight!).toBeGreaterThan(header.actionsRight!)

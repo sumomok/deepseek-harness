@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Superseded：下文描述的、用 CSS 规则隐藏**打开配置文件**动作的做法，已改为在该动作的列表 id `open-document` 下注册一个优先级 -1 的条目——见[控制台隐去的设置条目](../feature/2026-10-03-console-auto-compact-and-withheld-compaction-rows.zh.md)。列表槽位其实接受这种撤回：一个 id 的格子里只有优先级最低的条目会渲染。默认挂载 MCP 与精简 Settings → Plugins 两项决定仍然成立。
+
 [English](2026-09-20-console-mcp-default-and-settings-trim.md) | 中文
 
 ## Problem

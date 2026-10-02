@@ -11,7 +11,8 @@
  *
  * This component is an entry in the header's `conversation.session.header.actions`
  * list, ordered ahead of every other action. While the session has no durable
- * title it renders this package's own copy and marks itself with
+ * title it renders this package's own name for the console's conversation,
+ * `workbench.label` (工作台 / Workbench), and marks itself with
  * `data-server-sidebar-untitled-title`; `terminology-guard.ts` hides the
  * header's crumb navigation whenever the header holds that mark, so the copy
  * takes the crumb's place. A session with a durable title renders nothing here
@@ -62,7 +63,7 @@ export function UntitledTitle({ sessionId, useSessions, t }: UntitledTitleProps)
   if (!untitled) return null
   return (
     <span className={css.title} data-server-sidebar-untitled-title="">
-      {t('header.untitled')}
+      {t('workbench.label')}
     </span>
   )
 }

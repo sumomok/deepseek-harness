@@ -66,10 +66,10 @@ describe('UntitledTitle', () => {
     expect(title.hasAttribute('data-server-sidebar-untitled-title')).toBe(true)
   })
 
-  it('takes its copy from the locale table', () => {
+  it('reads the sidebar\'s own name for the workbench conversation', () => {
     renderTitle({}, en)
-    expect(screen.getByText('Workbench')).toBeTruthy()
-    expect(zh['header.untitled']).toBe('工作台')
+    expect(screen.getByText(en['workbench.label'])).toBeTruthy()
+    expect(zh['workbench.label']).toBe('工作台')
   })
 
   it('renders nothing for a titled conversation, so the shipped crumb stays', () => {

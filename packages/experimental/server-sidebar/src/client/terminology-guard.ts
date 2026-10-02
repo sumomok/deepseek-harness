@@ -102,40 +102,7 @@
  * `defaultPreset` that overlay names unless the deployment's settings document
  * stores one of its own (see the package README's De-terminology section).
  *
- * The Settings header's action row is the fourth piece with no composition
- * hook. `dsh-client-ui-settings-general` is the settings shell itself — the
- * panel, the navigation, the General section — so its row cannot be disabled,
- * and it registers the **Open configuration file** action into its own
- * `settings.action` list slot with no Config field gating it. No other plugin
- * can withdraw the entry: `ctx.slots.register()` hands its disposer to the
- * registrant. An entry registered under the same list id (`open-document`) at
- * a lower priority would keep it from rendering — the shadowing
- * `settings-rows.ts` applies to two General rows — and this action is hidden
- * by the rule below instead.
- *
- * That action is the shell's only `settings.action` registrant in this
- * repository, so hiding the row that holds it hides exactly it. It is guarded
- * by `ctx.remote.$host.isLoopback`, which this console makes true on a remote
- * visitor: `dsh-experimental-server-base`'s `ownsHost` declares the deployment's
- * own login gate as the thing deciding who reaches the page, and every visitor
- * it admits then gets the operator surface. So this is not a rule that only
- * matters on a developer's own machine — without it, a customer signed in to
- * the deployed console is offered the Host's configuration file.
- *
- * The selector pairs the panel's own semantics with tsdown's `[hash]_[local]`
- * class naming: `[role='dialog'][aria-modal='true']` is `SettingsRoot.tsx`'s
- * own dialog element, and `[class$="_header"] > [class$="_actions"]` is the
- * header's action row as its direct child. The direct-child pair is what keeps
- * the rule off a section that happens to name a class `actions`. The rule hides
- * what the row holds and leaves the row itself in the layout: the row's
- * `margin-left: auto` is what seats the close button at the header's right
- * edge, and a row taken out of the layout lets that button fall to the left.
- * Reseating the
- * action outside that row, or giving either element a second class, silently
- * un-hides it — so an e2e scenario asserts the row is present AND renders
- * nothing, the same pairing every rule above is pinned with.
- *
- * The session header's crumb navigation is the fifth. Its current crumb is the
+ * The session header's crumb navigation is the fourth. Its current crumb is the
  * session list's `displayTitle`, which for a conversation with no durable title
  * is the basename of the session's working directory, or the bare session id
  * while the session's row has not arrived; the slot it sits in cannot be
@@ -172,7 +139,6 @@ const STYLE = `
 }
 [class*="heroWorkspaceRow"] { display: none !important; }
 [data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }
-[role='dialog'][aria-modal='true'] [class$="_header"] > [class$="_actions"] > * { display: none !important; }
 [class*="titleCluster"]:has([data-server-sidebar-untitled-title]) > nav { display: none !important; }
 `
 

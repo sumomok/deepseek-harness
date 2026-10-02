@@ -2,7 +2,8 @@
  * `serverSidebar` namespace dictionaries: the three-section sidebar (工作台 /
  * 导航 / 我的工作流), the 临时工作流 section under it, and the two
  * session-header entries this package registers alongside them — the
- * "存为工作流" action and the title of an untitled conversation. No
+ * "存为工作流" action and the title of an untitled conversation, which reads
+ * `workbench.label` (`UntitledTitle.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -13,8 +14,7 @@
  * of that list: a conversation with no durable title of its own falls back to
  * this fixed copy rather than to the session list's own `displayTitle`, whose
  * lower rungs are a directory basename and a bare session id.
- * `header.untitled` is the session header's copy for the same case
- * (`UntitledTitle.tsx`). `temporary.error` carries no interpolation slot for
+ * `temporary.error` carries no interpolation slot for
  * the same reason: a refused archive rejects with the host runtime's own
  * wording (`session archive failed: …`), so the refusal goes to the browser
  * console and the section says only that the removal did not go through.
@@ -57,7 +57,6 @@ export const zh = {
   'time.hours': '{count} 小时前',
   'time.days': '{count} 天前',
   'saveWorkflow.action': '存为工作流',
-  'header.untitled': '工作台',
   'avatar.namePlaceholder': '用户',
   'signOut.action': '退出登录',
   'brand.name.fallback': '工作台小助手',
@@ -103,7 +102,6 @@ export const en = {
   'time.hours': '{count} h ago',
   'time.days': '{count} d ago',
   'saveWorkflow.action': 'Save as workflow',
-  'header.untitled': 'Workbench',
   'avatar.namePlaceholder': 'User',
   'signOut.action': 'Sign out',
   'brand.name.fallback': 'Workbench Assistant',

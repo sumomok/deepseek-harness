@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Superseded: the CSS rule that hides the **Open configuration file** action, described below, was replaced by a priority -1 entry under the action's list id, `open-document` — see [the console's withheld Settings entries](../feature/2026-10-03-console-auto-compact-and-withheld-compaction-rows.md). A list slot does admit that withdrawal: only the lowest-priority entry of an id's cell renders. The MCP default and the Settings → Plugins trim still hold.
+
 English | [中文](2026-09-20-console-mcp-default-and-settings-trim.zh.md)
 
 ## Problem

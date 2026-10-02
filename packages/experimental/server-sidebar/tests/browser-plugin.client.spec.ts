@@ -6,7 +6,7 @@
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
- * title beside it, the two withheld Settings → General rows, the
+ * title beside it, the withheld Settings entries, the
  * workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
@@ -22,7 +22,7 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject, type ServerSidebarInjected } from '../src/client/index.ts'
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
-import { WITHHELD_GENERAL_ROWS } from '../src/client/settings-rows.ts'
+import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -118,8 +118,8 @@ function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown 
 
 /**
  * Declare the layout-owned `sidebar`/`conversation` slots, ui-conversation's
- * header-actions seat, and the Settings General section's item list, as the
- * real shells do.
+ * header-actions seat, and the settings shell's General item list and header
+ * action list, as the real shells do.
  */
 function declareSlots(ctx: Context): void {
   ctx.slots.register(
@@ -128,8 +128,9 @@ function declareSlots(ctx: Context): void {
       children: {
         sidebar: { kind: 'single', scope: 'root' },
         conversation: { kind: 'single', scope: 'session-maybe' },
-        // Declared by ui-settings-general's General section in the real page.
+        // Declared by ui-settings-general's General section and settings panel in the real page.
         'settings.general.item': { kind: 'list', scope: 'root' },
+        'settings.action': { kind: 'list', scope: 'root' },
       },
     } as never,
     () => null,
@@ -304,28 +305,36 @@ describe('server-sidebar browser half: sidebar registration', () => {
     disposeCompetitor()
   })
 
-  it('shadows each withheld Settings → General row at priority -1 with an entry that renders nothing', async () => {
+  it('shadows each withheld settings entry at priority -1 with an entry that renders nothing', async () => {
     const { ctx } = await bench()
-    expect(WITHHELD_GENERAL_ROWS).toEqual(['busy-compaction', 'auto-compact'])
-    for (const id of WITHHELD_GENERAL_ROWS) {
-      const ours = ctx.slots.entries('settings.general.item').find(entry => entry.options.id === id)
+    const withheld = [
+      { slot: 'settings.general.item', id: 'busy-compaction' },
+      { slot: 'settings.general.item', id: 'auto-compact' },
+      { slot: 'settings.action', id: 'open-document' },
+    ] as const
+    expect(WithheldSettingsEntry()).toBeNull()
+    expect(ctx.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['busy-compaction', 'auto-compact'])
+    expect(ctx.slots.entries('settings.action').map(entry => entry.options.id)).toEqual(['open-document'])
+    for (const { slot, id } of withheld) {
+      const ours = ctx.slots.entries(slot).find(entry => entry.options.id === id)
       expect(ours?.options.priority).toBe(-1)
-      expect((ours?.component as (() => null) | undefined)?.()).toBeNull()
+      expect(ours?.component).toBe(WithheldSettingsEntry)
     }
-    // The owning packages register their rows at the default priority 0
-    // (`ui-chat`'s busy-compaction row, `@haoran/dsh-auto-compact`'s row), in
-    // either order relative to this one; the cell's winner stays the empty
-    // entry, and an unrelated row keeps its own cell.
-    const disposeOwners = WITHHELD_GENERAL_ROWS.map(id => ctx.slots.register(
-      { name: 'settings.general.item', id, order: 21 },
+    // The owning packages register their entries at the default priority 0
+    // (`ui-chat`'s busy-compaction row, `@haoran/dsh-auto-compact`'s row,
+    // `ui-settings-general`'s configuration-file action), in either order
+    // relative to this one; the cell's winner stays the empty entry, and an
+    // unrelated entry keeps its own cell.
+    const disposeOwners = withheld.map(({ slot, id }) => ctx.slots.register(
+      { name: slot, id, order: 0 },
       () => null,
     ))
     const disposeOther = ctx.slots.register({ name: 'settings.general.item', id: 'performance-usage', order: 30 }, () => null)
-    const winners = ctx.slots.entriesOfSlot('settings.general.item')
-    for (const id of WITHHELD_GENERAL_ROWS) {
+    for (const { slot, id } of withheld) {
+      const winners = ctx.slots.entriesOfSlot(slot)
       expect(winners.filter(entry => entry.options.id === id).map(entry => entry.options.priority)).toEqual([-1])
     }
-    expect(winners.map(entry => entry.options.id)).toContain('performance-usage')
+    expect(ctx.slots.entriesOfSlot('settings.general.item').map(entry => entry.options.id)).toContain('performance-usage')
     for (const dispose of [...disposeOwners, disposeOther]) dispose()
   })
 
@@ -656,6 +665,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
+    expect(ctx.slots.entries('settings.action')).toHaveLength(0)
   })
 })
 

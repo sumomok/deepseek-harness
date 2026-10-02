@@ -46,8 +46,8 @@
  * `conversation.session.header.actions` list, ahead of every other action: the
  * console's own title for a conversation with no durable title, which
  * `terminology-guard.ts` puts in place of the header's crumb. A fifth set of
- * entries withholds two Settings → General rows by shadowing their list ids
- * (`settings-rows.ts`).
+ * entries withholds two Settings → General rows and the Settings header's
+ * configuration-file action by shadowing their list ids (`settings-entries.ts`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -76,7 +76,7 @@ import {
 } from './workflow-actions.ts'
 import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
-import { withholdGeneralRows } from './settings-rows.ts'
+import { withholdSettingsEntries } from './settings-entries.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle } from './UntitledTitle.tsx'
 import { en, zh, type ServerSidebarKey } from './locales.ts'
@@ -148,7 +148,7 @@ async function landOnWorkbench(
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
  * brand-mark takeover, the untitled-conversation title, and the withheld
- * Settings rows, then the read-before-register fetches (this package's own
+ * Settings entries, then the read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
  * two slot registrations.
  * @param ctx - client root context.
@@ -172,7 +172,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     }, UntitledTitle)),
     'server-sidebar: untitled conversation title',
   )
-  withholdGeneralRows(ctx)
+  withholdSettingsEntries(ctx)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),

@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-20-console-mcp-default-and-settings-trim.md
 /agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files:
-  en: 719937b89780d957
-  zh: 4815c37813e05f81
+  en: 6528abed476f14d7
+  zh: ca20baf0bf62a93d
 /agent-note-the-console-mounts-mcp-by-default-and-its-settings-page-stops-naming-plugins-and-configuration-files/problem:
   en: 20a2c1b0f82a7a1b
   zh: 818ba8534395e8e4
