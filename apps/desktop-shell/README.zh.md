@@ -363,7 +363,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 ## Office 引擎服务
 
-**载荷里不带 LibreOffice 引擎;用户要的时候,壳去下载随包 kit 声明的那一个。** `@deepseek-ai/dsh-office-to-pdf` 借 `@deepseek-ai/libreoffice-kit` 把 Word 与 PowerPoint 文件转换给右侧边栏的文档标签页看,而 `platformDirRules` 把 kit 的每一个引擎都从两个载荷里剔掉:`@deepseek-ai/libreoffice-kit-darwin-arm64` 下载 64 MB、解压 145 MB,`-win32-x64` 是 68 MB 与 182 MB。`src/office-engine.ts` 从随包 kit 自己的 `optionalDependencies` 里读出引擎的名字与精确版本,路径是 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → kit,所以 kit 一升级,要下载的东西也跟着变。`ENGINE_DOWNLOADS` 记着两个桌面目标已发布压缩包的大小(确认框按整 MiB 报它)和 sha512 完整性值(即 registry 的 `dist.integrity`)。表里没有的版本不提供下载:`/state` 读作 `unsupported`,日志里说这个版本还没有登记。随包 kit 一旦声明了表里没有的引擎版本,就有一条测试失败。
+**载荷里不带 LibreOffice 引擎;用户要的时候,壳去下载随包 kit 声明的那一个。** `@deepseek-ai/dsh-office-to-pdf` 借 `@deepseek-ai/libreoffice-kit` 把 Word 与 PowerPoint 文件转换给右侧边栏的文档标签页看,而 `platformDirRules` 把 kit 的每一个引擎都从两个载荷里剔掉:`@deepseek-ai/libreoffice-kit-darwin-arm64` 下载 64 MB、解压 145 MB,`-win32-x64` 是 68 MB 与 182 MB。`src/office-engine.ts` 从随包 kit 自己的 `optionalDependencies` 里读出引擎的名字与精确版本,路径是 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → kit,所以 kit 一升级,要下载的东西也跟着变。`ENGINE_DOWNLOADS` 记着两个桌面目标已发布压缩包的大小(确认框按整 MiB 报它)和 sha512 完整性值(即 registry 的 `dist.integrity`),两个 kit 版本各记一份:工作区按 `pnpm-lock.yaml` 钉的版本装 kit(0.1.1),打包的服务端闭包则来自 legacy hoisted `pnpm deploy`,它不认这个钉住的版本,把 kit 的 `^0.1.1` 范围解析到最新发布版(0.1.3)。表里没有的版本不提供下载:`/state` 读作 `unsupported`,日志里说这个版本还没有登记。工作区的 kit 一旦声明了表里没有的引擎版本,就有一条测试失败。
 
 **引擎放在哪。** 数据目录下的 `engines/office/`,每个版本一个目录。数据目录眼下是 `$DSH_HOME`(默认 `~/.dsh`);由 `main.ts` 把它交给 `officeEngineRoot`,而不是模块自己去读,所以数据目录搬走时引擎跟着走。kit 从它自己所在的目录解析引擎,不从配置读任何路径,所以壳从启动起就把 `<root>/<version>/node_modules` 放在服务端子进程 `NODE_PATH` 的第一位,不管引擎装没装。Node 只在启动时读一次 `NODE_PATH`,只缓存解析成功的结果,`office-to-pdf` 又会丢掉创建失败的转换器,所以下载完之后的第一次转换就能找到引擎,不用重启。同一个路径也放进 `DSH_DESKTOP_OFFICE_ENGINE_MODULES`;`@haoran/dsh-office-preview-notice` 的宿主那一半在 apply 时把这一项从 `process.env.NODE_PATH` 里删掉,于是服务端启动的进程不再继承它,服务端自己照样经它解析。每次启动、在服务端起来之前,壳删掉 root 下除 kit 声明的那个版本(不论是否已登记)以外的每个版本目录,以及中断的下载留下的每个暂存目录,这次启动不提供引擎时也照删;kit 没给本机声明精确版本或读不出来时,一个版本也不留。root 下别的东西一概不碰。
 
@@ -430,4 +430,4 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 - 读屏软件可能把服务出来的 UI 的加载页读两遍:被替换的英文仍在文档里,只是画成零字号,而替换文字是 `::after` 内容,无障碍树同样会暴露它。样式表设不了 `aria-hidden`,而那个页面属于 `packages/client/web`。
 - 在 macOS 的 App Translocation 下——带隔离标记的副本直接从「下载」里第一次启动时——`DSH_DESKTOP_INSTALL_DIR` 给出的是 macOS 实际运行应用的那个临时转移路径,而不是用户看到的那个 `.app`;第一次启动前先把应用移到「应用程序」里就不会这样。
 - `@haoran/dsh-office-preview-notice` 没加载时——被移除、被停用或加载失败——服务端启动的进程会继承引擎的 `NODE_PATH` 一项。
-- Windows 上的下载还没在真机上跑过:Defender 扫描解压后的引擎、kit 0.1.1 对应的 `win32-x64` 引擎能否转换、hoisted 布局下的路径长度,都没验证。
+- Windows 上的下载还没在真机上跑过:Defender 扫描解压后的引擎、kit 0.1.3 对应的 `win32-x64` 引擎能否转换、hoisted 布局下的路径长度,都没验证。

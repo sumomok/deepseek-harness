@@ -94,9 +94,16 @@ export interface EngineDownload {
  * kit declares that this table lacks is not offered. The download prompt
  * quotes `bytes` before anything is fetched, the progress bar uses it when the
  * registry sends no length, and an install whose lockfile records another
- * integrity than `integrity` is refused. `tests/office-engine.spec.ts` fails
- * when the shipped kit names an engine for either desktop target that this
- * table does not carry.
+ * integrity than `integrity` is refused.
+ *
+ * Two kit versions reach a desktop build, so each target is registered at
+ * both. The workspace installs the kit at the version `pnpm-lock.yaml` pins
+ * (0.1.1), which a development launch and `tests/office-engine.spec.ts`
+ * read. The packaged server closure comes from the legacy hoisted
+ * `pnpm deploy`, which does not take the lockfile's pin and resolves the
+ * kit's `^0.1.1` range to the newest published release (0.1.3), which the
+ * packaged app reads. The spec fails when the workspace kit declares an engine for
+ * either desktop target that this table does not carry.
  */
 export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
@@ -106,6 +113,14 @@ export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': {
     bytes: 71_367_891,
     integrity: 'sha512-03CUYg9j2qJ7Q6K27xFCvTLa7FgawOZ1DtE6NlEYttF6TxGuyHEv358vBGc3cwlR1yG1Vfj+pa4e5MdPGpy8mA==',
+  },
+  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.3': {
+    bytes: 67_259_060,
+    integrity: 'sha512-HinPGEyUNZUhBceN9kL9EeiFHo6bfhuY7D1uNBEdwJOzB+QJZVwWmbtc2A6Ds//bOukg9V+7FQEcOnjbqdRTUw==',
+  },
+  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.3': {
+    bytes: 71_374_248,
+    integrity: 'sha512-PrUb4ykkI6fJBJ6MX40XgctY0mOUfO4yPWdWB5QdQSw5seq3fulBv0BcrJMTGw2ZT81wwB181MQja4AfOMWg2A==',
   },
 }
 
