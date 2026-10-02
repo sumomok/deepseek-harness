@@ -7,7 +7,7 @@
  * module registers `() => null` at priority -1 under each id below, so the
  * owning package's own row at the default priority 0 never mounts. The owning
  * packages stay composed and keep their Config and its values; only the row a
- * person would change them with is gone. The fields stay volatile, so the
+ * person would change them with is gone. Both fields stay volatile, so the
  * `remote.settings` method still accepts a write to them from any browser the
  * deployment admits.
  *
@@ -15,9 +15,15 @@
  *   which picks when a `/compact` typed during a running turn runs. `ui-chat`
  *   draws the Chat column and cannot be disabled; its `busyCompaction` field
  *   stays at its default, `turn-end`.
+ * - `auto-compact` — `@haoran/dsh-auto-compact`'s switch-and-slider row. The
+ *   console bundle composes that plugin with the share it compacts at
+ *   (`dsh-experimental-console-profile`'s `cordis.patch.yml`), and a
+ *   customer has no reason to move it. Its running notice is the harness's
+ *   own compaction row in the Chat column, which this leaves alone.
  *
  * An id the owning package renames is an id nothing shadows any longer, and
- * its row comes back.
+ * its row comes back; the console e2e scenario asserts both rows' text is
+ * absent from an open Settings page, which is where that would show.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/settings-rows
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -27,7 +33,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 /** The General rows withheld, by the list id their owning package registers them under. */
-export const WITHHELD_GENERAL_ROWS = ['busy-compaction'] as const
+export const WITHHELD_GENERAL_ROWS = ['busy-compaction', 'auto-compact'] as const
 
 /** Shadowing rank of the withholding entries: below the owning rows' default 0. */
 const WITHHOLDING_PRIORITY = -1

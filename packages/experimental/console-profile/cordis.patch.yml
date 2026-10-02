@@ -287,6 +287,35 @@
         includeDefaultRoots: false
         bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"
 
+# Automatic compaction at 60% of the context window. Between two steps of a
+# turn, once the next model request would take more than 60% of the window (or
+# the window minus the reserved output and the compaction backend's headroom,
+# whichever is less), the conversation is condensed before that request and the
+# turn carries on. `@haoran/dsh-auto-compact` is an out-of-repo plugin, vendored
+# as `vendor/haoran-dsh-auto-compact-0.5.1.tgz` and declared under
+# `dependencies` as a `file:` tarball.
+#
+# This is a host-plane row; the engine it calls is `compaction-basic`, which
+# lives inside each Agent preset's `compaction` group below (`isolate:
+# compaction`), where no host-plane injection can see it. The plugin resolves
+# it for each agent through `ctx.agentPresets.serviceFor(agent, 'compaction')`,
+# so `console` and its `standard` twin are both covered. Once it reaches an
+# engine, its `compactionPolicy` service turns off `compaction-basic`'s own
+# between-steps pressure check, which this row's step path replaces; the
+# backend's overflow recovery is unaffected.
+#
+# Both fields are volatile, so these are the inherited values: a settings write
+# saves a different value into the profile patch, which outranks this layer.
+# The page offers no control for either: `server-sidebar` withholds the plugin's
+# Settings → General row. A compaction in progress still shows as a row in the
+# conversation; that row is the harness's own, not this plugin's.
+- insert:
+    - id: auto-compact
+      name: '@haoran/dsh-auto-compact'
+      config:
+        enabled: true
+        thresholdPercent: 60
+
 # The `console` Agent preset: the customer assistant's own tool set. It keeps
 # the shipped `standard` preset's realm rules and drops every developer row —
 # shell, file search, background jobs, goals, plan mode, delegation, the web

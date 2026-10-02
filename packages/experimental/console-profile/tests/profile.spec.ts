@@ -16,7 +16,7 @@
  * them restates a row this layer owns.
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -61,6 +61,8 @@ function bundlePatches(dir: string): ReturnType<typeof loadOverlayPatches> {
 
 /** The console bundle's own patch file. */
 const CONSOLE_PATCH = resolve(PACKAGE_ROOT, 'cordis.patch.yml')
+/** The vendored `@haoran/dsh-auto-compact` tarball, relative to this package. */
+const AUTO_COMPACT_TARBALL = 'vendor/haoran-dsh-auto-compact-0.5.1.tgz'
 /** The overlay a deployment applies above the profile patch. */
 const LOCK_PATCH = resolve(PACKAGE_ROOT, 'permission-lock.patch.yml')
 
@@ -154,7 +156,10 @@ describe('the console bundle manifest', () => {
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
   })
 
-  it('depends on every package its rows load, and on the package whose skills a row mounts', () => {
+  it('depends on every package its rows load, on the package whose skills a row mounts, and on the vendored plugin\'s runtime import', () => {
+    // `@deepseek-ai/schemastery` is no row's package: the vendored
+    // `@haoran/dsh-auto-compact` imports it at runtime, and its optional peer
+    // resolves to the workspace copy only through this manifest.
     expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual([
       '@deepseek-ai/dsh-agent-preset',
       '@deepseek-ai/dsh-command-compact',
@@ -173,7 +178,15 @@ describe('the console bundle manifest', () => {
       '@deepseek-ai/dsh-tool-fs',
       '@deepseek-ai/dsh-tool-skill',
       '@deepseek-ai/dsh-tool-todo',
+      '@deepseek-ai/schemastery',
+      '@haoran/dsh-auto-compact',
     ])
+  })
+
+  it('takes the automatic-compaction plugin from the tarball it vendors, never a link', () => {
+    const spec = manifest.dependencies?.['@haoran/dsh-auto-compact']
+    expect(spec).toBe(`file:./${AUTO_COMPACT_TARBALL}`)
+    expect(existsSync(resolve(PACKAGE_ROOT, AUTO_COMPACT_TARBALL))).toBe(true)
   })
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
@@ -201,8 +214,11 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(warnings).toEqual([])
   })
 
-  it('inserts the shell, the sidebar, the page\'s build check, the MCP capability, and the library-skills provider at stable ids', () => {
-    for (const id of ['server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'console-mcp', 'library-skills']) {
+  it('inserts the shell, the sidebar, the page\'s build check, the MCP capability, the library-skills provider, and automatic compaction at stable ids', () => {
+    for (const id of [
+      'server-layout', 'content-surface', 'content-column', 'server-sidebar', 'page-refresh', 'console-mcp', 'library-skills',
+      'auto-compact',
+    ]) {
       expect(byId.has(id)).toBe(true)
       expect(byId.get(id)?.disabled).not.toBe(true)
     }
@@ -290,6 +306,29 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('page-refresh')?.disabled).not.toBe(true)
     // No field is volatile, so nothing a settings write could reach needs the lock.
     expect(idsOf(LOCK_PATCH)).not.toContain('page-refresh')
+  })
+
+  it('mounts automatic compaction on the host plane at 60%, as the inherited value a settings write may outrank', () => {
+    // This layer inserts the row; no shipped layer composes the plugin.
+    expect(entriesOf(CONSOLE_PATCH).flatMap(entry => entry.insert ?? []).map(row => row.id)).toContain('auto-compact')
+    expect(composeEntries(web, () => {}).some(entry => entry.id === 'auto-compact')).toBe(false)
+    expect(byId.get('auto-compact')).toMatchObject({
+      name: '@haoran/dsh-auto-compact',
+      config: { enabled: true, thresholdPercent: 60 },
+    })
+    expect(byId.get('auto-compact')?.disabled).not.toBe(true)
+    // Both fields are volatile: above the profile patch, config-editor would
+    // refuse every write to them.
+    expect(idsOf(LOCK_PATCH)).not.toContain('auto-compact')
+    // The engine it compacts with lives in each preset's `compaction` group,
+    // which both the `console` preset and its `standard` twin carry.
+    for (const id of ['preset-console', 'preset-standard-as-console']) {
+      const plugins = (byId.get(id)?.config as { plugins?: Row[] } | undefined)?.plugins ?? []
+      expect(plugins.find(row => row.id === 'compaction')).toMatchObject({
+        name: 'cordis:group',
+        isolate: { compaction: true },
+      })
+    }
   })
 
   it('mounts the MCP capability by package name with an empty server list it states rather than defaults', () => {

@@ -136,6 +136,9 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Repository declared in scp-style ssh form (`git@host:owner/repo.git`),
   // which is not a URL and which the normalizer below cannot rewrite.
   'element-ui': { repo: 'https://github.com/ElemeFE/element' },
+  // Vendored as a tarball; the archive committed here, not a registry version,
+  // is the artifact this payload ships, so the archive is what the notice names.
+  '@haoran/dsh-auto-compact': { repo: 'packages/experimental/console-profile/vendor/haoran-dsh-auto-compact-0.5.1.tgz' },
   // No `license` field in the published manifest; the tarball's LICENSE.txt is the MIT text.
 }
 

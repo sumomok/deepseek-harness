@@ -110,7 +110,7 @@
  * can withdraw the entry: `ctx.slots.register()` hands its disposer to the
  * registrant. An entry registered under the same list id (`open-document`) at
  * a lower priority would keep it from rendering — the shadowing
- * `settings-rows.ts` applies to a General row — and this action is hidden
+ * `settings-rows.ts` applies to two General rows — and this action is hidden
  * by the rule below instead.
  *
  * That action is the shell's only `settings.action` registrant in this

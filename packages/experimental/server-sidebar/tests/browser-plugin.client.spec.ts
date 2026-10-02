@@ -5,8 +5,8 @@
  * package's own server-menu document), the `sidebar` slot registration and
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
- * registration for the "存为工作流" action, the withheld Settings → General
- * row, the workbench/workflow/page
+ * registration for the "存为工作流" action, the two withheld Settings →
+ * General rows, the workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
@@ -294,16 +294,16 @@ describe('server-sidebar browser half: sidebar registration', () => {
 
   it('shadows each withheld Settings → General row at priority -1 with an entry that renders nothing', async () => {
     const { ctx } = await bench()
-    expect(WITHHELD_GENERAL_ROWS).toEqual(['busy-compaction'])
+    expect(WITHHELD_GENERAL_ROWS).toEqual(['busy-compaction', 'auto-compact'])
     for (const id of WITHHELD_GENERAL_ROWS) {
       const ours = ctx.slots.entries('settings.general.item').find(entry => entry.options.id === id)
       expect(ours?.options.priority).toBe(-1)
       expect((ours?.component as (() => null) | undefined)?.()).toBeNull()
     }
-    // The owning package registers its row at the default priority 0
-    // (`ui-chat`'s busy-compaction row), in either order relative to this one;
-    // the cell's winner stays the empty entry, and an unrelated row keeps its
-    // own cell.
+    // The owning packages register their rows at the default priority 0
+    // (`ui-chat`'s busy-compaction row, `@haoran/dsh-auto-compact`'s row), in
+    // either order relative to this one; the cell's winner stays the empty
+    // entry, and an unrelated row keeps its own cell.
     const disposeOwners = WITHHELD_GENERAL_ROWS.map(id => ctx.slots.register(
       { name: 'settings.general.item', id, order: 21 },
       () => null,

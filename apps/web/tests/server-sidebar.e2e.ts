@@ -13,6 +13,9 @@
  * workflow reordering, the footer's identity band (the signed-in name and
  * the sign-out control, both fitting the column),
  * (`@deepseek-ai/dsh-experimental-content-frame`)
+ * the two Settings → General rows the console withholds (`ui-chat`'s
+ * busy-compaction row and the vendored `@haoran/dsh-auto-compact` row) while
+ * automatic compaction runs at the bundle's 60% inside both console presets,
  * hiding the `show-content-page` command's own chat echo while its durable
  * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
@@ -56,7 +59,7 @@
 
 import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
@@ -67,6 +70,8 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
+// Type-only: the `compaction` and `compactionPolicy` Context merges.
+import type {} from '@deepseek-ai/dsh-compaction-basic'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
 } from './scaffold.ts'
@@ -97,7 +102,8 @@ const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
  * rows need resolvable, as package name and source directory. Most are inserted
  * by name; `library-skills` is instead named by the `bundledSkillDir`
  * expression of the bundle's `skill-filesystem` row, which resolves it from the
- * profile the same way.
+ * profile the same way. `@haoran/dsh-auto-compact` is the console bundle's
+ * vendored tarball, linked from where the workspace install unpacked it.
  */
 const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
@@ -108,6 +114,7 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
   ['@deepseek-ai/dsh-experimental-console-mcp', join(REPO_ROOT, 'packages/experimental/console-mcp')],
   ['@deepseek-ai/dsh-experimental-page-refresh', join(REPO_ROOT, 'packages/experimental/page-refresh')],
+  ['@haoran/dsh-auto-compact', join(CONSOLE_BUNDLE, 'node_modules/@haoran/dsh-auto-compact')],
 ] as const
 /**
  * Identical to {@link OVERLAY}, plus the component rows and one configured
@@ -216,14 +223,16 @@ interface LocalServerMenu {
 
 /**
  * Prepare a harness home whose profile fallback resolves every experimental row.
+ * @param rows - package names and the directories their links point at.
  * @returns the harness home the scaffold should adopt.
  */
 async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string])[] = ROWS): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-server-sidebar-'))
-  const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
-  await mkdir(scope, { recursive: true })
+  const modules = join(home, 'profiles', 'node_modules')
   for (const [packageName, dir] of rows) {
-    await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
+    const link = join(modules, packageName)
+    await mkdir(dirname(link), { recursive: true })
+    await symlink(dir, link, 'dir')
   }
   return home
 }
@@ -940,6 +949,38 @@ describe('web e2e: the product-console sidebar', () => {
     await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
   }, 30_000)
 
+  it('withholds the busy-compaction and automatic-compaction rows from Settings → General, while both keep their composed values', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-withheld-rows'))
+    // The vendored plugin's browser half ran: it installs its stylesheet
+    // before it registers its row, so a missing row below is the shadow, not
+    // a client bundle that never loaded.
+    expect(await page.locator('style[data-dsh-auto-compact]').count()).toBe(1)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.waitFor({ timeout: 10_000 })
+    // Both halves: the General panel is drawn — the row ordered right after
+    // the two withheld ones is on screen — and neither withheld row is.
+    await expect.poll(() => dialog.getByText('Performance & usage', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    expect(await dialog.getByText('Compaction while busy', { exact: true }).count()).toBe(0)
+    expect(await dialog.getByText('Automatic compaction', { exact: true }).count()).toBe(0)
+    expect(await dialog.locator('input[type="range"]').count()).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+
+    // The rows are withheld, not their packages: the vendored plugin is
+    // mounted at the bundle layer's 60%, and `ui-chat` keeps `turn-end`.
+    const row = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'auto-compact')
+    expect(row?.options).toMatchObject({
+      name: '@haoran/dsh-auto-compact',
+      config: { enabled: true, thresholdPercent: 60 },
+    })
+    // Rethrows the activation error of a row that failed to load.
+    await row?.fiber?.await()
+    const forms = scaffold.ctx.settings.describe()
+    expect(forms.find(form => form.ns === 'auto-compact')?.value).toEqual({ enabled: true, thresholdPercent: 60 })
+    expect(forms.find(form => form.ns === 'ui-chat')?.value).toMatchObject({ busyCompaction: 'turn-end' })
+  }, 30_000)
+
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
     // `remote.settings` answers any browser the deployment admits, so the
     // pinned preset holds only because the lock composes above the profile
@@ -985,6 +1026,14 @@ describe('web e2e: the product-console sidebar', () => {
       // content-column tools, which reach every preset. No shell, search,
       // job, goal, plan, delegation, or web tool.
       expect(ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()).toEqual(CONSOLE_TOOLS)
+      // Automatic compaction is a host-plane row; the engine it calls is this
+      // preset's own, inside the isolated `compaction` group, which only the
+      // preset registry can address. Reaching it is what makes the plugin's
+      // policy stand the backend's own between-steps check down.
+      expect(ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
+      expect(ctx.get('compaction')).toBeUndefined()
+      expect(ctx.get('compactionPolicy')?.isEnabled()).toBe(false)
+      expect(ctx.get('compactionPolicy')?.thresholdRatio()).toBe(0.6)
     } finally {
       await handle.dispose()
     }
@@ -1007,6 +1056,9 @@ describe('web e2e: the product-console sidebar', () => {
     })
     try {
       expect(scaffold.ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()).toEqual(CONSOLE_TOOLS)
+      // The `standard` twin carries the same `compaction` group, so automatic
+      // compaction reaches an engine for its sessions too.
+      expect(scaffold.ctx.agentPresets.serviceFor(handle.agent, 'compaction')).toBeDefined()
     } finally {
       await handle.dispose()
     }
