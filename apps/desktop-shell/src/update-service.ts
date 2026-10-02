@@ -23,8 +23,8 @@
  * | `POST /download` | `202` — `{ "ok": true }`; the transfer of the version already found is (re)started |
  * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
  *
- * `/check` and `/download` refuse nothing: each calls its action and, once the
- * action returns, answers `{ "ok": true }`. That answer means the request
+ * `/check` and `/download` have no refusal of their own: each calls its action
+ * and, once the action returns, answers `{ "ok": true }`. That answer means the request
  * reached the update channel, not that new work began, because the action may
  * start nothing; `GET /state` is the only report of what follows, and an
  * action that throws is a `500`. `/install` answers the same body, but only in
