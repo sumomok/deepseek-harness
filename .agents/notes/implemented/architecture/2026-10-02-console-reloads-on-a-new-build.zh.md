@@ -8,7 +8,7 @@ Status: implemented
 
 控制台服务端升级并重启后，已经打开的页面不会重新加载，而它也没法在自己加载的那份客户端上继续工作。
 
-**插件热替换会把页面弄坏。** `dsh-web-app` 组合了 `dsh-client-hmr`，它让已打开的页面跟上宿主的插件图。2026-10-02 在一个隔离站点上，一个从 0.2.0-rc.2 合并之前的控制台构建加载的页面保持打开，站点重启到 0.2.0-rc.2 构建。页面没有导航。重连之后，`client-hmr` 按新的修订号拉取有变化的插件包，并把它们替换进页面已经加载的那个外壳，随后页面接连报错：`SlotAssemblyError: scope 'session-maybe' rendered without an installed adapter`、`conversation.input: sessions service unavailable`、一个未知会话的绑定错误，以及 `ctx.remote.dynamicCordisRunner.syncInspectManifest is not a function`。React 根组件崩溃，页面变白。整页重新加载（加载新外壳）后恢复。
+**插件热替换会把页面弄坏。** `dsh-web-app` 组合了 `dsh-client-hmr`，它把宿主有变化的插件包加载进已打开的页面。2026-10-02 在一个隔离站点上，一个从 0.2.0-rc.2 合并之前的控制台构建加载的页面保持打开，站点重启到 0.2.0-rc.2 构建。页面没有导航。重连之后，`client-hmr` 按新的修订号拉取有变化的插件包，并把它们替换进页面已经加载的那个外壳，随后页面接连报错：`SlotAssemblyError: scope 'session-maybe' rendered without an installed adapter`、`conversation.input: sessions service unavailable`、一个未知会话的绑定错误，以及 `ctx.remote.dynamicCordisRunner.syncInspectManifest is not a function`。React 根组件崩溃，页面变白。整页重新加载（加载新外壳）后恢复。
 
 **旧客户端配新服务端本身也不能用。** 同样的升级、但站点组合里禁用了 `client-hmr` 时，页面画得出来，侧栏也正常，但页面一重连，对话列就崩溃了：`conversation.view` 里报 `TypeError: Cannot read properties of undefined (reading 'foldCompletedTurns')`。0.2.0-rc.2 把 `ui-chat` 的 `transcriptView` 设置的默认值从服务端挪到了客户端，于是旧客户端从新服务端读到 `undefined`，找不到对应的策略。所以只关热替换不够：升级之后页面必须重新加载。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 **`dsh-experimental-console-profile` 禁用 `client-hmr`。** bundle 层带着 `- id: client-hmr` 和 `disabled: true`，所以已打开的控制台页面永远不会把新的插件包换进正在运行的外壳。
 
-**`dsh-experimental-page-refresh` 检查构建并刷新。** 控制台 bundle 层插入它。一个构建，是所服务首页赋给 `__DSH_BOOT__` 的启动图——插件 id 及其修订号，按集合比较——再加上首页里各模块脚本的 URL，它们带着 web 外壳的构建哈希。页面在插件启动时记下自己的构建，只记一次。每次连接建立（`connection/reset`，API gateway 的客户端在每次连上时发出）以及每次回到前台时，页面请求它被服务时的地址，不用缓存、不跟随重定向，读出那份首页带的构建。只有带着完全一致的启动图标记的 `200` HTML 应答才算证据；其他任何应答都不改变什么。构建不同时，在本标签页的会话存储里记下它，默认立即刷新；之后某次检查又遇到记下的那个构建，或标签页没有可用的会话存储时，改为在横幅里提供刷新。构建相同则清掉记录。插件修订号由包文件的 stat 得出，所以重启后仍服务同样的文件就是同一个构建，什么都不刷新。完整行为与配置以[包 README](../../../../packages/experimental/page-refresh/README.zh.md) 为准。
+**`dsh-experimental-page-refresh` 检查构建并刷新。** 控制台 bundle 层插入它。一个构建，是所服务首页赋给 `__DSH_BOOT__` 的启动图——插件 id 及其修订号，按集合比较——再加上首页基准目录下各模块脚本的 URL，它们带着 web 外壳的构建哈希；来自别处的模块脚本，例如浏览器扩展加进来的脚本，不属于任何构建。页面在插件启动时记下自己的构建，只记一次。每次连接建立（`connection/reset`，API gateway 的客户端在每次连上时发出）以及每次回到前台时，页面请求它被服务时的地址，不用缓存、不跟随重定向，读出那份首页带的构建。只有带着完全一致的启动图标记、且启动图列出本插件的 `200` HTML 应答才算证据；其他任何应答都不改变什么。不含本插件的启动图是仍在组合插件的宿主会服务的，刷新到它上面会留下一个再也不检查的页面。构建不同时，在本标签页的会话存储里记下它，默认立即刷新；之后某次检查又遇到记下的那个构建，或标签页没有可用的会话存储时，改为在横幅里提供刷新。构建相同则清掉记录。插件修订号由包文件的 stat 得出，所以重启后仍服务同样的文件就是同一个构建，什么都不刷新。完整行为与配置以[包 README](../../../../packages/experimental/page-refresh/README.zh.md) 为准。
 
 **一条横幅承载页面的提示。** 同一个包把刷新提议和连接提示——断开、已重新连接、连不上服务并带刷新按钮——画成一个 `shell.overlay` 条目，由 `dsh-experimental-server-layout` 在它的整框浮层里渲染。控制台此前没有任何连接提示：设置面板的指示只在宽布局里画，而控制台侧栏不是宽布局。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 ## Testing
 
-本包的测试钉住比较、刷新防护、新触发取代进行中的检查、应答到来前已释放、连接提示和横幅；一个真实 Loader 组合钉住 web 服务器渲染出的设置全局变量。`apps/web/tests/page-refresh.e2e.ts` 拿着一个真实页面，在它底下改变启动图：重连到同一个构建什么都不变；实时组合进又一个客户端插件之后的那次重连让页面恰好刷新一次；刷新后的页面在下一次重连时留在原地；去掉这一行，同一个场景在第一次构建检查处失败。`packages/experimental/console-profile/tests/profile.spec.ts` 钉住 bundle 层里的这两行。两个真实构建之间的升级没有在仓库里复现；它在隔离站点上手动验收。
+本包的测试钉住比较、刷新防护、新触发取代进行中的检查、应答到来前已释放、连接提示和横幅；一个真实 Loader 组合钉住 web 服务器渲染出的设置全局变量。`apps/web/tests/page-refresh.e2e.ts` 拿着一个真实页面，在它底下改变启动图：重连到同一个构建什么都不变；实时组合进又一个客户端插件之后的那次重连让页面恰好刷新一次；刷新后的页面在下一次重连时不再导航；浏览器扩展会加的那种模块脚本不触发刷新；去掉这一行，同一个场景在第一次构建检查处失败。`apps/web/tests/server-sidebar.e2e.ts` 检查控制台组合服务本插件而不带 `client-hmr`，并检查连接被拒的页面在 `server-layout` 的覆盖层里画出连接断开提示，且不压住输入框。`packages/experimental/console-profile/tests/profile.spec.ts` 钉住 bundle 层里的这两行。两个真实构建之间的升级没有在仓库里复现；它在隔离站点上手动验收。
 
 ## Alternatives considered
 
@@ -60,4 +60,4 @@ Status: implemented
 
 **得到的。** 升级不再让已打开的控制台页面变白或只剩一半能用：重连到新构建的第一次就会刷新它。重启到同一个构建时的表现和以前一样。任何部署的反向代理都不需要改。控制台多了它之前没有的连接提示，包括带刷新按钮的连不上服务状态。
 
-**付出的。** `pnpm run dev:web` 重新构建的插件包要等控制台页面下一次加载才生效。每次连接和每次回到前台都多一次首页请求。未发送的附件会在自动刷新时丢失。首页请求被拒绝（浏览器会话过期时答 `401`）或被重定向的页面，会停在它的客户端上，直到访客手动刷新。内容不变的重新构建也算新构建，因为修订号来自文件 stat。这个组合上线之前就打开的页面不带检查，需要手动刷新一次。
+**付出的。** `pnpm run dev:web` 重新构建的插件包要等控制台页面下一次加载才生效。每次连接和每次回到前台都多一次首页请求。未发送的附件会在自动刷新时丢失。首页请求被拒绝（浏览器会话过期时答 `401`）或被重定向的页面，会停在它的客户端上，直到访客手动刷新。内容不变的重新构建也算新构建，因为修订号来自文件 stat。这个组合上线之前就打开的页面不带检查，需要手动刷新一次；部署去掉这一行时，已打开的页面也一样。在运行中站点所服务的目录树里、于重启之前构建，会让下一次检查把页面刷新到新外壳加运行中宿主启动时加载的插件包上，重启时又会再刷新一次；在单独的目录树里构建、重启时再切换，就不会出现这种混合页面。
