@@ -56,6 +56,8 @@ The package's suites pin the comparison, the reload guard, the superseding of an
 
 **Defer the reload while the composer holds an unsent draft.** Not taken: the composer writes its text draft to local storage on each edit and the reloaded page restores it with the selected conversation, so the text survives. Unsent image and file attachments are browser objects and are lost; deferring for them would keep the visitor on a client that does not work against the new server.
 
+**Publish a flag that the host has composed its plugins, or request the index again after an answer that is no evidence.** Not taken: the API gateway registers its WebSocket upgrade only once the launcher reports the application ready, after every plugin is composed, so a check started by a connection never reads a host that is still composing, and the foreground check waits for a connection. A flag would restate that ordering in the index, and a repeated request would turn an answer that is no evidence into a reason to ask again.
+
 ## Consequences
 
 **Bought.** An upgrade no longer leaves an open console page white or half-working: the first reconnect onto the new build reloads it. A restart onto the same build behaves as before. No deployment's reverse proxy needs a change. The console gains a connection notice it did not have, including an unreachable state with a reload button.
