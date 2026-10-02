@@ -1,7 +1,8 @@
 /**
- * The packaging check on the staged server's LibreOffice kit: a kit whose
- * engines for both desktop targets `ENGINE_DOWNLOADS` registers passes, and a
- * kit that declares another version, cannot be read, or resolves from outside
+ * The packaging check on the staged server's LibreOffice kit: a kit that
+ * declares, for both desktop targets, the engine version the package ships
+ * and `ENGINE_DOWNLOADS` registers passes, and a kit that declares another
+ * version or an unregistered one, cannot be read, or resolves from outside
  * the staged tree stops the run. Each case builds its own staged closure in a
  * temporary directory.
  * @module
@@ -11,7 +12,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { verifyStagedOfficeEngines } from '../scripts/office-engine-gate.ts'
+import { DESKTOP_ENGINE_HOSTS, verifyStagedOfficeEngines, type DesktopEngineHost } from '../scripts/office-engine-gate.ts'
 
 /** The kit's entry package; its engines are `<entry>-<target>`. */
 const KIT = '@deepseek-ai/libreoffice-kit'
@@ -69,34 +70,61 @@ function stagedClosure(version: string): string {
 /**
  * The message the check throws for a closure.
  * @param modules - the closure's `node_modules`.
+ * @param hosts - the hosts and shipped versions to check; the package run's own table when omitted.
  * @returns the error message, or undefined when the check passed.
  */
-function refusal(modules: string): string | undefined {
+function refusal(modules: string, hosts: readonly DesktopEngineHost[] = DESKTOP_ENGINE_HOSTS): string | undefined {
   try {
-    verifyStagedOfficeEngines(modules)
+    verifyStagedOfficeEngines(modules, hosts)
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
   return undefined
 }
 
+/** The first line of every refusal. */
+const HEADER = 'package: the staged server\'s LibreOffice kit does not declare the Office engines this package ships:'
+
 describe('verifyStagedOfficeEngines', () => {
-  it('passes a kit whose engines are registered for both desktop targets, at every registered kit version', () => {
-    for (const version of ['0.1.1', '0.1.3', '0.1.5']) {
-      expect(verifyStagedOfficeEngines(stagedClosure(version))).toEqual([`${KIT}-darwin-arm64@${version}`, `${KIT}-win32-x64@${version}`])
+  it('ships engine 0.1.5 on both desktop hosts', () => {
+    expect(DESKTOP_ENGINE_HOSTS).toEqual([
+      { platform: 'darwin', arch: 'arm64', engineVersion: '0.1.5' },
+      { platform: 'win32', arch: 'x64', engineVersion: '0.1.5' },
+    ])
+  })
+
+  it('passes a kit that declares the version each desktop host ships, registered', () => {
+    expect(verifyStagedOfficeEngines(stagedClosure('0.1.5'))).toEqual([`${KIT}-darwin-arm64@0.1.5`, `${KIT}-win32-x64@0.1.5`])
+  })
+
+  it('stops the run when the kit declares another registered version, naming the declared version, the shipped one, and where it is set', () => {
+    for (const version of ['0.1.1', '0.1.3']) {
+      expect(refusal(stagedClosure(version)), version).toBe([
+        HEADER,
+        `  darwin-arm64: the kit declares ${version}, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)`,
+        `  win32-x64: the kit declares ${version}, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)`,
+      ].join('\n'))
     }
   })
 
-  it('stops the run when the kit declares an engine version the table does not register, naming the version and each missing entry', () => {
-    expect(refusal(stagedClosure('0.2.0'))).toBe([
-      'package: the staged server\'s LibreOffice kit declares engines the desktop cannot offer:',
+  it('stops the run when the kit declares the version a host ships and the table does not register it, naming each missing entry', () => {
+    const hosts = [{ platform: 'darwin', arch: 'arm64', engineVersion: '0.2.0' }, { platform: 'win32', arch: 'x64', engineVersion: '0.2.0' }] as const
+    expect(refusal(stagedClosure('0.2.0'), hosts)).toBe([
+      HEADER,
       `  darwin-arm64: the kit declares 0.2.0, and ENGINE_DOWNLOADS has no ${KIT}-darwin-arm64@0.2.0`,
       `  win32-x64: the kit declares 0.2.0, and ENGINE_DOWNLOADS has no ${KIT}-win32-x64@0.2.0`,
     ].join('\n'))
   })
 
+  it('names both problems when the kit declares a version that is neither shipped nor registered', () => {
+    expect(refusal(stagedClosure('0.2.0'))?.split('\n').slice(1, 3)).toEqual([
+      '  darwin-arm64: the kit declares 0.2.0, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      `  darwin-arm64: the kit declares 0.2.0, and ENGINE_DOWNLOADS has no ${KIT}-darwin-arm64@0.2.0`,
+    ])
+  })
+
   it('stops the run when the kit manifest cannot be read', () => {
-    const modules = stagedClosure('0.1.3')
+    const modules = stagedClosure('0.1.5')
     writeFileSync(join(modules, KIT, 'package.json'), '{ not json')
     const lines = refusal(modules)?.split('\n').slice(1) ?? []
     expect(lines).toHaveLength(2)
@@ -104,15 +132,15 @@ describe('verifyStagedOfficeEngines', () => {
     expect(lines[1]).toMatch(/^ {2}win32-x64: the LibreOffice kit could not be read: /)
   })
 
-  it('stops the run when the kit resolves from outside the staged tree, even at a registered version', () => {
-    const modules = stagedClosure('0.1.3')
+  it('stops the run when the kit resolves from outside the staged tree, even at the shipped version', () => {
+    const modules = stagedClosure('0.1.5')
     const elsewhere = join(scratch(), KIT)
-    writeManifest(elsewhere, kitManifest('0.1.3'))
+    writeManifest(elsewhere, kitManifest('0.1.5'))
     rmSync(join(modules, KIT), { recursive: true, force: true })
     // A junction on Windows, which needs no symlink privilege; ignored elsewhere.
     symlinkSync(elsewhere, join(modules, KIT), 'junction')
     expect(refusal(modules)).toBe([
-      'package: the staged server\'s LibreOffice kit declares engines the desktop cannot offer:',
+      HEADER,
       `  ${KIT} resolves to ${realpathSync(join(elsewhere, 'package.json'))}, outside the staged ${modules}`,
     ].join('\n'))
   })

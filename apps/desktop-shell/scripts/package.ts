@@ -955,7 +955,7 @@ async function main(buildHome: string): Promise<void> {
   // `--skip-deploy` included: a reused staging carries the kit an earlier
   // deploy resolved, and that kit is the one the packaged app reads.
   const engines = verifyStagedOfficeEngines(join(SERVER_STAGING, 'node_modules'))
-  console.log(`package: staged Office engines registered: ${engines.join(', ')}`)
+  console.log(`package: staged Office engines, the versions this package ships and registered: ${engines.join(', ')}`)
   // Every target's rules, whichever targets this run builds: whether a rule
   // matches is a property of the rule table and the staged tree.
   await verifyPruneRules(SERVER_STAGING, PLATFORM_DIR_RULES)
