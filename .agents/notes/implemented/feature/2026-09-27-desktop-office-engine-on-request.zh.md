@@ -12,7 +12,7 @@ rc.34 把每个 `@deepseek-ai/libreoffice-kit-*` 引擎都从两个桌面载荷�
 
 ## Decision
 
-- **版本取自 kit。** `readEngineRequirement` 从服务端闭包沿 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → `libreoffice-kit` 解析到 kit(这条链在 hoisted 载荷与工作区检出里都成立),读 `optionalDependencies["@deepseek-ai/libreoffice-kit-<target>"]`,只接受一个精确版本。kit 升级时,要下载的东西跟着变,壳不用改。
+- **版本取自 kit。** `readEngineRequirement` 从服务端闭包沿 `@deepseek-ai/dsh` → `dsh-web-app` → `dsh-office-to-pdf` → `libreoffice-kit` 解析到 kit(这条链在 hoisted 载荷与工作区检出里都成立),读 `optionalDependencies["@deepseek-ai/libreoffice-kit-<target>"]`,只接受一个精确版本。kit 升级时,要下载的东西跟着变,前提是 `ENGINE_DOWNLOADS` 登记了它声明的引擎版本;暂存的 kit 声明了没登记的版本时,打包会停下。
 - **位置是数据目录的函数。** `officeEngineRoot(dataDir)` 是 `<dataDir>/engines/office`,每个版本一个目录。`main.ts` 传入 `resolveHarnessHome()`;rc.35 的数据目录搬迁在这里传它自己的目录。
 - **`NODE_PATH` 从启动起就设好。** `engineServerEnv` 把 `<root>/<version>/node_modules` 放在服务端子进程 `NODE_PATH` 的第一位,排在继承来的值前面,不管它存不存在。Node 把 `NODE_PATH` 读进全局路径只读一次,只缓存解析成功的结果;`rc34-work/office-scope/probe/t.mjs` 证实启动之后才建好的包目录在同一进程里能解析到,`t2.mjs` 证实启动之后删掉 `process.env.NODE_PATH`,本进程照样解析,子进程则看不到它。桌面层去掉了自己的 `office-to-pdf` 行,出厂那一行从启动起就开着,下载完之后的第一次转换不用重启就能成功。
 - **这一项单独点名。** `DSH_DESKTOP_OFFICE_ENGINE_MODULES` 带着同一个路径;提示插件的宿主那一半在 apply 时从 `process.env.NODE_PATH` 里删掉恰好这一项。`@deepseek-ai/dsh-subprocess` 的 `scrubbedParentEnv` 在 spawn 时复制 `process.env`,并且已经去掉所有 `DSH_*` 名字,所以 endpoint、token 与 modules 这几个变量从不进工具的子进程;需要删的只有 `NODE_PATH`。
