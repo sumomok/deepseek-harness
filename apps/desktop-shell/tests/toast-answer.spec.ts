@@ -34,6 +34,17 @@ const GRACE_MS = 60_000
 /** The projected title `session/list` reports for `session-1`, the session every delivery here comes from. */
 const TITLE = '周报整理'
 
+/**
+ * The sessions `session/list` reports, in its order: `session-1` between two
+ * other sessions whose titles differ from {@link TITLE}, so a message that
+ * takes its title from any record but `session-1`'s reads another title.
+ */
+const LISTED_SESSIONS = [
+  { sessionId: 'session-0', projections: { values: { title: '月度预算' } } },
+  { sessionId: 'session-1', projections: { values: { title: TITLE } } },
+  { sessionId: 'session-2', projections: { values: { title: '旅行计划' } } },
+]
+
 /** The message of the `session/list` refusal a case asks for through {@link listFailures}. */
 const UNAVAILABLE = 'sessionController is not available'
 
@@ -195,7 +206,8 @@ let server: Server | undefined
  * What the gateway answers a `session/list` request with. Its server method
  * takes one parameter, `_request`, and the gateway refuses an `args` record
  * whose fields are not exactly that one, in an `ok: false` result sent with
- * HTTP 200.
+ * HTTP 200. A well-formed request is refused while {@link listFailures} is
+ * above zero, and otherwise answered with {@link LISTED_SESSIONS}.
  * @param args - the request's `args` record.
  * @returns the `result` the response carries.
  */
@@ -212,7 +224,7 @@ function listResult(args: Record<string, unknown>): Record<string, unknown> {
     listFailures -= 1
     return { ok: false, error: { code: 'gateway/service-unavailable', message: UNAVAILABLE } }
   }
-  return { ok: true, value: { items: [{ sessionId: 'session-1', projections: { values: { title: TITLE } } }] } }
+  return { ok: true, value: { items: LISTED_SESSIONS } }
 }
 
 /**
