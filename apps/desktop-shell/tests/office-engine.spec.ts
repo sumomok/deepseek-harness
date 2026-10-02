@@ -114,7 +114,7 @@ describe('readEngineRequirement', () => {
   // A workspace kit upgrade that moves either desktop target's engine to a
   // version the table lacks fails here. The values are the registry's
   // `dist.integrity` and the tarball's `content-range` length.
-  it('records both desktop engines at the workspace kit\'s and the packaged kit\'s versions, with their published size and integrity', () => {
+  it('records both desktop engines at the workspace kit\'s and each packaged kit\'s version, with their published size and integrity', () => {
     for (const [platform, arch] of [['darwin', 'arm64'], ['win32', 'x64']] as const) {
       expect(readEngineRequirement(SERVER_MODULES, platform, arch).ok).toBe(true)
     }
@@ -134,6 +134,14 @@ describe('readEngineRequirement', () => {
       '@deepseek-ai/libreoffice-kit-win32-x64@0.1.3': {
         bytes: 71_374_248,
         integrity: 'sha512-PrUb4ykkI6fJBJ6MX40XgctY0mOUfO4yPWdWB5QdQSw5seq3fulBv0BcrJMTGw2ZT81wwB181MQja4AfOMWg2A==',
+      },
+      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
+        bytes: 67_261_855,
+        integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+      },
+      '@deepseek-ai/libreoffice-kit-win32-x64@0.1.5': {
+        bytes: 71_367_942,
+        integrity: 'sha512-uKuDGZdofxuW4iRmUh8b3+XWU28JeOCYMTAONzo7tEHIq00DV2cARcgUYiTP7gUH49tH4A/RyPMOVEBzK7qjjw==',
       },
     })
   })

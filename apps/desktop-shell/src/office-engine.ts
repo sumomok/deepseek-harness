@@ -97,17 +97,19 @@ export interface EngineDownload {
  * registry sends no length, and an install whose lockfile records another
  * integrity than `integrity` is refused.
  *
- * Two kit versions reach a desktop build, so each target is registered at
- * both. The workspace installs the kit at the version `pnpm-lock.yaml` pins
+ * Each target is registered at every kit version a desktop build carries.
+ * The workspace installs the kit at the version `pnpm-lock.yaml` pins
  * (0.1.1), which a development launch and `tests/office-engine.spec.ts`
  * read. The packaged server closure, which the packaged app reads, comes from
  * the legacy hoisted `pnpm deploy`. It does not take the lockfile's pin: it
  * resolves the kit's `^0.1.1` range to the highest release that is at least
  * pnpm's `minimumReleaseAge` (one day unless configured) old when the deploy
  * runs, so a later deploy can stage a newer kit. The staging deployed on
- * 2026-10-01 holds 0.1.3. The spec fails when the workspace kit declares an
- * engine for either desktop target that this table does not carry, and
- * `scripts/office-engine-gate.ts` fails a package run whose staged kit does.
+ * 2026-10-01 holds 0.1.3, and a deploy run after 2026-10-02 01:18 UTC, when
+ * 0.1.5 turned one day old, stages 0.1.5. The spec fails when the workspace
+ * kit declares an engine for either desktop target that this table does not
+ * carry, and `scripts/office-engine-gate.ts` fails a package run whose staged
+ * kit does.
  */
 export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
@@ -125,6 +127,14 @@ export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   '@deepseek-ai/libreoffice-kit-win32-x64@0.1.3': {
     bytes: 71_374_248,
     integrity: 'sha512-PrUb4ykkI6fJBJ6MX40XgctY0mOUfO4yPWdWB5QdQSw5seq3fulBv0BcrJMTGw2ZT81wwB181MQja4AfOMWg2A==',
+  },
+  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
+    bytes: 67_261_855,
+    integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+  },
+  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.5': {
+    bytes: 71_367_942,
+    integrity: 'sha512-uKuDGZdofxuW4iRmUh8b3+XWU28JeOCYMTAONzo7tEHIq00DV2cARcgUYiTP7gUH49tH4A/RyPMOVEBzK7qjjw==',
   },
 }
 

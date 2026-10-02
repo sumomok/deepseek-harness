@@ -81,8 +81,8 @@ function refusal(modules: string): string | undefined {
 }
 
 describe('verifyStagedOfficeEngines', () => {
-  it('passes a kit whose engines are registered for both desktop targets, at either kit version', () => {
-    for (const version of ['0.1.1', '0.1.3']) {
+  it('passes a kit whose engines are registered for both desktop targets, at every registered kit version', () => {
+    for (const version of ['0.1.1', '0.1.3', '0.1.5']) {
       expect(verifyStagedOfficeEngines(stagedClosure(version))).toEqual([`${KIT}-darwin-arm64@${version}`, `${KIT}-win32-x64@${version}`])
     }
   })
