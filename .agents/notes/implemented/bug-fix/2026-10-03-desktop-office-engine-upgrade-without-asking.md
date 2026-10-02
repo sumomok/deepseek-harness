@@ -1,0 +1,42 @@
+# Agent Note: A kit's new engine version upgrades the downloaded engine without asking
+
+Status: implemented
+
+English | [中文](2026-10-03-desktop-office-engine-upgrade-without-asking.zh.md)
+
+## Problem
+
+The desktop downloads the LibreOffice engine only after the person confirms a native dialog ([on-request note](../feature/2026-09-27-desktop-office-engine-on-request.md)), whose detail says the component stays on the computer. The kit accepts only an engine whose `package.json` version equals its own `ENGINE_VERSIONS[target]` (kit 0.1.5 `lib/index.js:1554`), and from kit 0.1.3 on every kit release republishes each desktop engine under a new version, 0.1.4 included, which carried no macOS source change. The packaged kit comes from the legacy hoisted `pnpm deploy`, which resolves the kit's `^0.1.1` range to the newest release at least a day old when the deploy runs instead of the lockfile's pin: rc.35.1 staged 0.1.3, and rc.36, deployed a day later, staged 0.1.5. The first launch of such a build removed the engine the person had downloaded in its launch prune and treated them as someone who never had: the notice offered 「在这里预览 · 需下载约 64 MB」 again and the same confirmation asked again. On the development Mac this happened between the rc.35.1 and rc.36 builds (`dsh-server.log` lines 6886–7023: `removed 0.1.3`, then `0.1.5 … (absent)`, then the download after a click). The new bytes are real — between 0.1.3 and 0.1.5 the 140.7 MB executable differs in `sha256` and `LC_UUID` — so a download cannot be avoided, but asking again can: the version change was nobody's decision, and the person had already agreed to keep the component.
+
+## Decision
+
+- **Consent is read from disk.** While the declared version is not installed, `versionsToKeep` in `office-engine.ts` keeps, besides that version, the highest other version directory holding a complete engine of the declared package (`supersededEngine`: the manifest version equals the directory name, `prebuilds.json` names an executable, and that executable is a runnable file). Only `installEngine` behind a confirmed dialog writes such a directory, so its presence is the record that the person agreed to keep the engine, and nothing else is persisted. Once the declared version is installed, the earlier one is no longer kept.
+- **The state moves before the server starts.** `startOfficeEngineForServer` passes the kept version to `OfficeEngineManager` as `superseded` and calls `beginUpgrade()` before the engine service and the server start, so the phase reads `installing` at 0 bytes with an abort controller in place. `@haoran/dsh-office-preview-notice` reads `/state` once in `apply` and polls only while the phase is `confirming` or `installing`; a phase that read `absent` at that read and changed later would leave the notice offering a download the service refuses with `409 installing` until the page reloads. The plugin needs no change.
+- **The download waits for the launch.** `runUpgrade()` runs after the server is ready, the launch gate has passed, and the app is shown, so pnpm and the unpack of about 150 MB run after the server boot and a launch held for a mandatory update downloads nothing. It runs `installEngine` unchanged: the lockfile integrity check against `ENGINE_DOWNLOADS`, the complete-engine check, and the rename into place. The prune after the install then removes the earlier engine.
+- **A failure keeps the record; a cancel is a refusal.** A failed install reads `failed` with its reason and keeps the earlier engine, so the next launch tries once more; the notice's retry goes through the confirmation, and declining it keeps the engine as a failure does. A quit aborts the download and keeps the engine too. `POST /cancel` during the upgrade marks it refused: once its install has ended, the earlier engine is removed and the next download asks first. An upgrade whose download has not started ends at once and reads `absent`.
+- **An unregistered declared version keeps the earlier engine.** The requirement reads `unsupported`, nothing downloads, and the engine stays for a later build that registers the version. The refusal in `RequirementResult` carries the declared package name beside its version, which finding the earlier engine needs.
+- **The packaged kit is pinned by a gate.** `DESKTOP_ENGINE_HOSTS` in `scripts/office-engine-gate.ts` names the engine version each desktop host ships (0.1.5 for both), and a package run stops when the staged kit declares another, so the version changes only when someone raises that value.
+
+## Alternatives considered
+
+- **Ask again after every kit change** — the change follows the time a deploy ran rather than a decision, and the dialog the person answered already said the component stays.
+- **Persist a consent record** under the data directory or in the desktop state — it repeats what the earlier engine directory already shows and has to be kept in step with it: an engine removed by hand would leave consent recorded for an engine the person no longer has.
+- **Start the download before the server is ready** — pnpm's registry requests and the unpack (with Defender scanning it on Windows) would run during the server boot and the first page load.
+- **Begin the upgrade in `absent` and let the page notice later** — the notice reads the state once, so it would keep offering a download the service refuses until a reload.
+- **Download only the changed bytes** — 724 of the 737 files are identical between 0.1.3 and 0.1.5 but hold 11.9 MB; the executable differs in every version because the engine build is not byte-reproducible. A zstd delta would bring the 67 MB download to about 8 MB, but npm verifies whole tarballs, so the deltas would have to be hosted on our own server under a new per-file trust root in place of the tarball sha512.
+- **Pin the kit through `overrides` in `pnpm-workspace.yaml`** — the deploy would then resolve a chosen version, but the file is upstream's, so the pin would be a core patch, and it rewrites the workspace lockfile; the gate stops an unplanned version change without either.
+
+## Consequences
+
+- The person downloads the new engine once per engine version change, 64 MiB on macOS and 68 MiB on Windows, without being asked and on any connection: Electron reports no metered connection on either platform, and the app's own updates download the same way.
+- Until the upgrade finishes, or while it keeps failing, the earlier engine stays on disk; during the download the staging directory and its package store add about as much again, and one engine is left afterwards.
+- The upgrade runs in the build being launched, so it covers updates to builds that carry it. rc.36 and earlier still remove every other version at launch: going back to one of them asks again, and so does the rc.35.1 → rc.36 step. Two builds that carry it and declare different versions download again, without asking, at each switch between them on one data directory.
+- During an upgrade the notice shows the first download's wording; wording of its own would be a change in the plugin's repository.
+- The pin moves only by hand. Once a newer kit is a day old, a fresh deploy stops at the gate until someone registers its engines and raises the pin, or packages with `--skip-deploy` over a saved staging.
+
+## Related
+
+- `apps/desktop-shell/src/office-engine.ts` (`supersededEngine`, `versionsToKeep`, `pruneEngineRoot`), `office-engine-service.ts` (`beginUpgrade`, `runUpgrade`, `cancel`), `main.ts` (`startOfficeEngineForServer`, and the `runUpgrade` call after the launch gate), `scripts/office-engine-gate.ts` (`DESKTOP_ENGINE_HOSTS`)
+- `apps/desktop-shell/tests/office-engine.spec.ts`, `office-engine-service.spec.ts`, `office-engine-gate.spec.ts`
+- `apps/desktop-shell/README.md` "Office engine service"
+- [The desktop downloads the LibreOffice engine on request](../feature/2026-09-27-desktop-office-engine-on-request.md)
