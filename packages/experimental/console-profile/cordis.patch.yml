@@ -123,9 +123,11 @@
 # which swaps new plugin bundles into an open page that keeps running its
 # loaded shell; after an upgrade that page fails to draw, and a page still
 # running the previous client does not work against the new server either. The
-# `page-refresh` row below reloads such a page instead. With this row, a bundle
-# rebuilt by `pnpm run dev:web` reaches an open console page only on its next
-# load.
+# `page-refresh` row below reloads such a page instead. With this row, a plugin
+# bundle rebuilt by `pnpm run dev:web` reaches no console page, open or newly
+# loaded, until the host restarts: `client-hmr` is what reports a rebuilt bundle
+# to the host. A rebuilt shell is served on the next load, and an open page's
+# next build check reloads it onto that shell with the old plugin bundles.
 - id: client-hmr
   disabled: true
 
@@ -194,7 +196,9 @@
 # once when they differ; the banner reports a lost connection and offers a
 # reload when it lasts. The config states the plugin's own defaults. None of
 # its fields is volatile, so the settings service offers no form for them and
-# refuses a write to them, and a deployment changes them in its own layer.
+# refuses a write to them, and a deployment changes them in its own layer. A
+# value out of range there leaves the host running with a startup warning and
+# fails the boot of every page it serves.
 - insert:
     - id: page-refresh
       name: '@deepseek-ai/dsh-experimental-page-refresh'

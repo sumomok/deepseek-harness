@@ -51,7 +51,7 @@ The console bundle composes these changes over the shipped Web profile:
 | `console-mcp` | Inserted with `servers: []`: the MCP capability, idle until a deployment names a server |
 | `library-skills` | Inserted: an isolated `skill-filesystem` provider over `@deepseek-ai/dsh-experimental-library-skills` |
 | `page-refresh` | Inserted with its default config stated: an open page reloads once when its server comes back with a different build, and a banner reports a lost connection; see [`dsh-experimental-page-refresh`](../page-refresh/README.md) |
-| `client-hmr` | Disabled: an open page takes no new plugin bundles into the shell it already runs, so a bundle rebuilt by `pnpm run dev:web` reaches an open console page only on its next load |
+| `client-hmr` | Disabled: an open page takes no new plugin bundles into the shell it already runs. A plugin bundle rebuilt by `pnpm run dev:web` reaches no console page, open or newly loaded, until the host restarts; a rebuilt shell is served on the next load, and an open page's next build check reloads it onto that shell with the old plugin bundles |
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
 | `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission`, `ui-settings-session-log` | Disabled: internal vocabulary, official branding, and developer surfaces |
 | `ui-settings-plugins`, `ui-settings-plugin-inventory` | Disabled: Settings → Plugins, both tabs; the settings shell `ui-settings-general` stays |
