@@ -1,16 +1,17 @@
 /**
- * What the packaging pipeline accepts from a staged server's boot and from its
- * composed profile.
+ * What the packaging pipeline accepts from a staged server's boot, from its
+ * composed profile, and from its listen on a held socket.
  * @module
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv, verifyDesktopLayer,
-  WITHHELD_PACKAGES,
+  verifyHeldSocketBoot, WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 
@@ -247,5 +248,43 @@ describe('missingProductionDependencies', () => {
 
   it('reports a tree without the installation package', async () => {
     expect(await missingProductionDependencies(tree({ yaml: {} }), WITHHELD_PACKAGES)).toEqual(['(tree) -> @deepseek-ai/dsh'])
+  })
+})
+
+describe('verifyHeldSocketBoot', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * A stand-in server entry in a fresh directory, booted with the real preload.
+   * @param listen - the source of its listen call, with `port` and `server` in scope.
+   * @returns the launch.
+   */
+  function bootOf(listen: string): Parameters<typeof verifyHeldSocketBoot>[0] {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-held-boot-'))
+    roots.push(root)
+    const entry = join(root, 'entry.mjs')
+    writeFileSync(entry, `
+      import http from 'node:http'
+      const port = Number(process.argv[process.argv.indexOf('--port') + 1])
+      const server = http.createServer((req, res) => { res.writeHead(401); res.end() })
+      const announce = () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') }
+      ${listen}
+    `)
+    return {
+      nodeBin: process.execPath, entry, cwd: root, reportDirectory: root, env: {},
+      preload: fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.url)),
+    }
+  }
+
+  it('accepts a server that listens the way the web server does, twice on one socket', async () => {
+    expect(await verifyHeldSocketBoot(bootOf('server.listen(port, \'127.0.0.1\', announce)'))).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u)
+  })
+
+  it('fails the build when the server listens some other way, with the handoff\'s reason', async () => {
+    await expect(verifyHeldSocketBoot(bootOf('server.listen(0, \'127.0.0.1\', announce)')))
+      .rejects.toThrow('the first staged server did not listen on the held socket: listen handoff failed: the server printed its URL line without listening on the held socket')
   })
 })

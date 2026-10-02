@@ -1,6 +1,7 @@
 /**
  * Checks the packaging pipeline runs on the staged server tree, on what a
- * boot of it printed, and on the profile composition it resolved.
+ * boot of it printed, on the profile composition it resolved, and on its
+ * listen through a socket the shell holds.
  *
  * A server that prints its URL line has not proved its profile composed: a
  * `dsh.profile.bundles` name the Loader cannot resolve, or whose DSH peers the
@@ -17,7 +18,8 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import yaml from 'js-yaml'
-import { SERVER_LOG_ENV } from '../src/server.ts'
+import { holdLoopbackPort } from '../src/listen-socket.ts'
+import { SERVER_LOG_ENV, startServer, type ServerSpec } from '../src/server.ts'
 
 /**
  * The stderr fragments a profile boot writes when it leaves part of the
@@ -258,4 +260,53 @@ export function verifyDesktopLayer(dump: string): void {
       + '@deepseek-ai/dsh-desktop-app did not reach the profile.',
     )
   }
+}
+
+/** What [[verifyHeldSocketBoot]] boots: a server launch without a port, and the preload. */
+export interface HeldSocketBoot extends Omit<ServerSpec, 'port' | 'listen'> {
+  /** The built `listen-handoff.mjs` the packaged shell runs. */
+  preload: string
+}
+
+/**
+ * Start the staged server on a socket held the way the shell holds it, stop
+ * it, and start a second server on the same socket, as a crash rebind does;
+ * each must listen on the held port and answer a request there, with any
+ * HTTP status (a request without a cookie answers 401).
+ *
+ * The handoff's preload matches the `listen(port, '127.0.0.1')` call of
+ * `@deepseek-ai/dsh-host-webserver`. When an upstream change makes it listen
+ * another way, `startServer` rejects with the handoff's reason here, where
+ * the installed shell would only log one line and start without the socket.
+ * The first server is stopped with the shell's own stop; the kill of a
+ * crashing server is exercised in `tests/listen-handoff.spec.ts`. A failure
+ * message carries the end of the server's output.
+ * @param boot - the launch and the preload.
+ * @returns the origin both servers listened on.
+ * @throws when either start did not listen on the held socket, or the port did not answer.
+ */
+export async function verifyHeldSocketBoot(boot: HeldSocketBoot): Promise<string> {
+  const held = holdLoopbackPort(0)
+  if (held.kind !== 'held') throw new Error(`package: could not hold a loopback port for the handoff check: ${held.reason}`)
+  const { preload, ...launch } = boot
+  const spec: ServerSpec = { ...launch, listen: { socket: held.socket, preload } }
+  const origin = `http://127.0.0.1:${String(held.socket.port)}`
+  try {
+    for (const which of ['first', 'second'] as const) {
+      const server = await startServer(spec, () => {}).catch((error: unknown) => {
+        throw new Error(`package: the ${which} staged server did not listen on the held socket: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      try {
+        if (server.url !== origin) throw new Error(`package: the ${which} staged server reported ${server.url}, not the held ${origin}.`)
+        const response = await fetch(`${origin}/`)
+        await response.arrayBuffer()
+        if (!response.ok && response.status !== 401) throw new Error(`package: the ${which} staged server answered ${String(response.status)} on the held socket.`)
+      } finally {
+        await server.stop()
+      }
+    }
+  } finally {
+    held.socket.close()
+  }
+  return origin
 }

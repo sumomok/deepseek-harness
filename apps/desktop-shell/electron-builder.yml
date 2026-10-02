@@ -28,6 +28,15 @@ files:
   - lib/**/*
   - package.json
 asar: true
+# The server child loads the listen-handoff preload with `--import` on the
+# bundled Node, which cannot read inside an asar, so this one file is also
+# written to `app.asar.unpacked/lib/` (src/main.ts resolves it there;
+# scripts/after-pack.cjs fails the build when it is missing). It is an `.mjs`,
+# an ES module by its extension alone: the package.json declaring
+# `"type": "module"` stays inside the asar, so a `.js` file there would load
+# only through Node's syntax detection.
+asarUnpack:
+  - lib/listen-handoff.mjs
 npmRebuild: false
 nodeGypRebuild: false
 afterPack: scripts/after-pack.cjs
