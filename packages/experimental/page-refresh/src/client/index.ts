@@ -3,9 +3,9 @@
  * running, and tells the visitor about the page's connection.
  *
  * Each time the connection to the server is established, and each time the
- * page returns to the foreground, the page requests the index it was served
- * from and compares the build that index carries with the build it booted
- * with. A different build reloads the page once; a build the page has already
+ * page returns to the foreground while it is connected, the page requests the
+ * index it was served from and compares the build that index carries with the
+ * build it booted with. A different build reloads the page once; a build the page has already
  * reloaded for, or a tab that may not use session storage, gets the reload
  * offered in the banner instead. The same build changes nothing, which is what
  * a server restart without an upgrade serves.

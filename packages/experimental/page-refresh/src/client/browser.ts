@@ -129,10 +129,11 @@ export interface PageGlobals {
 /**
  * Absolute URLs of the module scripts under one document root whose source
  * lies under the base directory, the directory the shell serves its bundle
- * from. A module script that names no source, or a source elsewhere — such as
- * one a browser extension adds to the page — is not part of the build's
- * identity. The live page and the served index are both read through this
- * function, so both sides of a comparison apply the same rule.
+ * from. A module script that names no source, a source that does not parse as
+ * a URL, or a source elsewhere — such as one a browser extension adds to the
+ * page — is not part of the build's identity. The live page and the served
+ * index are both read through this function, so both sides of a comparison
+ * apply the same rule.
  * @param root - the document to read.
  * @param base - the URL relative sources resolve against.
  * @returns the URLs, sorted.
@@ -142,7 +143,13 @@ export function moduleScriptsOf(root: Pick<ParentNode, 'querySelectorAll'>, base
   return [...root.querySelectorAll('script[type="module"]')].flatMap((script) => {
     const src = script.getAttribute('src')
     if (src === null) return []
-    const url = new URL(src, base).href
+    let url: string
+    try {
+      url = new URL(src, base).href
+    } catch (_unparsableSource) {
+      // A source that is not a URL names no file the shell serves.
+      return []
+    }
     return url.startsWith(directory) ? [url] : []
   }).sort()
 }

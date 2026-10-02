@@ -139,11 +139,27 @@ describe('the build check', () => {
 
   it('runs when the page returns to the foreground only where configured', async () => {
     const on = await bench()
+    on.connection.state.set('connected')
     on.page.showPage()
     await settle()
     expect(on.page.requests).toHaveLength(1)
     const off = await bench({ checkOnVisible: false })
     expect(off.page.foreground.size).toBe(0)
+  })
+
+  it('leaves a foreground check to the next connection while the page is not connected', async () => {
+    const { runtime, page, connection } = await bench()
+    page.showPage()
+    for (const state of ['connecting', 'disconnected'] as const) {
+      connection.state.set(state)
+      page.showPage()
+    }
+    await settle()
+    expect(page.requests).toHaveLength(0)
+    connection.state.set('connected')
+    runtime.ctx.emit('connection/reset')
+    await settle()
+    expect(page.requests).toHaveLength(1)
   })
 
   it('checks nothing in a page that booted without a readable boot graph', async () => {

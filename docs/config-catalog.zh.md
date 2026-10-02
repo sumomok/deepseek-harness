@@ -1570,9 +1570,9 @@ export interface InspectorOptions {
  */
 export interface Config {
   /**
-   * Also check the build each time the page returns to the foreground, in
-   * addition to each time the connection to the server is established. Default
-   * `true`.
+   * Also check the build each time the page returns to the foreground while it
+   * is connected, in addition to each time the connection to the server is
+   * established. Default `true`.
    */
   checkOnVisible: boolean
   /**

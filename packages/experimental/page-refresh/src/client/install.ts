@@ -52,6 +52,9 @@ export interface PageRefreshInstall {
  */
 export function installPageRefresh(ctx: ClientContext, install: PageRefreshInstall): void {
   const { browser, settings, banners, log } = install
+  // The client connection service has no Context merge of its own (the Host
+  // merges the same key), so it is read by name like its other consumers.
+  const connection = ctx.get('connection') as ConnectionHandle
   // The build this page booted with is read once, now: it is what the page is
   // running, whatever the server serves later.
   const entries = bootEntriesOf(browser.bootGraph())
@@ -72,13 +75,16 @@ export function installPageRefresh(ctx: ClientContext, install: PageRefreshInsta
     // longer matches its server is where one may; the check runs first.
     ctx.on('connection/reset', () => { check.trigger() }, { prepend: true })
     if (settings.checkOnVisible) {
-      ctx.effect(() => browser.onVisible(() => { check.trigger() }), 'page-refresh: foreground check')
+      // A host serves its index while it is still composing its plugins, with a
+      // boot graph that lists only some of them, and accepts a connection only
+      // once it has composed them all. A page that is not connected therefore
+      // leaves the check to its next `connection/reset`.
+      ctx.effect(() => browser.onVisible(() => {
+        if (connection.state.getSnapshot() === 'connected') check.trigger()
+      }), 'page-refresh: foreground check')
     }
   }
   if (settings.disconnectNotice) {
-    // The client connection service has no Context merge of its own (the Host
-    // merges the same key), so it is read by name like its other consumers.
-    const connection = ctx.get('connection') as ConnectionHandle
     ctx.effect(() => watchConnection({
       state: connection.state,
       browser,

@@ -189,12 +189,12 @@
         displayNameClaim: login_uname
 
 # The page's build check and connection banner. Each time an open page
-# reconnects or returns to the foreground it compares the build it booted with
-# against the build the server now serves, and reloads once when they differ;
-# the banner reports a lost connection and offers a reload when it lasts. The
-# config states the plugin's own defaults. None of its fields is volatile, so
-# the settings service offers no form for them and refuses a write to them,
-# and a deployment changes them in its own layer.
+# reconnects or, while connected, returns to the foreground it compares the
+# build it booted with against the build the server now serves, and reloads
+# once when they differ; the banner reports a lost connection and offers a
+# reload when it lasts. The config states the plugin's own defaults. None of
+# its fields is volatile, so the settings service offers no form for them and
+# refuses a write to them, and a deployment changes them in its own layer.
 - insert:
     - id: page-refresh
       name: '@deepseek-ai/dsh-experimental-page-refresh'

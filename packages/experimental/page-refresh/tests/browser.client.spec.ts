@@ -127,6 +127,21 @@ describe('a served index', () => {
     expect(browser.moduleScripts()).toEqual(browser.moduleScriptsIn(served, 'https://console.example/console/'))
   })
 
+  it('leaves out a module script whose source does not parse, on the live page and in a served index alike', () => {
+    const { browser, document } = bench()
+    const sources = ['https://exa mple.com/x.js', '//']
+    for (const src of sources) {
+      const script = document.createElement('script')
+      script.type = 'module'
+      script.setAttribute('src', src)
+      document.head.append(script)
+    }
+    const unparsable = sources.map(src => `<script type="module" src="${src}"></script>`).join('')
+    const served = `<html><head><base href="./"><script type="module" src="./assets/index-A.js"></script>${unparsable}</head></html>`
+    expect(browser.moduleScripts()).toEqual(['https://console.example/console/assets/index-A.js'])
+    expect(browser.moduleScriptsIn(served, 'https://console.example/console/')).toEqual(browser.moduleScripts())
+  })
+
   it('requests it uncached, without following redirects, with the page\'s own cookies', async () => {
     const { browser, fetch } = bench()
     const signal = new AbortController().signal

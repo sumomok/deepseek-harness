@@ -41,7 +41,7 @@ Choose it for a deployment whose open pages must survive a server upgrade withou
 
 | Field | Default | Meaning |
 |---|---|---|
-| `checkOnVisible` | `true` | Also check the build each time the page returns to the foreground |
+| `checkOnVisible` | `true` | Also check the build each time the page returns to the foreground while it is connected |
 | `reloadDelayMs` | `0` | Milliseconds between deciding to reload and reloading; a positive delay shows the reloading notice first |
 | `disconnectNotice` | `true` | Show the lost, reconnected, and unreachable notices |
 | `stuckAfterSeconds` | `60` | Seconds a loss lasts, with the browser online, before the unreachable notice and its reload button |
@@ -50,7 +50,7 @@ There is no switch for the whole plugin; a deployment that does not want it disa
 
 ### When the build is checked
 
-Each time the page's connection to the server is established — the `connection/reset` event, the first connection included — and, with `checkOnVisible`, each time the page becomes visible again. At most one check is open at a time: a trigger that arrives while one is open aborts its request and starts a fresh check, so the verdict reflects the server as of the latest trigger, and a request that never answers does not hold back the next one.
+Each time the page's connection to the server is established — the `connection/reset` event, the first connection included — and, with `checkOnVisible`, each time the page becomes visible again while it is connected. A page that is not connected leaves the check to its next connection: a host serves its index while it is still composing its plugins, with a boot graph that lists only some of them, and accepts a connection only once it has composed them all. At most one check is open at a time: a trigger that arrives while one is open aborts its request and starts a fresh check, so the verdict reflects the server as of the latest trigger, and a request that never answers does not hold back the next one.
 
 ### What counts as a build
 
