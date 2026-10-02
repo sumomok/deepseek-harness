@@ -359,6 +359,16 @@ describe('the office engine in main.ts', () => {
     expect(source).toContain('\n  const kept = versionsToKeep(root, requirement)\n  const pruned = pruneEngineRoot(root, kept.declared, kept.superseded)\n')
   })
 
+  // Without it the manager has no earlier engine, beginUpgrade does nothing,
+  // and a kit's new engine version asks the person again.
+  it('hands the earlier engine the prune kept to the manager', () => {
+    const manager = source.indexOf('const manager = new OfficeEngineManager({')
+    expect(manager).toBeGreaterThan(source.indexOf('const kept = versionsToKeep(root, requirement)'))
+    const passed = source.indexOf('\n    ...kept.superseded === undefined ? {} : { superseded: kept.superseded },\n', manager)
+    expect(passed).toBeGreaterThan(manager)
+    expect(passed).toBeLessThan(source.indexOf('\n  })\n', manager))
+  })
+
   // The page reads the state once when it loads and follows it only while it
   // moves, so the upgrade has to read `installing` before the server starts.
   it('begins an upgrade before the engine service and the server start, and starts its download only after the launch gate', () => {
