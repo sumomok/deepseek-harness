@@ -168,7 +168,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 <a id="de-terminology"></a>
 ## 去术语化
 
-决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有七处出厂界面携带这套词汇，或是向终端用户递出一个本产品并不提供的权限开关：其中四处的移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案；一处靠隔离它注册所经的那个服务，让它根本不进入这份组合；另外两处自己没有可用通路，改由一次作用域受限的 CSS 注入隐藏（见下文）：
+决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有九处出厂界面携带这套词汇，或是向终端用户递出一个本产品并不提供的权限开关，或是提供一项控制台已经定下的设置：其中四处的移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案；一处靠隔离它注册所经的那个服务，让它根本不进入这份组合；两处自己没有可用通路，改由一次作用域受限的 CSS 注入隐藏；一处由本包自己的会话标题栏条目盖住；还有一处在它的槽位里被遮蔽（见下文）：
 
 | 界面 | 禁用的行 | 说明 |
 | --- | --- | --- |
@@ -179,6 +179,8 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 轮次/步骤状态行 | *（不存在可禁用的行）* | `StatsLine` 是出厂 `ui-conversation` 的一个组件，既没有 Config 开关，自己也没有可禁用的席位——见下文。 |
 | 权限预设选择器 | *（不存在可禁用的行）* | `PermissionSelect` 是 `ui-conversation` 自己的输入框控件，数据来自 Host 仍在提供的 `permission-presets` 投影；它的「Workspace Write」标签由预设的机器名逐词首字母大写转出，因此也没有任何 locale 条目能触达它——见下文。 |
 | `/permission` | *（不存在可禁用的行）* | `@deepseek-ai/dsh-permission-presets` 是在 `ctx.inject(['commands'], …)` 里注册这条命令的，而这个注册表还有本控制台组合的另外四类消费者，因此控制台的权限锁改为只在那一行上隔离这个名字——见下文。 |
+| 无标题对话的会话标题栏 | *（不存在可禁用的行）* | 标题栏的当前面包屑是会话列表的 `displayTitle`，它会退回到工作目录的末段名；`UntitledTitle.tsx` 在那个位置画出本包自己的文案——见下文。 |
+| Settings → General 里的压缩行 | *（不禁用：它们的包仍在组合里）* | `dsh-client-ui-chat` 的「繁忙时的压缩行为」行与 `@haoran/dsh-auto-compact` 的开关加滑块行；`settings-rows.ts` 在它们的列表槽位里把两行都遮蔽掉——见下文。 |
 
 轮次/步骤状态行没有官方通路可以移除，本包因此退回到一个作用域受限的 CSS 注入：一个仅在客户端运行的 effect（`terminology-guard.ts`）向文档头部插入 `[data-composer-card] + * { display: none !important; }`。`data-composer-card` 是输入框自己的卡片外层（`InputBar.tsx`）；它的下一个兄弟节点是输入框的footer/dock 区域，在出厂组合里这个区域只承载 `StatsLine`（`conversation.composer.dock`，序号 0）——因此今天这条规则恰好只会隐藏轮次/步骤这一行，但它是一个与 DOM 顺序耦合的选择器,不是一个 Config 开关：未来任何插件注册进 `conversation.composer.dock`，或者输入框自身标记结构的一次重排，都会在两边任何测试都察觉不到的情况下，悄悄改变这条规则实际隐藏的内容。本包自己的 e2e 场景（`apps/web/tests/server-sidebar.e2e.ts`）钉住了这一点，一旦这一行重新可见就会让这条门禁失败。
 
@@ -187,6 +189,10 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 控制台不向终端用户提供任何形式的权限开关（产品决策，2026-09-07），因此剩下两个入口由控制台包在组合层关掉。Settings → General 的默认值行有自己的行——`ui-permission`，直接禁用。`/permission` 则既没有可禁用的行，也没有 Config 开关：`@deepseek-ai/dsh-permission-presets` 是在 `ctx.inject(['commands'], …)` 里注册它的；整个拿掉 `commands` 注册表这条路也不通——切换条的标签与关闭按钮、侧栏的导航行、`show_component` 的按下回传路径，以及 `SessionFace.command()` 都注入了它。锁 overlay 改为只在那一行上写 `isolate: { commands: true }`：loader 会为这个名字铸一个 entry 本地的 realm，那里没有任何东西实现 `commands`，被注入的子上下文因而永不激活，这条命令也就从未注册——于是 `commands.list` 不会点到它的名字，斜杠菜单也没有需要过滤的行。隔离是按 entry 生效的，所以其余每一个消费者拿到的仍是 base bundle 组合进来的那个注册表；这一行上也没有别的东西被隔离：预设表、`permissions` 投影、该包安装的 Settings 分区，以及权限执行本身，都原样不变。三条写入路径都没了之后，锁 overlay 把生效的预设写明而不是留给推断——`defaultPreset: workspace-write`，也就是组合出的沙箱与审批默认值本来就会解析到的那一个，由该包自己的 `pinInitialPermission` 钉进每一个新会话。
 
 新会话拿到的就是这个值。`permission` 行位于 `@deepseek-ai/dsh-experimental-console-profile` 的 `permission-lock.patch.yml`，以 `--patch` 或 home 补丁应用——settings 服务把这两层排在自己写入的当前 profile 补丁之上（见 [settings README](../../settings/settings/README.zh.md)）：对 `permission.defaultPreset` 的设置写入会被拒绝，早先版本存在 `settings.yaml` 里的值也不会被导入 profile——导入会记录这次拒绝，值留在 `settings.yaml.imported` 里。`remote.settings` 这条写入路径也依然能从浏览器够到——那是一台不带应用内鉴权运行的控制台的固有属性，不是这份锁改出来的。
+
+没有持久标题的对话，会在会话标题栏里显示会话列表的 `displayTitle`，而这个值是会话工作目录的末段名——控制台部署上就是 `workspace`——会话那一行尚未到达时则是光秃秃的会话 id。标题栏的标题槽位没有可替换的席位：它的子席位由 `dsh-client-ui-conversation` 自己的条目声明，遮蔽它的条目渲染不了这些子席位。本包因此把 `UntitledTitle.tsx` 注册为标题栏 `conversation.session.header.actions` 列表的第一个条目（序号 -100，低于子代理目录的 -30）。只要会话没有非空的持久 `title`、也不是委派出来的会话，它就渲染 locale 键 `header.untitled`——工作台 / Workbench——并带上标记 `data-server-sidebar-untitled-title`，`terminology-guard.ts` 则隐藏任何带有这个标记的标题栏 `titleCluster` 里的面包屑 `nav`。有持久标题的对话在这里什么都不渲染，保留自己的面包屑，所以已有的无标题对话不改任何数据就显示为工作台。e2e 场景断言替换文案在两种语言下都可见，而面包屑在 DOM 里存在且不渲染任何内容。
+
+Settings → General 里有两行是被遮蔽而不是被禁用，因为它们的包仍在组合里：`dsh-client-ui-chat` 的「繁忙时的压缩行为」行（列表 id `busy-compaction`），它决定回答进行中输入的 `/compact` 何时执行；以及 `@haoran/dsh-auto-compact` 的开关加滑块行（`auto-compact`），它的比例由控制台 bundle 定在 60%。`settings.general.item` 是一个列表槽位，它的格子就是条目 id，格子里优先级最低的条目才会渲染，所以 `settings-rows.ts` 在每个 id 下以优先级 -1 注册一个什么都不渲染的条目，所属包在默认优先级 0 注册的行就永远不会挂载。两个包都保留各自的 Config：`busyCompaction` 保持 `turn-end`，自动压缩按 bundle 的 60% 运行，它在对话里的压缩行照常显示。改了名的 id 不再被遮蔽，那一行会重新出现，e2e 场景对打开的设置页的检查会抓住这一点。
 
 <a id="brand-and-hero-facade"></a>
 ## 品牌与英雄区门面
@@ -217,7 +223,9 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 - **字面上的 240px 并非独立强制的。** 本外壳从不固定一个内联像素宽度；它按其 owner（`dsh-experimental-server-layout`）交给它的 `width` 渲染，也从不触发折叠。`server-layout` 冻结的 3:16:5 轨道比例恰好在其自身 1920px 参考帧宽下等于 240px（`1920 * 3/24 = 240`），但在任何其他帧宽下这一栏是等比例的，而非固定的。要让它真正固定，需要改动 `server-layout` 自己那份冻结、刻意不可配置的几何设定，这超出了本次改动的范围。
 - **决策③的用户消息判断是一个分页窗口内的近似值。** 「存为工作流」的可见性读取 `useSession(s => s.chat.legacy.nodes)`，与 `StatsLine.tsx` 读取的是同一个分页会话快照窗口——一条足够早、已经分页出这个窗口的用户消息不会被发现。要做到整份日志级别的判断，需要新增一个本 v1 没有引入的持久投影。
-- **轮次/步骤状态行与权限预设选择器都由耦合式 CSS 选择器隐藏，而非 Config 开关。** 一个耦合在 DOM 顺序上，另一个耦合在两个 CSS module 类名子串上；各自具体的脆弱之处与钉住它们的手段见上文「去术语化」。
+- **轮次/步骤状态行、权限预设选择器与无标题对话的标题栏面包屑都由耦合式 CSS 选择器隐藏，而非 Config 开关。** 第一个耦合在 DOM 顺序上，另外两个耦合在 CSS module 类名子串上；各自具体的脆弱之处与钉住它们的手段见上文「去术语化」。
+- **标题栏替换只覆盖当前对话自己的面包屑。** 委派出来的对话，其面包屑按 `displayTitle` 显示父对话，而无标题父对话的 `displayTitle` 就是目录末段名。控制台的预设不做任何委派，所以控制台里没有这样的面包屑。
+- **隐去的压缩设置仍可写入。** `busyCompaction`、`enabled` 与 `thresholdPercent` 都是 volatile Config，所以 `remote.settings` 方法仍接受部署放行的任何浏览器对它们的写入；去掉的只是页面上的控件。
 - **访客在升级前存下的预设会被丢弃。** 锁 overlay 的 `defaultPreset` 位于 profile 补丁之上的层，因此 `settings.yaml` 的一次性导入会拒绝存下的 `permission` 分区，把它留在 `settings.yaml.imported` 里——见上文「去术语化」。
 - **手打 `/permission` 仍然会发出一条消息。** 这个名字下既没有宿主描述符也没有客户端贡献，触发层的 Enter 裁决因此解析不出任何东西，输入框的默认落点把这一行当作普通文本提交：`/permission read-only` 会作为一条 `user/message` 落到日志上并开启一个轮次，模型读到的就是这两个词，除此之外什么也不会发生——没有 `permission/preset` 事件，权限 chip 的 `aria-label` 仍然是被钉住的那个预设。要堵住它，需要一种命令层表达不了的拒绝：注册表的一个条目只能添加一行，无法认领一个它拒绝服务的名字。
 - **`navSnapshot` 只捕获 导航 菜单列出的东西。** `captureNavSnapshot` 只在合并目录里能查到某个条目的 `{kind, entryId}` 时才保留它，所以一个寻常 content 栏里的三样东西会从降级重建中掉队：agent 画的图表、模型自己用 `show_component` 展示的组件（它的 id 是模型自由写下的，不是一份配置好的视图），以及展示时部署确实配置过、但保存时已不再配置的页面或视图。

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-03-console-auto-compact-and-withheld-compaction-rows.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-03-console-auto-compact-and-withheld-compaction-rows.md
+/agent-note-the-console-compacts-automatically-at-60-and-withholds-both-compaction-rows-from-settings:
+  en: 2ec8faa50da9a2bb
+  zh: 530ecba99e975cc6
+/agent-note-the-console-compacts-automatically-at-60-and-withholds-both-compaction-rows-from-settings/problem:
+  en: bc84871bc73f5ed6
+  zh: 70ee2d45a6815ccf
+/agent-note-the-console-compacts-automatically-at-60-and-withholds-both-compaction-rows-from-settings/decision:
+  en: b9a6d866535e55ff
+  zh: b13f5ef675e51e85
+/agent-note-the-console-compacts-automatically-at-60-and-withholds-both-compaction-rows-from-settings/alternatives-considered:
+  en: 3ec3995512c1a9d6
+  zh: 448bbd17ae24ae6e
+/agent-note-the-console-compacts-automatically-at-60-and-withholds-both-compaction-rows-from-settings/consequences:
+  en: 2301385d9f40881c
+  zh: c66ddcd818293a86

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces that show internal vocabulary or developer tools, mounts the bundled library skills, declares the `console` Agent preset, and disables every shipped Agent preset. Its second file, `permission-lock.patch.yml`, pins the console's access presets and makes `console` the default Agent preset, in a layer above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned presets must not be.
+`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces that show internal vocabulary or developer tools, mounts the library skills, compacts conversations at 60% of the context window, declares the `console` Agent preset, and disables every shipped Agent preset. Its second file, `permission-lock.patch.yml`, pins the console's access presets and makes `console` the default Agent preset, in a layer above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned presets must not be.
 
 ## Table of Contents
 
@@ -55,7 +55,8 @@ The console bundle composes these changes over the shipped Web profile:
 | `ui-layout`, `ui-sidebar` | Disabled: their single slots are taken by the shell and the sidebar |
 | `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`, `ui-settings-models`, `ui-permission`, `ui-settings-session-log` | Disabled: internal vocabulary, official branding, and developer surfaces |
 | `ui-settings-plugins`, `ui-settings-plugin-inventory` | Disabled: Settings → Plugins, both tabs; the settings shell `ui-settings-general` stays |
-| `ui-chat` | Configured with `performanceUsage: compact`: Settings → General → Performance & usage starts at compact, so a completed answer shows no per-Turn token usage; a user's own choice is saved into the profile patch and outranks this default |
+| `ui-chat` | Configured with `performanceUsage: compact`: Settings → General → Performance & usage starts at compact, so a completed answer shows no per-Turn token usage; a user's own choice is saved into the profile patch and outranks this default. Its "Compaction while busy" row is withheld by `server-sidebar`, and `busyCompaction` keeps its default, `turn-end` |
+| `auto-compact` | Inserted from the vendored `vendor/haoran-dsh-auto-compact-0.5.1.tgz` with `enabled: true` and `thresholdPercent: 60`: between two steps of a turn, once the next model request would take more than 60% of the context window, the conversation is compacted before that request. The plugin reaches the compaction engine inside the `console` preset and its `standard` twin. Its Settings → General row is withheld by `server-sidebar`; a compaction in progress still shows its row in the conversation |
 | `preset-console` | Inserted: the `console` Agent preset — persona, `tool-fs`, `skill-filesystem`, `tool-skill`, the compaction group, `tool-ask-user`, and `tool-todo`; no shell, search, job, goal, plan, delegation, web, or `present` row |
 | `preset-standard-as-console` | Inserted: a `standard` Agent preset with exactly `console`'s plugins; a session resumes under the preset id it was created with, and sessions a console deployment created before `console` existed carry `standard` |
 | `preset-standard`, `preset-ptc`, `preset-minimal`, `preset-cordis` | Disabled: they carry the shell and the other developer rows, `cordis` also mounts `tool-cordis` and a skill that lists every workspace package, and `session.create` accepts an `agentPreset` over RPC, so hiding the picker is not enough; every session runs `console`'s plugins, under the id `console` or `standard` |
@@ -74,9 +75,12 @@ The layer order decides which file each row belongs in. A bundle layer composes 
 
 Disable rows address shipped entries by id alone. A bundle's plugin rows resolve through the bundle's own `dependencies`, which `scripts/verify-cordis-config.ts` enforces, and a disable row loads nothing.
 
+The vendored tarball declares its harness packages as optional peers. `@deepseek-ai/schemastery` is a runtime import of the plugin, so it is under `dependencies`; the type-only peers are under `devDependencies`. With them declared, the workspace install links each peer to the workspace copy; without them, pnpm resolves the missing peers from the registry and installs a second set of harness packages.
+
 | File | Role |
 |---|---|
-| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, the page's build check, MCP capability, library skills, the `console` Agent preset, and every disable row |
+| [`cordis.patch.yml`](cordis.patch.yml) | The bundle layer: shell, sidebar, the page's build check, MCP capability, library skills, automatic compaction, the `console` Agent preset, and every disable row |
+| `vendor/haoran-dsh-auto-compact-0.5.1.tgz` | `@haoran/dsh-auto-compact` 0.5.1 from the out-of-repo plugin repository, packed from a build of its pushed `main` and declared as `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"` |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission`, `agent-preset-registry`, and `session-log-deepseek` rows, applied above the profile patch |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the two patch files are the runtime content |
 | — | No runtime invariant companion is published; the package owns no mutable relationship. Loader and the profile's patch files own the composition. |
@@ -99,7 +103,7 @@ Disable rows address shipped entries by id alone. A bundle's plugin rows resolve
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction: show the data the user asks about through components, describe no working directory, tool, or internal implementation, and name tables, fields, layers, entries, and categories by their Chinese display names rather than by table names, entry ids, codes, or enum values. The `console-mcp` row offers each configured server's tools as `mcp__<server id>__<tool>` and nothing while its list is empty. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
+Indirectly, through the rows it composes. The `console` Agent preset decides the session's own tools: `read`, `write`, `edit`, `read_image`, `skill`, `ask_user_question`, and `todo_write`, beside the host plane's content-column tools, and its persona prefix is the customer assistant's instruction: show the data the user asks about through components, describe no working directory, tool, or internal implementation, and name tables, fields, layers, entries, and categories by their Chinese display names rather than by table names, entry ids, codes, or enum values; everything a user sees is written in Chinese, the opening sentence and the reasoning included, since the conversation's process rows show the reasoning. The `auto-compact` row decides when the model's history is condensed: from the step after a request would take more than 60% of the context window, the model reads long tool results cut to their start and end and, when that is not enough, a summary of the older history. The `console-mcp` row offers each configured server's tools as `mcp__<server id>__<tool>` and nothing while its list is empty. The `library-skills` row adds the bundled skills to the skill catalog, disabling the four shipped presets removes every other tool set a session could run under, and every other composed plugin owns its own model-visible contribution.
 
 #### KV Cache effect
 
@@ -111,6 +115,7 @@ None beyond the composed plugins' own; the skill catalog is prefix-stable while 
 
 - **The lock is a launch argument.** A deployment that starts the profile without `--patch permission-lock.patch.yml` and without the home patch gets the shipped preset names, `/permission` in the slash menu, a `defaultPreset` any settings write can change, and a Session-log upload one settings write away from on. Its Agent-preset default is the Web bundle's `standard`, which this bundle disables, so every new session fails with `agent-preset/not-found`.
 - **The MCP server list is deployment Config, not a setting.** `console-mcp.servers` sits in the bundle layer like the sidebar's menu, but it is not a `.volatile()` field: the settings service projects no form for it and refuses a write with `Plugin entry "console-mcp" has no volatile fields`, so no browser the deployment admits can add a server. A deployment names its servers by patching the row's `config` in its own layer, and a changed list takes effect when the row reloads. A bridged MCP tool declares no approval gate, so it runs under every access preset, under the credential the row's `auth` names.
+- **The two withheld compaction settings are still writable.** `auto-compact.enabled`, `auto-compact.thresholdPercent`, and `ui-chat.busyCompaction` are volatile Config in the bundle layer, so the page offers no control for them while the `remote.settings` method still accepts a write from any browser the deployment admits.
 - **The `console` preset keeps the file tools.** `tool-fs` lets the agent write the skills it distils into `<workspace>/.dsh/skills`, and it also lets it write any other file the `permission` preset's sandbox admits.
 
 <a id="dev-note"></a>
@@ -120,5 +125,7 @@ None beyond the composed plugins' own; the skill catalog is prefix-stable while 
 <summary>Working context for maintainers — click to expand</summary>
 
 `permission-lock.patch.yml` is published through the `packageFileExtras` table in `scripts/check-workspace-constraints.ts`.
+
+To replace the vendored `@haoran/dsh-auto-compact`, build the plugin from a clean copy of a pushed commit of its repository, not from a working checkout whose `lib/` may be older than its sources, run `pnpm pack`, put the tarball under `vendor/`, update the `file:` specifier, `tests/profile.spec.ts`, and the archive path in `OVERRIDES` of `scripts/gen-third-party-notices.ts`, and run `pnpm install`. The e2e harness links the unpacked copy under `node_modules/@haoran/dsh-auto-compact` into its profile (`apps/web/tests/server-sidebar.e2e.ts`).
 
 </details>
