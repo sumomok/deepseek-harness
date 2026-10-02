@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-03-console-prompt-without-developer-sections.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-03-console-prompt-without-developer-sections.md
+/agent-note-the-console-s-model-requests-carry-no-developer-prompt-sections:
+  en: e5759c2b2a10b23c
+  zh: 6a26d286711750ba
+/agent-note-the-console-s-model-requests-carry-no-developer-prompt-sections/problem:
+  en: 979c26f4df949565
+  zh: 5317421eb70e9e74
+/agent-note-the-console-s-model-requests-carry-no-developer-prompt-sections/decision:
+  en: 3d528275c13d8520
+  zh: 43b52c5a711099d1
+/agent-note-the-console-s-model-requests-carry-no-developer-prompt-sections/alternatives-considered:
+  en: 6818e218f3337a86
+  zh: d1c384c1179c2f14
+/agent-note-the-console-s-model-requests-carry-no-developer-prompt-sections/consequences:
+  en: 445891dfd5e03d8f
+  zh: 1f467696e8d1bcb6

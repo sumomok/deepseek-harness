@@ -563,11 +563,21 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // drifting).
   const basePatches = loadOverlayPatches('web e2e scaffold', BASE_PATCH_PATH)
   const surfacePatches = bundlePatchPaths(WEB_BUNDLE_DIR, WEB_BUNDLE_PATCH).flatMap(file => loadOverlayPatches('web e2e scaffold', file))
+  // An enabled profile package is a bundle layer after the Web bundle, so a
+  // `web-runtime` row it configures is part of the composed choice below.
+  const profileBundlePatches = (options.profile?.packages ?? []).filter(entry => entry.enabled === true).map((entry) => {
+    const manifest = JSON.parse(readFileSync(join(entry.dir, 'package.json'), 'utf8')) as {
+      dsh?: { bundle?: { patch: string | string[] } }
+    }
+    const bundle = manifest.dsh?.bundle
+    if (bundle === undefined) throw new Error(`web e2e scaffold: enabled profile package ${entry.dir} declares no dsh.bundle`)
+    return bundlePatchPaths(entry.dir, bundle).flatMap(file => loadOverlayPatches('web e2e scaffold', file))
+  })
   const extraOverlayPatches = options.extraOverlayPath === undefined
     ? []
     : (typeof options.extraOverlayPath === 'string' ? [options.extraOverlayPath] : options.extraOverlayPath)
       .flatMap(path => loadOverlayPatches('web e2e scaffold', path))
-  const composedRows = composeEntries([basePatches, surfacePatches, extraOverlayPatches])
+  const composedRows = composeEntries([basePatches, surfacePatches, ...profileBundlePatches, extraOverlayPatches])
   const webRuntimeConfig = composedRows.find(row => row.id === 'web-runtime')?.config as {
     surfaceContext?: boolean
   } | undefined

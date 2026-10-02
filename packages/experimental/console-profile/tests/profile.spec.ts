@@ -298,6 +298,26 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('client-hmr')?.disabled).toBe(true)
   })
 
+  it('turns the Web surface context off and restates the rest of the shipped `web-runtime` config', () => {
+    // A patch replaces the whole config: a field the Web bundle adds later and
+    // this row does not restate would fall to its schema default here.
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    const shippedConfig = shipped.get('web-runtime')?.config as Record<string, unknown> | undefined
+    expect(shipped.get('web-runtime')).toMatchObject({ name: '@deepseek-ai/dsh-web-app', config: { surfaceContext: true } })
+    expect(rowOf(CONSOLE_PATCH, 'web-runtime')).toEqual({ id: 'web-runtime', config: { ...shippedConfig, surfaceContext: false } })
+    // The row keeps the shipped `inject`, which the restated expressions read.
+    expect(byId.get('web-runtime')).toMatchObject({ name: '@deepseek-ai/dsh-web-app', inject: ['webStartup'] })
+    expect(byId.get('web-runtime')?.disabled).not.toBe(true)
+  })
+
+  it('removes the deliverables surface and its prompt section by id, while the shipped Web bundle still composes it', () => {
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    expect(rowOf(CONSOLE_PATCH, 'ui-deliverables')).toEqual({ id: 'ui-deliverables', disabled: true })
+    expect(shipped.get('ui-deliverables')).toMatchObject({ name: '@deepseek-ai/dsh-client-ui-deliverables' })
+    expect(shipped.get('ui-deliverables')?.disabled).not.toBe(true)
+    expect(byId.get('ui-deliverables')?.disabled).toBe(true)
+  })
+
   it('mounts the page\'s build check by package name in the bundle layer, stating its config', () => {
     expect(byId.get('page-refresh')).toMatchObject({
       name: '@deepseek-ai/dsh-experimental-page-refresh',

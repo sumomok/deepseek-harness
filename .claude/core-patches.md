@@ -708,13 +708,14 @@
 
 ## web-test-scaffold-console — web 测试脚手架的增补
 
-- **改了什么**：`apps/web/tests/scaffold.ts`：`LaunchOptions.commandLinePatchPath`（见第四轮适配）。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口、语言与时区。
-- **为什么**：登录门场景要在同一 context 里开第二个同源标签页；控制台锁要以 `--patch` 的形式组合。
+- **改了什么**：`apps/web/tests/scaffold.ts`：`LaunchOptions.commandLinePatchPath`（见第四轮适配）；沿用组合出的 `web-runtime.surfaceContext` 时，把启用的 profile 包也算进组合（见控制台提示词那一轮适配）。`apps/web/tests/support.ts`：新增 `newEnglishContext`，与 `newEnglishPage` 共用视口、语言与时区。
+- **为什么**：登录门场景要在同一 context 里开第二个同源标签页；控制台锁要以 `--patch` 的形式组合；控制台快照要钉住控制台 bundle 自己选的 `surfaceContext`。
 - **要达到的效果**：本线浏览器场景复用上游的起壳、录制与回放机制，不分叉脚手架。
 - **退役条件**：上游提供等价能力，或本线场景移出本仓。
 - **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。在役子件的核实依据：`dsh-v0.2.0-rc.2` 的 `scaffold.ts` 无 `commandLinePatchPath`，`support.ts` 无 `newEnglishContext`。
 - **本轮退役（`dsh-v0.1.7-rc.2` 第七轮）**：`recordFixture` 的 `afterSeed` 选项、`withoutSeededHistory`／`afterSeededHistory`、`stableSessionFixture` 的 `keep` 参数、`assertReplaySession` 里按种子边界剪日志的 `drivenLog`，以及回放模型目录旁那段本线注释，全部回到 `dsh-v0.1.7-rc.2` 的文本。机械依据：V4 日志里被驱动那一轮的 `system/message` 以 `surfaceOp.replace` 和 `sourceEventSeqs` 引用种子轮的序号，剪掉种子轮后的日志过不了 V4 的引用校验（`sourceEventSeqs ranges must contain unique earlier seqs`）。本线内容栏场景（`apps/web/tests/content-column.ts`）改为只种一个不含模型调用的轮次（`turn/start`、`content/shown`、`turn/end`），整段会话照上游方式录制与回放；图片场景的回放目录由 `content-column.ts` 经上游已有的 `replayProviders` 传入。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第四轮）**：`LaunchOptions` 新增 `commandLinePatchPath`：把一个补丁文件原样追加到 profile context 的 `overlays`，即启动器 `--patch` 所在的位置（`apps/cli/src/profile-boot.ts` 的 `overlays`），不经过 `extraOverlayPath` 那条把 `permission`、`agent-preset-registry` 等行的 config 挪进可编辑默认层的映射。用途：`server-sidebar.e2e.ts` 的「无工作区」describe 以 `--patch` 形式组合控制台锁，证明该形式同样拒绝 `defaultPreset` 写入（去掉该选项后同一用例失败：`promise resolved "undefined" instead of rejecting`）。
+- **本轮适配（控制台提示词去掉开发者段落）**：控制台 bundle 以 `web-runtime` 的 `surfaceContext: false` 去掉 `harness:source` 与 `app:web-surface` 两段。脚手架为关掉 URL 行与浏览器交接，在全部 profile 层之上重新应用 `web-runtime`，沿用的 `surfaceContext` 原先只从 base、Web bundle 与 `extraOverlayPath` 组合，作为 profile 包装进来的控制台 bundle 的 `false` 被改回 `true`。现在按 `dsh.profile.bundles` 的顺序把每个 `enabled` 的 profile 包的 `dsh.bundle.patch` 组合在 Web bundle 与 `extraOverlayPath` 之间；启用却不声明 `dsh.bundle` 的包直接报错。取回这一轮改动前的 `scaffold.ts` 后，`console-auto-compact` 回放以 `system-prompt pin` 不符失败。决定见 Agent Note [`console-prompt-without-developer-sections`](../.agents/notes/implemented/feature/2026-10-03-console-prompt-without-developer-sections.md)。
 - **路径**：`apps/web/tests/scaffold.ts` `apps/web/tests/support.ts`
 
 ## doc-budget-dead-examples-target — 删掉字数预算里不存在的 examples/AGENTS.md

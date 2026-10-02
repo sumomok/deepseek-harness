@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些会显示内部术语或开发者工具的出厂界面，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
+`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些带有内部术语或开发者工具内容的出厂界面与提示词段落，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
 
 ## 目录
 
@@ -52,6 +52,8 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `library-skills` | 插入：一个以 `@deepseek-ai/dsh-experimental-library-skills` 为根的隔离 `skill-filesystem` provider |
 | `page-refresh` | 插入，并写明它的默认配置：服务端换了构建后，已打开的页面重连时刷新一次，横幅提示连接断开；见 [`dsh-experimental-page-refresh`](../page-refresh/README.zh.md) |
 | `client-hmr` | 禁用：已打开的页面不再把新的插件包换进它正在运行的外壳。`pnpm run dev:web` 重新构建的插件包在宿主重启之前不会到达任何控制台页面，无论是已打开的还是新加载的；重新构建的外壳在下一次加载时就会服务出去，已打开的页面在下一次构建检查时刷新到这个外壳上，配的仍是旧插件包 |
+| `web-runtime` | 配置 `surfaceContext: false`，其余三个字段照抄 Web bundle 的值：模型请求里不再有 `harness:source` 段落（DeepSeek Harness 检出目录的路径）和 `app:web-surface` 段落（页面的本地 URL 与 `pnpm run dev:web`），shell 命令也拿不到 `DSH_WEB_URL`——只有 `bash` 与 `pwsh` 工具读它，而两个控制台预设都不提供这两个工具 |
+| `ui-deliverables` | 禁用：它的提示词段落告诉模型何时调用 `present`，而两个控制台预设都不提供这个工具；这一段从此不进入任何模型请求，一起去掉的还有改动文件卡片（只在开启代码工作工具时绘制）、交付卡片、收尾回答里可点击的文件路径，以及它们打开的审阅标签页 |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
@@ -103,7 +105,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从一次会占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从一次会占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`web-runtime` 行的 `surfaceContext: false` 与被禁用的 `ui-deliverables` 行让三段 Web bundle 内容不进入提示词：DeepSeek Harness 检出目录的路径、Web GUI 的本地 URL 及其重新构建说明，以及如何展示结果、何时调用 `present` 的指引。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 
@@ -129,6 +131,6 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer。`@deepsee
 
 要替换 vendored 的 `@haoran/dsh-auto-compact`，从插件仓库某个已推送提交的干净副本构建，而不是从 `lib/` 可能比源码旧的工作检出构建，运行 `pnpm pack`，把 tarball 放到 `vendor/` 下，更新 `file:` 说明符、`tests/profile.spec.ts` 与 `scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 里的归档路径，再运行 `pnpm install`。e2e 脚手架把解包在 `node_modules/@haoran/dsh-auto-compact` 下的那一份链接进它的 profile（`apps/web/tests/server-sidebar.e2e.ts`）。
 
-Web 快照 `console-auto-compact`（`snapshots/web/console-auto-compact`，由 `apps/web/tests/server-sidebar.e2e.ts` 驱动）经由本 bundle、作为 home 补丁的锁与一个部署层，在一条模型报告 200,000 token 窗口的回放路由上重放一段编写好的对话。它钉住这个组合的系统提示词与工具 schema、第二次回复报告占用窗口 62.5% 之后在第三轮第一次请求之前发生的那次压缩，以及压缩落定后的 Chat 栏；同一个 describe 里另有两次无 key 的运行，检查 57.5% 时什么都不压缩、`standard` 孪生预设在 62.5% 时同样压缩。改动 persona、技能目录或任何被组合的工具都会改变这个钉子：用 `DSH_SNAPSHOT=refresh` 重跑那个 describe，并审阅这些附属文件。
+Web 快照 `console-auto-compact`（`snapshots/web/console-auto-compact`，由 `apps/web/tests/server-sidebar.e2e.ts` 驱动）经由本 bundle、作为 home 补丁的锁与一个部署层，在一条模型报告 200,000 token 窗口的回放路由上重放一段编写好的对话。它钉住这个组合的系统提示词与工具 schema、第二次回复报告占用窗口 62.5% 之后在第三轮第一次请求之前发生的那次压缩，以及压缩落定后的 Chat 栏；同一个 describe 里另有两次无 key 的运行，检查 57.5% 时什么都不压缩、`standard` 孪生预设在 62.5% 时同样压缩。改动 persona、技能目录、任何被组合的工具或任何添加提示词段落的行都会改变这个钉子：用 `DSH_SNAPSHOT=refresh` 重跑那个 describe，并审阅这些附属文件。
 
 </details>

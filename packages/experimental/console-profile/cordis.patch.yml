@@ -131,6 +131,33 @@
 - id: client-hmr
   disabled: true
 
+# No model request carries the Web bundle's developer orientation. With
+# `surfaceContext: false` the `web-runtime` row registers neither the
+# `harness:source` prompt section (the path of the DeepSeek Harness checkout,
+# for inspecting or extending DSH) nor `app:web-surface` (the page's local URL,
+# `pnpm run dev:web`, and rebuilding the Web artifacts), nor the `DSH_WEB_URL`
+# variable it adds to a shell command's environment. The flag gates those three
+# registrations and nothing else, and only the `bash` and `pwsh` tools read the
+# variable; neither console preset offers them. A patch replaces a row's whole
+# config, so the other three fields restate the Web bundle's own values
+# (`tests/profile.spec.ts` checks that the two rows name the same fields).
+- id: web-runtime
+  config:
+    openBrowser: !!js ctx.webStartup.openBrowser
+    printUrl: true
+    surfaceContext: false
+    trustedHosts: !!js ctx.webStartup.trustedHosts
+
+# `ui-deliverables` registers its `ui:deliverable-file-references` prompt
+# section unconditionally: how to show results inline, when to call `present`,
+# and how to link file paths. Neither console preset offers `present`, and the
+# package has no Config, so the row goes; its README names removing the row as
+# the way to turn the surface off. With it go the changed-files card (drawn only
+# with Coding Tools on), the delivery cards `present` produces, clickable file
+# paths in a closing answer, and the review tab those open.
+- id: ui-deliverables
+  disabled: true
+
 # The internal-testing notice ("内测声明") is `ui-settings-models`'s own
 # `settings.onboarding` step, shown once per acknowledgement version; the same
 # package registers the Models settings section and the DeepSeek credential
