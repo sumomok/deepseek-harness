@@ -590,11 +590,11 @@ describe('WITHDRAWN_WEB_BUNDLES', () => {
     expect(BUILTIN_WEB_BUNDLES).not.toContain('@haoran/dsh-plugin-updates')
   })
 
-  // 0.1.0-rc.20 through rc.36 seeded it into the desktop profile; the default
+  // 0.1.0-rc.20 through rc.36.1 seeded it into the desktop profile; the default
   // model and the model catalog are upstream's from 0.1.0-rc.37. The cases
   // below run on it like on every other name here: the entry goes where the
   // name no longer resolves, and a copy the profile installed itself stays.
-  it('takes back @haoran/dsh-default-model, which rc.20 through rc.36 seeded', () => {
+  it('takes back @haoran/dsh-default-model, which rc.20 through rc.36.1 seeded', () => {
     expect(WITHDRAWN_WEB_BUNDLES).toContain('@haoran/dsh-default-model')
     expect(BUILTIN_WEB_BUNDLES).not.toContain('@haoran/dsh-default-model')
   })
