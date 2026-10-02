@@ -14,7 +14,7 @@ Status: implemented
 
 [`apps/desktop-shell/tests/vendored-client-runtime.client.spec.ts`](../../../../apps/desktop-shell/tests/vendored-client-runtime.client.spec.ts) 在 jsdom 里、不依赖仓库构建，用出厂页面真正使用的运行时加载并 apply 每个内置插件的浏览器半边。
 
-条目来自 [`BUILTIN_WEB_BUNDLES`](../../../../apps/desktop-shell/src/profile-seed.ts)，经[部署根](../../../../apps/desktop-server/package.json)的清单解析，而那正是载荷随包发出的 `node_modules` 闭包：凡声明了 `dsh.client` 的名字都贡献其声明的 `./client` 产物，两个没有声明的（`@haoran/dsh-default-model` 和组合层 `@deepseek-ai/dsh-desktop-app`）则在用例里被点名，这样某个包日后长出浏览器半边时，就无法只进载荷而不进门禁。被覆盖的每一条都是 `file:` 压缩包依赖，这也是这套用例能读到真实构建产物 `lib/client.js`、同时自己把工作区导入解析到源码的原因。
+条目来自 [`BUILTIN_WEB_BUNDLES`](../../../../apps/desktop-shell/src/profile-seed.ts)，经[部署根](../../../../apps/desktop-server/package.json)的清单解析，而那正是载荷随包发出的 `node_modules` 闭包：凡声明了 `dsh.client` 的名字都贡献其声明的 `./client` 产物，而每个 vendor 的内置插件都声明了。组合层 `@deepseek-ai/dsh-desktop-app` 在本仓库构建而非 vendor，在用例里被点名，所以某个 vendor 的包日后去掉浏览器半边时，会让覆盖用例失败，而不是悄悄离开门禁。没有声明的 `@haoran/dsh-default-model` 曾与它一起被点名，直到 [0.1.0-rc.37 把它撤下](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)。被覆盖的每一条都是 `file:` 压缩包依赖，这也是这套用例能读到真实构建产物 `lib/client.js`、同时自己把工作区导入解析到源码的原因。
 
 bundle 经生产的 [`ClientModuleSystem`](../../../../packages/client/modules/src/client/system.ts) 抵达，模块表种子就是外壳共享的那份 `getStaticModules()`，所以一个 bundle 若请求模块表之外的说明符，在这里失败的方式与在页面上完全一致。随后每个半边在一个 Cordis 根上 apply，这个根携带生产的 SlotRegistry、`LocaleRuntime`、`UiConversation`、输入触发服务、Typert 注册表，以及掌管命名空间与方法规则的 Client Remote 服务。每个插件各有一张页面，另有一条用例把整套插件 apply 在同一张页面上，这正是出厂客户端的做法。
 

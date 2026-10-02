@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-01-desktop-model-catalog-follows-upstream.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-10-01-desktop-model-catalog-follows-upstream.md
+/agent-note-the-desktop-s-model-catalog-follows-upstream:
+  en: 260628625ec6b317
+  zh: ed2af4dbd008226f
+/agent-note-the-desktop-s-model-catalog-follows-upstream/problem:
+  en: de3cea845ffdc7f8
+  zh: 3c4042d1fe2111c1
+/agent-note-the-desktop-s-model-catalog-follows-upstream/decision:
+  en: b5861c02c103fc2c
+  zh: 216d1e215d779db0
+/agent-note-the-desktop-s-model-catalog-follows-upstream/what-the-catalog-change-costs-a-v4-pro-session:
+  en: 9532fa3f53b52976
+  zh: a2590433a1852fd9
+/agent-note-the-desktop-s-model-catalog-follows-upstream/alternatives-considered:
+  en: b8c96b4650366829
+  zh: 98b78fc145d7e898
+/agent-note-the-desktop-s-model-catalog-follows-upstream/consequences:
+  en: 907aebfceaa5656a
+  zh: bee5b12ba6ebad11
+/agent-note-the-desktop-s-model-catalog-follows-upstream/related:
+  en: aa4c7d64eb29fc59
+  zh: 79c2efd352a4de93

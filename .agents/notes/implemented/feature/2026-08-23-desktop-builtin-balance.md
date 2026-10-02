@@ -40,7 +40,7 @@ The harness already has the numbers. Every `assistant/message` session event car
 
 **Its runtime dependency survives the payload collapse.** `zod` is a real dependency of the host and Typert faces, not a peer, and `scripts/bundle-closure.ts` deletes every third-party package nothing reachable imports. It is kept because the reachability walk starts from the profile bundles as well as from `@deepseek-ai/*`: the package declares `dsh.bundle`, so it is kept whole and joins the `external` set, and the walk then finds `from "zod"` in its shipped files and keeps `zod` with it. Replaying the walk's own `specifierFor` against the installed tree confirms it, and the range is the `^4.4.3` every workspace package already uses, so the payload carries one copy. Nothing it needs is lost to the copy filter either: `PRUNE_SUFFIXES` drops `.map` and `.ts`, and all five of its `exports` targets — `lib/index.js`, `lib/client.js`, `lib/typert.js`, `cordis.patch.yml`, `package.json` — are on the other side of that filter.
 
-**Seed order.** The name is appended after the two conversation plugins and before `@haoran/dsh-default-model`, which stays the last bundle layer on a fresh profile. Nothing depends on the order: this layer inserts one row with its own id and patches no entry any other layer sets.
+**Seed order.** The name is appended after the two conversation plugins and before `@haoran/dsh-default-model`, which stayed the last plugin bundle layer on a fresh profile until [0.1.0-rc.37 withdrew it](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.md). Nothing depends on the order: this layer inserts one row with its own id and patches no entry any other layer sets.
 
 ## Security posture
 

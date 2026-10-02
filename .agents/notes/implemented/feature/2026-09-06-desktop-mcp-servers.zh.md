@@ -22,7 +22,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ### 在 bundle 栈里的位置
 
-这个名字追加在 `BUILTIN_WEB_BUNDLES`([`apps/desktop-shell/src/profile-seed.ts`](../../../../apps/desktop-shell/src/profile-seed.ts))里 `@haoran/dsh-default-model` 之后、`@haoran/dsh-btw` 之前。除了两层 patch 同一个条目 id 的情况,层与层之间的顺序不决定任何事:`@haoran/dsh-default-model` 替换掉 `agent-default-model` 与 `llm-deepseek` 两行的整个 `config`,所以其后的层不得再瞄准这两个 id,而本插件的 `cordis.patch.yml` 只在 `mcp-servers` 这个自有 id 下插入一行,没有别的层设置它。`product/server-console` 线上的 `feat/desktop-content-search` 分支追加了 `@deepseek-ai/dsh-desktop-app`,那边要求它留在末位;两条分支合到一起时,那个名字排在本列表所有名字之后。
+这个名字追加在 `BUILTIN_WEB_BUNDLES`([`apps/desktop-shell/src/profile-seed.ts`](../../../../apps/desktop-shell/src/profile-seed.ts))里 `@haoran/dsh-vision-switch` 之后、`@haoran/dsh-btw` 之前。除了两层 patch 同一个条目 id 的情况,层与层之间的顺序不决定任何事,而本插件的 `cordis.patch.yml` 只在 `mcp-servers` 这个自有 id 下插入一行,没有别的层设置它。直到 [0.1.0-rc.37 把它撤下](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md),`@haoran/dsh-default-model` 都紧排在它之前,替换掉 `agent-default-model` 与 `llm-deepseek` 两行的整个 `config`。`product/server-console` 线上的 `feat/desktop-content-search` 分支追加了 `@deepseek-ai/dsh-desktop-app`,那边要求它留在末位;两条分支合到一起时,那个名字排在本列表所有名字之后。
 
 ### 挂上它,桌面端让出了什么
 

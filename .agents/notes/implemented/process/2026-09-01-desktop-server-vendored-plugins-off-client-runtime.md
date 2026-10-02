@@ -10,7 +10,7 @@ English | [中文](2026-09-01-desktop-server-vendored-plugins-off-client-runtime
 
 ## Decision
 
-Seven of the nine plugins (all but `@haoran/dsh-default-model` and `@haoran/dsh-llm-permission-gateway`, which never depended on `dsh-client-runtime`) were fixed at the source in the separate `dsh-plugins` repository, each on its own version bump and commit, then re-packed and re-vendored here:
+Seven of the nine plugins (all but `@haoran/dsh-default-model`, since [withdrawn in 0.1.0-rc.37](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.md), and `@haoran/dsh-llm-permission-gateway`, which never depended on `dsh-client-runtime`) were fixed at the source in the separate `dsh-plugins` repository, each on its own version bump and commit, then re-packed and re-vendored here:
 
 | Plugin | New version | Tarball sha256 |
 |---|---|---|

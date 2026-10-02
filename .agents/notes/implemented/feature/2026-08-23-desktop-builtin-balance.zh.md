@@ -40,7 +40,7 @@ harness 本来就有这些数。每条 `assistant/message` 会话事件都带着
 
 **它的运行时依赖挺过了载荷坍缩。**`zod` 是宿主面与 Typert 面真正的依赖,不是 peer,而 `scripts/bundle-closure.ts` 会删掉每一个没有可达者 import 的第三方包。它被保留下来,是因为可达性遍历除了从 `@deepseek-ai/*` 出发,也从 profile bundle 出发:这个包声明了 `dsh.bundle`,于是被整个保留并加入 `external` 集合,遍历随后在它随包分发的文件里找到 `from "zod"`,把 `zod` 一起留下。拿遍历自己的 `specifierFor` 对着已安装的树重放一遍可以确认这一点;而它的范围就是每个 workspace 包都在用的 `^4.4.3`,所以载荷只带一份。它需要的东西也没有一样丢在拷贝过滤器上:`PRUNE_SUFFIXES` 丢掉 `.map` 与 `.ts`,而它 `exports` 的五个目标——`lib/index.js`、`lib/client.js`、`lib/typert.js`、`cordis.patch.yml`、`package.json`——都在那道过滤器的另一侧。
 
-**播种顺序。**名字追加在两个对话插件之后、`@haoran/dsh-default-model` 之前,后者在全新 profile 上仍是最后一层 bundle。顺序其实什么都不影响:这一层插入一行、用的是它自己的 id,不 patch 任何别的层设过的条目。
+**播种顺序。**名字追加在两个对话插件之后、`@haoran/dsh-default-model` 之前,后者在全新 profile 上一直是最后一层插件 bundle,直到 [0.1.0-rc.37 把它撤下](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)。顺序其实什么都不影响:这一层插入一行、用的是它自己的 id,不 patch 任何别的层设过的条目。
 
 ## Security posture
 

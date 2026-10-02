@@ -34,7 +34,7 @@ Status: implemented
 
 **这个上限属于供应商那一行，不属于重试插件。**`llm-retry` 的 `Config` 是 `Readonly<Record<string, never>>`，它的 `validateConfig` 对任何键都抛错，遇到 `retryPolicy` 时答的是 `retryPolicy belongs under each provider configuration`。策略是适配器注册路由时捕获的、按路由持有的状态，所以配置它的地方就是 `llm-deepseek`。`llm-pi-ai` 不是第二个可设之处：它的 `retryPolicy` 是用户设置文档里每个 provider profile 的字段，不是插件配置键，而且它的错误分类是对被压平的 SDK 消息做正则，根本还原不出 `Retry-After`，这个值在那里无事可做。
 
-**这一行重述了模型目录。**`@haoran/dsh-default-model` 是本层下方的一个内置插件层，它对同一个 `llm-deepseek` id 做了一次整表替换式的 `models` patch，其中带着桌面新会话所用的视觉模型那一行。patch 是把 `config` 整个赋过去的，所以这里若只写 `retryPolicy`，就会把那份目录连同模型选择器一起删掉。测试把两份目录逐项比对，于是那个包里的目录一旦变动，就是这里的一条挂掉的用例，而不是现场少了个模型。`@deepseek-ai/dsh-llm-deepseek` 自带一行 `deepseek-flash`，所以这一行是重述出厂那一行，而不是补上适配器没有的一行：名字与描述是本部署自己的，其余每个字段都从适配器那里照抄——首先是 `systemPromptUpdate: in-history`，它缺席就会让循环在会话中途改写系统节点 0，丢掉供应商的前缀缓存。测试读取两边的行并逐键比对，于是上游新加的字段会在那里失败，而不是被组合成一行悄悄丢掉它。
+**这一行不设模型目录。**直到 0.1.0-rc.36,它都重述着一张只有一行的 `models` 表,因为本层下方的内置插件层 `@haoran/dsh-default-model` 在同一个 `llm-deepseek` id 上设了一张,而 patch 是整块赋值 `config` 的。[桌面端的模型目录以上游为准](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)把那个包和这张表一起撤下,于是这一行只设 `retryPolicy`,选择器列出 `@deepseek-ai/dsh-llm-deepseek` 自己的 `DEFAULT_MODELS`。测试用适配器自己的 `Config` 解析组合出的这一行,并把结果与适配器的出厂目录比较,所以 `models` 表一旦回到这一行,就会在那里失败。
 
 浏览器侧画的倒计时是裸秒——`Math.max(1, Math.ceil(ms / 1000))` 填进 `{label}（{retry}/{maximum}） · {seconds}s`——所以五分钟的等待从 `300s` 起倒数，展开行里则以毫秒陈述该时长。看得懂，但这个量级上分秒格式会更好读；此处所取的值并不依赖于那件事。
 
@@ -62,7 +62,7 @@ Status: implemented
 
 **把 `apps/*/cordis.patch.yml` 纳入 `scripts/verify-cordis-config.ts` 的某个 glob。**这道门禁的元数据扫描已经读到了这份文件——`cordisConfigFiles` 在全仓 glob `**/*cordis*.yml`——但那道「把 patch 行里点名的插件对着所属 bundle 自己的依赖去解析」的按 bundle 检查走的是 `bundleManifestPaths()` 的 `packages/*/*/package.json`，因此永远够不到 `apps/desktop-app`。把它放宽就是改一个上游脚本，也就是一条每次同步都要重新施加的 core-patch 台账，而 `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 已经用真实的十四层组合加载这份 patch 并断言它产出的那些行。
 
-**让本层接管整个 `llm-deepseek` 行，并把重述从 `@haoran/dsh-default-model` 里删掉。**这是目录耦合的终局：这一行只有一个归属方，就没有需要保持同步的表，测试也没有两份副本可比。它需要重新构建并重新 vendor 那份 tarball，而且会把模型目录从「选择默认模型的那个插件」搬进本仓库，所以这次维持重述现状。
+**让本层接管整个 `llm-deepseek` 行，并把重述从 `@haoran/dsh-default-model` 里删掉。**这是目录耦合的终局：这一行只有一个归属方，就没有需要保持同步的表，测试也没有两份副本可比。它需要重新构建并重新 vendor 那份 tarball，而且会把模型目录从「选择默认模型的那个插件」搬进本仓库，所以这次维持重述现状。[0.1.0-rc.37](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)走得比这个备选更远:它撤下了那个包,也把这张表从这一行删掉,目录交给适配器。
 
 ## Consequences
 

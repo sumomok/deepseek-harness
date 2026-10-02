@@ -32,7 +32,7 @@ Each of those thirteen had to be rebuilt against rc.2 anyway, and two of the tar
 
 ## Consequences
 
-The payload holds fourteen vendored tarballs, thirteen of them with a browser half; `@haoran/dsh-default-model` is patch-only. `@sumomok/dsh-balance` 0.6.1 and `@sumomok/dsh-quote-message` 0.4.0 run ahead of npm, which stops at 0.4.0 and 0.3.1.
+The payload held fourteen vendored tarballs on this base, thirteen of them with a browser half; `@haoran/dsh-default-model` was patch-only, and [0.1.0-rc.37 withdrew it](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.md). `@sumomok/dsh-balance` 0.6.1 and `@sumomok/dsh-quote-message` 0.4.0 run ahead of npm, which stops at 0.4.0 and 0.3.1.
 
 The `WITHDRAWN_WEB_BUNDLES` entry must stay while any installation at 0.1.0-rc.33 or earlier may still upgrade into this build. Dropping it earlier leaves the name, and a `skipping profile bundle` line on every boot, in each profile rc.33 seeded.
 
