@@ -14,7 +14,7 @@ Status: implemented
 
 ## Decision
 
-**控制台 bundle 以 `enabled: true` 与 `thresholdPercent: 60` 组合 `@haoran/dsh-auto-compact` 0.5.1。** 这一行位于 bundle 层 [`cordis.patch.yml`](../../../../packages/experimental/console-profile/cordis.patch.yml)，在 profile 补丁之下：两个字段都是 volatile，所以 60% 是继承值，保存进 profile 补丁的设置写入会覆盖它。插件是 host 平面的行，经 `ctx.agentPresets.serviceFor(agent, 'compaction')` 为每个 agent 找到它的引擎，能够到 `console` 预设及其 `standard` 孪生预设的 `compaction` 组；一旦够到一个引擎，它的 `compactionPolicy` 就回答 `isEnabled(): false`，`compaction-basic` 随之关掉自己的步间检查。插件的检查在一轮里的每一次模型请求之前运行，第一次也不例外。溢出恢复不变。
+**控制台 bundle 以 `enabled: true` 与 `thresholdPercent: 60` 组合 `@haoran/dsh-auto-compact` 0.5.1。** 这一行位于 bundle 层 [`cordis.patch.yml`](../../../../packages/experimental/console-profile/cordis.patch.yml)，在 profile 补丁之下：两个字段都是 volatile，所以 60% 是继承值，保存进 profile 补丁的设置写入会覆盖它。插件是 host 平面的行，经 `ctx.agentPresets.serviceFor(agent, 'compaction')` 为每个 agent 找到它的引擎，能够到 `console` 预设及其 `standard` 孪生预设的 `compaction` 组；一旦够到一个引擎，它的 `compactionPolicy` 就回答 `isEnabled(): false`，`compaction-basic` 随之关掉自己的步间检查。插件的检查在一轮里的每一次模型请求之前运行，第一次也不例外，计入的是这次请求之前已记录的历史；一轮的第一次请求之前，开启这一轮的那条消息尚未记录，不计入。溢出恢复不变。
 
 **插件以 vendored tarball 的形式进来。** `console-profile` 声明 `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"`，与 `component-kit` 引入它那几个 tarball 的写法相同。tarball 由插件仓库已推送的 `main` 的干净副本构建后打包。该包把它用到的 harness 包声明为可选 peer；`console-profile` 把插件运行时导入的 `@deepseek-ai/schemastery` 列在 `dependencies`，只用于类型的 peer 列在 `devDependencies`，工作区安装因而把每个 peer 都链接到工作区里的那一份。
 
@@ -40,11 +40,11 @@ Status: implemented
 
 **`link:` 到插件仓库。** 被链接的包会解析出它自己的 `@deepseek-ai/cordis`，第二份 Cordis 会破坏服务身份。
 
-**不声明那些 peer。** pnpm 会从 registry 解析缺少的可选 peer，在工作区那一套旁边再装进一套已发布的 harness 包。
+**不声明那些 peer。** pnpm 11.7.0 不会自己去取可选 peer，未声明的 peer 在插件旁边没有链接，插件运行时导入的 `@deepseek-ai/schemastery` 就没有可解析到的工作区副本。
 
 ## Consequences
 
-控制台对话会在一次会占用窗口 60% 以上的模型请求之前被压缩，一轮的第一次请求也算；若模型的窗口减去预留输出与后端余量后更小，则更早压缩；一次失败的尝试在同一轮内不再重复。从那次请求起，模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。
+一旦某次模型请求之前已记录的历史占用窗口 60% 以上，控制台对话就会在这次请求之前被压缩，一轮的第一次请求也算；若模型的窗口减去预留输出与后端余量后更小，则更早压缩；一次失败的尝试在同一轮内不再重复。一轮第一次请求之前的检查不计入刚发出的消息，所以一条很长的消息可能让这次请求超过 60% 而不触发压缩。一轮第一次请求之前的压缩进行时按停止，会结束这一轮并丢掉那条消息，它不会进入对话；这是 harness 自己的行为，触发点调低后更常碰到。从那次请求起，模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。
 
 客户看到的压缩：进行中是 `ui-chat` 的「正在压缩…」；落定后，这一轮的过程行里出现「已压缩较早的对话」；摘要失败时则单独一行显示「较早的对话压缩失败」。`compaction-basic` 按其摘要提示词的要求用英文写下的摘要，客户够不到；`ui-chat` 改掉的键不再被遮蔽，那一行会恢复原样。在输入框里手动输入的 `/compact` 仍画出 `ui-chat` 的命令卡片，带着计数和摘要。
 

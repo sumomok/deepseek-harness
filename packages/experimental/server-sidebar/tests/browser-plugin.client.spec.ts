@@ -6,8 +6,8 @@
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
- * title beside it, the withheld Settings entries, the
- * workbench/workflow/page
+ * title beside it with the workbench id it reads, the withheld Settings
+ * entries, the replaced compaction rows, the workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.

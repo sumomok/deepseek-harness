@@ -275,8 +275,8 @@ describe('the console layer over the shipped Web bundles', () => {
 
   it('leaves the settings shell composed, since it draws everything else on the page', () => {
     // `ui-settings-general` owns the panel, the navigation, and the General
-    // section. The open-configuration-file action it also registers is hidden
-    // by `terminology-guard.ts` instead.
+    // section. The open-configuration-file action it also registers is
+    // withheld by `server-sidebar`'s `settings-entries.ts` instead.
     expect(idsOf(CONSOLE_PATCH)).not.toContain('ui-settings-general')
     expect(byId.get('ui-settings-general')?.disabled).not.toBe(true)
   })

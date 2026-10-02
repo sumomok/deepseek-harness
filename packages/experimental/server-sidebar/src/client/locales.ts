@@ -1,11 +1,10 @@
 /**
  * `serverSidebar` namespace dictionaries: the three-section sidebar (工作台 /
- * 导航 / 我的工作流), the 临时工作流 section under it, and the two
- * session-header entries this package registers alongside them — the
- * "存为工作流" action and the title of an untitled conversation, which reads
- * `workbench.label` or `temporary.untitled` (`UntitledTitle.tsx`), and the
- * conversation's rows for a compaction that landed or failed
- * (`CompactionRows.tsx`). No
+ * 导航 / 我的工作流), the 临时工作流 section under it, the two session-header
+ * entries this package registers alongside them (the "存为工作流" action, and
+ * the title of an untitled conversation, which reads `workbench.label` or
+ * `temporary.untitled` in `UntitledTitle.tsx`), and the conversation's rows
+ * for a compaction that landed or failed (`CompactionRows.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -15,11 +14,11 @@
  * package README for the full rationale. `temporary.untitled` exists because
  * of that list: a conversation with no durable title of its own falls back to
  * this fixed copy rather than to the session list's own `displayTitle`, whose
- * lower rungs are a directory basename and a bare session id.
- * `temporary.error` carries no interpolation slot for
- * the same reason: a refused archive rejects with the host runtime's own
- * wording (`session archive failed: …`), so the refusal goes to the browser
- * console and the section says only that the removal did not go through.
+ * lower rungs are a directory basename and a bare session id. `temporary.error`
+ * carries no interpolation slot for the same reason: a refused archive rejects
+ * with the host runtime's own wording (`session archive failed: …`), so the
+ * refusal goes to the browser console and the section says only that the
+ * removal did not go through.
  */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */

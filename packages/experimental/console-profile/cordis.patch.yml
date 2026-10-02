@@ -315,10 +315,12 @@
         bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"
 
 # Automatic compaction at 60% of the context window. Before each model request
-# of a turn, the first included, the conversation is condensed when that request
-# would take more than 60% of the window (or the window minus the reserved
-# output and the compaction backend's headroom, whichever is less), and the turn
-# carries on. `@haoran/dsh-auto-compact` is an out-of-repo plugin, vendored
+# of a turn, the first included, the conversation is condensed when the history
+# already recorded takes more than 60% of the window (or the window minus the
+# reserved output and the compaction backend's headroom, whichever is less), and
+# the turn carries on. Before a turn's first request that history ends before
+# the message just sent, which the check does not count.
+# `@haoran/dsh-auto-compact` is an out-of-repo plugin, vendored
 # as `vendor/haoran-dsh-auto-compact-0.5.1.tgz` and declared under
 # `dependencies` as a `file:` tarball.
 #
