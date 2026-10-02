@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { HANDOFF_READY_LINE, holdLoopbackPort, LISTEN_HANDOFF_ENV, type HeldListenSocket } from '../src/listen-socket.ts'
-import { ListenHandoffFailed, startServer, type ServerExitInfo, type ServerHandle, type ServerSpec } from '../src/server.ts'
+import { HANDOFF_READY_LINE, handoffListeningLine, holdLoopbackPort, LISTEN_HANDOFF_ENV, type HeldListenSocket } from '../src/listen-socket.ts'
+import { ListenHandoffFailed, ServerExitedBeforeUrl, startServer, type ServerExitInfo, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
 /** The preload under test, run from source as Node strips its types. */
 const PRELOAD = fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.url))
@@ -383,6 +383,16 @@ describe('a server started on a held socket', () => {
 })
 
 describe('a handoff that cannot hold', () => {
+  it('leaves a listen for the held port on another address to bind on its own', async () => {
+    const socket = hold()
+    // The wildcard bind succeeds beside the held loopback bind on macOS and
+    // can meet EADDRINUSE elsewhere; either way the preload did not take it.
+    const rejection = await failure(specFor(socket, { ENTRY_BEHAVIOR: 'wildcard' }))
+    const output = rejection instanceof ListenHandoffFailed || rejection instanceof ServerExitedBeforeUrl ? rejection.output : undefined
+    expect(output).toBeDefined()
+    expect(output).not.toContain(handoffListeningLine(socket.port))
+  })
+
   it('ends the server rather than leave it listening on every interface when the socket was never bound', async () => {
     const taken = await takePort()
     const create = net._createServerHandle
