@@ -19,9 +19,12 @@
  * | Route | Answer |
  * |---|---|
  * | `GET /state` | `200` — the {@link UpdateSnapshot} as its own JSON object |
- * | `POST /check` | `202` — the snapshot; a check runs in the background and downloads what it finds |
- * | `POST /download` | `202` — the snapshot; the transfer of the version already found is (re)started |
+ * | `POST /check` | `202` — `{ "ok": true }`; a check runs in the background and downloads what it finds |
+ * | `POST /download` | `202` — `{ "ok": true }`; the transfer of the version already found is (re)started |
  * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
+ *
+ * The three `POST` routes answer alike. `/check` and `/download` answer once
+ * the work is started, and `GET /state` reports how that work goes.
  *
  * Every other path and method is `404`, decided before the token is read, so
  * the answer says nothing about what this service offers to a caller that
@@ -161,7 +164,7 @@ export async function startUpdateService(spec: UpdateServiceSpec): Promise<Updat
     }
     if (route === 'check') spec.check()
     else spec.download()
-    sendJson(response, 202, spec.state())
+    sendJson(response, 202, { ok: true })
   }
 
   const server = createServer((request, response) => {

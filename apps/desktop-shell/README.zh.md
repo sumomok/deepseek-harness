@@ -335,8 +335,8 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 | 路由 | 回答 |
 |---|---|
 | `GET /state` | `200 application/json` —— 下面那份快照 |
-| `POST /check` | `202 application/json` —— 快照;检查在后台跑,查到什么就下什么 |
-| `POST /download` | `202 application/json` —— 快照;已查到那个版本的传输被开始或重启,一个版本都不知道时先跑一次检查 |
+| `POST /check` | `202 application/json` —— `{ "ok": true }`;检查在后台跑,查到什么就下什么,进展由 `GET /state` 报告 |
+| `POST /download` | `202 application/json` —— `{ "ok": true }`;已查到那个版本的传输被开始或重启,一个版本都不知道时先跑一次检查,进展由 `GET /state` 报告 |
 | `POST /install` | `202 application/json` —— `{ "ok": true }`,在任何东西停下之前就写出;服务端与安装器的接手排在下一个 tick。phase 不是 `ready` 时答 `409` |
 | 其它任何路径或方法 | `404`,而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知 |
 | 缺少或写错 token | `401` |
