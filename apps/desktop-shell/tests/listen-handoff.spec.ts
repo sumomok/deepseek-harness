@@ -323,9 +323,8 @@ describe('a server started on a held socket', () => {
     expect(await squat(socket.port)).toBe('EADDRINUSE')
   })
 
-  // Whether the socket keeps listening without a child is checked on Windows
-  // by the release's manual probe; where it does not, the request is refused,
-  // as it would be with no socket held.
+  // On Windows the socket keeps listening through the copy libuv listened on
+  // in the sending process; the release's Windows probe checks that there.
   it.skipIf(process.platform === 'win32')('has a request made while no server runs answered by the next one', async () => {
     const socket = hold()
     const first = await start(specFor(socket, { ENTRY_NAME: 'first' }))

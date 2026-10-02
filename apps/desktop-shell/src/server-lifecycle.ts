@@ -31,9 +31,12 @@
  *    bind an address no socket listens on, the bind fails only from the first
  *    child's listen on, so another process can take the port before it; the
  *    app is packaged for macOS and Windows.
- * 2. The socket stays listening after a child dies, so a connection made
- *    meanwhile waits in its queue and the next child answers it (observed on
- *    macOS). Where it does not, the connection is refused, as with no socket.
+ * 2. The socket stays listening after a child dies, because the shell's copy
+ *    keeps it open: on macOS the first child's listen put it in that state,
+ *    and on Windows libuv listened on the shell's own copy when it first sent
+ *    the socket. A connection made meanwhile waits in its queue and the next
+ *    child answers it (observed on macOS; on Windows it follows from libuv's
+ *    source and is checked on a Windows machine before release).
  *
  * So a crash rebind starts the next child on the same socket and keeps the
  * remembered port, and the window returns to the same origin, with the

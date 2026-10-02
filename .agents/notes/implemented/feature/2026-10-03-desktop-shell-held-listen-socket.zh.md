@@ -14,7 +14,7 @@ Status: implemented
 
 ### 壳占着套接字
 
-启动时,在 `choosePort` 之后、第一个服务器启动之前,壳自己用 `net._createServerHandle`(Node 的 cluster 主进程用的那个 bind)绑定 `127.0.0.1:<端口>`,一直占到进程退出(`apps/desktop-shell/src/listen-socket.ts`)。壳从不在它上面监听或 accept。只有 `getsockname` 报告的是 `127.0.0.1` 和所请求的端口,这个句柄才被接受:libuv 把 `EADDRINUSE` 推迟到 listen 时才报,而子进程在这样一个没绑上的句柄上监听,会绑到 `0.0.0.0` 上一个系统挑的端口(macOS 实测)。选定的端口占不住时,改占一个系统挑的端口,这次启动像以前一样从新源开始。
+启动时,在 `choosePort` 之后、第一个服务器启动之前,壳自己用 `net._createServerHandle`(Node 的 cluster 主进程用的那个 bind)绑定 `127.0.0.1:<端口>`,一直占到进程退出(`apps/desktop-shell/src/listen-socket.ts`)。壳从不在它上面 accept。所有副本指向同一个内核套接字,它从第一次 listen 起就处于监听状态:macOS 上是第一个子进程的 listen,Windows 上是壳自己那份,因为 libuv 在发送监听句柄的进程里调用 `listen()`(`src/win/tcp.c` 的 `uv__tcp_xfer_export`)。只有 `getsockname` 报告的是 `127.0.0.1` 和所请求的端口,这个句柄才被接受:libuv 把 `EADDRINUSE` 推迟到 listen 时才报,而子进程在这样一个没绑上的句柄上监听,会绑到 `0.0.0.0` 上一个系统挑的端口(macOS 实测)。选定的端口占不住时,改占一个系统挑的端口,这次启动像以前一样从新源开始。
 
 每个服务器子进程启动时带 `--import lib/listen-handoff.mjs`、一条 IPC 通道和 `DSH_DESKTOP_LISTEN_HANDOFF_PORT`。预加载(`src/listen-handoff.mts`)在 worker 线程里或没有这个变量时什么也不做,否则:
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ### 占着套接字时的崩溃路径
 
-从占用成功到壳退出,发往 `127.0.0.1:<端口>` 的连接要么被壳当前的服务器子进程 accept,要么在套接字的队列里等待;别的进程都 accept 不到。这只依赖一条事实:地址一直由壳绑定着,所以没有子进程运行时,别的进程再绑定它会得到 `EADDRINUSE`,而在同一端口上绑定通配地址收不到任何发往回环地址的连接(两者都在 macOS 上由 Node 24.15 和真实的 Electron 43.4.0 主进程实测)。另一条事实只影响用户看到的结果:子进程死后套接字仍处于监听状态,这期间发出的请求由下一个子进程应答(macOS 实测)。在 Windows 上,libuv 既不设 `SO_REUSEADDR` 也不设 `SO_EXCLUSIVEADDRUSE`,所以普通绑定同样失败;而设置了 `SO_REUSEADDR` 的同一用户进程能绑定到这个地址上,就像它能绑定到正在运行的服务器的套接字上一样。在 Linux 上,设置了 `SO_REUSEADDR` 的套接字(libuv 在那里每次绑定都会设置)可以绑定一个没有套接字在监听的地址,所以第一条事实要从第一个子进程监听之后才成立;这个应用只为 macOS 和 Windows 打包。
+从占用成功到壳退出,发往 `127.0.0.1:<端口>` 的连接要么被壳当前的服务器子进程 accept,要么在套接字的队列里等待;别的进程都 accept 不到。这只依赖一条事实:地址一直由壳绑定着,所以没有子进程运行时,别的进程再绑定它会得到 `EADDRINUSE`,而在同一端口上绑定通配地址收不到任何发往回环地址的连接(两者都在 macOS 上由 Node 24.15 和真实的 Electron 43.4.0 主进程实测)。另一条事实只影响用户看到的结果:子进程死后套接字仍处于监听状态,因为壳那份副本让它一直开着,所以这期间发出的请求由下一个子进程应答(macOS 实测;Windows 上那份副本正是 libuv 调用过 listen 的那个,按 libuv 源码同样成立,由 Windows 探针检查)。在 Windows 上,libuv 既不设 `SO_REUSEADDR` 也不设 `SO_EXCLUSIVEADDRUSE`,所以普通绑定同样失败;而设置了 `SO_REUSEADDR` 的同一用户进程能绑定到这个地址上,就像它能绑定到正在运行的服务器的套接字上一样。在 Linux 上,设置了 `SO_REUSEADDR` 的套接字(libuv 在那里每次绑定都会设置)可以绑定一个没有套接字在监听的地址,所以第一条事实要从第一个子进程监听之后才成立;这个应用只为 macOS 和 Windows 打包。
 
 所以意外退出时(`src/server-lifecycle.ts` 的 `respondToCrash`)先停掉通知流,保留记住的端口,删掉 cookie,再进入恢复阶梯;换绑(`rebindOnHeldSocket`)在同一个套接字上启动下一个子进程,窗口带着新的启动令牌重新加载回同一个源。安装失败后的重启也这样在套接字上启动,不经过 `choosePort`,因为它的探测会撞上壳自己的绑定,把端口报为被占用。整个应用重启时套接字随进程释放;下一个实例像任何一次启动一样请求记住的端口,而那时没有窗口开着。
 

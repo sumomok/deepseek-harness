@@ -4,10 +4,14 @@
  *
  * The shell binds `127.0.0.1:<port>` once, through the bind Node's cluster
  * primary uses in its round-robin-free mode (`net._createServerHandle`): the
- * socket is bound, never listened on or accepted from in this process, and
- * stays bound until the shell process exits. Each server child receives a
- * duplicate over an IPC channel and listens on it through the preload in
- * `listen-handoff.mts`. A child that dies closes only its own duplicate: the
+ * socket is bound, never accepted from in this process, and stays bound until
+ * the shell process exits. Each server child receives a duplicate over an IPC
+ * channel and listens on it through the preload in `listen-handoff.mts`. Every
+ * duplicate names the same kernel socket, which is in the listening state from
+ * its first listen on: on macOS the first child's listen puts it there; on
+ * Windows libuv calls `listen()` on the shell's own copy when it first sends
+ * the socket (`uv__tcp_xfer_export`), so this process listens on it there,
+ * though it never accepts. A child that dies closes only its own duplicate: the
  * address stays bound by the shell, so no other process can bind it while the
  * shell lives, and the next child receives the same socket again. On Linux
  * that holds only from the first child's listen on: there a socket that sets
