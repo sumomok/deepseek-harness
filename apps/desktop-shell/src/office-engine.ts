@@ -21,6 +21,11 @@
  *   {@link officeEngineRoot}, which is a function of the data directory it is
  *   given rather than of the home directory, so a relocated data directory
  *   carries its engine with it.
+ * - **Which versions stay.** {@link versionsToKeep} names the version the kit
+ *   declares and, while that one is not installed, a complete engine of
+ *   another version ({@link supersededEngine}): the engine an earlier kit
+ *   declared, which only a confirmed download put there.
+ *   {@link pruneEngineRoot} removes every other version.
  * - **How the server finds it.** {@link engineServerEnv} names the current
  *   version's `node_modules` in `NODE_PATH` whether or not it exists yet. Node
  *   reads `NODE_PATH` once at startup and caches only resolutions that
@@ -47,6 +52,7 @@ import { delimiter, dirname, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import type { PnpmInvocation } from './pnpm-launcher.ts'
 import { augmentedEnv } from './server.ts'
+import { compareVersions } from './version-order.ts'
 
 /** The kit's entry package; each engine is `<entry>-<target>`. */
 export const OFFICE_KIT = '@deepseek-ai/libreoffice-kit'
@@ -138,14 +144,18 @@ export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
   },
 }
 
-/** The engine this launch's kit requires. */
-export interface EngineRequirement {
-  /** The kit's target name, `<platform>-<arch>`. */
-  target: string
+/** The engine package and exact version the kit declares for this host. */
+export interface DeclaredEngine {
   /** The engine package name. */
   name: string
   /** The exact version the kit declares for it. */
   version: string
+}
+
+/** The engine this launch's kit requires. */
+export interface EngineRequirement extends DeclaredEngine {
+  /** The kit's target name, `<platform>-<arch>`. */
+  target: string
   /** The published tarball size, from {@link ENGINE_DOWNLOADS}. */
   downloadBytes: number
   /** The published tarball's sha512 integrity, from {@link ENGINE_DOWNLOADS}. */
@@ -154,13 +164,13 @@ export interface EngineRequirement {
 
 /**
  * The outcome of reading the requirement: the engine, or why this launch can
- * offer none. `declaredVersion` is the exact version the kit declares when
- * {@link ENGINE_DOWNLOADS} does not register it, and absent for every other
- * refusal.
+ * offer none. `declared` is the engine the kit declares when
+ * {@link ENGINE_DOWNLOADS} does not register its version, and absent for every
+ * other refusal.
  */
 export type RequirementResult =
   | { ok: true; requirement: EngineRequirement }
-  | { ok: false; reason: string; declaredVersion?: string }
+  | { ok: false; reason: string; declared?: DeclaredEngine }
 
 /**
  * The kit's target name for a host, as the kit itself computes it for macOS
@@ -212,7 +222,7 @@ export function readEngineRequirement(serverModules: string, platform: NodeJS.Pl
   }
   const download = ENGINE_DOWNLOADS[`${name}@${version}`]
   if (download === undefined) {
-    return { ok: false, reason: `this version of the preview component is not registered yet (${name}@${version})`, declaredVersion: version }
+    return { ok: false, reason: `this version of the preview component is not registered yet (${name}@${version})`, declared: { name, version } }
   }
   return { ok: true, requirement: { target, name, version, downloadBytes: download.bytes, integrity: download.integrity } }
 }
@@ -266,18 +276,18 @@ function readJson(path: string): unknown {
 }
 
 /**
- * Whether a `node_modules` holds the required engine, complete: the version
- * the kit checks for, the engine manifest it reads next, and the executable
- * that manifest names, which the kit requires to be a file with an execute
- * bit outside Windows.
+ * Whether a `node_modules` holds an engine, complete: the version the kit
+ * checks for, the engine manifest it reads next, and the executable that
+ * manifest names, which the kit requires to be a file with an execute bit
+ * outside Windows.
  * @param modules - the `node_modules` to look in.
- * @param requirement - the engine to look for.
+ * @param engine - the engine package and version to look for.
  * @returns true when the package directory carries that version, its `prebuilds.json`, and a runnable executable.
  */
-function holdsEngine(modules: string, requirement: EngineRequirement): boolean {
-  const dir = join(modules, requirement.name)
+function holdsEngine(modules: string, engine: DeclaredEngine): boolean {
+  const dir = join(modules, engine.name)
   const manifest = readJson(join(dir, 'package.json')) as { version?: unknown } | null | undefined
-  if (manifest?.version !== requirement.version) return false
+  if (manifest?.version !== engine.version) return false
   const prebuilds = readJson(join(dir, 'prebuilds.json')) as { engine?: { executable?: unknown } } | null | undefined
   const executable = prebuilds?.engine?.executable
   if (typeof executable !== 'string') return false
@@ -306,14 +316,59 @@ export function engineInstalled(root: string, requirement: EngineRequirement): b
 }
 
 /**
- * The engine version a launch's prune keeps: the version the kit declares,
- * whether or not {@link ENGINE_DOWNLOADS} registers it, and none when the kit
- * declares no exact version for this host or cannot be read.
- * @param result - this launch's {@link readEngineRequirement}.
- * @returns the version directory {@link pruneEngineRoot} must not remove.
+ * The highest version, other than the declared one, whose directory under the
+ * root holds a complete engine of the declared package. Only an install the
+ * person confirmed puts such a directory there, so finding one is the record
+ * that they downloaded the engine before; a kit that declares another version
+ * makes it unusable, because the kit accepts its own exact version only.
+ * @param root - {@link officeEngineRoot}.
+ * @param declared - the engine the kit declares.
+ * @returns the version directory's name, or undefined when no other version directory holds a complete engine.
  */
-export function versionToKeep(result: RequirementResult): string | undefined {
-  return result.ok ? result.requirement.version : result.declaredVersion
+export function supersededEngine(root: string, declared: DeclaredEngine): string | undefined {
+  let names: string[]
+  try {
+    names = readdirSync(root)
+  } catch {
+    // No root yet: nothing was ever installed.
+    return undefined
+  }
+  let highest: string | undefined
+  for (const name of names) {
+    if (name === declared.version || !EXACT_VERSION.test(name)) continue
+    if (!holdsEngine(engineModulesDir(root, name), { name: declared.name, version: name })) continue
+    if (highest === undefined || compareVersions(name, highest) > 0) highest = name
+  }
+  return highest
+}
+
+/** The engine versions one launch's prune keeps. */
+export interface KeptVersions {
+  /** The version the kit declares, registered or not; undefined when the kit declares no exact version for this host or cannot be read. */
+  declared?: string
+  /**
+   * The {@link supersededEngine} while the declared version is not installed:
+   * kept until the declared version replaces it, and undefined once that
+   * version is installed or when no other version holds a complete engine.
+   */
+  superseded?: string
+}
+
+/**
+ * The engine versions a launch's prune keeps: the version the kit declares,
+ * whether or not {@link ENGINE_DOWNLOADS} registers it, and, while that
+ * version is not installed, the complete engine of another version the person
+ * downloaded earlier.
+ * @param root - {@link officeEngineRoot}.
+ * @param result - this launch's {@link readEngineRequirement}.
+ * @returns the version directories {@link pruneEngineRoot} must not remove.
+ */
+export function versionsToKeep(root: string, result: RequirementResult): KeptVersions {
+  const declared = result.ok ? result.requirement : result.declared
+  if (declared === undefined) return {}
+  if (holdsEngine(engineModulesDir(root, declared.version), declared)) return { declared: declared.version }
+  const superseded = supersededEngine(root, declared)
+  return superseded === undefined ? { declared: declared.version } : { declared: declared.version, superseded }
 }
 
 /** What one prune removed and what it could not. */
@@ -325,17 +380,17 @@ export interface PruneResult {
 }
 
 /**
- * Remove every engine version but one, and every staging directory an
- * interrupted install left behind.
+ * Remove every engine version but the ones named, and every staging directory
+ * an interrupted install left behind.
  *
  * Only names this module creates are touched — an exact version or the
  * staging prefix — so anything else a person put under the root stays. Call
  * it when no install is running: a staging directory in use is removed too.
  * @param root - {@link officeEngineRoot}.
- * @param keep - the version to keep, or undefined to keep none.
+ * @param keep - the versions to keep; an undefined entry keeps nothing, and none keeps no version.
  * @returns what was removed and what could not be.
  */
-export function pruneEngineRoot(root: string, keep: string | undefined): PruneResult {
+export function pruneEngineRoot(root: string, ...keep: readonly (string | undefined)[]): PruneResult {
   const result: PruneResult = { removed: [], failed: [] }
   let names: string[]
   try {
@@ -345,7 +400,7 @@ export function pruneEngineRoot(root: string, keep: string | undefined): PruneRe
     return result
   }
   for (const name of names) {
-    if (name === keep) continue
+    if (keep.includes(name)) continue
     if (!EXACT_VERSION.test(name) && !name.startsWith(STAGING_PREFIX)) continue
     try {
       rmSync(join(root, name), { recursive: true, force: true })

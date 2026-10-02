@@ -1,9 +1,10 @@
 /**
  * The loopback Office engine protocol and the state machine behind it: what
  * each route refuses, how a download goes from the confirmation to the engine
- * on disk, and what cancelling, failing, and quitting leave. The installer and
- * the confirmation are injected, so nothing here runs a package manager or a
- * dialog.
+ * on disk, how an upgrade from an engine the person downloaded before runs
+ * without one, and what cancelling, failing, and quitting leave. The
+ * installer and the confirmation are injected, so nothing here runs a package
+ * manager or a dialog.
  * @module
  */
 
@@ -77,10 +78,13 @@ const COOLDOWN_MS = 30_000
  * Start one service over an injected confirmation and installer. The
  * confirmation waits for {@link Harness.answer}; the installer waits for
  * {@link Harness.finish} and, on success, places the engine as a real one would.
+ * @param requirement - the launch's requirement.
+ * @param superseded - an earlier version to place complete under the root and name to the manager, as a launch that kept it does.
  */
-async function start(requirement: RequirementResult = { ok: true, requirement: REQUIREMENT }): Promise<Harness> {
+async function start(requirement: RequirementResult = { ok: true, requirement: REQUIREMENT }, superseded?: string): Promise<Harness> {
   const root = join(mkdtempSync(join(tmpdir(), 'dsh-engine-svc-')), 'engines', 'office')
   made.push(join(root, '..', '..'))
+  if (superseded !== undefined) placeEngine(root, superseded)
   const asked: EngineConfirmRequest[] = []
   const installs: InstallSpec[] = []
   const log: string[] = []
@@ -90,6 +94,7 @@ async function start(requirement: RequirementResult = { ok: true, requirement: R
   const manager = new OfficeEngineManager({
     requirement,
     root,
+    ...superseded === undefined ? {} : { superseded },
     pnpm: { command: 'pnpm', prefixArgs: [] },
     confirm: async (request) => {
       asked.push(request)
@@ -315,6 +320,159 @@ describe('a download', () => {
     harness.answer(true)
     await settle()
     expect(harness.installs).toEqual([])
+  })
+})
+
+describe('an upgrade from an engine the person downloaded before', () => {
+  /** The snapshot of an upgrade whose download has reported nothing yet. */
+  const BEGUN = { phase: 'installing', version: '0.1.1', downloadBytes: 66_711_287, transferredBytes: 0, totalBytes: 66_711_287 }
+
+  it('reads installing from the moment it begins, before its download starts or reports progress', async () => {
+    const harness = await start(undefined, '0.1.0')
+    expect(harness.manager.beginUpgrade()).toBe(true)
+    expect(await call(harness.handle, 'GET', STATE_PATH)).toEqual({ status: 200, body: BEGUN })
+    await settle()
+    expect(harness.installs).toEqual([])
+    expect(harness.asked).toEqual([])
+  })
+
+  it('downloads without asking once it runs, and removes the earlier engine once the new one is in place', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    expect(harness.installs.map(spec => [spec.root, spec.requirement, spec.timeoutMs])).toEqual([[harness.root, REQUIREMENT, 1000]])
+    harness.installs[0]?.onProgress({ transferredBytes: 1234, totalBytes: 5000 })
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'installing', transferredBytes: 1234, totalBytes: 5000 })
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+
+    harness.finish({ ok: true })
+    await settle()
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'installed', version: '0.1.1', downloadBytes: 66_711_287 })
+    expect(readdirSync(harness.root)).toEqual(['0.1.1'])
+    expect(harness.asked).toEqual([])
+    expect(harness.log.some(line => line.includes('upgrading from 0.1.0'))).toBe(true)
+  })
+
+  it('refuses a download request while it runs', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    expect(await call(harness.handle, 'POST', INSTALL_PATH)).toEqual({ status: 409, body: { code: 'installing', message: 'the preview component is already downloading' } })
+    harness.manager.runUpgrade()
+    await settle()
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(409)
+    expect(harness.asked).toEqual([])
+  })
+
+  it('keeps the earlier engine when the download fails, reports why, and asks before a retry', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    harness.finish({ ok: false, cancelled: false, reason: 'the package manager exited with 1: 404' })
+    await settle()
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toEqual({
+      phase: 'failed', version: '0.1.1', downloadBytes: 66_711_287, reason: 'the package manager exited with 1: 404',
+    })
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(202)
+    await settle()
+    expect(harness.asked).toEqual([confirmRequest(REQUIREMENT)])
+  })
+
+  it('takes a cancel of the running download as a refusal: the earlier engine goes, and the next download asks first', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    expect((await call(harness.handle, 'POST', CANCEL_PATH)).status).toBe(202)
+    await settle()
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'absent', version: '0.1.1', downloadBytes: 66_711_287 })
+    expect(readdirSync(harness.root)).toEqual([])
+    expect(harness.log.some(line => line.includes('removed 0.1.0') && line.includes('the next download asks first'))).toBe(true)
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(202)
+    await settle()
+    expect(harness.asked).toEqual([confirmRequest(REQUIREMENT)])
+  })
+
+  it('ends at once on a cancel before its download starts, removes the earlier engine, and never starts the download', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    expect(await call(harness.handle, 'POST', CANCEL_PATH)).toEqual({ status: 202, body: { phase: 'absent', version: '0.1.1', downloadBytes: 66_711_287 } })
+    expect(readdirSync(harness.root)).toEqual([])
+    harness.manager.runUpgrade()
+    await settle()
+    expect(harness.installs).toEqual([])
+    expect(harness.manager.beginUpgrade()).toBe(false)
+  })
+
+  it('keeps the earlier engine when the service closes, and aborts the running download', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    const signal = harness.installs[0]?.signal
+    await harness.handle.close()
+    service = undefined
+    expect(signal?.aborted).toBe(true)
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+  })
+
+  it('starts no download after the service closes, and keeps the earlier engine', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    await harness.handle.close()
+    service = undefined
+    harness.manager.runUpgrade()
+    await settle()
+    expect(harness.installs).toEqual([])
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+  })
+
+  it('still takes a cancel as a refusal when the service closes before the download has stopped', async () => {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    expect(harness.manager.cancel()).toBeUndefined()
+    await harness.handle.close()
+    service = undefined
+    expect(readdirSync(harness.root)).toEqual([])
+  })
+
+  it('does not begin without an earlier engine', async () => {
+    const harness = await start()
+    expect(harness.manager.beginUpgrade()).toBe(false)
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'absent' })
+  })
+
+  it('does not begin when the required engine is installed', async () => {
+    const harness = await start(undefined, '0.1.0')
+    placeEngine(harness.root)
+    expect(harness.manager.beginUpgrade()).toBe(false)
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'installed' })
+  })
+
+  it('does not begin when the launch offers no engine, and leaves the earlier engine on disk', async () => {
+    const harness = await start({
+      ok: false,
+      reason: 'this version of the preview component is not registered yet (@deepseek-ai/libreoffice-kit-darwin-arm64@0.2.0)',
+      declared: { name: REQUIREMENT.name, version: '0.2.0' },
+    }, '0.1.0')
+    expect(harness.manager.beginUpgrade()).toBe(false)
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'unsupported' })
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+  })
+
+  it('does not begin while a confirmation is on screen, or a second time', async () => {
+    const harness = await start(undefined, '0.1.0')
+    await call(harness.handle, 'POST', INSTALL_PATH)
+    expect(harness.manager.beginUpgrade()).toBe(false)
+    harness.answer(false)
+    await settle()
+    expect(harness.manager.beginUpgrade()).toBe(true)
+    harness.manager.cancel()
+    expect(harness.manager.beginUpgrade()).toBe(false)
   })
 })
 

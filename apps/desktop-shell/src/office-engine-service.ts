@@ -24,7 +24,7 @@
  * Every other path and method is `404`, decided before the token is read. A
  * missing or wrong token is `401`.
  *
- * **Nothing downloads without the person at the keyboard.** `POST /install`
+ * **The first download needs the person at the keyboard.** `POST /install`
  * puts a native confirmation up and answers at once; the download starts only
  * when the person chooses the confirming button there, which is not the
  * dialog's default button. A native modal is the one window a page in the app
@@ -33,6 +33,17 @@
  * cannot put the question back up the moment it is answered. A caller names
  * nothing: the package and version are the ones the shipped kit declares, read
  * by the shell, so no request can make this service install anything else.
+ *
+ * **A kit that declares another engine version carries that confirmation
+ * over.** When the launch finds a complete engine of another version
+ * ({@link OfficeEngineSpec.superseded}) and not the declared one,
+ * {@link OfficeEngineManager.beginUpgrade} reads `installing` before the
+ * server starts and {@link OfficeEngineManager.runUpgrade} downloads the
+ * declared version without asking, through the same install and integrity
+ * check. The earlier engine is removed once the new one is in place; a failed
+ * upgrade keeps it, so the next launch tries again. `POST /cancel` during
+ * the upgrade is the person refusing it: the earlier engine is removed, and
+ * the next download asks first.
  * @module @deepseek-ai/dsh-desktop-shell/office-engine-service
  */
 
@@ -93,7 +104,8 @@ export interface EngineRefusal {
  *   host, or a kit that names none); `reason` says which.
  * - `absent` — not installed; a download can be offered.
  * - `confirming` — the native confirmation is on screen.
- * - `installing` — the package manager is running.
+ * - `installing` — the package manager is running, or an upgrade has begun
+ *   and its download starts once the server is ready.
  * - `installed` — the engine is on disk where the server looks for it.
  * - `failed` — the last download did not finish; `reason` says why, and a
  *   download can be offered again.
@@ -139,6 +151,15 @@ export interface OfficeEngineSpec {
   requirement: RequirementResult
   /** {@link officeEngineRoot} of this launch's data directory. */
   root: string
+  /**
+   * The version directory under `root` holding a complete engine of another
+   * version, which this launch's prune kept because the required version is
+   * not installed (`superseded` of {@link versionsToKeep}). Its presence is the
+   * record that the person confirmed a download before, and makes
+   * {@link OfficeEngineManager.beginUpgrade} install the required version
+   * without asking.
+   */
+  superseded?: string
   /** How to run the package manager. */
   pnpm: PnpmInvocation
   /**
@@ -225,6 +246,14 @@ export class OfficeEngineManager {
   private controller: AbortController | undefined
   private running: Promise<void> | undefined
   private closed = false
+  /**
+   * The upgrade {@link beginUpgrade} started: the engine it installs, the
+   * version it replaces, whether {@link runUpgrade} has started its install,
+   * and whether the person cancelled it. Cleared when that install ends.
+   */
+  private upgrade: { requirement: EngineRequirement; from: string; started: boolean; refused: boolean } | undefined
+  /** Whether {@link beginUpgrade} has run; one launch begins at most one upgrade. */
+  private upgradeBegun = false
 
   /**
    * @param spec - the requirement, the root, and the shell hooks.
@@ -279,13 +308,64 @@ export class OfficeEngineManager {
   }
 
   /**
-   * Stop the running download.
+   * Stop the running download. Cancelling an upgrade is the person refusing
+   * it: once its install has ended, the engine it would replace is removed,
+   * so no later launch upgrades without asking. An upgrade whose install has
+   * not started ends here, and reads `absent` at once.
    * @returns undefined when a download was stopped, or the refusal the 409 carries.
    */
   cancel(): EngineRefusal | undefined {
     if (this.phase !== 'installing' || this.controller === undefined) return { code: 'not-running', message: 'no download of the preview component is running' }
     this.controller.abort()
+    const upgrade = this.upgrade
+    if (upgrade === undefined) return undefined
+    upgrade.refused = true
+    if (!upgrade.started) {
+      this.leaveInstalling()
+      this.upgrade = undefined
+      this.spec.log(`[desktop] office engine: upgrade from ${upgrade.from} cancelled before its download started\n`)
+      this.dropRefusedUpgrade(upgrade.requirement)
+    }
     return undefined
+  }
+
+  /**
+   * Begin replacing the engine an earlier kit declared with the one this
+   * launch's kit requires, without asking: the earlier engine is on disk only
+   * because the person confirmed its download. The phase reads `installing`
+   * from here, so a page that reads the state once when it loads follows the
+   * download; the download itself starts in {@link runUpgrade}. Call it
+   * before the server starts.
+   *
+   * Does nothing, and returns false, unless the requirement is registered,
+   * {@link OfficeEngineSpec.superseded} names an earlier engine, the required
+   * one is not installed, nothing else is running, the manager is open, and
+   * no upgrade was begun before.
+   * @returns true when the upgrade began.
+   */
+  beginUpgrade(): boolean {
+    const found = this.spec.requirement
+    const from = this.spec.superseded
+    if (this.upgradeBegun || this.closed || !found.ok || from === undefined || this.phase !== 'idle') return false
+    if (engineInstalled(this.spec.root, found.requirement)) return false
+    this.upgradeBegun = true
+    this.enterInstalling(found.requirement)
+    this.upgrade = { requirement: found.requirement, from, started: false, refused: false }
+    this.spec.log(`[desktop] office engine: upgrading from ${from}, which the person confirmed downloading, to ${found.requirement.name}@${found.requirement.version} without asking; the download starts once the server is ready\n`)
+    return true
+  }
+
+  /**
+   * Start the download {@link beginUpgrade} announced. Does nothing when no
+   * upgrade is waiting: none began, it already started, the person cancelled
+   * it, or the manager closed.
+   */
+  runUpgrade(): void {
+    const upgrade = this.upgrade
+    const controller = this.controller
+    if (upgrade === undefined || upgrade.started || controller === undefined || this.closed) return
+    upgrade.started = true
+    this.running = this.install(upgrade.requirement, controller)
   }
 
   /**
@@ -321,11 +401,38 @@ export class OfficeEngineManager {
       if (!confirmed) this.declinedAt = this.now()
       return
     }
+    await this.install(requirement, this.enterInstalling(requirement))
+  }
+
+  /**
+   * Read `installing` at no bytes, with a controller for the install to come.
+   * @param requirement - the engine about to be installed.
+   * @returns the controller that install runs under.
+   */
+  private enterInstalling(requirement: EngineRequirement): AbortController {
     this.phase = 'installing'
     this.failure = undefined
     this.progress = { transferredBytes: 0, totalBytes: requirement.downloadBytes }
     const controller = new AbortController()
     this.controller = controller
+    return controller
+  }
+
+  /** Go back to idle once an install has ended or an upgrade ended before its install started. */
+  private leaveInstalling(): void {
+    this.controller = undefined
+    this.progress = undefined
+    this.phase = 'idle'
+  }
+
+  /**
+   * Install one engine, then remove every other version once it is in place.
+   * A refused upgrade also removes the engine it would have replaced; a
+   * failed one, or one a quit stopped, keeps it for the next launch.
+   * @param requirement - the engine to install.
+   * @param controller - the controller {@link enterInstalling} made for it.
+   */
+  private async install(requirement: EngineRequirement, controller: AbortController): Promise<void> {
     this.spec.log(`[desktop] office engine: installing ${requirement.name}@${requirement.version} into ${this.spec.root}\n`)
     const outcome = await this.run({
       root: this.spec.root,
@@ -335,9 +442,9 @@ export class OfficeEngineManager {
       timeoutMs: this.spec.installTimeoutMs,
       onProgress: (progress) => { this.progress = progress },
     })
-    this.controller = undefined
-    this.progress = undefined
-    this.phase = 'idle'
+    this.leaveInstalling()
+    const upgrade = this.upgrade
+    this.upgrade = undefined
     if (outcome.ok) {
       this.spec.log(`[desktop] office engine: ${requirement.name}@${requirement.version} installed\n`)
       const pruned = pruneEngineRoot(this.spec.root, requirement.version)
@@ -346,6 +453,19 @@ export class OfficeEngineManager {
     }
     this.spec.log(`[desktop] office engine: install ${outcome.cancelled ? 'cancelled' : `failed: ${outcome.reason}`}\n`)
     this.failure = outcome.cancelled ? undefined : outcome.reason
+    if (upgrade?.refused === true) this.dropRefusedUpgrade(requirement)
+  }
+
+  /**
+   * Remove the engine a refused upgrade would have replaced, and every other
+   * version but the required one, so the next download asks first. Call it
+   * when no install is running.
+   * @param requirement - the engine the upgrade was installing.
+   */
+  private dropRefusedUpgrade(requirement: EngineRequirement): void {
+    const pruned = pruneEngineRoot(this.spec.root, requirement.version)
+    for (const name of pruned.removed) this.spec.log(`[desktop] office engine: removed ${name} from ${this.spec.root}; the next download asks first\n`)
+    for (const line of pruned.failed) this.spec.log(`[desktop] office engine: could not remove ${line}\n`)
   }
 }
 

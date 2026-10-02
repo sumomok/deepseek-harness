@@ -55,11 +55,11 @@ export function verifyStagedOfficeEngines(serverModules: string): string[] {
     const result = readEngineRequirement(serverModules, platform, arch)
     if (result.ok) {
       registered.push(`${result.requirement.name}@${result.requirement.version}`)
-    } else if (result.declaredVersion === undefined) {
+    } else if (result.declared === undefined) {
       problems.push(`${platform}-${arch}: ${result.reason}`)
     } else {
-      const entry = `${OFFICE_KIT}-${platform}-${arch}@${result.declaredVersion}`
-      problems.push(`${platform}-${arch}: the kit declares ${result.declaredVersion}, and ENGINE_DOWNLOADS has no ${entry}`)
+      const entry = `${result.declared.name}@${result.declared.version}`
+      problems.push(`${platform}-${arch}: the kit declares ${result.declared.version}, and ENGINE_DOWNLOADS has no ${entry}`)
     }
   }
   if (problems.length > 0) {

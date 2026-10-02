@@ -1,7 +1,7 @@
 /**
  * The Office engine's facts: which engine the shipped kit requires, where it
- * lives, how the server is pointed at it, what a prune may remove, and how an
- * install ends in every way it can end.
+ * lives, how the server is pointed at it, which earlier engine a launch keeps,
+ * what a prune may remove, and how an install ends in every way it can end.
  *
  * Installs run a stand-in package manager — a Node script given its behavior
  * as its first argument — that writes what `pnpm add` would write, prints the
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ENGINE_DOWNLOADS, ENGINE_MODULES_ENV, engineInstalled, engineModulesDir, engineServerEnv, installEngine,
-  officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine, versionToKeep,
+  officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine, supersededEngine, versionsToKeep,
   type EngineRequirement, type InstallProgress,
 } from '../src/office-engine.ts'
 
@@ -86,7 +86,7 @@ describe('readEngineRequirement', () => {
     expect(readEngineRequirement(modules, 'win32', 'x64')).toEqual({
       ok: false,
       reason: 'this version of the preview component is not registered yet (@deepseek-ai/libreoffice-kit-win32-x64@0.2.0)',
-      declaredVersion: '0.2.0',
+      declared: { name: '@deepseek-ai/libreoffice-kit-win32-x64', version: '0.2.0' },
     })
   })
 
@@ -174,10 +174,19 @@ describe('pruneEngineRoot', () => {
     expect(readdirSync(root).sort()).toEqual(['0.1.1', 'my-fonts', 'notes', 'readme.txt'])
   })
 
+  it('keeps every version it is given', () => {
+    const root = temp('dsh-engine-prune-')
+    for (const name of ['0.1.1', '0.1.3', '0.1.5', '.staging-abc']) mkdirSync(join(root, name))
+    expect(pruneEngineRoot(root, '0.1.5', '0.1.3').removed.sort()).toEqual(['.staging-abc', '0.1.1'])
+    expect(readdirSync(root).sort()).toEqual(['0.1.3', '0.1.5'])
+  })
+
   it('removes every version when there is none to keep', () => {
     const root = temp('dsh-engine-prune-')
-    mkdirSync(join(root, '0.1.1'))
-    expect(pruneEngineRoot(root, undefined).removed).toEqual(['0.1.1'])
+    for (const name of ['0.1.1', '0.1.3']) mkdirSync(join(root, name))
+    expect(pruneEngineRoot(root, undefined, undefined).removed.sort()).toEqual(['0.1.1', '0.1.3'])
+    mkdirSync(join(root, '0.1.5'))
+    expect(pruneEngineRoot(root).removed).toEqual(['0.1.5'])
   })
 
   it('does nothing where nothing was ever installed', () => {
@@ -185,26 +194,132 @@ describe('pruneEngineRoot', () => {
   })
 
   // A build whose kit declares a version the table lacks offers no download,
-  // and still clears what earlier versions and interrupted downloads left.
+  // and still clears what other versions and interrupted downloads left.
   it('keeps the declared version and removes the rest when that version is not registered', () => {
     const root = temp('dsh-engine-prune-')
     for (const name of ['0.1.1', '0.2.0', '.staging-abc']) mkdirSync(join(root, name))
     const requirement = readEngineRequirement(serverTree({ '@deepseek-ai/libreoffice-kit-win32-x64': '0.2.0' }), 'win32', 'x64')
     expect(requirement.ok).toBe(false)
-    expect(pruneEngineRoot(root, versionToKeep(requirement)).removed.sort()).toEqual(['.staging-abc', '0.1.1'])
+    const kept = versionsToKeep(root, requirement)
+    expect(pruneEngineRoot(root, kept.declared, kept.superseded).removed.sort()).toEqual(['.staging-abc', '0.1.1'])
     expect(readdirSync(root)).toEqual(['0.2.0'])
   })
 })
 
-describe('versionToKeep', () => {
-  it('is the version the kit declares, registered or not', () => {
-    expect(versionToKeep({ ok: true, requirement: REQUIREMENT })).toBe('0.1.1')
-    expect(versionToKeep({ ok: false, reason: 'not registered', declaredVersion: '0.2.0' })).toBe('0.2.0')
+/**
+ * Lay out an engine package by hand, complete unless the case says otherwise.
+ * @param root - the engine root.
+ * @param version - the version directory.
+ * @param fields - what to write differently: the manifest's version, no `prebuilds.json`, no executable, or one without an execute bit.
+ */
+function placeEngine(
+  root: string, version: string,
+  fields: { manifestVersion?: string; prebuilds?: false; executable?: 'missing' | 'not-executable' } = {},
+): void {
+  const dir = join(engineModulesDir(root, version), REQUIREMENT.name)
+  mkdirSync(join(dir, 'bin'), { recursive: true })
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: REQUIREMENT.name, version: fields.manifestVersion ?? version }))
+  if (fields.prebuilds !== false) writeFileSync(join(dir, 'prebuilds.json'), JSON.stringify({ engine: { executable: 'bin/libreoffice-kit' } }))
+  if (fields.executable !== 'missing') {
+    const path = join(dir, 'bin', 'libreoffice-kit')
+    writeFileSync(path, '')
+    chmodSync(path, fields.executable === 'not-executable' ? 0o644 : 0o755)
+  }
+}
+
+describe('supersededEngine', () => {
+  const declared = { name: REQUIREMENT.name, version: '0.1.5' }
+
+  it('finds a complete engine of another version', () => {
+    const root = temp('dsh-engine-superseded-')
+    placeEngine(root, '0.1.3')
+    expect(supersededEngine(root, declared)).toBe('0.1.3')
   })
 
-  it('is none when the kit declares no exact version for this host', () => {
-    expect(versionToKeep(readEngineRequirement(serverTree({}), 'linux', 'x64'))).toBeUndefined()
-    expect(versionToKeep(readEngineRequirement(serverTree({}), 'darwin', 'arm64'))).toBeUndefined()
+  it('takes the highest of several complete engines, by version order', () => {
+    const root = temp('dsh-engine-superseded-')
+    for (const version of ['0.1.3', '0.1.10', '0.1.9', '0.2.0-rc.1']) placeEngine(root, version)
+    expect(supersededEngine(root, declared)).toBe('0.2.0-rc.1')
+    rmSync(join(root, '0.2.0-rc.1'), { recursive: true })
+    expect(supersededEngine(root, declared)).toBe('0.1.10')
+  })
+
+  it('ignores the declared version, a directory whose manifest names another version, and names that are not a version', () => {
+    const root = temp('dsh-engine-superseded-')
+    placeEngine(root, '0.1.5')
+    placeEngine(root, '0.1.3', { manifestVersion: '0.1.1' })
+    mkdirSync(join(root, 'notes'))
+    mkdirSync(join(root, '.staging-abc'))
+    expect(supersededEngine(root, declared)).toBeUndefined()
+  })
+
+  it('ignores an engine missing its prebuilds.json or its executable', () => {
+    const root = temp('dsh-engine-superseded-')
+    placeEngine(root, '0.1.1', { prebuilds: false })
+    placeEngine(root, '0.1.3', { executable: 'missing' })
+    expect(supersededEngine(root, declared)).toBeUndefined()
+  })
+
+  // Windows has no execute bit; the kit checks it everywhere else.
+  it.skipIf(process.platform === 'win32')('ignores an engine whose executable has no execute bit', () => {
+    const root = temp('dsh-engine-superseded-')
+    placeEngine(root, '0.1.3', { executable: 'not-executable' })
+    expect(supersededEngine(root, declared)).toBeUndefined()
+  })
+
+  it('ignores an engine of another package', () => {
+    const root = temp('dsh-engine-superseded-')
+    placeEngine(root, '0.1.3')
+    expect(supersededEngine(root, { name: '@deepseek-ai/libreoffice-kit-win32-x64', version: '0.1.5' })).toBeUndefined()
+  })
+
+  it('finds nothing where nothing was ever installed', () => {
+    expect(supersededEngine(join(temp('dsh-engine-superseded-'), 'absent'), declared)).toBeUndefined()
+  })
+})
+
+describe('versionsToKeep', () => {
+  it('keeps the declared version, registered or not', () => {
+    const root = temp('dsh-engine-keep-')
+    expect(versionsToKeep(root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1' })
+    expect(versionsToKeep(root, { ok: false, reason: 'not registered', declared: { name: REQUIREMENT.name, version: '0.2.0' } })).toEqual({ declared: '0.2.0' })
+  })
+
+  it('keeps nothing when the kit declares no exact version for this host', () => {
+    const root = temp('dsh-engine-keep-')
+    placeEngine(root, '0.1.1')
+    expect(versionsToKeep(root, readEngineRequirement(serverTree({}), 'linux', 'x64'))).toEqual({})
+    expect(versionsToKeep(root, readEngineRequirement(serverTree({}), 'darwin', 'arm64'))).toEqual({})
+  })
+
+  it('also keeps a complete engine of another version while the declared one is not installed', () => {
+    const root = temp('dsh-engine-keep-')
+    placeEngine(root, '0.1.0')
+    expect(versionsToKeep(root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1', superseded: '0.1.0' })
+    // An incomplete declared version is not installed either.
+    placeEngine(root, '0.1.1', { executable: 'missing' })
+    expect(versionsToKeep(root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1', superseded: '0.1.0' })
+  })
+
+  it('drops that engine once the declared version is installed', () => {
+    const root = temp('dsh-engine-keep-')
+    placeEngine(root, '0.1.0')
+    placeEngine(root, '0.1.1')
+    expect(versionsToKeep(root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1' })
+  })
+
+  // A build whose kit declares a version the table lacks offers no download,
+  // and keeps the engine the person downloaded for a later build to upgrade.
+  it('keeps the earlier engine through a launch whose declared version is not registered', () => {
+    const root = temp('dsh-engine-keep-')
+    placeEngine(root, '0.1.1')
+    for (const name of ['0.1.0', '.staging-abc']) mkdirSync(join(root, name))
+    const requirement = readEngineRequirement(serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.2.0' }), 'darwin', 'arm64')
+    expect(requirement.ok).toBe(false)
+    const kept = versionsToKeep(root, requirement)
+    expect(kept).toEqual({ declared: '0.2.0', superseded: '0.1.1' })
+    expect(pruneEngineRoot(root, kept.declared, kept.superseded).removed.sort()).toEqual(['.staging-abc', '0.1.0'])
+    expect(readdirSync(root)).toEqual(['0.1.1'])
   })
 })
 
@@ -240,8 +355,20 @@ describe('engineInstalled', () => {
 describe('the office engine in main.ts', () => {
   const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
 
-  it('prunes the engine root on every launch, whether or not this launch offers an engine', () => {
-    expect(source).toContain('\n  const pruned = pruneEngineRoot(root, versionToKeep(requirement))\n')
+  it('prunes the engine root on every launch, whether or not this launch offers an engine, keeping what versionsToKeep names', () => {
+    expect(source).toContain('\n  const kept = versionsToKeep(root, requirement)\n  const pruned = pruneEngineRoot(root, kept.declared, kept.superseded)\n')
+  })
+
+  // The page reads the state once when it loads and follows it only while it
+  // moves, so the upgrade has to read `installing` before the server starts.
+  it('begins an upgrade before the engine service and the server start, and starts its download only after the launch gate', () => {
+    const begin = source.indexOf('\n  manager.beginUpgrade()\n')
+    expect(begin).toBeGreaterThan(-1)
+    expect(begin).toBeLessThan(source.indexOf('started = await startOfficeEngineService(manager)'))
+    const run = source.indexOf('officeEngine?.runUpgrade()')
+    expect(run).toBeGreaterThan(source.indexOf('if (await gate) {'))
+    expect(run).toBeGreaterThan(source.indexOf('view.showApp(server.authenticatedUrl)'))
+    expect([...source.matchAll(/\.runUpgrade\(\)/g)]).toHaveLength(1)
   })
 
   it('starts the engine service before the port check and adds its variables to the launch environment', () => {
