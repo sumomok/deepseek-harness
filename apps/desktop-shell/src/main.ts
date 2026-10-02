@@ -28,6 +28,7 @@ import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
 import { pinAppIdentity } from './app-identity.ts'
 import { KEPT_REPORTS, LOG_ROTATE_BYTES, pruneReports, rotateLog } from './log-retention.ts'
 import { bootPage } from './boot-page.ts'
+import { PRODUCT_NAME } from './brand.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
@@ -245,12 +246,14 @@ const appLoaders = new WeakMap<BrowserWindow, AppLoader>()
 /**
  * Tell the user an L0 rebind is under way, on both platforms — the window
  * itself is showing whatever a dead backend renders as, which explains nothing.
+ * Titled with the Chinese product name, since notifications stay Chinese
+ * ([[@deepseek-ai/dsh-desktop-shell/menu-text]]).
  */
 function notifyRecovering(): void {
   const body = '后台服务已停止,正在恢复…'
   logLine(`[desktop] notify: ${body}\n`)
   if (!Notification.isSupported()) return
-  new Notification({ title: 'DSH Desktop', body }).show()
+  new Notification({ title: PRODUCT_NAME.zh, body }).show()
 }
 
 /**

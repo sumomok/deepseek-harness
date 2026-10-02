@@ -15,13 +15,15 @@
  * @module @deepseek-ai/dsh-desktop-shell/app-boot-text
  */
 
+import { PRODUCT_NAME } from './brand.ts'
+
 /**
  * The loading page's texts in each shell language, keyed like the menu labels
  * in [[@deepseek-ai/dsh-desktop-shell/menu-text]].
  */
 export const APP_BOOT_TEXT = {
-  zh: { wordmark: '北冥', loading: '正在加载插件…', failed: '插件加载失败' },
-  en: { wordmark: 'Beiming', loading: 'Loading plugins…', failed: 'Failed to load plugins' },
+  zh: { wordmark: PRODUCT_NAME.zh, loading: '正在加载插件…', failed: '插件加载失败' },
+  en: { wordmark: PRODUCT_NAME.en, loading: 'Loading plugins…', failed: 'Failed to load plugins' },
 } as const
 
 /**

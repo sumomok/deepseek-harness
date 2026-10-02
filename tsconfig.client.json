@@ -44,8 +44,10 @@
     "apps/desktop-app/tests/**/*.client.spec.tsx",
     "apps/desktop-shell/src/profile-seed.ts",
     // The loading-page restatement, whose client-face suite checks it against
-    // the web client's BootPage; it imports nothing.
+    // the web client's BootPage, and the product-name constant, the only
+    // module it imports.
     "apps/desktop-shell/src/app-boot-text.ts",
+    "apps/desktop-shell/src/brand.ts",
     // Client package outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
