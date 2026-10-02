@@ -12,7 +12,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { EngineRequirement, InstallOutcome, InstallSpec, RequirementResult } from '../src/office-engine.ts'
+import { versionsToKeep, type EngineRequirement, type InstallOutcome, type InstallSpec, type RequirementResult } from '../src/office-engine.ts'
 import {
   CANCEL_PATH, confirmDialogOptions, confirmRequest, DECLINE_COOLDOWN_MS, ENDPOINT_ENV, INSTALL_PATH, OfficeEngineManager,
   startOfficeEngineService, STATE_PATH, TOKEN_ENV, type EngineConfirmRequest, type OfficeEngineServiceHandle,
@@ -395,6 +395,62 @@ describe('an upgrade from an engine the person downloaded before', () => {
     expect(harness.asked).toEqual([confirmRequest(REQUIREMENT)])
   })
 
+  /**
+   * Fail the upgrade's own download, then put the notice's retry up.
+   * @returns the harness, with the retry's confirmation on screen.
+   */
+  async function failThenRetry(): Promise<Harness> {
+    const harness = await start(undefined, '0.1.0')
+    harness.manager.beginUpgrade()
+    harness.manager.runUpgrade()
+    await settle()
+    harness.finish({ ok: false, cancelled: false, reason: 'the package manager exited with 1: ETIMEDOUT' })
+    await settle()
+    expect((await call(harness.handle, 'POST', INSTALL_PATH)).status).toBe(202)
+    await settle()
+    expect(harness.asked).toEqual([confirmRequest(REQUIREMENT)])
+    return harness
+  }
+
+  it('takes a cancel of the retry after a failed upgrade as a refusal: the earlier engine goes, and the next launch asks first', async () => {
+    const harness = await failThenRetry()
+    harness.answer(true)
+    await settle()
+    expect(harness.installs).toHaveLength(2)
+    expect((await call(harness.handle, 'POST', CANCEL_PATH)).status).toBe(202)
+    expect(readdirSync(harness.root)).toEqual([])
+    await settle()
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toEqual({ phase: 'absent', version: '0.1.1', downloadBytes: 66_711_287 })
+    expect(versionsToKeep(harness.root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1' })
+  })
+
+  it('takes a declined retry after a failed upgrade as a refusal: the earlier engine goes, and the next launch asks first', async () => {
+    const harness = await failThenRetry()
+    harness.answer(false)
+    await settle()
+    expect(harness.installs).toHaveLength(1)
+    expect(readdirSync(harness.root)).toEqual([])
+    expect(versionsToKeep(harness.root, { ok: true, requirement: REQUIREMENT })).toEqual({ declared: '0.1.1' })
+    expect(harness.log.some(line => line.includes('removed 0.1.0') && line.includes('the next download asks first'))).toBe(true)
+  })
+
+  it('keeps the earlier engine when a confirmation cannot be shown', async () => {
+    const harness = await start(undefined, '0.1.0')
+    const manager = new OfficeEngineManager({
+      requirement: { ok: true, requirement: REQUIREMENT },
+      root: harness.root,
+      superseded: '0.1.0',
+      pnpm: { command: 'pnpm', prefixArgs: [] },
+      confirm: () => Promise.reject(new Error('no display')),
+      log: () => {},
+      installTimeoutMs: 1000,
+      declineCooldownMs: COOLDOWN_MS,
+    })
+    expect(manager.requestInstall()).toBeUndefined()
+    await settle()
+    expect(readdirSync(harness.root)).toEqual(['0.1.0'])
+  })
+
   it('ends at once on a cancel before its download starts, removes the earlier engine, and never starts the download', async () => {
     const harness = await start(undefined, '0.1.0')
     harness.manager.beginUpgrade()
@@ -429,12 +485,16 @@ describe('an upgrade from an engine the person downloaded before', () => {
     expect(readdirSync(harness.root)).toEqual(['0.1.0'])
   })
 
-  it('still takes a cancel as a refusal when the service closes before the download has stopped', async () => {
+  // A quit does not wait for the aborted download to end, so the refusal is
+  // on disk before the cancel returns.
+  it('removes the earlier engine before a cancel returns, while the download is still stopping', async () => {
     const harness = await start(undefined, '0.1.0')
     harness.manager.beginUpgrade()
     harness.manager.runUpgrade()
     await settle()
     expect(harness.manager.cancel()).toBeUndefined()
+    expect(readdirSync(harness.root)).toEqual([])
+    expect(harness.manager.snapshot().phase).toBe('installing')
     await harness.handle.close()
     service = undefined
     expect(readdirSync(harness.root)).toEqual([])
@@ -464,15 +524,24 @@ describe('an upgrade from an engine the person downloaded before', () => {
     expect(readdirSync(harness.root)).toEqual(['0.1.0'])
   })
 
-  it('does not begin while a confirmation is on screen, or a second time', async () => {
+  it('does not begin while a confirmation is on screen', async () => {
     const harness = await start(undefined, '0.1.0')
     await call(harness.handle, 'POST', INSTALL_PATH)
     expect(harness.manager.beginUpgrade()).toBe(false)
-    harness.answer(false)
-    await settle()
+    expect((await call(harness.handle, 'GET', STATE_PATH)).body).toMatchObject({ phase: 'confirming' })
+  })
+
+  it('does not begin a second time in one launch, also after the first one failed', async () => {
+    const harness = await start(undefined, '0.1.0')
     expect(harness.manager.beginUpgrade()).toBe(true)
-    harness.manager.cancel()
+    harness.manager.runUpgrade()
+    await settle()
+    harness.finish({ ok: false, cancelled: false, reason: 'the package manager exited with 1: 404' })
+    await settle()
     expect(harness.manager.beginUpgrade()).toBe(false)
+    harness.manager.runUpgrade()
+    await settle()
+    expect(harness.installs).toHaveLength(1)
   })
 })
 
