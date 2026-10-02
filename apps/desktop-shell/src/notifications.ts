@@ -506,7 +506,9 @@ async function mintCookie(generation: Generation): Promise<string> {
  * @param generation - the generation whose cookie and origin are used.
  * @param endpoint - the Remote endpoint, e.g. `session/list`.
  * @param args - the endpoint's `args` record; for a service method, one field
- * per parameter under its wire name, and the gateway refuses a missing or extra field.
+ * per parameter under its wire name. The gateway refuses an extra field, and
+ * a missing one unless that parameter accepts undefined; `session/list`'s
+ * `_request` is a required parameter.
  * @returns the endpoint's value, or undefined for a void endpoint.
  * @throws when the carrier or the endpoint reports a failure.
  */

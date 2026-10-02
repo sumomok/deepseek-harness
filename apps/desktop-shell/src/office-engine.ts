@@ -99,10 +99,12 @@ export interface EngineDownload {
  * Two kit versions reach a desktop build, so each target is registered at
  * both. The workspace installs the kit at the version `pnpm-lock.yaml` pins
  * (0.1.1), which a development launch and `tests/office-engine.spec.ts`
- * read. The packaged server closure comes from the legacy hoisted
- * `pnpm deploy`, which does not take the lockfile's pin and resolves the
- * kit's `^0.1.1` range to the newest published release (0.1.3), which the
- * packaged app reads. The spec fails when the workspace kit declares an
+ * read. The packaged server closure, which the packaged app reads, comes from
+ * the legacy hoisted `pnpm deploy`. It does not take the lockfile's pin: it
+ * resolves the kit's `^0.1.1` range to the highest release that is at least
+ * pnpm's `minimumReleaseAge` (one day unless configured) old when the deploy
+ * runs, so a later deploy can stage a newer kit. The staging deployed on
+ * 2026-10-01 holds 0.1.3. The spec fails when the workspace kit declares an
  * engine for either desktop target that this table does not carry, and
  * `scripts/office-engine-gate.ts` fails a package run whose staged kit does.
  */
