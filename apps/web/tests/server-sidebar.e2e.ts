@@ -13,6 +13,7 @@
  * workflow reordering, the footer's identity band (the signed-in name and
  * the sign-out control, both fitting the column),
  * (`@deepseek-ai/dsh-experimental-content-frame`)
+ * the session header's own title for a conversation with no durable title,
  * the two Settings → General rows the console withholds (`ui-chat`'s
  * busy-compaction row and the vendored `@haoran/dsh-auto-compact` row) while
  * automatic compaction runs at the bundle's 60% inside both console presets,
@@ -75,7 +76,7 @@ import type {} from '@deepseek-ai/dsh-compaction-basic'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
+import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft, ZH_BROWSER_LOCALE } from './support.ts'
 
 /**
  * The customer console's own bundle layer, installed into the scenario's
@@ -458,6 +459,31 @@ function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
     message: createMessage({
       role: 'assistant',
       content: [{ type: 'text', text: 'Done.' }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+    stream: [],
+  }, { surfaceOp: 'append' })
+  agent.session.append('step/end', { turn: 1, step: 1 })
+  agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+}
+
+/**
+ * Close one turn on a session with no user prompt in it: the turn makes the
+ * session non-blank, and with no prompt the title service derives no title.
+ * @param scaffold - the running scaffold.
+ * @param sessionId - the session to append to.
+ */
+function seedUntitledTurn(scaffold: WebScaffold, sessionId: string): void {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
+  agent.session.append('turn/start', { turn: 1 })
+  agent.session.append('step/start', { turn: 1, step: 1 })
+  agent.session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Ready.' }],
       source: { kind: 'model', provider: 'fixture', model: 'fixture' },
     }),
     stream: [],
@@ -1239,6 +1265,57 @@ describe('web e2e: the product-console sidebar', () => {
     }
     expect(await page.locator('[data-composer-card]').innerText()).not.toMatch(/workspace/i)
   }, 30_000)
+
+  it('titles a conversation with no durable title 工作台 in the session header, in place of its directory name', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-untitled-header'))
+    // Make the current workbench draft an untitled conversation — a closed
+    // turn with no prompt — then displace it with a workbench click, so it is
+    // reachable from the temporary section.
+    const untitled = workbenchSessionId
+    seedUntitledTurn(scaffold, untitled)
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await workbenchButton(page).click()
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(untitled)
+    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+
+    const temporary = sidebar(page).locator('[data-server-sidebar-section="temporary"]')
+    await temporary.getByRole('button', { name: /Untitled chat/ }).click()
+    await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    expect(scaffold.ctx.sessionTitle.get(scaffold.ctx.agents.get(SessionId(untitled))!.session)).toBeUndefined()
+
+    // The session list's `displayTitle` for this conversation is the
+    // directory's basename; the header shows this package's copy instead, and
+    // the crumb that would carry the basename is present and renders nothing.
+    const header = page.locator('header').filter({ has: page.locator('[class*="titleCluster"]') })
+    const title = header.locator('[data-server-sidebar-untitled-title]')
+    await expect.poll(() => title.isVisible(), { timeout: 15_000 }).toBe(true)
+    await expect(title.innerText()).resolves.toBe('Workbench')
+    await expectGuardHides(header, 'crumbs')
+    const headerText = await header.innerText()
+    expect(headerText).not.toContain('server-sidebar-workspace')
+    expect(headerText).not.toContain(untitled)
+    await evidence(page, 'web-e2e-server-sidebar-untitled-header')
+
+    // The same conversation on a page that advertises Chinese reads 工作台.
+    const zhPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+    try {
+      await zhPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+      await sidebar(zhPage).waitFor({ timeout: 30_000 })
+      const zhTemporary = sidebar(zhPage).locator('[data-server-sidebar-section="temporary"]')
+      await zhTemporary.getByRole('button', { name: /未命名对话/ }).click()
+      const zhTitle = zhPage.locator('header [data-server-sidebar-untitled-title]')
+      await expect.poll(() => zhTitle.isVisible(), { timeout: 15_000 }).toBe(true)
+      await expect(zhTitle.innerText()).resolves.toBe('工作台')
+      await expectGuardHides(zhPage.locator('header').filter({ has: zhPage.locator('[class*="titleCluster"]') }), 'crumbs')
+      await evidence(zhPage, 'web-e2e-server-sidebar-untitled-header-zh')
+    } finally {
+      await zhPage.close()
+    }
+  }, 120_000)
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])

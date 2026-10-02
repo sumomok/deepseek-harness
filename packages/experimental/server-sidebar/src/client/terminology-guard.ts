@@ -135,6 +135,21 @@
  * un-hides it — so an e2e scenario asserts the row is present AND renders
  * nothing, the same pairing every rule above is pinned with.
  *
+ * The session header's crumb navigation is the fifth. Its current crumb is the
+ * session list's `displayTitle`, which for a conversation with no durable title
+ * is the basename of the session's working directory, or the bare session id
+ * while the session's row has not arrived; the slot it sits in cannot be
+ * replaced from outside (see `UntitledTitle.tsx`). This package's own
+ * `UntitledTitle` header action renders the replacement copy under the mark
+ * `data-server-sidebar-untitled-title`, and the rule hides the `nav` that is a
+ * direct child of the header's `titleCluster` (`ConversationRoot.module.css`)
+ * whenever that cluster holds the mark, so a titled conversation keeps its
+ * crumb. `:has()` keys the rule on what this package rendered rather than on
+ * what the crumb says. Renaming `titleCluster`, or moving the crumb `nav` or
+ * the action row out of it, leaves both titles on screen — so the e2e scenario
+ * asserts the `nav` is present and renders nothing while the replacement is
+ * visible.
+ *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as
  * a general-purpose sidebar.
@@ -158,6 +173,7 @@ const STYLE = `
 [class*="heroWorkspaceRow"] { display: none !important; }
 [data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }
 [role='dialog'][aria-modal='true'] [class$="_header"] > [class$="_actions"] > * { display: none !important; }
+[class*="titleCluster"]:has([data-server-sidebar-untitled-title]) > nav { display: none !important; }
 `
 
 /**

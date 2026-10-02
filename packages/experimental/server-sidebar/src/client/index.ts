@@ -42,8 +42,12 @@
  * (see the package README), so this is belt-and-suspenders for a deployment
  * that forgets to.
  *
- * A fourth set of entries withholds Settings → General rows by shadowing their
- * list ids (`settings-rows.ts`).
+ * A fourth registration seats `UntitledTitle.tsx` in the same
+ * `conversation.session.header.actions` list, ahead of every other action: the
+ * console's own title for a conversation with no durable title, which
+ * `terminology-guard.ts` puts in place of the header's crumb. A fifth set of
+ * entries withholds two Settings → General rows by shadowing their list ids
+ * (`settings-rows.ts`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -74,6 +78,7 @@ import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRo
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
 import { withholdGeneralRows } from './settings-rows.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
+import { UntitledTitle } from './UntitledTitle.tsx'
 import { en, zh, type ServerSidebarKey } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
@@ -88,6 +93,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin. */
 const NS = 'serverSidebar'
+
+/**
+ * The untitled-conversation title's place in the header's action list: below
+ * every shipped action's order (the lowest is the subagent catalog's -30), so
+ * it sits first, where the crumb it replaces was.
+ */
+const UNTITLED_TITLE_ORDER = -100
 
 /** Bound workflow-store actions, as both registrations' inject factories may receive or reuse them. */
 type BoundWorkflowActions = BoundActions<ReturnType<typeof createWorkflowStore>>
@@ -135,10 +147,10 @@ async function landOnWorkbench(
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, and the withheld Settings rows, then the
- * read-before-register fetches (this package's own settings-read pattern,
- * matching `dsh-experimental-content-frame`'s), then the two slot
- * registrations.
+ * brand-mark takeover, the untitled-conversation title, and the withheld
+ * Settings rows, then the read-before-register fetches (this package's own
+ * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
+ * two slot registrations.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
@@ -150,6 +162,15 @@ export async function apply(ctx: ClientContext): Promise<void> {
       () => null,
     )),
     'server-sidebar: hero brand-mark takeover',
+  )
+  ctx.effect(
+    () => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+      name: 'conversation.session.header.actions',
+      id: 'untitled-title',
+      order: UNTITLED_TITLE_ORDER,
+      locale: NS,
+    }, UntitledTitle)),
+    'server-sidebar: untitled conversation title',
   )
   withholdGeneralRows(ctx)
 

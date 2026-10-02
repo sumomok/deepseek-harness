@@ -1,0 +1,18 @@
+/* The console's title for an untitled conversation, drawn in the header's
+   action row while the terminology guard hides the crumb it replaces. The
+   metrics are ui-conversation's current crumb (`.crumb` with `.crumbCurrent`
+   in ConversationRoot.module.css), so the swap moves nothing in the row. */
+
+.title {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}

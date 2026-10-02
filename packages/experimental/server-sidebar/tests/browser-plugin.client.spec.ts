@@ -5,8 +5,9 @@
  * package's own server-menu document), the `sidebar` slot registration and
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
- * registration for the "存为工作流" action, the two withheld Settings →
- * General rows, the workbench/workflow/page
+ * registration for the "存为工作流" action and the untitled-conversation
+ * title beside it, the two withheld Settings → General rows, the
+ * workbench/workflow/page
  * business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
@@ -22,6 +23,7 @@ import { apply, inject, type ServerSidebarInjected } from '../src/client/index.t
 import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import { WITHHELD_GENERAL_ROWS } from '../src/client/settings-rows.ts'
+import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -245,9 +247,19 @@ function injectSidebar(ctx: Context): { injected: ServerSidebarInjected; actions
   return { injected, actions }
 }
 
-/** Read the header action's inject factory for the given session. */
+/**
+ * One of this package's header-action entries, by its list id.
+ * @param ctx - the bench context.
+ * @param id - the entry's list id.
+ * @returns the stored entry, or undefined.
+ */
+function headerAction(ctx: Context, id: string): ReturnType<Context['slots']['entries']>[number] | undefined {
+  return ctx.slots.entries('conversation.session.header.actions').find(entry => entry.options.id === id)
+}
+
+/** Read the save-workflow header action's inject factory for the given session. */
 function injectHeaderAction(ctx: Context, sessionId: string): SaveWorkflowInjected {
-  const [entry] = ctx.slots.entries('conversation.session.header.actions')
+  const entry = headerAction(ctx, 'save-workflow')
   return (entry?.inject as unknown as HeaderInjectFactory)(sessionId)
 }
 
@@ -642,14 +654,28 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.spec('sidebar.brand.mark')).toBeUndefined()
     expect(ctx.slots.spec('sidebar.footer.action')).toBeUndefined()
     expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
+  })
+})
+
+describe('server-sidebar browser half: untitled-conversation title', () => {
+  it('registers ahead of every shipped header action, in this package\'s locale', async () => {
+    const { ctx } = await bench()
+    const entry = headerAction(ctx, 'untitled-title')
+    expect(entry?.component).toBe(UntitledTitle)
+    expect(entry?.options.order).toBe(-100)
+    expect(entry?.locale).toBe('serverSidebar')
+    // The lowest shipped order in this list is the subagent catalog's -30.
+    const [first] = ctx.slots.entriesOfSlot('conversation.session.header.actions')
+    expect(first?.options.id).toBe('untitled-title')
   })
 })
 
 describe('server-sidebar browser half: save-workflow header action', () => {
   it('registers into conversation.session.header.actions with the given id and order', async () => {
     const { ctx } = await bench()
-    const [entry] = ctx.slots.entries('conversation.session.header.actions')
+    const entry = headerAction(ctx, 'save-workflow')
     expect(entry?.component).toBe(SaveWorkflowAction)
     expect(entry?.options.id).toBe('save-workflow')
     expect(entry?.options.order).toBe(30)

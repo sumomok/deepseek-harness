@@ -1607,6 +1607,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-jobs JobListAction id \'job-list\'',
       'client-ui-subagent SubagentCatalogAction id \'subagent-catalog\'',
       'experimental-client-ui-agent-team TeamAction id \'agent-team\'',
+      'experimental-server-sidebar UntitledTitle id \'untitled-title\'',
       'experimental-server-sidebar SaveWorkflowAction id \'save-workflow\'',
       'experimental-vue-ui-poc VueProbeAction id \'vue-ui-poc\'',
     ],
