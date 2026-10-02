@@ -16,9 +16,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SENTINEL_DIRECTORY, SENTINEL_FILE, writeIntentionalStop } from '../src/crash-resume-sentinel.ts'
 import type { HeldListenSocket, ListenHandoff, NativeListenHandle } from '../src/listen-socket.ts'
 import {
-  COOKIE_CLEAR_BOUND_MS, markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
-  stopForMandatoryUpdate, stopForQuit, stopServerForQuit, type RevealHooks,
+  COOKIE_CLEAR_BOUND_MS, createStoppedDialog, markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash,
+  resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate, stopForQuit, stopServerForQuit, type RevealHooks, type StoppedDialog,
 } from '../src/server-lifecycle.ts'
+import type { StoppedDialogOutcome } from '../src/server-supervision.ts'
 import { ListenHandoffFailed, type ServerHandle, type ServerSpec } from '../src/server.ts'
 
 let home: string | undefined
@@ -349,6 +350,133 @@ describe('revealApp', () => {
   })
 })
 
+/** A stopped-server dialog over recording fakes. */
+interface DialogUnderTest {
+  /** The dialog. */
+  dialog: StoppedDialog
+  /** What the fakes recorded, in order. */
+  steps: string[]
+  /** Choose the button of the dialog on screen, and let its loop reach its next step. */
+  answer: (outcome: StoppedDialogOutcome) => Promise<void>
+}
+
+describe('createStoppedDialog', () => {
+  /**
+   * A dialog over recording fakes whose answers the case gives one at a time.
+   * @param rebinds - what each rebind attempt resolves with, in order.
+   * @returns the dialog, the recorded steps, and the answer to the dialog on screen.
+   */
+  function dialogWith(rebinds: boolean[] = []): DialogUnderTest {
+    const steps: string[] = []
+    const pending: Array<(outcome: StoppedDialogOutcome) => void> = []
+    const dialog = createStoppedDialog({
+      ask: () => {
+        steps.push('ask')
+        return new Promise((resolve) => { pending.push(resolve) })
+      },
+      rebind: async () => { steps.push('rebind'); return rebinds.shift() ?? false },
+      openLog: () => { steps.push('open log') },
+      log: () => {},
+      reveal: () => { steps.push('reveal') },
+    })
+    const answer = async (outcome: StoppedDialogOutcome): Promise<void> => {
+      const resolve = pending.shift()
+      if (resolve === undefined) throw new Error('no dialog on screen')
+      resolve(outcome)
+      // Let the dialog's loop reach its next step.
+      for (let turn = 0; turn < 5; turn += 1) await Promise.resolve()
+    }
+    return { dialog, steps, answer }
+  }
+
+  it('is not shown a second time while it is on screen', async () => {
+    const { dialog, steps, answer } = dialogWith()
+    const first = dialog.run('ladder')
+    await dialog.run('reveal')
+    await dialog.run('ladder')
+    expect(steps).toEqual(['ask'])
+    expect(dialog.stopped()).toBe(true)
+    await answer('dismiss')
+    await first
+  })
+
+  it('asks again after the log was opened and after a retry that failed, and ends on a retry that succeeded', async () => {
+    const { dialog, steps, answer } = dialogWith([false, true])
+    const shown = dialog.run('ladder')
+    await answer('open-log')
+    await answer('retry')
+    await answer('retry')
+    await shown
+    expect(steps).toEqual(['ask', 'open log', 'ask', 'rebind', 'ask', 'rebind'])
+    expect(dialog.stopped()).toBe(false)
+  })
+
+  it('shows itself again for the next stop once a retry succeeded', async () => {
+    const { dialog, steps, answer } = dialogWith([true])
+    const shown = dialog.run('ladder')
+    await answer('retry')
+    await shown
+    const again = dialog.run('ladder')
+    expect(steps).toEqual(['ask', 'rebind', 'ask'])
+    await answer('dismiss')
+    await again
+  })
+
+  it('stays stopped after a dismissal until a server starts', async () => {
+    const { dialog, answer } = dialogWith()
+    const shown = dialog.run('ladder')
+    await answer('dismiss')
+    await shown
+    expect(dialog.stopped()).toBe(true)
+    dialog.serverStarted()
+    expect(dialog.stopped()).toBe(false)
+  })
+
+  it('opens the window after a successful retry when a reveal asked for the dialog', async () => {
+    const { dialog, steps, answer } = dialogWith([true])
+    const shown = dialog.run('reveal')
+    await answer('retry')
+    await shown
+    expect(steps).toEqual(['ask', 'rebind', 'reveal'])
+  })
+
+  it('opens the window after a successful retry when a reveal arrived while the ladder\'s dialog was open', async () => {
+    const { dialog, steps, answer } = dialogWith([true])
+    const shown = dialog.run('ladder')
+    await dialog.run('reveal')
+    await answer('retry')
+    await shown
+    expect(steps).toEqual(['ask', 'rebind', 'reveal'])
+  })
+
+  it('opens no window after a successful retry the ladder\'s dialog alone asked for', async () => {
+    const { dialog, steps, answer } = dialogWith([true])
+    const shown = dialog.run('ladder')
+    await answer('retry')
+    await shown
+    expect(steps).toEqual(['ask', 'rebind'])
+  })
+
+  it('takes a reveal with no window to the dialog while it is on screen, and the retry then opens the window', async () => {
+    const { dialog, steps, answer } = dialogWith([true])
+    const shown = dialog.run('ladder')
+    let window = false
+    const reveal = (): void => {
+      revealApp({
+        quitting: () => false, revealExisting: () => window, backendStopped: () => dialog.stopped(),
+        showStopped: () => { void dialog.run('reveal') }, openWindow: () => { window = true; steps.push('open') },
+      })
+    }
+    reveal()
+    expect(steps).toEqual(['ask'])
+    await answer('retry')
+    await shown
+    expect(steps).toEqual(['ask', 'rebind', 'reveal'])
+    reveal()
+    expect(steps).toEqual(['ask', 'rebind', 'reveal', 'open'])
+  })
+})
+
 describe('resumeAfterFailedInstall', () => {
   /**
    * A shell whose quitting flag gates the reveal the way `main.ts` wires it.
@@ -417,8 +545,12 @@ describe('main.ts', () => {
       'await rebindOnHeldSocket\\(\\s*spec, held, startEmbeddedServer,',
       ' \\{ log: logLine, forgetPort: forgetServerPort, release: releaseHeld \\}',
     ].join(''), 'u'))
-    expect(body('reveal')).toContain("backendStopped: () => stoppedDialog === 'dismissed',")
-    expect(body('runStoppedDialog')).toContain("stoppedDialog = 'dismissed'")
+    expect(body('reveal')).toContain('backendStopped: () => stoppedDialog.stopped(),')
+    expect(body('reveal')).toContain("showStopped: () => { void stoppedDialog.run('reveal') },")
+    expect(body('handleUnexpectedServerExit')).toContain("else if (outcome === 'stop') void stoppedDialog.run('ladder')")
+    expect(body('restartAfterFailedInstall')).toContain('stoppedDialog.serverStarted()')
+    expect(source).toMatch(/const stoppedDialog = createStoppedDialog\(\{\s+ask: askStoppedDialog,\s+rebind: performRebind,/u)
+    expect(source).toContain('reveal: () => { reveal() },')
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {

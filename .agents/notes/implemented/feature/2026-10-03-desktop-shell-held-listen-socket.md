@@ -39,7 +39,7 @@ A start on the socket that fails with `ListenHandoffFailed`, or with `listen EAD
 ### Rules that hold either way
 
 - The notification stream stops at every unexpected exit, before the ladder (`stopNotifications`). Before this decision a stream that had been ready kept its in-memory cookie, reconnected to the dead port every few seconds, and minted another cookie from the old launch token, until a rebind replaced it, and never after the stop dialog was dismissed.
-- Once the stopped-server dialog was dismissed, a reveal with no window open — the macOS Dock — shows the dialog again instead of a window that would wait on a stopped server.
+- While the stopped-server dialog is on screen or after it was dismissed, a reveal with no window open — the macOS Dock — goes to the dialog instead of a window that would wait on a stopped server, and a retry there that succeeds opens the window (`createStoppedDialog` in `src/server-lifecycle.ts`).
 - A profile change that restarts the web server's row makes it listen a second time; with a held socket the process then exits and the ladder rebinds on the same socket. A run in a scratch home with the built CLI did this when the `webserver` row's config changed, and did not for an unrelated row or for the row restated unchanged.
 
 ### Packaging and checks

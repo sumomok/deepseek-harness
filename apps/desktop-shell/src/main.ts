@@ -57,13 +57,13 @@ import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
 import {
   classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
-  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
+  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type StoppedDialogOutcome, type SupervisorState,
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { choosePort, holdLaunchSocket, isPortFree, startHeldOrFallback, startOnPort, type HeldStart } from './server-port.ts'
 import {
-  markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
-  stopServerForQuit,
+  createStoppedDialog, markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
+  stopForMandatoryUpdate, stopServerForQuit,
 } from './server-lifecycle.ts'
 import { watchSessionEnd } from './session-end.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -189,14 +189,6 @@ let held: ListenHandoff | undefined
 function releaseHeld(): void {
   held = undefined
 }
-
-/**
- * Where the stopped-server dialog stands: not shown, on screen, or dismissed
- * with the backend left down. `dismissed` lasts until a server starts again,
- * and while it lasts a reveal with no window to uncover shows the dialog
- * instead of opening one.
- */
-let stoppedDialog: 'none' | 'open' | 'dismissed' = 'none'
 
 /** The recovery ladder's own memory between unexpected server exits; see [[@deepseek-ai/dsh-desktop-shell/server-supervision]]. */
 let supervisorState: SupervisorState = initialSupervisorState
@@ -370,14 +362,14 @@ async function restartAfterFailedInstall(): Promise<void> {
     held = started.held
     server = started.server
     rememberServerPort(started.spec)
-    if (stoppedDialog === 'dismissed') stoppedDialog = 'none'
+    stoppedDialog.serverStarted()
     logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
     retargetWindows(started.server.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
     attachSupervision()
   } catch (error) {
     logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
-    void runStoppedDialog()
+    void stoppedDialog.run('ladder')
   }
 }
 
@@ -424,7 +416,7 @@ async function handleUnexpectedServerExit(): Promise<void> {
   })
   supervisorState = state
   if (outcome === 'relaunch') relaunchForRecovery()
-  else if (outcome === 'stop') void runStoppedDialog()
+  else if (outcome === 'stop') void stoppedDialog.run('ladder')
 }
 
 /**
@@ -457,43 +449,38 @@ function relaunchForRecovery(): void {
  * automatically; {@link STOPPED_DIALOG_CANCEL_INDEX} routes Esc and every
  * other way of dismissing the dialog to the same button, so a user who
  * cannot fix the crash always has a way out that is not quitting the whole
- * app. The dismissal is remembered in {@link stoppedDialog}, so [[reveal]]
- * with no window open shows the dialog again; a dialog already on screen is
- * not shown a second time.
+ * app. While the dialog is on screen or after it was dismissed, [[reveal]]
+ * with no window open goes to the dialog, and a retry that then succeeds
+ * opens the window ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  */
-async function runStoppedDialog(): Promise<void> {
-  if (stoppedDialog === 'open') return
-  stoppedDialog = 'open'
-  logLine('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
-  for (;;) {
-    const window = mainWindow()
-    const options = {
-      type: 'error' as const,
-      title: PRODUCT_NAME.zh,
-      message: '后台服务多次崩溃,已停止自动恢复',
-      buttons: [...STOPPED_DIALOG_BUTTONS],
-      defaultId: 0,
-      cancelId: STOPPED_DIALOG_CANCEL_INDEX,
-    }
-    const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
-    const outcome = classifyStoppedDialogAnswer(answer.response)
-    if (outcome === 'retry') {
-      if (await performRebind()) {
-        stoppedDialog = 'none'
-        return
-      }
-      continue
-    }
-    if (outcome === 'open-log') {
-      void shell.openPath(logFile).then((failure) => {
-        if (failure !== '') shell.showItemInFolder(logFile)
-      })
-      continue
-    }
-    logLine('[desktop] user dismissed the crash dialog; backend stays down\n')
-    stoppedDialog = 'dismissed'
-    return
+const stoppedDialog = createStoppedDialog({
+  ask: askStoppedDialog,
+  rebind: performRebind,
+  openLog: () => {
+    void shell.openPath(logFile).then((failure) => {
+      if (failure !== '') shell.showItemInFolder(logFile)
+    })
+  },
+  log: (line) => { logLine(line) },
+  reveal: () => { reveal() },
+})
+
+/**
+ * Show the L2 dialog once, over the app window when there is one.
+ * @returns the button the user chose.
+ */
+async function askStoppedDialog(): Promise<StoppedDialogOutcome> {
+  const window = mainWindow()
+  const options = {
+    type: 'error' as const,
+    title: PRODUCT_NAME.zh,
+    message: '后台服务多次崩溃,已停止自动恢复',
+    buttons: [...STOPPED_DIALOG_BUTTONS],
+    defaultId: 0,
+    cancelId: STOPPED_DIALOG_CANCEL_INDEX,
   }
+  const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
+  return classifyStoppedDialogAnswer(answer.response)
 }
 
 /**
@@ -817,8 +804,8 @@ function createAppWindow(url: string): void {
  * tray icon, a clicked notification, a second launch, the macOS Dock — ends
  * here, so all of them behave the same whether the window is hidden in the
  * tray, minimized, merely behind something, or gone. Once a quit has begun it
- * does nothing, and with no window and the stopped-server dialog dismissed it
- * shows that dialog again.
+ * does nothing, and with no window while the stopped-server dialog is on
+ * screen or was dismissed it goes to that dialog.
  */
 function reveal(): void {
   revealApp({
@@ -828,8 +815,8 @@ function reveal(): void {
       revealMainWindow()
       return true
     },
-    backendStopped: () => stoppedDialog === 'dismissed',
-    showStopped: () => { void runStoppedDialog() },
+    backendStopped: () => stoppedDialog.stopped(),
+    showStopped: () => { void stoppedDialog.run('reveal') },
     openWindow: () => { if (server !== undefined) createAppWindow(server.authenticatedUrl) },
   })
 }

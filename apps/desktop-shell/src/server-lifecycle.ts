@@ -65,8 +65,9 @@
  *   records nothing, and neither does a later quit of the crashed server.
  * - Reopening the window while quitting does nothing, so no new token
  *   exchange issues a cookie for a server about to be gone. Reopening it with
- *   no window open, after the stopped-server dialog was dismissed, shows that
- *   dialog again rather than a window on a server that is not running.
+ *   no window open while the stopped-server dialog is on screen or after it
+ *   was dismissed goes to that dialog rather than to a window on a server
+ *   that is not running, and a retry there that succeeds opens the window.
  * - An install that failed after the quit began undoes the quit: it clears
  *   the quitting state first, so the window can be shown again, restarts the
  *   server unless the mandatory-update block holds the app — on the held
@@ -78,6 +79,7 @@
 import { type IntentionalStopReason, writeIntentionalStop } from './crash-resume-sentinel.ts'
 import type { ListenHandoff } from './listen-socket.ts'
 import type { ServerHandle, ServerSpec } from './server.ts'
+import type { StoppedDialogOutcome } from './server-supervision.ts'
 import { startHeldOrFallback, startOnPort, type HeldStart } from './server-port.ts'
 
 /**
@@ -289,9 +291,9 @@ export interface RevealHooks {
   quitting: () => boolean
   /** Uncover the existing window; false when there is none. */
   revealExisting: () => boolean
-  /** Whether the user dismissed the stopped-server dialog and no server has started since. */
+  /** Whether the stopped-server dialog is on screen, or was dismissed with no server started since; see {@link StoppedDialog.stopped}. */
   backendStopped: () => boolean
-  /** Show the stopped-server dialog again. */
+  /** Show the stopped-server dialog, as asked by a reveal. */
   showStopped: () => void
   /** Open a window on the served UI, when a server is running. */
   openWindow: () => void
@@ -300,9 +302,9 @@ export interface RevealHooks {
 /**
  * Bring the app to the front, unless it is quitting: a window opened then
  * would exchange a launch token for a fresh cookie that outlives the server.
- * With no window to uncover and the backend left stopped, it shows the
- * stopped-server dialog instead of a window that would wait on a server that
- * is not running.
+ * With no window to uncover while the stopped-server dialog is on screen or
+ * was dismissed, it goes to that dialog instead of opening a window that
+ * would wait on a server that is not running.
  * @param hooks - the effects.
  */
 export function revealApp(hooks: RevealHooks): void {
@@ -313,6 +315,89 @@ export function revealApp(hooks: RevealHooks): void {
     return
   }
   hooks.openWindow()
+}
+
+/** What asked for the stopped-server dialog: the recovery ladder giving up, or a reveal with no window to uncover. */
+export type StoppedDialogTrigger = 'ladder' | 'reveal'
+
+/** What the stopped-server dialog needs. */
+export interface StoppedDialogHooks {
+  /** Show the dialog once and resolve with the button the user chose. */
+  ask: () => Promise<StoppedDialogOutcome>
+  /** Make one manual rebind attempt; resolves true once the server is back up. */
+  rebind: () => Promise<boolean>
+  /** Show the log file. */
+  openLog: () => void
+  /** One log line, ending in a newline. */
+  log: (line: string) => void
+  /** Bring the app to the front, opening a window on the served UI when none is open. */
+  reveal: () => void
+}
+
+/** The stopped-server dialog and what it remembers between showings. */
+export interface StoppedDialog {
+  /**
+   * Show the dialog until the user retries successfully or dismisses it. While
+   * it is already on screen nothing is shown again; a reveal is only noted.
+   * @param trigger - what asked for the dialog.
+   * @returns once the dialog closed, or at once when it was already open.
+   */
+  run: (trigger: StoppedDialogTrigger) => Promise<void>
+  /**
+   * Whether the dialog is on screen, or was dismissed and no server started
+   * since: either way no server runs, and a reveal goes to the dialog.
+   * @returns true from the dialog's first showing until a retry succeeds or a server starts after a dismissal.
+   */
+  stopped: () => boolean
+  /** Record that a server started outside the dialog, which ends a dismissal. */
+  serverStarted: () => void
+}
+
+/**
+ * The stopped-server dialog's sequence. 「重试」makes one rebind attempt and,
+ * when it fails, asks again; 「打开日志」shows the log and asks again;
+ * 「关闭」leaves the backend down until a retry or a server start. A
+ * successful retry opens the window when a reveal asked for the dialog or
+ * arrived while it was open: a reveal is a request to see the app, and the
+ * rebind only retargets windows that exist.
+ * @param hooks - the effects.
+ * @returns the dialog.
+ */
+export function createStoppedDialog(hooks: StoppedDialogHooks): StoppedDialog {
+  let state: 'none' | 'open' | 'dismissed' = 'none'
+  let revealAsked = false
+  return {
+    async run(trigger) {
+      if (state === 'open') {
+        if (trigger === 'reveal') revealAsked = true
+        return
+      }
+      state = 'open'
+      revealAsked = trigger === 'reveal'
+      hooks.log('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
+      for (;;) {
+        const outcome = await hooks.ask()
+        switch (outcome) {
+          case 'retry':
+            if (!await hooks.rebind()) continue
+            state = 'none'
+            if (revealAsked) hooks.reveal()
+            return
+          case 'open-log':
+            hooks.openLog()
+            continue
+          case 'dismiss':
+            hooks.log('[desktop] user dismissed the crash dialog; backend stays down\n')
+            state = 'dismissed'
+            return
+        }
+      }
+    },
+    stopped: () => state !== 'none',
+    serverStarted: () => {
+      if (state === 'dismissed') state = 'none'
+    },
+  }
 }
 
 /** What bringing the app back after a failed install needs. */
