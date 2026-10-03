@@ -417,7 +417,9 @@ export async function startServer(
     const timer = setTimeout(() => {
       settle(() => {
         expectedExit = true
-        void killTree(child)
+        void killTree(child).catch((error: unknown) => {
+          logSink(`[desktop] could not stop the server that printed no URL line: ${String(error)}\n`)
+        })
         reject(new Error(`dsh server printed no URL line within ${String(STARTUP_TIMEOUT_MS / 1000)}s.\n${tail(collected)}`))
       })
     }, STARTUP_TIMEOUT_MS)
