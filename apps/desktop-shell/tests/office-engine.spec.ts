@@ -390,6 +390,21 @@ describe('the office engine in main.ts', () => {
     expect(close).toBeLessThan(source.indexOf('    return engineEnv\n', failed))
   })
 
+  // The relaunch after repeated crashes and the update install raise
+  // `quitting` before `app.quit()`, so a close behind the check never runs
+  // for them and the download's package manager outlives the app.
+  it('closes the engine service at every quit, before the check that ends a quit already under way', () => {
+    const handler = source.indexOf('app.on(\'before-quit\', (event) => {')
+    expect(handler).toBeGreaterThan(-1)
+    const end = source.indexOf('\n  })\n', handler)
+    const close = source.indexOf('\n    void officeEngineService?.close()\n', handler)
+    const check = source.indexOf('\n    if (quitting) return\n', handler)
+    expect(close).toBeGreaterThan(handler)
+    expect(check).toBeGreaterThan(close)
+    expect(end).toBeGreaterThan(check)
+    expect([...source.matchAll(/officeEngineService\?\.close\(\)/g)]).toHaveLength(1)
+  })
+
   it('starts the engine service before the port check and adds its variables to the launch environment', () => {
     const service = source.indexOf('const officeEngineEnv = await startOfficeEngineForServer(spec, sink)')
     expect(service).toBeGreaterThan(-1)

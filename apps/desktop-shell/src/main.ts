@@ -425,12 +425,12 @@ async function handleUnexpectedServerExit(): Promise<void> {
 /**
  * Escalate to L1: relaunch the whole app once, marked so the next instance
  * knows it is this relaunch (the L2 guard reads it). `quitting` is raised
- * first so the tray's close guard stands aside, which also makes the
- * `before-quit` handler return at once: nothing is left for it to do, since
- * the server already exited and [[handleUnexpectedServerExit]] removed the
- * cookies — and forgot the port, unless this process held it — before the
- * ladder chose this, and the held socket and the loopback services close with
- * the process.
+ * first so the tray's close guard stands aside. The `before-quit` handler then
+ * closes the loopback services, which stops a running Office engine download,
+ * and returns without a server stop: the server already exited and
+ * [[handleUnexpectedServerExit]] removed the cookies — and forgot the port,
+ * unless this process held it — before the ladder chose this. The held socket
+ * closes with the process.
  */
 function relaunchForRecovery(): void {
   logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
@@ -865,13 +865,19 @@ if (!locked) {
   // it, or the handler intercepts the close, calls `app.quit()` again, and the
   // two hold each other in a loop the user cannot get out of.
   app.on('before-quit', (event) => {
-    if (quitting) return
-    quitting = true
-    // Best-effort and unawaited: the listener dies with the process anyway, and
-    // this quit must not wait on a render that is still running.
+    // Before the `quitting` check, because the relaunch after repeated crashes
+    // and the update install raise `quitting` before they call `app.quit()`:
+    // closing the engine service is what stops a running Office engine
+    // download, whose package manager otherwise outlives the app. Best-effort
+    // and unawaited: the listeners die with the process anyway, this quit must
+    // not wait on a render that is still running, and the download's child is
+    // sent its kill before the close returns. Closing a closed service again
+    // does nothing.
     void renderService?.close()
     void updateService?.close()
     void officeEngineService?.close()
+    if (quitting) return
+    quitting = true
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
