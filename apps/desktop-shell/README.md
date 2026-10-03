@@ -335,8 +335,8 @@ Four routes. `GET /state` and three `POST`s, none of which reads a request body;
 | Route | Answer |
 |---|---|
 | `GET /state` | `200 application/json` — the snapshot below |
-| `POST /check` | `202 application/json` — the snapshot; a check runs in the background and downloads what it finds |
-| `POST /download` | `202 application/json` — the snapshot; the transfer of the version already found is started or restarted, and a check runs first when no version is known |
+| `POST /check` | `202 application/json` — `{ "ok": true }`; a check runs in the background and downloads what it finds, and `GET /state` reports how it goes |
+| `POST /download` | `202 application/json` — `{ "ok": true }`; the transfer of the version already found is started or restarted, a check runs first when no version is known, and `GET /state` reports how it goes |
 | `POST /install` | `202 application/json` — `{ "ok": true }`, written before anything stops; the server goes down and the installer takes over on the next tick. `409` when the phase is not `ready` |
 | any other path or method | `404`, decided before the token, so a caller that cannot authenticate learns nothing about what is offered |
 | a missing or wrong token | `401` |

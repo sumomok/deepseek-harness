@@ -19,9 +19,16 @@
  * | Route | Answer |
  * |---|---|
  * | `GET /state` | `200` — the {@link UpdateSnapshot} as its own JSON object |
- * | `POST /check` | `202` — the snapshot; a check runs in the background and downloads what it finds |
- * | `POST /download` | `202` — the snapshot; the transfer of the version already found is (re)started |
+ * | `POST /check` | `202` — `{ "ok": true }`; a check runs in the background and downloads what it finds |
+ * | `POST /download` | `202` — `{ "ok": true }`; the transfer of the version already found is (re)started |
  * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
+ *
+ * `/check` and `/download` have no refusal of their own: each calls its action
+ * and, once the action returns, answers `{ "ok": true }`. That answer means the request
+ * reached the update channel, not that new work began, because the action may
+ * start nothing; `GET /state` is the only report of what follows, and an
+ * action that throws is a `500`. `/install` answers the same body, but only in
+ * the `ready` phase and before it acts.
  *
  * Every other path and method is `404`, decided before the token is read, so
  * the answer says nothing about what this service offers to a caller that
@@ -74,12 +81,14 @@ export interface UpdateServiceSpec {
   state: () => UpdateSnapshot
   /**
    * Start a background check, which downloads whatever it finds. Returns at
-   * once; the check reports through [[state]].
+   * once; the check reports through [[state]]. The implementation may start
+   * nothing, and the route answers the same either way.
    */
   check: () => void
   /**
    * Start or restart the transfer of the version the last check found, running
-   * a check first when none is known. Returns at once.
+   * a check first when none is known. Returns at once. The implementation may
+   * start nothing, and the route answers the same either way.
    */
   download: () => void
   /**
@@ -161,7 +170,7 @@ export async function startUpdateService(spec: UpdateServiceSpec): Promise<Updat
     }
     if (route === 'check') spec.check()
     else spec.download()
-    sendJson(response, 202, spec.state())
+    sendJson(response, 202, { ok: true })
   }
 
   const server = createServer((request, response) => {

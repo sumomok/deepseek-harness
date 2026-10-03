@@ -482,8 +482,9 @@ export function setupUpdates(host: UpdateHost): () => void {
  *
  * The three actions return at once and report through the snapshot rather than
  * through their answers: a check and a transfer take minutes, and the caller is
- * a settings page that polls. `install` is reached only from the `ready` phase,
- * which the service enforces before it calls this.
+ * a settings page that polls. Outside a packaged build `check` and `download`
+ * do nothing. `install` is reached only from the `ready` phase, which the
+ * service enforces before it calls this.
  * @param host - logging and quit coordination from the main process.
  * @returns the four halves [[startUpdateService]] needs.
  */

@@ -171,12 +171,14 @@ describe('GET /state', () => {
 })
 
 describe('the three actions', () => {
-  it('accept a check and a transfer and answer with the state', async () => {
+  it('accept a check and a transfer and answer { ok: true }, as install does', async () => {
     const { handle, recorded } = await start()
     const checked = await call(handle, CHECK_PATH)
     expect(checked.status).toBe(202)
-    expect(await jsonOf(checked)).toEqual({ phase: 'idle', currentVersion: CURRENT })
-    expect((await call(handle, DOWNLOAD_PATH)).status).toBe(202)
+    expect(await jsonOf(checked)).toEqual({ ok: true })
+    const downloaded = await call(handle, DOWNLOAD_PATH)
+    expect(downloaded.status).toBe(202)
+    expect(await jsonOf(downloaded)).toEqual({ ok: true })
     expect(recorded).toEqual({ checks: 1, downloads: 1, installs: 0 })
   })
 
@@ -184,9 +186,9 @@ describe('the three actions', () => {
     const { handle, recorded } = await start(readyState())
     const response = await call(handle, INSTALL_PATH)
     expect(response.status).toBe(202)
-    // `{ ok: true }` rather than the snapshot, and written before the install
-    // is scheduled: the install takes this process down, so a caller still
-    // waiting on the answer would read that as a failed request.
+    // Written before the install is scheduled: the install takes this process
+    // down, so a caller still waiting on the answer would read that as a
+    // failed request.
     expect(await jsonOf(response)).toEqual({ ok: true })
     await new Promise<void>((resolve) => { setImmediate(resolve) })
     expect(recorded.installs).toBe(1)
