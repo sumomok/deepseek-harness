@@ -409,13 +409,20 @@ describe('Windows user environment', () => {
     await expect(writeWindowsUserDshHome(recorder([{ code: 5, stdout: '' }]).run, '/x')).rejects.toThrow(/exited with 5/)
   })
 
-  it('runs Windows\' own programs by their full path under %SystemRoot%, then %windir%, then C:\\Windows, an empty value counting as unset', async () => {
+  it('runs Windows\' own programs by their full path under %SystemRoot%, then %windir%, then C:\\Windows, a value that is not a full path counting as unset', async () => {
     expect(system32Program({ SystemRoot: 'D:\\Win' }, ...WINDOWS_POWERSHELL)).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
     expect(system32Program({}, 'taskkill.exe')).toBe('C:\\Windows\\System32\\taskkill.exe')
     expect(system32Program({ SystemRoot: '' }, 'taskkill.exe')).toBe('C:\\Windows\\System32\\taskkill.exe')
     expect(system32Program({ SystemRoot: '', windir: 'E:\\WINNT' }, 'taskkill.exe')).toBe('E:\\WINNT\\System32\\taskkill.exe')
     expect(system32Program({ SystemRoot: 'D:\\Win', windir: 'E:\\WINNT' }, 'taskkill.exe')).toBe('D:\\Win\\System32\\taskkill.exe')
     expect(windowsSystemRoot({ windir: '' })).toBe('C:\\Windows')
+    for (const value of [' ', 'Windows', 'C:', 'C:Windows', '\\Windows', '%SystemDrive%\\Windows', '.\\Windows', ' C:\\Windows']) {
+      expect(windowsSystemRoot({ SystemRoot: value })).toBe('C:\\Windows')
+      expect(windowsSystemRoot({ SystemRoot: value, windir: 'E:\\WINNT' })).toBe('E:\\WINNT')
+      expect(system32Program({ SystemRoot: value, windir: value }, 'taskkill.exe')).toBe('C:\\Windows\\System32\\taskkill.exe')
+    }
+    expect(windowsSystemRoot({ SystemRoot: '\\\\server\\share\\Windows' })).toBe('\\\\server\\share\\Windows')
+    expect(windowsSystemRoot({ SystemRoot: 'd:/Win' })).toBe('d:/Win')
     // A root that does not exist: the runner's failed spawn names the program it tried to start.
     await expect(systemPowerShell('Z:\\NoWindows', 5_000)('$PSVersionTable', {}))
       .rejects.toThrow('spawn Z:\\NoWindows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe ENOENT')

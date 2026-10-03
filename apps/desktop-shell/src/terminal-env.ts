@@ -202,14 +202,20 @@ export async function writeWindowsUserDshHome(run: PowerShellRunner, value: stri
   if (result.code !== 0) throw new Error(`PowerShell exited with ${String(result.code)} setting DSH_HOME`)
 }
 
+/** A Windows path that names its drive and starts at its root (`C:\…`), or a UNC path (`\\server\…`). */
+const FULL_WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/u
+
 /**
  * The Windows directory: `%SystemRoot%`, else `%windir%`, else `C:\Windows`.
- * An empty value counts as unset, so the result is never a relative path.
+ * Only a full path counts ({@link FULL_WINDOWS_PATH}): a blank, relative,
+ * drive-relative (`C:`), drive-less (`\Windows`), or unexpanded
+ * (`%SystemDrive%\Windows`) value counts as unset, so a program under the
+ * result never depends on the working directory or drive.
  * @param env - the environment the two variables are read from.
  * @returns the directory.
  */
 export function windowsSystemRoot(env: NodeJS.ProcessEnv): string {
-  return env['SystemRoot'] || env['windir'] || 'C:\\Windows'
+  return [env['SystemRoot'], env['windir']].find(value => value !== undefined && FULL_WINDOWS_PATH.test(value)) ?? 'C:\\Windows'
 }
 
 /**
@@ -229,7 +235,7 @@ export const WINDOWS_POWERSHELL: readonly string[] = ['WindowsPowerShell', 'v1.0
 /**
  * The PowerShell runner used on Windows: the system's own `powershell.exe`,
  * no profile, no window.
- * @param systemRoot - the Windows directory ({@link windowsSystemRoot}); `C:\Windows` when it is empty.
+ * @param systemRoot - the Windows directory ({@link windowsSystemRoot}); `C:\Windows` when it is not a full path.
  * @param timeoutMs - milliseconds before the run is killed.
  * @returns the runner.
  */
