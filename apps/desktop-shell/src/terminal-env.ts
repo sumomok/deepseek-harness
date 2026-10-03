@@ -229,7 +229,7 @@ export const WINDOWS_POWERSHELL: readonly string[] = ['WindowsPowerShell', 'v1.0
 /**
  * The PowerShell runner used on Windows: the system's own `powershell.exe`,
  * no profile, no window.
- * @param systemRoot - `%SystemRoot%`; `C:\Windows` when it is empty.
+ * @param systemRoot - the Windows directory ({@link windowsSystemRoot}); `C:\Windows` when it is empty.
  * @param timeoutMs - milliseconds before the run is killed.
  * @returns the runner.
  */

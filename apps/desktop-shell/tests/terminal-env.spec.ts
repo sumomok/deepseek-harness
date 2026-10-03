@@ -420,6 +420,14 @@ describe('Windows user environment', () => {
     await expect(systemPowerShell('Z:\\NoWindows', 5_000)('$PSVersionTable', {}))
       .rejects.toThrow('spawn Z:\\NoWindows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe ENOENT')
   })
+
+  it('starts PowerShell under the same Windows directory everywhere the shell runs it', () => {
+    const dir = new URL('../src/', import.meta.url)
+    const roots = readdirSync(dir).filter(name => name.endsWith('.ts') && name !== 'terminal-env.ts')
+      .flatMap(name => [...readFileSync(new URL(name, dir), 'utf8').matchAll(/systemPowerShell\((.*?), \w+\)/gu)].map(match => match[1]))
+    expect(roots).toHaveLength(3)
+    expect(new Set(roots)).toEqual(new Set(['windowsSystemRoot(process.env)']))
+  })
 })
 
 describe('platform dispatch', () => {

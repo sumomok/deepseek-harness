@@ -21,7 +21,7 @@ import type { ExecutorBefore, MainEffects } from './move/executor.ts'
 import { moveDir } from './move/journal.ts'
 import type { LockSelf } from './move/lock.ts'
 import { nodeLockProbes } from './process-tree.ts'
-import { systemPowerShell } from './terminal-env.ts'
+import { systemPowerShell, windowsSystemRoot } from './terminal-env.ts'
 import { restoreTerminal } from './terminal-restore.ts'
 import { syncMoveTerminal } from './terminal-sync-record.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -137,7 +137,7 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
  */
 export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (line: string) => void): MainEffects {
   const host = appDataLocationHost(window, () => undefined, log)
-  const powershell = systemPowerShell(process.env['SystemRoot'] ?? 'C:\\Windows', POWERSHELL_TIMEOUT_MS)
+  const powershell = systemPowerShell(windowsSystemRoot(process.env), POWERSHELL_TIMEOUT_MS)
   return {
     syncTerminal: target => syncMoveTerminal(host, dir, app.getPath('userData'), target),
     restoreTerminal: async (snapshot) => {

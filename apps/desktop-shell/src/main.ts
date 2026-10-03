@@ -93,7 +93,8 @@ import {
 } from './server-lifecycle.ts'
 import { watchSessionEnd } from './session-end.ts'
 import {
-  LOGIN_SHELL_TIMEOUT_MS, POINTER_HOME_ENV, readPersistentDshHome, snapshotTerminal, systemPowerShell, type TerminalEnvHost,
+  LOGIN_SHELL_TIMEOUT_MS, POINTER_HOME_ENV, readPersistentDshHome, snapshotTerminal, systemPowerShell, windowsSystemRoot,
+  type TerminalEnvHost,
 } from './terminal-env.ts'
 import { terminalForLaunch } from './terminal-sync-record.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -762,7 +763,7 @@ function settingsMoveRequest(body: MoveBody): MoveRequest {
 function moveTerminalHost(): TerminalEnvHost {
   return {
     platform: process.platform, env: process.env, home: app.getPath('home'),
-    powershell: systemPowerShell(process.env['SystemRoot'] ?? 'C:\\Windows', 15_000), shellTimeoutMs: LOGIN_SHELL_TIMEOUT_MS,
+    powershell: systemPowerShell(windowsSystemRoot(process.env), 15_000), shellTimeoutMs: LOGIN_SHELL_TIMEOUT_MS,
   }
 }
 

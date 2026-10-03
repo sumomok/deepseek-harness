@@ -10,7 +10,7 @@ import { app, dialog, shell, type BrowserWindow } from 'electron'
 import { defaultHarnessHome, type DataLocationHost } from './data-location-boot.ts'
 import { dataLocationText } from './data-location-text.ts'
 import {
-  LOGIN_SHELL_TIMEOUT_MS, readPersistentDshHome, systemPowerShell, writeTerminalDshHome, type TerminalEnvHost,
+  LOGIN_SHELL_TIMEOUT_MS, readPersistentDshHome, systemPowerShell, windowsSystemRoot, writeTerminalDshHome, type TerminalEnvHost,
 } from './terminal-env.ts'
 
 /** Milliseconds one PowerShell run may take before it is killed. */
@@ -32,7 +32,7 @@ export function appDataLocationHost(
     platform: process.platform,
     env: process.env,
     home: osHome,
-    powershell: systemPowerShell(process.env['SystemRoot'] ?? 'C:\\Windows', POWERSHELL_TIMEOUT_MS),
+    powershell: systemPowerShell(windowsSystemRoot(process.env), POWERSHELL_TIMEOUT_MS),
     shellTimeoutMs: LOGIN_SHELL_TIMEOUT_MS,
   }
   return {
