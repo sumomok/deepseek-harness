@@ -208,12 +208,18 @@ export function checkHealth(baseline: MoveBaseline, reading: HealthReading): Hea
 export interface SwitchedLaunch<Started> {
   /**
    * Prepare the new location and start the server on it, from the profile
-   * seeding to the server's URL line; rejects when any of it fails.
+   * seeding to the server's URL line; rejects when the start fails up to the
+   * URL line. The seeding and the settings migration do not reject: they log
+   * their own failures and go on.
    */
   start: () => Promise<Started>
   /** What the health check measures on the new location; throws when it cannot be read. */
   read: () => HealthReading
-  /** Stop the server and every process it started; settles at once when none runs. */
+  /**
+   * Stop the server and the processes it started that can still be found.
+   * After a start that failed, that is a server still running and its tree,
+   * but not a server that already exited nor what it started.
+   */
   stopServerTree: () => Promise<TreeCheck>
   /** Record the failure and carry the rollback in the move's window; resolves once the application is on its way out. */
   rollBack: (detail: string) => Promise<void>
@@ -232,11 +238,12 @@ export type SwitchedLaunchOutcome<Started> =
  * Start the server on the location a move switched to and check it there
  * ({@link checkHealth}) before the interface is shown. A start that fails, a
  * location that cannot be read, and a check that fails end the same way: the
- * server and every process it started are stopped, then the failure is
- * recorded and the move rolled back. The stop comes first because recording
- * the failure prints the new location, and nothing may still write to it; a
- * stop that throws is logged and the rollback goes on, since the print only
- * chooses what the person is told.
+ * server and the processes it started that can still be found are stopped
+ * ({@link SwitchedLaunch.stopServerTree}), then the failure is recorded and
+ * the move rolled back. The stop comes first because recording the failure
+ * prints the new location, which nothing should still write to; a stop that
+ * throws is logged and the rollback goes on, since the print only chooses
+ * what the person is told.
  * @param baseline - the counts recorded before the move.
  * @param deps - the start, the reading, the stop, the rollback, the record of a pass, and the log.
  * @returns the started server once the check passed, or `rolled-back`.

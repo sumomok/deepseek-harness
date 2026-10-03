@@ -217,8 +217,15 @@ export interface ServerTreeStop {
    * server's tree (the Office engine download); awaited before anything else.
    */
   closeShellWriters?: () => Promise<unknown>
-  /** The server process, or `undefined` when none runs. */
+  /** The server process, or `undefined` when the shell holds no handle to one. */
   pid: number | undefined
+  /**
+   * Where a server without a handle is looked for when `pid` is `undefined`:
+   * among the shell's own child processes, by the server's executable. A
+   * start that failed before its URL line leaves no handle while that server
+   * may still run, as at the startup timeout.
+   */
+  unhandled?: { shell: number; executable: string }
   /** Stop the server (its bounded stop). */
   stop: () => Promise<void>
   /** Kill leftovers of earlier runs of this installation's server. */
@@ -227,19 +234,42 @@ export interface ServerTreeStop {
 }
 
 /**
+ * The servers the shell started and holds no handle to, with every process
+ * below them: the shell's direct children running the server's executable,
+ * its path compared without letter case, as the file systems of macOS and
+ * Windows compare it by default.
+ * @param entries - every running process.
+ * @param unhandled - the shell's process id and the server's executable.
+ * @returns their entries and their descendants'.
+ */
+export function unhandledServerTrees(entries: readonly ProcessEntry[], unhandled: { shell: number; executable: string }): ProcessEntry[] {
+  const executable = unhandled.executable.toLowerCase()
+  return entries
+    .filter(entry => entry.ppid === unhandled.shell && entry.command.toLowerCase() === executable)
+    .flatMap(entry => descendantsOf(entry.pid, entries))
+}
+
+/**
  * Stop the server and make sure its whole tree is gone: what the shell itself
  * runs on the data is closed first, then the tree is recorded while the
  * server runs, the server is stopped, earlier runs' leftovers are swept, and
  * the recorded processes still running are killed. A record without the
  * server itself (the list could not be read) confirms nothing; the server is
- * still stopped.
- * @param input - the shell's own writers, the server, its stop, the sweep, and the process probes.
- * @returns whether the tree is gone; `gone` when no server ran.
+ * still stopped. Without a handle, the trees of the shell's children running
+ * the server's executable are recorded instead ({@link unhandledServerTrees});
+ * a server that has already exited is not among them, nor are the processes
+ * it started.
+ * @param input - the shell's own writers, the server, where to look for one without a handle, its stop, the sweep,
+ * and the process probes.
+ * @returns whether the recorded tree is gone; `gone` when nothing was recorded without a handle.
  */
 export async function stopServerTree(input: ServerTreeStop): Promise<TreeCheck> {
   if (input.closeShellWriters !== undefined) await input.closeShellWriters()
   const pid = input.pid
-  const recorded = pid === undefined ? [] : descendantsOf(pid, await input.probes.list())
+  const unhandled = input.unhandled
+  const recorded = pid !== undefined
+    ? descendantsOf(pid, await input.probes.list())
+    : unhandled === undefined ? [] : unhandledServerTrees(await input.probes.list(), unhandled)
   await input.stop()
   await input.sweep()
   if (pid !== undefined && !recorded.some(entry => entry.pid === pid)) {

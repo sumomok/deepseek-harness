@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   descendantsOf, ensureTreeGone, listWindowsProcesses, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, stopServerTree, survivorsOf,
-  TREE_KILL_ROUNDS, WINDOWS_PROCESS_SCRIPT, type ProcessProbes,
+  TREE_KILL_ROUNDS, unhandledServerTrees, WINDOWS_PROCESS_SCRIPT, type ProcessProbes,
 } from '../src/process-tree.ts'
 import type { PowerShellResult, PowerShellRunner } from '../src/terminal-env.ts'
 import { entry, fakeSystem } from './fake-processes.ts'
@@ -72,6 +72,30 @@ describe('the server process tree', () => {
     const none = await stopServerTree({ pid: undefined, stop: async () => undefined, sweep: async () => undefined, probes: system.probes })
     expect(none).toEqual({ kind: 'gone' })
     expect(system.killed).toEqual([])
+  })
+
+  it('without a handle, records the shell\'s children running the server\'s executable with their trees, and nothing else', async () => {
+    const node = '/Applications/DSH Desktop.app/Contents/Resources/runtime/node'
+    const system = fakeSystem([
+      entry(1, 0), entry(50, 1, '/Applications/DSH Desktop.app/Contents/MacOS/DSH Desktop'),
+      entry(60, 50, 'DSH Desktop Helper (GPU)'), entry(61, 50, 'DSH Desktop Helper (Renderer)'),
+      // The server whose start timed out, still running, and what it started.
+      entry(70, 50, node), entry(71, 70, '/bin/zsh'), entry(72, 71, 'python3'),
+      // An earlier run's server, which the sweep is for, and another program's node.
+      entry(80, 1, node), entry(90, 50, '/usr/local/bin/node'),
+    ])
+    const check = await stopServerTree({
+      pid: undefined,
+      unhandled: { shell: 50, executable: node.toUpperCase() },
+      stop: async () => undefined,
+      sweep: async () => { system.stopServer(70); system.stopServer(80) },
+      probes: system.probes,
+    })
+    expect(check).toEqual({ kind: 'gone' })
+    expect(system.killed.sort()).toEqual([71, 72])
+    expect(system.table.map(item => item.pid)).toEqual([1, 50, 60, 61, 90])
+    // A server that already exited is not the shell's child any more, and neither is what it started.
+    expect(unhandledServerTrees([entry(50, 1), entry(71, 1, '/bin/zsh')], { shell: 50, executable: node })).toEqual([])
   })
 
   it('never takes a process list that cannot be read for a stopped tree', async () => {

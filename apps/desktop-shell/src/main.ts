@@ -272,11 +272,14 @@ function clearAuthCookies(): Promise<number> {
  * engine service is closed first: its download runs in this process, outside
  * that tree, and writes under the data directory, so closing it stops a
  * running download and keeps a confirmation answered later from starting one.
- * It is not opened again before the next launch.
+ * It is not opened again before the next launch. Without a handle (a start
+ * that failed before its URL line), a server still running is found among
+ * this process's children by the bundled Node binary's path.
  * @returns whether the tree is gone.
  */
 async function stopServerCompletely(): Promise<TreeCheck> {
   const handle = server
+  const { nodeBin } = resolveSpec(app.getPath('logs'))
   const check = await stopServerTree({
     closeShellWriters: async () => {
       const engine = officeEngineService
@@ -284,8 +287,9 @@ async function stopServerCompletely(): Promise<TreeCheck> {
       if (engine !== undefined) await engine.close()
     },
     pid: handle?.pid,
+    unhandled: { shell: process.pid, executable: nodeBin },
     stop: stopServerBounded,
-    sweep: () => sweepOrphanedServers(resolveSpec(app.getPath('logs')).nodeBin, logLine),
+    sweep: () => sweepOrphanedServers(nodeBin, logLine),
     probes: nodeProcessProbes(process.platform),
   })
   server = undefined
@@ -1336,7 +1340,8 @@ if (!locked) {
       // the host is an earlier launch's, so none of them can be this one's.
       await clearStaleAuthCookies(session.defaultSession.cookies, sink)
       // Everything from the seeding to the server's URL line reads or writes the data location settled above, so for a move
-      // that switched to it, any of it failing is the new location failing.
+      // that switched to it, a rejection here is the new location failing. The seeding and the settings migration never
+      // reject: they log their own failures and go on.
       const startOnHome = async (): Promise<StartedOnHome> => {
         // Before the server reads the profile, not after: `initProfile` writes a
         // profile once and never revisits it, so a name added later would not
