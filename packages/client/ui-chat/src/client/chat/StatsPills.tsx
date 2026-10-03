@@ -8,11 +8,11 @@ import { memo, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { IconDatabaseOutlineRegular, IconGaugeOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { InjectFace, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsRenderSlots, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: merges the sessionStats key into SessionProjectionMap for useProjection.
 import type {} from '@deepseek-ai/dsh-session-stats/client'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import type { ChatViewSlotProps, PerformanceUsageInjected } from '../contract/slots.ts'
+import type { ChatViewSlotProps, PerformanceUsageInjected, StatsUsageOwnerProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { formatTokensPerSecond } from './message-chrome.ts'
 import { assistantStepReading } from '../contract/turn-metrics.ts'
@@ -129,6 +129,10 @@ export interface StatPillProps extends InjectFace<PerformanceUsageInjected> {
   t: Translate
 }
 
+/** Usage pill props: the shared pill props plus its label and dialog-row child seats. */
+export type UsagePillProps = StatPillProps
+  & PropsRenderSlots<'conversation.chat.stats.usageLabel' | 'conversation.chat.stats.usageRows'>
+
 /** Dock entry id carried as `data-composer-stat` on each pill. */
 type StatId = 'activity' | 'usage'
 
@@ -142,12 +146,14 @@ function exactCount(value: number, t: Translate): string {
   return t('message.turnUsage.count', { count: formatExactTokens(value, t) })
 }
 
-function joined(first: string, second: string | null): ReactNode {
+// The separator is readable text, so a pill without an `aria-label` takes the
+// joined reading as its accessible name.
+function joined(first: ReactNode, second: string | null): ReactNode {
   if (second === null) return first
   return (
     <>
       {first}
-      <span className={css.sep} aria-hidden>·</span>
+      <span className={css.sep}>{' · '}</span>
       {second}
     </>
   )
@@ -187,7 +193,8 @@ function PlainPill({ stat, icon, label }: PillContent) {
  * so at most one dialog is open across the dock.
  */
 function DialogPill({ stat, icon, label, ariaLabel, title, titleValue, children }: PillContent & {
-  ariaLabel: string
+  /** Overrides the visible label as the button's accessible name; absent, the label is the name. */
+  ariaLabel?: string
   title: string
   titleValue?: string
   children: ReactNode
@@ -278,8 +285,12 @@ export const ActivityPill = memo(function ActivityPill({ useChat, useProjection,
   )
 })
 
-/** Whole-log token total and cache hit; Compact keeps only the cache hit. */
-export const UsagePill = memo(function UsagePill({ useProjection, usePerformanceUsage, t }: StatPillProps) {
+/**
+ * Whole-log token total and cache hit; Compact keeps only the cache hit.
+ * Detailed hands the label's leading segment to `conversation.chat.stats.usageLabel`
+ * and appends `conversation.chat.stats.usageRows` after the dialog's output row.
+ */
+export const UsagePill = memo(function UsagePill({ useProjection, usePerformanceUsage, t, renderSlot }: UsagePillProps) {
   const mode = usePerformanceUsage(value => value)
   const usage = useProjection('tokenUsage')
   // Gated on actual token activity: a session whose steps all settled without
@@ -294,12 +305,14 @@ export const UsagePill = memo(function UsagePill({ useProjection, usePerformance
   // Same aggregate as the Turn pill's totalTokens: every prompt-side billing bucket plus output.
   const total = billedInputTokens(usage) + usage.outputTokens
   const totalText = t('message.turnUsage.count', { count: formatTokens(total, t) })
+  const owner: StatsUsageOwnerProps = { totalTokens: total, cacheHitPercent: cacheHit }
+  // No aria-label: the accessible name is the visible label, so an occupied
+  // label seat is announced as it reads.
   return (
     <DialogPill
       stat="usage"
       icon={icon}
-      label={joined(totalText, cacheHitText)}
-      ariaLabel={cacheHitText === null ? totalText : `${totalText} · ${cacheHitText}`}
+      label={joined(renderSlot('conversation.chat.stats.usageLabel', owner, { fallback: totalText }), cacheHitText)}
       title={t('stats.dialog.usageTitle')}
       titleValue={exactCount(total, t)}
     >
@@ -327,6 +340,7 @@ export const UsagePill = memo(function UsagePill({ useProjection, usePerformance
         )}
         <dt>{t('message.turnUsage.output')}</dt>
         <dd>{exactCount(usage.outputTokens, t)}</dd>
+        {renderSlot('conversation.chat.stats.usageRows', owner)}
       </dl>
       {/* jscpd:ignore-end */}
     </DialogPill>

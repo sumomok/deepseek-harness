@@ -465,6 +465,10 @@ export function apply(ctx: Context): void {
     }, ActivityPill)
     yield ctx.slots.register({
       name: 'conversation.composer.dock', id: 'usage', order: 1, locale: NS, inject: statPillInject,
+      children: {
+        'conversation.chat.stats.usageLabel': { kind: 'single', scope: 'session' },
+        'conversation.chat.stats.usageRows': { kind: 'list', scope: 'session' },
+      },
     }, UsagePill)
   })
 

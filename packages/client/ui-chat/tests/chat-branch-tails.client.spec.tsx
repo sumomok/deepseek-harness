@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -18,7 +19,7 @@ import {
 import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import { useDetailedPresentation } from './presentation-fixture.client.ts'
 import { useDisclosure } from '../src/client/chat/use-disclosure.ts'
-import { ActivityPill, UsagePill, type StatPillProps } from '../src/client/chat/StatsPills.tsx'
+import { ActivityPill, UsagePill, type UsagePillProps } from '../src/client/chat/StatsPills.tsx'
 import { zh } from '../src/client/locale.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -1069,13 +1070,16 @@ describe('small branch tails', () => {
     }] as const
     const snap = chatSnapshotFixture({ nodes })
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
-    const pillProps: StatPillProps = {
+    const pillProps: UsagePillProps = {
       usePerformanceUsage: selector => selector('detailed'),
       t,
       useChat: bindSnapshotSelector(source),
       useProjection: (key: string) => key === 'tokenUsage'
         ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
         : undefined,
+      renderSlot: ((_key: string, _owner: unknown, opts?: { fallback?: ReactNode }) =>
+        opts?.fallback ?? null) as UsagePillProps['renderSlot'],
+      SessionProvider: ({ children }) => <>{children}</>,
     }
     const view = render(
       <>
