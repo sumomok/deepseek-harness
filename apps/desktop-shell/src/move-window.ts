@@ -127,8 +127,8 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
 
 /**
  * The terminal effects of a move in the app: the launch's own terminal sync
- * (write, then read back) for the switch, recorded for the launch that checks
- * the switch ({@link syncMoveTerminal}), and the snapshot restore for a
+ * (write, then read back) for the switch, recorded for the launches that
+ * finish the move ({@link syncMoveTerminal}), and the snapshot restore for a
  * rollback.
  * @param window - the window the launch prompts would be parented on.
  * @param dir - the move directory, for the journal's identity and the value last seen before the move.

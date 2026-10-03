@@ -95,7 +95,7 @@ import { watchSessionEnd } from './session-end.ts'
 import {
   LOGIN_SHELL_TIMEOUT_MS, POINTER_HOME_ENV, readPersistentDshHome, snapshotTerminal, systemPowerShell, type TerminalEnvHost,
 } from './terminal-env.ts'
-import { terminalSyncForLaunch } from './terminal-sync-record.ts'
+import { terminalForLaunch } from './terminal-sync-record.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -162,11 +162,7 @@ let updateService: UpdateServiceHandle | undefined
 let dataLocationService: DataLocationServiceHandle | undefined
 /** Why the last move asked for from Settings was taken back after the service answered; reported by `/state`. */
 let lastMoveRefusal: MoveRefusal | undefined
-/**
- * What the terminal's data location came to when this launch last wrote it,
- * or else, on a launch that checks a data move's switch, when that move wrote
- * it; reported by `/state`.
- */
+/** What the terminal's data location came to, as `/state` reports it ({@link terminalForLaunch}). */
 let settledTerminal: TerminalSync | undefined
 let officeEngineService: OfficeEngineServiceHandle | undefined
 let quitting = false
@@ -1325,10 +1321,9 @@ if (!locked) {
         app.quit()
         return
       }
-      const checked = pendingMove.kind === 'health-check' ? { moveId: pendingMove.journal.moveId, home: settled.home } : undefined
-      const moved = terminalSyncForLaunch(app.getPath('userData'), checked, process.platform, sink)
-      // A write of the terminal while settling came after the move's.
-      settledTerminal = settled.terminal ?? moved
+      settledTerminal = terminalForLaunch(app.getPath('userData'), {
+        home: settled.home, settled: settled.terminal, pending: pendingMove, lastResult: readMoveResult(moveDir(app.getPath('userData'))),
+      }, process.platform, sink)
       const lock = await inspectMoveLock(settled.home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
       if (lock.kind !== 'none' && lock.kind !== 'ours') {
         // Another installation is moving this data, or stopped partway through moving it: its journal is not ours to read,

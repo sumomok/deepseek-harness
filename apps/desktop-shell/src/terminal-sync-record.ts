@@ -1,19 +1,21 @@
 /**
  * The record a data move leaves of its write of the terminal's data location,
- * which the launch that checks the move's switch reports as the
- * data-location service's `/state` `terminal`.
+ * which the launches that finish that move report as the data-location
+ * service's `/state` `terminal`.
  *
  * A move writes the terminal in the process that then relaunches, so the
  * record is a file, `terminal-sync.json` under user data, naming the move.
- * Every launch that settles the data location reads it
- * ({@link terminalSyncForLaunch}). A launch that checks the switch of the
- * move that wrote it, on the location it wrote, reports it and leaves it, so a
- * launch that checks the same switch again after a crash reports it too; every
- * other launch removes it, so no later launch reports an outcome from before
- * it. A write of the terminal while a launch settles the data location stays
- * in that launch's memory and is never recorded here. Recording is best
- * effort: a record that cannot be written is logged and removed, and the move
- * goes on without it.
+ * Every launch that settles the data location reads it once
+ * ({@link terminalForLaunch}): a launch that checks that move's switch or
+ * carries on its cleanup reports it and leaves it; a launch with no move on
+ * disk reports it once and removes it when the move finished on a new
+ * location that failed its check after the person chose to keep it, since
+ * the launch that checked it quit without serving `/state`; every other
+ * launch removes it, so no later launch reports an outcome from before it. A
+ * write of the terminal while a launch settles the data location stays in
+ * that launch's memory, takes the record's place, and removes it. Recording
+ * is best effort: a record that cannot be written is logged and removed, and
+ * the move goes on without it.
  * @module @deepseek-ai/dsh-desktop-shell/terminal-sync-record
  */
 
@@ -22,7 +24,8 @@ import { join } from 'node:path'
 import { syncTerminal, type TerminalSync, type TerminalSyncHost } from './data-location-boot.ts'
 import { POINTER_VERSION, type DataLocationPointer } from './data-location.ts'
 import { writeDurably } from './durable-file.ts'
-import { readJournal, type MoveId } from './move/journal.ts'
+import type { BootMove } from './move-boot.ts'
+import { readJournal, type MoveId, type MoveResult } from './move/journal.ts'
 import { samePathText } from './path-text.ts'
 import type { ForeignAssignment, ProfileUpdate, TerminalWrite } from './terminal-env.ts'
 
@@ -34,9 +37,9 @@ export const TERMINAL_SYNC_VERSION = 1
 
 /**
  * Write the new location of a data move as the terminal's `DSH_HOME`, read it
- * back, and record what that came to, naming the move, for the launch that
- * checks its switch. The value last seen before the move, from the journal,
- * is what the write replaces.
+ * back, and record what that came to, naming the move, for the launches that
+ * finish it. The value last seen before the move, from the journal, is what
+ * the write replaces.
  * @param host - the terminal write and read, the home `~` stands for, and the log.
  * @param dir - the move directory.
  * @param userData - Electron's user-data directory.
@@ -74,31 +77,41 @@ function recordTerminalSync(file: string, moveId: MoveId, sync: TerminalSync, lo
   }
 }
 
-/** The move and the data directory a launch that checks a move's switch reports a record for. */
-export interface TerminalSyncExpected {
-  /** The move whose switch the launch checks. */
-  moveId: MoveId
+/** What a launch that settled the data location knows when it picks the terminal outcome `/state` reports. */
+export interface TerminalSyncLaunch {
   /** The data directory in use. */
   home: string
+  /** What this launch's own write of the terminal came to while it settled the data location; `undefined` when it wrote none. */
+  settled: TerminalSync | undefined
+  /** The move on disk, after a move asked for and never started was withdrawn. */
+  pending: BootMove
+  /** The last finished move's result, if one can be read. */
+  lastResult: MoveResult | undefined
 }
 
 /**
- * What the record names, for this launch. A launch that checks the switch of
- * the move that wrote it, on the location it wrote, gets the outcome and
- * leaves the record; every other launch removes it, and a record that cannot
- * be removed is logged and stays unreported, since only a launch that checks
- * that move's switch reports it, and the move writes the terminal again
- * before any such launch follows.
+ * What `/state` reports as `terminal` on this launch, read once after the
+ * data location is settled:
+ * - this launch's own write, when it wrote the terminal while settling; the
+ *   record is removed, since that write came after the move's;
+ * - the record, left in place, when it names the move whose switch this
+ *   launch checks or whose cleanup it carries on, so a launch that does so
+ *   again after a crash or a stop for a mandatory update reports it too;
+ * - the record, then removed, when no move is on disk and the last result
+ *   names the record's move as moved with a failure (a new location that
+ *   failed its check after the person chose to keep it);
+ * - nothing otherwise, the record removed.
+ * A record is reported only on the data directory it names. One that cannot
+ * be removed is logged and left, and a later launch that matches it reports
+ * it again.
  * @param userData - Electron's user-data directory.
- * @param expected - the move whose switch this launch checks, and the data directory in use; `undefined` when the
- * launch checks no switch.
+ * @param launch - the data directory in use, this launch's own terminal write, the move on disk, and the last result.
  * @param platform - how paths compare.
  * @param log - the desktop log sink.
- * @returns what the move's write came to; `undefined` when there is no record, it cannot be read, or it names another
- * move or location.
+ * @returns what the terminal's data location came to; `undefined` when this launch reports none.
  */
-export function terminalSyncForLaunch(
-  userData: string, expected: TerminalSyncExpected | undefined, platform: NodeJS.Platform, log: (line: string) => void,
+export function terminalForLaunch(
+  userData: string, launch: TerminalSyncLaunch, platform: NodeJS.Platform, log: (line: string) => void,
 ): TerminalSync | undefined {
   const file = join(userData, TERMINAL_SYNC_FILENAME)
   let text: string | undefined
@@ -107,10 +120,28 @@ export function terminalSyncForLaunch(
   } catch {
     // ENOENT when no move wrote the terminal since a launch removed the record; any other error leaves nothing to report.
   }
+  if (launch.settled !== undefined) {
+    if (text !== undefined) removeRecord(file, log)
+    return launch.settled
+  }
   if (text === undefined) return undefined
-  const sync = expected === undefined ? undefined : recordedSync(text, expected, platform)
-  if (sync === undefined) removeRecord(file, log)
+  const { pending, lastResult } = launch
+  const finishing = pending.kind === 'health-check' || pending.kind === 'cleanup' ? pending.journal.moveId : undefined
+  const keptAfterFailure = pending.kind === 'none' && lastResult?.outcome === 'moved' && lastResult.failure !== undefined
+    ? lastResult.moveId
+    : undefined
+  const moveId = finishing ?? keptAfterFailure
+  const sync = moveId === undefined ? undefined : recordedSync(text, { moveId, home: launch.home }, platform)
+  if (sync === undefined || finishing === undefined) removeRecord(file, log)
   return sync
+}
+
+/** The move and the data directory a record must name to be reported. */
+interface ExpectedRecord {
+  /** The move that wrote the terminal. */
+  moveId: MoveId
+  /** The data directory in use. */
+  home: string
 }
 
 /**
@@ -121,7 +152,7 @@ export function terminalSyncForLaunch(
  * @param platform - how paths compare.
  * @returns the outcome; `undefined` when the text is damaged, of another version, or names another move or location.
  */
-function recordedSync(text: string, expected: TerminalSyncExpected, platform: NodeJS.Platform): TerminalSync | undefined {
+function recordedSync(text: string, expected: ExpectedRecord, platform: NodeJS.Platform): TerminalSync | undefined {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)

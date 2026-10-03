@@ -108,9 +108,11 @@ export interface DataLocationState {
   /** Why the last move asked for from Settings was taken back after `/start` answered. */
   lastRefusal?: MoveRefusal
   /**
-   * What the terminal's data location came to when this launch last wrote
-   * it, or else, on a launch that checks a data move's switch to its new
-   * location, when that move wrote it; absent when neither wrote it.
+   * What the terminal's data location came to: this launch's own write while
+   * it settled the data location, or else a data move's write, on a launch
+   * that checks that move's switch or carries on its cleanup, and on the
+   * first launch after the move finished on a new location that failed its
+   * check after the person chose to keep it; absent otherwise.
    */
   terminal?: TerminalSync
 }
