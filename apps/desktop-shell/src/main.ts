@@ -39,7 +39,8 @@ import { appDirsEnv } from './app-dirs.ts'
 import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
-import { setupNotifications } from './notifications.ts'
+import type { ListenHandoff } from './listen-socket.ts'
+import { setupNotifications, stopNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
 import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionsToKeep } from './office-engine.ts'
 import {
@@ -57,13 +58,13 @@ import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
 import {
   classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
-  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
+  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type StoppedDialogOutcome, type SupervisorState,
 } from './server-supervision.ts'
 import { SERVER_LOG_ENV, startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
-import { choosePort, isPortFree, startOnPort } from './server-port.ts'
+import { choosePort, holdLaunchSocket, isPortFree, startHeldOrFallback, startOnPort, type HeldStart } from './server-port.ts'
 import {
-  markIntentionalStop, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp, stopForMandatoryUpdate,
-  stopServerForQuit,
+  createStoppedDialog, markIntentionalStop, rebindOnHeldSocket, rebindOnNewPort, respondToCrash, resumeAfterFailedInstall, revealApp,
+  stopForMandatoryUpdate, stopServerForQuit,
 } from './server-lifecycle.ts'
 import { watchSessionEnd } from './session-end.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
@@ -90,6 +91,8 @@ pinAppIdentity(app)
 interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
   builtinModules: string
+  /** The built server-side preload of the listen-socket handoff ([[@deepseek-ai/dsh-desktop-shell/listen-socket]]). */
+  listenPreload: string
 }
 
 /**
@@ -98,6 +101,9 @@ interface LaunchSpec extends Omit<ServerSpec, 'env'> {
  * exec electron lib/main.js`) uses the checkout's built CLI on the
  * development Node found in PATH, with the built-in plugins coming from the
  * same `apps/desktop-server` closure the packaged payload is deployed from.
+ * The listen-handoff preload is the shell's own `lib/listen-handoff.mjs`; a
+ * packaged build reads it from `app.asar.unpacked`, since the bundled Node it
+ * runs under cannot read the asar.
  * @param logDir - the desktop log directory, which also receives the server's
  * diagnostic reports.
  * @returns the launch spec.
@@ -110,6 +116,7 @@ function resolveSpec(logDir: string): LaunchSpec {
       nodeBin: join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
       entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
       builtinModules: modules,
+      listenPreload: join(process.resourcesPath, 'app.asar.unpacked', 'lib', 'listen-handoff.mjs'),
       cwd: home,
       reportDirectory: logDir,
     }
@@ -119,6 +126,7 @@ function resolveSpec(logDir: string): LaunchSpec {
     nodeBin: process.env.DSH_DESKTOP_NODE ?? 'node',
     entry: join(apps, 'cli', 'lib', 'bin.js'),
     builtinModules: join(apps, 'desktop-server', 'node_modules'),
+    listenPreload: join(app.getAppPath(), 'lib', 'listen-handoff.mjs'),
     cwd: home,
     reportDirectory: logDir,
   }
@@ -167,10 +175,23 @@ const CRASH_LOG_HOST: CrashLogHost = {
  * paths, the loopback-service environment additions, and the port it listens
  * on. Recorded once the first startup succeeds; every automatic or manual
  * rebind reuses its paths and environment, since the loopback services it
- * points at keep running across a server-only crash, but not its port: see
- * [[performRebind]].
+ * points at keep running across a server-only crash. It never carries the
+ * held socket, which is {@link held}.
  */
 let activeServerSpec: ServerSpec | undefined
+
+/**
+ * The socket this run's servers listen on, from the first startup until the
+ * process exits, or undefined when no bind held at launch or a handoff failed
+ * ([[@deepseek-ai/dsh-desktop-shell/listen-socket]]). Whether it is set decides
+ * what a crash does with the port: see [[@deepseek-ai/dsh-desktop-shell/server-lifecycle]].
+ */
+let held: ListenHandoff | undefined
+
+/** Stop naming a socket as {@link held}; a failed handoff calls it before it closes that socket. */
+function releaseHeld(): void {
+  held = undefined
+}
 
 /** The recovery ladder's own memory between unexpected server exits; see [[@deepseek-ai/dsh-desktop-shell/server-supervision]]. */
 let supervisorState: SupervisorState = initialSupervisorState
@@ -225,13 +246,17 @@ function clearAuthCookies(): Promise<number> {
 }
 
 /**
- * Point every window showing the served UI at a new URL — the one holder the
- * ordinary reload path (`will-navigate`, `reveal`) does not cover on its own,
- * because both of those read `server.url` live and are already correct once
- * {@link server} itself is reassigned. `mainWindow`'s own discriminator
+ * Point every window showing the served UI at a rebound server's URL — the
+ * same origin with a new launch token while the shell holds the port, a new
+ * origin otherwise. The windows are the one holder the ordinary reload path
+ * (`will-navigate`, `reveal`) does not cover on its own, because both of
+ * those read `server.url` live and are already correct once {@link server}
+ * itself is reassigned. The load is needed on the same origin too: the crash
+ * removed the sign-in cookie, and only the new launch token issues another.
+ * `mainWindow`'s own discriminator
  * (`isResizable`) is what tells the served UI apart from the fixed-size
  * progress and login windows, which this must leave alone.
- * @param url - the rebound server's new authenticated URL.
+ * @param url - the rebound server's authenticated URL.
  */
 function retargetWindows(url: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -261,18 +286,21 @@ function notifyRecovering(): void {
 
 /**
  * Attempt one rebind of the embedded server: start it again from
- * {@link activeServerSpec} on a port the system picks, and on success
- * retarget every window and the notification streams, and resume supervising
- * the new child. Used both by the L0 ladder and by the L2 dialog's manual
- * retry. Why the port changes is in
- * [[@deepseek-ai/dsh-desktop-shell/server-lifecycle]].
+ * {@link activeServerSpec}, on the {@link held} socket when the shell holds
+ * one and on a port the system picks otherwise, and on success retarget every
+ * window and the notification streams, and resume supervising the new child.
+ * Used both by the L0 ladder and by the L2 dialog's manual retry. Why the port
+ * is kept or changed is in [[@deepseek-ai/dsh-desktop-shell/server-lifecycle]].
  * @returns true once the server is back up.
  */
 async function performRebind(): Promise<boolean> {
   const spec = activeServerSpec
   if (spec === undefined) return false
   try {
-    const started = await rebindOnNewPort(spec, startEmbeddedServer, logLine)
+    const started: HeldStart = held === undefined
+      ? { ...await rebindOnNewPort(spec, startEmbeddedServer, logLine), held: undefined }
+      : await rebindOnHeldSocket(spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort, release: releaseHeld })
+    held = started.held
     const handle = started.server
     server = handle
     rememberServerPort(started.spec)
@@ -308,29 +336,43 @@ function rememberServerPort(spec: ServerSpec): void {
 }
 
 /**
- * Start the server again after an install that stopped it failed, through the
- * ordinary start: the remembered port when it is free, otherwise one the
- * system picks. On success every window and the notification streams move to
- * it and supervision resumes; on failure the stopped-server dialog offers a
- * retry, as after repeated crashes.
+ * Start the server again after an install that stopped it failed: on the
+ * {@link held} socket when the shell holds one, as a crash rebind does, and
+ * otherwise through the ordinary start, on the remembered port when it is
+ * free, else one the system picks. A handoff that fails then falls back as in
+ * a crash rebind, to a port the system picks and not the held one, because a
+ * window may still be open on that origin. On success every window and the
+ * notification streams move to it and supervision resumes; on failure the
+ * stopped-server dialog offers a retry, as after repeated crashes.
  * @returns once the server is up or the dialog is shown.
  */
 async function restartAfterFailedInstall(): Promise<void> {
   const spec = activeServerSpec
   if (spec === undefined) return
   try {
-    const port = await choosePort(readState().serverPort, isPortFree)
-    logLine(port.line)
-    const started = await startOnPort({ ...spec, port: port.port }, startEmbeddedServer, logLine)
+    let started: HeldStart
+    if (held === undefined) {
+      const port = await choosePort(readState().serverPort, isPortFree)
+      logLine(port.line)
+      started = { ...await startOnPort({ ...spec, port: port.port }, startEmbeddedServer, logLine), held: undefined }
+    } else {
+      // Not through `choosePort`: its probe finds the socket this shell holds
+      // and reports the port taken.
+      started = await rebindOnHeldSocket(
+        spec, held, startEmbeddedServer, { log: logLine, forgetPort: forgetServerPort, release: releaseHeld },
+      )
+    }
+    held = started.held
     server = started.server
     rememberServerPort(started.spec)
+    stoppedDialog.serverStarted()
     logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
     retargetWindows(started.server.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
     attachSupervision()
   } catch (error) {
     logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
-    void runStoppedDialog()
+    void stoppedDialog.run('ladder')
   }
 }
 
@@ -360,9 +402,12 @@ async function handleUnexpectedServerExit(): Promise<void> {
   // `expected` and never reaches here, but a second, unrelated crash racing
   // the same teardown must not start a rebind the quit is about to undo.
   if (quitting) return
-  // Before the ladder, whatever it decides: the dead server's port must not be
-  // asked for again and its cookie must not be sent to it meanwhile.
+  // Before the ladder, whatever it decides: no request of the shell's own may
+  // carry the dead server's cookie, and a port the shell does not hold must
+  // not be asked for again.
   const { state, outcome } = await respondToCrash({
+    keepsPort: held !== undefined,
+    stopNotifications,
     forgetPort: forgetServerPort,
     clearCookies: clearAuthCookies,
     log: logLine,
@@ -374,7 +419,7 @@ async function handleUnexpectedServerExit(): Promise<void> {
   })
   supervisorState = state
   if (outcome === 'relaunch') relaunchForRecovery()
-  else if (outcome === 'stop') void runStoppedDialog()
+  else if (outcome === 'stop') void stoppedDialog.run('ladder')
 }
 
 /**
@@ -382,9 +427,10 @@ async function handleUnexpectedServerExit(): Promise<void> {
  * knows it is this relaunch (the L2 guard reads it). `quitting` is raised
  * first so the tray's close guard stands aside, which also makes the
  * `before-quit` handler return at once: nothing is left for it to do, since
- * the server already exited and [[handleUnexpectedServerExit]] forgot its port
- * and removed the cookies before the ladder chose this, and the loopback
- * services close with the process.
+ * the server already exited and [[handleUnexpectedServerExit]] removed the
+ * cookies — and forgot the port, unless this process held it — before the
+ * ladder chose this, and the held socket and the loopback services close with
+ * the process.
  */
 function relaunchForRecovery(): void {
   logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
@@ -406,35 +452,38 @@ function relaunchForRecovery(): void {
  * automatically; {@link STOPPED_DIALOG_CANCEL_INDEX} routes Esc and every
  * other way of dismissing the dialog to the same button, so a user who
  * cannot fix the crash always has a way out that is not quitting the whole
- * app.
+ * app. While the dialog is on screen or after it was dismissed, [[reveal]]
+ * with no window open goes to the dialog, and a retry that then succeeds
+ * opens the window ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  */
-async function runStoppedDialog(): Promise<void> {
-  logLine('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
-  for (;;) {
-    const window = mainWindow()
-    const options = {
-      type: 'error' as const,
-      title: PRODUCT_NAME.zh,
-      message: '后台服务多次崩溃,已停止自动恢复',
-      buttons: [...STOPPED_DIALOG_BUTTONS],
-      defaultId: 0,
-      cancelId: STOPPED_DIALOG_CANCEL_INDEX,
-    }
-    const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
-    const outcome = classifyStoppedDialogAnswer(answer.response)
-    if (outcome === 'retry') {
-      if (await performRebind()) return
-      continue
-    }
-    if (outcome === 'open-log') {
-      void shell.openPath(logFile).then((failure) => {
-        if (failure !== '') shell.showItemInFolder(logFile)
-      })
-      continue
-    }
-    logLine('[desktop] user dismissed the crash dialog; backend stays down\n')
-    return
+const stoppedDialog = createStoppedDialog({
+  ask: askStoppedDialog,
+  rebind: performRebind,
+  openLog: () => {
+    void shell.openPath(logFile).then((failure) => {
+      if (failure !== '') shell.showItemInFolder(logFile)
+    })
+  },
+  log: (line) => { logLine(line) },
+  reveal: () => { reveal() },
+})
+
+/**
+ * Show the L2 dialog once, over the app window when there is one.
+ * @returns the button the user chose.
+ */
+async function askStoppedDialog(): Promise<StoppedDialogOutcome> {
+  const window = mainWindow()
+  const options = {
+    type: 'error' as const,
+    title: PRODUCT_NAME.zh,
+    message: '后台服务多次崩溃,已停止自动恢复',
+    buttons: [...STOPPED_DIALOG_BUTTONS],
+    defaultId: 0,
+    cancelId: STOPPED_DIALOG_CANCEL_INDEX,
   }
+  const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
+  return classifyStoppedDialogAnswer(answer.response)
 }
 
 /**
@@ -775,7 +824,8 @@ function createAppWindow(url: string): void {
  * tray icon, a clicked notification, a second launch, the macOS Dock — ends
  * here, so all of them behave the same whether the window is hidden in the
  * tray, minimized, merely behind something, or gone. Once a quit has begun it
- * does nothing.
+ * does nothing, and with no window while the stopped-server dialog is on
+ * screen or was dismissed it goes to that dialog.
  */
 function reveal(): void {
   revealApp({
@@ -785,6 +835,8 @@ function reveal(): void {
       revealMainWindow()
       return true
     },
+    backendStopped: () => stoppedDialog.stopped(),
+    showStopped: () => { void stoppedDialog.run('reveal') },
     openWindow: () => { if (server !== undefined) createAppWindow(server.authenticatedUrl) },
   })
 }
@@ -960,16 +1012,24 @@ if (!locked) {
       // hold the remembered port, and a service bound to port 0 can land on it.
       const port = await choosePort(readState().serverPort, isPortFree)
       sink(port.line)
-      const started = await startOnPort(
-        {
-          ...spec,
-          env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile },
-          port: port.port,
-        },
-        startEmbeddedServer, sink,
-      )
+      const launch: ServerSpec = {
+        ...spec,
+        env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile },
+        port: port.port,
+      }
+      // Held from here until the process exits, so a crash rebind finds the
+      // port still bound by this process; without it, the start is the one
+      // every launch made before.
+      const socket = holdLaunchSocket(port.port, sink)
+      const started: HeldStart = socket === undefined
+        ? { ...await startOnPort(launch, startEmbeddedServer, sink), held: undefined }
+        : await startHeldOrFallback(
+          launch, { socket, preload: spec.listenPreload }, startEmbeddedServer, { log: sink, beforeClose: () => {} },
+        )
+      held = started.held
       server = started.server
       rememberServerPort(started.spec)
+      if (held !== undefined) sink(`[desktop] server listens on the socket this process holds; a crash rebind keeps port ${String(held.socket.port)}\n`)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

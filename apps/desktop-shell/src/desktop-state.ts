@@ -43,6 +43,8 @@ export interface DesktopState {
   /**
    * The loopback port the last started server listened on, asked for again
    * by the next launch; see [[@deepseek-ai/dsh-desktop-shell/server-port]].
+   * An unexpected server exit keeps it while the shell holds that port, and
+   * removes it otherwise ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
    */
   serverPort?: number
 }
@@ -228,7 +230,12 @@ export function setServerPort(port: number): void {
   writeState({ ...readState(), serverPort: port })
 }
 
-/** Forget the remembered server port, so the next launch lets the system pick one. */
+/**
+ * Forget the remembered server port, so the next launch lets the system pick
+ * one. Called after an unexpected server exit when the shell does not hold the
+ * port, and before a held socket is released after a failed handoff in a
+ * crash rebind: from then on another process can take the port.
+ */
 export function forgetServerPort(): void {
   const state = readState()
   delete state.serverPort

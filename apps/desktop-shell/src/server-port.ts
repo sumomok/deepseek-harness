@@ -1,37 +1,42 @@
 /**
  * Which loopback port the embedded server listens on, so the served UI keeps
- * one origin across launches.
+ * one origin across launches and across crash rebinds.
  *
  * Everything the web client keeps in the browser is scoped to its origin
- * `http://127.0.0.1:<port>`: localStorage (custom shortcuts in
- * `dsh.keybindings.v1`, the transcript width, right-sidebar layouts,
- * conversation drafts) and the `dsh-auth-*` cookie. A server started on
- * `--port 0` gets a new port, and with it a new, empty origin, on every launch.
- * The shell therefore remembers the port the last server actually listened on
- * and asks for it again. A port that another process holds is not waited for:
- * the launch falls back to `--port 0`, which is what every launch did before,
- * and remembers the new port for the next one. An unexpected server exit
- * forgets the remembered port and a crash rebind takes a new one
+ * `http://127.0.0.1:<port>`: localStorage (the open session in
+ * `dsh.sessions.current`, conversation drafts, custom shortcuts in
+ * `dsh.keybindings.v1`, the transcript width, right-sidebar layouts) and the
+ * `dsh-auth-*` cookie. A server started on `--port 0` gets a new port, and
+ * with it a new, empty origin. The shell therefore remembers the port the last
+ * server actually listened on and asks for it again. A port that another
+ * process holds is not waited for: the launch falls back to a port the system
+ * picks, and remembers that one for the next launch.
+ *
+ * Within one run the shell holds the port itself
+ * ([[@deepseek-ai/dsh-desktop-shell/listen-socket]]): [[holdLaunchSocket]]
+ * binds it before the first server starts, and every server of the run —
+ * the first one, each crash rebind, the restart after a failed install —
+ * listens on that socket through [[startHeldOrFallback]]. When the handoff
+ * fails, the shell closes the socket, logs one line, and starts the server
+ * the way it would without the socket at that point; from then on the run
+ * changes origin on every crash rebind
  * ([[@deepseek-ai/dsh-desktop-shell/server-lifecycle]]).
  *
  * What a fixed port changes for sign-in: the `dsh-auth-*` cookie is signed
  * with a secret the Harness home keeps across processes and names its
  * authority, so a cookie issued by one launch is valid for the next launch's
- * server on the same port until it expires. A process could only obtain one
- * by listening on the port while the window sends requests there with the
- * server gone, which happens after a crash and while the app quits; the
- * lifecycle module lists what the shell does at each. Everything else is as before: the window loads only the URL the server
- * child prints, whose launch token is new on every launch; `will-navigate`
- * keeps the window on that server's origin; and a process holding the port
- * gets the fallback, not the window.
+ * server on the same port until it expires. The lifecycle module states which
+ * process can accept a connection on the port at each moment. Everything else
+ * is as before: the window loads only the URL the server child prints, whose
+ * launch token is new on every start; `will-navigate` keeps the window on that
+ * server's origin; and a process holding the port at launch gets the
+ * fallback, not the window.
  * @module @deepseek-ai/dsh-desktop-shell/server-port
  */
 
 import { createServer } from 'node:net'
-import { ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from './server.ts'
-
-/** The loopback host the server binds and the probe checks. */
-const LOOPBACK = '127.0.0.1'
+import { handoffListeningLine, holdLoopbackPort, LOOPBACK, type HeldListenSocket, type ListenHandoff } from './listen-socket.ts'
+import { ListenHandoffFailed, ServerExitedBeforeUrl, type ServerHandle, type ServerSpec } from './server.ts'
 
 /**
  * Whether a port number is one a server can be asked to listen on.
@@ -161,4 +166,96 @@ export async function startOnPort(
   }
   const listening = portOf(server.url)
   return { server, spec: listening === undefined ? used : { ...used, port: listening } }
+}
+
+/**
+ * Hold the port a launch starts on: the chosen port, or a port the system
+ * picks when that bind does not hold.
+ * @param port - the port [[choosePort]] chose; 0 lets the system pick one.
+ * @param log - receives one line when the chosen port could not be held.
+ * @returns the held socket, or undefined when no bind held, in which case the
+ * launch starts without one and this run changes origin on every crash rebind.
+ */
+export function holdLaunchSocket(port: number, log: (line: string) => void): HeldListenSocket | undefined {
+  const chosen = holdLoopbackPort(port)
+  if (chosen.kind === 'held') return chosen.socket
+  const picked = port === 0 ? chosen : holdLoopbackPort(0)
+  if (picked.kind === 'held') {
+    log(`[desktop] server port: ${chosen.reason}; holding ${String(picked.socket.port)}, and the UI starts on a new origin\n`)
+    return picked.socket
+  }
+  log(`[desktop] listen handoff unavailable (${picked.reason}); this run changes origin on every crash rebind\n`)
+  return undefined
+}
+
+/** A started server, its spec, and the socket it listens on when the handoff held. */
+export interface HeldStart {
+  /** The running server. */
+  server: ServerHandle
+  /** The spec it was started with, carrying the port it listens on and no {@link ServerSpec.listen}. */
+  spec: ServerSpec
+  /** The handoff the server took, or undefined after a fallback, which closed the socket. */
+  held: ListenHandoff | undefined
+}
+
+/** What a fallback from a failed handoff needs. */
+export interface HandoffFallback {
+  /** One log line, ending in a newline. */
+  log: (line: string) => void
+  /**
+   * Runs once before the held socket is closed, whether or not the start
+   * without it then succeeds. A crash rebind stops naming the socket as held
+   * and forgets the remembered port here, so the port is no longer asked for
+   * by the time another process can bind it.
+   */
+  beforeClose: () => void
+}
+
+/**
+ * Whether a start failure is a handoff failure, and why.
+ * @param error - what the start rejected with.
+ * @param port - the held port.
+ * @returns the reason, or undefined for any other failure. A `listen
+ * EADDRINUSE` exit counts only when the server never wrote the preload's
+ * `listening` line: after that line the server listened on the held socket,
+ * and the taken port was some other listener's.
+ */
+function handoffFailure(error: unknown, port: number): string | undefined {
+  if (error instanceof ListenHandoffFailed) return error.reason
+  // The preload did not take the `listen` call, and the server's own bind
+  // found the address the shell holds.
+  if (error instanceof ServerExitedBeforeUrl && isAddressInUse(error) && !error.output.includes(handoffListeningLine(port))) {
+    return 'the server bound the held port itself (listen EADDRINUSE)'
+  }
+  return undefined
+}
+
+/**
+ * Start the server on a held socket, and without it when the handoff fails.
+ *
+ * The fallback is the start the shell makes without a socket at that point:
+ * [[startOnPort]] on `spec.port`, which retries on a system-picked port when
+ * that one is taken. Any other failure leaves the socket held and propagates,
+ * so a retry can use it again.
+ * @param spec - the launch, without {@link ServerSpec.listen}; its `port` is the fallback's port.
+ * @param handoff - the held socket and the preload.
+ * @param start - starts one server; `startServerWithQuarantine` outside tests.
+ * @param fallback - the log and the step before the socket closes.
+ * @returns the running server, its spec, and the handoff it took or undefined after a fallback.
+ */
+export async function startHeldOrFallback(
+  spec: ServerSpec, handoff: ListenHandoff, start: (spec: ServerSpec) => Promise<ServerHandle>, fallback: HandoffFallback,
+): Promise<HeldStart> {
+  const port = handoff.socket.port
+  try {
+    const server = await start({ ...spec, port, listen: handoff })
+    return { server, spec: { ...spec, port }, held: handoff }
+  } catch (error) {
+    const reason = handoffFailure(error, port)
+    if (reason === undefined) throw error
+    fallback.beforeClose()
+    handoff.socket.close()
+    fallback.log(`[desktop] listen handoff unavailable (${reason}); this run changes origin on every crash rebind\n`)
+    return { ...await startOnPort(spec, start, fallback.log), held: undefined }
+  }
 }

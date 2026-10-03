@@ -72,6 +72,12 @@ module.exports = async function afterPack(context) {
     context.electronPlatformName === 'win32' ? 'server-win' : 'server-mac')
   const appPath = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
   const resources = isMac ? join(appPath, 'Contents', 'Resources') : join(context.appOutDir, 'resources')
+
+  // electron-builder.yml's `asarUnpack` entry. Without the file the app still
+  // starts, but every launch logs a failed handoff and changes origin on each
+  // crash rebind, so its absence fails the build instead.
+  const listenPreload = join(resources, 'app.asar.unpacked', 'lib', 'listen-handoff.mjs')
+  if (!existsSync(listenPreload)) throw new Error(`after-pack: ${listenPreload} is missing; check asarUnpack in electron-builder.yml`)
   const server = join(resources, 'server')
   execFileSync('cp', ['-R', source, server])
   console.log(`after-pack: copied ${source} into ${server}`)

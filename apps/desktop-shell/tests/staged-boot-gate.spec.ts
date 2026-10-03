@@ -1,16 +1,17 @@
 /**
- * What the packaging pipeline accepts from a staged server's boot and from its
- * composed profile.
+ * What the packaging pipeline accepts from a staged server's boot, from its
+ * composed profile, and from its listen on a held socket.
  * @module
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv, verifyDesktopLayer,
-  WITHHELD_PACKAGES,
+  verifyHeldSocketBoot, WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 
@@ -247,5 +248,62 @@ describe('missingProductionDependencies', () => {
 
   it('reports a tree without the installation package', async () => {
     expect(await missingProductionDependencies(tree({ yaml: {} }), WITHHELD_PACKAGES)).toEqual(['(tree) -> @deepseek-ai/dsh'])
+  })
+})
+
+describe('verifyHeldSocketBoot', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * A stand-in server entry in a fresh directory, booted with the real preload.
+   * Each boot appends one line to `boots.log` in that directory and answers
+   * every request with the status `statuses` gives for its boot, 401 past the
+   * end of the list.
+   * @param listen - the source of its listen call, with `port` and `server` in scope.
+   * @param statuses - the answer's status for each boot, in order.
+   * @returns the launch, and the file its boots are counted in.
+   */
+  function bootOf(listen: string, statuses: readonly number[] = []): { boot: Parameters<typeof verifyHeldSocketBoot>[0]; boots: string } {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-held-boot-'))
+    roots.push(root)
+    const entry = join(root, 'entry.mjs')
+    const boots = join(root, 'boots.log')
+    writeFileSync(entry, `
+      import { appendFileSync, readFileSync } from 'node:fs'
+      import http from 'node:http'
+      appendFileSync(${JSON.stringify(boots)}, 'boot\\n')
+      const boot = readFileSync(${JSON.stringify(boots)}, 'utf8').split('\\n').filter(Boolean).length
+      const status = ${JSON.stringify(statuses)}[boot - 1] ?? 401
+      const port = Number(process.argv[process.argv.indexOf('--port') + 1])
+      const server = http.createServer((req, res) => { res.writeHead(status); res.end() })
+      const announce = () => { console.log('dsh web: http://127.0.0.1:' + server.address().port + '/?token=t') }
+      ${listen}
+    `)
+    return {
+      boot: {
+        nodeBin: process.execPath, entry, cwd: root, reportDirectory: root, env: {},
+        preload: fileURLToPath(new URL('../src/listen-handoff.mts', import.meta.url)),
+      },
+      boots,
+    }
+  }
+
+  it('accepts a server that listens the way the web server does, twice on one socket', async () => {
+    const { boot, boots } = bootOf('server.listen(port, \'127.0.0.1\', announce)')
+    expect(await verifyHeldSocketBoot(boot)).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u)
+    expect(readFileSync(boots, 'utf8')).toBe('boot\nboot\n')
+  })
+
+  it('fails the build when the second server on the socket answers with an error status', async () => {
+    const { boot } = bootOf('server.listen(port, \'127.0.0.1\', announce)', [200, 500])
+    await expect(verifyHeldSocketBoot(boot)).rejects.toThrow('the second staged server answered 500 on the held socket')
+  })
+
+  it('fails the build when the server listens some other way, with the handoff\'s reason', async () => {
+    await expect(verifyHeldSocketBoot(bootOf('server.listen(0, \'127.0.0.1\', announce)').boot))
+      .rejects.toThrow('the first staged server did not listen on the held socket: listen handoff failed: the server printed its URL line without listening on the held socket')
   })
 })

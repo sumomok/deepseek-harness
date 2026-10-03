@@ -1,6 +1,7 @@
 /**
- * The reconnect backoff schedule, the launch-token cookie exchange, and the
- * approval toast's buttons. The rest of `notifications.ts` reaches into
+ * The reconnect backoff schedule, the launch-token cookie exchange, the
+ * approval toast's buttons, and the end of the reconnect loop once the stream
+ * is stopped. The rest of `notifications.ts` reaches into
  * `electron` (`app`, `Notification`) the way every other Electron-facing
  * module in this package does and is exercised by the real-process check
  * instead; the stand-in module below is what lets these be imported at all.
@@ -11,12 +12,14 @@ import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
-  app: { dock: undefined, on: () => undefined },
+  app: { dock: undefined, on: () => undefined, once: () => undefined },
   BrowserWindow: { getAllWindows: () => [] },
   Notification: { isSupported: () => false },
 }))
 
-const { approvalActions, exchangeLaunchToken, reconnectDelayMs, toastButtons } = await import('../src/notifications.ts')
+const {
+  approvalActions, exchangeLaunchToken, reconnectDelayMs, setupNotifications, stopNotifications, toastButtons,
+} = await import('../src/notifications.ts')
 
 /** Serve one fixed answer on loopback and report the URL to fetch. */
 async function answering(status: number, headers: Record<string, string>): Promise<{ url: string; server: Server }> {
@@ -106,5 +109,44 @@ describe('toastButtons', () => {
 
   it('draws none for a message that asks for nothing', () => {
     expect(toastButtons([], 'win32')).toEqual([])
+  })
+})
+
+describe('stopNotifications', () => {
+  let server: Server | undefined
+  afterEach(async () => {
+    stopNotifications()
+    vi.useRealTimers()
+    if (server !== undefined) await new Promise<void>((resolve) => { server?.close(() => { resolve() }) })
+    server = undefined
+  })
+
+  it('ends the reconnect loop: a running stream retries its cookie exchange, a stopped one sends nothing more', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    const exchanges: string[] = []
+    // A server that refuses every launch token, as one that no longer knows it does.
+    const refusing = createServer((request, response) => {
+      exchanges.push(request.url ?? '')
+      response.writeHead(401)
+      response.end()
+    })
+    server = refusing
+    await new Promise<void>((resolve) => { refusing.listen(0, '127.0.0.1', resolve) })
+    const address = refusing.address()
+    if (address === null || typeof address === 'string') throw new Error('loopback server did not bind a port')
+    const lines: string[] = []
+    setupNotifications({ log: (line) => { lines.push(line) }, reveal: () => {} }, `http://127.0.0.1:${String(address.port)}/?token=abc`)
+    await vi.waitFor(() => { expect(lines.join('')).toContain('cookie exchange failed') })
+    expect(exchanges).toEqual(['/?token=abc'])
+    await vi.advanceTimersByTimeAsync(reconnectDelayMs(2))
+    await vi.waitFor(() => { expect(exchanges).toHaveLength(2) })
+    stopNotifications()
+    // Each round lets every retry due within a minute fire, then gives a
+    // request it started 100 ms of real time to reach the server.
+    for (let round = 0; round < 5; round += 1) {
+      await vi.advanceTimersByTimeAsync(60_000)
+      await new Promise((resolve) => { setTimeout(resolve, 100) })
+    }
+    expect(exchanges).toHaveLength(2)
   })
 })

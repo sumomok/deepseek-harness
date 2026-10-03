@@ -39,6 +39,7 @@ import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
+import { SERVER_LOG_ENV } from '../src/server.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
@@ -46,7 +47,7 @@ import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
   findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv,
-  verifyDesktopLayer,
+  verifyDesktopLayer, verifyHeldSocketBoot,
   WITHHELD_PACKAGES,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
@@ -603,6 +604,28 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
 }
 
 /**
+ * Boot one staged tree twice on a held socket through the shell's own start
+ * ([[verifyHeldSocketBoot]]), with the preload `desktop tsc` built into this
+ * package's `lib/` — the file electron-builder unpacks beside the asar. Runs
+ * after [[verifyStagedBoot]], against the home it seeded. `NODE_PATH` is
+ * emptied for the same reason [[stagedBootEnv]] drops it: the build's names
+ * the workspace's packages.
+ * @param root - the staged server tree to boot.
+ * @param buildHome - this build's throwaway `$DSH_HOME`.
+ */
+async function verifyHandoffBoot(root: string, buildHome: string): Promise<void> {
+  const origin = await verifyHeldSocketBoot({
+    nodeBin: process.execPath,
+    entry: join(root, SERVER_ENTRY),
+    cwd: root,
+    reportDirectory: buildHome,
+    env: { NODE_PATH: '', [SERVER_LOG_ENV]: join(buildHome, 'dsh-server.log') },
+    preload: join(APP_DIR, 'lib', 'listen-handoff.mjs'),
+  })
+  console.log(`package: staged server listened on a held socket twice (${origin})`)
+}
+
+/**
  * Run the build's Node on a staged server script, in the [[stagedBootEnv]] environment, and collect what it printed.
  * @param args - the script path and its arguments.
  * @param cwd - the working directory.
@@ -977,6 +1000,7 @@ async function main(buildHome: string): Promise<void> {
   const bootGate: PayloadTarget = process.platform === 'win32' ? 'win' : 'darwin'
   await derivePayloadOnce(bootGate)
   await verifyStagedBoot(SERVER_PAYLOADS[bootGate], buildHome)
+  await verifyHandoffBoot(SERVER_PAYLOADS[bootGate], buildHome)
 
   // `--publish never`: the run() helper sets CI=true, and electron-builder
   // treats CI plus a `publish` block as a request to upload. Publishing is

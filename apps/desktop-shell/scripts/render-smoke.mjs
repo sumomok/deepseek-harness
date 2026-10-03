@@ -17,7 +17,8 @@
  * `blockHosts` really cancels a request Chromium was about to make, and that a
  * real page's `console.error` reaches the report. It renders local files and
  * pages from listeners on this machine, so it needs no network, and it uses the
- * shell's own limits.
+ * shell's own limits. It also runs the listen-socket handoff from this main
+ * process (`listen-handoff-smoke.mjs`).
  *
  * Requires `pnpm --filter @deepseek-ai/dsh-desktop-shell run build:ts` first: this
  * runs under Electron, which has no TypeScript loader, so it imports `lib/`.
@@ -33,6 +34,7 @@ import { app } from 'electron'
 import { RENDER_LIMITS, startRenderService } from '../lib/render-service.js'
 import { renderInHiddenWindow } from '../lib/render-window.js'
 import { clearLoginSession, openLoginWindow } from '../lib/login-window.js'
+import { listenHandoffCase } from './listen-handoff-smoke.mjs'
 
 /** The viewport every case renders at. */
 const VIEWPORT = { width: 400, height: 300 }
@@ -556,6 +558,7 @@ async function run() {
     await partialCaptureCase(service, directory)
     await hungImageCase(directory)
     await redirectTimeoutCase()
+    await listenHandoffCase(check, process.env.DSH_DESKTOP_NODE ?? 'node')
   } finally {
     await service.close()
     await rm(directory, { recursive: true, force: true })
