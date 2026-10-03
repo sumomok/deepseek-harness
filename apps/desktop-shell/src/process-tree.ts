@@ -11,7 +11,8 @@
  * @module @deepseek-ai/dsh-desktop-shell/process-tree
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
 import { START_TIME_UNKNOWN, type LockProbes } from './move/lock.ts'
 import { system32Program, systemPowerShell, windowsSystemRoot, type PowerShellResult, type PowerShellRunner } from './terminal-env.ts'
 
@@ -172,8 +173,15 @@ export async function listWindowsProcesses(run: PowerShellRunner): Promise<Proce
  */
 function capture(command: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
-    // The C locale fixes `lstart` to the five English words the parser reads; a Chinese locale prints four.
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, LC_ALL: 'C' } })
+    let child: ChildProcessByStdio<null, Readable, null>
+    try {
+      // The C locale fixes `lstart` to the five English words the parser reads; a Chinese locale prints four.
+      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, LC_ALL: 'C' } })
+    } catch {
+      // Node throws instead of emitting 'error' for some failed starts; either is a program that cannot run.
+      resolve('')
+      return
+    }
     let out = ''
     child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString() })
     child.once('error', () => { resolve('') })

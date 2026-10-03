@@ -435,10 +435,27 @@ describe('the stop and the orphan sweep on Windows', () => {
     expect(source).toContain("await capture(system32Program(process.env, 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'])")
   })
 
-  it('kills the server itself when taskkill cannot start, so a stop waiting for its exit still ends', () => {
+  it('kills the server itself when taskkill cannot start, as an error event or thrown, so a stop waiting for its exit ends', () => {
     const spawned = "spawn(system32Program(process.env, 'taskkill.exe'), ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })"
     const at = source.indexOf(spawned)
     expect(at).toBeGreaterThan(-1)
-    expect(source.slice(at + spawned.length)).toMatch(/^\s+\.once\('error', \(\) => \{ child\.kill\('SIGKILL'\) \}\)\s+await exited\n/u)
+    expect(source.slice(0, at)).toMatch(/try \{\n\s+$/u)
+    expect(source.slice(at + spawned.length)).toMatch(new RegExp([
+      String.raw`^\s+\.once\('error', \(\) => \{ child\.kill\('SIGKILL'\) \}\)\n`,
+      String.raw`\s+\} catch \{\n(?:\s+//.*\n)?\s+child\.kill\('SIGKILL'\)\n\s+\}\n\s+await exited\n`,
+    ].join(''), 'u'))
+  })
+
+  it('treats a query or kill that Node refuses to start by throwing as one that cannot run', () => {
+    for (const file of ['../src/server.ts', '../src/process-tree.ts']) {
+      const text = readFileSync(new URL(file, import.meta.url), 'utf8')
+      const body = text.slice(text.indexOf('function capture('))
+      const comment = String.raw`(?:\s+//.*\n)?`
+      expect(body).toMatch(new RegExp([
+        String.raw`^function capture\([^)]*\): Promise<string> \{\n\s+return new Promise\(\(resolve\) => \{\n`,
+        String.raw`\s+let child: [^\n]+\n\s+try \{\n`, comment, String.raw`\s+child = spawn\([^\n]+\n`,
+        String.raw`\s+\} catch \{\n`, comment, String.raw`\s+resolve\(''\)\n\s+return\n`,
+      ].join(''), 'u'))
+    }
   })
 })
