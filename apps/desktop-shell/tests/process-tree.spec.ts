@@ -154,6 +154,7 @@ describe('the server process tree', () => {
     expect(await listWindowsProcesses(answering({ code: 0, stdout: '1200\t4\t2026-09-28T01:02:03.0000000Z\tC:\\DSH\\node.exe\r\n' })))
       .toEqual([{ pid: 1200, ppid: 4, startedAt: '2026-09-28T01:02:03.0000000Z', command: 'C:\\DSH\\node.exe' }])
     expect(scripts).toEqual([WINDOWS_PROCESS_SCRIPT])
+    expect(WINDOWS_PROCESS_SCRIPT).toMatch(/^\[Console\]::OutputEncoding = \[System\.Text\.Encoding\]::UTF8; /u)
     // A failure, and a run killed at its timeout (no exit code), may have printed part of the table.
     expect(await listWindowsProcesses(answering({ code: 1, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])
     expect(await listWindowsProcesses(answering({ code: null, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])

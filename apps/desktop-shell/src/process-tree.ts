@@ -127,8 +127,13 @@ export function parsePsOutput(output: string): ProcessEntry[] {
   return entries
 }
 
-/** PowerShell listing every process as `pid<TAB>ppid<TAB>creation time<TAB>path`. */
-export const WINDOWS_PROCESS_SCRIPT = 'Get-CimInstance Win32_Process | ForEach-Object { '
+/**
+ * PowerShell listing every process as `pid<TAB>ppid<TAB>creation time<TAB>path`,
+ * printed as UTF-8, which the runner decodes; redirected output is otherwise
+ * in the console's code page, which garbles a path with Chinese characters.
+ */
+export const WINDOWS_PROCESS_SCRIPT = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
+  + 'Get-CimInstance Win32_Process | ForEach-Object { '
   + '"$($_.ProcessId)`t$($_.ParentProcessId)`t$(if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString(\'o\') })`t$($_.ExecutablePath)" }'
 
 /**
