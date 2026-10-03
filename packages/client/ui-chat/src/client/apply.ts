@@ -1,4 +1,5 @@
 /** Register the Chat Conversation target, renderers, stats, and details surface. */
+import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -42,7 +43,11 @@ import { TranscriptViewRow, type TranscriptViewRowInjected } from './settings/Tr
 import { createChatStore } from './stores.ts'
 import { TranscriptViewPolicy } from './transcript-view.ts'
 import { derivePresentationPolicy } from './presentation-policy.ts'
-import { CHAT_SETTINGS_NAMESPACE, DEFAULT_LINK_OPENING, type ChatSettings } from '../chat-settings.ts'
+import {
+  BUSY_COMPACTION_FIELD, CHAT_SETTINGS_NAMESPACE, DEFAULT_BUSY_COMPACTION, DEFAULT_LINK_OPENING,
+  DEFAULT_TRANSCRIPT_VIEW_MODE, type ChatSettings,
+} from '../chat-settings.ts'
+import { BusyCompactionRow, type BusyCompactionRowInjected } from './settings/BusyCompactionRow.tsx'
 import { LinkOpeningRow, type LinkOpeningRowInjected } from './settings/LinkOpeningRow.tsx'
 import { PerformanceUsageRow, type PerformanceUsageRowInjected } from './settings/PerformanceUsageRow.tsx'
 import { PerformanceUsagePolicy } from './performance-usage.ts'
@@ -251,7 +256,7 @@ export function apply(ctx: Context): void {
     scope.slots.inject('settings.general.item', () => scope.slots.register({
       name: 'settings.general.item',
       id: 'link-opening',
-      order: 14,
+      order: 17,
       locale: NS,
       inject: (): LinkOpeningRowInjected => ({
         hooks: { linkOpening, browserAvailable },
@@ -264,7 +269,31 @@ export function apply(ctx: Context): void {
       }),
     }, LinkOpeningRow))
   })
-  const transcriptView = new TranscriptViewPolicy(chatSettings)
+  const busyCompaction = createSnapshotStore(
+    chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD] ?? DEFAULT_BUSY_COMPACTION,
+  )
+  ctx.effect(() => chatSettings.subscribe(() => {
+    const accepted = chatSettings.getSnapshot().value?.[BUSY_COMPACTION_FIELD]
+    if (accepted !== undefined) busyCompaction.set(accepted)
+  }))
+  // Next to the composer's busy-Enter row (order 20): both answer what input
+  // does while a turn runs.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'busy-compaction',
+    order: 21,
+    locale: NS,
+    inject: (): BusyCompactionRowInjected => ({
+      hooks: { busyCompaction },
+      setBusyCompaction: (mode) => {
+        busyCompaction.set(mode)
+        void chatSettings.set(BUSY_COMPACTION_FIELD, mode).catch((_error: unknown) => {
+          // The row keeps the choice for this page; the Host keeps its accepted value.
+        })
+      },
+    }),
+  }, BusyCompactionRow))
+  const transcriptView = new TranscriptViewPolicy(chatSettings, 'dshDesktop' in globalThis ? 'standard' : DEFAULT_TRANSCRIPT_VIEW_MODE)
   const presentation = derivePresentationPolicy(transcriptView.mode)
   const performancePolicy = new PerformanceUsagePolicy(chatSettings)
   ctx.effect(() => () => { transcriptView.dispose(); performancePolicy.dispose() })
@@ -274,7 +303,7 @@ export function apply(ctx: Context): void {
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
     id: 'performance-usage',
-    order: 13,
+    order: 30,
     locale: NS,
     inject: (): PerformanceUsageRowInjected => ({
       hooks: { performanceUsage },
@@ -393,7 +422,11 @@ export function apply(ctx: Context): void {
             read: () => chatScrollPositions.get(sessionId) ?? null,
           },
           forkAt: (seq) => {
-            ctx.sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
+            const turn = [...chat.getSnapshot().timeline.turns.values()].find(turn => turn.end?.seq === seq)
+            const messageId = turn?.data.get('turn-tail')?.closing?.finalNode.messageId
+            ctx.sessions.fork({ sessionId, atSeq: seq, increaseTitle: true, onCreated: (childId) => {
+              ctx.get('productAnalytics')?.track('branch_session_click', { session_id: childId, parent_session_id: sessionId, ...messageId === undefined ? {} : { parent_message_id: messageId }, click_position: 'footer' })
+            } })
               .then((childId) => { ctx.uiWorkspace.openSession(childId) })
               .catch(() => {
                 // Fork or child-title failure leaves the source view unchanged.

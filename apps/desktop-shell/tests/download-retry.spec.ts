@@ -10,6 +10,7 @@ import {
   RESUME_RETRY_DELAYS_MS,
   RETRY_DELAYS_MS,
   TRANSFER_CUT_CODE,
+  checkFailureDetail,
   classifyDownloadError,
   describeDownloadError,
   type FallbackHooks,
@@ -182,6 +183,25 @@ describe('classifyDownloadError', () => {
 
   it('calls a response that carried no status fatal', () => {
     expect(classifyDownloadError(coded('HTTP_ERROR_-1', 'undefined undefined'))).toBe('fatal')
+  })
+})
+
+describe('checkFailureDetail', () => {
+  it('puts the whole code chain on its own line under the first message line', () => {
+    expect(checkFailureDetail(terminated(coded('UND_ERR_SOCKET', 'other side closed')), '稍后再试。'))
+      .toBe('terminated\n错误码:UND_ERR_SOCKET\n\n稍后再试。')
+    expect(checkFailureDetail(coded(httpErrorCode(503), '503 Service Unavailable\nHeaders: {"server":"nginx"}'), '稍后再试。'))
+      .toBe('503 Service Unavailable\n错误码:HTTP_ERROR_503\n\n稍后再试。')
+  })
+
+  it('names a request that was given up on by its name', () => {
+    expect(checkFailureDetail(new DOMException('The operation was aborted due to timeout', 'TimeoutError'), '稍后再试。'))
+      .toBe('The operation was aborted due to timeout\n错误码:TimeoutError\n\n稍后再试。')
+  })
+
+  it('leaves the code line out, rather than printing it empty, when the failure carries no code', () => {
+    expect(checkFailureDetail(new Error('更新源缺少 version 字段'), '稍后再试。')).toBe('更新源缺少 version 字段\n\n稍后再试。')
+    expect(checkFailureDetail('plain string', '稍后再试。')).toBe('plain string\n\n稍后再试。')
   })
 })
 

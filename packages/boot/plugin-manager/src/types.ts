@@ -5,8 +5,11 @@ import type { PluginInventoryEntry } from '@deepseek-ai/dsh-host-plugin-inventor
 export type { PluginEntryId } from '@deepseek-ai/dsh-host-plugin-inventory/types'
 import type { PluginEntryId } from '@deepseek-ai/dsh-host-plugin-inventory/types'
 
-/** Reasons a profile control cannot modify its target. */
-export type ReadOnlyReason = 'management-required' | 'unaddressable'
+/**
+ * Reasons a profile control cannot modify its target: the manager's own management needs it, the deployment's
+ * `requiredModules` names it, or the profile patch cannot address it uniquely.
+ */
+export type ReadOnlyReason = 'management-required' | 'deployment-required' | 'unaddressable'
 
 /** A package whose declared DSH peers reject the running DSH version, without an exemption for the exact pair. */
 export interface IncompatiblePlugin {
@@ -60,6 +63,11 @@ export interface BundleInfo {
    * held by the installation's dependencies, selected by no shipped template, and never removable.
    */
   optional: boolean
+  /**
+   * Whether the profile manifest's `dsh.profile.shipped` names the bundle: supplied from the payload of the application
+   * that launches the profile, listed while switched off, and never removable.
+   */
+  shipped: boolean
   removable: boolean
   readOnlyReason?: ReadOnlyReason
   error?: ManagementError

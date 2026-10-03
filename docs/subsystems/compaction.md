@@ -81,7 +81,7 @@ Automatic callers state why policy is running; implementations may treat confirm
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactionEngine` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend creates its replacement `user/message` source with `compactCheckpointSource(compactionId, sourceCommandId?)`; client and wire consumers import that constructor, `CompactionCheckpointSource`, and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compaction/checkpoint` subpath, while the package root re-exports them for host consumers. The required transaction identity correlates the replacement checkpoint, while the predicate keeps recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compaction-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+`CompactionEngine` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Its optional `whileBusy` argument lets a request for a running agent wait: `next-step` compacts at the turn's next step boundary inside a bracket that turn owns, and both `next-step` without a later boundary and `turn-end` compact once the turn ends — at the first step boundary of a turn the loop chains without going idle, else as the maintenance task above; a `turn-end` request made after a `turn/end` or `turn/start` and before that turn's first `step/start` compacts at the next step boundary; an aborted turn cancels the wait. A manual consumer reads `whileBusy` from the optional host-plane `ctx.manualCompactionTiming` service; the Web Chat plugin provides it from a user setting. Every backend creates its replacement `user/message` source with `compactCheckpointSource(compactionId, sourceCommandId?)`; client and wire consumers import that constructor, `CompactionCheckpointSource`, and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compaction/checkpoint` subpath, while the package root re-exports them for host consumers. The required transaction identity correlates the replacement checkpoint, while the predicate keeps recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compaction-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
 
 Expected manual failures use `ManualCompactionErrorCode`:
 
@@ -163,8 +163,8 @@ abstract compactIfNeeded( agent: CompactionAgentContext, trigger: CompactionTrig
 
 /**
  * Explicitly compact useful history even below automatic pressure thresholds.
- * Implementations synchronously start an idle task before any asynchronous
- * work, select a useful range without writing on a no-op, then
+ * For an idle agent, implementations synchronously start an idle task before
+ * any asynchronous work, select a useful range without writing on a no-op, then
  * append a standalone `compaction/start` before summarization. That durable
  * marker is the compaction lock until one `compaction/end` attempt. Later waking
  * prompts remain accepted in FIFO order and start only after the optional
@@ -172,16 +172,27 @@ abstract compactIfNeeded( agent: CompactionAgentContext, trigger: CompactionTrig
  * summary runs may sit between the marker pair; only the selected span must
  * remain stable.
  *
- * @param agent - idle agent whose durable history should be compacted.
- * @param signal - cancellation scoped to this compaction request.
+ * With `whileBusy` and a `running` agent, the request waits instead of
+ * failing: `next-step` compacts at the running turn's next step boundary
+ * with a bracket owned by that turn; `next-step` without a later boundary in
+ * that turn, and `turn-end`, compact once the turn ends — at the first step
+ * boundary of a turn the loop chains without going idle, else as the idle
+ * task above. A `turn-end` request made after a `turn/end` or `turn/start`
+ * and before that turn's first `step/start` is due at once and compacts at
+ * the next step boundary. One request waits per agent. A turn that ends
+ * aborted cancels the waiting request.
+ *
+ * @param agent - agent whose durable history should be compacted.
+ * @param signal - cancellation scoped to this compaction request, including its wait.
  * @param sourceCommandId - initiating command identity for a manual compaction.
+ * @param whileBusy - timing for a `running` agent; omitted refuses a running agent as `busy`.
  * @returns the compaction result, or `null` when no safe useful range exists.
  * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
  * changed-span, summarization/shrink, commit-stage, or persistence failures;
  * an aborted request preserves its exact abort reason. Failed attempts remain
  * visible in the log.
  */
-abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, ): Promise<CompactionResult | null>
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, sourceCommandId?: CommandId, whileBusy?: ManualCompactionWhileBusy, ): Promise<CompactionResult | null>
 
 /**
  * Forcibly compact a range of surface nodes into a single summary node.
@@ -231,6 +242,22 @@ thresholdRatio(): number
 ```
 
 Source: [`packages/compaction/compaction-basic/src/types.ts`](../../packages/compaction/compaction-basic/src/types.ts)
+
+<a id="ctxmanualcompactiontiming--manualcompactiontiming"></a>
+
+### `ctx.manualCompactionTiming` — `ManualCompactionTiming`
+
+Live choice of when `/compact` runs if its agent is running a turn. A host-plane plugin that owns the user's setting provides it; a manual compaction consumer reads it once per request and passes the answer to CompactionEngine.compactNow. Without a provider a busy request is refused as `busy`.
+
+```ts cordis-catalog
+/**
+ * Read the setting in force for the next request.
+ * @returns the timing a request made during a running turn uses.
+ */
+whileBusy(): ManualCompactionWhileBusy
+```
+
+Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 

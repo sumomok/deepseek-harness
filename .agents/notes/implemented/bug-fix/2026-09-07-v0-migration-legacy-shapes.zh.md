@@ -8,7 +8,7 @@ Status: implemented
 
 已发布的 v0→v1 恒等迁移边会拒绝冻结清单之外的任何事件类型，以及某个类型处置之外的任何 payload 成员。正是这条策略保证迁移后的会话精确无误，而它假定清单点名了任何已发货构建曾写下的每一种形状。本 fork 发过的构建写下了三种它没有点名的形状，于是那些构建写下的会话再也打不开。
 
-一次拒绝并不止于携带它的那份会话。`SqliteSessionQuery._reconcile` 会冷读每一份尚未建索引的持久化会话，一次被拒的读取就中止整次观测：[`session-query-sqlite/src/index.ts`](../../../../packages/session-query/session-query-sqlite/src/index.ts) 的 `_observeStable` 把它包成 `SESSION_QUERY_PERSISTENCE_FAILED`，搜索退回按名称匹配，工作区浏览器对库里每一份会话都显示 `内容搜索暂不可用，仅显示名称匹配。`。因此一份旧日志除了赔上自己的历史，还赔上整个内容搜索。
+一次拒绝并不止于携带它的那份会话。`SqliteSessionQuery._reconcile` 会冷读每一份尚未建索引的持久化会话，一次被拒的读取就中止整次观测：[`session-query-sqlite/src/index.ts`](../../../../packages/session-query/session-query-sqlite/src/index.ts) 的 `_observeStable` 把它包成 `SESSION_QUERY_PERSISTENCE_FAILED`，搜索退回按名称匹配，工作区浏览器对库里每一份会话都显示 `内容搜索暂不可用，仅显示名称匹配。`。因此一份旧日志除了赔上自己的历史，还赔上整个内容搜索。自 `session-query-skip-unreadable-session` 这个核心补丁起，被拒的日志只把它自己排除出索引，库里其余会话仍可搜索。
 
 测量方式是用 `JsonlSessionPersistence.open(id, 'read').read()`（reconcile 调用的同一条路径）对两个库做冷读回放。在已经带过仓外事件类型的 0.1.5-rc.1 基座上，`~/.dsh` 的 139 份中 9 份被拒，rc.27 前备份的 121 份中 22 份被拒。因为迁移边在一份会话的第一处故障就停下，这些拒绝点名了四种不同的原因：下面三种形状，外加一种由下一条迁移边拒绝的仓外消息来源种类，那一种由它自己的姊妹补丁点名。
 
@@ -48,7 +48,7 @@ descriptor 选择改写版本号而不是原样放行，因为这次升格是完
 
 带上述三种形状之一的会话能打开、能迁移、能建索引，内容搜索不再因它整库失败。落盘的 v0 文件逐字节不动——迁移把 `session.v3.jsonl.zstd` 写在它旁边——所以删掉迁移世代即可回到此前的拒绝状态。迁移后的 `permission/preset` 不再记录 preset 的来处；当前构建没有任何东西读这个事实，preset 名本身则被保留。迁移后的 `subagent/descriptor` 报版本 3，其 `agentReasoningEffort` 缺席，这正是版本 2 payload 的含义。
 
-两个库各自仍被拒的八份会话停在下一条迁移边上，而不是这一条；清空它们靠的是那种消息来源种类的姊妹补丁。在一个库同时拿到两个补丁之前，reconcile 仍会在第一次被拒的读取上中止，那个库里的内容搜索仍不可用。
+两个库各自仍被拒的八份会话停在下一条迁移边上，而不是这一条；清空它们靠的是那种消息来源种类的姊妹补丁。在一个库同时拿到两个补丁之前，reconcile 仍会在第一次被拒的读取上中止，那个库里的内容搜索仍不可用。自 `session-query-skip-unreadable-session` 起，被拒的读取不再中止 reconcile，只把那一份会话排除出索引。
 
 ## Testing
 

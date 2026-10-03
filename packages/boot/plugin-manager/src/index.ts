@@ -30,7 +30,7 @@ import { checkGithubConnection } from './github-connection.ts'
 import type {
   BundleInfo, BundleRowInfo, ChangeResult, InspectOptions, InstallBundleOptions, ManagementError, PackageResult, PluginChange,
   PluginEntryId, PluginInfo, PluginInspectProblem, PluginInstallCancellation, PluginInstallProgress, PluginInstallRequestId,
-  PluginRegistries, PluginSpecInspection, Registry,
+  PluginRegistries, PluginSpecInspection, ReadOnlyReason, Registry,
 } from './types.ts'
 export type * from './types.ts'
 export { classifyInstallFailure, type InstallFailureFacts } from './install-failure.ts'
@@ -58,11 +58,19 @@ export interface Config {
    * unless that is npm's own registry or one of these.
    */
   fallbackRegistries?: string[]
+  /**
+   * Module names this deployment requires, in addition to the manager's own management components. A plugin row
+   * naming one, and every bundle whose patch inserts such a row, cannot be switched off or removed and reads
+   * `deployment-required`, or `management-required` for a bundle that also inserts a management component. A name that
+   * no started bundle inserts is logged as one warning when the manager starts.
+   */
+  requiredModules?: string[]
 }
 
 /** An http(s) URL, as pnpm's `--registry` takes it. */
 const REGISTRY_URL = /^https?:\/\/\S+$/
 
+/** The modules the manager's own management depends on; a deployment adds its own through `requiredModules`. */
 const protectedModules = new Set([
   '@deepseek-ai/dsh-plugin-manager', '@deepseek-ai/cordis-plugin-loader',
   '@deepseek-ai/cordis-plugin-include', '@deepseek-ai/dsh-api-gateway',
@@ -184,9 +192,14 @@ export class PluginManager extends TypertRemoteService {
     idleTimeoutMs: z.number().step(1).min(1000).default(600000),
     registry: z.string().pattern(REGISTRY_URL),
     fallbackRegistries: z.array(z.string().pattern(REGISTRY_URL)).default([NPMMIRROR_REGISTRY]),
+    requiredModules: z.array(z.string().min(1)).default([]),
   })
-  /** Management bundles remain protected if their files become unreadable. */
-  private readonly managementBundles = new Set<string>()
+  /** Protected bundles and why, kept protected if their files become unreadable. */
+  private readonly protectedBundles = new Map<string, ReadOnlyReason>()
+  /** The modules `requiredModules` names. */
+  private readonly requiredModules: ReadonlySet<string>
+  /** The last unusable `dsh.profile.shipped` value warned about, as JSON, so a repeated read warns once. */
+  private warnedShipped: string | undefined
   private readonly ownerEntryId: string | undefined
   private readonly packageOperations = new Set<Promise<unknown>>()
   private readonly profile: ProfileContext
@@ -207,7 +220,9 @@ export class PluginManager extends TypertRemoteService {
     this.ownerEntryId = ctx.fiber.entry?.id
     this.ownerContext = ctx
     this.profile = ctx.profileContext
-    for (const name of this.profile.startedBundles) this.protectsManager(name)
+    this.requiredModules = new Set((config as Required<Config>).requiredModules)
+    for (const name of this.profile.startedBundles) this.protectionOf(name)
+    this.warnUnmatchedRequired()
     this.outputBytes = (config as Required<Config>).outputBytes
     this.lockWaitMs = (config as Required<Config>).lockWaitMs
     this.inspectTimeoutMs = (config as Required<Config>).inspectTimeoutMs
@@ -263,6 +278,7 @@ export class PluginManager extends TypertRemoteService {
       if (protectedModules.has(entry.moduleName) || entry.entryId === this.ownerEntryId) {
         return { ...entry, readOnlyReason: 'management-required' as const }
       }
+      if (this.requiredModules.has(entry.moduleName)) return { ...entry, readOnlyReason: 'deployment-required' as const }
       if (candidate === undefined || candidates.length > 1 || candidate.name !== entry.moduleName
         || actual?.parent.tree.ctx.fiber.entry?.id !== 'include') {
         return { ...entry, readOnlyReason: 'unaddressable' as const }
@@ -271,10 +287,11 @@ export class PluginManager extends TypertRemoteService {
     })
   }
 
-  /** Read the profile's installed bundles, the bundles this dsh installation supplies, and the selected names that are not bundles.
-   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.
+  /** Read the profile's installed bundles, the bundles this dsh installation supplies, the bundles the profile manifest's
+   * `dsh.profile.shipped` names, and the selected names that are not bundles.
+   * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.
    * @returns Package versions, manifest descriptions, rows, optional display metadata, activation selections,
-   * whether the installation offers the bundle, and removal availability.
+   * whether the installation offers the bundle, whether the launcher ships it, and removal availability.
    */
   @Remote
   listBundles(): Promise<BundleInfo[]> {
@@ -282,20 +299,22 @@ export class PluginManager extends TypertRemoteService {
     const exemptions = readProfileVersionExemptions(this.profile.dir)
     const selected = manifest.dsh?.profile?.bundles ?? []
     const dependencies = Object.keys(manifest.dependencies ?? {})
+    const shippedNames = this.shippedNames(manifest.dsh?.profile?.shipped)
     const installation = JSON.parse(readFileSync(this.profile.installAnchor, 'utf8')) as InstallationManifest
-    const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {})])]
+    const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...shippedNames])]
     const bundles: BundleInfo[] = []
     for (const name of names) {
       const installed = dependencies.includes(name)
       const optional = OPTIONAL_BUNDLES.includes(name)
+      const shipped = shippedNames.includes(name)
       const removable = installed && !Object.hasOwn(installation.dependencies ?? {}, name)
       const enabled = selected.includes(name)
-      const readOnlyReason = this.protectsManager(name) ? 'management-required' as const : undefined
+      const readOnlyReason = this.protectionOf(name)
       try {
         const info = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
         if (info === undefined) {
-          if (enabled) bundles.push({ name, enabled, installed, optional, removable: removable && readOnlyReason === undefined,
-            ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: { code: 'not-bundle' }, rows: [], overrides: [] })
+          if (enabled || shipped) bundles.push({ name, enabled, installed, optional, shipped,
+            removable: removable && readOnlyReason === undefined, ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: { code: 'not-bundle' }, rows: [], overrides: [] })
           continue
         }
         const compatibility = evaluatePluginCompatibility(info, exemptions)
@@ -305,12 +324,12 @@ export class PluginManager extends TypertRemoteService {
         bundles.push({ name, ...(info.version === undefined ? {} : { version: info.version }),
           ...(info.description === undefined || info.description === '' ? {} : { description: info.description }),
           ...meta === undefined ? {} : { meta },
-          enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+          enabled, installed, optional, shipped, removable: removable && readOnlyReason === undefined,
           ...(readOnlyReason === undefined ? {} : { readOnlyReason }),
           ...this.declaredRows(name, info) })
       } catch (error) {
-        if (enabled || installed) {
-          bundles.push({ name, enabled, installed, optional, removable: removable && readOnlyReason === undefined,
+        if (enabled || installed || shipped) {
+          bundles.push({ name, enabled, installed, optional, shipped, removable: removable && readOnlyReason === undefined,
             ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: managementError(error), rows: [], overrides: [] })
         }
       }
@@ -725,13 +744,29 @@ export class PluginManager extends TypertRemoteService {
       }
     }
     if (!enabled && previous.includes(name)) {
-      if (this.protectsManager(name)) throw new ManagementFailure('management-required')
+      const reason = this.protectionOf(name)
+      if (reason !== undefined) throw new ManagementFailure(reason)
     }
     const bundles = enabled ? [...previous, ...previous.includes(name) ? [] : [name]] : previous.filter(item => item !== name)
     if (JSON.stringify(previous) === JSON.stringify(bundles)) return
     manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles } }
     await saveManifest(this.profile.dir, manifest)
-    if (enabled) this.protectsManager(name)
+    if (enabled) this.protectionOf(name)
+  }
+
+  /**
+   * The bundle names a profile manifest's `dsh.profile.shipped` lists. The launcher writes the file, so a value that
+   * is not an array of strings is read as no names, with one warning per distinct value.
+   */
+  private shippedNames(value: unknown): string[] {
+    if (value === undefined) return []
+    if (Array.isArray(value) && value.every(name => typeof name === 'string')) return value
+    const printed = JSON.stringify(value)
+    if (this.warnedShipped !== printed) {
+      this.warnedShipped = printed
+      this.ownerContext.logger.warn(`Ignoring dsh.profile.shipped in ${this.profile.dir}: expected an array of bundle names, found ${printed}`)
+    }
+    return []
   }
 
   private bundleRows(name: string): EntryOptions[] {
@@ -741,16 +776,36 @@ export class PluginManager extends TypertRemoteService {
     return flatten(composeEntries([bundlePatchPaths(dir, info.dsh.bundle).flatMap(file => loadOverlayPatches('dsh', file))]))
   }
 
-  private protectsManager(name: string): boolean {
-    if (this.managementBundles.has(name)) return true
+  /** Why a bundle cannot be switched off or removed: it inserts a management row, else a row the deployment requires. */
+  private protectionOf(name: string): ReadOnlyReason | undefined {
+    const known = this.protectedBundles.get(name)
+    if (known !== undefined) return known
     let rows: EntryOptions[]
     try { rows = this.bundleRows(name) } catch (_error) {
       // Unreadable bundles contribute no new rows; listBundles reports their diagnostics.
-      return false
+      return undefined
     }
-    const protectedBundle = rows.some(row => protectedModules.has(row.name) || `include:${row.id}` === this.ownerEntryId)
-    if (protectedBundle) this.managementBundles.add(name)
-    return protectedBundle
+    const reason = rows.some(row => protectedModules.has(row.name) || `include:${row.id}` === this.ownerEntryId)
+      ? 'management-required' as const
+      : rows.some(row => this.requiredModules.has(row.name)) ? 'deployment-required' as const : undefined
+    if (reason !== undefined) this.protectedBundles.set(name, reason)
+    return reason
+  }
+
+  /** Warn about each `requiredModules` name that no row of the started bundles inserts. */
+  private warnUnmatchedRequired(): void {
+    if (this.requiredModules.size === 0) return
+    const inserted = new Set<string>()
+    for (const name of this.profile.startedBundles) {
+      try {
+        for (const row of this.bundleRows(name)) inserted.add(row.name)
+      } catch (_error) {
+        // An unreadable bundle inserts nothing; listBundles reports its diagnostic.
+      }
+    }
+    for (const name of this.requiredModules) {
+      if (!inserted.has(name)) this.ownerContext.logger.warn(`requiredModules names ${name}, which no started bundle of profile ${this.profile.name} inserts`)
+    }
   }
 
   private configure<T>(operation: () => Promise<T>): Promise<T> {

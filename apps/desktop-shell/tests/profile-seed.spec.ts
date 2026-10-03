@@ -23,14 +23,14 @@ import {
   AUTO_REVIEW_GUARD_TEXT, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_COMPOSITION_BUNDLE, DESKTOP_PROFILE, describeSeed,
   ensureLink,
   MIGRATION_MARKER_FILENAME, type MigrationMarker, quarantineLoadFailureFromOutput,
-  readMigrationMarker, removeLink, resolveHarnessHome, seedBuiltinBundles, type SeedReport,
+  readMigrationMarker, removeLink, REQUIRED_WEB_BUNDLES, resolveHarnessHome, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 
 /** A report of a run that changed nothing, for the cases that name one field at a time. */
 function nothingHappened(): SeedReport {
   return {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
+    seeded: [], keptOff: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
     disabled: [], removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
 }
@@ -101,6 +101,14 @@ const withoutQuote = BUILTIN_WEB_BUNDLES.filter(name => name !== '@sumomok/dsh-q
 function bundlesNow(): unknown {
   return (readProfile()['dsh'] as { profile?: { bundles?: unknown } }).profile?.bundles
 }
+
+/** The `dsh.profile.shipped` record the profile manifest now holds. */
+function shippedNow(): unknown {
+  return (readProfile()['dsh'] as { profile?: { shipped?: unknown } }).profile?.shipped
+}
+
+/** The built-in plugins every shipped record in this suite names: all built-ins but the composition layer. */
+const shippedNames = BUILTIN_WEB_BUNDLES.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
 
 /** The two names the shipped `web` template lists, which every web profile carries. */
 const webTemplate = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
@@ -248,9 +256,11 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     const upstream = join(root, 'upstream', DESKTOP_PROFILE)
     initProfile(upstream, [...(webTemplate?.bundles ?? []), ...BUILTIN_WEB_BUNDLES])
     const seeded = join(home, 'profiles', DESKTOP_PROFILE)
-    for (const name of ['package.json', 'pnpm-workspace.yaml']) {
-      expect(readFileSync(join(seeded, name), 'utf8')).toBe(readFileSync(join(upstream, name), 'utf8'))
-    }
+    expect(readFileSync(join(seeded, 'pnpm-workspace.yaml'), 'utf8')).toBe(readFileSync(join(upstream, 'pnpm-workspace.yaml'), 'utf8'))
+    // The manifest is upstream's with the shell's `dsh.profile.shipped` record added after the bundle list.
+    const expected = JSON.parse(readFileSync(join(upstream, 'package.json'), 'utf8')) as { dsh: { profile: Record<string, unknown> } }
+    expected.dsh.profile['shipped'] = BUILTIN_WEB_BUNDLES.filter(name => name !== DESKTOP_COMPOSITION_BUNDLE)
+    expect(readFileSync(join(seeded, 'package.json'), 'utf8')).toBe(`${JSON.stringify(expected, undefined, 2)}\n`)
     // The patch layer is the template with its `[]` replaced by the guard row.
     expect(withoutGuard(readFileSync(join(seeded, PROFILE_PATCH_FILENAME), 'utf8')))
       .toBe(readFileSync(join(upstream, PROFILE_PATCH_FILENAME), 'utf8'))
@@ -295,15 +305,16 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     expect(withoutGuard(readFileSync(patch, 'utf8'))).toBe(written)
   })
 
-  it('puts a built-in the Plugins page disabled back before the composition layer, not after it', () => {
-    // Upstream's Plugins page disables a bundle by taking its name out of the
-    // list. Appended at the end on the next launch, the gateway would follow
-    // dsh-desktop-app, whose gateway row would then patch nothing.
+  it('puts a built-in missing from a profile with no shipped record back before the composition layer, not after it', () => {
+    // A profile an earlier build seeded records no `dsh.profile.shipped`, so a
+    // missing built-in is one to add. Appended at the end, the gateway would
+    // follow dsh-desktop-app, whose gateway row would then patch nothing.
     seedBuiltinBundles({ home, serverModules })
     const gateway = '@haoran/dsh-llm-permission-gateway'
     const installed = 'dsh-installed-from-the-plugins-page'
     const manifestPath = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
-    const manifest = readProfile() as { dsh: { profile: { bundles: string[] } } }
+    const manifest = readProfile() as { dsh: { profile: { bundles: string[]; shipped?: string[] } } }
+    delete manifest.dsh.profile.shipped
     manifest.dsh.profile.bundles = [...manifest.dsh.profile.bundles.filter(name => name !== gateway), installed]
     writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2))
 
@@ -361,14 +372,150 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     expect((manifest['dsh'] as { profile: { someday: boolean } }).profile.someday).toBe(true)
   })
 
-  it('writes nothing when every name is already listed', () => {
+  it('writes nothing when every name is already listed and recorded', () => {
     const path = writeProfile(JSON.stringify({
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...BUILTIN_WEB_BUNDLES] } },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...BUILTIN_WEB_BUNDLES], shipped: shippedNames } },
     }, undefined, 2))
     const before = readFileSync(path, 'utf8')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.seeded).toEqual([])
     expect(readFileSync(path, 'utf8')).toBe(before)
+  })
+
+  it('records the built-in plugins in a profile an earlier build seeded, keeping its bundle list', () => {
+    writeProfile(JSON.stringify({
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...BUILTIN_WEB_BUNDLES] } },
+    }, undefined, 2))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).toEqual([])
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', ...BUILTIN_WEB_BUNDLES])
+    expect(shippedNow()).toEqual(shippedNames)
+  })
+
+  it('replaces a shipped record that is not a list of names, adding what is missing', () => {
+    writeProfile(JSON.stringify({
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...withoutQuote], shipped: ['@sumomok/dsh-quote-message', 7] } },
+    }, undefined, 2))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).toEqual(['@sumomok/dsh-quote-message'])
+    expect(report.keptOff).toEqual([])
+    expect(shippedNow()).toEqual(shippedNames)
+  })
+})
+
+describe('seedBuiltinBundles on a built-in the user switched off', () => {
+  const screenshot = '@haoran/dsh-screenshot'
+
+  /** Take `name` out of the bundle list the way the Plugins page's switch does, leaving the shipped record. */
+  function switchOff(name: string): void {
+    const manifestPath = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const manifest = readProfile() as { dsh: { profile: { bundles: string[] } } }
+    manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(listed => listed !== name)
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+  }
+
+  it('leaves it off across two launches and keeps it in the shipped record', () => {
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    const afterSwitch = bundlesNow()
+    const first = seedBuiltinBundles({ home, serverModules })
+    expect(first.seeded).toEqual([])
+    expect(first.keptOff).toEqual([screenshot])
+    expect(describeSeed(first)).toContain(`left switched off built-in ${screenshot}`)
+    expect(bundlesNow()).toEqual(afterSwitch)
+    const second = seedBuiltinBundles({ home, serverModules })
+    expect(second).toEqual({ ...nothingHappened(), keptOff: [screenshot] })
+    expect(bundlesNow()).toEqual(afterSwitch)
+    expect(shippedNow()).toEqual(shippedNames)
+    // Still linked, so the Plugins page reads its version and rows while it is off.
+    expect(readlinkSync(join(home, 'profiles', 'node_modules', screenshot))).toBe(join(serverModules, screenshot))
+  })
+
+  it('points it at a new payload version and keeps it off', () => {
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    serverModules = join(root, 'server-2', 'node_modules')
+    shipPlugins(BUILTIN_WEB_BUNDLES, '2.0.0')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.linked).toContain(screenshot)
+    expect(report.keptOff).toEqual([screenshot])
+    expect(bundlesNow()).not.toContain(screenshot)
+    const linked = JSON.parse(readFileSync(join(home, 'profiles', 'node_modules', screenshot, 'package.json'), 'utf8')) as { version: string }
+    expect(linked.version).toBe('2.0.0')
+  })
+
+  it('keeps it on once switched back on, and moves the composition layer after it', () => {
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    seedBuiltinBundles({ home, serverModules })
+    // The page's switch appends the name at the end, after the composition layer.
+    const manifestPath = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const manifest = readProfile() as { dsh: { profile: { bundles: string[] } } }
+    manifest.dsh.profile.bundles.push(screenshot)
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.keptOff).toEqual([])
+    expect(report.reordered).toBe(screenshot)
+    const bundles = bundlesNow() as string[]
+    expect(bundles.at(-1)).toBe(DESKTOP_COMPOSITION_BUNDLE)
+    expect(bundles.indexOf(screenshot)).toBeLessThan(bundles.indexOf(DESKTOP_COMPOSITION_BUNDLE))
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+  })
+
+  it('still adds a built-in the record does not name, which a new build ships', () => {
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    const quote = '@sumomok/dsh-quote-message'
+    const manifestPath = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const manifest = readProfile() as { dsh: { profile: { bundles: string[]; shipped: string[] } } }
+    manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(name => name !== quote)
+    manifest.dsh.profile.shipped = manifest.dsh.profile.shipped.filter(name => name !== quote)
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, undefined, 2)}\n`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).toEqual([quote])
+    expect(report.keptOff).toEqual([screenshot])
+    expect(bundlesNow()).toContain(quote)
+    expect(bundlesNow()).not.toContain(screenshot)
+    expect(shippedNow()).toEqual(shippedNames)
+  })
+
+  it('puts a required built-in back on the next launch and keeps the shipped record naming it', () => {
+    const required = '@haoran/dsh-crash-resume'
+    expect(REQUIRED_WEB_BUNDLES).toContain(required)
+    seedBuiltinBundles({ home, serverModules })
+    expect(shippedNow()).toContain(required)
+    switchOff(required)
+    expect(bundlesNow()).not.toContain(required)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.keptOff).toEqual([])
+    expect(report.seeded).toEqual([required])
+    expect(describeSeed(report)).toContain(`seeded built-in bundles ${required}`)
+    const bundles = bundlesNow() as string[]
+    expect(bundles.indexOf(required)).toBeGreaterThanOrEqual(0)
+    expect(bundles.indexOf(required)).toBeLessThan(bundles.indexOf(DESKTOP_COMPOSITION_BUNDLE))
+    expect(shippedNow()).toEqual(shippedNames)
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+  })
+
+  it('puts a required built-in back beside one the user keeps off', () => {
+    const required = '@haoran/dsh-crash-resume'
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(screenshot)
+    switchOff(required)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.keptOff).toEqual([screenshot])
+    expect(report.seeded).toEqual([required])
+    expect(bundlesNow()).toContain(required)
+    expect(bundlesNow()).not.toContain(screenshot)
+  })
+
+  it('always puts the composition layer back, which the record never names', () => {
+    seedBuiltinBundles({ home, serverModules })
+    switchOff(DESKTOP_COMPOSITION_BUNDLE)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).toEqual([DESKTOP_COMPOSITION_BUNDLE])
+    expect(report.keptOff).toEqual([])
+    expect((bundlesNow() as string[]).at(-1)).toBe(DESKTOP_COMPOSITION_BUNDLE)
   })
 
   it('re-points a link left behind by a moved installation', () => {

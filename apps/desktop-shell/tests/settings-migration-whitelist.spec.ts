@@ -1,7 +1,8 @@
 /**
  * The shell's copy of each plugin section's importable keys against the
- * vendored plugins' own `Config` schemas: the same keys, and the same verdict
- * on every value the shell's migration judges before the import sees it.
+ * vendored plugins' own `Config` schemas: the same keys, less the volatile keys
+ * the migration drops, and the same verdict on every value the shell's
+ * migration judges before the import sees it.
  * @module
  */
 
@@ -10,7 +11,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { PLUGIN_SECTION_KEYS } from '../src/settings-migration.ts'
+import { DISCARDED_PLUGIN_KEYS, PLUGIN_SECTION_KEYS } from '../src/settings-migration.ts'
 
 /** A schema node, as far as this comparison reads one. */
 interface SchemaNode {
@@ -77,21 +78,6 @@ function pluginAccepts(schema: SchemaNode, value: unknown): boolean {
   }
 }
 
-/** A price table as the balance settings page writes one. */
-const PRICES = {
-  asOf: '2026-09-10',
-  tables: {
-    CNY: {
-      entries: [{
-        model: 'deepseek-flash', provider: 'deepseek-official', per: 1_000_000,
-        base: { input: 1.5, inputCacheHit: 0.1, output: 8 },
-        timezone: 'Asia/Shanghai',
-        schedules: [{ name: 'night', windows: [{ start: '00:30', end: '08:30', days: [0, 6] }], multiplier: 0.5 }],
-      }],
-    },
-  },
-}
-
 /** Values each key is judged on: what rc.33 wrote, every bound, one step past each bound, and hand-edited values. */
 const SAMPLES: Record<string, Record<string, readonly unknown[]>> = {
   'llm-permission-gateway': {
@@ -111,34 +97,19 @@ const SAMPLES: Record<string, Record<string, readonly unknown[]>> = {
     lowBalance: [0, 5, 10.5, 1e9, -1, -0.01, '5', true],
     criticalBalance: [0, 2, -3, '2'],
     maskBalance: [true, false, 'false', 0],
-    prices: [
-      PRICES,
-      { asOf: '2026-09-10' },
-      { asOf: '2026-09-10', tables: {} },
-      { tables: {} },
-      { asOf: 20260910 },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x' }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x', base: { input: -1 } }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x', base: {}, per: 0 }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x', base: {}, schedules: [{ name: 'n' }] }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x', base: {}, schedules: [{ name: 'n', windows: [{ start: 'a', end: 'b', days: [7] }] }] }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [{ model: 'x', base: {}, schedules: [{ name: 'n', windows: [null] }] }] } } },
-      { asOf: '2026-09-10', tables: { CNY: { entries: [null] } } },
-      { asOf: '2026-09-10', tables: { CNY: null } },
-      { asOf: '2026-09-10', tables: [] },
-      'prices',
-      [],
-    ],
   },
 }
 
 describe('PLUGIN_SECTION_KEYS against the vendored plugins', () => {
   for (const section of Object.keys(SECTION_PACKAGES)) {
-    it(`names exactly ${section}'s volatile fields`, () => {
+    it(`names exactly ${section}'s volatile fields, less the ones it drops`, () => {
       const volatile = declaredVolatileKeys(section)
+      const discarded = Object.keys(DISCARDED_PLUGIN_KEYS[section] ?? {}).sort()
       expect(volatile.length).toBeGreaterThan(0)
-      expect(Object.keys(PLUGIN_SECTION_KEYS[section] ?? {}).sort()).toEqual(volatile)
-      expect(Object.keys(SAMPLES[section] ?? {}).sort()).toEqual(volatile)
+      expect(volatile).toEqual(expect.arrayContaining(discarded))
+      const imported = volatile.filter(key => !discarded.includes(key))
+      expect(Object.keys(PLUGIN_SECTION_KEYS[section] ?? {}).sort()).toEqual(imported)
+      expect(Object.keys(SAMPLES[section] ?? {}).sort()).toEqual(imported)
     })
 
     // Needs the workspace built (`pnpm run build`); skipped, and says so, on a clean tree.

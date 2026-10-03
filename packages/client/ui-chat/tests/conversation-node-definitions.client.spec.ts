@@ -2738,6 +2738,74 @@ describe('built-in conversation node Definitions', () => {
     expect(node(snapshot(value), 'manual-compaction')).toBeDefined()
   })
 
+  it('marks a manual compaction as waiting until its bracket opens', () => {
+    const waiting = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+    ], true)
+    expect((node(snapshot(waiting), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(true)
+
+    const opened = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+      at(11, 'compaction/start', { compactionId: 'compact-waited', sourceCommandId: 'cmd-wait', turn: 3 }),
+    ], true)
+    expect((node(snapshot(opened), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+
+    const settled = assembler([
+      at(10, 'command/run', { commandId: 'cmd-wait', name: 'compact', args: '' }),
+      at(11, 'command/done', { commandId: 'cmd-wait', kind: 'error', text: 'Compaction cancelled.' }),
+    ], true)
+    expect((node(snapshot(settled), 'manual-compaction')?.data as ManualCompactionChatData).waiting).toBe(false)
+  })
+
+  describe('a manual compaction whose Host exited while it waited', () => {
+    // Crash-shaped: the log stops after command/run inside an open Turn, and
+    // reload appends the closers `interruptedTurnClosers` produces (dsh-session
+    // repair.ts): step/end for the open step, then turn/end `interrupted`,
+    // both reusing the last real event's timestamp.
+    const crashed = (): SessionEventLikeEntry[] => [
+      at(10, 'turn/start', { turn: 1 }),
+      at(11, 'step/start', { turn: 1, step: 1 }),
+      at(12, 'command/run', { commandId: 'cmd-orphan', name: 'compact', args: '' }),
+    ]
+    const closers = (): SessionEventLikeEntry[] => [
+      at(13, 'step/end', { turn: 1, step: 1 }, { time: 1_700_000_000_012 }),
+      at(14, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }, { time: 1_700_000_000_012 }),
+    ]
+    const data = (value: ConversationNodeAssembler): ManualCompactionChatData =>
+      node(snapshot(value), 'manual-compaction')?.data as ManualCompactionChatData
+
+    it('settles as exited once the recovered turn/end is loaded', () => {
+      const value = assembler([...crashed(), ...closers()], true)
+      expect(data(value)).toMatchObject({ waiting: false, exited: true })
+    })
+
+    it('flips from waiting to exited when the closer arrives after the window', () => {
+      const value = assembler(crashed(), true)
+      expect(data(value)).toMatchObject({ waiting: true, exited: false })
+      for (const entry of closers()) live(value, entry)
+      expect(data(value)).toMatchObject({ waiting: false, exited: true })
+    })
+
+    it('stays waiting for a turn that Stop aborted until its command/done lands', () => {
+      const value = assembler([
+        ...crashed(),
+        at(13, 'step/end', { turn: 1, step: 1 }),
+        at(14, 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }),
+      ], true)
+      expect(data(value)).toMatchObject({ waiting: true, exited: false })
+    })
+
+    it('leaves a compaction that had started to its bracket', () => {
+      const value = assembler([
+        ...crashed(),
+        at(13, 'compaction/start', { compactionId: 'compact-orphan', sourceCommandId: 'cmd-orphan', turn: 1 }),
+        at(14, 'step/end', { turn: 1, step: 1 }),
+        at(15, 'turn/end', { turn: 1, reason: { kind: 'interrupted' } }),
+      ], true)
+      expect(data(value)).toMatchObject({ waiting: false, exited: false })
+    })
+  })
+
   it('shows a failure node when an automatic compaction bracket closes on an error', () => {
     const value = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-failed', turn: 2 }),

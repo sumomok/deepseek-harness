@@ -11,6 +11,8 @@ import { TranscriptViewRow, type TranscriptViewRowProps } from '../src/client/se
 import { PerformanceUsageRow } from '../src/client/settings/PerformanceUsageRow.tsx'
 import type { LinkOpening, PerformanceUsageMode, TranscriptViewMode } from '../src/chat-settings.ts'
 import { LinkOpeningRow } from '../src/client/settings/LinkOpeningRow.tsx'
+import { BusyCompactionRow } from '../src/client/settings/BusyCompactionRow.tsx'
+import type { ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction/types'
 import { en, zh } from '../src/client/locale.ts'
 
 afterEach(cleanup)
@@ -181,5 +183,27 @@ describe('PerformanceUsageRow', () => {
     expect(setPerformanceUsage).toHaveBeenCalledWith('compact')
     expect(screen.getAllByRole('button', { name: 'Compact' })).toHaveLength(1)
     expect(b.setTranscriptView).not.toHaveBeenCalled()
+  })
+})
+
+describe('BusyCompactionRow', () => {
+  it.each([
+    [en, 'Compaction while busy', 'Queue', 'Interrupt'],
+    [zh, '繁忙时的压缩行为', '排队等候', '立即打断'],
+  ] as const)('offers both busy-state timings and reports the chosen one', (dictionary, title, queue, interrupt) => {
+    const b = mount('standard', dictionary)
+    const source = createSnapshotStore<ManualCompactionWhileBusy>('turn-end')
+    const setBusyCompaction = vi.fn((mode: ManualCompactionWhileBusy) => { source.set(mode) })
+    render(<BusyCompactionRow
+      {...b.props}
+      useBusyCompaction={bindSnapshotSelector(source)}
+      setBusyCompaction={setBusyCompaction}
+    />)
+    expect(screen.getByText(title)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: queue }))
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([interrupt, queue])
+    fireEvent.click(screen.getByRole('menuitem', { name: interrupt }))
+    expect(setBusyCompaction).toHaveBeenCalledWith('next-step')
+    expect(screen.getAllByRole('button', { name: interrupt })).toHaveLength(1)
   })
 })

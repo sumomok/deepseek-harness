@@ -13,11 +13,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { AUTO_REVIEW_GUARD_TEXT, DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME } from '../src/profile-seed.ts'
 import {
-  acknowledgeSettingsMigrationNotices, DEFAULT_EXCLUDED_DIRECTORIES, GATEWAY_ALWAYS_ASK, migrateLegacySettings,
+  acknowledgeSettingsMigrationNotices, DEFAULT_EXCLUDED_DIRECTORIES, DISCARDED_PLUGIN_KEYS, GATEWAY_ALWAYS_ASK, migrateLegacySettings,
   readSettingsMigrationMarker, SETTINGS_MIGRATION_MARKER,
   type SettingsMigrationMarker,
 } from '../src/settings-migration.ts'
-import { storedThemePreference } from '../src/theme-preference.ts'
+import { storedLanguagePreference, storedThemePreference } from '../src/theme-preference.ts'
 
 let home: string
 let profileDir: string
@@ -146,9 +146,18 @@ describe('migrateLegacySettings on a complete rc.33 settings file', () => {
     })
     expect(settings['auto-compact']).toEqual({ enabled: false, thresholdPercent: 75 })
     expect(Object.keys(settings['mcp-servers'] as object)).toEqual(['servers'])
-    expect(Object.keys(settings['balance'] as object)).toEqual(['lowBalance', 'criticalBalance', 'maskBalance', 'prices'])
+    expect(Object.keys(settings['balance'] as object)).toEqual(['lowBalance', 'criticalBalance', 'maskBalance'])
     expect(markerNow().gatewayModeDropped).toBe('auto')
     expect(markerNow().dropped).toContainEqual(expect.objectContaining({ section: 'llm-permission-gateway', key: 'mode', value: 'auto' }))
+  })
+
+  it('drops the balance price table with the reason, since the plugin prices from its maintainer\'s feed', () => {
+    writeSettings(RC33_SETTINGS)
+    migrateLegacySettings(home, profileDir)
+    expect((settingsNow()['balance'] as Record<string, unknown>)['prices']).toBeUndefined()
+    const dropped = markerNow().dropped.find(entry => entry.section === 'balance' && entry.key === 'prices')
+    expect(dropped?.reason).toBe(DISCARDED_PLUGIN_KEYS['balance']?.['prices'])
+    expect((dropped?.value as { asOf?: unknown } | undefined)?.asOf).toBe('2026-09-10')
   })
 
   it('renames agent-presets for the import, mapping code to ptc', () => {
@@ -171,18 +180,16 @@ describe('migrateLegacySettings on a complete rc.33 settings file', () => {
     const kept = `# my own note
 permission:
   defaultPreset: workspace-write # the one I use
+  reviewedOn: 2026-09-10
 balance:
   lowBalance: 5.50
   maskBalance: true
-  prices:
-    asOf: 2026-09-10
-    tables: {}
 `
     writeSettings(`${kept}ui-theme:\n  preference: light\n`)
     migrateLegacySettings(home, profileDir)
     expect(readFileSync(join(home, 'settings.yaml'), 'utf8')).toBe(kept)
-    const prices = (settingsNow()['balance'] as { prices: { asOf: unknown } }).prices
-    expect(prices.asOf).toBe('2026-09-10')
+    const permission = settingsNow()['permission'] as { reviewedOn: unknown }
+    expect(permission.reviewedOn).toBe('2026-09-10')
   })
 
   it('logs what it wrote and dropped, once', () => {
@@ -693,5 +700,26 @@ describe('storedThemePreference', () => {
 
   it('has no answer for a home with neither', () => {
     expect(storedThemePreference(home)).toBeUndefined()
+  })
+})
+
+describe('storedLanguagePreference', () => {
+  it('reads the profile locale row before settings.yaml, mapping a regional id to its language', () => {
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: ui-theme\n  config:\n    preference: dark\n- id: locale\n  config:\n    preference: en-US\n')
+    writeSettings('locale:\n  preference: zh\n')
+    expect(storedLanguagePreference(home)).toBe('en')
+  })
+
+  it('reads settings.yaml while the profile has no locale row', () => {
+    writeSettings('locale:\n  preference: zh-CN\n')
+    expect(storedLanguagePreference(home)).toBe('zh')
+  })
+
+  it('leaves the choice to the system for no preference or a language the shell has no copy in', () => {
+    expect(storedLanguagePreference(home)).toBeUndefined()
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: locale\n  config:\n    preference: fr\n')
+    expect(storedLanguagePreference(home)).toBeUndefined()
+    writeFileSync(join(profileDir, 'cordis.patch.yml'), '- id: locale\n  config: {}\n')
+    expect(storedLanguagePreference(home)).toBeUndefined()
   })
 })

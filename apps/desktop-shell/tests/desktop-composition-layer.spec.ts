@@ -2,8 +2,9 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries seven. `session-query-sqlite` opts into full-text search:
- * dsh-base and dsh-web-app both ship it off and
+ * The layer patches seven rows and inserts two of its own.
+ * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
+ * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
  * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
@@ -14,8 +15,15 @@
  * gate otherwise takes from the pair its own layer ships, and sends every
  * `plugin_manager` call to a person. `plugin-manager`
  * points upstream's plugin installer at the pnpm launcher the payload ships,
- * `office-to-pdf` is off because the payload carries no LibreOffice engine, and
- * `ui-chat` starts work details compact.
+ * and `desktop-product-telemetry` and `product-analytics` are switched off
+ * outright rather than by dsh-web-app's profile-name expression.
+ * `office-to-pdf` is left as the layers below ship it: the shell downloads
+ * its engine on request, and so is `ui-chat`, whose work details take the
+ * form's own default. The rows it
+ * inserts are `desktop-brand`, this package itself, whose browser half names
+ * the product in the sidebar and whose Host half ends every session's system
+ * prompt with the protected-directories instruction, and `desktop-server-log`,
+ * which appends the server's own logger records to the desktop log file.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -27,17 +35,49 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Context, type Plugin } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import * as Persona from '@deepseek-ai/dsh-persona'
+import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
+import { PluginManager } from '@deepseek-ai/dsh-plugin-manager'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
+import { LOG_DIR_ENV, UPDATE_CACHE_DIR_ENV, USER_DATA_DIR_ENV } from '../src/app-dirs.ts'
+import { INSTALL_DIR_ENV } from '../src/install-dir.ts'
 import { PNPM_LAUNCHER_ENV } from '../src/pnpm-launcher.ts'
-import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
+import { SERVER_LOG_ENV } from '../src/server.ts'
+import { BUILTIN_WEB_BUNDLES, REQUIRED_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
 const DESKTOP_APP = '@deepseek-ai/dsh-desktop-app'
+
+/** The protected-directories templates the desktop row states. */
+const PROTECTED_DIRS_TEMPLATES = {
+  protectedDirsPrompt: 'Unless the user explicitly asks, do not modify, move, or delete this app\'s own directories: {directories}. The skills folder {skillsDir} is exempt.',
+  directoryClauses: {
+    installDir: 'the installation directory ({installDir})',
+    dataDir: 'the data directory ({dataDir})',
+    appDataDir: 'the settings folder ({appDataDir})',
+    logDir: 'the logs folder ({logDir})',
+    updateCacheDir: 'the update download folder ({updateCacheDir})',
+  },
+  directorySeparator: ', ',
+  directoryLastSeparator: ' and ',
+}
+
+/** The directory each variable the shell sets on the server names, keyed by the row's field. */
+const SHELL_DIRECTORY_ENV = {
+  installDir: INSTALL_DIR_ENV,
+  appDataDir: USER_DATA_DIR_ENV,
+  logDir: LOG_DIR_ENV,
+  updateCacheDir: UPDATE_CACHE_DIR_ENV,
+} as const
 
 /** The composed-entry fields these cases read. */
 interface Entry {
@@ -234,15 +274,16 @@ describe('the composed llm-permission-gateway row', () => {
 })
 
 /**
- * The `tool-plugin-manager` row inside one preset's plugin list.
+ * One row inside one preset's plugin list.
  * @param entries - a composed entry list.
  * @param presetId - the preset declaration row's id.
+ * @param rowId - the child row's id.
  * @returns the preset's child row.
  */
-function presetToolRow(entries: Entry[], presetId: string): Entry {
+function presetRow(entries: Entry[], presetId: string, rowId: string): Entry {
   const plugins = entry(entries, presetId).config?.['plugins'] as Entry[] | undefined
-  const found = plugins?.find(candidate => candidate.id === 'tool-plugin-manager')
-  if (found === undefined) throw new Error(`${presetId} lists no tool-plugin-manager row`)
+  const found = plugins?.find(candidate => candidate.id === rowId)
+  if (found === undefined) throw new Error(`${presetId} lists no ${rowId} row`)
   return found
 }
 
@@ -260,6 +301,28 @@ function evaluateWithEnv(value: unknown, env: Record<string, string>): unknown {
   return (new Function('process', `return (${expression})`) as (process: { env: Record<string, string> }) => unknown)({ env })
 }
 
+describe('the composed server-log row', () => {
+  it('is the desktop layer\'s own, inserted by no layer below it', () => {
+    expect(below.find(candidate => candidate.id === 'desktop-server-log')).toBeUndefined()
+    expect((entry(desktop, 'desktop-server-log') as Entry & { name?: string }).name).toBe('@deepseek-ai/dsh-desktop-app/server-log')
+  })
+
+  // The shell names its log file in this variable for the server child; a
+  // boot without the shell names nothing and mounts no exporter.
+  it('mounts only when the shell names a file, and appends to that file', () => {
+    const row = entry(desktop, 'desktop-server-log')
+    expect(evaluateWithEnv(row.disabled, { [SERVER_LOG_ENV]: '/logs/dsh-server.log' })).toBe(false)
+    expect(evaluateWithEnv(row.disabled, {})).toBe(true)
+    expect(evaluateWithEnv(row.config?.['file'], { [SERVER_LOG_ENV]: '/logs/dsh-server.log' })).toBe('/logs/dsh-server.log')
+  })
+
+  // cordis orders ERROR 0 < INFO 1 < WARN 2 < DEBUG 3, so the threshold that
+  // keeps warnings is 2, not the INFO a reader would expect to cover them.
+  it('keeps warnings and drops debug', () => {
+    expect(entry(desktop, 'desktop-server-log').config?.['level']).toBe(2)
+  })
+})
+
 describe('the composed plugin-manager rows', () => {
   const profileGate = { __jsExpr: "!ctx.get('profileContext')" }
 
@@ -274,8 +337,29 @@ describe('the composed plugin-manager rows', () => {
     expect(entry(desktop, 'ui-plugin-manager').disabled).toBeUndefined()
   })
 
-  it('sets pnpmCommand and nothing else', () => {
-    expect(Object.keys(entry(desktop, 'plugin-manager').config ?? {})).toEqual(['pnpmCommand'])
+  it('sets pnpmCommand and requiredModules and nothing else', () => {
+    expect(Object.keys(entry(desktop, 'plugin-manager').config ?? {})).toEqual(['pnpmCommand', 'requiredModules'])
+  })
+
+  // The seed puts a required bundle back into the profile at every launch and
+  // the service locks the rows it names, so the two lists are one decision.
+  it('requires exactly the bundles the shell seed puts back on at every launch', () => {
+    expect(entry(desktop, 'plugin-manager').config?.['requiredModules']).toEqual([...REQUIRED_WEB_BUNDLES])
+  })
+
+  it('names in requiredModules only built-ins whose own layer inserts a row of that module', () => {
+    for (const name of REQUIRED_WEB_BUNDLES) {
+      expect(BUILTIN_WEB_BUNDLES).toContain(name)
+      const inserted = composeEntries([bundlePatches(name)]) as (Entry & { name?: string })[]
+      expect(inserted.map(row => row.name)).toContain(name)
+    }
+  })
+
+  it('composes a config the plugin manager accepts', () => {
+    const config = entry(desktop, 'plugin-manager').config ?? {}
+    const resolved = PluginManager.Config({ ...config, pnpmCommand: String(evaluateWithEnv(config['pnpmCommand'], {})) })
+    expect(resolved.requiredModules).toEqual([...REQUIRED_WEB_BUNDLES])
+    expect(resolved.pnpmCommand).toBe('pnpm')
   })
 
   // The packaged shell names the launcher in this variable; a development
@@ -291,8 +375,8 @@ describe('the composed plugin-manager rows', () => {
   // injects the service the Host row provides, so with that row on it mounts;
   // the gateway row's `alwaysAsk` is what sends each of its calls to a person.
   it('leaves the cordis preset\'s tool row gated on the profile alone, over a service that now registers', () => {
-    expect(presetToolRow(below, 'preset-cordis').disabled).toEqual(profileGate)
-    expect(presetToolRow(desktop, 'preset-cordis').disabled).toEqual(profileGate)
+    expect(presetRow(below, 'preset-cordis', 'tool-plugin-manager').disabled).toEqual(profileGate)
+    expect(presetRow(desktop, 'preset-cordis', 'tool-plugin-manager').disabled).toEqual(profileGate)
     expect(pluginManagerToolInject).toContain('pluginManager')
   })
 })
@@ -302,10 +386,12 @@ describe('the composed office-to-pdf row', () => {
     expect(entry(below, 'office-to-pdf').disabled).toBeUndefined()
   })
 
-  // The payload rules drop every engine package, so a converter this row
-  // started would fail on its first conversion.
-  it('is off once the desktop layer applies', () => {
-    expect(entry(desktop, 'office-to-pdf').disabled).toBe(true)
+  // The payload carries no engine; the shell downloads one into the data
+  // directory on request and the converter the next preview creates finds it,
+  // so the row stays on from launch.
+  it('stays on once the desktop layer applies', () => {
+    expect(entry(desktop, 'office-to-pdf')).toEqual(entry(below, 'office-to-pdf'))
+    expect(entry(desktop, 'office-to-pdf').disabled).toBeUndefined()
   })
 })
 
@@ -314,8 +400,145 @@ describe('the composed ui-chat row', () => {
     expect(entry(below, 'ui-chat').config).toBeUndefined()
   })
 
-  it('starts work details compact once the desktop layer applies', () => {
-    expect(entry(desktop, 'ui-chat').config).toEqual({ transcriptView: 'compact' })
+  // No base value for `transcriptView`, so work details start at the form's
+  // own default, as on upstream's Web client.
+  it('stays as the layers below ship it once the desktop layer applies', () => {
+    expect(entry(desktop, 'ui-chat')).toEqual(entry(below, 'ui-chat'))
+    expect(entry(desktop, 'ui-chat').config).toBeUndefined()
+  })
+})
+
+describe('the composed brand row', () => {
+  it('is absent below the desktop layer', () => {
+    expect(below.find(row => row.id === 'desktop-brand')).toBeUndefined()
+  })
+
+  it('mounts this package with the protected-directories templates its Host half fills', () => {
+    expect(entry(desktop, 'desktop-brand')).toEqual({
+      id: 'desktop-brand',
+      name: DESKTOP_APP,
+      config: {
+        ...PROTECTED_DIRS_TEMPLATES,
+        ...Object.fromEntries(Object.entries(SHELL_DIRECTORY_ENV).map(([field, name]) => [field, { __jsExpr: `process.env.${name}` }])),
+      },
+    })
+  })
+
+  it.each(Object.entries(SHELL_DIRECTORY_ENV))('takes %s from %s, and nothing when the shell sets none', (field, name) => {
+    const expression = entry(desktop, 'desktop-brand').config?.[field]
+    expect(evaluateWithEnv(expression, { [name]: '/some/北冥 dir' })).toBe('/some/北冥 dir')
+    expect(evaluateWithEnv(expression, {})).toBeUndefined()
+  })
+})
+
+describe('the protected-directories section in composed sessions', () => {
+  // The composed rows drive real modules: the base's system-prompt row, each
+  // preset's persona row, and the desktop row through this package's Host
+  // half resolved from the payload's deploy root. A preset's rows compose
+  // behind the preset's own scope, and the agent-preset registry binds a
+  // session's scope, and a delegated child's, under it; the child then adds
+  // its own persona prefix through dsh-subagent's composition step.
+  // The Host half's own `Config` validates the composed row as the Loader's mount does.
+  type RowPlugin = Plugin.Object<Entry['config']>
+
+  /**
+   * One preset's composed persona row, read field by field.
+   * @param presetId - the preset declaration row's id.
+   * @returns the row's config.
+   */
+  function personaConfig(presetId: string): Persona.Config {
+    const { prefix, suffix, complete, includeRuntimeContext } = presetRow(desktop, presetId, 'persona').config ?? {}
+    if (typeof prefix !== 'string') throw new Error(`${presetId}'s persona row states no prefix`)
+    return {
+      prefix,
+      ...typeof suffix === 'string' ? { suffix } : {},
+      ...typeof complete === 'boolean' ? { complete } : {},
+      ...typeof includeRuntimeContext === 'boolean' ? { includeRuntimeContext } : {},
+    }
+  }
+  const INSTALL_DIR = '/Applications/北冥.app'
+  const DATA_DIR = '/Users/test user/.dsh'
+  const USER_DATA_DIR = '/Users/test user/Library/Application Support/@deepseek-ai/dsh-desktop'
+  const LOG_DIR = '/Users/test user/Library/Logs/@deepseek-ai/dsh-desktop'
+  const UPDATE_CACHE_DIR = '/Users/test user/Library/Caches/@deepseek-aidsh-desktop-updater'
+  // `resolveDshHome` resolves the home with the platform's path rules.
+  const LINE = 'Unless the user explicitly asks, do not modify, move, or delete this app\'s own directories: '
+    + `the installation directory (\`${INSTALL_DIR}\`), the data directory (\`${resolve(DATA_DIR)}\`), `
+    + `the settings folder (\`${USER_DATA_DIR}\`), the logs folder (\`${LOG_DIR}\`) and the update download folder (\`${UPDATE_CACHE_DIR}\`). `
+    + `The skills folder \`${join(resolve(DATA_DIR), 'skills')}\` is exempt.`
+  const roots: Context[] = []
+  beforeEach(() => {
+    vi.stubEnv('DSH_HOME', DATA_DIR)
+  })
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await Promise.all(roots.splice(0).map(root => root.fiber.dispose()))
+  })
+
+  /**
+   * A root with the composed registry and the desktop row mounted, and one
+   * session scope under the named preset's persona.
+   * @param presetId - the preset declaration row's id.
+   * @returns the root, the preset's scope key, and the session's scope.
+   */
+  async function session(presetId: string): Promise<{ root: Context; presetKey: ScopeKey; agent: Scope }> {
+    const root = new Context()
+    roots.push(root)
+    await root.plugin(SystemPrompt, entry(desktop, 'system-prompt').config ?? {})
+    root.systemPrompt.variable('cwd', () => '/workspace')
+    root.systemPrompt.variable('model', () => 'deepseek-flash')
+    const hostDir = resolveBundleDir('test', DESKTOP_APP, installAnchor, serverDir)
+    const host = await import(pathToFileURL(join(hostDir, 'src', 'index.ts')).href) as RowPlugin
+    const brand = entry(desktop, 'desktop-brand').config ?? {}
+    const env = {
+      [INSTALL_DIR_ENV]: INSTALL_DIR,
+      [USER_DATA_DIR_ENV]: USER_DATA_DIR,
+      [LOG_DIR_ENV]: LOG_DIR,
+      [UPDATE_CACHE_DIR_ENV]: UPDATE_CACHE_DIR,
+    }
+    const evaluated = Object.fromEntries(Object.keys(SHELL_DIRECTORY_ENV).map(field => [field, evaluateWithEnv(brand[field], env)]))
+    await root.plugin(host, { ...brand, ...evaluated })
+    const presetKey: ScopeKey = { preset: presetId }
+    await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
+    const agent = createScope(root, { agent: presetId }, { parent: presetKey })
+    return { root, presetKey, agent }
+  }
+
+  /** @returns the prompt one scope renders. */
+  async function prompt(root: Context, scope: Scope): Promise<string> {
+    const key = scopeOf(scope.ctx)
+    if (key === undefined) throw new Error('the scope carries no key')
+    return renderPrompt(await root.systemPrompt.assemble({ scope: key }))
+  }
+
+  it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('ends the prompt of a %s session', async (presetId) => {
+    const { root, agent } = await session(presetId)
+    const text = await prompt(root, agent)
+    expect(text.endsWith(`Your working directory is /workspace.\n\n${LINE}`)).toBe(true)
+  })
+
+  it('ends the prompt of a child that session delegates to, under the child\'s own persona', async () => {
+    const { root, presetKey, agent } = await session('preset-standard')
+    // The driver composes a child from a context that injects the registry.
+    let child: Scope | undefined
+    await root.plugin({
+      inject: ['systemPrompt'],
+      apply: (ctx: Context) => {
+        child = createScope(ctx, { agent: 'child' }, { parent: presetKey })
+        applyChildComposition(child.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
+      },
+    })
+    if (child === undefined) throw new Error('the child was not composed')
+    const text = await prompt(root, child)
+    expect(text).toContain('You review one file.')
+    expect(text.endsWith(LINE)).toBe(true)
+  })
+
+  // `minimal`'s persona is `complete`, which replaces every other section.
+  it('is absent from a preset-minimal session', async () => {
+    const { root, agent } = await session('preset-minimal')
+    expect(personaConfig('preset-minimal').complete).toBe(true)
+    expect(await prompt(root, agent)).toBe(personaConfig('preset-minimal').prefix)
   })
 })
 
@@ -328,16 +551,29 @@ describe('the composed telemetry rows', () => {
   // layer — the `DSH_TELEMETRY_DISABLED` this shell puts on the spawned server,
   // which reaches the telemetry row alone — belongs to `tests/server.spec.ts`.
   it('composes every DeepSeek-bound reporter off, through every bundle layer', () => {
+    expect(entry(desktop, 'otel').disabled).toBe(true)
     expect(entry(desktop, 'session-telemetry-otel').disabled).toBe(true)
     expect(entry(desktop, 'plugin-package-inventory-deepseek').disabled).toBe(true)
-    // Mounted rather than disabled: its own `enabled: false` makes `apply()`
-    // return before it registers the request contribution.
+    // The desktop layer's own two; below it, an expression on the profile
+    // name keeps them off.
+    expect(entry(desktop, 'desktop-product-telemetry').disabled).toBe(true)
+    expect(entry(desktop, 'product-analytics').disabled).toBe(true)
+    // Mounted rather than disabled, so Settings → General serves its upload
+    // switch; `enabled: false` is that switch's shipped value, and the
+    // request contribution adds nothing while it reads false.
     expect(entry(desktop, 'session-log-deepseek').config).toEqual({ enabled: false })
+  })
+
+  it('switches the product analytics rows off without replacing their config', () => {
+    for (const id of ['desktop-product-telemetry', 'product-analytics']) {
+      expect(entry(below, id).disabled).not.toBe(true)
+      expect(entry(desktop, id).config).toEqual(entry(below, id).config)
+    }
   })
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly seven rows and nothing else', () => {
+  it('changes exactly seven rows, adds its own two, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -345,8 +581,8 @@ describe('the desktop composition layer as a whole', () => {
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
-      'llm-deepseek', 'llm-permission-gateway', 'office-to-pdf', 'plugin-manager', 'session-query-sqlite', 'ui-chat',
-      'vision-switch',
+      'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway',
+      'plugin-manager', 'product-analytics', 'session-query-sqlite', 'vision-switch',
     ])
   })
 

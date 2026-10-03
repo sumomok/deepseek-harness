@@ -6,14 +6,14 @@
   en: 42aa4c3ae6be24e6
   zh: 91cc497eebac63e7
 /deepseek-ai-dsh-desktop-shell/building-installable-packages:
-  en: 224bf4cc329233e6
-  zh: 60b53cab95ca212d
+  en: fe9e36c05d0d66a7
+  zh: cfb6f858225943b5
 /deepseek-ai-dsh-desktop-shell/closing-the-window-and-being-called-back:
-  en: 3357218ba9365336
-  zh: bfb691b819523cff
+  en: 021af8cc9a1b9d95
+  zh: cf84712960ebabd4
 /deepseek-ai-dsh-desktop-shell/updates:
-  en: c9ec39f1d6c63ddc
-  zh: 8eab18301f2d94ac
+  en: f09f921b40023f0b
+  zh: 89bf9e8ab13cd122
 /deepseek-ai-dsh-desktop-shell/updates/mandatory-updates:
   en: 2edad4c10a1c5767
   zh: 8a0d32ad15147668
@@ -24,8 +24,8 @@
   en: bf0d89ec83c8d2ed
   zh: 286cc07d7dc846f6
 /deepseek-ai-dsh-desktop-shell/built-in-plugins:
-  en: b25bf70643942578
-  zh: 1afcc8ad8bcba764
+  en: 0c3a4e6ee61d6747
+  zh: da9939689ab4f267
 /deepseek-ai-dsh-desktop-shell/the-render-service:
   en: a3bbc320b10aefcb
   zh: 4588a6649a680ed1
@@ -38,15 +38,18 @@
 /deepseek-ai-dsh-desktop-shell/update-service:
   en: 61ef6fb24a6f32a8
   zh: e54855ad3ca88371
+/deepseek-ai-dsh-desktop-shell/office-engine-service:
+  en: d3480c0e1a1351a5
+  zh: 37f68f7f138aaba9
 /deepseek-ai-dsh-desktop-shell/data-location-service:
-  en: c32f4bedfc941f3e
-  zh: 4a47ad2a03c6d15c
+  en: 6eb5b21f5663354f
+  zh: 469c3dbc958ba6f7
 /deepseek-ai-dsh-desktop-shell/where-your-data-lives:
   en: 07c34da20c85e11f
   zh: bf3c185cab38d921
 /deepseek-ai-dsh-desktop-shell/server-environment:
-  en: edf53484fdf666ac
-  zh: cc0c43f74c7faebf
+  en: deb4cf3b04aa1fcc
+  zh: 6ae315b6b945ccd5
 /deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
-  en: 3f4ff6bb34d9ddf1
-  zh: 42a4b05830211361
+  en: 389d1ff49e50d862
+  zh: bbf44abdb417c241

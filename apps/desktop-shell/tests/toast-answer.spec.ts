@@ -2,7 +2,9 @@
  * What the approval toast's buttons do: the frame a pressed 「拒绝」 sends back
  * on `$events/result`, the window a pressed 「去看看」 brings back, the window a
  * press brings back instead when this shell can no longer answer, and when a
- * toast is taken off the screen.
+ * toast is taken off the screen. What a toast calls its session: the title
+ * `session/list` reports, or 「会话」 with a log line when the lookup fails.
+ * On macOS, what the Dock badge counts and when a count comes off it.
  *
  * `notifications.ts` opens a real `WebSocket` and constructs a real
  * `Notification`. Both are replaced here — the socket by the stand-in
@@ -28,6 +30,23 @@ const RESULT_PATH = '/api/$events/result'
 
 /** `NEXT_GRACE_MS`: how long the shell holds a delivery before answering `next`. */
 const GRACE_MS = 60_000
+
+/** The projected title `session/list` reports for `session-1`, the session every delivery here comes from. */
+const TITLE = '周报整理'
+
+/**
+ * The sessions `session/list` reports, in its order: `session-1` between two
+ * other sessions whose titles differ from {@link TITLE}, so a message that
+ * takes its title from any record but `session-1`'s reads another title.
+ */
+const LISTED_SESSIONS = [
+  { sessionId: 'session-0', projections: { values: { title: '月度预算' } } },
+  { sessionId: 'session-1', projections: { values: { title: TITLE } } },
+  { sessionId: 'session-2', projections: { values: { title: '旅行计划' } } },
+]
+
+/** The message of the `session/list` refusal a case asks for through {@link listFailures}. */
+const UNAVAILABLE = 'sessionController is not available'
 
 /** One notification the module constructed, with the handlers it attached to it. */
 class FakeNotification {
@@ -97,6 +116,15 @@ const hiddenWindow = {
 }
 
 const notifications: FakeNotification[] = []
+
+/** Every value the module set on the Dock badge, in order; the last one is what the Dock shows. */
+const dockBadges: string[] = []
+
+/** The Dock, recording what the badge was set to. */
+const fakeDock = {
+  setBadge: (text: string) => { dockBadges.push(text) },
+  bounce: () => 0,
+}
 const sockets: FakeSocket[] = []
 const quitHandlers: (() => void)[] = []
 const windows: (typeof hiddenWindow)[] = []
@@ -110,7 +138,7 @@ const appHandlers = new Map<string, () => void>()
 
 vi.mock('electron', () => ({
   app: {
-    dock: undefined,
+    dock: fakeDock,
     on: (event: string, handler: () => void) => { appHandlers.set(event, handler) },
     once: (_event: string, handler: () => void) => { quitHandlers.push(handler) },
   },
@@ -123,11 +151,35 @@ vi.stubGlobal('WebSocket', FakeSocket)
 /** Every `/api` path the module POSTed, recorded as the request was issued. */
 const posted: string[] = []
 
+/**
+ * How many `$events/result` responses have reached the module and been read
+ * as far as it reads them: the status of a failure, the body of a success.
+ * The loopback server records an answer when the request arrives, before the
+ * module has seen the response, so `answers` alone does not say that the
+ * module's own handling of that response has run.
+ */
+let answersRead = 0
+
 const realFetch = globalThis.fetch
 vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
   const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-  if (init?.method === 'POST') posted.push(new URL(href).pathname)
-  return realFetch(input, init)
+  const path = new URL(href).pathname
+  if (init?.method === 'POST') posted.push(path)
+  const response = await realFetch(input, init)
+  if (path !== RESULT_PATH) return response
+  if (!response.ok) {
+    answersRead += 1
+    return response
+  }
+  const json: () => Promise<unknown> = response.json.bind(response)
+  response.json = async (): Promise<unknown> => {
+    try {
+      return await json()
+    } finally {
+      answersRead += 1
+    }
+  }
+  return response
 })
 
 const { setupNotifications } = await import('../src/notifications.ts')
@@ -144,12 +196,41 @@ let reveals = 0
 /** How many more `$events/result` requests are answered with a failure. */
 let resultFailures = 0
 
+/** How many more well-formed `session/list` requests the gateway refuses. */
+let listFailures = 0
+
 const realPlatform = process.platform
 let server: Server | undefined
 
 /**
+ * What the gateway answers a `session/list` request with. Its server method
+ * takes one parameter, `_request`, and the gateway refuses an `args` record
+ * whose fields are not exactly that one, in an `ok: false` result sent with
+ * HTTP 200. A well-formed request is refused while {@link listFailures} is
+ * above zero, and otherwise answered with {@link LISTED_SESSIONS}.
+ * @param args - the request's `args` record.
+ * @returns the `result` the response carries.
+ */
+function listResult(args: Record<string, unknown>): Record<string, unknown> {
+  const missing = Object.hasOwn(args, '_request') ? [] : ['_request']
+  const extra = Object.keys(args).filter(key => key !== '_request')
+  if (missing.length > 0 || extra.length > 0) {
+    const clauses: string[] = []
+    if (missing.length > 0) clauses.push(`missing ${missing.map(key => JSON.stringify(key)).join(', ')}`)
+    if (extra.length > 0) clauses.push(`unexpected ${extra.map(key => JSON.stringify(key)).join(', ')}`)
+    return { ok: false, error: { code: 'gateway/arguments-invalid', message: `args fields do not match the descriptor: ${clauses.join('; ')}` } }
+  }
+  if (listFailures > 0) {
+    listFailures -= 1
+    return { ok: false, error: { code: 'gateway/service-unavailable', message: UNAVAILABLE } }
+  }
+  return { ok: true, value: { items: LISTED_SESSIONS } }
+}
+
+/**
  * Serve the launch-token exchange and the two unary endpoints the notifier
- * calls, recording every `$events/result` payload.
+ * calls, recording every `$events/result` payload and answering
+ * `session/list` as {@link listResult} says.
  * @returns the launch-token URL to hand {@link setupNotifications}.
  */
 async function serving(): Promise<string> {
@@ -163,6 +244,11 @@ async function serving(): Promise<string> {
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       const frame = JSON.parse(body) as { method: string; payload: { args: Record<string, unknown> } }
+      if (frame.method === 'session/list') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ result: listResult(frame.payload.args) }))
+        return
+      }
       const failing = frame.method === '$events/result' && resultFailures > 0
       if (frame.method === '$events/result') {
         answers.push(frame.payload.args)
@@ -174,7 +260,7 @@ async function serving(): Promise<string> {
         return
       }
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ result: { ok: true, value: { items: [] } } }))
+      response.end(JSON.stringify({ result: { ok: true } }))
     })
   })
   await new Promise<void>((resolve) => { created.listen(0, '127.0.0.1', resolve) })
@@ -206,6 +292,18 @@ async function until(ready: () => boolean, what: string): Promise<void> {
  */
 async function settle(): Promise<void> {
   await new Promise<void>((resolve) => { setImmediate(resolve) })
+}
+
+/**
+ * Wait until the module has handled the Host's response to its `count`th
+ * answer: the response was read, and every microtask the module's handler
+ * queued has run.
+ * @param count - how many answers must have been handled.
+ * @param what - what the failure message says was never reached.
+ */
+async function answerHandled(count: number, what: string): Promise<void> {
+  await until(() => answersRead >= count, what)
+  await settle()
 }
 
 /** How many answers the module has issued, whatever became of them. */
@@ -294,6 +392,8 @@ describe('the approval toast', () => {
     windows.length = 0
     reveals = 0
     resultFailures = 0
+    listFailures = 0
+    answersRead = 0
     const running = server
     server = undefined
     if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
@@ -306,6 +406,19 @@ describe('the approval toast', () => {
       { type: 'button', text: '去看看' },
     ])
     expect(toast.shown).toBe(1)
+  })
+
+  it('names the session by its title in the toast and in the log', async () => {
+    const toast = await announcedApproval()
+    expect(toast.options.body).toBe(`「${TITLE}」请求执行 Bash,正在等你批准。`)
+    expect(lines).toContain(`[desktop] notify: 需要你的确认 — 「${TITLE}」请求执行 Bash,正在等你批准。\n`)
+  })
+
+  it('calls the session 会话 and logs the reason when its title cannot be looked up', async () => {
+    listFailures = 1
+    const toast = await announcedApproval()
+    expect(toast.options.body).toBe('会话请求执行 Bash,正在等你批准。')
+    expect(lines).toContain(`[desktop] session session-1 could not be named: session/list failed: gateway/service-unavailable: ${UNAVAILABLE}\n`)
   })
 
   it('answers the delivery with the approval vocabulary\'s refusal when 拒绝 is pressed', async () => {
@@ -427,7 +540,7 @@ describe('the approval toast', () => {
   it('forgets a refusal the Host accepted, so a later replay is not answered again', async () => {
     const toast = await announcedApproval()
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    await until(() => answers.length === 1, 'the answer')
+    await answerHandled(1, 'the accepted answer')
     // The Host removes an answering client from the delivery before settling,
     // so no `cancel` comes back for this shell's own refusal to clean up after.
     deliverApproval(sockets[0]!)
@@ -440,9 +553,11 @@ describe('the approval toast', () => {
     const toast = await announcedApproval()
     resultFailures = 2
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    await until(() => answers.length === 1, 'the failed answer')
+    await answerHandled(1, 'the failed answer')
     deliverApproval(sockets[0]!)
-    await until(() => answers.length === 2, 'the failed resend')
+    // The second failure re-arms the grace from the module's response handler;
+    // the grace below can only elapse once that handler has armed it.
+    await answerHandled(2, 'the failed resend')
     graceElapses()
     await until(() => answers.length === 3, 'the abstention')
     expect(answers[2]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
@@ -471,5 +586,114 @@ describe('the approval toast', () => {
       outcome: { kind: 'result', value: 'rejected' },
     })
     expect(notifications).toHaveLength(1)
+  })
+})
+
+/** What the Dock badge shows now; an empty string is no badge. */
+function shownBadge(): string {
+  return dockBadges.at(-1) ?? ''
+}
+
+describe('the macOS Dock badge', () => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', writable: false, enumerable: true, configurable: true })
+    windows.push(hiddenWindow)
+  })
+
+  afterEach(async () => {
+    for (const stop of quitHandlers) stop()
+    // The finished-run count outlives a generation; focus is what clears it.
+    appHandlers.get('browser-window-focus')?.()
+    Object.defineProperty(process, 'platform', { value: realPlatform, writable: false, enumerable: true, configurable: true })
+    notifications.length = 0
+    sockets.length = 0
+    answers.length = 0
+    lines.length = 0
+    posted.length = 0
+    windows.length = 0
+    dockBadges.length = 0
+    answersRead = 0
+    const running = server
+    server = undefined
+    if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
+  })
+
+  /**
+   * Deliver approvals and wait until the badge counts all of them.
+   * @param socket - the stream socket to deliver them on.
+   * @param eventIds - the deliveries.
+   */
+  async function badgedApprovals(socket: FakeSocket, ...eventIds: string[]): Promise<void> {
+    for (const eventId of eventIds) deliverApproval(socket, eventId)
+    await until(() => shownBadge() === String(eventIds.length), 'the badge count')
+  }
+
+  it('counts each waiting request and raises no toast', async () => {
+    await badgedApprovals(await subscribed(), 'event-a', 'event-b')
+    expect(shownBadge()).toBe('2')
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('takes a request off the badge when someone else answered it', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a', 'event-b')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('1')
+    socket.deliver({ type: 'cancel', eventId: 'event-b' })
+    expect(shownBadge()).toBe('')
+  })
+
+  it('takes a request off once, however many cancels name it', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a', 'event-b')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    socket.deliver({ type: 'cancel', eventId: 'event-unknown' })
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('clears on focus, stays clear when a counted request is cancelled after that, and counts afresh', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a')
+    appHandlers.get('browser-window-focus')?.()
+    expect(shownBadge()).toBe('')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('')
+    deliverApproval(socket, 'event-b')
+    await until(() => shownBadge() === '1', 'the fresh count')
+  })
+
+  it('does not count a replay of a request it already counts', async () => {
+    const socket = await subscribed()
+    await badgedApprovals(socket, 'event-a')
+    deliverApproval(socket, 'event-a')
+    await settle()
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('keeps a finished run on the badge when a request is cancelled', async () => {
+    const socket = await subscribed()
+    socket.deliver({ type: 'emit', event: 'api-session/status', args: ['session-1', true] })
+    socket.deliver({ type: 'emit', event: 'api-session/status', args: ['session-1', false] })
+    await until(() => shownBadge() === '1', 'the finished run')
+    deliverApproval(socket, 'event-a')
+    await until(() => shownBadge() === '2', 'the request')
+    socket.deliver({ type: 'cancel', eventId: 'event-a' })
+    expect(shownBadge()).toBe('1')
+  })
+
+  it('drops the requests of a generation that was stopped', async () => {
+    await badgedApprovals(await subscribed(), 'event-a')
+    for (const stop of quitHandlers) stop()
+    expect(shownBadge()).toBe('')
+  })
+
+  it('keeps counting a request after its own grace answer, which the page still holds', async () => {
+    windows.length = 0
+    await badgedApprovals(await subscribed(), EVENT)
+    graceElapses()
+    await until(() => answers.length === 1, 'the grace answer')
+    expect(answers[0]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
+    expect(shownBadge()).toBe('1')
   })
 })

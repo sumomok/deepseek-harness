@@ -10,7 +10,7 @@ The [boot package group](../../packages/boot/README.md) owns launcher-provided p
 
 `PluginInfo` carries module identity, effective enablement, fiber phase and optional display `meta`, plus a unique `patchId` or a `readOnlyReason`.
 
-`BundleInfo` carries the package name, optional installed version, selected enablement, removal availability and optional resolution error. Its optional `meta` and each `BundleRowInfo.meta` contain display text or a metadata diagnostic; Clients select a language at render time.
+`BundleInfo` carries the package name, optional installed version, selected enablement, whether the installation offers it (`optional`) or the launching application ships it (`shipped`, from the profile manifest's `dsh.profile.shipped`), removal availability and optional resolution error. Its optional `meta` and each `BundleRowInfo.meta` contain display text or a metadata diagnostic; Clients select a language at render time.
 
 `InstallBundleOptions.enabled` defaults to true. False installs without selecting the bundle layer. `approvedBuilds` grants persistent script permission to the supplied pending package names before installation. `registry` names the registry asked first; absent, the configured one.
 
@@ -109,10 +109,11 @@ Manage profile files and apply their declared reload lifecycle.
  */
 @Remote async listPlugins(): Promise<PluginInfo[]>
 
-/** Read the profile's installed bundles, the bundles this dsh installation supplies, and the selected names that are not bundles.
- * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected.
+/** Read the profile's installed bundles, the bundles this dsh installation supplies, the bundles the profile manifest's
+ * `dsh.profile.shipped` names, and the selected names that are not bundles.
+ * A dependency without a bundle patch is listed, as a `not-bundle` problem, only while it is selected or shipped.
  * @returns Package versions, manifest descriptions, rows, optional display metadata, activation selections,
- * whether the installation offers the bundle, and removal availability.
+ * whether the installation offers the bundle, whether the launcher ships it, and removal availability.
  */
 @Remote listBundles(): Promise<BundleInfo[]>
 

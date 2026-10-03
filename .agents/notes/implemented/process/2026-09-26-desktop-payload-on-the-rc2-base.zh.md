@@ -24,6 +24,8 @@ Status: implemented
 
 **暂存启动遇到加载报告就失败，组合出的 dump 必须显出桌面层。** `verifyStagedBoot` 收集服务端的 stderr，任何一行带有 `LOAD_FAILURE_MARKERS` 之一——`skipping profile bundle`、`disabling profile plugin` 或 `did not activate`——都让打包失败。随后它在同一个构建 home 上跑 `--dump-config`，要求 `verifyDesktopLayer` 找到以 `openAt: first-search` 组合出的 `session-query-sqlite`，这个值只有最后一个 bundle `@deepseek-ai/dsh-desktop-app` 会设。
 
+**暂存启动不带构建时包管理器的环境,暂存树必须带齐安装包的闭包。**pnpm 的 `.bin` shim 会导出指向工作区 `node_modules/.pnpm/node_modules` 的 `NODE_PATH`,`resolveBundleDir` 会搜索它,于是暂存启动从构建检出里找到了 `@deepseek-ai/dsh-base`,而载荷里根本没有:pnpm 的 legacy 部署器把 `@deepseek-ai/dsh` 放在部署源旁边,dsh-base 只在它内部的 `node_modules` 里,`restoreLegacyHoists` 把这层丢了。没有 `NODE_PATH` 时,已安装的服务端会跳过 dsh-base 并启动失败。`staged-boot-gate.ts` 的 `stagedBootEnv` 让暂存启动与 `--dump-config` 去掉 `NODE_PATH`、`npm_*` 与 `PNPM_*`;`missingProductionDependencies` 让缺少 `@deepseek-ai/dsh` 任一生产依赖或必需 peer 的暂存树、以及缺少其中 `@deepseek-ai` 部分的成品载荷失败;`legacy-hoists.ts` 的 `restoreHoistedDependencies` 把恢复的 hoist 只在自己内部带着的生产依赖拷进暂存树。部署不安装 peer,所以闭包只以必需 peer 形式点名的 `@deepseek-ai/dsh-ptc-runtime`、`dsh-hook-protocol`、`dsh-sdk-protocol` 与 `dsh-client-store` 列在 `apps/desktop-server/package.json` 里;缺了 `dsh-ptc-runtime`,base 层的 `ptc-runtime` 行会 import 失败。
+
 ## 备选方案
 
 **带上 LibreOffice 引擎，打开 Office 预览。** 0.1.0-rc.34 不采纳：rc.33 本来就没有 Office 预览，不带不算拿走什么，而每少带一个引擎就少一百多兆字节。要带，就在 `platformDirRules` 里保留各目标自己的引擎，并去掉那几条豁免。

@@ -34,6 +34,9 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../compaction/command-compact"
+    },
+    {
       "path": "../../compaction/compaction"
     },
     {
@@ -113,6 +116,9 @@
     },
     {
       "path": "../ui-input-trigger"
+    },
+    {
+      "path": "../product-analytics/tsconfig.client.json"
     }
   ],
   "exclude": [

@@ -16,7 +16,24 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PNPM_LAUNCHER_ENV, PNPM_LAUNCHERS, pnpmLauncherEnv } from '../src/pnpm-launcher.ts'
+import { PNPM_LAUNCHER_ENV, PNPM_LAUNCHERS, pnpmInvocation, pnpmLauncherEnv } from '../src/pnpm-launcher.ts'
+
+describe('pnpmInvocation', () => {
+  it('runs pnpm from PATH in a development launch', () => {
+    expect(pnpmInvocation({ packaged: false, resourcesPath: '/res', platform: 'darwin', nodeBin: 'node' }))
+      .toEqual({ command: 'pnpm', prefixArgs: [] })
+  })
+
+  it('runs the shipped pnpm.mjs under the bundled Node, with runtime/ first on PATH, never through a script', () => {
+    const resources = join('C:', 'DSH', 'resources')
+    const nodeBin = join(resources, 'runtime', 'node.exe')
+    expect(pnpmInvocation({ packaged: true, resourcesPath: resources, platform: 'win32', nodeBin })).toEqual({
+      command: nodeBin,
+      prefixArgs: [join(resources, 'runtime', 'pnpm', 'bin', 'pnpm.mjs')],
+      pathPrefix: join(resources, 'runtime'),
+    })
+  })
+})
 
 describe('pnpmLauncherEnv', () => {
   it('names nothing in a development launch, so pnpm on PATH is used', () => {

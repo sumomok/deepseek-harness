@@ -24,12 +24,13 @@ export const OFFICE_KIT = '@deepseek-ai/libreoffice-kit'
  * Whether a package is one of the LibreOffice kit's engines, which no desktop
  * payload carries.
  *
- * The desktop ships no Office preview: its composition layer disables the
- * `office-to-pdf` row, the one Host entry that would start a converter. The
- * kit's entry package stays, because `@deepseek-ai/dsh-office-to-pdf` imports
- * it statically and the kit resolves an engine only when a converter is
- * created. Each engine is a whole LibreOffice build of well over a hundred
- * megabytes.
+ * Each engine is a whole LibreOffice build of well over a hundred megabytes,
+ * so the shell downloads the one the shipped kit declares into the data
+ * directory when the person asks for it (`src/office-engine.ts`) and names it
+ * in the server's `NODE_PATH`. The kit's entry package stays, because
+ * `@deepseek-ai/dsh-office-to-pdf` imports it statically and it is what
+ * declares which engine version to download; the kit resolves an engine only
+ * when a converter is created.
  * @param name - a scoped package name.
  * @returns true for `@deepseek-ai/libreoffice-kit-<suffix>`, false for the entry package and everything else.
  */

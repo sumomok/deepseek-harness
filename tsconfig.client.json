@@ -14,6 +14,13 @@
     "types": ["node"]
   },
   "include": [
+    // The native/renderer keyboard fixture imports only these Cordis-free Desktop modules.
+    "apps/desktop/tests/keyboard.spec.ts",
+    "apps/desktop/src/keyboard.ts",
+    "apps/desktop/src/keybindings.ts",
+    "apps/desktop/src/browser-guests.ts",
+    "apps/desktop/src/ipc.ts",
+    "apps/desktop/src/update-overlay.ts",
     "apps/desktop/tests/**/*.client.spec.tsx",
     // Source-subpath test imports can arrive through workspace links whose
     // realpath semantics vary by host. Load package CSS declarations directly.
@@ -33,8 +40,15 @@
     // bundle list comes from the shell source below, which imports node
     // builtins only and therefore belongs to neither Context face.
     "apps/desktop-shell/tests/**/*.client.spec.ts",
+    // The desktop composition layer's browser half and its client suite.
+    "apps/desktop-app/tests/**/*.client.spec.tsx",
     "apps/desktop-shell/src/profile-seed.ts",
     "apps/desktop-shell/src/link-target.ts",
+    // The loading-page restatement, whose client-face suite checks it against
+    // the web client's BootPage, and the product-name constant, the only
+    // module it imports.
+    "apps/desktop-shell/src/app-boot-text.ts",
+    "apps/desktop-shell/src/brand.ts",
     // Client package outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
@@ -51,8 +65,10 @@
     "packages/client/*/tests/**/*.host.spec.ts"
   ],
   "references": [
-    { "path": "./tsconfig.desktop-keyboard-tests.json" },
+    { "path": "./packages/client/product-analytics/tsconfig.client.json" },
     { "path": "./apps/desktop/tsconfig.client.json" },
+    { "path": "./apps/desktop-app" },
+    { "path": "./packages/util/atomic-write" },
     { "path": "./packages/experimental/client-ui-voice-input" },
 
     { "path": "./packages/client/ui-sidebar-terminal" },
@@ -122,6 +138,7 @@
     { "path": "./packages/client/ui-settings-plugins" },
     { "path": "./packages/client/ui-settings-shell" },
     { "path": "./packages/client/ui-settings-agent-loop" },
+    { "path": "./packages/client/ui-settings-session-log" },
     { "path": "./packages/client/ui-settings-subagent" },
     { "path": "./packages/client/ui-settings-web-search" },
     { "path": "./packages/client/ui-user-questions" },
