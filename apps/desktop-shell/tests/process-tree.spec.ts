@@ -2,11 +2,17 @@
  * Stopping the server's whole process tree: the tree recorded while the
  * server runs, the processes still running after the stop found by process
  * id and start time (so a reused process id is not taken for a survivor),
- * killed, and reported when they will not go. Every process here is a fake;
- * the real listing is only read, never acted on.
+ * killed, and reported when they will not go. Every process here is a fake
+ * but one sleeping program the test starts itself; the real listing is only
+ * read, never acted on.
  * @module
  */
 
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   descendantsOf, ensureTreeGone, listWindowsProcesses, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, PROCESS_LIST_TIMEOUT_MS,
@@ -152,6 +158,26 @@ describe('the server process tree', () => {
     expect(await listWindowsProcesses(answering({ code: 1, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])
     expect(await listWindowsProcesses(answering({ code: null, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])
     expect(await listWindowsProcesses(async () => { throw new Error('spawn powershell.exe ENOENT') })).toEqual([])
+  })
+
+  const darwinOnly = process.platform === 'darwin' ? it : it.skip
+
+  darwinOnly('reads a server path with characters outside ASCII as it is, so a server without a handle under such a folder is found', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'process-tree-')))
+    const program = join(root, '北冥 应用', 'node')
+    mkdirSync(join(root, '北冥 应用'))
+    copyFileSync('/bin/sleep', program)
+    const child = spawn(program, ['30'], { stdio: 'ignore' })
+    try {
+      await once(child, 'spawn')
+      const entries = await nodeProcessProbes('darwin').list()
+      expect(entries.find(item => item.pid === child.pid)).toMatchObject({ ppid: process.pid, command: program })
+      expect(entries.find(item => item.pid === child.pid)?.startedAt).toMatch(/^[A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ \d{2}:\d{2}:\d{2} \d{4}$/u)
+      expect(unhandledServerTrees(entries, { shell: process.pid, executable: program }).map(item => item.pid)).toEqual([child.pid])
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('reads ps and the Windows listing, commands with spaces and the five-word start time included', async () => {

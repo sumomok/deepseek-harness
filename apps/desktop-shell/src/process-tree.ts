@@ -110,7 +110,7 @@ export async function ensureTreeGone(recorded: readonly ProcessEntry[], probes: 
 }
 
 /**
- * Parse `LC_ALL=C ps -axo pid=,ppid=,lstart=,comm=`: the start time is five
+ * Parse `ps -axo pid=,ppid=,lstart=,comm=` run in {@link PS_LOCALE}: the start time is five
  * words (`Mon Sep 28 10:00:00 2026`), and the command may contain spaces.
  * @param output - what `ps` printed.
  * @returns the processes.
@@ -166,7 +166,17 @@ export async function listWindowsProcesses(run: PowerShellRunner): Promise<Proce
 }
 
 /**
- * Run a command and collect its standard output; a command that cannot run gives nothing.
+ * The locale `ps` runs in. It prints `lstart` as the five English words the
+ * parser reads (a Chinese locale prints four), and a command path with
+ * characters outside ASCII as they are: the C locale prints those as `M-`
+ * escapes, which never equal the server's executable, and so does any locale
+ * that sets only `LC_TIME` to C. A system without this locale falls back to
+ * C.
+ */
+const PS_LOCALE = 'en_US.UTF-8'
+
+/**
+ * Run a command and collect its standard output, read as UTF-8; a command that cannot run gives nothing.
  * @param command - the program.
  * @param args - its arguments.
  * @returns stdout.
@@ -175,15 +185,15 @@ function capture(command: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
     let child: ChildProcessByStdio<null, Readable, null>
     try {
-      // The C locale fixes `lstart` to the five English words the parser reads; a Chinese locale prints four.
-      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, LC_ALL: 'C' } })
+      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, LC_ALL: PS_LOCALE } })
     } catch {
       // Node throws instead of emitting 'error' for some failed starts; either is a program that cannot run.
       resolve('')
       return
     }
     let out = ''
-    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString() })
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => { out += chunk })
     child.once('error', () => { resolve('') })
     child.once('close', () => { resolve(out) })
   })
