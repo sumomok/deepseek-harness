@@ -1791,6 +1791,28 @@ const BELOW_SHARE = 115_000
 /** The replay route every scenario session selects. */
 const AUTO_COMPACT_ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash' } as const
 /**
+ * Length, in UTF-16 code units, of the sessions' workspace path. The first
+ * turn's runtime-context message names that path and is among the messages the
+ * compaction replaces; the token meter prices its text at
+ * `ceil(length / 4)`, so a temporary root of machine-dependent length would
+ * change the recorded `shadowedTokenCount`.
+ */
+const AUTO_COMPACT_WORKSPACE_LENGTH = 240
+/**
+ * A directory path of exactly {@link AUTO_COMPACT_WORKSPACE_LENGTH} code units
+ * under `root`.
+ * @param root - the absolute directory the workspace sits in.
+ * @returns `root` joined with a padded directory name.
+ */
+function fixedLengthWorkspace(root: string): string {
+  const name = 'server-sidebar-workspace-'
+  const padding = AUTO_COMPACT_WORKSPACE_LENGTH - root.length - 1 - name.length
+  if (padding < 0) throw new Error(`temporary root ${root} is longer than ${AUTO_COMPACT_WORKSPACE_LENGTH - name.length - 1} characters`)
+  const path = join(root, name + 'x'.repeat(padding))
+  if (path.length !== AUTO_COMPACT_WORKSPACE_LENGTH) throw new Error(`workspace path ${path} is not ${AUTO_COMPACT_WORKSPACE_LENGTH} characters long`)
+  return path
+}
+/**
  * A prompt of `repeats` sentences, priced by the token meter at four
  * characters a token.
  * @param label - the prompt's first word.
@@ -1894,7 +1916,7 @@ describe.skipIf(AUTO_COMPACT_MODE === 'record')('web e2e: automatic compaction i
       log.push(event)
       events.set(session.id, log)
     })
-    const workspaceDir = join(live.workspaceCwd, 'server-sidebar-workspace')
+    const workspaceDir = fixedLengthWorkspace(live.workspaceCwd)
     await mkdir(workspaceDir, { recursive: true })
     await live.ctx.workspaceRegistry.create(workspaceDir)
     return { live, workspaceDir }
