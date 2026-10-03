@@ -134,6 +134,28 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
   return [...found]
 }
 
+/** Any of the three quote characters a JavaScript string literal opens or closes with. */
+const QUOTE = String.raw`['"\`]`
+
+/** The rest of a string literal after its opening quote: everything up to the next quote. */
+const UNQUOTED_RUN = String.raw`[^'"\`]*`
+
+/**
+ * The text that has to come right before a string literal's opening quote for
+ * the literal to count as a package reference, one pattern per form
+ * [[specifierFor]] documents. [[specifierFor]] and [[referencedNames]] are both
+ * built from this list, so the per-name pattern and the single scan cannot
+ * accept different call forms.
+ */
+const REFERENCE_PREFIXES = [
+  String.raw`(?:from|require|import)\s*\(?\s*`,
+  String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*`,
+  // A require built and invoked in one expression — `createRequire(url)('x')`
+  // — loads the module at run time without the bundler ever seeing it, and
+  // the directory has to be there just as for a resolution call.
+  String.raw`createRequire\s*\([^()]*\)\s*\(\s*`,
+]
+
 /**
  * Matches a reference to `name` — the specifier itself, not the word appearing
  * anywhere. Two forms count, because both make the package a directory the
@@ -154,20 +176,53 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
  * template with a substitution (`@img/sharp-${platform}-${arch}`, how sharp and
  * `@vscode/ripgrep` select their platform package) and the dynamic library
  * search a `.node` performs on its own. Those are what `NATIVE` is for.
+ *
+ * The reachability walk does not run this pattern; it runs [[referencedNames]],
+ * which accepts exactly the texts this pattern accepts.
  * @param name - the package name a reference would have to spell out.
  * @returns a pattern matching either reference form for that name.
  */
 export function specifierFor(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, match => `\\${match}`)
-  const literal = String.raw`['"\`]` + escaped + String.raw`(?:/[^'"\`]*)?['"\`]`
-  return new RegExp([
-    String.raw`(?:from|require|import)\s*\(?\s*` + literal,
-    String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*` + literal,
-    // A require built and invoked in one expression — `createRequire(url)('x')`
-    // — loads the module at run time without the bundler ever seeing it, and
-    // the directory has to be there just as for a resolution call.
-    String.raw`createRequire\s*\([^()]*\)\s*\(\s*` + literal,
-  ].join('|'))
+  const literal = QUOTE + escaped + `(?:/${UNQUOTED_RUN})?` + QUOTE
+  return new RegExp(REFERENCE_PREFIXES.map(prefix => prefix + literal).join('|'))
+}
+
+/**
+ * The source of the single-scan pattern: an opening quote preceded by one of
+ * [[REFERENCE_PREFIXES]] (a lookbehind ending at that quote), then the run up
+ * to the next quote, captured, with the closing quote required but not
+ * consumed, so the closing quote of one literal is also tried as the opening
+ * quote of the next.
+ */
+export const REFERENCE_SCAN_SOURCE =
+  `${QUOTE}(?<=(?:${REFERENCE_PREFIXES.join('|')})${QUOTE})(${UNQUOTED_RUN})(?=${QUOTE})`
+
+/**
+ * The members of `names` that `text` references: exactly the names `n` for
+ * which `specifierFor(n).test(text)` holds, found in one scan of `text`
+ * instead of one regular-expression search per name.
+ *
+ * `specifierFor(n)` accepts a text when some opening quote follows one of the
+ * reference prefixes and the run after it, up to the next quote, is `n` itself
+ * or starts with `n/`. The scan visits every quote that follows a prefix, reads
+ * that run once, and looks up the run and each part of it that ends before a
+ * `/` in `names`.
+ * @param text - the source text to scan.
+ * @param names - the package names to look for.
+ * @returns the referenced names, a subset of `names`.
+ */
+export function referencedNames(text: string, names: ReadonlySet<string>): Set<string> {
+  const found = new Set<string>()
+  for (const match of text.matchAll(new RegExp(REFERENCE_SCAN_SOURCE, 'g'))) {
+    const run = match[1] ?? ''
+    if (names.has(run)) found.add(run)
+    for (let slash = run.indexOf('/'); slash !== -1; slash = run.indexOf('/', slash + 1)) {
+      const head = run.slice(0, slash)
+      if (names.has(head)) found.add(head)
+    }
+  }
+  return found
 }
 
 /** Every JavaScript-ish file one package ships, concatenated. */
@@ -254,14 +309,16 @@ export async function bundleClosure(
   // single scan leaves a kept package without its own.
   const thirdParty = all.filter(name =>
     !name.startsWith(`${OURS}/`) && !NATIVE.includes(name) && !bundles.includes(name))
+  const candidates = new Set(thirdParty)
   const kept = new Set([...ours, ...bundles, ...NATIVE])
   const frontier = [...kept]
   while (frontier.length > 0) {
     const text = await textOf(nodeModules, frontier.pop() as string)
     if (text === '') continue
-    for (const name of thirdParty) {
+    for (const name of referencedNames(text, candidates)) {
       if (kept.has(name)) continue
-      if (specifierFor(name).test(text)) { kept.add(name); frontier.push(name) }
+      kept.add(name)
+      frontier.push(name)
     }
   }
 
