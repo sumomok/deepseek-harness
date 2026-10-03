@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  descendantsOf, ensureTreeGone, listWindowsProcesses, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, stopServerTree, survivorsOf,
-  TREE_KILL_ROUNDS, unhandledServerTrees, WINDOWS_PROCESS_SCRIPT, type ProcessProbes,
+  descendantsOf, ensureTreeGone, listWindowsProcesses, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, PROCESS_LIST_TIMEOUT_MS,
+  stopServerTree, survivorsOf, TREE_KILL_ROUNDS, unhandledServerTrees, WINDOWS_PROCESS_SCRIPT, type ProcessPrograms, type ProcessProbes,
 } from '../src/process-tree.ts'
 import type { PowerShellResult, PowerShellRunner } from '../src/terminal-env.ts'
 import { entry, fakeSystem } from './fake-processes.ts'
@@ -112,6 +112,27 @@ describe('the server process tree', () => {
     const system = fakeSystem([entry(1, 0), entry(100, 1), entry(101, 100)])
     const blind: ProcessProbes = { ...system.probes, list: async () => [] }
     expect(await ensureTreeGone(descendantsOf(100, await system.probes.list()), blind)).toMatchObject({ kind: 'unconfirmed' })
+  })
+
+  it('lists and kills on Windows through the system\'s own PowerShell and taskkill under %SystemRoot%, C:\\Windows when it is unset', async () => {
+    for (const [env, root] of [[{ SystemRoot: 'D:\\Win' }, 'D:\\Win'], [{}, 'C:\\Windows']] as const) {
+      const calls: string[][] = []
+      const programs: ProcessPrograms = {
+        env,
+        capture: async (command, args) => { calls.push([command, ...args]); return '' },
+        powerShell: (systemRoot, timeoutMs) => {
+          calls.push(['powershell under', systemRoot, String(timeoutMs)])
+          return async () => ({ code: 0, stdout: '1200\t4\t2026-09-28T01:02:03.0000000Z\tC:\\DSH\\node.exe\r\n' })
+        },
+      }
+      const probes = nodeProcessProbes('win32', programs)
+      expect(await probes.list()).toMatchObject([{ pid: 1200, ppid: 4 }])
+      await probes.kill(1200)
+      expect(calls).toEqual([
+        ['powershell under', root, String(PROCESS_LIST_TIMEOUT_MS)],
+        [`${root}\\System32\\taskkill.exe`, '/PID', '1200', '/T', '/F'],
+      ])
+    }
   })
 
   it('takes a Windows listing that PowerShell did not finish for no list at all', async () => {

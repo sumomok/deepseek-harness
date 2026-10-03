@@ -425,3 +425,20 @@ describe('startServerWithQuarantine', () => {
     expect(await attemptCount(attemptsFile)).toBe(2)
   })
 })
+
+describe('the stop and the orphan sweep on Windows', () => {
+  const source = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')
+
+  it('start taskkill and PowerShell by their full paths under %SystemRoot%, never by a name looked up on PATH', () => {
+    expect(source).not.toMatch(/(?:spawn|capture)\(\s*'(?:taskkill|powershell)/u)
+    expect(source).toContain("await capture(system32Program(process.env, ...WINDOWS_POWERSHELL), ['-NoProfile', '-NonInteractive', '-Command', script])")
+    expect(source).toContain("await capture(system32Program(process.env, 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'])")
+  })
+
+  it('kills the server itself when taskkill cannot start, so a stop waiting for its exit still ends', () => {
+    const spawned = "spawn(system32Program(process.env, 'taskkill.exe'), ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })"
+    const at = source.indexOf(spawned)
+    expect(at).toBeGreaterThan(-1)
+    expect(source.slice(at + spawned.length)).toMatch(/^\s+\.once\('error', \(\) => \{ child\.kill\('SIGKILL'\) \}\)\s+await exited\n/u)
+  })
+})

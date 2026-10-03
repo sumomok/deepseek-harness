@@ -30,7 +30,7 @@
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, win32 } from 'node:path'
 import { copyDurably, writeDurably } from './durable-file.ts'
 
 /**
@@ -203,6 +203,20 @@ export async function writeWindowsUserDshHome(run: PowerShellRunner, value: stri
 }
 
 /**
+ * A program of Windows itself by its full path under `%SystemRoot%\System32`,
+ * so a `PATH` without `System32` still reaches it.
+ * @param env - the environment `SystemRoot` is read from; `C:\Windows` when it is unset.
+ * @param segments - the path below `System32`.
+ * @returns the full Windows path.
+ */
+export function system32Program(env: NodeJS.ProcessEnv, ...segments: string[]): string {
+  return win32.join(env['SystemRoot'] ?? 'C:\\Windows', 'System32', ...segments)
+}
+
+/** The system's own `powershell.exe` below `System32`. */
+export const WINDOWS_POWERSHELL: readonly string[] = ['WindowsPowerShell', 'v1.0', 'powershell.exe']
+
+/**
  * The PowerShell runner used on Windows: the system's own `powershell.exe`,
  * no profile, no window.
  * @param systemRoot - `%SystemRoot%`.
@@ -210,7 +224,7 @@ export async function writeWindowsUserDshHome(run: PowerShellRunner, value: stri
  * @returns the runner.
  */
 export function systemPowerShell(systemRoot: string, timeoutMs: number): PowerShellRunner {
-  const exe = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const exe = system32Program({ SystemRoot: systemRoot }, ...WINDOWS_POWERSHELL)
   return async (script, env) => await new Promise<PowerShellResult>((settle, fail) => {
     // A value left in this process's own environment must not stand in for
     // "remove the variable".

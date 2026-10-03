@@ -19,7 +19,7 @@ import {
   READ_USER_ENV_SCRIPT, readLoginShellDshHome, readPersistentDshHome, readWindowsUserDshHome, shellQuote,
   updateShellProfile, WRITE_USER_ENV_SCRIPT, WRITE_VALUE_ENV, writeTerminalDshHome, writeWindowsUserDshHome,
   parseTerminalSnapshot, READ_USER_ENV_RAW_SCRIPT, snapshotShellProfile, snapshotTerminal, snapshotWindowsUserDshHome,
-  type PowerShellRunner, type TerminalEnvHost,
+  system32Program, systemPowerShell, WINDOWS_POWERSHELL, type PowerShellRunner, type TerminalEnvHost,
 } from '../src/terminal-env.ts'
 
 let home: string
@@ -407,6 +407,14 @@ describe('Windows user environment', () => {
 
   it('throws when the write fails', async () => {
     await expect(writeWindowsUserDshHome(recorder([{ code: 5, stdout: '' }]).run, '/x')).rejects.toThrow(/exited with 5/)
+  })
+
+  it('runs Windows\' own programs by their full path under %SystemRoot%, C:\\Windows when it is unset', async () => {
+    expect(system32Program({ SystemRoot: 'D:\\Win' }, ...WINDOWS_POWERSHELL)).toBe('D:\\Win\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    expect(system32Program({}, 'taskkill.exe')).toBe('C:\\Windows\\System32\\taskkill.exe')
+    // A root that does not exist: the runner's failed spawn names the program it tried to start.
+    await expect(systemPowerShell('Z:\\NoWindows', 5_000)('$PSVersionTable', {}))
+      .rejects.toThrow('spawn Z:\\NoWindows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe ENOENT')
   })
 })
 
