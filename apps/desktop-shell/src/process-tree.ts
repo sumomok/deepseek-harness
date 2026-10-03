@@ -272,22 +272,27 @@ export function unhandledServerTrees(entries: readonly ProcessEntry[], unhandled
  * still stopped. Without a handle, the trees of the shell's children running
  * the server's executable are recorded instead ({@link unhandledServerTrees});
  * a server that has already exited is not among them, nor are the processes
- * it started.
+ * it started, and a list that could not be read confirms nothing there either.
  * @param input - the shell's own writers, the server, where to look for one without a handle, its stop, the sweep,
  * and the process probes.
- * @returns whether the recorded tree is gone; `gone` when nothing was recorded without a handle.
+ * @returns whether the recorded tree is gone; `gone` when nothing was recorded without a handle from a list that
+ * could be read, or when neither a handle nor where to look for one was given.
  */
 export async function stopServerTree(input: ServerTreeStop): Promise<TreeCheck> {
   if (input.closeShellWriters !== undefined) await input.closeShellWriters()
   const pid = input.pid
   const unhandled = input.unhandled
+  const listed = pid !== undefined || unhandled !== undefined ? await input.probes.list() : []
   const recorded = pid !== undefined
-    ? descendantsOf(pid, await input.probes.list())
-    : unhandled === undefined ? [] : unhandledServerTrees(await input.probes.list(), unhandled)
+    ? descendantsOf(pid, listed)
+    : unhandled === undefined ? [] : unhandledServerTrees(listed, unhandled)
   await input.stop()
   await input.sweep()
   if (pid !== undefined && !recorded.some(entry => entry.pid === pid)) {
     return { kind: 'unconfirmed', detail: `the process list did not show the server (pid ${String(pid)}) while it ran` }
+  }
+  if (pid === undefined && unhandled !== undefined && listed.length === 0) {
+    return { kind: 'unconfirmed', detail: 'the process list could not be read to look for a server without a handle' }
   }
   return await ensureTreeGone(recorded, input.probes)
 }

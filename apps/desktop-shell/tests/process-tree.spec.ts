@@ -112,6 +112,10 @@ describe('the server process tree', () => {
     const system = fakeSystem([entry(1, 0), entry(100, 1), entry(101, 100)])
     const blind: ProcessProbes = { ...system.probes, list: async () => [] }
     expect(await ensureTreeGone(descendantsOf(100, await system.probes.list()), blind)).toMatchObject({ kind: 'unconfirmed' })
+    // Without a handle, a list that cannot be read cannot show that no server of the shell's is left.
+    const unhandled = { shell: 50, executable: '/Applications/DSH Desktop.app/Contents/Resources/runtime/node' }
+    expect(await stopServerTree({ pid: undefined, unhandled, stop: async () => undefined, sweep: async () => undefined, probes: failing }))
+      .toMatchObject({ kind: 'unconfirmed' })
   })
 
   it('lists and kills on Windows through the system\'s own PowerShell and taskkill under %SystemRoot%, C:\\Windows when it is unset', async () => {
