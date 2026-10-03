@@ -1212,9 +1212,6 @@ importers:
       '@haoran/dsh-crash-resume':
         specifier: file:./vendor/haoran-dsh-crash-resume-0.4.1.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz(817a3619a0da0268900e11a7a0a8a614)
-      '@haoran/dsh-default-model':
-        specifier: file:./vendor/haoran-dsh-default-model-0.3.2.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.3.2.tgz
       '@haoran/dsh-desktop-update':
         specifier: file:./vendor/haoran-dsh-desktop-update-0.3.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-sidebar@packages+client+ui-sidebar)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
@@ -16532,10 +16529,6 @@ packages:
       react-dom:
         optional: true
 
-  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.3.2.tgz':
-    resolution: {integrity: sha512-aVaRLvtUmUqFAfg9Ri+yUwMGmWElk7yDZBgMqn8OK9aI9LGWs4cNqacIduXYQeKaQMz5ogpSDpKaCoEZ9dZbJQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.3.2.tgz}
-    version: 0.3.2
-
   '@haoran/dsh-desktop-update@file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz':
     resolution: {integrity: sha512-NJt3NOPYCV7FyBHgmEG/Hdn1w9QBHeyKUCXr1HV6Rj0epeziBMHw6xBqhEnTS8OuxcvPdK2uVqSbzLywHHJWLg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz}
     version: 0.3.0
@@ -24410,8 +24403,6 @@ snapshots:
       '@deepseek-ai/schemastery': link:vendor/schemastery
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-
-  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.3.2.tgz': {}
 
   '@haoran/dsh-desktop-update@file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-sidebar@packages+client+ui-sidebar)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:

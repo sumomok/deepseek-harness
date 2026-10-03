@@ -178,18 +178,16 @@ export const DESKTOP_COMPOSITION_BUNDLE = '@deepseek-ai/dsh-desktop-app'
  * joined rather than concatenated, and the link's scope directory is created
  * with it.
  *
- * Order matters only between layers that patch the same entry id.
- * `@haoran/dsh-default-model` replaces the whole `config` of the
- * `agent-default-model` and `llm-deepseek` rows. `@haoran/dsh-mcp-servers` and
- * `@haoran/dsh-btw` sit after it because each one's layer only inserts a row of
- * its own; `@deepseek-ai/dsh-desktop-app` targets `llm-deepseek` again from the
- * last position, so its row restates the model catalog that layer sets.
+ * Order matters only between layers that patch the same entry id, and no two
+ * plugin layers here do: each inserts rows of its own, and the one dsh-base
+ * row a plugin patches, the gateway's `permission`, no other layer here
+ * touches.
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
-  '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
+  '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
   '@haoran/dsh-crash-resume',
   DESKTOP_COMPOSITION_BUNDLE,
@@ -227,6 +225,7 @@ export const REQUIRED_WEB_BUNDLES: readonly string[] = ['@haoran/dsh-crash-resum
  */
 export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
   '@sumomok/dsh-edit-rerun', 'dsh-better-sidebar', 'dsh-at-file', '@haoran/dsh-plugin-updates',
+  '@haoran/dsh-default-model',
 ]
 
 /**

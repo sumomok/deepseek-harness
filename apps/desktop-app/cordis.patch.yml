@@ -43,55 +43,16 @@
 # rejects every key, `retryPolicy` with a message naming this row — because the
 # policy belongs to the provider whose route it retries.
 #
-# `models` is restated because @haoran/dsh-default-model sets it on this same
-# row one layer below and a patch replaces the whole `config`; dropping it here
-# would take the model picker's catalog with it, including the row the default
-# selection names. `apps/desktop-shell/tests/desktop-composition-layer.spec.ts`
-# compares this table against the composed one below, so a catalog that moves
-# there fails here rather than in the picker.
-#
-# One row, because DeepSeek retired the others: its pricing page says the
-# legacy `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` names are still
-# accepted but served by DeepSeek-V4.1-Flash, and that `deepseek-v4-pro`
-# requests route to it from 2026-09-14 12:00 Beijing as well.
-#
-# This row is mounted by `@deepseek-ai/dsh-llm-deepseek-api-key`; its catalog
-# is still `@deepseek-ai/dsh-llm-deepseek`'s `DEFAULT_MODELS`, whose
-# `deepseek-flash` row this table restates rather than stating one. `models` is
-# a whole-table replacement — `resolveModels` reads `config.models ??
-# DEFAULT_MODELS` and never merges the two — so every field the adapter's row
-# declares has to be repeated here or it is dropped. Every field below is the
-# adapter's own value except two this deployment owns, `name` and
-# `description`, because the picker reads a version with the dot and a Chinese
-# line under it. The row sets no image budget, as the adapter's own row sets
-# none: a request image is sent at its own size when its token grid fits the
-# provider's limit, scaled onto that grid otherwise, and encoded toward the
-# adapter's 2 MiB target.
-# `systemPromptUpdate: in-history` is a field that costs something when it
-# goes missing — without it `agent.ts` sets `inHistory: false`, and a
-# mid-session system-prompt change rewrites system node 0 instead of appending
-# a node after the cached history, which misses the provider prefix cache from
-# the first token. `toolUpdate: addition-only` is the other: without it every
-# request declares the complete current tool list, so a tool that joins
-# mid-session, such as an MCP server's, changes the declarations ahead of the
-# cached history instead of arriving as an addition after it. The composition
-# test compares this row against the shipped adapter's field for field, so a
-# field upstream adds fails there rather than reaching the picker as a
-# silently dropped capability.
+# The row sets the retry policy and nothing else. Without `models`, the
+# adapter's `resolveModels` reads `config.models ?? DEFAULT_MODELS`, so the
+# picker lists `@deepseek-ai/dsh-llm-deepseek`'s own catalog, as upstream
+# ships it.
 - id: llm-deepseek
   config:
     retryPolicy:
       mode: normal
       backoff:
         maxDelayMs: 300000
-    models:
-      - id: deepseek-flash
-        name: DeepSeek-V4.1-Flash
-        description: V4.1 Flash · 文本与图片
-        contextWindow: 1000000
-        inputModalities: [text, image]
-        systemPromptUpdate: in-history
-        toolUpdate: addition-only
 
 # Where an image sent on a model without vision moves the session to.
 # Absent a `target`, @haoran/dsh-vision-switch falls back to a DEFAULT_TARGET

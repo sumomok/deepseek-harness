@@ -12,6 +12,8 @@ Status: implemented
 
 ## Decision
 
+**0.1.0-rc.37 撤下了这个包。**[桌面端的模型目录以上游为准](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md)负责这次撤下,以及删掉早先构建冻结进 profile 的那些表:新会话从 dsh-base 自己的 `agent-default-model` 起步,与这个包设的是同一对,选择器列出适配器自己的目录。本笔记其余部分记录的是这个包在 rc.20 到 rc.36.1 分发时的样子。
+
 把 `@haoran/dsh-default-model` 0.1.1 与另外两个 `@haoran/` tarball 一起 vendor 到 `apps/desktop-server/vendor/` 下,并在 `BUILTIN_WEB_BUNDLES` 里写上它的名字,于是 `apps/desktop-shell/src/profile-seed.ts` 会在内嵌服务端读取 profile 之前把它放进 `desktop` profile。它排在其余每一个内置插件之后,正因如此,它才定得下前面那些层都不去碰的那些条目;唯一排在它之后的 bundle 层是[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md),而后者不碰它的任何条目。
 
 **这个包只是一个 patch 层,别的什么都不是。**它没有 `src/`、没有 `lib/`、也没有入口点,全部实质就是 `cordis.patch.yml`。这行得通是因为 harness 从不 import 一个 bundle:`loadProfile` 读 bundle 包的清单,取 `dsh.bundle.patch` 里的路径,再解析那份 YAML。同一条声明也是它留在载荷里的原因——`scripts/bundle-closure.ts` 会删掉每一个没有可达代码 import 的第三方包,而把声明了 `dsh.bundle` 的清单当作要完整保留的 profile bundle。它没有声明 `dsh.client`,所以打包构建的 client 模块检查会跳过它:默认模型属于编排,不是页面要加载的东西。
@@ -38,9 +40,9 @@ Status: implemented
 
 ## Consequences
 
-全新桌面安装的第一个会话开在 `deepseek-flash` 上,于是无需任何人去选模型,图像输入就是通的,选择器也只提供这一个模型。版本和其他每个内置插件一样属于安装包:换版本意味着发一个桌面构建。
+从 rc.32 到 rc.36.1,全新桌面安装的第一个会话都开在 `deepseek-flash` 上,于是无需任何人去选模型,图像输入就是通的,选择器也只提供这一个模型。从 rc.20 到 rc.30,第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器提供三行:`deepseek-v4-flash`、`deepseek-v4-pro` 与这个模型。版本和其他每个内置插件一样属于安装包:换版本意味着发一个桌面构建。
 
-重述出来的 `models` 表是整表替换——`resolveModels` 读的是 `config.models ?? DEFAULT_MODELS`,从不把两者合并——所以上游给 `@deepseek-ai/dsh-llm-deepseek` 新增的模型,在被加进这张表之前不会出现在选择器里。把两者拴在一起的是插件自己的 `tests/patch.spec.ts`:它从适配器的 `Config` schema 里读出已安装的目录逐行比对,又读 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 断言两个被 patch 的 id 仍在其中。这些检查活在插件自己的仓库里,按它 devDependencies 钉住的版本运行,所以本仓库目录的改动是在插件下一次构建时被抓住,而不是被这里的任何闸抓住。[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md)在本层之后生效,并在同一个 id 上重述 `models`,所以选择器真正读到的是 `apps/desktop-app/cordis.patch.yml` 里的那张表;那张表把出厂适配器自己的 `deepseek-flash` 行逐字段重复了一遍,含 `systemPromptUpdate: in-history`,而在本仓库把它钉住的闸是 `apps/desktop-shell/tests/desktop-composition-layer.spec.ts`。
+重述出来的 `models` 表是整表替换——`resolveModels` 读的是 `config.models ?? DEFAULT_MODELS`,从不把两者合并——所以上游给 `@deepseek-ai/dsh-llm-deepseek` 新增的模型,在被加进这张表之前不会出现在选择器里。把两者拴在一起的是插件自己的 `tests/patch.spec.ts`:它从适配器的 `Config` schema 里读出已安装的目录逐行比对,又读 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 断言两个被 patch 的 id 仍在其中。这些检查活在插件自己的仓库里,按它 devDependencies 钉住的版本运行,所以本仓库目录的改动是在插件下一次构建时被抓住,而不是被这里的任何闸抓住。从 rc.32 到 rc.36.1,[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md)都在本层之后生效,并在同一个 id 上重述 `models`,所以选择器读到的是 `apps/desktop-app/cordis.patch.yml` 里的那张表;那张表把出厂适配器自己的 `deepseek-flash` 行逐字段重复了一遍,含 `systemPromptUpdate: in-history`,由 `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 钉住。
 
 这一行上有三个字段是刻意不写的——`contextWindow`、`imagePixelBudget` 与 `imageMaxBytes`——因为每一个都退回出厂行自己携带的那个适配器值。继承让这张表不去钉死上游可能会挪的数字;漂移测试会把每一个都对着已安装的适配器解析,并把该行写出的字段逐一钉死——适配器本身并没有这个模型的行。
 

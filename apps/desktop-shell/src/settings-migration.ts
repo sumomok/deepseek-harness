@@ -82,7 +82,7 @@ import { MIGRATION_MARKER_FILENAME, readMigrationMarker, writeAtomic } from './p
 export const SETTINGS_MIGRATION_MARKER = 'settings-migration.json'
 
 /** The legacy settings document under the Harness home. */
-const SETTINGS_FILENAME = 'settings.yaml'
+export const SETTINGS_FILENAME = 'settings.yaml'
 
 /** What the server's import renames {@link SETTINGS_FILENAME} to. */
 const IMPORTED_SUFFIX = '.imported'
@@ -91,13 +91,13 @@ const IMPORTED_SUFFIX = '.imported'
 const BACKUP_SUFFIX = '.pre-rc34'
 
 /** The profile's own patch layer, inside the profile directory. */
-const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
+export const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
 
 /** Mode for every file this module writes: `settings.yaml` holds MCP server env and header values. */
-const PRIVATE_FILE_MODE = 0o600
+export const PRIVATE_FILE_MODE = 0o600
 
 /** The parse options for a patch layer: `!!js` scalars are kept as their source text and written back tagged. */
-const PATCH_PARSE_OPTIONS = { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }] }
+export const PATCH_PARSE_OPTIONS = { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }] }
 
 /** One value a run removed, and why. */
 export interface DroppedSetting {

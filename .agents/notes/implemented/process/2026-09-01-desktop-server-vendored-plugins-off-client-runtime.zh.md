@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-九个插件中的七个(除 `@haoran/dsh-default-model` 和 `@haoran/dsh-llm-permission-gateway` 外——这两个从未依赖过 `dsh-client-runtime`)已在独立的 `dsh-plugins` 仓库源码层面修复,各自完成一次版本号提升与独立提交,随后重新打包并重新 vendor 到此处:
+九个插件中的七个(除 `@haoran/dsh-default-model`(此后已在 [0.1.0-rc.37 撤下](../simplification/2026-10-01-desktop-model-catalog-follows-upstream.zh.md))和 `@haoran/dsh-llm-permission-gateway` 外——这两个从未依赖过 `dsh-client-runtime`)已在独立的 `dsh-plugins` 仓库源码层面修复,各自完成一次版本号提升与独立提交,随后重新打包并重新 vendor 到此处:
 
 | 插件 | 新版本 | tarball sha256 |
 |---|---|---|

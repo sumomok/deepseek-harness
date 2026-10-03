@@ -51,6 +51,7 @@ import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
 import { acknowledgeSettingsMigrationNotices, migrateLegacySettings } from './settings-migration.ts'
+import { migrateModelCatalog } from './model-catalog-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
@@ -931,6 +932,10 @@ if (!locked) {
       const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
       const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
       for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
+      // After the settings migration, whose finished record is what lets this
+      // step clear settings.yaml, and before the server that imports it.
+      const modelCatalog = migrateModelCatalog(resolveHarnessHome(), desktopProfileDir)
+      for (const line of modelCatalog.lines) sink(`[desktop] model catalog migration: ${line}\n`)
       // Before the spawn, because the address and token reach the server as
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
