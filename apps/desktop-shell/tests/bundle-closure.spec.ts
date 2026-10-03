@@ -182,7 +182,7 @@ describe('bundleClosure', () => {
     expect(existsSync(join(payload, 'node_modules', quoted))).toBe(true)
   })
 
-  it('reports the packages esbuild refused in package order, whatever order the builds finish in', async () => {
+  it('reports the packages esbuild refused in package order', async () => {
     const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
     roots.push(payload)
     const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(letter => `@deepseek-ai/${letter}`)

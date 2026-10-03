@@ -31,6 +31,7 @@ import { build } from 'esbuild'
 import { existsSync } from 'node:fs'
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { mapInOrder } from './ordered-pool.ts'
 
 /** The manifest fields this module reads. */
 interface PackageManifest {
@@ -340,17 +341,7 @@ export async function bundleClosure(
   }
   const external = [...ours, ...bundles, ...NATIVE]
 
-  // Each package's result lands at its index, so the counts and the unbundled
-  // list come out in `ours` order however the builds interleave.
-  const results: (BuildResult | undefined)[] = new Array(ours.length)
-  let next = 0
-  const builder = async (): Promise<void> => {
-    while (next < ours.length) {
-      const index = next++
-      results[index] = await bundlePackage(nodeModules, ours[index] as string, external)
-    }
-  }
-  await Promise.all(Array.from({ length: BUILD_CONCURRENCY }, builder))
+  const results = await mapInOrder(ours, BUILD_CONCURRENCY, name => bundlePackage(nodeModules, name, external))
   let bundled = 0
   const unbundled: string[] = []
   for (const [index, result] of results.entries()) {
