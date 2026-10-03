@@ -1151,7 +1151,9 @@ it('refuses to remove a switched-on shipped bundle that no dependency holds', as
     changed: false, application: 'failed', error: { code: 'not-removable' },
   })
   expect(pnpm).not.toHaveBeenCalled()
-  expect(readProfileManifest('test', dir).dsh?.profile).toMatchObject({ bundles: expect.arrayContaining(['payload']), shipped: ['payload'] })
+  const kept = readProfileManifest('test', dir).dsh?.profile
+  expect(kept?.bundles).toContain('payload')
+  expect(kept?.shipped).toEqual(['payload'])
 })
 
 it.each([
