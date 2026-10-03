@@ -202,7 +202,10 @@ export interface MoveEffects {
    * @returns the `lastSeenEnv` the pointer records afterwards; `undefined` for none.
    */
   syncTerminal: (target: string) => Promise<string | undefined>
-  /** Put the terminal's `DSH_HOME` setting back from the snapshot taken before the move. */
+  /**
+   * Put the terminal's `DSH_HOME` setting back from the snapshot taken before
+   * the move; a rejection is recorded, and the rollback finishes without it.
+   */
   restoreTerminal: (snapshot: TerminalSnapshot) => Promise<void>
   /** Put `~/.dsh` back: remove the link to the target, recreate a link that was there. */
   restoreHomeLink: (before: HomeLinkBefore) => void
@@ -975,10 +978,17 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       effects.restorePointer(rolledBackPointer(journal.pointerBefore, journal.originalGeneration))
       save({ ...journal, pointerWritten: false })
       return undefined
-    case 'restore-terminal':
-      await effects.restoreTerminal(journal.terminalSnapshot)
-      save({ ...journal, terminalWritten: false })
+    case 'restore-terminal': {
+      // The data is back where it was: a rollback that waited for the terminal setting would keep DSH from starting.
+      let failed: string | undefined
+      try {
+        await effects.restoreTerminal(journal.terminalSnapshot)
+      } catch (error) {
+        failed = error instanceof Error ? error.message : String(error)
+      }
+      save({ ...journal, terminalWritten: false, ...failed === undefined ? {} : { terminalRestoreFailed: failed } })
       return undefined
+    }
     case 'finish':
       return { kind: 'ended', result: finish(dir, journal, action.outcome, context.facts, effects) }
     default:
@@ -1044,7 +1054,8 @@ function freeSibling(effects: MoveEffects, path: string, kind: KeptFolderKind): 
  * none), and when it finished on a new location that failed its check after
  * the person chose to keep it; a move that went on after an earlier failure
  * because the person chose so, and then passed its check, keeps only the
- * `detail`.
+ * `detail`. A rollback that could not put the terminal setting back names the
+ * new location in `terminalNotRestored`.
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
@@ -1091,6 +1102,7 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     ...abandoned === undefined ? {} : { abandonedCopy: { path: abandoned } },
     ...original === undefined ? {} : { abandonedOriginal: { path: original } },
     ...kept === undefined ? {} : { keptOriginal: { path: kept } },
+    ...journal.terminalRestoreFailed === undefined ? {} : { terminalNotRestored: { path: journal.target } },
     finishedAt: now.toISOString(),
   }
   fs.writeFile(join(dir, RESULT_FILENAME), `${JSON.stringify(result, null, 2)}\n`)

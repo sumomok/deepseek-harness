@@ -225,6 +225,12 @@ export interface MoveJournal {
   pointerWritten: boolean
   /** Set before the terminal is first written; a rollback then restores it. */
   terminalWritten: boolean
+  /**
+   * Putting the terminal setting back during a rollback failed: what
+   * happened, in English, for the log. The rollback finishes without it, and
+   * the result names the new location (`terminalNotRestored`).
+   */
+  terminalRestoreFailed?: string
   /** Set once `~/.dsh` has been put back during a rollback. */
   homeLinkRestored: boolean
   /**
@@ -333,6 +339,11 @@ export interface MoveResult {
    * `leftovers`: nothing deletes it.
    */
   keptOriginal?: KeptFolder
+  /**
+   * A rollback could not put the terminal's data-location setting back, so
+   * DSH in a terminal may still use this folder, the new location.
+   */
+  terminalNotRestored?: KeptFolder
   finishedAt: string
 }
 
@@ -536,6 +547,7 @@ export function validateJournal(value: unknown): MoveJournal {
   if (r['unusedCopy'] !== undefined) journal.unusedCopy = path('unusedCopy')
   if (r['targetGeneration'] !== undefined) journal.targetGeneration = count('targetGeneration')
   if (r['keptOriginal'] !== undefined) journal.keptOriginal = path('keptOriginal')
+  if (r['terminalRestoreFailed'] !== undefined) journal.terminalRestoreFailed = text('terminalRestoreFailed')
   const failure = r['failure']
   if (failure !== undefined) {
     const f = typeof failure === 'object' && failure !== null ? failure as Record<string, unknown> : {}
@@ -642,6 +654,7 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     ...kept('abandonedCopy'),
     ...kept('abandonedOriginal'),
     ...kept('keptOriginal'),
+    ...kept('terminalNotRestored'),
     finishedAt: r['finishedAt'],
   }
 }

@@ -488,6 +488,50 @@ describe('a directory a terminal made at the old path', () => {
     expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
   })
 
+  posixOnly('finishes a rollback whose terminal setting cannot be put back, naming the new location a terminal may still use', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(terminalValue(s.setup)).toBe(s.target)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    const stuck: MoveEffects = {
+      ...harnessEffects(s.setup),
+      restoreTerminal: async () => { throw new Error('PowerShell exited with 1 restoring DSH_HOME') },
+    }
+    const outcome = await advanceMove(s.setup.dir, stuck, { pid: PID })
+    expect(outcome).toMatchObject({
+      kind: 'ended',
+      result: { outcome: 'failed', detail: 'the health check failed', failure: { kind: 'fewer-sessions' }, terminalNotRestored: { path: s.target } },
+    })
+    expect(readMoveResult(s.setup.dir)).toMatchObject({ failure: { kind: 'fewer-sessions' }, terminalNotRestored: { path: s.target } })
+    expect(readJournal(s.setup.dir)).toBeUndefined()
+    expect(terminalValue(s.setup)).toBe(s.target)
+    expect(originalListing(s)).toEqual(s.before)
+    expect(pointerText(s, 'data-location.json')).toBe(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main)
+  })
+
+  posixOnly('records a failed restore once, so a rollback resumed after it does not try again', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    let restores = 0
+    const stop = new Error('stop after the restore')
+    const failing: MoveEffects = {
+      ...harnessEffects(s.setup),
+      restoreTerminal: async () => {
+        restores += 1
+        throw new Error('PowerShell exited with 1 restoring DSH_HOME')
+      },
+    }
+    // Stop the rollback right after the failed restore is recorded, before it finishes.
+    await expect(advanceMove(s.setup.dir, failing, {
+      pid: PID, guard: async (journal) => { if (journal.terminalRestoreFailed !== undefined) throw stop },
+    })).rejects.toBe(stop)
+    expect(readJournal(s.setup.dir)).toMatchObject({ terminalWritten: false, terminalRestoreFailed: 'PowerShell exited with 1 restoring DSH_HOME' })
+    const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
+    expect(restores).toBe(1)
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: s.target } } })
+  })
+
   posixOnly('leaves the retired copy where it is when it cannot be renamed, and still goes back', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -1144,6 +1188,10 @@ describe('why a move failed', () => {
     expect(read({ kind: 3 })).toEqual(base)
     expect(read({ kind: 'copy-gone', also: 'unreadable' })).toEqual(base)
     expect(read('copy-gone')).toEqual(base)
+    writeFileSync(join(s.setup.dir, RESULT_FILENAME), JSON.stringify({ ...base, terminalNotRestored: { path: s.target } }))
+    expect(readMoveResult(s.setup.dir)).toEqual({ ...base, terminalNotRestored: { path: s.target } })
+    writeFileSync(join(s.setup.dir, RESULT_FILENAME), JSON.stringify({ ...base, terminalNotRestored: s.target }))
+    expect(readMoveResult(s.setup.dir)).toEqual(base)
   })
 })
 
@@ -1172,6 +1220,7 @@ describe('the journal', () => {
     bad({ terminalSnapshot: { kind: 'profile', file: '/p', content: 7, hadBlock: false } })
     bad({ linkRewrites: [{ rel: 'a' }] })
     bad({ pointerWritten: 'yes' })
+    bad({ terminalRestoreFailed: 7 })
     bad({ failure: { phase: 'nope', detail: 'x' } })
     bad({ failure: { phase: 'copying', detail: 'x', kind: 7 } })
     bad({ failure: { phase: 'copying', detail: 'x', kind: 'no-space', also: 'fewer-sessions' } })

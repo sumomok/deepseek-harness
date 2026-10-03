@@ -102,7 +102,8 @@ export interface DataLocationState {
   cleanup?: { leftoverBytes: number }
   /**
    * The last finished move's result, with what it left where; `failure`
-   * names why it failed, as a kind Settings puts into words.
+   * names why it failed, as a kind Settings puts into words, and
+   * `terminalNotRestored` a new location a terminal may still use.
    */
   lastResult?: MoveResult
   /** Why the last move asked for from Settings was taken back after `/start` answered. */

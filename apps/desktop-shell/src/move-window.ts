@@ -141,7 +141,12 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
   return {
     syncTerminal: target => syncMoveTerminal(host, dir, app.getPath('userData'), target),
     restoreTerminal: async (snapshot) => {
-      log(`[desktop] data move: terminal restored: ${await restoreTerminal(snapshot, powershell)}\n`)
+      try {
+        log(`[desktop] data move: terminal restored: ${await restoreTerminal(snapshot, powershell)}\n`)
+      } catch (error) {
+        log(`[desktop] data move: could not put the terminal setting back; the rollback finishes without it: ${String(error)}\n`)
+        throw error
+      }
     },
   }
 }
