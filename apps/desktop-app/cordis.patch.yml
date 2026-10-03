@@ -22,6 +22,41 @@
     path: !!js dshHomePath('session-search/desktop.db')
     openAt: first-search
 
+# The model's own reach into session history: upstream's five read-only
+# session tools (`session_search`, `session_event_search`, `session_trace`,
+# `session_event_trace`, `session_event_read`) and their one prior-history
+# prompt section, which dsh-base and dsh-web-app ship unmounted. Once a
+# conversation is compacted, the summary and the pruned tool results are all
+# the model has of what came before; these tools let it look the details up
+# again in the session logs, its own session's and those of the other
+# sessions in the same workspace. A target session is readable only when its
+# `cwd` is exactly the caller's.
+#
+# The row is a Host row, as the package's own mount reference is
+# (`snapshots/session/session-query-spill/cordis.yml`), not a row inside an
+# agent preset. Every service it injects — `tools`, `systemPrompt`,
+# `sessionQuery` (the `session-query-sqlite` row above), and
+# `sessionProjections` — is a Host row dsh-web-app leaves on, so the five
+# tools register in the tool registry's deployment-global layer, which every
+# agent scope inherits: a `standard`, `ptc`, `cordis`, or `minimal` session,
+# and a child that session delegates to, unless the delegation names a tool
+# allow-list that leaves them out. A preset's own rows sit in its
+# `config.plugins`, where no id-targeted patch reaches, so mounting them there
+# would mean restating every shipped preset's whole plugin list in this layer.
+# The prompt section is global too; a `minimal` session drops it with the rest
+# of the prompt, because that preset's persona is `complete`, and its model
+# still sees the five schemas.
+#
+# A search returns at most the package's own `maxSearchResults` (100) hits,
+# and dsh-base's `spill-policy` row, which dsh-web-app leaves on, bounds a long
+# trace or event read inline. The row carries no `config`, so both of the
+# package's fields take their schema defaults. Its module reaches the payload
+# because `apps/desktop-server` lists it; `@deepseek-ai/dsh` does not depend
+# on it.
+- insert:
+    - id: tool-session-query
+      name: '@deepseek-ai/dsh-tool-session-query'
+
 # How long a rate-limited request may wait before the turn gives up. When a
 # provider answers 429 with `Retry-After`, dsh-llm-retry accepts that wait only
 # while it fits inside `maxDelayMs`, and a `normal` policy that finds it too

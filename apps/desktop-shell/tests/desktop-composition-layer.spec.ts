@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer patches seven rows and inserts two of its own.
+ * The layer patches seven rows and inserts three of its own.
  * `session-query-sqlite` opts into full-text search: dsh-base and dsh-web-app
  * both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
@@ -23,8 +23,11 @@
  * form's own default. The rows it
  * inserts are `desktop-brand`, this package itself, whose browser half names
  * the product in the sidebar and whose Host half ends every session's system
- * prompt with the protected-directories instruction, and `desktop-server-log`,
- * which appends the server's own logger records to the desktop log file.
+ * prompt with the protected-directories instruction, `desktop-server-log`,
+ * which appends the server's own logger records to the desktop log file, and
+ * `tool-session-query`, upstream's five session-history tools, which register
+ * in the tool registry's global layer and so reach every preset's sessions and
+ * their delegated children.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`. Composing every layer
@@ -44,6 +47,9 @@ import * as Persona from '@deepseek-ai/dsh-persona'
 import { createScope, scopeOf, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { applyChildComposition } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { Config as DeepSeekConfig } from '@deepseek-ai/dsh-llm-deepseek'
 import { PluginManager } from '@deepseek-ai/dsh-plugin-manager'
 import { apply as applyPluginManagerTool, inject as pluginManagerToolInject } from '@deepseek-ai/dsh-plugin-manager/tools'
@@ -183,6 +189,127 @@ describe('the composed session-query row', () => {
   })
 })
 
+/** The model-facing session tools the desktop layer mounts. */
+const TOOL_SESSION_QUERY = '@deepseek-ai/dsh-tool-session-query'
+
+/** The five tools that package registers. */
+const SESSION_TOOLS = ['session_search', 'session_event_search', 'session_trace', 'session_event_trace', 'session_event_read']
+
+/** The composed Host row that provides each service the package injects. */
+const SESSION_TOOL_SERVICE_ROWS: Record<string, string> = {
+  tools: 'tools',
+  systemPrompt: 'system-prompt',
+  sessionQuery: 'session-query-sqlite',
+  sessionProjections: 'session-projection',
+}
+
+describe('the composed tool-session-query row', () => {
+  it('is the desktop layer\'s own, inserted by no layer below it', () => {
+    expect(below.find(row => row.id === 'tool-session-query')).toBeUndefined()
+    expect(entry(desktop, 'tool-session-query')).toEqual({ id: 'tool-session-query', name: TOOL_SESSION_QUERY })
+  })
+
+  // A Host row can inject only Host services; a service a preset's isolate
+  // realm holds never reaches it.
+  it('injects only services Host rows the desktop composes on provide', () => {
+    expect([...ToolSessionQuery.inject].sort()).toEqual(Object.keys(SESSION_TOOL_SERVICE_ROWS).sort())
+    for (const rowId of Object.values(SESSION_TOOL_SERVICE_ROWS)) {
+      expect(entry(desktop, rowId).disabled).toBeUndefined()
+    }
+  })
+
+  // The deploy installs no peers, so a required peer reaches the payload only
+  // when the deploy root lists it.
+  it('resolves from the deploy root, which lists every package it needs', () => {
+    const dir = resolveBundleDir('test', TOOL_SESSION_QUERY, installAnchor, serverDir)
+    expect(dir).toContain(join('apps', 'desktop-server'))
+    const own = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+    }
+    const listed = Object.keys((JSON.parse(readFileSync(installAnchor, 'utf8')) as { dependencies: Record<string, string> }).dependencies)
+    for (const name of [TOOL_SESSION_QUERY, ...Object.keys(own.dependencies ?? {}), ...Object.keys(own.peerDependencies ?? {})]) {
+      expect(listed).toContain(name)
+    }
+  })
+
+  it('takes the package\'s own search bounds, and keeps the spill policy that bounds long results on', () => {
+    expect(ToolSessionQuery.Config({})).toEqual({ maxSearchResults: 100, searchTimeoutMs: 30_000 })
+    expect(entry(desktop, 'spill-policy').disabled).toBeUndefined()
+  })
+})
+
+describe('the session tools in composed sessions', () => {
+  // Real modules on the composed rows: the base's system-prompt and tools
+  // rows, each preset's persona row, and the desktop layer's session-tools
+  // row. Registering the five tools reads nothing from the query service, so
+  // an empty one stands in for the `session-query-sqlite` row.
+  const roots: Context[] = []
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map(root => root.fiber.dispose()))
+  })
+
+  /**
+   * A root with the session tools mounted, and one session scope under the
+   * named preset's persona.
+   * @param presetId - the preset declaration row's id.
+   * @returns the root, the preset's scope key, and the session's scope.
+   */
+  async function session(presetId: string): Promise<{ root: Context; presetKey: ScopeKey; agent: Scope }> {
+    const root = new Context()
+    roots.push(root)
+    await root.plugin(SystemPrompt, entry(desktop, 'system-prompt').config ?? {})
+    root.systemPrompt.variable('cwd', () => '/workspace')
+    root.systemPrompt.variable('model', () => 'deepseek-flash')
+    await root.plugin(ToolRuntime)
+    await root.plugin(SessionProjectionRegistry)
+    root.provide('sessionQuery', {})
+    await root.plugin(ToolSessionQuery, entry(desktop, 'tool-session-query').config ?? {})
+    const presetKey: ScopeKey = { preset: presetId }
+    await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
+    const agent = createScope(root, { agent: presetId }, { parent: presetKey })
+    return { root, presetKey, agent }
+  }
+
+  /** @returns the session tools one scope's model sees, in registration order. */
+  function sessionTools(root: Context, scope: Scope): string[] {
+    return root.tools.schemas(keyOf(scope)).map(schema => schema.name).filter(name => SESSION_TOOLS.includes(name))
+  }
+
+  it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('gives a %s session the five tools and their guidance', async (presetId) => {
+    const { root, agent } = await session(presetId)
+    expect(sessionTools(root, agent)).toEqual(SESSION_TOOLS)
+    expect(await prompt(root, agent)).toContain('Use session_search to find relevant work from prior sessions')
+  })
+
+  // `minimal`'s persona is `complete`, which replaces every other section;
+  // the tool catalog is not part of the prompt.
+  it('gives a preset-minimal session the five tools without their guidance', async () => {
+    const { root, agent } = await session('preset-minimal')
+    expect(sessionTools(root, agent)).toEqual(SESSION_TOOLS)
+    expect(await prompt(root, agent)).toBe(personaConfig('preset-minimal').prefix)
+  })
+
+  it('gives a child the session delegates to the five tools, unless its allow-list leaves them out', async () => {
+    const { root, presetKey, agent } = await session('preset-standard')
+    const children: Scope[] = []
+    await root.plugin({
+      inject: ['systemPrompt', 'tools'],
+      apply: (ctx: Context) => {
+        const open = createScope(ctx, { agent: 'child' }, { parent: presetKey })
+        applyChildComposition(open.ctx, { ctx: agent.ctx } as Agent, { persona: 'You review one file.' })
+        const narrowed = createScope(ctx, { agent: 'narrowed-child' }, { parent: presetKey })
+        applyChildComposition(narrowed.ctx, { ctx: agent.ctx } as Agent, { toolFilter: { allow: ['session_trace'] } })
+        children.push(open, narrowed)
+      },
+    })
+    const [open, narrowed] = children
+    if (open === undefined || narrowed === undefined) throw new Error('the children were not composed')
+    expect(sessionTools(root, open)).toEqual(SESSION_TOOLS)
+    expect(sessionTools(root, narrowed)).toEqual(['session_trace'])
+  })
+})
+
 describe('the composed llm-deepseek row', () => {
   it('accepts only the shipped ten-second Retry-After through the layers below', () => {
     expect(entry(below, 'llm-deepseek').config?.['retryPolicy']).toBeUndefined()
@@ -269,6 +396,43 @@ function presetRow(entries: Entry[], presetId: string, rowId: string): Entry {
   const found = plugins?.find(candidate => candidate.id === rowId)
   if (found === undefined) throw new Error(`${presetId} lists no ${rowId} row`)
   return found
+}
+
+/**
+ * One preset's composed persona row, read field by field.
+ * @param presetId - the preset declaration row's id.
+ * @returns the row's config.
+ */
+function personaConfig(presetId: string): Persona.Config {
+  const { prefix, suffix, complete, includeRuntimeContext } = presetRow(desktop, presetId, 'persona').config ?? {}
+  if (typeof prefix !== 'string') throw new Error(`${presetId}'s persona row states no prefix`)
+  return {
+    prefix,
+    ...typeof suffix === 'string' ? { suffix } : {},
+    ...typeof complete === 'boolean' ? { complete } : {},
+    ...typeof includeRuntimeContext === 'boolean' ? { includeRuntimeContext } : {},
+  }
+}
+
+/**
+ * The key a composed scope was created under.
+ * @param scope - a scope from `createScope`.
+ * @returns its key.
+ */
+function keyOf(scope: Scope): ScopeKey {
+  const key = scopeOf(scope.ctx)
+  if (key === undefined) throw new Error('the scope carries no key')
+  return key
+}
+
+/**
+ * The system prompt one scope renders.
+ * @param root - the root carrying the composed prompt registry.
+ * @param scope - the session or child scope.
+ * @returns the rendered prompt.
+ */
+async function prompt(root: Context, scope: Scope): Promise<string> {
+  return renderPrompt(await root.systemPrompt.assemble({ scope: keyOf(scope) }))
 }
 
 /**
@@ -425,21 +589,6 @@ describe('the protected-directories section in composed sessions', () => {
   // The Host half's own `Config` validates the composed row as the Loader's mount does.
   type RowPlugin = Plugin.Object<Entry['config']>
 
-  /**
-   * One preset's composed persona row, read field by field.
-   * @param presetId - the preset declaration row's id.
-   * @returns the row's config.
-   */
-  function personaConfig(presetId: string): Persona.Config {
-    const { prefix, suffix, complete, includeRuntimeContext } = presetRow(desktop, presetId, 'persona').config ?? {}
-    if (typeof prefix !== 'string') throw new Error(`${presetId}'s persona row states no prefix`)
-    return {
-      prefix,
-      ...typeof suffix === 'string' ? { suffix } : {},
-      ...typeof complete === 'boolean' ? { complete } : {},
-      ...typeof includeRuntimeContext === 'boolean' ? { includeRuntimeContext } : {},
-    }
-  }
   const INSTALL_DIR = '/Applications/北冥.app'
   const DATA_DIR = '/Users/test user/.dsh'
   const USER_DATA_DIR = '/Users/test user/Library/Application Support/@deepseek-ai/dsh-desktop'
@@ -486,13 +635,6 @@ describe('the protected-directories section in composed sessions', () => {
     await createScope(root, presetKey).ctx.plugin(Persona, personaConfig(presetId))
     const agent = createScope(root, { agent: presetId }, { parent: presetKey })
     return { root, presetKey, agent }
-  }
-
-  /** @returns the prompt one scope renders. */
-  async function prompt(root: Context, scope: Scope): Promise<string> {
-    const key = scopeOf(scope.ctx)
-    if (key === undefined) throw new Error('the scope carries no key')
-    return renderPrompt(await root.systemPrompt.assemble({ scope: key }))
   }
 
   it.each(['preset-standard', 'preset-ptc', 'preset-cordis'])('ends the prompt of a %s session', async (presetId) => {
@@ -557,7 +699,7 @@ describe('the composed telemetry rows', () => {
 })
 
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly seven rows, adds its own two, and nothing else', () => {
+  it('changes exactly seven rows, adds its own three, and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
@@ -566,7 +708,7 @@ describe('the desktop composition layer as a whole', () => {
     // happens to list them and carries nothing about this layer.
     expect(changed.map(row => row.id).sort()).toEqual([
       'desktop-brand', 'desktop-product-telemetry', 'desktop-server-log', 'llm-deepseek', 'llm-permission-gateway',
-      'plugin-manager', 'product-analytics', 'session-query-sqlite', 'vision-switch',
+      'plugin-manager', 'product-analytics', 'session-query-sqlite', 'tool-session-query', 'vision-switch',
     ])
   })
 
