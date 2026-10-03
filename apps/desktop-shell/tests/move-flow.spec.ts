@@ -25,7 +25,7 @@ import {
   carryMove, rollBackCopyOf, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveFlowEnd, type MoveUi,
 } from '../src/move-flow.ts'
 import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
-import { MOVE_TEXT } from '../src/move-text.ts'
+import { MOVE_TEXT, stopCauseOf } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult, type HealthFailures } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
@@ -344,7 +344,7 @@ describe('a move that cannot go on', () => {
     mkdirSync(join(setup.dir), { recursive: true })
     writeFileSync(join(setup.dir, ABANDONED_FILENAME), '{')
     const threads = [
-      new ScriptedThread({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' }),
+      new ScriptedThread({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON', kind: 'other' }),
       new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } }),
     ]
     const host = abandonedHost(setup, ['move-aside', 'confirm'])
@@ -357,7 +357,7 @@ describe('a move that cannot go on', () => {
   it('quits when the person quits from that question', async () => {
     const { setup } = await started()
     writeFileSync(join(setup.dir, ABANDONED_FILENAME), '{')
-    const thread = new ScriptedThread({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' })
+    const thread = new ScriptedThread({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON', kind: 'other' })
     const end = await carryMove(depsOf(setup, recordingUi([]), { start: () => thread, abandoned: abandonedHost(setup, ['quit']) }))
     expect(end).toEqual({ kind: 'quit' })
   })
@@ -419,7 +419,7 @@ describe('a move that cannot go on', () => {
     const threads = [
       () => {
         const thread = new ScriptedThread({ type: 'prepared', prepared: { result: 'recorded', journal: readJournal(setup.dir) } })
-        setTimeout(() => { thread.emit('message', { type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' }) }, 5)
+        setTimeout(() => { thread.emit('message', { type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON', kind: 'other' }) }, 5)
         return thread
       },
       () => new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } }),
@@ -460,7 +460,7 @@ describe('a move that cannot go on', () => {
   it('tries again without a page when the lock reads as the move\'s again, once in a row, then says why each time', async () => {
     const { setup, f, target } = await started()
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...readJournal(setup.dir), phase: 'hiding-source' }))
-    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost' })
+    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost', kind: 'other' })
     const threads = [lost(), lost(), lost(), lost(), new ScriptedThread({ type: 'done', outcome: { kind: 'switched' } })]
     const self = selfOf(setup)
     const sibling = { ...self, pid: 22222, startedAt: 'P2', heartbeatAt: new Date().toISOString() }
@@ -505,7 +505,7 @@ describe('a move that cannot go on', () => {
     const journal = readJournal(setup.dir)
     if (journal === undefined) throw new Error('no journal')
     writeFileSync(join(setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'hiding-source' }))
-    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost' })
+    const lost = (): ScriptedThread => new ScriptedThread({ type: 'failed', name: 'MoveLockLostError', message: 'lost', kind: 'other' })
     const blocked: ExecutorMessage = {
       type: 'done', outcome: { kind: 'blocked', reason: 'target-occupied', dataAt: [journal.source], choices: ['rollback'], targetPrint: null },
     }
@@ -549,6 +549,38 @@ describe('a move that cannot go on', () => {
     expect(MOVE_TEXT.zh.rollBackNote('unreachable')).toContain('原样留在那里')
     expect(MOVE_TEXT.zh.rollBackNote('unreachable-exposed')).toContain('再问你一次')
     expect(MOVE_TEXT.en.rollBackNote('unreachable-exposed')).toContain('asks you again')
+  })
+
+  it('words a move stopped on an error by its cause in the person\'s language, with what to do next', () => {
+    expect(stopCauseOf('no-space')).toBe('no-space')
+    expect(stopCauseOf('no-permission')).toBe('no-permission')
+    for (const kind of ['other', 'copy-mismatch', 'target-occupied', 'copy-gone', 'source-changed', 'lock-lost', 'not-started'] as const) {
+      expect(stopCauseOf(kind)).toBe('other')
+    }
+    expect(MOVE_TEXT.zh.failed('no-space')).toBe('磁盘空间不够，搬运没法继续。请先腾出一些空间；DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。')
+    expect(MOVE_TEXT.zh.failed('no-permission')).toBe(
+      'DSH 没有权限修改数据所在的文件夹（原来的位置或新位置）。请确认你能修改那里的文件，并且没有别的程序（比如安全软件）正占用着它们；'
+      + 'DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。',
+    )
+    expect(MOVE_TEXT.zh.failed('other')).toBe('搬运时出了错。DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。如果重新打开后又看到这一页，请重新启动电脑，再打开 DSH。')
+    expect(MOVE_TEXT.en.failed('no-space')).toBe(
+      'There is not enough free space on the drive to go on. Free up some space. DSH quits now; when you reopen it, it picks up where it stopped.',
+    )
+    expect(MOVE_TEXT.en.failed('no-permission')).toBe(
+      'DSH was not allowed to change the folders that hold your data, at the original location or the new one. Check that you can change files there '
+      + 'and that no other program, such as security software, has them open. DSH quits now; when you reopen it, it picks up where it stopped.',
+    )
+    expect(MOVE_TEXT.en.failed('other')).toBe(
+      'The move ran into an error. DSH quits now; when you reopen it, it picks up where it stopped. '
+      + 'If this page comes back after you reopen DSH, restart your computer, then open DSH again.',
+    )
+    expect(MOVE_TEXT.en.withdrawFailed('/u/data-move')).toBe(
+      'The last data move, which had not started, could not be withdrawn. While its record is there, DSH does not start, so it does not use data '
+      + 'that was about to move. Check that the folder "/u/data-move" can be written to, then open DSH again.',
+    )
+    expect(MOVE_TEXT.zh.withdrawFailed('/u/data-move')).toBe(
+      '上次没有开始的数据搬运没能撤回。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「/u/data-move」能否写入，然后重新打开 DSH。',
+    )
   })
 
   it('names each failure of a kept new location in the person\'s language, joined into one sentence', () => {
@@ -608,12 +640,22 @@ describe('a move that cannot go on', () => {
     expect(await carryMove(depsOf(setup, recordingUi([])))).toEqual({ kind: 'relaunch', home: target })
   })
 
-  it('shows any other failure with its detail and quits', async () => {
-    const { setup } = await started()
-    const ui = recordingUi([{ kind: 'quit' }])
-    const thread = new ScriptedThread({ type: 'failed', name: 'MoveStuckError', message: 'data move made no progress: copying: copy' })
-    expect(await carryMove(depsOf(setup, ui, { start: () => thread }))).toEqual({ kind: 'quit' })
-    expect(ui.pages[0]?.paragraphs[0]).toBe(text.failed('data move made no progress: copying: copy'))
+  it('words any other failure by its cause, never with the error\'s English text, and quits', async () => {
+    const failures = [
+      { name: 'MoveStuckError', message: 'data move made no progress: rolling-back: restore-terminal', kind: 'other', cause: 'other' },
+      { name: 'Error', message: 'ENOSPC: no space left on device, write', kind: 'no-space', cause: 'no-space' },
+      { name: 'Error', message: 'EPERM: operation not permitted, rename', kind: 'no-permission', cause: 'no-permission' },
+      { name: 'Error', message: 'ENOTEMPTY: directory not empty, rename', kind: 'target-occupied', cause: 'other' },
+    ] as const
+    for (const { name, message, kind, cause } of failures) {
+      const { setup } = await started()
+      const ui = recordingUi([{ kind: 'quit' }])
+      const thread = new ScriptedThread({ type: 'failed', name, message, kind })
+      expect(await carryMove(depsOf(setup, ui, { start: () => thread }))).toEqual({ kind: 'quit' })
+      expect(ui.pages[0]?.title).toBe(text.stoppedTitle)
+      expect(ui.pages[0]?.paragraphs).toEqual([text.failed(cause)])
+      expect(JSON.stringify(ui.pages[0])).not.toContain(message)
+    }
   })
 })
 

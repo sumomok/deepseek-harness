@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-text
  */
 
-import type { HealthFailure, HealthFailures } from './move/journal.ts'
+import type { HealthFailure, HealthFailures, MoveFailureKind } from './move/journal.ts'
 
 /** One language's sentences. */
 export interface MoveText {
@@ -41,7 +41,8 @@ export interface MoveText {
   quit: string
   stoppedTitle: string
   stalled: string
-  failed: (detail: string) => string
+  /** A move that stopped on an error, by what the error was, with what the person can do. */
+  failed: (cause: StopCause) => string
   keptTargetTitle: string
   /**
    * The new location failed its check after the person chose to keep it, so
@@ -63,8 +64,8 @@ export interface MoveText {
   back: string
   lockLostTitle: string
   withdrawFailedTitle: string
-  /** A move that never started copying could not be withdrawn at launch. */
-  withdrawFailed: (path: string, detail: string) => string
+  /** A move that never started copying could not be withdrawn at launch; `path` is the move's record. */
+  withdrawFailed: (path: string) => string
   /** A move stopped because its lock is gone or another installation holds it. */
   lockLost: string
   lockUncheckedTitle: string
@@ -98,6 +99,22 @@ export interface MoveText {
  * again (`unreachable-exposed`).
  */
 export type RollBackCopy = 'none' | 'deleted' | 'kept' | 'unreachable' | 'unreachable-exposed'
+
+/**
+ * What stopped a move on an error, as its page words it: a drive without
+ * enough free space, a change refused for lack of permission, or anything
+ * else.
+ */
+export type StopCause = 'no-space' | 'no-permission' | 'other'
+
+/**
+ * The stop cause a failure kind is worded as.
+ * @param kind - why the move failed.
+ * @returns `no-space` and `no-permission` as they are; `other` for every other kind.
+ */
+export function stopCauseOf(kind: MoveFailureKind): StopCause {
+  return kind === 'no-space' || kind === 'no-permission' ? kind : 'other'
+}
 
 /** Each failure of a first launch on the new location, as a kept new location's page names it, by language. */
 const HEALTH_FAILURE: Record<'zh' | 'en', Record<HealthFailure, string>> = {
@@ -150,7 +167,19 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     quit: '退出',
     stoppedTitle: '搬运停下了',
     stalled: '搬运已经两分钟没有任何进展，可能是磁盘没有响应。DSH 会退出；重新打开 DSH 时会从停下的地方接着搬。',
-    failed: detail => `搬运时出了错：${detail}。DSH 会退出；重新打开 DSH 时会从停下的地方接着处理。`,
+    failed: (cause) => {
+      const resume = 'DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。'
+      switch (cause) {
+        case 'no-space':
+          return `磁盘空间不够，搬运没法继续。请先腾出一些空间；${resume}`
+        case 'no-permission':
+          return `DSH 没有权限修改数据所在的文件夹（原来的位置或新位置）。请确认你能修改那里的文件，并且没有别的程序（比如安全软件）正占用着它们；${resume}`
+        case 'other':
+          return `搬运时出了错。${resume}如果重新打开后又看到这一页，请重新启动电脑，再打开 DSH。`
+        default:
+          return cause satisfies never
+      }
+    },
     keptTargetTitle: '新位置没有通过检查',
     keptTarget: (target, kept, failures) => `你选择保留的新位置「${target}」没有通过检查：${failures.map(failure => HEALTH_FAILURE.zh[failure]).join('；')}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。${kept === undefined ? '' : `原来的数据没有删除，保留在「${kept}」。`}DSH 现在退出。`,
     journalUnreadableTitle: 'DSH 暂时不能启动',
@@ -165,7 +194,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     confirmDiscard: (path, owner) => `DSH 只会删掉文件「${path}」，不会动你的任何数据。如果那个 DSH（「${owner}」）其实还在运行，它发现锁没了就会停下这次搬运，什么也不会删除。`,
     confirmDiscardButton: '放弃它的搬运',
     back: '返回',
-    withdrawFailed: (path, detail) => `上次没有开始的数据搬运没能撤回（${detail}）。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「${path}」能否写入，然后重新打开 DSH。`,
+    withdrawFailed: path => `上次没有开始的数据搬运没能撤回。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「${path}」能否写入，然后重新打开 DSH。`,
     lockLostTitle: '另一个 DSH 可能接手了这份数据',
     lockLost: '这份数据上的搬运锁不见了，或者已经换了主人，可能是另一个 DSH 接手了这份数据。这次搬运先停在这里，之后没有再动数据。',
     lockUncheckedTitle: '暂时无法确认搬运锁',
@@ -222,7 +251,19 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     quit: 'Quit',
     stoppedTitle: 'The move stopped',
     stalled: 'The move has made no progress for two minutes; a drive may not be responding. DSH quits now; when you reopen it, the move picks up where it stopped.',
-    failed: detail => `The move ran into an error: ${detail}. DSH quits now; when you reopen it, it picks up where it stopped.`,
+    failed: (cause) => {
+      const resume = 'DSH quits now; when you reopen it, it picks up where it stopped.'
+      switch (cause) {
+        case 'no-space':
+          return `There is not enough free space on the drive to go on. Free up some space. ${resume}`
+        case 'no-permission':
+          return `DSH was not allowed to change the folders that hold your data, at the original location or the new one. Check that you can change files there and that no other program, such as security software, has them open. ${resume}`
+        case 'other':
+          return `The move ran into an error. ${resume} If this page comes back after you reopen DSH, restart your computer, then open DSH again.`
+        default:
+          return cause satisfies never
+      }
+    },
     keptTargetTitle: 'The new location did not pass its check',
     keptTarget: (target, kept, failures) => `The new location "${target}" you chose to keep did not pass its check: ${failures.map(failure => HEALTH_FAILURE.en[failure]).join('; ')}. DSH keeps using it as you chose, and starts from there when you reopen it.${kept === undefined ? '' : ` Your original data was not deleted; it is kept in "${kept}".`} DSH quits now.`,
     journalUnreadableTitle: 'DSH cannot start',
@@ -237,7 +278,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     confirmDiscard: (path, owner) => `DSH will delete only the file "${path}" and will not touch any of your data. If that DSH ("${owner}") is still running, it stops its move when it notices, and nothing is deleted.`,
     confirmDiscardButton: 'Discard its move',
     back: 'Back',
-    withdrawFailed: (path, detail) => `The last data move, which had not started, could not be withdrawn (${detail}). While its record is there, DSH does not start, so it does not use data that was about to move. Check that the folder "${path}" can be written to, then open DSH again.`,
+    withdrawFailed: path => `The last data move, which had not started, could not be withdrawn. While its record is there, DSH does not start, so it does not use data that was about to move. Check that the folder "${path}" can be written to, then open DSH again.`,
     lockLostTitle: 'Another DSH may have taken over this data',
     lockLost: 'The move lock on this data is gone or now belongs to someone else, so another DSH may have taken over the data. This move has paused here and has not touched the data since.',
     lockUncheckedTitle: 'The move lock could not be checked',

@@ -7,9 +7,9 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ExecutorError, runMoveExecutor, type ExecutorCommand, type ExecutorMessage, type ExecutorThread, type MainEffects,
@@ -103,6 +103,23 @@ describe('the data move on a worker thread', () => {
     expect(existsSync(join(f.home, '.dsh-data-id'))).toBe(true)
   })
 
+  posixOnly('names what stopped a rollback on the worker: a folder it may not change', async () => {
+    const { setup, f } = await started()
+    const main = terminal()
+    await runMoveExecutor(requestOf(setup), main)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    // The original's folder cannot be changed, so the hidden original cannot go back.
+    chmodSync(dirname(f.home), 0o500)
+    try {
+      const error = await runMoveExecutor(requestOf(setup), main).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(ExecutorError)
+      expect(error).toMatchObject({ kind: 'no-permission', stalled: false })
+      expect(readJournal(setup.dir)?.phase).toBe('rolling-back')
+    } finally {
+      chmodSync(dirname(f.home), 0o700)
+    }
+  })
+
   it('cancels a move asked to cancel before it copied anything', async () => {
     const { setup } = await started()
     const controller = new AbortController()
@@ -164,7 +181,7 @@ describe('watching the worker', () => {
   it('gives a silent worker up as hung and asks it to stop', async () => {
     const thread = new FakeThread()
     const run = runMoveExecutor(request, idle, { stallMs: 30, start: () => thread })
-    await expect(run).rejects.toMatchObject({ stalled: true })
+    await expect(run).rejects.toMatchObject({ stalled: true, kind: 'other' })
     expect(thread.terminated).toBe(true)
   })
 
@@ -203,10 +220,10 @@ describe('watching the worker', () => {
     thread.send({ type: 'call', id: 1, call: { effect: 'syncTerminal', target: '/t' } })
     await new Promise((resolve) => { setTimeout(resolve, 5) })
     expect(thread.commands).toContainEqual({ type: 'reply', id: 1, ok: false, message: 'no shell' })
-    thread.send({ type: 'failed', name: 'JournalError', message: 'abandoned copies: not JSON' })
+    thread.send({ type: 'failed', name: 'Error', message: 'ENOSPC: no space left on device', kind: 'no-space' })
     const error = await run.catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ExecutorError)
-    expect(error).toMatchObject({ name: 'JournalError', stalled: false })
+    expect(error).toMatchObject({ name: 'Error', message: 'ENOSPC: no space left on device', kind: 'no-space', stalled: false })
   })
 
   it('reports a worker that exits without an answer', async () => {
@@ -214,5 +231,6 @@ describe('watching the worker', () => {
     const run = runMoveExecutor(request, idle, { start: () => thread })
     thread.emit('exit', 1)
     await expect(run).rejects.toThrow('exited with code 1')
+    await expect(run).rejects.toMatchObject({ kind: 'other' })
   })
 })

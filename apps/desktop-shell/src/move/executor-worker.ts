@@ -13,7 +13,8 @@ import { readJournal } from './journal.ts'
 import { nodeLockProbes } from '../process-tree.ts'
 import { checkOwnLock, MoveLockLostError } from './lock.ts'
 import {
-  advanceMove, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, rollBackMove, type MoveEffects, type ResolveOutcome,
+  advanceMove, failureKindOf, lockExpectedAt, nodeMoveEffects, recordHealth, resolveBlocked, rollBackMove, type MoveEffects,
+  type ResolveOutcome,
 } from './run.ts'
 import { PROGRESS_INTERVAL_MS } from './worker.ts'
 
@@ -123,7 +124,7 @@ Promise.resolve().then(() => {
   },
   (error: unknown) => {
     const failure = error instanceof Error ? error : new Error(String(error))
-    post({ type: 'failed', name: failure.name, message: failure.message })
+    post({ type: 'failed', name: failure.name, message: failure.message, kind: failureKindOf(error) })
     port.close()
   },
 )

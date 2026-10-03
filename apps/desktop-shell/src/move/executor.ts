@@ -24,7 +24,7 @@ import { Worker } from 'node:worker_threads'
 import type { TerminalSnapshot } from '../terminal-env.ts'
 import type { LockSelf } from './lock.ts'
 import type { NameLocale } from './names.ts'
-import type { BlockedChoice, HealthFailures, MoveJournal } from './journal.ts'
+import type { BlockedChoice, HealthFailures, MoveFailureKind, MoveJournal } from './journal.ts'
 import type { BlockedView, MoveOutcome, MoveProgress, ResolveOutcome } from './run.ts'
 import { MOVE_STALL_TIMEOUT_MS } from './worker.ts'
 
@@ -82,7 +82,8 @@ export type ExecutorMessage =
   /** What the step before the move came to. */
   | { type: 'prepared'; prepared: ExecutorPrepared }
   | { type: 'done'; outcome: MoveOutcome }
-  | { type: 'failed'; name: string; message: string }
+  /** The move failed: what the worker caught, with its kind (`failureKindOf`). */
+  | { type: 'failed'; name: string; message: string; kind: MoveFailureKind }
 
 /** Messages the main process posts. */
 export type ExecutorCommand =
@@ -115,15 +116,19 @@ export interface ExecutorThread {
 export class ExecutorError extends Error {
   /** Whether the move was given up because it stopped reporting. */
   readonly stalled: boolean
+  /** Why the move failed, as the worker named what it caught; `other` when the worker went away or stopped reporting. */
+  readonly kind: MoveFailureKind
 
   /**
-   * @param message - what happened.
+   * @param message - what happened, in English, for the log.
    * @param name - the name of the error the worker caught (`JournalError` for an unreadable record).
+   * @param kind - why the move failed.
    * @param stalled - whether it stopped reporting.
    */
-  constructor(message: string, name: string, stalled = false) {
+  constructor(message: string, name: string, kind: MoveFailureKind, stalled = false) {
     super(message)
     this.name = name
+    this.kind = kind
     this.stalled = stalled
   }
 }
@@ -180,7 +185,7 @@ export function runMoveExecutor(request: ExecutorRequest, main: MainEffects, opt
       // A terminal effect in this process is not the worker's to report on.
       if (pending > 0) return
       stall = setTimeout(() => {
-        finish(() => { reject(new ExecutorError(`data move made no progress for ${String(stallMs)}ms`, 'ExecutorError', true)) })
+        finish(() => { reject(new ExecutorError(`data move made no progress for ${String(stallMs)}ms`, 'ExecutorError', 'other', true)) })
         void thread.terminate()
       }, stallMs)
     }
@@ -229,17 +234,17 @@ export function runMoveExecutor(request: ExecutorRequest, main: MainEffects, opt
           finish(() => { resolve(message.outcome) })
           break
         case 'failed':
-          finish(() => { reject(new ExecutorError(message.message, message.name)) })
+          finish(() => { reject(new ExecutorError(message.message, message.name, message.kind)) })
           break
         default:
           message satisfies never
       }
     })
     thread.on('error', (error) => {
-      finish(() => { reject(new ExecutorError(error.message, error.name)) })
+      finish(() => { reject(new ExecutorError(error.message, error.name, 'other')) })
     })
     thread.on('exit', (code) => {
-      finish(() => { reject(new ExecutorError(`data move worker exited with code ${String(code)} before answering`, 'ExecutorError')) })
+      finish(() => { reject(new ExecutorError(`data move worker exited with code ${String(code)} before answering`, 'ExecutorError', 'other')) })
     })
   })
 }

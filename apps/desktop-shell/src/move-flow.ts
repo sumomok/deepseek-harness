@@ -15,7 +15,7 @@ import {
   blockedPage, discardLockPage, lockLostPage, lockPage, progressView, stopPage, type ForeignLock, type MoveLink, type MovePage,
   type LostLockWay, type ProgressClock, type ProgressView,
 } from './move-page.ts'
-import type { MoveText, RollBackCopy } from './move-text.ts'
+import { stopCauseOf, type MoveText, type RollBackCopy } from './move-text.ts'
 import {
   ExecutorError, type ExecutorBefore, type ExecutorOptions, type ExecutorPrepared, type ExecutorRequest, type MainEffects, runMoveExecutor,
 } from './move/executor.ts'
@@ -215,7 +215,7 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         if (await readAbandonedOrAsk(deps.abandoned) === undefined) return { kind: 'quit' }
         continue
       }
-      const sentence = error.stalled ? text.stalled : text.failed(error.message)
+      const sentence = error.stalled ? text.stalled : text.failed(stopCauseOf(error.kind))
       await ui.showPage(stopPage(text.stoppedTitle, sentence, text, { platform: request.platform }))
       return { kind: 'quit' }
     }

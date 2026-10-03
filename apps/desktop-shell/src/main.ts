@@ -1299,8 +1299,7 @@ if (!locked) {
         sink(`[desktop] data move: could not withdraw at launch: ${pendingMove.detail}\n`)
         clearInterval(ticker)
         const text = moveText(app.getLocale())
-        const sentence = text.withdrawFailed(pendingMove.path, pendingMove.detail)
-        await stopForMove(text.withdrawFailedTitle, sentence, view.window, pendingMove.path)
+        await stopForMove(text.withdrawFailedTitle, text.withdrawFailed(pendingMove.path), view.window, pendingMove.path)
         return
       }
       if (found.kind === 'requested') sink('[desktop] data move: withdrawn at launch before copying anything\n')
