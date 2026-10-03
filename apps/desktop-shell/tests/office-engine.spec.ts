@@ -21,6 +21,7 @@ import {
   officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine, versionToKeep,
   type EngineRequirement, type InstallProgress,
 } from '../src/office-engine.ts'
+import { LAUNCH_ENV } from './launch-env.ts'
 
 /** The workspace's own desktop server closure, whose kit is the one the payload ships. */
 const SERVER_MODULES = fileURLToPath(new URL('../../desktop-server/node_modules', import.meta.url))
@@ -248,13 +249,14 @@ describe('the office engine in main.ts', () => {
     const service = source.indexOf('const officeEngineEnv = await startOfficeEngineForServer(spec, sink)')
     expect(service).toBeGreaterThan(-1)
     expect(service).toBeLessThan(source.lastIndexOf('await choosePort('))
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain(LAUNCH_ENV)
   })
 
-  // Every rebind and the restart after a failed install start from the
-  // recorded spec, so the launch environment is the only one composed.
+  // Every rebind and the restart after a failed install or a withdrawn data
+  // move start from the recorded spec, so the launch environment is the only
+  // one composed. The other `env:` keys hand `process.env` to the data move's checks.
   it('composes one server environment and records specs in one place', () => {
-    expect([...source.matchAll(/\benv: /g)]).toHaveLength(1)
+    expect([...source.matchAll(/\benv: \{/g)]).toHaveLength(1)
     expect([...source.matchAll(/\bactiveServerSpec = /g)]).toHaveLength(1)
     expect(source).toContain('function rememberServerPort(spec: ServerSpec): void {\n  activeServerSpec = spec\n')
   })

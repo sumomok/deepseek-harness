@@ -1297,25 +1297,25 @@ if (!locked) {
         return
       }
       // Every step below reads the Harness home this exports.
-      const location = await settleDataLocation(appDataLocationHost(view.window, view.block, sink), launchDshHome)
-      settledTerminal = location?.terminal
-      if (location === undefined) {
+      const settled = await settleDataLocation(appDataLocationHost(view.window, view.block, sink), launchDshHome)
+      settledTerminal = settled?.terminal
+      if (settled === undefined) {
         clearInterval(ticker)
         app.quit()
         return
       }
-      const lock = await inspectMoveLock(location.home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
+      const lock = await inspectMoveLock(settled.home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
       if (lock.kind !== 'none' && lock.kind !== 'ours') {
         // Another installation is moving this data, or stopped partway through moving it: its journal is not ours to read,
         // so nothing here may touch the data until that installation has finished.
-        sink(`[desktop] data move: ${location.home} has another installation's move lock (${lock.kind})\n`)
+        sink(`[desktop] data move: ${settled.home} has another installation's move lock (${lock.kind})\n`)
         clearInterval(ticker)
-        await settleForeignLockInWindow(lock, location.home, view.window)
+        await settleForeignLockInWindow(lock, settled.home, view.window)
         return
       }
       // Our own lock without a journal is left from a move that ended before it could remove it.
-      if (lock.kind === 'ours' && pendingMove.kind === 'none') releaseMoveLock([location.home], { userData: app.getPath('userData') })
-      if (pendingMove.kind === 'none' || pendingMove.kind === 'cleanup') await retireReturnedCopies(location.home)
+      if (lock.kind === 'ours' && pendingMove.kind === 'none') releaseMoveLock([settled.home], { userData: app.getPath('userData') })
+      if (pendingMove.kind === 'none' || pendingMove.kind === 'cleanup') await retireReturnedCopies(settled.home)
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)
@@ -1343,9 +1343,9 @@ if (!locked) {
       const updateEnv = await startUpdateForServer(host, sink)
       const dataEnv = await startDataLocationForServer(sink)
       const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
-      const resources = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
-      const pnpmEnv = pnpmLauncherEnv(resources)
-      const installEnv = installDirEnv(resources)
+      const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
+      const pnpmEnv = pnpmLauncherEnv(location)
+      const installEnv = installDirEnv(location)
       const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
       sink(launcher === undefined
         ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'

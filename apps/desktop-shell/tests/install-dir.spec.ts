@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { INSTALL_DIR_ENV, installDirEnv } from '../src/install-dir.ts'
+import { LAUNCH_ENV } from './launch-env.ts'
 
 describe('installDirEnv', () => {
   it('names the .app bundle on macOS, two levels above Contents/Resources', () => {
@@ -52,6 +53,6 @@ describe('the server launch in main.ts', () => {
   })
 
   it('adds it to the environment of the server it starts', () => {
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain(LAUNCH_ENV)
   })
 })

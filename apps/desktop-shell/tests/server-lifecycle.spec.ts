@@ -286,9 +286,10 @@ describe('main.ts', () => {
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([
       'resumeAfterFailedInstall: \\(blocking: boolean\\) => resumeAfterFailedInstall\\(\\{\\s+blocking,',
-      '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
+      '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: \\(\\) => restartAfterStop\\(\'the failed install\'\\),\\s+reveal,',
     ].join(''), 'u'))
-    expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
+    expect(body('restartAfterStop')).toContain('await choosePort(readState().serverPort, isPortFree)')
+    expect(body('carryMoveFromSettings')).toContain("await restartAfterStop('the withdrawn data move')")
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
