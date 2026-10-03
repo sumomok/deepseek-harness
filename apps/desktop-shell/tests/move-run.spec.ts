@@ -122,6 +122,40 @@ function pointerText(s: Scenario, name: string): string | undefined {
 }
 
 /**
+ * Switch, fail the check, and stop the rollback inside the step that records
+ * what a terminal reads: the restore wrote the old setting and then failed,
+ * the first read of the setting failed, and the stop comes right after the
+ * pointer write, before the step's flag is saved.
+ * @param s - the scenario.
+ */
+async function stopAfterRecordedPointer(s: Scenario): Promise<void> {
+  await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+  recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+  const real = harnessEffects(s.setup)
+  const stop = new Error('stop after the pointer write')
+  let reading = false
+  const interrupted: MoveEffects = {
+    ...real,
+    restoreTerminal: async (snapshot) => {
+      await real.restoreTerminal(snapshot)
+      throw new Error('EPERM: operation not permitted, chmod \'.zshrc\'')
+    },
+    terminalSeen: async () => {
+      reading = true
+      throw new Error('the login shell timed out reading DSH_HOME')
+    },
+    writePointer: (pointer) => {
+      real.writePointer(pointer)
+      if (reading) throw stop
+    },
+  }
+  await expect(advanceMove(s.setup.dir, interrupted, { pid: PID })).rejects.toBe(stop)
+  expect(readJournal(s.setup.dir)).toMatchObject({ terminalRestoreFailed: 'EPERM: operation not permitted, chmod \'.zshrc\'' })
+  expect(readJournal(s.setup.dir)?.terminalRecordedAsSeen).toBeUndefined()
+  expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: s.target } })
+}
+
+/**
  * Run the move to its end, passing or failing the health check.
  * @param s - the scenario.
  * @param healthy - the health check's verdict.
@@ -655,6 +689,36 @@ describe('a directory a terminal made at the old path', () => {
     expect(restores).toBe(1)
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: s.target } } })
     expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: s.target } })
+  })
+
+  posixOnly.each([
+    { start: 'pointer', sameVolume: false },
+    { start: 'pointer', sameVolume: true },
+    { start: 'default-home', sameVolume: false },
+    { start: 'default-home', sameVolume: true },
+  ] as const)('puts the pointer back as the rollback left it when a step resumed after its pointer write reads the setting from before the move (start $start, same volume $sameVolume)', async ({ start, sameVolume }) => {
+    const s = await scenario({ sameVolume, start })
+    await stopAfterRecordedPointer(s)
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: s.target } } })
+    expect(readPointerFiles(s.setup.userData)).toEqual(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)))
+    const next = resolveDataLocation({
+      read: readPointer(s.setup.userData),
+      env: processDshHome({ DSH_HOME: terminalValue(s.setup) }),
+      defaultHome: s.setup.defaultHome,
+      abandoned: readAbandonedCopies(s.setup.dir),
+    })
+    expect(next).toEqual({ kind: 'ready', home: s.f.home, via: start === 'pointer' ? 'pointer' : 'default' })
+  })
+
+  posixOnly('writes the pointer over the rolled-back files when a step resumed after its pointer write reads another value', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    await stopAfterRecordedPointer(s)
+    const elsewhere = join(s.f.root, 'my-terminal-home')
+    await advanceMove(s.setup.dir, { ...harnessEffects(s.setup), terminalSeen: async () => elsewhere }, { pid: PID })
+    const rolledBack = rolledBackPointer(s.pointerBefore, readGeneration(s.f.home))
+    expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: elsewhere } })
+    expect(pointerText(s, 'data-location.json.bak')).toBe(rolledBack.main)
   })
 
   it('names the original without a pointer before the move, and leaves a main file that was not a valid pointer as it was', () => {

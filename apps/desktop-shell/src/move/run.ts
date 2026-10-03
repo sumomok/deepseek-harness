@@ -212,7 +212,7 @@ export interface MoveEffects {
    * as a launch would take it.
    * @param before - what a terminal read before the move.
    * @returns the `lastSeenEnv` the pointer records; `undefined` when a terminal reads no value or the value it read
-   * before the move, which leaves the pointer as the rollback put it back.
+   * before the move, which leaves the pointer's files as the rollback puts them back ({@link rolledBackPointer}).
    * @throws when the setting cannot be read.
    */
   terminalSeen: (before: ExplicitRead) => Promise<string | undefined>
@@ -1007,6 +1007,8 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
         // The main process logged why the setting could not be read; it is taken to name the new location, as the switch wrote it.
         seen = journal.target
       }
+      // A step resumed after its pointer write starts again from the rolled-back files, so both files follow this read only.
+      effects.restorePointer(rolledBackPointer(journal.pointerBefore, journal.originalGeneration))
       const pointer = seen === undefined ? undefined : pointerSeeingTerminal(journal, seen)
       if (pointer !== undefined) effects.writePointer(pointer)
       save({ ...journal, terminalRecordedAsSeen: true })
