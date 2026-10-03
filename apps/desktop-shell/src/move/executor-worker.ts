@@ -86,7 +86,7 @@ function prepare(moveEffects: MoveEffects): ResolveOutcome | 'recorded' | undefi
     case 'resolve':
       return resolveBlocked(request.dir, before.choice, before.seen, moveEffects.fs)
     case 'health-failed':
-      recordHealth(request.dir, false, before.detail, moveEffects.fs)
+      recordHealth(request.dir, { detail: before.detail, failures: before.failures }, moveEffects.fs)
       return 'recorded'
     case 'roll-back':
       rollBackMove(request.dir, before.detail, moveEffects.fs)

@@ -100,11 +100,18 @@ export interface DataLocationState {
    * `cleanup` and enough removals in a row left something (`cleanupPrompt`).
    */
   cleanup?: { leftoverBytes: number }
-  /** The last finished move's result, with what it left where. */
+  /**
+   * The last finished move's result, with what it left where; `failure`
+   * names why it failed, as a kind Settings puts into words.
+   */
   lastResult?: MoveResult
   /** Why the last move asked for from Settings was taken back after `/start` answered. */
   lastRefusal?: MoveRefusal
-  /** What this launch's write of the terminal's data location came to, when there was one. */
+  /**
+   * What the terminal's data location came to when this launch last wrote
+   * it, or else, on a launch that checks a data move's switch to its new
+   * location, when that move wrote it; absent when neither wrote it.
+   */
   terminal?: TerminalSync
 }
 

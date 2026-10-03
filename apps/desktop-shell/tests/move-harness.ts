@@ -173,7 +173,7 @@ export async function driveMove(
       case 'switched':
         calibrateHomeLink({ defaultHome: setup.defaultHome, dataHome: target, dataId: HARNESS_ID, platform: process.platform })
         event('calibrateHomeLink')
-        if (readJournal(dir)?.phase === 'switched') recordHealth(dir, healthy, 'health check failed in the test', effects.fs)
+        if (readJournal(dir)?.phase === 'switched') recordHealth(dir, healthy ? undefined : { detail: 'health check failed in the test', failures: ['fewer-sessions'] }, effects.fs)
         event('recordHealth')
         break
       case 'cleanup-incomplete':

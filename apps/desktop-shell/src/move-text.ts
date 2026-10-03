@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-text
  */
 
-import type { HealthFailure, HealthFailures } from './move/executor.ts'
+import type { HealthFailure, HealthFailures } from './move/journal.ts'
 
 /** One language's sentences. */
 export interface MoveText {

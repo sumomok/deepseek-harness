@@ -26,8 +26,8 @@ import {
 } from '../src/move-flow.ts'
 import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
-import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread, HealthFailures } from '../src/move/executor.ts'
-import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult } from '../src/move/journal.ts'
+import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
+import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult, type HealthFailures } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { advanceMove, recordHealth, startMove, type MoveFs } from '../src/move/run.ts'
 import type { TreeCheck } from '../src/process-tree.ts'
@@ -142,7 +142,7 @@ describe('carrying a data move', () => {
     const { setup, f } = await started()
     await acquireMoveLock(f.home, { userData: setup.userData, pid: process.pid, startedAt: '' }, LOCK_PROBES)
     await carryMove(depsOf(setup, recordingUi([])))
-    recordHealth(setup.dir, false)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     expect(await carryMove(depsOf(setup, recordingUi([])))).toEqual({ kind: 'relaunch', home: f.home })
     expect(await inspectMoveLock(f.home, { userData: setup.userData }, LOCK_PROBES)).toEqual({ kind: 'none' })
   })
@@ -163,7 +163,7 @@ describe('carrying a data move', () => {
     await carryMove(depsOf(setup, recordingUi([])))
     const hidden = readJournal(setup.dir)?.hidden ?? ''
     plantIntruder(f.home)
-    recordHealth(setup.dir, false)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const ui = recordingUi([{ kind: 'choose', choice: 'rollback' }, { kind: 'choose', choice: 'keep-target' }])
     expect(await carryMove(depsOf(setup, ui))).toEqual({ kind: 'relaunch', home: target })
     const [first, second] = ui.pages
@@ -200,10 +200,10 @@ describe('carrying a data move', () => {
     const { setup, f, target } = await started('default-home')
     await carryMove(depsOf(setup, recordingUi([])))
     plantIntruder(f.home)
-    recordHealth(setup.dir, false)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     expect(await carryMove(depsOf(setup, recordingUi([{ kind: 'choose', choice: 'keep-target' }])))).toEqual({ kind: 'relaunch', home: target })
     // The failed check recorded by a run that stopped before its cleanup; the launch after it carries the cleanup on.
-    recordHealth(setup.dir, false, 'sessions 1 < 2')
+    recordHealth(setup.dir, { detail: 'sessions 1 < 2', failures: ['fewer-sessions'] })
     expect(readJournal(setup.dir)?.phase).toBe('cleanup')
     const end = await carryMove(depsOf(setup, recordingUi([])))
     expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended', result: { outcome: 'moved', detail: 'sessions 1 < 2' } } })
@@ -213,7 +213,7 @@ describe('carrying a data move', () => {
     const { setup, f } = await started('default-home')
     await carryMove(depsOf(setup, recordingUi([])))
     plantIntruder(f.home)
-    recordHealth(setup.dir, false)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     expect(await carryMove(depsOf(setup, recordingUi([{ kind: 'quit' }])))).toEqual({ kind: 'quit' })
     expect(readJournal(setup.dir)?.phase).toBe('rolling-back')
   })

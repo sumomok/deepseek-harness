@@ -24,7 +24,7 @@ import { Worker } from 'node:worker_threads'
 import type { TerminalSnapshot } from '../terminal-env.ts'
 import type { LockSelf } from './lock.ts'
 import type { NameLocale } from './names.ts'
-import type { BlockedChoice, MoveJournal } from './journal.ts'
+import type { BlockedChoice, HealthFailures, MoveJournal } from './journal.ts'
 import type { BlockedView, MoveOutcome, MoveProgress, ResolveOutcome } from './run.ts'
 import { MOVE_STALL_TIMEOUT_MS } from './worker.ts'
 
@@ -49,23 +49,13 @@ export interface ExecutorRequest {
   before?: ExecutorBefore
 }
 
-/**
- * What failed on the first launch on the new location: the server did not
- * start there, the location could not be read, or the check found fewer
- * session folders, a plugin newly quarantined, or another number of workspace
- * records than before the move.
- */
-export type HealthFailure = 'not-started' | 'unreadable' | 'fewer-sessions' | 'plugin-quarantined' | 'workspaces-differ'
-
-/** The failures of one failed first launch on the new location; never empty. */
-export type HealthFailures = readonly [HealthFailure, ...HealthFailure[]]
-
 /** A step before the move is carried on; see {@link ExecutorRequest.before}. */
 export type ExecutorBefore =
   | { kind: 'resolve'; choice: BlockedChoice; seen: BlockedView }
   /**
-   * `detail` is what the journal and the log record; `failures` is what the
-   * page after a kept new location names, and is recorded nowhere.
+   * `detail` is what the log records; `failures` is what Settings and the
+   * page after a kept new location name. The journal records both
+   * ({@link recordHealth}).
    */
   | { kind: 'health-failed'; detail: string; failures: HealthFailures }
   /** Take the move back after it lost its lock ({@link rollBackMove}). */

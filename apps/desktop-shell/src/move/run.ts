@@ -47,12 +47,13 @@ import {
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
 import type { TerminalSnapshot } from '../terminal-env.ts'
 import { LOCK_FILENAME } from './lock.ts'
-import { copyTree, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
+import { copyTree, CopyMismatchError, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
 import {
-  ABANDONED_FILENAME, abandonedCopiesText, CANCELLABLE_PHASES, DONE_LOG_FILENAME, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS,
-  MOVED_ID_FILENAME, newJournal, nextAction, readAbandonedCopies, readJournal, RESULT_FILENAME, RETIRED_FILENAME, writeJournal,
-  type BlockedChoice, type BlockedReason, type DirFacts, type HomeLinkBefore, type MoveAction, type MoveFacts,
-  type MoveJournal, type MovePhase, type MoveResult, type MoveStart, type PointerBefore, type TargetPrint,
+  ABANDONED_FILENAME, abandonedCopiesText, CANCELLABLE_PHASES, DONE_LOG_FILENAME, healthFailure, JOURNAL_FILENAME, JournalError,
+  MAX_REPAIR_ROUNDS, MOVED_ID_FILENAME, newJournal, nextAction, readAbandonedCopies, readJournal, RESULT_FILENAME, RETIRED_FILENAME,
+  writeJournal, type BlockedChoice, type BlockedReason, type DirFacts, type HealthFailures, type HomeLinkBefore, type MoveAction,
+  type MoveFacts, type MoveFailureKind, type MoveJournal, type MovePhase, type MoveResult, type MoveStart, type PointerBefore,
+  type ResultFailure, type TargetPrint,
 } from './journal.ts'
 import { rewriteInPlace, type InPlaceRewrite, type LinkMove, type RewriteOutcome } from './links.ts'
 import { NODE_REMOVE_FS, REMOVE_ATTEMPTS, REMOVE_FIRST_DELAY_MS, removeTree, type RemoveFs, type RemoveReport } from './remove.ts'
@@ -264,7 +265,7 @@ export const ABANDONABLE_PHASES: ReadonlySet<MovePhase> = new Set(['copying', 'v
  * partial copy or copy at the new location, or puts back the empty folder
  * that was there, and ends with the data where it was.
  * @param dir - the move directory.
- * @param detail - why, recorded as the failure.
+ * @param detail - why, recorded as the failure, of kind `lock-lost`.
  * @throws when there is no journal in one of {@link ABANDONABLE_PHASES}.
  */
 export function abandonMove(dir: string, detail: string): void {
@@ -272,7 +273,7 @@ export function abandonMove(dir: string, detail: string): void {
   if (journal === undefined || !ABANDONABLE_PHASES.has(journal.phase)) {
     throw new JournalError(`journal: the move cannot be abandoned now (phase ${String(journal?.phase)})`)
   }
-  writeJournal(dir, { ...journal, phase: 'abandoning', failure: { phase: journal.phase, detail } })
+  writeJournal(dir, { ...journal, phase: 'abandoning', failure: { phase: journal.phase, detail, kind: 'lock-lost' } })
 }
 
 /** Guarded phases a move that lost its lock may be taken back from: once hiding began, until the health check. */
@@ -285,7 +286,7 @@ export const WITHDRAWABLE_PHASES: ReadonlySet<MovePhase> = new Set(['hiding-sour
  * one that could have been), and puts the pointer and the terminal back.
  * It prints the new location, so it runs on the move's worker.
  * @param dir - the move directory.
- * @param detail - why, recorded as the failure.
+ * @param detail - why, recorded as the failure, of kind `lock-lost`.
  * @param fs - prints the new location.
  * @throws when there is no journal in one of {@link WITHDRAWABLE_PHASES}.
  */
@@ -294,7 +295,7 @@ export function rollBackMove(dir: string, detail: string, fs: MoveFs = NODE_MOVE
   if (journal === undefined || !WITHDRAWABLE_PHASES.has(journal.phase)) {
     throw new JournalError(`journal: the move cannot be taken back now (phase ${String(journal?.phase)})`)
   }
-  writeJournal(dir, enterRollback(journal, { failure: { phase: journal.phase, detail } }, targetPrintNow(fs, journal)))
+  writeJournal(dir, enterRollback(journal, { failure: { phase: journal.phase, detail, kind: 'lock-lost' } }, targetPrintNow(fs, journal)))
 }
 
 /**
@@ -359,6 +360,12 @@ export function startMove(dir: string, start: MoveStart, options: { pid: number;
   return journal
 }
 
+/** Why the first launch on the new location failed: `detail` for the log, `failures` for Settings. */
+export interface HealthFailed {
+  detail: string
+  failures: HealthFailures
+}
+
 /**
  * Record the health check of the first launch on the new location. The
  * application stops the server it started for the check before calling this,
@@ -368,19 +375,23 @@ export function startMove(dir: string, start: MoveStart, options: { pid: number;
  * retires the target into a visible folder rather than deleting it. After
  * the person chose to keep the target, a failure does not roll back: the move
  * finishes on the target and the original is kept in a visible folder the
- * result names (`keptOriginal`), never deleted.
+ * result names (`keptOriginal`), never deleted. Either way the failure, with
+ * its kinds, is recorded and reaches the result.
  * @param dir - the move directory.
- * @param healthy - whether it passed.
- * @param detail - why it failed.
+ * @param failed - why it failed; `undefined` when it passed.
  * @param fs - prints the target; the real file system when absent.
  * @throws when there is no journal in phase `switched`.
  */
-export function recordHealth(dir: string, healthy: boolean, detail = 'the health check failed', fs: MoveFs = NODE_MOVE_FS): void {
+export function recordHealth(dir: string, failed: HealthFailed | undefined, fs: MoveFs = NODE_MOVE_FS): void {
   const journal = readJournal(dir)
   if (journal?.phase !== 'switched') throw new JournalError(`journal: no move awaits a health check (phase ${String(journal?.phase)})`)
-  if (healthy) writeJournal(dir, { ...journal, phase: 'cleanup' })
-  else if (journal.keepTarget) writeJournal(dir, { ...journal, phase: 'cleanup', keepOriginal: true, failure: { phase: 'switched', detail } })
-  else writeJournal(dir, enterRollback(journal, { failure: { phase: 'switched', detail } }, targetPrintNow(fs, journal)))
+  if (failed === undefined) {
+    writeJournal(dir, { ...journal, phase: 'cleanup' })
+    return
+  }
+  const failure = healthFailure(failed.detail, failed.failures)
+  if (journal.keepTarget) writeJournal(dir, { ...journal, phase: 'cleanup', keepOriginal: true, failure })
+  else writeJournal(dir, enterRollback(journal, { failure }, targetPrintNow(fs, journal)))
 }
 
 /** What the page the person chose on showed: the reason and the target's print. */
@@ -404,7 +415,8 @@ export type ResolveOutcome = 'applied' | 'not-blocked' | 'refused'
  *   source; the original is then deleted only if the next health check passes.
  * - `rollback`: the rollback goes on; a copy whose disk is away is left where
  *   it is (and recorded when the move ends), and a copy that was exposed is
- *   retired into a visible folder, never deleted.
+ *   retired into a visible folder, never deleted. A move blocked before
+ *   anything failed records what blocked it as the failure.
  * @param dir - the move directory.
  * @param choice - the person's choice.
  * @param seen - what the page the person chose on showed.
@@ -431,13 +443,40 @@ export function resolveBlocked(dir: string, choice: BlockedChoice, seen: Blocked
       save(next)
       return 'applied'
     }
-    case 'rollback':
+    case 'rollback': {
+      // A move blocked before anything failed goes back for what blocked it.
+      const failure = journal.failure ?? {
+        phase: journal.phase, detail: `the person chose to go back (${action.reason})`, kind: blockedFailureKind(action.reason),
+      }
       save(enterRollback(journal, {
-        awaitingChoice: false, ...action.reason === 'target-missing' ? { targetAbandoned: true } : {},
+        awaitingChoice: false, failure, ...action.reason === 'target-missing' ? { targetAbandoned: true } : {},
       }, print ?? undefined))
       return 'applied'
+    }
     default:
       return choice satisfies never
+  }
+}
+
+/**
+ * The failure kind of a rollback the person chose on a blocked move.
+ * @param reason - what blocked the move.
+ * @returns the kind.
+ */
+function blockedFailureKind(reason: BlockedReason): MoveFailureKind {
+  switch (reason) {
+    case 'target-occupied':
+      return 'target-occupied'
+    case 'target-missing':
+      return 'copy-gone'
+    case 'source-occupied':
+    case 'original-missing':
+      return 'source-changed'
+    case 'target-changed':
+    case 'choice-needed':
+      return 'other'
+    default:
+      return reason satisfies never
   }
 }
 
@@ -570,9 +609,9 @@ export async function advanceMove(dir: string, effects: MoveEffects, options: Ad
       if (CANCELLABLE_PHASES.has(current.phase) && cancel.aborted) {
         save({ ...latest, phase: 'cancelling' })
       } else if (ABANDON_ON_FAILURE.has(current.phase)) {
-        save({ ...latest, phase: 'abandoning', failure: { phase: current.phase, detail } })
+        save({ ...latest, phase: 'abandoning', failure: { phase: current.phase, detail, kind: failureKindOf(error) } })
       } else if (ROLL_BACK_ON_FAILURE.has(current.phase)) {
-        save(enterRollback(latest, { failure: { phase: current.phase, detail } }, targetPrintNow(fs, latest)))
+        save(enterRollback(latest, { failure: { phase: current.phase, detail, kind: failureKindOf(error) } }, targetPrintNow(fs, latest)))
       } else {
         throw error
       }
@@ -654,6 +693,29 @@ function describeProblems(problems: readonly VerifyProblem[]): string {
 }
 
 /**
+ * The failure kind of an error a step threw: a file that read back different
+ * from what was written, a full drive, or a write refused for lack of
+ * permission; `other` for anything else.
+ * @param error - what the step threw.
+ * @returns the kind.
+ */
+export function failureKindOf(error: unknown): MoveFailureKind {
+  if (error instanceof CopyMismatchError) return 'copy-mismatch'
+  const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
+  switch (code) {
+    case 'ENOSPC':
+    case 'EDQUOT':
+      return 'no-space'
+    case 'EACCES':
+    case 'EPERM':
+    case 'EROFS':
+      return 'no-permission'
+    default:
+      return 'other'
+  }
+}
+
+/**
  * Do one step.
  * @param action - the step.
  * @param journal - the journal before it.
@@ -669,10 +731,12 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
   const phase = (next: MovePhase, changes: Partial<MoveJournal> = {}): void => { save({ ...journal, ...changes, phase: next }) }
   switch (action.kind) {
     case 'abandon':
-      phase('abandoning', { failure: { phase: journal.phase, detail: action.detail } })
+      phase('abandoning', { failure: { phase: journal.phase, detail: action.detail, kind: action.failure } })
       return undefined
     case 'roll-back':
-      save(enterRollback(journal, { failure: { phase: journal.phase, detail: action.detail } }, targetPrintNow(fs, journal)))
+      save(enterRollback(
+        journal, { failure: { phase: journal.phase, detail: action.detail, kind: action.failure } }, targetPrintNow(fs, journal),
+      ))
       return undefined
     case 'blocked': {
       // A blocked rollback waits for the person's choice even after the obstruction is gone.
@@ -720,7 +784,7 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
         return undefined
       }
       if (journal.repairRounds >= MAX_REPAIR_ROUNDS) {
-        phase('abandoning', { failure: { phase: journal.phase, detail: `the copy does not match: ${describeProblems(problems)}` } })
+        phase('abandoning', { failure: { phase: journal.phase, detail: `the copy does not match: ${describeProblems(problems)}`, kind: 'copy-mismatch' } })
         return undefined
       }
       const extras = problems.filter(problem => problem.kind === 'extra').map(problem => problem.rel)
@@ -834,7 +898,8 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
         await renameWithRetry(effects, journal.target, journal.unusedCopy ?? journal.target)
       } catch (error) {
         // Retired and without its identity, it is safe where it is; the rollback must not stop on it.
-        save({ ...journal, retiredInPlace: true, failure: journal.failure ?? { phase: journal.phase, detail: String(error) } })
+        const failure = journal.failure ?? { phase: journal.phase, detail: String(error), kind: failureKindOf(error) }
+        save({ ...journal, retiredInPlace: true, failure })
       }
       return undefined
     case 'mark-hidden-retired':
@@ -927,7 +992,12 @@ function freeSibling(effects: MoveEffects, path: string, kind: KeptFolderKind): 
 /**
  * End the move: record a copy the person rolled back without, write the
  * result, then remove the done log, the journal, and any temporary file an
- * interrupted durable write left in the directory.
+ * interrupted durable write left in the directory. The result names the
+ * failure's kinds when the move failed (`other` when the journal records
+ * none), and when it finished on a new location that failed its check after
+ * the person chose to keep it; a move that went on after an earlier failure
+ * because the person chose so, and then passed its check, keeps only the
+ * `detail`.
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
@@ -948,6 +1018,10 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     else if (facts.hidden.exists) kept = journal.hidden
   }
   const original = outcome === 'moved' && journal.originalAbandoned ? journal.source : undefined
+  const failed = outcome === 'failed' || (outcome === 'moved' && journal.keepOriginal) ? journal.failure : undefined
+  let failure: ResultFailure | undefined
+  if (failed !== undefined) failure = { kind: failed.kind, ...failed.also === undefined ? {} : { also: failed.also } }
+  else if (outcome === 'failed') failure = { kind: 'other' }
   // The original was at its old path or already hidden beside it when its drive went away.
   const paths = [...abandoned === undefined ? [] : [abandoned], ...original === undefined ? [] : [journal.source, journal.hidden]]
   if (paths.length > 0) {
@@ -964,6 +1038,7 @@ function finish(dir: string, journal: MoveJournal, outcome: MoveResult['outcome'
     source: journal.source,
     target: journal.target,
     ...journal.failure === undefined ? {} : { detail: journal.failure.detail },
+    ...failure === undefined ? {} : { failure },
     leftovers: journal.leftovers,
     ...unused === undefined ? {} : { unusedCopy: { path: unused } },
     ...abandoned === undefined ? {} : { abandonedCopy: { path: abandoned } },

@@ -10,9 +10,7 @@
  */
 
 import { app, BrowserWindow, shell } from 'electron'
-import { syncTerminal } from './data-location-boot.ts'
 import { appDataLocationHost } from './data-location-window.ts'
-import { POINTER_VERSION, type DataLocationPointer } from './data-location.ts'
 import { defaultHarnessHome } from './data-location-boot.ts'
 import type { MoveFlowDeps, MoveUi } from './move-flow.ts'
 import { moveText } from './move-text.ts'
@@ -20,11 +18,12 @@ import { nameLocale } from './move/names.ts'
 import { pageDocument, parseMoveLink, progressDocument, type MoveLink, type MovePage, type ProgressView } from './move-page.ts'
 import type { MoveText } from './move-text.ts'
 import type { ExecutorBefore, MainEffects } from './move/executor.ts'
-import { moveDir, readJournal } from './move/journal.ts'
+import { moveDir } from './move/journal.ts'
 import type { LockSelf } from './move/lock.ts'
 import { nodeLockProbes } from './process-tree.ts'
 import { systemPowerShell } from './terminal-env.ts'
 import { restoreTerminal } from './terminal-restore.ts'
+import { syncMoveTerminal } from './terminal-sync-record.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 
 /** Milliseconds one PowerShell run may take before it is killed. */
@@ -128,7 +127,8 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
 
 /**
  * The terminal effects of a move in the app: the launch's own terminal sync
- * (write, then read back) for the switch, and the snapshot restore for a
+ * (write, then read back) for the switch, recorded for the launch that checks
+ * the switch ({@link syncMoveTerminal}), and the snapshot restore for a
  * rollback.
  * @param window - the window the launch prompts would be parented on.
  * @param dir - the move directory, for the journal's identity and the value last seen before the move.
@@ -139,16 +139,7 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
   const host = appDataLocationHost(window, () => undefined, log)
   const powershell = systemPowerShell(process.env['SystemRoot'] ?? 'C:\\Windows', POWERSHELL_TIMEOUT_MS)
   return {
-    syncTerminal: async (target) => {
-      const journal = readJournal(dir)
-      if (journal === undefined) throw new Error('no data move is recorded')
-      const pointer: DataLocationPointer = {
-        version: POINTER_VERSION, path: target, dataId: journal.dataId,
-        ...journal.lastSeenEnvBefore === undefined ? {} : { lastSeenEnv: journal.lastSeenEnvBefore },
-      }
-      const synced = await syncTerminal(host, pointer, undefined)
-      return synced.pointer.lastSeenEnv
-    },
+    syncTerminal: target => syncMoveTerminal(host, dir, app.getPath('userData'), target),
     restoreTerminal: async (snapshot) => {
       log(`[desktop] data move: terminal restored: ${await restoreTerminal(snapshot, powershell)}\n`)
     },

@@ -527,7 +527,7 @@ async function prepareBlocked(c: Case): Promise<Prepared> {
   const effects = harnessEffects(p.setup)
   expect(await advanceMove(p.setup.dir, effects, { pid: process.pid })).toEqual({ kind: 'switched' })
   expect(plantIntruder(p.f.home)).toBe(true)
-  recordHealth(p.setup.dir, false)
+  recordHealth(p.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
   expect(await advanceMove(p.setup.dir, effects, { pid: process.pid })).toMatchObject({ kind: 'blocked', reason: 'source-occupied' })
   if (c.choose === 'rollback') await rm(p.f.home, { recursive: true, force: true })
   return p

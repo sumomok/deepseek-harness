@@ -20,14 +20,15 @@ import {
 import { calibrateHomeLink } from '../src/home-link.ts'
 import {
   abandonedCopiesText, isAbandonedCopy, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, mayStartServer, MOVE_PHASES, nextAction,
-  readAbandonedCopies, readJournal, readMoveResult, RETIRED_FILENAME, validateJournal,
+  readAbandonedCopies, readJournal, readMoveResult, RESULT_FILENAME, RETIRED_FILENAME, validateJournal,
   type DirFacts, type MoveFacts, type MoveId, type MoveJournal,
 } from '../src/move/journal.ts'
 import {
-  advanceMove, canonicalPath, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked, retireAbandonedCopies,
-  abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove,
+  advanceMove, canonicalPath, failureKindOf, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked,
+  retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
+import { CopyMismatchError } from '../src/move/copier.ts'
 import { acquireMoveLock, checkOwnLock, LOCK_FILENAME, MoveLockLostError } from '../src/move/lock.ts'
 import { keptFolderName } from '../src/move/names.ts'
 import { MOVE_STATE_FILENAME, REBUILDABLE_ENTRIES } from '../src/move/tree.ts'
@@ -129,7 +130,7 @@ async function runToEnd(s: Scenario, healthy: boolean, effects: MoveEffects = ha
   const first = await advanceMove(s.setup.dir, effects, { pid: PID })
   expect(first).toEqual({ kind: 'switched' })
   bootOnTarget(s)
-  recordHealth(s.setup.dir, healthy, 'sessions missing')
+  recordHealth(s.setup.dir, healthy ? undefined : { detail: 'sessions missing', failures: ['fewer-sessions'] })
   return advanceMove(s.setup.dir, effects, { pid: PID })
 }
 
@@ -183,7 +184,7 @@ describe('a move to another volume', () => {
     expect(JSON.parse(pointerText(s, 'data-location.json') ?? '{}')).toMatchObject({ path: s.target, dataId: HARNESS_ID, lastSeenEnv: s.target })
     expect(terminalValue(s.setup)).toBe(s.target)
     bootOnTarget(s)
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     const last = await advanceMove(s.setup.dir, effects, { pid: PID })
     expect(last).toMatchObject({ kind: 'ended', result: { outcome: 'moved', source: s.f.home, target: s.target } })
     expect(existsSync(journal?.hidden ?? '')).toBe(false)
@@ -211,6 +212,7 @@ describe('a move to another volume', () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     const outcome = await runToEnd(s, false)
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'sessions missing' } })
+    expect(readMoveResult(s.setup.dir)?.failure).toEqual({ kind: 'fewer-sessions' })
     expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
     // The copy was exposed (the pointer and the terminal were told about it), so it is kept, retired, beside where it was.
@@ -263,7 +265,7 @@ describe('a move to another volume', () => {
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     bootOnTarget(s)
     expect(lstatSync(s.setup.defaultHome).isSymbolicLink()).toBe(true)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
     expect(lstatSync(s.setup.defaultHome).isDirectory()).toBe(true)
@@ -315,7 +317,7 @@ describe('a move to another volume', () => {
       },
     }
     const outcome = await advanceMove(s.setup.dir, effects, { pid: PID })
-    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'copy-mismatch' } } })
     expect(outcome.kind === 'ended' ? outcome.result.detail : undefined).toContain('big.bin')
     expect(checks).toBe(MAX_REPAIR_ROUNDS + 1)
     expect(originalListing(s)).toEqual(s.before)
@@ -326,7 +328,7 @@ describe('a move to another volume', () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     writeFileSync(join(s.f.home, '.dsh-data-id'), '99999999-8888-4777-8666-555555555555\n')
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'source-changed' } } })
     expect(readdirSync(s.f.targetParent)).toEqual([])
   })
 
@@ -335,7 +337,7 @@ describe('a move to another volume', () => {
     const real = harnessEffects(s.setup)
     const stubborn: MoveEffects = { ...real, remove: async () => ({ removed: 0, leftovers: [{ path: 'x', code: 'EBUSY', bytes: 35 }], leftoverBytes: 35 }) }
     await advanceMove(s.setup.dir, stubborn, { pid: PID })
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     expect(await advanceMove(s.setup.dir, stubborn, { pid: PID })).toEqual({ kind: 'cleanup-incomplete', attempts: 1, leftoverBytes: 35 })
     expect(readJournal(s.setup.dir)).toMatchObject({ phase: 'cleanup', cleanupAttempts: 1, cleanupLeftoverBytes: 35 })
     expect(await advanceMove(s.setup.dir, stubborn, { pid: PID })).toEqual({ kind: 'cleanup-incomplete', attempts: 2, leftoverBytes: 35 })
@@ -356,7 +358,7 @@ describe('a directory a terminal made at the old path', () => {
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     expect(plantIntruder(s.f.home)).toBe(true)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'blocked', reason: 'source-occupied', dataAt: [hidden, s.target], choices: ['keep-target'] })
     expect(mayStartServer(readJournal(s.setup.dir))).toBe(false)
@@ -382,14 +384,17 @@ describe('a directory a terminal made at the old path', () => {
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     plantIntruder(s.f.home)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('not-blocked')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     expect(mayStartServer(readJournal(s.setup.dir))).toBe(true)
-    recordHealth(s.setup.dir, true)
-    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    recordHealth(s.setup.dir, undefined)
+    const moved = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(moved).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    // The rollback's cause stays in the log's detail; the result names no failure, since the kept location passed.
+    expect(moved.kind === 'ended' ? moved.result.failure : 'not ended').toBeUndefined()
     expect(existsSync(hidden)).toBe(false)
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
     expect(readFileSync(join(s.f.home, '.dsh-data-id'), 'utf8').trim()).toBe(INTRUDER_ID)
@@ -400,17 +405,19 @@ describe('a directory a terminal made at the old path', () => {
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     plantIntruder(s.f.home)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(blocked))).toBe('applied')
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'sessions 1 < 2; newly quarantined: p', failures: ['fewer-sessions', 'plugin-quarantined'] })
     const removed: string[] = []
     const real = harnessEffects(s.setup)
     const recording: MoveEffects = { ...real, remove: async (path) => { removed.push(path); return real.remove(path) } }
     const outcome = await advanceMove(s.setup.dir, recording, { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'moved', leftovers: [] } })
     const result = outcome.kind === 'ended' ? outcome.result : undefined
+    expect(result?.failure).toEqual({ kind: 'fewer-sessions', also: ['plugin-quarantined'] })
+    expect(readMoveResult(s.setup.dir)?.failure).toEqual({ kind: 'fewer-sessions', also: ['plugin-quarantined'] })
     const kept = result?.keptOriginal?.path ?? ''
     expect(kept).toBe(join(dirname(s.f.home), keptFolderName('en', 'original', new Date(), 1)))
     expect(readMoveResult(s.setup.dir)?.keptOriginal).toEqual({ path: kept })
@@ -428,7 +435,7 @@ describe('a directory a terminal made at the old path', () => {
     const s = await scenario({ sameVolume: false, start: 'default-home' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     plantIntruder(s.f.home)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     mkdirSync(join(s.target, 'sessions', 'new'), { recursive: true })
     writeFileSync(join(s.target, 'sessions', 'new', 'log'), 'NEW WORK\n')
@@ -443,7 +450,7 @@ describe('a directory a terminal made at the old path', () => {
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     expect(existsSync(s.f.home)).toBe(false)
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
     expect(readFileSync(join(s.target, 'sessions', 'new', 'log'), 'utf8')).toBe('NEW WORK\n')
     expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
@@ -455,7 +462,7 @@ describe('a directory a terminal made at the old path', () => {
     // Written by a terminal DSH while the move was switched, before the check failed.
     mkdirSync(join(s.target, 'skills', 'mine'), { recursive: true })
     writeFileSync(join(s.target, 'skills', 'mine', 'SKILL.md'), 'hand written\n')
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
     expect(originalListing(s)).toEqual(s.before)
@@ -475,7 +482,7 @@ describe('a directory a terminal made at the old path', () => {
       },
     }
     const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
-    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'injected: the read-back failed' } })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'injected: the read-back failed', failure: { kind: 'other' } } })
     expect(terminalValue(s.setup)).toBe(s.f.home)
     expect(originalListing(s)).toEqual(s.before)
     expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
@@ -484,7 +491,7 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('leaves the retired copy where it is when it cannot be renamed, and still goes back', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const real = harnessEffects(s.setup)
     const held: MoveEffects = {
       ...real,
@@ -529,7 +536,7 @@ describe('a directory a terminal made at the old path', () => {
     const s = await scenario({ sameVolume: false, start: 'default-home' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     plantIntruder(s.f.home)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     await rm(s.f.home, { recursive: true })
     writeFileSync(join(s.target, 'AGENTS.md'), 'first edit\n')
@@ -553,7 +560,7 @@ describe('a directory a terminal made at the old path', () => {
     const s = await scenario({ sameVolume: false, start: 'default-home' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     plantIntruder(s.f.home)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     await rm(s.f.home, { recursive: true })
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'blocked', reason: 'choice-needed' })
@@ -567,7 +574,7 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('lets the person roll back without a copy whose disk is away', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const away = join(s.f.root, 'unplugged')
     renameSync(s.target, away)
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -599,7 +606,7 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('blocks a rollback whose exposed copy vanished after the original was back, until the person chooses', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const away = join(s.f.root, 'unplugged')
     const real = harnessEffects(s.setup)
     // The drive goes away right after the original is back at its path.
@@ -623,14 +630,14 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('offers to keep the new location when the original is gone', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     renameSync(hidden, join(s.f.root, 'lost'))
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'blocked', reason: 'original-missing', dataAt: [s.target], choices: ['keep-target'] })
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'moved', abandonedOriginal: { path: s.f.home } } })
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
@@ -651,13 +658,13 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('reports a missing original as abandoned, not kept, when the kept location fails again', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     renameSync(hidden, join(s.f.root, 'lost'))
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'moved', abandonedOriginal: { path: s.f.home } } })
     expect(ended.kind === 'ended' ? ended.result.keptOriginal : 'x').toBeUndefined()
@@ -666,7 +673,7 @@ describe('a directory a terminal made at the old path', () => {
   posixOnly('records nothing as abandoned when the original comes back before the move ends', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     renameSync(hidden, join(s.f.root, 'lost'))
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -675,7 +682,7 @@ describe('a directory a terminal made at the old path', () => {
     renameSync(join(s.f.root, 'lost'), hidden)
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     expect(readJournal(s.setup.dir)?.originalAbandoned).toBe(false)
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(ended.kind === 'ended' ? ended.result.abandonedOriginal : 'x').toBeUndefined()
     expect(existsSync(hidden)).toBe(false)
@@ -724,7 +731,7 @@ describe('a directory a terminal made at the old path', () => {
     const setup = prepareMove({ root: f.root, home: f.home, target, sameVolume: false, start: 'pointer' })
     startMove(setup.dir, setup.start, { pid: PID, now: new Date() })
     await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
-    recordHealth(setup.dir, false)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     renameSync(join(f.targetParent, 'DSH-Data'), join(f.root, 'unplugged'))
     const blocked = await advanceMove(setup.dir, harnessEffects(setup), { pid: PID })
     expect(resolveBlocked(setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
@@ -771,7 +778,7 @@ describe('a directory a terminal made at the old path', () => {
     // Abandoned: the partial copy goes, unguarded, and nothing else changes.
     abandonMove(s.setup.dir, 'the move lock was lost')
     const ended = await advanceMove(s.setup.dir, effects, { pid: PID, guard })
-    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', source: s.f.home } })
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', source: s.f.home, failure: { kind: 'lock-lost' } } })
     expect(readJournal(s.setup.dir)).toBeUndefined()
     expect(existsSync(journal?.partial ?? '')).toBe(false)
     expect(listTree(s.f.home)).toEqual(before)
@@ -815,14 +822,14 @@ describe('a directory a terminal made at the old path', () => {
     const s = await scenario({ sameVolume: true, start: 'default-home' })
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
     expect(plantIntruder(s.f.home)).toBe(true)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(outcome).toMatchObject({ kind: 'blocked', reason: 'source-occupied', dataAt: [s.target], choices: ['keep-target'] })
     expect(JSON.parse(pointerText(s, 'data-location.json') ?? '{}')).toMatchObject({ path: s.target })
     expect(mayStartServer(readJournal(s.setup.dir))).toBe(false)
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
     expect(readFileSync(join(s.target, '.dsh-data-id'), 'utf8').trim()).toBe(HARNESS_ID)
   })
@@ -864,7 +871,7 @@ describe('generations: a left-behind copy is older wherever it is mounted', () =
     posixOnly(`sets aside a copy a rollback went without, remounted at another path (${start})`, async () => {
       const s = await scenario({ sameVolume: false, start })
       await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-      recordHealth(s.setup.dir, false)
+      recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
       const away = join(s.f.root, 'unplugged')
       renameSync(s.target, away)
       const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -891,13 +898,13 @@ describe('generations: a left-behind copy is older wherever it is mounted', () =
   posixOnly('sets aside an original the person moved on without, when it comes back at another path', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const hidden = readJournal(s.setup.dir)?.hidden ?? ''
     renameSync(hidden, join(s.f.root, 'lost'))
     const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(blocked))).toBe('applied')
     expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
-    recordHealth(s.setup.dir, true)
+    recordHealth(s.setup.dir, undefined)
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     const pointer = readPointer(s.setup.userData)
     expect(pointer.kind === 'ok' ? pointer.pointer.generation : undefined).toBe(readGeneration(s.target))
@@ -918,7 +925,7 @@ describe('generations: a left-behind copy is older wherever it is mounted', () =
     expect(readGeneration(s.target)).toBe(8)
     const pointer = readPointer(s.setup.userData)
     expect(pointer.kind === 'ok' ? pointer.pointer.generation : undefined).toBe(8)
-    recordHealth(s.setup.dir, false)
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(readGeneration(s.f.home)).toBe(9)
     expect(readGeneration(ended.kind === 'ended' ? ended.result.unusedCopy?.path ?? '' : '')).toBe(8)
@@ -989,10 +996,120 @@ describe('a move by rename on one volume', () => {
 
   posixOnly('rolls back a rename with its link rewrites', async () => {
     const s = await scenario({ sameVolume: true, start: 'pointer' })
-    expect(await runToEnd(s, false)).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(await runToEnd(s, false)).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'fewer-sessions' } } })
     expect(originalListing(s)).toEqual(s.before)
     expect(existsSync(s.target)).toBe(false)
     expect(pointerText(s, 'data-location.json')).toBe(s.pointerBefore.main)
+  })
+})
+
+describe('why a move failed', () => {
+  for (const [code, kind] of [['ENOSPC', 'no-space'], ['EACCES', 'no-permission']] as const) {
+    it(`names a copy that stopped on ${code} as ${kind}, and gives the move up`, async () => {
+      const s = await scenario({ sameVolume: false, start: 'pointer' })
+      const effects: MoveEffects = {
+        ...harnessEffects(s.setup),
+        copy: async () => { throw Object.assign(new Error(`injected: ${code}`), { code }) },
+      }
+      const outcome = await advanceMove(s.setup.dir, effects, { pid: PID })
+      expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: `injected: ${code}`, failure: { kind } } })
+      expect(readMoveResult(s.setup.dir)?.failure).toEqual({ kind })
+      expect(originalListing(s)).toEqual(s.before)
+    })
+  }
+
+  it('names something already at the new location', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    mkdirSync(s.target)
+    writeFileSync(join(s.target, 'notes.txt'), 'not the data\n')
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'target-occupied' } } })
+    expect(readFileSync(join(s.target, 'notes.txt'), 'utf8')).toBe('not the data\n')
+  })
+
+  posixOnly('names a move taken back after it lost its lock', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    expect(await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })).toEqual({ kind: 'switched' })
+    rollBackMove(s.setup.dir, 'the move lock was lost: gone')
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'lock-lost' } } })
+    expect(originalListing(s)).toEqual(s.before)
+  })
+
+  posixOnly('names what blocked a move the person took back before anything failed', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    const real = harnessEffects(s.setup)
+    const taken: MoveEffects = {
+      ...real,
+      fs: {
+        ...real.fs,
+        rename: (from, to) => {
+          real.fs.rename(from, to)
+          if (to !== hidden) return
+          // Right after the original is hidden, a folder that is not the copy takes the new location's path.
+          renameSync(s.target, join(s.f.root, 'copy-aside'))
+          mkdirSync(s.target)
+          writeFileSync(join(s.target, 'notes.txt'), 'not the data\n')
+        },
+      },
+    }
+    const blocked = await advanceMove(s.setup.dir, taken, { pid: PID })
+    expect(blocked).toMatchObject({ kind: 'blocked', reason: 'target-occupied', choices: ['rollback'] })
+    expect(readJournal(s.setup.dir)?.failure).toBeUndefined()
+    expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
+    const outcome = await advanceMove(s.setup.dir, real, { pid: PID })
+    expect(outcome).toMatchObject({
+      kind: 'ended', result: { outcome: 'failed', detail: 'the person chose to go back (target-occupied)', failure: { kind: 'target-occupied' } },
+    })
+    expect(originalListing(s)).toEqual(s.before)
+    expect(readFileSync(join(s.target, 'notes.txt'), 'utf8')).toBe('not the data\n')
+  })
+
+  it('names a failed move whose journal records no failure as other', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const journal = readJournal(s.setup.dir)
+    // An older build's rollback the person chose recorded no failure.
+    writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, phase: 'abandoning' }))
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind: 'other' } } })
+    expect(outcome.kind === 'ended' ? outcome.result.detail : 'not ended').toBeUndefined()
+  })
+
+  it('names a cancelled move\'s result without a failure', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const controller = new AbortController()
+    controller.abort()
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID, cancel: controller.signal })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'cancelled' } })
+    expect(outcome.kind === 'ended' ? outcome.result.failure : 'not ended').toBeUndefined()
+  })
+
+  it('classifies what a step threw', () => {
+    expect(failureKindOf(new CopyMismatchError('a/b'))).toBe('copy-mismatch')
+    for (const code of ['ENOSPC', 'EDQUOT']) expect(failureKindOf(Object.assign(new Error(code), { code }))).toBe('no-space')
+    for (const code of ['EACCES', 'EPERM', 'EROFS']) expect(failureKindOf(Object.assign(new Error(code), { code }))).toBe('no-permission')
+    expect(failureKindOf(Object.assign(new Error('busy'), { code: 'EBUSY' }))).toBe('other')
+    expect(failureKindOf(new Error('no code'))).toBe('other')
+    expect(failureKindOf('a string')).toBe('other')
+  })
+
+  it('reads a result an older build wrote, without a failure, and leaves out a failure it cannot read', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const base = {
+      version: 1, moveId: 'm', outcome: 'failed', source: s.f.home, target: s.target, detail: 'x', leftovers: [], finishedAt: '2026-10-03T00:00:00.000Z',
+    }
+    const read = (failure: unknown): unknown => {
+      writeFileSync(join(s.setup.dir, RESULT_FILENAME), JSON.stringify(failure === undefined ? base : { ...base, failure }))
+      return readMoveResult(s.setup.dir)
+    }
+    expect(read(undefined)).toEqual(base)
+    expect(read({ kind: 'copy-gone' })).toEqual({ ...base, failure: { kind: 'copy-gone' } })
+    expect(read({ kind: 'not-started', also: ['unreadable', 'gremlins'] })).toEqual({ ...base, failure: { kind: 'not-started', also: ['unreadable', 'other'] } })
+    expect(read({ kind: 'gremlins' })).toEqual({ ...base, failure: { kind: 'other' } })
+    expect(read({ kind: 3 })).toEqual(base)
+    expect(read({ kind: 'copy-gone', also: 'unreadable' })).toEqual(base)
+    expect(read('copy-gone')).toEqual(base)
   })
 })
 
@@ -1022,13 +1139,26 @@ describe('the journal', () => {
     bad({ linkRewrites: [{ rel: 'a' }] })
     bad({ pointerWritten: 'yes' })
     bad({ failure: { phase: 'nope', detail: 'x' } })
+    bad({ failure: { phase: 'copying', detail: 'x', kind: 7 } })
+    bad({ failure: { phase: 'copying', detail: 'x', kind: 'no-space', also: 'fewer-sessions' } })
     writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), '{ torn')
     expect(() => readJournal(s.setup.dir)).toThrow(JournalError)
   })
 
+  it('reads a failure an older build recorded without a kind, or with a kind this build does not know, as other', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const journal = readJournal(s.setup.dir)
+    expect(validateJournal({ ...journal, failure: { phase: 'copying', detail: 'x' } }).failure)
+      .toEqual({ phase: 'copying', detail: 'x', kind: 'other' })
+    expect(validateJournal({ ...journal, failure: { phase: 'switched', detail: 'x', kind: 'gremlins', also: ['fewer-sessions', 'trolls'] } }).failure)
+      .toEqual({ phase: 'switched', detail: 'x', kind: 'other', also: ['fewer-sessions', 'other'] })
+    expect(validateJournal({ ...journal, failure: { phase: 'copying', detail: 'x', kind: 'no-space' } }).failure)
+      .toEqual({ phase: 'copying', detail: 'x', kind: 'no-space' })
+  })
+
   it('names no health check to record outside the switched phase', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
-    expect(() => { recordHealth(s.setup.dir, true) }).toThrow(JournalError)
+    expect(() => { recordHealth(s.setup.dir, undefined) }).toThrow(JournalError)
   })
 })
 
@@ -1112,6 +1242,23 @@ describe('nextAction', () => {
       .toBe('unlink-target-id')
     expect(nextAction(rolling, facts({ target: dir({ exists: true, state: 'ours' }), hidden }), false).kind).toBe('rename-hidden-to-source')
     expect(nextAction(journal({ phase: 'rolling-back' }), facts({ target: ours, hidden }), false).kind).toBe('restore-home-link')
+  })
+
+  it('names why it gives a move up or rolls it back', () => {
+    const occupied = dir({ exists: true })
+    const failureOf = (action: ReturnType<typeof nextAction>): string | undefined =>
+      action.kind === 'abandon' || action.kind === 'roll-back' ? `${action.kind} ${action.failure}` : undefined
+    expect(failureOf(nextAction(journal({}), facts({}), false))).toBe('abandon source-changed')
+    expect(failureOf(nextAction(journal({}), facts({ source: ours, target: occupied }), false))).toBe('abandon target-occupied')
+    const finalizing = journal({ phase: 'finalizing' })
+    expect(failureOf(nextAction(finalizing, facts({ partial: dir({ exists: true, state: 'ours' }), target: occupied }), false)))
+      .toBe('abandon target-occupied')
+    expect(failureOf(nextAction(finalizing, facts({}), false))).toBe('abandon copy-gone')
+    expect(failureOf(nextAction(journal({ phase: 'switching' }), facts({}), false))).toBe('roll-back copy-gone')
+    const hidden = dir({ exists: true, state: 'ours', movedId: true })
+    expect(failureOf(nextAction(journal({ phase: 'hiding-source' }), facts({ hidden }), false))).toBe('roll-back copy-gone')
+    expect(failureOf(nextAction(journal({ phase: 'hiding-source', sameVolume: true }), facts({ source: ours, target: occupied }), false)))
+      .toBe('abandon target-occupied')
   })
 
   it('writes the pointer before the terminal', () => {

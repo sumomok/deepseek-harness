@@ -22,10 +22,10 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME, profileDirectory, readMigrationMarker } from './profile-seed.ts'
 import {
-  JOURNAL_FILENAME, JournalError, mayStartServer, readJournal, type MoveBaseline, type MoveJournal, type MoveResult,
+  JOURNAL_FILENAME, JournalError, mayStartServer, readJournal, type HealthFailure, type HealthFailures, type MoveBaseline,
+  type MoveJournal, type MoveResult,
 } from './move/journal.ts'
 import { releaseMoveLock, type LockSelf } from './move/lock.ts'
-import type { HealthFailure, HealthFailures } from './move/executor.ts'
 import { recordHealth, type MoveOutcome } from './move/run.ts'
 import type { TreeCheck } from './process-tree.ts'
 
@@ -127,7 +127,7 @@ export function moveFacts(dir: string, cleanupRunning: boolean): {
  */
 export function passHealthCheck(dir: string, self: Pick<LockSelf, 'userData'>, log: (line: string) => void): void {
   const journal = readJournal(dir)
-  recordHealth(dir, true)
+  recordHealth(dir, undefined)
   if (journal === undefined) return
   try {
     releaseMoveLock([journal.target], self)
@@ -234,8 +234,9 @@ export interface SwitchedLaunch<Started> {
   stopServerTree: () => Promise<TreeCheck>
   /**
    * Record the failure and carry the rollback in the move's window; resolves
-   * once the application is on its way out. `detail` is what the journal and
-   * the log record, `failures` what the page after a kept new location names.
+   * once the application is on its way out. `detail` is what the log records,
+   * `failures` what Settings and the page after a kept new location name; the
+   * journal and the move's result record both.
    */
   rollBack: (detail: string, failures: HealthFailures) => Promise<void>
   /** Record the passed check ({@link passHealthCheck}). */

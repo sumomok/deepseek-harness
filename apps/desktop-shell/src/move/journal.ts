@@ -99,6 +99,84 @@ export interface MoveBaseline {
  */
 export type TargetPrint = string
 
+/**
+ * Why a move was given up or rolled back, as Settings words it.
+ *
+ * - `source-changed`: the data folder was no longer where it was, or no longer
+ *   carried its identity.
+ * - `target-occupied`: something that is not this move's copy is at the new
+ *   location.
+ * - `copy-mismatch`: the copy still differed from the original after the
+ *   repair rounds, or a file read back different from what was written.
+ * - `copy-gone`: the copy at the new location disappeared, or no longer holds
+ *   this data.
+ * - `no-space`: a drive ran out of space (`ENOSPC`, `EDQUOT`).
+ * - `no-permission`: a file or folder could not be written for lack of
+ *   permission, or on a read-only drive (`EACCES`, `EPERM`, `EROFS`).
+ * - `lock-lost`: the move lost its lock, and the person abandoned it or took
+ *   it back.
+ * - `not-started`, `unreadable`, `fewer-sessions`, `plugin-quarantined`,
+ *   `workspaces-differ`: the first launch on the new location failed
+ *   ({@link HealthFailure}).
+ * - `other`: any other error, every failure an older build recorded without a
+ *   kind, and a failed move whose journal records no failure.
+ */
+export const MOVE_FAILURE_KINDS = [
+  'source-changed', 'target-occupied', 'copy-mismatch', 'copy-gone', 'no-space', 'no-permission', 'lock-lost',
+  'not-started', 'unreadable', 'fewer-sessions', 'plugin-quarantined', 'workspaces-differ', 'other',
+] as const
+
+/** One {@link MOVE_FAILURE_KINDS} entry. */
+export type MoveFailureKind = typeof MOVE_FAILURE_KINDS[number]
+
+/**
+ * What failed on the first launch on the new location: the server did not
+ * start there, the location could not be read, or the check found fewer
+ * session folders, a plugin newly quarantined, or another number of workspace
+ * records than before the move.
+ */
+export type HealthFailure = Extract<MoveFailureKind, 'not-started' | 'unreadable' | 'fewer-sessions' | 'plugin-quarantined' | 'workspaces-differ'>
+
+/** The failures of one failed first launch on the new location; never empty. */
+export type HealthFailures = readonly [HealthFailure, ...HealthFailure[]]
+
+/**
+ * Whether a recorded text is one of the {@link MOVE_FAILURE_KINDS}.
+ * @param value - the text.
+ * @returns true for a kind this build knows.
+ */
+export function isMoveFailureKind(value: string): value is MoveFailureKind {
+  return (MOVE_FAILURE_KINDS as readonly string[]).includes(value)
+}
+
+/**
+ * A move's failure as its result names it: `kind` is the first problem, and
+ * `also` the further problems the same health check found, in its order.
+ */
+export interface ResultFailure {
+  kind: MoveFailureKind
+  also?: MoveFailureKind[]
+}
+
+/** Why the move is being given up or rolled back, as the journal records it. */
+export interface MoveFailure extends ResultFailure {
+  /** The phase the move was in. */
+  phase: MovePhase
+  /** What happened, in English, for the log. */
+  detail: string
+}
+
+/**
+ * The {@link MoveFailure} of a failed first launch on the new location.
+ * @param detail - what happened, for the log.
+ * @param failures - every problem the launch found.
+ * @returns the failure, recorded as in phase `switched`.
+ */
+export function healthFailure(detail: string, failures: HealthFailures): MoveFailure {
+  const [kind, ...also] = failures
+  return { phase: 'switched', detail, kind, ...also.length === 0 ? {} : { also } }
+}
+
 /** Something a removal could not delete, recorded so the move can finish. */
 export interface JournalLeftover {
   path: string
@@ -208,7 +286,7 @@ export interface MoveJournal {
   keptOriginal?: string
   leftovers: JournalLeftover[]
   /** Why the move is being given up or rolled back. */
-  failure?: { phase: MovePhase; detail: string }
+  failure?: MoveFailure
   startedAt: string
 }
 
@@ -229,7 +307,14 @@ export interface MoveResult {
   outcome: 'moved' | 'cancelled' | 'failed'
   source: string
   target: string
+  /** Why the move failed, in English, for the log. */
   detail?: string
+  /**
+   * Why the move failed, as Settings words it: on every `failed` result, and
+   * on a `moved` one whose new location failed its check after the person
+   * chose to keep it. Absent in a result an older build wrote.
+   */
+  failure?: ResultFailure
   /** What a removal could not delete; Settings may offer to try again. */
   leftovers: JournalLeftover[]
   /** A rollback retired the copy at the new location into this folder; nothing deletes it. */
@@ -458,9 +543,25 @@ export function validateJournal(value: unknown): MoveJournal {
     if (typeof failedPhase !== 'string' || !(MOVE_PHASES as readonly string[]).includes(failedPhase) || typeof f['detail'] !== 'string') {
       return fail('failure')
     }
-    journal.failure = { phase: failedPhase as MovePhase, detail: f['detail'] }
+    const kinds = recordedFailure(f) ?? fail('failure')
+    journal.failure = { phase: failedPhase as MovePhase, detail: f['detail'], ...kinds }
   }
   return journal
+}
+
+/**
+ * The kinds of a recorded failure. A failure an older build recorded has no
+ * `kind` and reads as `other`; a kind this build does not know reads as
+ * `other` too, since it only chooses what Settings says.
+ * @param record - the recorded failure.
+ * @returns the kinds, or `undefined` when `kind` is not text or `also` is not a list of texts.
+ */
+function recordedFailure(record: Record<string, unknown>): ResultFailure | undefined {
+  const { kind, also } = record
+  if (kind !== undefined && typeof kind !== 'string') return undefined
+  if (also !== undefined && !isStringArray(also)) return undefined
+  const known = (text: string): MoveFailureKind => isMoveFailureKind(text) ? text : 'other'
+  return { kind: kind === undefined ? 'other' : known(kind), ...also === undefined ? {} : { also: also.map(known) } }
 }
 
 /**
@@ -525,6 +626,9 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     const path = typeof value === 'object' && value !== null ? (value as Record<string, unknown>)['path'] : undefined
     return typeof path === 'string' ? { [field]: { path } } : {}
   }
+  // A result an older build wrote has no failure; one this build cannot read is left out rather than refusing the result.
+  const f = typeof r['failure'] === 'object' && r['failure'] !== null ? r['failure'] as Record<string, unknown> : undefined
+  const failure = f !== undefined && typeof f['kind'] === 'string' ? recordedFailure(f) : undefined
   return {
     version: JOURNAL_VERSION,
     moveId: r['moveId'] as MoveId,
@@ -532,6 +636,7 @@ export function readMoveResult(dir: string): MoveResult | undefined {
     source: r['source'],
     target: r['target'],
     ...typeof r['detail'] === 'string' ? { detail: r['detail'] } : {},
+    ...failure === undefined ? {} : { failure },
     leftovers,
     ...kept('unusedCopy'),
     ...kept('abandonedCopy'),
@@ -703,8 +808,8 @@ export type BlockedChoice =
 
 /** One step. */
 export type MoveAction =
-  | { kind: 'abandon'; detail: string }
-  | { kind: 'roll-back'; detail: string }
+  | { kind: 'abandon'; detail: string; failure: MoveFailureKind }
+  | { kind: 'roll-back'; detail: string; failure: MoveFailureKind }
   | { kind: 'cancel' }
   | { kind: 'blocked'; reason: BlockedReason; dataAt: string[]; choices: BlockedChoice[] }
   | { kind: 'keep-unmarked'; path: string }
@@ -894,8 +999,10 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
   }
   switch (phase) {
     case 'requested':
-      if (!sourceIsOurs) return { kind: 'abandon', detail: 'the data directory is not where it was, or no longer carries its identity' }
-      if (target.exists && !emptyPreexisting) return { kind: 'abandon', detail: 'something is already at the target' }
+      if (!sourceIsOurs) {
+        return { kind: 'abandon', detail: 'the data directory is not where it was, or no longer carries its identity', failure: 'source-changed' }
+      }
+      if (target.exists && !emptyPreexisting) return { kind: 'abandon', detail: 'something is already at the target', failure: 'target-occupied' }
       return journal.sameVolume ? { kind: 'plan-links' } : { kind: 'set-phase', phase: 'copying' }
     case 'copying':
       if (!partial.exists || partial.state !== 'ours') return { kind: 'create-partial' }
@@ -907,15 +1014,17 @@ export function nextAction(journal: MoveJournal, facts: MoveFacts, cancelRequest
     case 'finalizing':
       if (partial.exists) {
         if (!target.exists) return { kind: 'rename-partial-to-target' }
-        return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target' }
+        return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target', failure: 'target-occupied' }
       }
       if (target.exists && target.state === 'ours') return { kind: 'set-phase', phase: 'hiding-source' }
-      return { kind: 'abandon', detail: 'the copy is gone' }
+      return { kind: 'abandon', detail: 'the copy is gone', failure: 'copy-gone' }
     case 'hiding-source':
       return journal.sameVolume ? hideByRename(journal, facts, emptyPreexisting) : hideBeside(journal, facts)
     case 'switching':
       // The target may have gone or changed since it was named: switch only to our data.
-      if (!(target.exists && target.dataId === 'ours' && target.state !== 'ours')) return { kind: 'roll-back', detail: 'the new location is no longer this data' }
+      if (!(target.exists && target.dataId === 'ours' && target.state !== 'ours')) {
+        return { kind: 'roll-back', detail: 'the new location is no longer this data', failure: 'copy-gone' }
+      }
       return journal.pointerWritten ? { kind: 'sync-terminal' } : { kind: 'write-pointer' }
     case 'switched':
       return { kind: 'await-health' }
@@ -958,7 +1067,7 @@ function hideBeside(journal: MoveJournal, facts: MoveFacts): MoveAction {
     if (source.exists && source.movedId) return source.state === 'ours' ? { kind: 'rename-source-to-hidden' } : { kind: 'mark-source' }
     if (!journal.keepTarget) return blocked(journal, facts, sourceReason(facts))
   }
-  if (!target.exists) return journal.keepTarget ? blocked(journal, facts, 'target-missing') : { kind: 'roll-back', detail: 'the copy is gone' }
+  if (!target.exists) return journal.keepTarget ? blocked(journal, facts, 'target-missing') : { kind: 'roll-back', detail: 'the copy is gone', failure: 'copy-gone' }
   // Only the checked copy (marked as this move) or this data may be named; never someone else's folder at that path.
   if (target.dataId !== 'ours' && target.state !== 'ours') return blocked(journal, facts, 'target-occupied')
   // A rollback may have started retiring it before the person chose to keep it.
@@ -985,7 +1094,7 @@ function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: 
   const { source, target } = facts
   if (source.exists && source.dataId === 'ours') {
     if (!target.exists) return { kind: 'rename-source-to-target' }
-    return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target' }
+    return emptyPreexisting ? { kind: 'remove-empty-target' } : { kind: 'abandon', detail: 'something is already at the target', failure: 'target-occupied' }
   }
   if (target.exists && target.dataId === 'ours') return { kind: 'rewrite-links' }
   return blocked(journal, facts, sourceReason(facts))
