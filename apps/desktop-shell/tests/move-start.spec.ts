@@ -1,15 +1,18 @@
 /**
  * Starting a data move and what a launch does about one: the checks before
- * the journal is written, the lock, the baseline, the boot decision, the
- * health check, and where the application relaunches. Every directory is
+ * the journal is written, the identity marker a launch gives a home it
+ * created, the lock, the baseline, the boot decision, the health check, and
+ * where the application relaunches. Every directory is
  * under a temporary root; the terminal reads are stand-ins.
  * @module
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { markSettledHome } from '../src/data-location-boot.ts'
+import { commitReady, DATA_ID_FILENAME, POINTER_VERSION, readDataId, type DataId, type DataLocationPointer } from '../src/data-location.ts'
 import {
   bootMove, checkHealth, CLEANUP_PROMPT_AFTER, cleanupPrompt, countSessions, lockPlaces, moveFacts, passHealthCheck, quarantinedPlugins,
   relaunchHome,
@@ -38,6 +41,17 @@ afterEach(async () => {
 })
 
 const SNAPSHOT: TerminalSnapshot = { kind: 'profile', file: '/p/.zshrc', hadBlock: false, backupExisted: false }
+
+/**
+ * The identity a data directory's marker holds.
+ * @param home - the data directory.
+ * @returns the identity.
+ */
+function readDataIdOf(home: string): DataId {
+  const id = readDataId(home)
+  if (id.kind !== 'ok') throw new Error(`${home} has no readable identity`)
+  return id.id
+}
 
 /** A fixture with a request to move its home and probes that answer. */
 interface Setup {
@@ -83,6 +97,29 @@ describe('starting a data move', () => {
     expect(JSON.parse(readFileSync(join(f.home, LOCK_FILENAME), 'utf8'))).toEqual({
       userData: request.userData, pid: process.pid, startedAt: 'Mon Sep 28 09:00:00 2026', heartbeatAt: request.now.toISOString(),
     })
+  })
+
+  it('starts on a home the launch created after settling it, once the launch has marked it', async () => {
+    const { f, request, probes } = await setup()
+    // Settled without a pointer before the home existed: settling marks only a home that is there.
+    const fresh = join(f.root, 'fresh-home')
+    expect(commitReady(request.userData, { kind: 'ready', home: fresh, via: 'default' })).toBeUndefined()
+    expect(existsSync(fresh)).toBe(false)
+    // The fixture's data stands in for what the profile seeding then creates, without a marker.
+    rmSync(join(f.home, DATA_ID_FILENAME))
+    expect(await beginDataMove(request, probes)).toEqual({ kind: 'refused', refusal: { kind: 'no-identity', detail: 'no identity marker' } })
+    const lines: string[] = []
+    markSettledHome({ home: f.home }, (line) => { lines.push(line) })
+    expect(readDataId(f.home).kind).toBe('ok')
+    expect((await beginDataMove(request, probes)).kind).toBe('started')
+    // A home with a pointer carries the pointer's marker already; one that is still missing is logged, not thrown.
+    const pointer: DataLocationPointer = { version: POINTER_VERSION, path: fresh, dataId: readDataIdOf(f.home) }
+    markSettledHome({ home: fresh, pointer }, (line) => { lines.push(line) })
+    expect(existsSync(fresh)).toBe(false)
+    expect(lines).toEqual([])
+    markSettledHome({ home: fresh }, (line) => { lines.push(line) })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain(`could not mark ${fresh} with its identity`)
   })
 
   it('refuses without a readable terminal setting, and writes nothing', async () => {

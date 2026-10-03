@@ -32,7 +32,7 @@ import { bootPage } from './boot-page.ts'
 import { PRODUCT_NAME } from './brand.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
-import { defaultHarnessHome, exportPointerHome, settleDataLocation, type TerminalSync } from './data-location-boot.ts'
+import { defaultHarnessHome, exportPointerHome, markSettledHome, settleDataLocation, type TerminalSync } from './data-location-boot.ts'
 import {
   ENDPOINT_ENV as DATA_ENDPOINT_ENV, startDataLocationService, TOKEN_ENV as DATA_TOKEN_ENV, type DataLocationServiceHandle,
   type DataLocationServiceSpec, type MoveBody,
@@ -1346,6 +1346,8 @@ if (!locked) {
           serverModules: spec.builtinModules,
         }))
         if (seeded !== undefined) sink(seeded)
+        // After the seeding, which creates a fresh installation's data directory.
+        markSettledHome(settled, sink)
         // After the seeding, whose permission-row retirement the gateway step
         // waits for (the migration reads its record in web-migration.json, so a
         // seeding that stopped before recording it defers that step), and before

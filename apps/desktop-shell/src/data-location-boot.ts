@@ -23,8 +23,8 @@
 import { realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
-  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, dataReference, keepPointerOverEnv, normalizeDshHome, readDataId,
-  readGeneration, readPointer, resolveDataLocation, withGeneration, writeGeneration, writePointer,
+  adoptEnvLocation, canAdoptEnv, checkChosenFolder, commitReady, dataReference, ensureDataId, keepPointerOverEnv, normalizeDshHome,
+  readDataId, readGeneration, readPointer, resolveDataLocation, withGeneration, writeGeneration, writePointer,
   type ChosenFolder, type DataLocationPointer, type EnvUnverifiedReason, type PointerRead, type Resolution, type UnavailableReason,
 } from './data-location.ts'
 import type { DataLocationText } from './data-location-text.ts'
@@ -175,6 +175,26 @@ export interface SettledLocation {
   link?: HomeLinkOutcome
   /** What the last write of the terminal's `DSH_HOME` this launch came to, when there was one. */
   terminal?: TerminalSync
+}
+
+/**
+ * Give a data directory settled without a pointer its identity marker once
+ * the launch has created it. Settling marks only a directory that already
+ * exists, a fresh installation's directory is created later in the same
+ * launch by the profile seeding, and a data move refuses a directory without
+ * a marker. With a pointer the directory already carries the pointer's
+ * marker, and nothing is written.
+ * @param settled - the directory and pointer the launch settled on.
+ * @param log - the desktop log sink; receives one line when the marker cannot be written, which leaves the launch
+ * going on and the next launch writing it.
+ */
+export function markSettledHome(settled: Pick<SettledLocation, 'home' | 'pointer'>, log: (line: string) => void): void {
+  if (settled.pointer !== undefined) return
+  try {
+    ensureDataId(settled.home)
+  } catch (error) {
+    log(`[desktop] data location: could not mark ${settled.home} with its identity: ${String(error)}\n`)
+  }
 }
 
 /**
