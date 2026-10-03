@@ -1,6 +1,6 @@
 /**
- * What main.ts sets on `createBootWindow`, which creates every app window: the
- * loading-page restatement and the window's constructor options. The
+ * What `createBootWindow` in main.ts, which creates every app window, gives
+ * each window: the loading-page restatement and `acceptFirstMouse`. The
  * restatement itself is covered by `app-boot-text.client.spec.ts`, which needs
  * a DOM this file does not.
  * @module
