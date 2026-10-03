@@ -40,6 +40,12 @@ export interface MoveText {
   stoppedTitle: string
   stalled: string
   failed: (detail: string) => string
+  keptTargetTitle: string
+  /**
+   * The new location failed its check after the person chose to keep it, so
+   * the move finished there; the original, when one was kept, is in `kept`.
+   */
+  keptTarget: (target: string, kept: string | undefined, detail: string) => string
   journalUnreadableTitle: string
   journalUnreadable: (path: string) => string
   lockedTitle: string
@@ -125,6 +131,8 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     stoppedTitle: '搬运停下了',
     stalled: '搬运已经两分钟没有任何进展，可能是磁盘没有响应。DSH 会退出；重新打开 DSH 时会从停下的地方接着搬。',
     failed: detail => `搬运时出了错：${detail}。DSH 会退出；重新打开 DSH 时会从停下的地方接着处理。`,
+    keptTargetTitle: '新位置没有通过检查',
+    keptTarget: (target, kept, detail) => `你选择保留的新位置「${target}」没有通过检查：${detail}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。${kept === undefined ? '' : `原来的数据没有删除，保留在「${kept}」。`}DSH 现在退出。`,
     journalUnreadableTitle: 'DSH 暂时不能启动',
     journalUnreadable: path => `记录这次搬运进度的文件「${path}」读不出来了。为了不把只搬了一半的数据当成你的数据，DSH 在这个文件修好之前不会启动。`,
     lockedTitle: '另一个 DSH 正在搬运这份数据',
@@ -195,6 +203,8 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     stoppedTitle: 'The move stopped',
     stalled: 'The move has made no progress for two minutes; a drive may not be responding. DSH quits now; when you reopen it, the move picks up where it stopped.',
     failed: detail => `The move ran into an error: ${detail}. DSH quits now; when you reopen it, it picks up where it stopped.`,
+    keptTargetTitle: 'The new location did not pass its check',
+    keptTarget: (target, kept, detail) => `The new location "${target}" you chose to keep did not pass its check: ${detail}. DSH keeps using it as you chose, and starts from there when you reopen it.${kept === undefined ? '' : ` Your original data was not deleted; it is kept in "${kept}".`} DSH quits now.`,
     journalUnreadableTitle: 'DSH cannot start',
     journalUnreadable: path => `The file that records this data move's progress, "${path}", cannot be read. To avoid taking half-moved data for your data, DSH does not start until this file is fixed.`,
     lockedTitle: 'Another DSH is moving this data',

@@ -5,8 +5,10 @@
  * hung or failed move shows why and quits, an unreadable record of
  * abandoned copies is asked about as at launch, and a launch on a move that
  * switched rolls it back when the server does not start on the new location
- * or the location fails its check. The windows are a recording
- * stand-in; the moves run on real fixture homes and the real worker.
+ * or the location fails its check, except on a new location the person chose
+ * to keep, where the move finishes and a page names the kept original. The
+ * windows are a recording stand-in; the moves run on real fixture homes and
+ * the real worker.
  * @module
  */
 
@@ -170,10 +172,35 @@ describe('carrying a data move', () => {
     expect(first?.reveal).toEqual([hidden])
     expect(second?.notice).toBe(text.refreshed)
     expect(readJournal(setup.dir)?.phase).toBe('switched')
-    // A failed health check after keeping the new location keeps the original and ends in the background cleanup.
-    const deps = depsOf(setup, recordingUi([]))
-    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x' } } })
-    expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended' } })
+    // A failed health check after keeping the new location finishes the move there, keeps the original, and says so.
+    const keptUi = recordingUi([{ kind: 'quit' }])
+    const deps = depsOf(setup, keptUi)
+    const detail = 'the server did not start on the new location: listen EACCES'
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail } } })
+    expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended', result: { outcome: 'moved', detail } } })
+    const kept = readMoveResult(setup.dir)?.keptOriginal?.path
+    expect(kept).toBeDefined()
+    expect(existsSync(kept ?? '')).toBe(true)
+    expect(keptUi.pages).toEqual([{
+      title: text.keptTargetTitle,
+      paragraphs: [text.keptTarget(target, kept, detail)],
+      buttons: [{ label: text.reveal(process.platform), link: { kind: 'reveal', index: 0 } }, { label: text.quit, link: { kind: 'quit' } }],
+      reveal: [kept],
+    }])
+    expect(text.keptTarget(target, kept, detail)).toContain(`"${kept ?? ''}"`)
+  })
+
+  posixOnly('finishes a kept new location\'s cleanup without a page when no failed check was recorded in that run', async () => {
+    const { setup, f, target } = await started('default-home')
+    await carryMove(depsOf(setup, recordingUi([])))
+    plantIntruder(f.home)
+    recordHealth(setup.dir, false)
+    expect(await carryMove(depsOf(setup, recordingUi([{ kind: 'choose', choice: 'keep-target' }])))).toEqual({ kind: 'relaunch', home: target })
+    // The failed check recorded by a run that stopped before its cleanup; the launch after it carries the cleanup on.
+    recordHealth(setup.dir, false, 'sessions 1 < 2')
+    expect(readJournal(setup.dir)?.phase).toBe('cleanup')
+    const end = await carryMove(depsOf(setup, recordingUi([])))
+    expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended', result: { outcome: 'moved', detail: 'sessions 1 < 2' } } })
   })
 
   posixOnly('quits from a stopped move\'s page and leaves the journal', async () => {

@@ -65,7 +65,11 @@ export type MoveFlowEnd =
   | { kind: 'relaunch'; home: string }
   /** Quit; the journal stays, and the next launch resumes the move. */
   | { kind: 'quit' }
-  /** The move finished its cleanup in the background, perhaps with leftovers. */
+  /**
+   * The move finished its cleanup, perhaps with leftovers; no relaunch. After
+   * a failed check on a new location the person chose to keep, the page
+   * saying so, with the kept original, was shown first.
+   */
   | { kind: 'done'; outcome: MoveOutcome }
 
 /**
@@ -231,8 +235,15 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
       }
       case 'ended':
         releaseMoveLock(lockPlaces(journal, outcome.result), request.lockSelf)
-        if (journal.phase === 'cleanup') return { kind: 'done', outcome }
-        return { kind: 'relaunch', home: relaunchHome(journal, outcome) ?? journal.source }
+        if (journal.phase !== 'cleanup') return { kind: 'relaunch', home: relaunchHome(journal, outcome) ?? journal.source }
+        // A failed check this flow recorded ends here only on a new location the person chose to keep.
+        if (request.before?.kind === 'health-failed') {
+          const kept = outcome.result.keptOriginal?.path
+          const sentence = text.keptTarget(journal.target, kept, outcome.result.detail ?? request.before.detail)
+          const reveal = kept === undefined ? {} : { reveal: kept }
+          await ui.showPage(stopPage(text.keptTargetTitle, sentence, text, { platform: request.platform, ...reveal }))
+        }
+        return { kind: 'done', outcome }
       case 'switched':
         return { kind: 'relaunch', home: journal.target }
       case 'cleanup-incomplete':
