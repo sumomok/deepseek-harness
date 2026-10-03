@@ -379,9 +379,9 @@ async function prunePlatformBuilds(): Promise<void> {
  * macOS install skipped (`node-addon-require-builtin-*` style), each at the
  * version [[pinnedVariantVersion]] picks, except the Office engines no payload
  * carries ([[isOfficeEngine]]). Each tarball comes from [[packedTarball]], so
- * a cached one that matches the registry is extracted without `npm pack`. Nothing is silently dropped: every fetch, every
- * engine left unfetched, and every remaining platform-specific artifact is
- * printed.
+ * a cached one that matches the registry is extracted without `npm pack`.
+ * Nothing is silently dropped: every fetch, every engine left unfetched, and
+ * every remaining platform-specific artifact is printed.
  */
 async function stageWindowsVariants(): Promise<void> {
   const nodeModules = join(SERVER_STAGING, 'node_modules')

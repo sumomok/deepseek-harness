@@ -132,7 +132,7 @@ describe('referencedNames', () => {
     for (let round = 0; round < 3000; round++) {
       let text = ''
       const length = 1 + Math.floor(next() * 24)
-      for (let index = 0; index < length; index++) text += tokens[Math.floor(next() * tokens.length)]
+      for (let index = 0; index < length; index++) text += tokens[Math.floor(next() * tokens.length)] ?? ''
       expectSameAnswers(text)
     }
   })
