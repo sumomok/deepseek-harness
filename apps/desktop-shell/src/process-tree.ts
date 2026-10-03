@@ -12,7 +12,9 @@
  */
 
 import { spawn } from 'node:child_process'
+import { join } from 'node:path'
 import { START_TIME_UNKNOWN, type LockProbes } from './move/lock.ts'
+import { systemPowerShell, type PowerShellResult, type PowerShellRunner } from './terminal-env.ts'
 
 /** One running process. */
 export interface ProcessEntry {
@@ -144,6 +146,25 @@ export function parseWindowsProcesses(output: string): ProcessEntry[] {
   return entries
 }
 
+/** Milliseconds the Windows process listing may take before it is killed and the list counts as unreadable. */
+export const PROCESS_LIST_TIMEOUT_MS = 15_000
+
+/**
+ * List every process on Windows through {@link WINDOWS_PROCESS_SCRIPT}.
+ * @param run - the PowerShell runner.
+ * @returns the processes; none when PowerShell cannot run, exits with a failure, or is killed at its timeout.
+ */
+export async function listWindowsProcesses(run: PowerShellRunner): Promise<ProcessEntry[]> {
+  let result: PowerShellResult
+  try {
+    result = await run(WINDOWS_PROCESS_SCRIPT, {})
+  } catch {
+    // The runner rejects when powershell.exe cannot be started; an empty list says the system could not be asked.
+    return []
+  }
+  return result.code === 0 ? parseWindowsProcesses(result.stdout) : []
+}
+
 /**
  * Run a command and collect its standard output; a command that cannot run gives nothing.
  * @param command - the program.
@@ -162,18 +183,21 @@ function capture(command: string, args: string[]): Promise<string> {
 }
 
 /**
- * The real process probes.
+ * The real process probes. On Windows the listing runs the system's own
+ * `powershell.exe` and the kill its `taskkill.exe`, both by their full path
+ * under `%SystemRoot%`, so a `PATH` without `System32` still reaches them.
  * @param platform - the running platform.
  * @returns the probes.
  */
 export function nodeProcessProbes(platform: NodeJS.Platform): ProcessProbes {
+  const systemRoot = process.env['SystemRoot'] ?? 'C:\\Windows'
   return {
     list: async () => platform === 'win32'
-      ? parseWindowsProcesses(await capture('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_PROCESS_SCRIPT]))
+      ? await listWindowsProcesses(systemPowerShell(systemRoot, PROCESS_LIST_TIMEOUT_MS))
       : parsePsOutput(await capture('ps', ['-axo', 'pid=,ppid=,lstart=,comm='])),
     kill: async (pid) => {
       if (platform === 'win32') {
-        await capture('taskkill', ['/PID', String(pid), '/T', '/F'])
+        await capture(join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'])
         return
       }
       try {

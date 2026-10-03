@@ -9,9 +9,10 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  descendantsOf, ensureTreeGone, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, stopServerTree, survivorsOf,
-  TREE_KILL_ROUNDS, type ProcessProbes,
+  descendantsOf, ensureTreeGone, listWindowsProcesses, nodeProcessProbes, parsePsOutput, parseWindowsProcesses, stopServerTree, survivorsOf,
+  TREE_KILL_ROUNDS, WINDOWS_PROCESS_SCRIPT, type ProcessProbes,
 } from '../src/process-tree.ts'
+import type { PowerShellResult, PowerShellRunner } from '../src/terminal-env.ts'
 import { entry, fakeSystem } from './fake-processes.ts'
 
 describe('the server process tree', () => {
@@ -87,6 +88,18 @@ describe('the server process tree', () => {
     const system = fakeSystem([entry(1, 0), entry(100, 1), entry(101, 100)])
     const blind: ProcessProbes = { ...system.probes, list: async () => [] }
     expect(await ensureTreeGone(descendantsOf(100, await system.probes.list()), blind)).toMatchObject({ kind: 'unconfirmed' })
+  })
+
+  it('takes a Windows listing that PowerShell did not finish for no list at all', async () => {
+    const scripts: string[] = []
+    const answering = (result: PowerShellResult): PowerShellRunner => async (script) => { scripts.push(script); return result }
+    expect(await listWindowsProcesses(answering({ code: 0, stdout: '1200\t4\t2026-09-28T01:02:03.0000000Z\tC:\\DSH\\node.exe\r\n' })))
+      .toEqual([{ pid: 1200, ppid: 4, startedAt: '2026-09-28T01:02:03.0000000Z', command: 'C:\\DSH\\node.exe' }])
+    expect(scripts).toEqual([WINDOWS_PROCESS_SCRIPT])
+    // A failure, and a run killed at its timeout (no exit code), may have printed part of the table.
+    expect(await listWindowsProcesses(answering({ code: 1, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])
+    expect(await listWindowsProcesses(answering({ code: null, stdout: '1200\t4\t\tC:\\DSH\\node.exe\r\n' }))).toEqual([])
+    expect(await listWindowsProcesses(async () => { throw new Error('spawn powershell.exe ENOENT') })).toEqual([])
   })
 
   it('reads ps and the Windows listing, commands with spaces and the five-word start time included', async () => {
