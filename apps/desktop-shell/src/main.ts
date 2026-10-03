@@ -266,10 +266,17 @@ function clearAuthCookies(): Promise<number> {
 /**
  * Stop the server and make sure its whole process tree is gone, the
  * processes it started included ([[@deepseek-ai/dsh-desktop-shell/process-tree]]),
- * with this installation's leftovers from earlier runs swept too.
+ * with this installation's leftovers from earlier runs swept too. The Office
+ * engine service is closed first: its download runs in this process, outside
+ * that tree, and writes under the data directory, so closing it stops a
+ * running download and keeps a confirmation answered later from starting one.
+ * It is not opened again before the next launch.
  * @returns whether the tree is gone.
  */
 async function stopServerCompletely(): Promise<TreeCheck> {
+  const engine = officeEngineService
+  officeEngineService = undefined
+  if (engine !== undefined) await engine.close()
   const handle = server
   const check = await stopServerTree({
     pid: handle?.pid,
@@ -369,14 +376,18 @@ function rememberServerPort(spec: ServerSpec): void {
 }
 
 /**
- * Start the server again after an install that stopped it failed, through the
- * ordinary start: the remembered port when it is free, otherwise one the
- * system picks. On success every window and the notification streams move to
- * it and supervision resumes; on failure the stopped-server dialog offers a
- * retry, as after repeated crashes.
+ * Start the server again after a stop the shell made on purpose did not lead
+ * where it was meant to — an install that failed, or a data move taken back
+ * before it copied anything — through the ordinary start: the remembered port
+ * when it is free, otherwise one the system picks. Both stops removed the
+ * sign-in cookies first, as a quit does, so the port need not change as it
+ * does after a crash. On success every window and the notification streams
+ * move to it and supervision resumes; on failure the stopped-server dialog
+ * offers a retry, as after repeated crashes.
+ * @param cause - what the stop was for, as the log names it.
  * @returns once the server is up or the dialog is shown.
  */
-async function restartAfterFailedInstall(): Promise<void> {
+async function restartAfterStop(cause: string): Promise<void> {
   const spec = activeServerSpec
   if (spec === undefined) return
   try {
@@ -385,12 +396,12 @@ async function restartAfterFailedInstall(): Promise<void> {
     const started = await startOnPort({ ...spec, port: port.port }, startEmbeddedServer, logLine)
     server = started.server
     rememberServerPort(started.spec)
-    logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
+    logLine(`[desktop] server restarted after ${cause} at ${started.server.url}\n`)
     retargetWindows(started.server.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
     attachSupervision()
   } catch (error) {
-    logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
+    logLine(`[desktop] server restart after ${cause} failed: ${error instanceof Error ? error.message : String(error)}\n`)
     void runStoppedDialog()
   }
 }
@@ -780,7 +791,8 @@ function carryMoveFromSettings(journal: MoveJournal): void {
       stopServerTree: stopServerCompletely,
       restartServer: async () => {
         logLine('[desktop] data move: withdrawn before copying anything; starting the server again\n')
-        return await performRebind()
+        logLine('[desktop] data move: the Office engine download stays unavailable until the next launch\n')
+        await restartAfterStop('the withdrawn data move')
       },
     })
     if (handed.kind === 'refused') {
@@ -1248,7 +1260,7 @@ if (!locked) {
       resumeAfterFailedInstall: (blocking: boolean) => resumeAfterFailedInstall({
         blocking,
         clearQuitting: () => { quitting = false },
-        restartServer: restartAfterFailedInstall,
+        restartServer: () => restartAfterStop('the failed install'),
         reveal,
       }),
     }
