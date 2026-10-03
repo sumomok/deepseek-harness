@@ -294,6 +294,24 @@ describe('main.ts', () => {
     expect(body('stopServerCompletely')).toMatch(/stopServerTree\(\{\s+closeShellWriters: async \(\) => \{\s+const engine = officeEngineService\s+officeEngineService = undefined\s+if \(engine !== undefined\) await engine\.close\(\)/u)
   })
 
+  it('starts the server on a switched move\'s new location inside the check that rolls the move back, and marks a fresh home once the seeding made it', () => {
+    const opening = source.indexOf('const startOnHome = async (')
+    expect(opening).toBeGreaterThan(-1)
+    const startOnHome = source.slice(opening, source.indexOf('\n      }\n', opening))
+    // The seeding creates a fresh installation's home, so the mark can only follow it.
+    const seed = startOnHome.indexOf('seedBuiltinBundles({')
+    expect(seed).toBeGreaterThan(-1)
+    expect(startOnHome.indexOf('markSettledHome(settled, sink)')).toBeGreaterThan(seed)
+    expect(source.match(/markSettledHome\(/gu)).toHaveLength(1)
+    // A start that fails there reaches the rollback rather than the launch's own failure page.
+    const branchStart = source.indexOf("if (pendingMove.kind === 'health-check') {")
+    expect(branchStart).toBeGreaterThan(-1)
+    const branch = source.slice(branchStart, source.indexOf('} else {', branchStart))
+    expect(branch).toMatch(/await launchOnSwitchedMove\(pendingMove\.journal\.baseline, \{\s+start: startOnHome,\n/u)
+    expect(branch).not.toContain('startOnHome()')
+    expect(source.match(/startOnHome\(\)/gu)).toEqual(['startOnHome()'])
+  })
+
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
     expect(source).toContain('await stopForMandatoryUpdate(running, { home: resolveHarnessHome(), log: sink })')
     expect(source).toContain("}, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })")
