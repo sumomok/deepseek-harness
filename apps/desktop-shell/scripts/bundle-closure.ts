@@ -178,7 +178,8 @@ const REFERENCE_PREFIXES = [
  * search a `.node` performs on its own. Those are what `NATIVE` is for.
  *
  * The reachability walk does not run this pattern; it runs [[referencedNames]],
- * which accepts exactly the texts this pattern accepts.
+ * which accepts exactly the texts this pattern accepts for a name without a
+ * quote character.
  * @param name - the package name a reference would have to spell out.
  * @returns a pattern matching either reference form for that name.
  */
@@ -199,9 +200,13 @@ export const REFERENCE_SCAN_SOURCE =
   `${QUOTE}(?<=(?:${REFERENCE_PREFIXES.join('|')})${QUOTE})(${UNQUOTED_RUN})(?=${QUOTE})`
 
 /**
- * The members of `names` that `text` references: exactly the names `n` for
- * which `specifierFor(n).test(text)` holds, found in one scan of `text`
- * instead of one regular-expression search per name.
+ * The members of `names` that `text` references: for every name `n` that
+ * contains none of `'`, `"` and `` ` ``, `n` is returned exactly when
+ * `specifierFor(n).test(text)` holds, found in one scan of `text` instead of
+ * one regular-expression search per name. A name with a quote character is
+ * never returned, because the run the scan reads ends at the first quote,
+ * while `specifierFor` matches the quote inside the name as a literal
+ * character; [[bundleClosure]] refuses a payload that has such a name.
  *
  * `specifierFor(n)` accepts a text when some opening quote follows one of the
  * reference prefixes and the run after it, up to the next quote, is `n` itself
@@ -312,6 +317,8 @@ async function bundlePackage(nodeModules: string, name: string, external: string
  * @param payload - the derived payload directory, mutated in place.
  * @returns what changed, plus the out-of-scope profile bundles kept whole, for
  * the caller to report.
+ * @throws before it builds or deletes anything, when the name of a package the
+ * reachability walk would look up contains `'`, `"` or `` ` ``.
  */
 export async function bundleClosure(
   payload: string,
@@ -322,6 +329,14 @@ export async function bundleClosure(
   const bundles: string[] = []
   for (const name of all) {
     if (!name.startsWith(`${OURS}/`) && await declaresBundle(nodeModules, name)) bundles.push(name)
+  }
+  const thirdParty = all.filter(name =>
+    !name.startsWith(`${OURS}/`) && !NATIVE.includes(name) && !bundles.includes(name))
+  // Only the walk's candidates are checked: every other package is kept
+  // without being looked up, so a quote in its name changes nothing.
+  const unscannable = thirdParty.filter(name => /['"`]/.test(name))
+  if (unscannable.length > 0) {
+    throw new Error(`package: the reachability scan cannot read a package name that contains a quote character: ${unscannable.join(', ')}`)
   }
   const external = [...ours, ...bundles, ...NATIVE]
 
@@ -348,8 +363,6 @@ export async function bundleClosure(
   // dependencies with it — `@babel/code-frame` stays because something imports
   // it, and it needs `picocolors`, which nothing else names — so deleting on a
   // single scan leaves a kept package without its own.
-  const thirdParty = all.filter(name =>
-    !name.startsWith(`${OURS}/`) && !NATIVE.includes(name) && !bundles.includes(name))
   const candidates = new Set(thirdParty)
   const kept = new Set([...ours, ...bundles, ...NATIVE])
   const frontier = [...kept]

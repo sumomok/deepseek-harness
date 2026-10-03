@@ -167,6 +167,21 @@ describe('bundleClosure', () => {
     expect(result.removed).toBe(1)
   })
 
+  it('refuses a third-party name with a quote character before it builds or deletes anything', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const quoted = 'o\'q'
+    for (const name of ['@deepseek-ai/a', quoted]) {
+      const dir = join(payload, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+      writeFileSync(join(dir, 'index.js'), 'export default 1\n')
+    }
+    await expect(bundleClosure(payload)).rejects.toThrow(`quote character: ${quoted}`)
+    expect(existsSync(join(payload, 'node_modules', '@deepseek-ai', 'a', 'lib'))).toBe(false)
+    expect(existsSync(join(payload, 'node_modules', quoted))).toBe(true)
+  })
+
   it('reports the packages esbuild refused in package order, whatever order the builds finish in', async () => {
     const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
     roots.push(payload)
