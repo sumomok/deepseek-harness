@@ -15,8 +15,10 @@
  * whichever of them renames last.
  *
  * The shell writes it before a quit's stop, before an update install's stop,
- * before the stop that a mandatory update forces at launch, and when the
- * system announces a shutdown, restart, or log-off, which ends the server
+ * before a data move's stops (the one before a move asked for in Settings
+ * takes the data, and the one after a moved location fails its health
+ * check), before the stop that a mandatory update forces at launch, and when
+ * the system announces a shutdown, restart, or log-off, which ends the server
  * without a quit on Windows. It writes it only while the server's child is
  * running. It does not write it for a server that exited on its own, for a
  * later quit of that crashed server, for a relaunch after repeated crashes,
@@ -36,9 +38,9 @@ export const SENTINEL_FILE = 'intentional-stop.json'
 
 /**
  * Why the shell stopped the server; recorded for diagnosis only, the plugin
- * never reads it. `quit` covers an ordinary quit and the stop before an update
- * installs, `update` the stop a mandatory update forces at launch, and
- * `shutdown` a system shutdown, restart, or log-off.
+ * never reads it. `quit` covers an ordinary quit, the stop before an update
+ * installs, and a data move's stops, `update` the stop a mandatory update
+ * forces at launch, and `shutdown` a system shutdown, restart, or log-off.
  */
 export type IntentionalStopReason = 'quit' | 'update' | 'shutdown'
 
