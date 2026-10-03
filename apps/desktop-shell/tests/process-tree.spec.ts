@@ -118,8 +118,11 @@ describe('the server process tree', () => {
       .toMatchObject({ kind: 'unconfirmed' })
   })
 
-  it('lists and kills on Windows through the system\'s own PowerShell and taskkill under %SystemRoot%, C:\\Windows when it is unset', async () => {
-    for (const [env, root] of [[{ SystemRoot: 'D:\\Win' }, 'D:\\Win'], [{}, 'C:\\Windows']] as const) {
+  it('lists and kills on Windows through the system\'s own PowerShell and taskkill under %SystemRoot%, then %windir%, then C:\\Windows', async () => {
+    const roots = [
+      [{ SystemRoot: 'D:\\Win' }, 'D:\\Win'], [{}, 'C:\\Windows'], [{ SystemRoot: '' }, 'C:\\Windows'], [{ SystemRoot: '', windir: 'E:\\WINNT' }, 'E:\\WINNT'],
+    ] as const
+    for (const [env, root] of roots) {
       const calls: string[][] = []
       const programs: ProcessPrograms = {
         env,

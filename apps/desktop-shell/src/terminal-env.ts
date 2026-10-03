@@ -203,14 +203,24 @@ export async function writeWindowsUserDshHome(run: PowerShellRunner, value: stri
 }
 
 /**
+ * The Windows directory: `%SystemRoot%`, else `%windir%`, else `C:\Windows`.
+ * An empty value counts as unset, so the result is never a relative path.
+ * @param env - the environment the two variables are read from.
+ * @returns the directory.
+ */
+export function windowsSystemRoot(env: NodeJS.ProcessEnv): string {
+  return env['SystemRoot'] || env['windir'] || 'C:\\Windows'
+}
+
+/**
  * A program of Windows itself by its full path under `%SystemRoot%\System32`,
  * so a `PATH` without `System32` still reaches it.
- * @param env - the environment `SystemRoot` is read from; `C:\Windows` when it is unset.
+ * @param env - the environment the Windows directory is read from ({@link windowsSystemRoot}).
  * @param segments - the path below `System32`.
  * @returns the full Windows path.
  */
 export function system32Program(env: NodeJS.ProcessEnv, ...segments: string[]): string {
-  return win32.join(env['SystemRoot'] ?? 'C:\\Windows', 'System32', ...segments)
+  return win32.join(windowsSystemRoot(env), 'System32', ...segments)
 }
 
 /** The system's own `powershell.exe` below `System32`. */
@@ -219,7 +229,7 @@ export const WINDOWS_POWERSHELL: readonly string[] = ['WindowsPowerShell', 'v1.0
 /**
  * The PowerShell runner used on Windows: the system's own `powershell.exe`,
  * no profile, no window.
- * @param systemRoot - `%SystemRoot%`.
+ * @param systemRoot - `%SystemRoot%`; `C:\Windows` when it is empty.
  * @param timeoutMs - milliseconds before the run is killed.
  * @returns the runner.
  */

@@ -13,7 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import { START_TIME_UNKNOWN, type LockProbes } from './move/lock.ts'
-import { system32Program, systemPowerShell, type PowerShellResult, type PowerShellRunner } from './terminal-env.ts'
+import { system32Program, systemPowerShell, windowsSystemRoot, type PowerShellResult, type PowerShellRunner } from './terminal-env.ts'
 
 /** One running process. */
 export interface ProcessEntry {
@@ -183,7 +183,7 @@ function capture(command: string, args: string[]): Promise<string> {
 
 /** What {@link nodeProcessProbes} runs programs with; replaced in tests. */
 export interface ProcessPrograms {
-  /** The environment `SystemRoot` is read from. */
+  /** The environment the Windows directory is read from. */
   env: NodeJS.ProcessEnv
   /** Run a program and collect its standard output; a program that cannot run gives nothing. */
   capture: (command: string, args: string[]) => Promise<string>
@@ -197,14 +197,14 @@ const NODE_PROGRAMS: ProcessPrograms = { env: process.env, capture, powerShell: 
 /**
  * The real process probes. On Windows the listing runs the system's own
  * `powershell.exe` and the kill its `taskkill.exe`, both by their full path
- * under `%SystemRoot%` (`C:\Windows` when it is unset), so a `PATH` without
+ * under the Windows directory ({@link windowsSystemRoot}), so a `PATH` without
  * `System32` still reaches them.
  * @param platform - the running platform.
  * @param programs - how programs are run; the running process's own when absent.
  * @returns the probes.
  */
 export function nodeProcessProbes(platform: NodeJS.Platform, programs: ProcessPrograms = NODE_PROGRAMS): ProcessProbes {
-  const systemRoot = programs.env['SystemRoot'] ?? 'C:\\Windows'
+  const systemRoot = windowsSystemRoot(programs.env)
   return {
     list: async () => platform === 'win32'
       ? await listWindowsProcesses(programs.powerShell(systemRoot, PROCESS_LIST_TIMEOUT_MS))
