@@ -290,6 +290,8 @@ describe('main.ts', () => {
     ].join(''), 'u'))
     expect(body('restartAfterStop')).toContain('await choosePort(readState().serverPort, isPortFree)')
     expect(body('carryMoveFromSettings')).toContain("await restartAfterStop('the withdrawn data move')")
+    // The Office engine download writes under the data directory from this process, outside the server's tree.
+    expect(body('stopServerCompletely')).toMatch(/stopServerTree\(\{\s+closeShellWriters: async \(\) => \{\s+const engine = officeEngineService\s+officeEngineService = undefined\s+if \(engine !== undefined\) await engine\.close\(\)/u)
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {

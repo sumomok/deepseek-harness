@@ -188,6 +188,11 @@ export function nodeProcessProbes(platform: NodeJS.Platform): ProcessProbes {
 
 /** What {@link stopServerTree} works with. */
 export interface ServerTreeStop {
+  /**
+   * Close what the shell itself runs that writes to the data outside the
+   * server's tree (the Office engine download); awaited before anything else.
+   */
+  closeShellWriters?: () => Promise<unknown>
   /** The server process, or `undefined` when none runs. */
   pid: number | undefined
   /** Stop the server (its bounded stop). */
@@ -198,15 +203,17 @@ export interface ServerTreeStop {
 }
 
 /**
- * Stop the server and make sure its whole tree is gone: the tree is recorded
- * while the server runs, then the server is stopped, earlier runs' leftovers
- * are swept, and the recorded processes still running are killed. A record
- * without the server itself (the list could not be read) confirms nothing;
- * the server is still stopped.
- * @param input - the server, its stop, the sweep, and the process probes.
+ * Stop the server and make sure its whole tree is gone: what the shell itself
+ * runs on the data is closed first, then the tree is recorded while the
+ * server runs, the server is stopped, earlier runs' leftovers are swept, and
+ * the recorded processes still running are killed. A record without the
+ * server itself (the list could not be read) confirms nothing; the server is
+ * still stopped.
+ * @param input - the shell's own writers, the server, its stop, the sweep, and the process probes.
  * @returns whether the tree is gone; `gone` when no server ran.
  */
 export async function stopServerTree(input: ServerTreeStop): Promise<TreeCheck> {
+  if (input.closeShellWriters !== undefined) await input.closeShellWriters()
   const pid = input.pid
   const recorded = pid === undefined ? [] : descendantsOf(pid, await input.probes.list())
   await input.stop()

@@ -33,6 +33,23 @@ describe('the server process tree', () => {
     expect(system.table.map(item => item.pid)).toEqual([1, 200])
   })
 
+  it('closes the shell\'s own writers of the data before it records, stops, or sweeps anything', async () => {
+    const system = fakeSystem([entry(1, 0), entry(100, 1, 'node'), entry(101, 100, 'mcp')])
+    const calls: string[] = []
+    const check = await stopServerTree({
+      closeShellWriters: async () => {
+        await new Promise((resolve) => { setTimeout(resolve, 5) })
+        calls.push('close the engine service')
+      },
+      pid: 100,
+      stop: async () => { calls.push('stop'); system.stopServer(100) },
+      sweep: async () => { calls.push('sweep') },
+      probes: { ...system.probes, list: async () => { calls.push('list'); return await system.probes.list() } },
+    })
+    expect(check).toEqual({ kind: 'gone' })
+    expect(calls.slice(0, 4)).toEqual(['close the engine service', 'list', 'stop', 'sweep'])
+  })
+
   it('reports a process that will not go, and never kills a later process that reused a recorded id', async () => {
     const system = fakeSystem([entry(1, 0), entry(100, 1), entry(101, 100, 'stuck'), entry(102, 100, 'exits')], [101])
     const recorded = descendantsOf(100, await system.probes.list())

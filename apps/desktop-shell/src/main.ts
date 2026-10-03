@@ -276,11 +276,13 @@ function clearAuthCookies(): Promise<number> {
  * @returns whether the tree is gone.
  */
 async function stopServerCompletely(): Promise<TreeCheck> {
-  const engine = officeEngineService
-  officeEngineService = undefined
-  if (engine !== undefined) await engine.close()
   const handle = server
   const check = await stopServerTree({
+    closeShellWriters: async () => {
+      const engine = officeEngineService
+      officeEngineService = undefined
+      if (engine !== undefined) await engine.close()
+    },
     pid: handle?.pid,
     stop: stopServerBounded,
     sweep: () => sweepOrphanedServers(resolveSpec(app.getPath('logs')).nodeBin, logLine),
