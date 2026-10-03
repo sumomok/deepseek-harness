@@ -241,6 +241,72 @@ async function textOf(nodeModules: string, name: string): Promise<string> {
   return text
 }
 
+/** What bundling one package did: how many entry points it built, or that esbuild refused it. */
+interface BuildResult {
+  ok: boolean
+  entries: number
+}
+
+/**
+ * How many packages esbuild bundles at once. Builds cannot see one another:
+ * each writes only its own package's `lib/`, and every package it could read
+ * from another build's output is external. Each `build()` call already spreads
+ * its work over every core, so the pool only overlaps one package's file reads
+ * and call setup with another's build: on the rc.37 payloads `bundleClosure`
+ * took 2.4-2.6 s one package at a time, 1.75-1.89 s with 4, and 1.65-1.68 s
+ * with 10, so 4 keeps nearly all of the gain with fewer builds in memory.
+ */
+const BUILD_CONCURRENCY = 4
+
+/**
+ * Bundle one of our packages' Node entry points in place.
+ * @param nodeModules - the payload's node_modules directory.
+ * @param name - the package to bundle.
+ * @param external - the packages every bundle leaves as imports.
+ * @returns the outcome, or undefined when the package has no manifest or no Node entry point.
+ */
+async function bundlePackage(nodeModules: string, name: string, external: string[]): Promise<BuildResult | undefined> {
+  const dir = join(nodeModules, name)
+  const manifestPath = join(dir, 'package.json')
+  if (!existsSync(manifestPath)) return undefined
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+  const declared = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
+  // Browser artifacts are left exactly as the client face built them. They
+  // register themselves with `window.__ModuleLoader__.load` when the page
+  // evaluates them, and rebundling one for `platform: 'node'` puts an
+  // `import ... from 'node:module'` on top of it — the registration is still
+  // in the file, and the browser never reaches it. Detected by content
+  // rather than by the `./client` export key, because the name of the entry
+  // is not what makes it a browser artifact.
+  const entries: string[] = []
+  for (const entry of declared) {
+    const source = await readFile(join(dir, entry), 'utf8').catch(() => '')
+    if (source.includes('__ModuleLoader__')) continue
+    entries.push(entry)
+  }
+  if (entries.length === 0) return undefined
+  try {
+    await build({
+      entryPoints: entries.map(entry => join(dir, entry)),
+      outdir: join(dir, 'lib'),
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node22',
+      external,
+      allowOverwrite: true,
+      logLevel: 'silent',
+      banner: { js: BANNER },
+    })
+    return { ok: true, entries: entries.length }
+  } catch {
+    // A package that will not bundle keeps every file it had, which costs
+    // file count and nothing else. Reported rather than fatal: the boot gate
+    // downstream is what decides whether the payload is usable.
+    return { ok: false, entries: entries.length }
+  }
+}
+
 /**
  * Bundle one derived payload in place and drop what nothing imports any more.
  * @param payload - the derived payload directory, mutated in place.
@@ -259,48 +325,23 @@ export async function bundleClosure(
   }
   const external = [...ours, ...bundles, ...NATIVE]
 
+  // Each package's result lands at its index, so the counts and the unbundled
+  // list come out in `ours` order however the builds interleave.
+  const results: (BuildResult | undefined)[] = new Array(ours.length)
+  let next = 0
+  const builder = async (): Promise<void> => {
+    while (next < ours.length) {
+      const index = next++
+      results[index] = await bundlePackage(nodeModules, ours[index] as string, external)
+    }
+  }
+  await Promise.all(Array.from({ length: BUILD_CONCURRENCY }, builder))
   let bundled = 0
   const unbundled: string[] = []
-  for (const name of ours) {
-    const dir = join(nodeModules, name)
-    const manifestPath = join(dir, 'package.json')
-    if (!existsSync(manifestPath)) continue
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
-    const declared = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
-    // Browser artifacts are left exactly as the client face built them. They
-    // register themselves with `window.__ModuleLoader__.load` when the page
-    // evaluates them, and rebundling one for `platform: 'node'` puts an
-    // `import ... from 'node:module'` on top of it — the registration is still
-    // in the file, and the browser never reaches it. Detected by content
-    // rather than by the `./client` export key, because the name of the entry
-    // is not what makes it a browser artifact.
-    const entries: string[] = []
-    for (const entry of declared) {
-      const source = await readFile(join(dir, entry), 'utf8').catch(() => '')
-      if (source.includes('__ModuleLoader__')) continue
-      entries.push(entry)
-    }
-    if (entries.length === 0) continue
-    try {
-      await build({
-        entryPoints: entries.map(entry => join(dir, entry)),
-        outdir: join(dir, 'lib'),
-        bundle: true,
-        platform: 'node',
-        format: 'esm',
-        target: 'node22',
-        external,
-        allowOverwrite: true,
-        logLevel: 'silent',
-        banner: { js: BANNER },
-      })
-      bundled += entries.length
-    } catch {
-      // A package that will not bundle keeps every file it had, which costs
-      // file count and nothing else. Reported rather than fatal: the boot gate
-      // downstream is what decides whether the payload is usable.
-      unbundled.push(name)
-    }
+  for (const [index, result] of results.entries()) {
+    if (result === undefined) continue
+    if (result.ok) bundled += result.entries
+    else unbundled.push(ours[index] as string)
   }
 
   // Reachability, not one pass. A surviving third-party package brings its own

@@ -166,4 +166,20 @@ describe('bundleClosure', () => {
     expect(existsSync(join(payload, 'node_modules', 'unreferenced'))).toBe(false)
     expect(result.removed).toBe(1)
   })
+
+  it('reports the packages esbuild refused in package order, whatever order the builds finish in', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(letter => `@deepseek-ai/${letter}`)
+    const refused = new Set(['@deepseek-ai/b', '@deepseek-ai/e', '@deepseek-ai/f'])
+    for (const name of names) {
+      const dir = join(payload, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+      writeFileSync(join(dir, 'index.js'), refused.has(name) ? 'import missing from \'./missing.js\'\nexport default missing\n' : 'export default 1\n')
+    }
+    const result = await bundleClosure(payload)
+    expect(result.unbundled).toEqual([...refused])
+    expect(result.bundled).toBe(names.length - refused.size)
+  })
 })
