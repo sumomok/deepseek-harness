@@ -18,6 +18,7 @@ import {
   writeGeneration, type Resolution,
 } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
+import { processDshHome } from '../src/terminal-env.ts'
 import {
   abandonedCopiesText, isAbandonedCopy, JOURNAL_FILENAME, JournalError, MAX_REPAIR_ROUNDS, mayStartServer, MOVE_PHASES, nextAction,
   readAbandonedCopies, readJournal, readMoveResult, RESULT_FILENAME, RETIRED_FILENAME, validateJournal,
@@ -25,7 +26,7 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, failureKindOf, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked,
-  retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove, StepFailure,
+  pointerSeeingTerminal, retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove, StepFailure,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { CopyMismatchError } from '../src/move/copier.ts'
@@ -488,8 +489,13 @@ describe('a directory a terminal made at the old path', () => {
     expect(outcome.kind === 'ended' ? outcome.result.unusedCopy : undefined).toBeDefined()
   })
 
-  posixOnly('finishes a rollback whose terminal setting cannot be put back, naming the new location a terminal may still use', async () => {
-    const s = await scenario({ sameVolume: false, start: 'pointer' })
+  posixOnly.each([
+    { start: 'pointer', sameVolume: false },
+    { start: 'pointer', sameVolume: true },
+    { start: 'default-home', sameVolume: false },
+    { start: 'default-home', sameVolume: true },
+  ] as const)('finishes a rollback whose terminal setting cannot be put back, and keeps the next launch that inherits it on the original (start $start, same volume $sameVolume)', async ({ start, sameVolume }) => {
+    const s = await scenario({ sameVolume, start })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
     expect(terminalValue(s.setup)).toBe(s.target)
     recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
@@ -506,7 +512,21 @@ describe('a directory a terminal made at the old path', () => {
     expect(readJournal(s.setup.dir)).toBeUndefined()
     expect(terminalValue(s.setup)).toBe(s.target)
     expect(originalListing(s)).toEqual(s.before)
-    expect(pointerText(s, 'data-location.json')).toBe(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main)
+    expect(existsSync(s.target)).toBe(false)
+    const read = readPointer(s.setup.userData)
+    expect(read).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, dataId: HARNESS_ID, lastSeenEnv: s.target } })
+    if (start === 'pointer') {
+      const restored = rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main ?? ''
+      expect(read.kind === 'ok' ? read.pointer : undefined).toEqual({ ...JSON.parse(restored), lastSeenEnv: s.target })
+    }
+    // The next launch inherits the setting the rollback could not put back, as Windows' user variable is inherited.
+    const next = resolveDataLocation({
+      read,
+      env: processDshHome({ DSH_HOME: terminalValue(s.setup) }),
+      defaultHome: s.setup.defaultHome,
+      abandoned: readAbandonedCopies(s.setup.dir),
+    })
+    expect(next).toEqual({ kind: 'ready', home: s.f.home, via: 'pointer' })
   })
 
   posixOnly('records a failed restore once, so a rollback resumed after it does not try again', async () => {
@@ -527,9 +547,20 @@ describe('a directory a terminal made at the old path', () => {
       pid: PID, guard: async (journal) => { if (journal.terminalRestoreFailed !== undefined) throw stop },
     })).rejects.toBe(stop)
     expect(readJournal(s.setup.dir)).toMatchObject({ terminalWritten: false, terminalRestoreFailed: 'PowerShell exited with 1 restoring DSH_HOME' })
+    expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home } })
+    expect(readPointer(s.setup.userData)).not.toMatchObject({ pointer: { lastSeenEnv: s.target } })
     const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
     expect(restores).toBe(1)
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: s.target } } })
+    expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: s.target } })
+  })
+
+  it('names the original without a pointer before the move, and leaves a main file that was not a valid pointer as it was', () => {
+    const journal = { pointerBefore: {}, originalGeneration: 2, source: '/data/original', target: '/data/new', dataId: HARNESS_ID }
+    expect(pointerSeeingTerminal({ ...journal, pointerBefore: { main: '{ torn' } })).toBeUndefined()
+    expect(pointerSeeingTerminal(journal)).toEqual({
+      version: 1, path: '/data/original', dataId: HARNESS_ID, generation: 2, lastSeenEnv: '/data/new',
+    })
   })
 
   posixOnly('leaves the retired copy where it is when it cannot be renamed, and still goes back', async () => {
@@ -1301,6 +1332,7 @@ describe('the journal', () => {
     bad({ linkRewrites: [{ rel: 'a' }] })
     bad({ pointerWritten: 'yes' })
     bad({ terminalRestoreFailed: 7 })
+    bad({ terminalRecordedAsSeen: 'yes' })
     bad({ failure: { phase: 'nope', detail: 'x' } })
     bad({ failure: { phase: 'copying', detail: 'x', kind: 7 } })
     bad({ failure: { phase: 'copying', detail: 'x', kind: 'no-space', also: 'fewer-sessions' } })

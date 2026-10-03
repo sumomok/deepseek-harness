@@ -989,6 +989,12 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       save({ ...journal, terminalWritten: false, ...failed === undefined ? {} : { terminalRestoreFailed: failed } })
       return undefined
     }
+    case 'record-terminal-as-seen': {
+      const pointer = pointerSeeingTerminal(journal)
+      if (pointer !== undefined) effects.writePointer(pointer)
+      save({ ...journal, terminalRecordedAsSeen: true })
+      return undefined
+    }
     case 'finish':
       return { kind: 'ended', result: finish(dir, journal, action.outcome, context.facts, effects) }
     default:
@@ -1055,7 +1061,8 @@ function freeSibling(effects: MoveEffects, path: string, kind: KeptFolderKind): 
  * the person chose to keep it; a move that went on after an earlier failure
  * because the person chose so, and then passed its check, keeps only the
  * `detail`. A rollback that could not put the terminal setting back names the
- * new location in `terminalNotRestored`.
+ * new location in `terminalNotRestored`; the pointer it wrote before
+ * ({@link pointerSeeingTerminal}) keeps the application on the original.
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
@@ -1196,6 +1203,30 @@ export function rolledBackPointer(before: PointerBefore, generation: number): Po
   if (pointer === undefined) return before
   const main = pointerText(withGeneration(pointer, Math.max(pointer.generation ?? 0, generation)))
   return { ...before, main }
+}
+
+/**
+ * The pointer a rollback leaves when it could not put the terminal setting
+ * back: the original, as the rolled-back pointer names it or, when there was
+ * no pointer before the move, by the original's path, identity and number,
+ * with the new location the terminal still names as `lastSeenEnv`. A later
+ * launch that reads that value, from a terminal profile or as the Windows
+ * user variable an application started from the Start menu inherits, then
+ * stays on the original instead of following the value to a folder the
+ * rollback retired or renamed.
+ * @param journal - the move.
+ * @returns the pointer to write; `undefined` when the main file before the move was not a valid pointer, which then
+ * stays byte for byte as it was.
+ */
+export function pointerSeeingTerminal(
+  journal: Pick<MoveJournal, 'pointerBefore' | 'originalGeneration' | 'source' | 'target' | 'dataId'>,
+): DataLocationPointer | undefined {
+  const { main } = rolledBackPointer(journal.pointerBefore, journal.originalGeneration)
+  const before = main === undefined ? undefined : parsePointerText(main)
+  if (main !== undefined && before === undefined) return undefined
+  const original = before
+    ?? withGeneration({ version: POINTER_VERSION, path: journal.source, dataId: journal.dataId }, journal.originalGeneration)
+  return { ...original, lastSeenEnv: journal.target }
 }
 
 /**

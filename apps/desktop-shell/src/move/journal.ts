@@ -227,10 +227,18 @@ export interface MoveJournal {
   terminalWritten: boolean
   /**
    * Putting the terminal setting back during a rollback failed: what
-   * happened, in English, for the log. The rollback finishes without it, and
-   * the result names the new location (`terminalNotRestored`).
+   * happened, in English, for the log. The rollback finishes without it: the
+   * pointer then names the original with the new location recorded as seen
+   * (`terminalRecordedAsSeen`), and the result names the new location
+   * (`terminalNotRestored`).
    */
   terminalRestoreFailed?: string
+  /**
+   * Set once a rollback whose terminal setting could not be put back wrote
+   * the pointer naming the original with the new location as its
+   * `lastSeenEnv`.
+   */
+  terminalRecordedAsSeen?: boolean
   /** Set once `~/.dsh` has been put back during a rollback. */
   homeLinkRestored: boolean
   /**
@@ -341,7 +349,9 @@ export interface MoveResult {
   keptOriginal?: KeptFolder
   /**
    * A rollback could not put the terminal's data-location setting back, so
-   * DSH in a terminal may still use this folder, the new location.
+   * DSH started from a terminal without the application may still use this
+   * folder, the new location. The application itself keeps the original: the
+   * pointer names it and records this folder as the value already seen.
    */
   terminalNotRestored?: KeptFolder
   finishedAt: string
@@ -548,6 +558,7 @@ export function validateJournal(value: unknown): MoveJournal {
   if (r['targetGeneration'] !== undefined) journal.targetGeneration = count('targetGeneration')
   if (r['keptOriginal'] !== undefined) journal.keptOriginal = path('keptOriginal')
   if (r['terminalRestoreFailed'] !== undefined) journal.terminalRestoreFailed = text('terminalRestoreFailed')
+  if (r['terminalRecordedAsSeen'] !== undefined) journal.terminalRecordedAsSeen = flag('terminalRecordedAsSeen')
   const failure = r['failure']
   if (failure !== undefined) {
     const f = typeof failure === 'object' && failure !== null ? failure as Record<string, unknown> : {}
@@ -866,6 +877,7 @@ export type MoveAction =
   | { kind: 'return-target-to-source' }
   | { kind: 'restore-pointer' }
   | { kind: 'restore-terminal' }
+  | { kind: 'record-terminal-as-seen' }
   | { kind: 'finish'; outcome: MoveResult['outcome'] }
 
 /**
@@ -1117,8 +1129,9 @@ function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: 
  * The next rollback step (plan S8′): `~/.dsh` first; then, only once the
  * original can go back to its path, the target is marked retired and loses
  * its identity, and the original is put back; then the copy is dealt with,
- * and the pointer and the terminal last. A copy nothing outside the move
- * could have used is deleted. An exposed one ({@link MoveJournal.targetExposed})
+ * and the pointer and the terminal last; a terminal setting that could not
+ * be put back is then recorded as seen in a pointer naming the original. A
+ * copy nothing outside the move could have used is deleted. An exposed one ({@link MoveJournal.targetExposed})
  * is never deleted: it is renamed to a visible folder beside it, which the
  * result names.
  * @param journal - the journal.
@@ -1163,6 +1176,7 @@ function rollbackAction(journal: MoveJournal, facts: MoveFacts): MoveAction {
   if (journal.targetPreexisting && !target.exists) return { kind: 'recreate-empty-target' }
   if (journal.pointerWritten) return { kind: 'restore-pointer' }
   if (journal.terminalWritten) return { kind: 'restore-terminal' }
+  if (journal.terminalRestoreFailed !== undefined && journal.terminalRecordedAsSeen !== true) return { kind: 'record-terminal-as-seen' }
   return { kind: 'finish', outcome: 'failed' }
 }
 
