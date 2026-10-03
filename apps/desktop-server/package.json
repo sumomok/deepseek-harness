@@ -137,7 +137,7 @@
     "@haoran/dsh-btw": "file:./vendor/haoran-dsh-btw-0.3.0.tgz",
     "@haoran/dsh-clickable-refs": "file:./vendor/haoran-dsh-clickable-refs-0.6.0.tgz",
     "@haoran/dsh-connection-banner": "file:./vendor/haoran-dsh-connection-banner-0.4.0.tgz",
-    "@haoran/dsh-crash-resume": "file:./vendor/haoran-dsh-crash-resume-0.4.1.tgz",
+    "@haoran/dsh-crash-resume": "file:./vendor/haoran-dsh-crash-resume-0.4.2.tgz",
     "@haoran/dsh-desktop-update": "file:./vendor/haoran-dsh-desktop-update-0.3.0.tgz",
     "@haoran/dsh-llm-permission-gateway": "file:./vendor/haoran-dsh-llm-permission-gateway-0.6.0.tgz",
     "@haoran/dsh-mcp-servers": "file:./vendor/haoran-dsh-mcp-servers-0.3.0.tgz",

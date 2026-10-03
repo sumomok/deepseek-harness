@@ -1210,8 +1210,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-connection-banner-0.4.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
       '@haoran/dsh-crash-resume':
-        specifier: file:./vendor/haoran-dsh-crash-resume-0.4.1.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz(817a3619a0da0268900e11a7a0a8a614)
+        specifier: file:./vendor/haoran-dsh-crash-resume-0.4.2.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.2.tgz(817a3619a0da0268900e11a7a0a8a614)
       '@haoran/dsh-desktop-update':
         specifier: file:./vendor/haoran-dsh-desktop-update-0.3.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-sidebar@packages+client+ui-sidebar)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
@@ -16457,9 +16457,9 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-crash-resume@file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz':
-    resolution: {integrity: sha512-nANAj3wCmxoSMwil0Nb9DtHpVuuk/loo4hEhgPxQcFaEFt1uW8a0+lXk7p/LZN2Hnis3AiFViXVFpv7xEvOpJA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz}
-    version: 0.4.1
+  '@haoran/dsh-crash-resume@file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.2.tgz':
+    resolution: {integrity: sha512-Ie+BsEmXu9s4mURcRCKGdiAm3kUIEjF4eGl3hFYIDzbdHNCXh+oUd1EwHhQdsuoR1eJbM7tVb2OCMrS4WWN8Ww==, tarball: file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.2.tgz}
+    version: 0.4.2
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.3
       '@deepseek-ai/dsh-agent': '>=0.2.0-rc.2 <0.3.0-0'
@@ -24380,7 +24380,7 @@ snapshots:
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       react: 18.3.1
 
-  '@haoran/dsh-crash-resume@file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.1.tgz(817a3619a0da0268900e11a7a0a8a614)':
+  '@haoran/dsh-crash-resume@file:apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.2.tgz(817a3619a0da0268900e11a7a0a8a614)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-agent': link:packages/core/agent
