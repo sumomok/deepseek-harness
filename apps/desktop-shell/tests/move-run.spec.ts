@@ -626,7 +626,8 @@ describe('a directory a terminal made at the old path', () => {
     expect(resolveBlocked(s.setup.dir, 'keep-target', seenOf(outcome))).toBe('refused')
     expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(outcome))).toBe('applied')
     const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
-    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', abandonedCopy: { path: s.target } } })
+    // The rollback the person chose went on from the failed check, whose cause it keeps.
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', abandonedCopy: { path: s.target }, failure: { kind: 'fewer-sessions' } } })
     expect(ended.kind === 'ended' ? ended.result.unusedCopy : 'x').toBeUndefined()
     expect(originalListing(s)).toEqual(s.before)
     const moveId = readMoveResult(s.setup.dir)?.moveId
@@ -1108,6 +1109,85 @@ describe('why a move failed', () => {
     })
     expect(originalListing(s)).toEqual(s.before)
     expect(readFileSync(join(s.target, 'notes.txt'), 'utf8')).toBe('not the data\n')
+  })
+
+  posixOnly('names a refused change while hiding the original, and a full drive while switching, and rolls the move back', async () => {
+    for (const [step, kind] of [['hiding', 'no-permission'], ['switching', 'no-space']] as const) {
+      const s = await scenario({ sameVolume: false, start: 'pointer' })
+      const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+      const real = harnessEffects(s.setup)
+      let thrown = false
+      const failing: MoveEffects = {
+        ...real,
+        fs: {
+          ...real.fs,
+          rename: (from, to) => {
+            if (step === 'hiding' && to === hidden) throw Object.assign(new Error('EACCES: permission denied, rename'), { code: 'EACCES' })
+            real.fs.rename(from, to)
+          },
+        },
+        writePointer: (pointer) => {
+          if (step === 'switching' && !thrown) {
+            thrown = true
+            throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+          }
+          real.writePointer(pointer)
+        },
+      }
+      const outcome = await advanceMove(s.setup.dir, failing, { pid: PID })
+      expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind } } })
+      expect(readMoveResult(s.setup.dir)?.failure).toEqual({ kind })
+      expect(originalListing(s)).toEqual(s.before)
+    }
+  })
+
+  posixOnly('names a copy that went away once the original was hidden, and keeps that cause through the rollback the person chooses', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const away = join(s.f.root, 'unplugged')
+    const hidden = readJournal(s.setup.dir)?.hidden ?? ''
+    const real = harnessEffects(s.setup)
+    const unplugged: MoveEffects = {
+      ...real,
+      fs: {
+        ...real.fs,
+        rename: (from, to) => {
+          real.fs.rename(from, to)
+          // The new location's drive goes away right after the original is hidden.
+          if (to === hidden) renameSync(s.target, away)
+        },
+      },
+    }
+    const outcome = await advanceMove(s.setup.dir, unplugged, { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'blocked', reason: 'target-missing' })
+    expect(readJournal(s.setup.dir)?.failure).toMatchObject({ phase: 'hiding-source', detail: 'the copy is gone', kind: 'copy-gone' })
+    expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(outcome))).toBe('applied')
+    const ended = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(ended).toMatchObject({ kind: 'ended', result: { outcome: 'failed', detail: 'the copy is gone', failure: { kind: 'copy-gone' } } })
+    expect(originalListing(s)).toEqual(s.before)
+    expect(existsSync(away)).toBe(true)
+  })
+
+  posixOnly('names a copy that went away as what blocked a move the person kept, then took back before anything failed', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer' })
+    const stop = new Error('the original is hidden')
+    await expect(advanceMove(s.setup.dir, harnessEffects(s.setup), {
+      pid: PID,
+      guard: (journal, facts) => { if (journal.phase === 'hiding-source' && facts.hidden.exists) throw stop },
+    })).rejects.toBe(stop)
+    // The person chose earlier to keep the new location; then its drive goes away.
+    const journal = readJournal(s.setup.dir)
+    writeFileSync(join(s.setup.dir, JOURNAL_FILENAME), JSON.stringify({ ...journal, keepTarget: true }))
+    renameSync(s.target, join(s.f.root, 'unplugged'))
+    const blocked = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(blocked).toMatchObject({ kind: 'blocked', reason: 'target-missing', choices: ['rollback'] })
+    expect(readJournal(s.setup.dir)?.failure).toBeUndefined()
+    expect(resolveBlocked(s.setup.dir, 'rollback', seenOf(blocked))).toBe('applied')
+    const outcome = await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    expect(outcome).toMatchObject({
+      kind: 'ended',
+      result: { outcome: 'failed', detail: 'the person chose to go back (target-missing)', failure: { kind: 'copy-gone' }, abandonedCopy: { path: s.target } },
+    })
+    expect(originalListing(s)).toEqual(s.before)
   })
 
   it('names a failed move whose journal records no failure as other', async () => {

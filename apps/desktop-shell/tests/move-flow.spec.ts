@@ -27,7 +27,7 @@ import {
 import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT, stopCauseOf } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
-import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult, type HealthFailures } from '../src/move/journal.ts'
+import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult, type HealthFailure, type HealthFailures } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { advanceMove, recordHealth, startMove, type MoveFs } from '../src/move/run.ts'
 import type { TreeCheck } from '../src/process-tree.ts'
@@ -584,10 +584,20 @@ describe('a move that cannot go on', () => {
   })
 
   it('names each failure of a kept new location in the person\'s language, joined into one sentence', () => {
-    const failures = ['not-started', 'unreadable', 'fewer-sessions', 'plugin-quarantined', 'workspaces-differ'] as const
-    for (const set of [MOVE_TEXT.zh, MOVE_TEXT.en]) {
-      const sentences = failures.map(failure => set.keptTarget('/T', undefined, [failure]))
-      expect(new Set(sentences).size).toBe(failures.length)
+    const named: Record<HealthFailure, { zh: string; en: string }> = {
+      'not-started': { zh: 'DSH 没能在这里启动', en: 'DSH could not start there' },
+      'unreadable': { zh: '这里的数据读不出来', en: 'the data there could not be read' },
+      'fewer-sessions': { zh: '这里的对话比搬运前少', en: 'it holds fewer conversations than before the move' },
+      'plugin-quarantined': { zh: '有插件在这里没能加载', en: 'a plugin could not be loaded there' },
+      'workspaces-differ': { zh: '这里的工作区数量和搬运前不一样', en: 'it holds a different number of workspaces than before the move' },
+    }
+    for (const [failure, words] of Object.entries(named) as Array<[HealthFailure, { zh: string; en: string }]>) {
+      expect(MOVE_TEXT.zh.keptTarget('/T', undefined, [failure])).toBe(
+        `你选择保留的新位置「/T」没有通过检查：${words.zh}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。DSH 现在退出。`,
+      )
+      expect(MOVE_TEXT.en.keptTarget('/T', undefined, [failure])).toBe(
+        `The new location "/T" you chose to keep did not pass its check: ${words.en}. DSH keeps using it as you chose, and starts from there when you reopen it. DSH quits now.`,
+      )
     }
     expect(MOVE_TEXT.zh.keptTarget('/Volumes/T7/DSH', '/Users/a/DSH 原来的数据', ['fewer-sessions', 'plugin-quarantined'])).toBe(
       '你选择保留的新位置「/Volumes/T7/DSH」没有通过检查：这里的对话比搬运前少；有插件在这里没能加载。'
