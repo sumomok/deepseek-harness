@@ -407,9 +407,15 @@ describe('a launch with a move on disk', () => {
     const baseline = { sessions: 3, workspaces: 2, quarantined: ['a'] }
     expect(checkHealth(baseline, { sessions: 3, quarantined: ['a'], workspaces: 2 }).healthy).toBe(true)
     expect(checkHealth(baseline, { sessions: 4, quarantined: [], workspaces: 2 }).healthy).toBe(true)
-    expect(checkHealth(baseline, { sessions: 2, quarantined: ['a'], workspaces: 2 })).toMatchObject({ healthy: false, detail: 'sessions 2 < 3' })
-    expect(checkHealth(baseline, { sessions: 3, quarantined: ['a', 'b'], workspaces: 2 })).toMatchObject({ healthy: false })
-    expect(checkHealth(baseline, { sessions: 3, quarantined: ['a'], workspaces: 1 })).toMatchObject({ healthy: false })
+    expect(checkHealth(baseline, { sessions: 2, quarantined: ['a'], workspaces: 2 }))
+      .toEqual({ healthy: false, detail: 'sessions 2 < 3', failures: ['fewer-sessions'] })
+    expect(checkHealth(baseline, { sessions: 3, quarantined: ['a', 'b'], workspaces: 2 }))
+      .toEqual({ healthy: false, detail: 'newly quarantined: b', failures: ['plugin-quarantined'] })
+    expect(checkHealth(baseline, { sessions: 3, quarantined: ['a'], workspaces: 1 }))
+      .toEqual({ healthy: false, detail: 'workspaces 1 != 2', failures: ['workspaces-differ'] })
+    expect(checkHealth(baseline, { sessions: 1, quarantined: ['c'], workspaces: 0 })).toEqual({
+      healthy: false, detail: 'sessions 1 < 3; newly quarantined: c; workspaces 0 != 2', failures: ['fewer-sessions', 'plugin-quarantined', 'workspaces-differ'],
+    })
     const unknown = checkHealth(baseline, { sessions: 3, quarantined: ['a'] })
     expect(unknown.healthy).toBe(true)
     expect(unknown.detail).toContain('not compared')

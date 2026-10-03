@@ -25,6 +25,7 @@ import {
   JOURNAL_FILENAME, JournalError, mayStartServer, readJournal, type MoveBaseline, type MoveJournal, type MoveResult,
 } from './move/journal.ts'
 import { releaseMoveLock, type LockSelf } from './move/lock.ts'
+import type { HealthFailure, HealthFailures } from './move/executor.ts'
 import { recordHealth, type MoveOutcome } from './move/run.ts'
 import type { TreeCheck } from './process-tree.ts'
 
@@ -172,12 +173,13 @@ export interface HealthReading {
   workspaces?: number
 }
 
-/** The health check's verdict. */
-export interface HealthVerdict {
-  healthy: boolean
-  /** Why it failed, or what was checked. */
-  detail: string
-}
+/**
+ * The health check's verdict. `detail` says what was checked, or why the
+ * check failed, for the log and the journal; `failures` names each problem.
+ */
+export type HealthVerdict =
+  | { healthy: true; detail: string }
+  | { healthy: false; detail: string; failures: HealthFailures }
 
 /**
  * Compare the new location with the baseline recorded before the move: no
@@ -188,15 +190,24 @@ export interface HealthVerdict {
  * @returns the verdict.
  */
 export function checkHealth(baseline: MoveBaseline, reading: HealthReading): HealthVerdict {
-  const problems: string[] = []
-  if (reading.sessions < baseline.sessions) problems.push(`sessions ${String(reading.sessions)} < ${String(baseline.sessions)}`)
+  const problems: { failure: HealthFailure; detail: string }[] = []
+  if (reading.sessions < baseline.sessions) {
+    problems.push({ failure: 'fewer-sessions', detail: `sessions ${String(reading.sessions)} < ${String(baseline.sessions)}` })
+  }
   const added = reading.quarantined.filter(name => !baseline.quarantined.includes(name))
-  if (added.length > 0) problems.push(`newly quarantined: ${added.join(', ')}`)
+  if (added.length > 0) problems.push({ failure: 'plugin-quarantined', detail: `newly quarantined: ${added.join(', ')}` })
   const compared = baseline.workspaces !== undefined && reading.workspaces !== undefined
   if (compared && reading.workspaces !== baseline.workspaces) {
-    problems.push(`workspaces ${String(reading.workspaces)} != ${String(baseline.workspaces)}`)
+    problems.push({ failure: 'workspaces-differ', detail: `workspaces ${String(reading.workspaces)} != ${String(baseline.workspaces)}` })
   }
-  if (problems.length > 0) return { healthy: false, detail: problems.join('; ') }
+  const [first, ...rest] = problems
+  if (first !== undefined) {
+    return {
+      healthy: false,
+      detail: problems.map(problem => problem.detail).join('; '),
+      failures: [first.failure, ...rest.map(problem => problem.failure)],
+    }
+  }
   return {
     healthy: true,
     detail: `sessions ${String(reading.sessions)} >= ${String(baseline.sessions)}; no plugin newly quarantined; `
@@ -221,8 +232,12 @@ export interface SwitchedLaunch<Started> {
    * but not a server that already exited nor what it started.
    */
   stopServerTree: () => Promise<TreeCheck>
-  /** Record the failure and carry the rollback in the move's window; resolves once the application is on its way out. */
-  rollBack: (detail: string) => Promise<void>
+  /**
+   * Record the failure and carry the rollback in the move's window; resolves
+   * once the application is on its way out. `detail` is what the journal and
+   * the log record, `failures` what the page after a kept new location names.
+   */
+  rollBack: (detail: string, failures: HealthFailures) => Promise<void>
   /** Record the passed check ({@link passHealthCheck}). */
   pass: () => void
   log: (line: string) => void
@@ -252,29 +267,29 @@ export type SwitchedLaunchOutcome<Started> =
 export async function launchOnSwitchedMove<Started>(
   baseline: MoveBaseline, deps: SwitchedLaunch<Started>,
 ): Promise<SwitchedLaunchOutcome<Started>> {
-  const fail = async (detail: string): Promise<SwitchedLaunchOutcome<Started>> => {
+  const fail = async (detail: string, failures: HealthFailures): Promise<SwitchedLaunchOutcome<Started>> => {
     deps.log(`[desktop] data move: health check failed: ${detail}\n`)
     try {
       await deps.stopServerTree()
     } catch (error) {
       deps.log(`[desktop] data move: could not stop the server before the rollback: ${String(error)}\n`)
     }
-    await deps.rollBack(detail)
+    await deps.rollBack(detail, failures)
     return { kind: 'rolled-back' }
   }
   let started: Started
   try {
     started = await deps.start()
   } catch (error) {
-    return await fail(`the server did not start on the new location: ${firstLine(error)}`)
+    return await fail(`the server did not start on the new location: ${firstLine(error)}`, ['not-started'])
   }
   let verdict: HealthVerdict
   try {
     verdict = checkHealth(baseline, deps.read())
   } catch (error) {
-    return await fail(`the new location could not be read: ${firstLine(error)}`)
+    return await fail(`the new location could not be read: ${firstLine(error)}`, ['unreadable'])
   }
-  if (!verdict.healthy) return await fail(verdict.detail)
+  if (!verdict.healthy) return await fail(verdict.detail, verdict.failures)
   deps.log(`[desktop] data move: health check passed: ${verdict.detail}\n`)
   deps.pass()
   return { kind: 'healthy', started }

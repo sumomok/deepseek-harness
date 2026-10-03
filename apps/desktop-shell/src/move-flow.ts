@@ -239,7 +239,7 @@ async function carry(deps: MoveFlowDeps): Promise<MoveFlowEnd> {
         // A failed check this flow recorded ends here only on a new location the person chose to keep.
         if (request.before?.kind === 'health-failed') {
           const kept = outcome.result.keptOriginal?.path
-          const sentence = text.keptTarget(journal.target, kept, outcome.result.detail ?? request.before.detail)
+          const sentence = text.keptTarget(journal.target, kept, request.before.failures)
           const reveal = kept === undefined ? {} : { reveal: kept }
           await ui.showPage(stopPage(text.keptTargetTitle, sentence, text, { platform: request.platform, ...reveal }))
         }

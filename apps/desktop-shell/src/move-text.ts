@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-desktop-shell/move-text
  */
 
+import type { HealthFailure, HealthFailures } from './move/executor.ts'
+
 /** One language's sentences. */
 export interface MoveText {
   progressTitle: string
@@ -45,7 +47,7 @@ export interface MoveText {
    * The new location failed its check after the person chose to keep it, so
    * the move finished there; the original, when one was kept, is in `kept`.
    */
-  keptTarget: (target: string, kept: string | undefined, detail: string) => string
+  keptTarget: (target: string, kept: string | undefined, failures: HealthFailures) => string
   journalUnreadableTitle: string
   journalUnreadable: (path: string) => string
   lockedTitle: string
@@ -97,6 +99,24 @@ export interface MoveText {
  */
 export type RollBackCopy = 'none' | 'deleted' | 'kept' | 'unreachable' | 'unreachable-exposed'
 
+/** Each failure of a first launch on the new location, as a kept new location's page names it, by language. */
+const HEALTH_FAILURE: Record<'zh' | 'en', Record<HealthFailure, string>> = {
+  zh: {
+    'not-started': 'DSH 没能在这里启动',
+    'unreadable': '这里的数据读不出来',
+    'fewer-sessions': '这里的对话比搬运前少',
+    'plugin-quarantined': '有插件在这里没能加载',
+    'workspaces-differ': '这里的工作区数量和搬运前不一样',
+  },
+  en: {
+    'not-started': 'DSH could not start there',
+    'unreadable': 'the data there could not be read',
+    'fewer-sessions': 'it holds fewer conversations than before the move',
+    'plugin-quarantined': 'a plugin could not be loaded there',
+    'workspaces-differ': 'it holds a different number of workspaces than before the move',
+  },
+}
+
 /** The two sentence sets, keyed by the language they are written in. */
 export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
   zh: {
@@ -132,7 +152,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     stalled: '搬运已经两分钟没有任何进展，可能是磁盘没有响应。DSH 会退出；重新打开 DSH 时会从停下的地方接着搬。',
     failed: detail => `搬运时出了错：${detail}。DSH 会退出；重新打开 DSH 时会从停下的地方接着处理。`,
     keptTargetTitle: '新位置没有通过检查',
-    keptTarget: (target, kept, detail) => `你选择保留的新位置「${target}」没有通过检查：${detail}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。${kept === undefined ? '' : `原来的数据没有删除，保留在「${kept}」。`}DSH 现在退出。`,
+    keptTarget: (target, kept, failures) => `你选择保留的新位置「${target}」没有通过检查：${failures.map(failure => HEALTH_FAILURE.zh[failure]).join('；')}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。${kept === undefined ? '' : `原来的数据没有删除，保留在「${kept}」。`}DSH 现在退出。`,
     journalUnreadableTitle: 'DSH 暂时不能启动',
     journalUnreadable: path => `记录这次搬运进度的文件「${path}」读不出来了。为了不把只搬了一半的数据当成你的数据，DSH 在这个文件修好之前不会启动。`,
     lockedTitle: '另一个 DSH 正在搬运这份数据',
@@ -204,7 +224,7 @@ export const MOVE_TEXT: Record<'zh' | 'en', MoveText> = {
     stalled: 'The move has made no progress for two minutes; a drive may not be responding. DSH quits now; when you reopen it, the move picks up where it stopped.',
     failed: detail => `The move ran into an error: ${detail}. DSH quits now; when you reopen it, it picks up where it stopped.`,
     keptTargetTitle: 'The new location did not pass its check',
-    keptTarget: (target, kept, detail) => `The new location "${target}" you chose to keep did not pass its check: ${detail}. DSH keeps using it as you chose, and starts from there when you reopen it.${kept === undefined ? '' : ` Your original data was not deleted; it is kept in "${kept}".`} DSH quits now.`,
+    keptTarget: (target, kept, failures) => `The new location "${target}" you chose to keep did not pass its check: ${failures.map(failure => HEALTH_FAILURE.en[failure]).join('; ')}. DSH keeps using it as you chose, and starts from there when you reopen it.${kept === undefined ? '' : ` Your original data was not deleted; it is kept in "${kept}".`} DSH quits now.`,
     journalUnreadableTitle: 'DSH cannot start',
     journalUnreadable: path => `The file that records this data move's progress, "${path}", cannot be read. To avoid taking half-moved data for your data, DSH does not start until this file is fixed.`,
     lockedTitle: 'Another DSH is moving this data',

@@ -1409,10 +1409,10 @@ if (!locked) {
           start: startOnHome,
           read: () => ({ sessions: countSessions(home), quarantined: quarantinedPlugins(home) }),
           stopServerTree: stopServerCompletely,
-          rollBack: async (detail) => {
+          rollBack: async (detail, failures) => {
             clearInterval(ticker)
             // The move's worker records the result, because the print reads the whole new location.
-            await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail })
+            await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail, failures })
           },
           pass: () => { passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') }, sink) },
           log: sink,

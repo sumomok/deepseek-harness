@@ -26,7 +26,7 @@ import {
 } from '../src/move-flow.ts'
 import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
-import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
+import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread, HealthFailures } from '../src/move/executor.ts'
 import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { advanceMove, recordHealth, startMove, type MoveFs } from '../src/move/run.ts'
@@ -151,7 +151,9 @@ describe('carrying a data move', () => {
     const { setup, f } = await started()
     await carryMove(depsOf(setup, recordingUi([])))
     const deps = depsOf(setup, recordingUi([]))
-    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'sessions missing' } } })
+    const end = await carryMove({
+      ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'sessions missing', failures: ['fewer-sessions'] } },
+    })
     expect(end).toEqual({ kind: 'relaunch', home: f.home })
     expect(readJournal(setup.dir)).toBeUndefined()
   })
@@ -175,19 +177,23 @@ describe('carrying a data move', () => {
     // A failed health check after keeping the new location finishes the move there, keeps the original, and says so.
     const keptUi = recordingUi([{ kind: 'quit' }])
     const deps = depsOf(setup, keptUi)
-    const detail = 'the server did not start on the new location: listen EACCES'
-    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail } } })
+    const detail = 'the server did not start on the new location: dsh server printed no URL line within 180s.'
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail, failures: ['not-started'] } } })
+    // The journal and the result keep the detail; the page names the failure in the person's words.
     expect(end).toMatchObject({ kind: 'done', outcome: { kind: 'ended', result: { outcome: 'moved', detail } } })
     const kept = readMoveResult(setup.dir)?.keptOriginal?.path
     expect(kept).toBeDefined()
     expect(existsSync(kept ?? '')).toBe(true)
     expect(keptUi.pages).toEqual([{
       title: text.keptTargetTitle,
-      paragraphs: [text.keptTarget(target, kept, detail)],
+      paragraphs: [text.keptTarget(target, kept, ['not-started'])],
       buttons: [{ label: text.reveal(process.platform), link: { kind: 'reveal', index: 0 } }, { label: text.quit, link: { kind: 'quit' } }],
       reveal: [kept],
     }])
-    expect(text.keptTarget(target, kept, detail)).toContain(`"${kept ?? ''}"`)
+    expect(text.keptTarget(target, kept, ['not-started'])).toBe(
+      `The new location "${target}" you chose to keep did not pass its check: DSH could not start there. `
+      + `DSH keeps using it as you chose, and starts from there when you reopen it. Your original data was not deleted; it is kept in "${kept ?? ''}". DSH quits now.`,
+    )
   })
 
   posixOnly('finishes a kept new location\'s cleanup without a page when no failed check was recorded in that run', async () => {
@@ -221,26 +227,29 @@ describe('the launch on a move that switched', () => {
    * @param start - the server's start.
    * @param read - the health reading.
    * @param stop - the stop of the server's tree.
-   * @returns the dependencies, the calls in order, the rollbacks' details, and the log lines.
+   * @returns the dependencies, the calls in order, the rollbacks' details and failures, and the log lines.
    */
   function launchDeps(start: () => Promise<string>, read: () => HealthReading, stop: () => Promise<TreeCheck> = async () => ({ kind: 'gone' })): {
     deps: SwitchedLaunch<string>
     calls: string[]
     details: string[]
+    failures: HealthFailures[]
     lines: string[]
   } {
     const calls: string[] = []
     const details: string[] = []
+    const failures: HealthFailures[] = []
     const lines: string[] = []
     return {
       calls,
       details,
+      failures,
       lines,
       deps: {
         start: async () => { calls.push('start'); return await start() },
         read: () => { calls.push('read'); return read() },
         stopServerTree: async () => { calls.push('stop'); return await stop() },
-        rollBack: async (detail) => { calls.push('roll back'); details.push(detail) },
+        rollBack: async (detail, found) => { calls.push('roll back'); details.push(detail); failures.push(found) },
         pass: () => { calls.push('pass') },
         log: (line) => { lines.push(line) },
       },
@@ -260,9 +269,10 @@ describe('the launch on a move that switched', () => {
       start: async () => { calls.push('start'); throw new Error('listen EACCES: permission denied\n<server output>') },
       read: () => { throw new Error('no reading after a failed start') },
       stopServerTree: async () => { calls.push('stop'); return { kind: 'gone' } },
-      rollBack: async (detail) => {
+      rollBack: async (detail, failures) => {
         calls.push('roll back')
-        end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail } } })
+        expect(failures).toEqual(['not-started'])
+        end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail, failures } } })
       },
       pass: () => { throw new Error('no pass after a failed start') },
       log: () => undefined,
@@ -281,10 +291,12 @@ describe('the launch on a move that switched', () => {
     expect(await launchOnSwitchedMove(BASELINE, unreadable.deps)).toEqual({ kind: 'rolled-back' })
     expect(unreadable.calls).toEqual(['start', 'read', 'stop', 'roll back'])
     expect(unreadable.details).toEqual(['the new location could not be read: EIO: i/o error, scandir'])
+    expect(unreadable.failures).toEqual([['unreadable']])
     const failing = launchDeps(async () => 'server', () => ({ sessions: 1, quarantined: ['x'] }))
     expect(await launchOnSwitchedMove(BASELINE, failing.deps)).toEqual({ kind: 'rolled-back' })
     expect(failing.calls).toEqual(['start', 'read', 'stop', 'roll back'])
     expect(failing.details).toEqual(['sessions 1 < 2; newly quarantined: x'])
+    expect(failing.failures).toEqual([['fewer-sessions', 'plugin-quarantined']])
     expect(failing.lines).toEqual(['[desktop] data move: health check failed: sessions 1 < 2; newly quarantined: x\n'])
   })
 
@@ -295,6 +307,7 @@ describe('the launch on a move that switched', () => {
     expect(await launchOnSwitchedMove(BASELINE, launch.deps)).toEqual({ kind: 'rolled-back' })
     expect(launch.calls).toEqual(['start', 'stop', 'roll back'])
     expect(launch.details).toEqual(['the server did not start on the new location: dsh server printed no URL line within 180s.'])
+    expect(launch.failures).toEqual([['not-started']])
     expect(launch.lines.join('')).toContain('could not stop the server before the rollback: Error: taskkill: access denied')
   })
 
@@ -415,9 +428,9 @@ describe('a move that cannot go on', () => {
       start: (request) => { requests.push(request); return (threads.shift() ?? (() => new ScriptedThread()))() },
       abandoned: abandonedHost(setup, ['move-aside', 'confirm']),
     })
-    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x' } } })
+    const end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail: 'x', failures: ['unreadable'] } } })
     expect(end).toEqual({ kind: 'relaunch', home: target })
-    expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x' }, undefined])
+    expect(requests.map(request => request.before)).toEqual([{ kind: 'health-failed', detail: 'x', failures: ['unreadable'] }, undefined])
   })
 
   posixOnly('stops a copy whose lock was discarded, tries it again on request, and abandons it: the copy goes and the original opens as before', async () => {
@@ -536,6 +549,22 @@ describe('a move that cannot go on', () => {
     expect(MOVE_TEXT.zh.rollBackNote('unreachable')).toContain('原样留在那里')
     expect(MOVE_TEXT.zh.rollBackNote('unreachable-exposed')).toContain('再问你一次')
     expect(MOVE_TEXT.en.rollBackNote('unreachable-exposed')).toContain('asks you again')
+  })
+
+  it('names each failure of a kept new location in the person\'s language, joined into one sentence', () => {
+    const failures = ['not-started', 'unreadable', 'fewer-sessions', 'plugin-quarantined', 'workspaces-differ'] as const
+    for (const set of [MOVE_TEXT.zh, MOVE_TEXT.en]) {
+      const sentences = failures.map(failure => set.keptTarget('/T', undefined, [failure]))
+      expect(new Set(sentences).size).toBe(failures.length)
+    }
+    expect(MOVE_TEXT.zh.keptTarget('/Volumes/T7/DSH', '/Users/a/DSH 原来的数据', ['fewer-sessions', 'plugin-quarantined'])).toBe(
+      '你选择保留的新位置「/Volumes/T7/DSH」没有通过检查：这里的对话比搬运前少；有插件在这里没能加载。'
+      + 'DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。原来的数据没有删除，保留在「/Users/a/DSH 原来的数据」。DSH 现在退出。',
+    )
+    expect(MOVE_TEXT.en.keptTarget('/T', undefined, ['unreadable', 'workspaces-differ'])).toBe(
+      'The new location "/T" you chose to keep did not pass its check: the data there could not be read; '
+      + 'it holds a different number of workspaces than before the move. DSH keeps using it as you chose, and starts from there when you reopen it. DSH quits now.',
+    )
   })
 
   posixOnly('takes back a move stopped while hiding the original after its lock was discarded, keeping what was written there since', async () => {

@@ -49,10 +49,25 @@ export interface ExecutorRequest {
   before?: ExecutorBefore
 }
 
+/**
+ * What failed on the first launch on the new location: the server did not
+ * start there, the location could not be read, or the check found fewer
+ * session folders, a plugin newly quarantined, or another number of workspace
+ * records than before the move.
+ */
+export type HealthFailure = 'not-started' | 'unreadable' | 'fewer-sessions' | 'plugin-quarantined' | 'workspaces-differ'
+
+/** The failures of one failed first launch on the new location; never empty. */
+export type HealthFailures = readonly [HealthFailure, ...HealthFailure[]]
+
 /** A step before the move is carried on; see {@link ExecutorRequest.before}. */
 export type ExecutorBefore =
   | { kind: 'resolve'; choice: BlockedChoice; seen: BlockedView }
-  | { kind: 'health-failed'; detail: string }
+  /**
+   * `detail` is what the journal and the log record; `failures` is what the
+   * page after a kept new location names, and is recorded nowhere.
+   */
+  | { kind: 'health-failed'; detail: string; failures: HealthFailures }
   /** Take the move back after it lost its lock ({@link rollBackMove}). */
   | { kind: 'roll-back'; detail: string }
 
