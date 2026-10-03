@@ -6,5 +6,5 @@
 
 /** The `env` property of the launch's `startOnPort` spec, indented as in main.ts. */
 export const LAUNCH_ENV = `env: {
-            ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile,
-          }`
+              ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile,
+            }`

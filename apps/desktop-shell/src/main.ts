@@ -45,7 +45,9 @@ import { shellLanguage } from './menu-text.ts'
 import { appDirsEnv } from './app-dirs.ts'
 import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
-import { bootMove, checkHealth, countSessions, moveFacts, passHealthCheck, quarantinedPlugins, type BootMove } from './move-boot.ts'
+import {
+  bootMove, countSessions, launchOnSwitchedMove, moveFacts, passHealthCheck, quarantinedPlugins, type BootMove,
+} from './move-boot.ts'
 import { singleFlight } from './single-flight.ts'
 import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
 import { stopPage, type ForeignLock } from './move-page.ts'
@@ -75,7 +77,7 @@ import {
 import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
-import { acknowledgeSettingsMigrationNotices, migrateLegacySettings } from './settings-migration.ts'
+import { acknowledgeSettingsMigrationNotices, migrateLegacySettings, type SettingsMigrationReport } from './settings-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
@@ -942,6 +944,15 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
  */
 const APP_USER_MODEL_ID = 'dev.dsh.desktop'
 
+/** What a launch's start on the settled data location leaves for the rest of the launch. */
+interface StartedOnHome {
+  server: ServerHandle
+  /** The settings migration run before the start, whose notices are shown over the loaded app. */
+  settingsMigration: SettingsMigrationReport
+  /** The desktop profile directory, holding the migration's marker. */
+  desktopProfileDir: string
+}
+
 /** One window whose boot page the main process can drive. */
 interface BootView {
   window: BrowserWindow
@@ -1322,91 +1333,103 @@ if (!locked) {
       // Once per process and before the spawn: every `dsh-auth-*` cookie on
       // the host is an earlier launch's, so none of them can be this one's.
       await clearStaleAuthCookies(session.defaultSession.cookies, sink)
-      // Before the server reads the profile, not after: `initProfile` writes a
-      // profile once and never revisits it, so a name added later would not
-      // reach this launch's composition.
-      const seeded = describeSeed(seedBuiltinBundles({
-        home: resolveHarnessHome(),
-        serverModules: spec.builtinModules,
-      }))
-      if (seeded !== undefined) sink(seeded)
-      // After the seeding, whose permission-row retirement the gateway step
-      // waits for (the migration reads its record in web-migration.json, so a
-      // seeding that stopped before recording it defers that step), and before
-      // the server whose settings import this prepares.
-      const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
-      const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
-      for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
-      // Before the spawn, because the address and token reach the server as
-      // environment variables of that child and of nothing else.
-      const renderEnv = await startRenderServiceForServer(sink)
-      const updateEnv = await startUpdateForServer(host, sink)
-      const dataEnv = await startDataLocationForServer(sink)
-      const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
-      const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
-      const pnpmEnv = pnpmLauncherEnv(location)
-      const installEnv = installDirEnv(location)
-      const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
-      sink(launcher === undefined
-        ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
-        : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
-      const installDir = installEnv[INSTALL_DIR_ENV]
-      sink(installDir === undefined
-        ? '[desktop] install dir: none in a development launch\n'
-        : `[desktop] install dir: ${installDir}\n`)
-      const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
-      for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
-      // The server appends its own logger records to the same file, as one
-      // write per record, rather than printing them into the streams above.
-      // After the orphan sweep and the loopback services: an orphan can still
-      // hold the remembered port, and a service bound to port 0 can land on it.
-      const port = await choosePort(readState().serverPort, isPortFree)
-      sink(port.line)
-      const started = await startOnPort(
-        {
-          ...spec,
-          env: {
-            ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile,
+      // Everything from the seeding to the server's URL line reads or writes the data location settled above, so for a move
+      // that switched to it, any of it failing is the new location failing.
+      const startOnHome = async (): Promise<StartedOnHome> => {
+        // Before the server reads the profile, not after: `initProfile` writes a
+        // profile once and never revisits it, so a name added later would not
+        // reach this launch's composition.
+        const seeded = describeSeed(seedBuiltinBundles({
+          home: resolveHarnessHome(),
+          serverModules: spec.builtinModules,
+        }))
+        if (seeded !== undefined) sink(seeded)
+        // After the seeding, whose permission-row retirement the gateway step
+        // waits for (the migration reads its record in web-migration.json, so a
+        // seeding that stopped before recording it defers that step), and before
+        // the server whose settings import this prepares.
+        const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
+        const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
+        for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
+        // Before the spawn, because the address and token reach the server as
+        // environment variables of that child and of nothing else.
+        const renderEnv = await startRenderServiceForServer(sink)
+        const updateEnv = await startUpdateForServer(host, sink)
+        const dataEnv = await startDataLocationForServer(sink)
+        const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
+        const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
+        const pnpmEnv = pnpmLauncherEnv(location)
+        const installEnv = installDirEnv(location)
+        const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
+        sink(launcher === undefined
+          ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
+          : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
+        const installDir = installEnv[INSTALL_DIR_ENV]
+        sink(installDir === undefined
+          ? '[desktop] install dir: none in a development launch\n'
+          : `[desktop] install dir: ${installDir}\n`)
+        const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
+        for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
+        // The server appends its own logger records to the same file, as one
+        // write per record, rather than printing them into the streams above.
+        // After the orphan sweep and the loopback services: an orphan can still
+        // hold the remembered port, and a service bound to port 0 can land on it.
+        const port = await choosePort(readState().serverPort, isPortFree)
+        sink(port.line)
+        const started = await startOnPort(
+          {
+            ...spec,
+            env: {
+              ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile,
+            },
+            port: port.port,
           },
-          port: port.port,
-        },
-        startEmbeddedServer, sink,
-      )
-      server = started.server
-      rememberServerPort(started.spec)
-      clearInterval(ticker)
-      sink(`[desktop] server ready at ${server.url}\n`)
+          startEmbeddedServer, sink,
+        )
+        server = started.server
+        rememberServerPort(started.spec)
+        clearInterval(ticker)
+        sink(`[desktop] server ready at ${started.server.url}\n`)
+        return { server: started.server, settingsMigration, desktopProfileDir }
+      }
       let cleanUp = pendingMove.kind === 'cleanup'
+      let launched: StartedOnHome
       if (pendingMove.kind === 'health-check') {
         const home = resolveHarnessHome()
-        const verdict = checkHealth(pendingMove.journal.baseline, { sessions: countSessions(home), quarantined: quarantinedPlugins(home) })
-        sink(`[desktop] data move: health check ${verdict.healthy ? 'passed' : 'failed'}: ${verdict.detail}\n`)
-        if (!verdict.healthy) {
-          // Stopped before the result is recorded: the rollback prints the new location, and nothing may still write to it.
-          // The print only chooses what the person is told, so a tree that cannot be confirmed gone is logged, not fatal.
-          // The move's worker records the result, because the print reads the whole new location.
-          await stopServerCompletely()
-          await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail: verdict.detail })
-          return
-        }
-        passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') }, sink)
+        const outcome = await launchOnSwitchedMove(pendingMove.journal.baseline, {
+          start: startOnHome,
+          read: () => ({ sessions: countSessions(home), quarantined: quarantinedPlugins(home) }),
+          stopServerTree: stopServerCompletely,
+          rollBack: async (detail) => {
+            clearInterval(ticker)
+            // The move's worker records the result, because the print reads the whole new location.
+            await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail })
+          },
+          pass: () => { passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') }, sink) },
+          log: sink,
+        })
+        if (outcome.kind === 'rolled-back') return
+        launched = outcome.started
         cleanUp = true
+      } else {
+        launched = await startOnHome()
       }
+      const { server: running, settingsMigration, desktopProfileDir } = launched
       view.phase(2)
       if (await gate) {
         // A build below the feed's minimumVersion may not reach the UI. The
         // server goes down with it, so nothing here is usable until the
         // update the updater is now driving has been installed.
         sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })
+        await stopForMandatoryUpdate(running, { home: resolveHarnessHome(), log: sink })
         server = undefined
         return
       }
       // After the gate, so a launch that must update first never subscribes to
       // a server it is about to take down.
-      setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
+      setupNotifications({ log: sink, reveal }, running.authenticatedUrl)
       attachSupervision()
-      view.showApp(server.authenticatedUrl)
+      view.showApp(running.authenticatedUrl)
       if (cleanUp) cleanUpMoveInBackground(view.window)
       if (found.kind === 'requested') {
         const text = moveText(app.getLocale())

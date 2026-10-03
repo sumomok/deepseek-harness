@@ -8,7 +8,8 @@
  * - A journal that cannot be read: the server does not start; the boot page
  *   names the file.
  * - `switched`: the server starts on the new location, and the health check
- *   runs before the interface is shown.
+ *   runs before the interface is shown ({@link launchOnSwitchedMove}); a
+ *   start that fails rolls the move back like a failed check.
  * - `cleanup`: an ordinary launch; the old copy is deleted in the background
  *   once the interface is shown.
  * - Any other phase: the server does not start ({@link mayStartServer}); the
@@ -25,6 +26,7 @@ import {
 } from './move/journal.ts'
 import { releaseMoveLock, type LockSelf } from './move/lock.ts'
 import { recordHealth, type MoveOutcome } from './move/run.ts'
+import type { TreeCheck } from './process-tree.ts'
 
 /** What a launch does about the move on disk. */
 export type BootMove =
@@ -200,6 +202,85 @@ export function checkHealth(baseline: MoveBaseline, reading: HealthReading): Hea
     detail: `sessions ${String(reading.sessions)} >= ${String(baseline.sessions)}; no plugin newly quarantined; `
       + (compared ? 'workspaces equal' : 'workspaces not compared (no count)'),
   }
+}
+
+/** What a launch on a move in phase `switched` needs from the application. */
+export interface SwitchedLaunch<Started> {
+  /**
+   * Prepare the new location and start the server on it, from the profile
+   * seeding to the server's URL line; rejects when any of it fails.
+   */
+  start: () => Promise<Started>
+  /** What the health check measures on the new location; throws when it cannot be read. */
+  read: () => HealthReading
+  /** Stop the server and every process it started; settles at once when none runs. */
+  stopServerTree: () => Promise<TreeCheck>
+  /** Record the failure and carry the rollback in the move's window; resolves once the application is on its way out. */
+  rollBack: (detail: string) => Promise<void>
+  /** Record the passed check ({@link passHealthCheck}). */
+  pass: () => void
+  log: (line: string) => void
+}
+
+/** Outcome of {@link launchOnSwitchedMove}. */
+export type SwitchedLaunchOutcome<Started> =
+  | { kind: 'healthy'; started: Started }
+  /** The move was rolled back, and the application is on its way out. */
+  | { kind: 'rolled-back' }
+
+/**
+ * Start the server on the location a move switched to and check it there
+ * ({@link checkHealth}) before the interface is shown. A start that fails, a
+ * location that cannot be read, and a check that fails end the same way: the
+ * server and every process it started are stopped, then the failure is
+ * recorded and the move rolled back. The stop comes first because recording
+ * the failure prints the new location, and nothing may still write to it; a
+ * stop that throws is logged and the rollback goes on, since the print only
+ * chooses what the person is told.
+ * @param baseline - the counts recorded before the move.
+ * @param deps - the start, the reading, the stop, the rollback, the record of a pass, and the log.
+ * @returns the started server once the check passed, or `rolled-back`.
+ * @throws what the rollback or the record of a pass throws.
+ */
+export async function launchOnSwitchedMove<Started>(
+  baseline: MoveBaseline, deps: SwitchedLaunch<Started>,
+): Promise<SwitchedLaunchOutcome<Started>> {
+  const fail = async (detail: string): Promise<SwitchedLaunchOutcome<Started>> => {
+    deps.log(`[desktop] data move: health check failed: ${detail}\n`)
+    try {
+      await deps.stopServerTree()
+    } catch (error) {
+      deps.log(`[desktop] data move: could not stop the server before the rollback: ${String(error)}\n`)
+    }
+    await deps.rollBack(detail)
+    return { kind: 'rolled-back' }
+  }
+  let started: Started
+  try {
+    started = await deps.start()
+  } catch (error) {
+    return await fail(`the server did not start on the new location: ${firstLine(error)}`)
+  }
+  let verdict: HealthVerdict
+  try {
+    verdict = checkHealth(baseline, deps.read())
+  } catch (error) {
+    return await fail(`the new location could not be read: ${firstLine(error)}`)
+  }
+  if (!verdict.healthy) return await fail(verdict.detail)
+  deps.log(`[desktop] data move: health check passed: ${verdict.detail}\n`)
+  deps.pass()
+  return { kind: 'healthy', started }
+}
+
+/**
+ * The first line of what was thrown, for a failure the journal records.
+ * @param error - what was thrown.
+ * @returns its message's first line.
+ */
+function firstLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.split('\n')[0] ?? message
 }
 
 /**

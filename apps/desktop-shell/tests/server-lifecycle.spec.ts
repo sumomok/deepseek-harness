@@ -293,7 +293,7 @@ describe('main.ts', () => {
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
-    expect(source).toContain('await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })')
+    expect(source).toContain('await stopForMandatoryUpdate(running, { home: resolveHarnessHome(), log: sink })')
     expect(source).toContain("}, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })")
     expect(source).not.toContain('writeIntentionalStop(')
     expect(source.match(/markIntentionalStop\(|stopServerForQuit\(|stopForMandatoryUpdate\(/gu)).toHaveLength(3)

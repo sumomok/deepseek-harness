@@ -2,8 +2,10 @@
  * A data move carried with the person in the loop: the progress window
  * follows the worker, a move stopped partway shows its page and applies the
  * person's choice (a choice on a page that is out of date redraws it), a
- * hung or failed move shows why and quits, and an unreadable record of
- * abandoned copies is asked about as at launch. The windows are a recording
+ * hung or failed move shows why and quits, an unreadable record of
+ * abandoned copies is asked about as at launch, and a launch on a move that
+ * switched rolls it back when the server does not start on the new location
+ * or the location fails its check. The windows are a recording
  * stand-in; the moves run on real fixture homes and the real worker.
  * @module
  */
@@ -16,13 +18,17 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AbandonedRecordHost, LocationAnswer } from '../src/data-location-boot.ts'
 import { DATA_LOCATION_TEXT } from '../src/data-location-text.ts'
-import { carryMove, rollBackCopyOf, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveUi } from '../src/move-flow.ts'
+import { bootMove, launchOnSwitchedMove, type HealthReading, type SwitchedLaunch } from '../src/move-boot.ts'
+import {
+  carryMove, rollBackCopyOf, settleForeignLock, type ForeignLockDeps, type MoveFlowDeps, type MoveFlowEnd, type MoveUi,
+} from '../src/move-flow.ts'
 import { lockLostPage, lockPage, type ForeignLock, type MoveLink, type MovePage, type ProgressView } from '../src/move-page.ts'
 import { MOVE_TEXT } from '../src/move-text.ts'
 import type { ExecutorCommand, ExecutorMessage, ExecutorRequest, ExecutorThread } from '../src/move/executor.ts'
-import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal } from '../src/move/journal.ts'
+import { ABANDONED_FILENAME, JOURNAL_FILENAME, readJournal, readMoveResult } from '../src/move/journal.ts'
 import { acquireMoveLock, inspectMoveLock, LOCK_FILENAME, type LockOwner, type LockProbes, type LockSelf } from '../src/move/lock.ts'
 import { advanceMove, recordHealth, startMove, type MoveFs } from '../src/move/run.ts'
+import type { TreeCheck } from '../src/process-tree.ts'
 import { buildFixture, listTree, type Fixture } from './move-fixture.ts'
 import { harnessEffects, plantIntruder, prepareMove, type MoveSetup, type Start } from './move-harness.ts'
 
@@ -177,6 +183,98 @@ describe('carrying a data move', () => {
     recordHealth(setup.dir, false)
     expect(await carryMove(depsOf(setup, recordingUi([{ kind: 'quit' }])))).toEqual({ kind: 'quit' })
     expect(readJournal(setup.dir)?.phase).toBe('rolling-back')
+  })
+})
+
+describe('the launch on a move that switched', () => {
+  const BASELINE = { sessions: 2, workspaces: 0, quarantined: [] }
+
+  /**
+   * Launch dependencies that record their calls.
+   * @param start - the server's start.
+   * @param read - the health reading.
+   * @param stop - the stop of the server's tree.
+   * @returns the dependencies, the calls in order, the rollbacks' details, and the log lines.
+   */
+  function launchDeps(start: () => Promise<string>, read: () => HealthReading, stop: () => Promise<TreeCheck> = async () => ({ kind: 'gone' })): {
+    deps: SwitchedLaunch<string>
+    calls: string[]
+    details: string[]
+    lines: string[]
+  } {
+    const calls: string[] = []
+    const details: string[] = []
+    const lines: string[] = []
+    return {
+      calls,
+      details,
+      lines,
+      deps: {
+        start: async () => { calls.push('start'); return await start() },
+        read: () => { calls.push('read'); return read() },
+        stopServerTree: async () => { calls.push('stop'); return await stop() },
+        rollBack: async (detail) => { calls.push('roll back'); details.push(detail) },
+        pass: () => { calls.push('pass') },
+        log: (line) => { lines.push(line) },
+      },
+    }
+  }
+
+  posixOnly('rolls the move back when the server does not start there, so the next launch starts on the original', async () => {
+    const { setup, f } = await started()
+    await carryMove(depsOf(setup, recordingUi([])))
+    const journal = readJournal(setup.dir)
+    if (journal === undefined) throw new Error('no journal')
+    expect(bootMove(setup.dir).kind).toBe('health-check')
+    const deps = depsOf(setup, recordingUi([]))
+    let end: MoveFlowEnd | undefined
+    const calls: string[] = []
+    const outcome = await launchOnSwitchedMove(journal.baseline, {
+      start: async () => { calls.push('start'); throw new Error('listen EACCES: permission denied\n<server output>') },
+      read: () => { throw new Error('no reading after a failed start') },
+      stopServerTree: async () => { calls.push('stop'); return { kind: 'gone' } },
+      rollBack: async (detail) => {
+        calls.push('roll back')
+        end = await carryMove({ ...deps, request: { ...deps.request, before: { kind: 'health-failed', detail } } })
+      },
+      pass: () => { throw new Error('no pass after a failed start') },
+      log: () => undefined,
+    })
+    expect(outcome).toEqual({ kind: 'rolled-back' })
+    expect(calls).toEqual(['start', 'stop', 'roll back'])
+    expect(end).toEqual({ kind: 'relaunch', home: f.home })
+    expect(bootMove(setup.dir).kind).toBe('none')
+    expect(readMoveResult(setup.dir)).toMatchObject({
+      outcome: 'failed', detail: 'the server did not start on the new location: listen EACCES: permission denied',
+    })
+  })
+
+  it('rolls back when the new location cannot be read, or the check fails, and never records a pass', async () => {
+    const unreadable = launchDeps(async () => 'server', () => { throw new Error('EIO: i/o error, scandir') })
+    expect(await launchOnSwitchedMove(BASELINE, unreadable.deps)).toEqual({ kind: 'rolled-back' })
+    expect(unreadable.calls).toEqual(['start', 'read', 'stop', 'roll back'])
+    expect(unreadable.details).toEqual(['the new location could not be read: EIO: i/o error, scandir'])
+    const failing = launchDeps(async () => 'server', () => ({ sessions: 1, quarantined: ['x'] }))
+    expect(await launchOnSwitchedMove(BASELINE, failing.deps)).toEqual({ kind: 'rolled-back' })
+    expect(failing.calls).toEqual(['start', 'read', 'stop', 'roll back'])
+    expect(failing.details).toEqual(['sessions 1 < 2; newly quarantined: x'])
+    expect(failing.lines).toEqual(['[desktop] data move: health check failed: sessions 1 < 2; newly quarantined: x\n'])
+  })
+
+  it('still rolls back when the stop before it throws', async () => {
+    const launch = launchDeps(async () => { throw new Error('dsh server printed no URL line within 180s.') }, () => BASELINE, async () => {
+      throw new Error('taskkill: access denied')
+    })
+    expect(await launchOnSwitchedMove(BASELINE, launch.deps)).toEqual({ kind: 'rolled-back' })
+    expect(launch.calls).toEqual(['start', 'stop', 'roll back'])
+    expect(launch.details).toEqual(['the server did not start on the new location: dsh server printed no URL line within 180s.'])
+    expect(launch.lines.join('')).toContain('could not stop the server before the rollback: Error: taskkill: access denied')
+  })
+
+  it('records a pass and hands the started server on when the check passes', async () => {
+    const launch = launchDeps(async () => 'server', () => ({ sessions: 2, quarantined: [] }))
+    expect(await launchOnSwitchedMove(BASELINE, launch.deps)).toEqual({ kind: 'healthy', started: 'server' })
+    expect(launch.calls).toEqual(['start', 'read', 'pass'])
   })
 })
 
