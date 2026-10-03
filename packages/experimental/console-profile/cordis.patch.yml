@@ -158,6 +158,20 @@
 - id: ui-deliverables
   disabled: true
 
+# No model request opens with `You are an AI agent powered by DeepSeek
+# Harness.`: asked what runs it, a console assistant given that sentence names
+# DeepSeek Harness to the customer. `includeHarnessIdentity: false` omits that
+# fixed sentence and nothing else, so each console preset's persona prefix
+# opens the prompt. A patch replaces a row's whole config, so the other two
+# fields restate the Web bundle's values (`tests/profile.spec.ts` checks that
+# the two rows name the same fields).
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
+
 # The internal-testing notice ("内测声明") is `ui-settings-models`'s own
 # `settings.onboarding` step, shown once per acknowledgement version; the same
 # package registers the Models settings section and the DeepSeek credential
@@ -377,7 +391,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: 你是数据控制台助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。向用户提到表、字段、图层、条目和分类时，一律用它们的中文显示名称，不要说出表名、条目 id、编码、枚举值这类内部标识；没有中文名称的，用平实的话描述。凡是用户能看到的文字一律用中文，包括开场的第一句话；你的思考过程也会显示给用户，同样用中文写。
+              prefix: 你是工作台小助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。向用户提到表、字段、图层、条目和分类时，一律用它们的中文显示名称，不要说出表名、条目 id、编码、枚举值这类内部标识；没有中文名称的，用平实的话描述。凡是用户能看到的文字一律用中文，包括开场的第一句话；你的思考过程也会显示给用户，同样用中文写。
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
           - id: skill-filesystem
@@ -422,7 +436,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              prefix: 你是数据控制台助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。向用户提到表、字段、图层、条目和分类时，一律用它们的中文显示名称，不要说出表名、条目 id、编码、枚举值这类内部标识；没有中文名称的，用平实的话描述。凡是用户能看到的文字一律用中文，包括开场的第一句话；你的思考过程也会显示给用户，同样用中文写。
+              prefix: 你是工作台小助手。用户问到的数据，一律通过组件展示给用户看；不要描述你的工作目录、工具或内部实现。向用户提到表、字段、图层、条目和分类时，一律用它们的中文显示名称，不要说出表名、条目 id、编码、枚举值这类内部标识；没有中文名称的，用平实的话描述。凡是用户能看到的文字一律用中文，包括开场的第一句话；你的思考过程也会显示给用户，同样用中文写。
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
           - id: skill-filesystem

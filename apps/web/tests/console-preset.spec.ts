@@ -12,10 +12,10 @@
  * its schema defaults.
  *
  * The same lanes compose `CONSOLE_PROMPT_OVERLAY`, which restates the bundle's
- * two rows that change the system prompt outside the presets: `web-runtime`'s
- * `surfaceContext` and the `ui-deliverables` disable. Each must match the
- * bundle's row, or the pinned `web-content-console` prompt is one no console
- * deployment sends.
+ * three rows that change the system prompt outside the presets: `web-runtime`'s
+ * `surfaceContext`, the `ui-deliverables` disable, and the `system-prompt` row
+ * without the harness identity sentence. Each must match the bundle's row, or
+ * the pinned `web-content-console` prompt is one no console deployment sends.
  */
 
 import { readFileSync } from 'node:fs'
@@ -33,7 +33,7 @@ interface PresetRow {
   id?: string
   name?: string
   disabled?: boolean
-  config?: { id?: unknown; plugins?: unknown; surfaceContext?: unknown }
+  config?: { id?: unknown; plugins?: unknown; surfaceContext?: unknown; includeHarnessIdentity?: unknown }
   insert?: PresetRow[]
 }
 
@@ -76,8 +76,8 @@ describe('the console e2e prompt layer', () => {
   const bundle = new Map(rowsOf(CONSOLE_PATCH).flatMap(entry => entry.id === undefined ? [] : [[entry.id, entry] as const]))
   const layer = rowsOf(CONSOLE_PROMPT_OVERLAY)
 
-  it('patches only the web-runtime and ui-deliverables rows', () => {
-    expect(layer.map(entry => entry.id)).toEqual(['web-runtime', 'ui-deliverables'])
+  it('patches only the web-runtime, ui-deliverables, and system-prompt rows', () => {
+    expect(layer.map(entry => entry.id)).toEqual(['web-runtime', 'ui-deliverables', 'system-prompt'])
   })
 
   it('carries the bundle\'s surface-context choice', () => {
@@ -89,5 +89,10 @@ describe('the console e2e prompt layer', () => {
   it('disables ui-deliverables as the bundle does', () => {
     expect(bundle.get('ui-deliverables')?.disabled).toBe(true)
     expect(layer.find(entry => entry.id === 'ui-deliverables')?.disabled).toBe(true)
+  })
+
+  it('restates the bundle\'s system-prompt row, without the harness identity sentence', () => {
+    expect(bundle.get('system-prompt')?.config?.includeHarnessIdentity).toBe(false)
+    expect(layer.find(entry => entry.id === 'system-prompt')).toEqual(bundle.get('system-prompt'))
   })
 })

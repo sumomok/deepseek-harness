@@ -54,6 +54,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `client-hmr` | 禁用：已打开的页面不再把新的插件包换进它正在运行的外壳。`pnpm run dev:web` 重新构建的插件包在宿主重启之前不会到达任何控制台页面，无论是已打开的还是新加载的；重新构建的外壳在下一次加载时就会服务出去，已打开的页面在下一次构建检查时刷新到这个外壳上，配的仍是旧插件包 |
 | `web-runtime` | 配置 `surfaceContext: false`，其余三个字段照抄 Web bundle 的值：模型请求里不再有 `harness:source` 段落（DeepSeek Harness 检出目录的路径）和 `app:web-surface` 段落（页面的本地 URL 与 `pnpm run dev:web`），shell 命令也拿不到 `DSH_WEB_URL`——只有 `bash` 与 `pwsh` 工具读它，而两个控制台预设都不提供这两个工具 |
 | `ui-deliverables` | 禁用：它的提示词段落告诉模型何时调用 `present`，而两个控制台预设都不提供这个工具；这一段从此不进入任何模型请求，一起去掉的还有改动文件卡片（只在开启代码工作工具时绘制）、交付卡片、收尾回答里可点击的文件路径，以及它们打开的审阅标签页 |
+| `system-prompt` | 配置 `includeHarnessIdentity: false`，`personaPrefix` 与 `personaSuffix` 照抄 Web bundle 的值：模型请求不再以 `You are an AI agent powered by DeepSeek Harness.` 开头；有这句话时，客户问助手由什么驱动，助手会照着说出 DeepSeek Harness |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
 | `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
@@ -105,7 +106,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从第一次在请求之前已记录的历史就占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算，它的检查不计入刚发出的消息），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`web-runtime` 行的 `surfaceContext: false` 与被禁用的 `ui-deliverables` 行让三段 Web bundle 内容不进入提示词：DeepSeek Harness 检出目录的路径、Web GUI 的本地 URL 及其重新构建说明，以及如何展示结果、何时调用 `present` 的指引。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
+间接地，经由它组合的行。`console` Agent 预设决定会话自己的工具：`read`、`write`、`edit`、`read_image`、`skill`、`ask_user_question` 与 `todo_write`，另有 host 平面的内容栏工具，它的 persona 前缀是客户助手的指令：用户问到的数据通过组件展示，不描述工作目录、工具或内部实现，提到表、字段、图层、条目和分类时用它们的中文显示名称，而不是表名、条目 id、编码或枚举值；用户看得到的一切都用中文书写，开场第一句话与思考过程也不例外，因为对话的过程行会显示思考过程。`auto-compact` 行决定模型历史何时被压缩：从第一次在请求之前已记录的历史就占用上下文窗口 60% 以上的模型请求起（一轮的第一次请求也算，它的检查不计入刚发出的消息），模型读到的是截成首尾两段的过长工具结果，不够时还有一段更早历史的摘要。`web-runtime` 行的 `surfaceContext: false` 与被禁用的 `ui-deliverables` 行让三段 Web bundle 内容不进入提示词：DeepSeek Harness 检出目录的路径、Web GUI 的本地 URL 及其重新构建说明，以及如何展示结果、何时调用 `present` 的指引；`system-prompt` 行的 `includeHarnessIdentity: false` 去掉点名 DeepSeek Harness 的固定句子，提示词由 persona 前缀开头。`console-mcp` 行把每个已配置服务器的工具以 `mcp__<服务器 id>__<工具>` 提供出来，列表为空时什么都不提供。`library-skills` 行把随包出厂的技能加入技能目录，禁用四个出厂预设去掉了会话本可以运行其下的其他全部工具集，其余每个被组合的插件各自拥有自己对模型可见的内容。
 
 #### KV Cache 影响
 

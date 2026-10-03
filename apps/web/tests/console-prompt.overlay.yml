@@ -2,8 +2,9 @@
 # presets, restated from `packages/experimental/console-profile/cordis.patch.yml`
 # for the content-read scenarios composed from `CONSOLE_PRESET`: the
 # `web-runtime` row registers no `harness:source` or `app:web-surface` section,
-# and `ui-deliverables`, whose section tells the model when to call `present`,
-# is disabled. `console-preset.spec.ts` checks that both rows match the bundle's.
+# `ui-deliverables`, whose section tells the model when to call `present`, is
+# disabled, and `system-prompt` omits the fixed harness identity sentence.
+# `console-preset.spec.ts` checks that the three rows match the bundle's.
 #
 # The scaffold re-applies `web-runtime` with its own `openBrowser` and
 # `printUrl` and carries over the `surfaceContext` this layer composes, so the
@@ -14,3 +15,10 @@
 
 - id: ui-deliverables
   disabled: true
+
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.

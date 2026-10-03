@@ -317,6 +317,18 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(byId.get('ui-deliverables')?.disabled).toBe(true)
   })
 
+  it('omits the fixed harness identity sentence and restates the rest of the shipped `system-prompt` config', () => {
+    // A patch replaces the whole config: a field the Web bundle adds later and
+    // this row does not restate would fall to its schema default here.
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    const shippedConfig = shipped.get('system-prompt')?.config as Record<string, unknown> | undefined
+    expect(shipped.get('system-prompt')).toMatchObject({ name: '@deepseek-ai/dsh-system-prompt' })
+    expect(shippedConfig?.includeHarnessIdentity).toBeUndefined()
+    expect(rowOf(CONSOLE_PATCH, 'system-prompt')).toEqual({ id: 'system-prompt', config: { ...shippedConfig, includeHarnessIdentity: false } })
+    expect(byId.get('system-prompt')).toMatchObject({ name: '@deepseek-ai/dsh-system-prompt', config: { includeHarnessIdentity: false } })
+    expect(byId.get('system-prompt')?.disabled).not.toBe(true)
+  })
+
   it('mounts the page\'s build check by package name in the bundle layer, stating its config', () => {
     expect(byId.get('page-refresh')).toMatchObject({
       name: '@deepseek-ai/dsh-experimental-page-refresh',
