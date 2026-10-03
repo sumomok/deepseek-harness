@@ -337,6 +337,22 @@ export class MoveStuckError extends Error {
   }
 }
 
+/** A step's error with the failure kind the step found for it from what is on disk; the message is the error's. */
+export class StepFailure extends Error {
+  /** Why the step failed. */
+  readonly kind: MoveFailureKind
+
+  /**
+   * @param kind - why the step failed.
+   * @param cause - what the step threw.
+   */
+  constructor(kind: MoveFailureKind, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'StepFailure'
+    this.kind = kind
+  }
+}
+
 /**
  * Start a move: write its journal in phase `requested`, and a fresh done log;
  * a record of an abandoned copy at the new location is dropped.
@@ -693,13 +709,14 @@ function describeProblems(problems: readonly VerifyProblem[]): string {
 }
 
 /**
- * The failure kind of an error a step threw: a file that read back different
- * from what was written, a full drive, or a write refused for lack of
- * permission; `other` for anything else.
+ * The failure kind of an error a step threw: the kind a {@link StepFailure}
+ * names, a file that read back different from what was written, a full drive,
+ * or a write refused for lack of permission; `other` for anything else.
  * @param error - what the step threw.
  * @returns the kind.
  */
 export function failureKindOf(error: unknown): MoveFailureKind {
+  if (error instanceof StepFailure) return error.kind
   if (error instanceof CopyMismatchError) return 'copy-mismatch'
   const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
   switch (code) {
@@ -713,6 +730,32 @@ export function failureKindOf(error: unknown): MoveFailureKind {
     default:
       return 'other'
   }
+}
+
+/**
+ * Why putting the copy in place at the new location failed. The step was
+ * chosen with the new location empty and the copy present; when that changed
+ * before the rename, what is there now names the cause rather than the
+ * error's code.
+ * @param fs - looks at both paths.
+ * @param journal - the journal.
+ * @param error - what the rename threw.
+ * @returns `target-occupied` when something is at the new location now, `copy-gone` when the copy is gone, otherwise
+ * the error's kind.
+ */
+function renameToTargetFailure(fs: MoveFs, journal: MoveJournal, error: unknown): MoveFailureKind {
+  const look = (path: string): EntryKind | undefined => {
+    try {
+      return fs.kind(path)
+    } catch {
+      // EACCES or EIO: a path that cannot be looked at names no cause, so the rename's error does.
+      return undefined
+    }
+  }
+  const target = look(journal.target)
+  if (target !== undefined && target !== 'absent') return 'target-occupied'
+  if (look(journal.partial) === 'absent') return 'copy-gone'
+  return failureKindOf(error)
 }
 
 /**
@@ -800,7 +843,11 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       return undefined
     case 'rename-partial-to-target':
       progress('finishing')
-      await renameWithRetry(effects, journal.partial, journal.target)
+      try {
+        await renameWithRetry(effects, journal.partial, journal.target)
+      } catch (error) {
+        throw new StepFailure(renameToTargetFailure(fs, journal, error), error)
+      }
       return undefined
     case 'retire-source-id':
       await renameWithRetry(effects, join(journal.source, DATA_ID_FILENAME), join(journal.source, MOVED_ID_FILENAME))

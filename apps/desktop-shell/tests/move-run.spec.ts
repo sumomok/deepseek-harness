@@ -25,7 +25,7 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, failureKindOf, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked,
-  retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove,
+  retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove, StepFailure,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { CopyMismatchError } from '../src/move/copier.ts'
@@ -1085,6 +1085,36 @@ describe('why a move failed', () => {
     expect(outcome.kind === 'ended' ? outcome.result.failure : 'not ended').toBeUndefined()
   })
 
+  for (const [change, kind] of [['something is put at the new location', 'target-occupied'], ['the copy is removed', 'copy-gone']] as const) {
+    posixOnly(`names the cause when ${change} after the move looked and before the copy is put in place`, async () => {
+      const s = await scenario({ sameVolume: false, start: 'pointer' })
+      const partial = readJournal(s.setup.dir)?.partial ?? ''
+      const real = harnessEffects(s.setup)
+      const raced: MoveEffects = {
+        ...real,
+        fs: {
+          ...real.fs,
+          rename: (from, to) => {
+            if (from === partial && to === s.target) {
+              if (kind === 'target-occupied') {
+                mkdirSync(s.target)
+                writeFileSync(join(s.target, 'notes.txt'), 'not the data\n')
+              } else {
+                renameSync(partial, join(s.f.root, 'copy-aside'))
+              }
+            }
+            real.fs.rename(from, to)
+          },
+        },
+      }
+      const outcome = await advanceMove(s.setup.dir, raced, { pid: PID })
+      expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', failure: { kind } } })
+      expect(readMoveResult(s.setup.dir)?.failure).toEqual({ kind })
+      expect(originalListing(s)).toEqual(s.before)
+      if (kind === 'target-occupied') expect(readFileSync(join(s.target, 'notes.txt'), 'utf8')).toBe('not the data\n')
+    })
+  }
+
   it('classifies what a step threw', () => {
     expect(failureKindOf(new CopyMismatchError('a/b'))).toBe('copy-mismatch')
     for (const code of ['ENOSPC', 'EDQUOT']) expect(failureKindOf(Object.assign(new Error(code), { code }))).toBe('no-space')
@@ -1092,6 +1122,10 @@ describe('why a move failed', () => {
     expect(failureKindOf(Object.assign(new Error('busy'), { code: 'EBUSY' }))).toBe('other')
     expect(failureKindOf(new Error('no code'))).toBe('other')
     expect(failureKindOf('a string')).toBe('other')
+    const named = new StepFailure('target-occupied', Object.assign(new Error('ENOTEMPTY: directory not empty'), { code: 'ENOTEMPTY' }))
+    expect(failureKindOf(named)).toBe('target-occupied')
+    expect(named.message).toBe('ENOTEMPTY: directory not empty')
+    expect(new StepFailure('copy-gone', 'gone').message).toBe('gone')
   })
 
   it('reads a result an older build wrote, without a failure, and leaves out a failure it cannot read', async () => {
