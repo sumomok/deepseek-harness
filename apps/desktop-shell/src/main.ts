@@ -41,7 +41,7 @@ import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import { PNPM_LAUNCHER_ENV, pnpmInvocation, pnpmLauncherEnv } from './pnpm-launcher.ts'
-import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionToKeep } from './office-engine.ts'
+import { engineServerEnv, officeEngineRoot, pruneEngineRoot, readEngineRequirement, versionsToKeep } from './office-engine.ts'
 import {
   confirmDialogOptions, DECLINE_COOLDOWN_MS, ENDPOINT_ENV as OFFICE_ENGINE_ENDPOINT_ENV, INSTALL_TIMEOUT_MS, OfficeEngineManager,
   startOfficeEngineService,
@@ -127,6 +127,8 @@ let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
 let officeEngineService: OfficeEngineServiceHandle | undefined
+/** This launch's Office engine state machine, which the launch tells when to start an upgrade's download. */
+let officeEngine: OfficeEngineManager | undefined
 let quitting = false
 /**
  * The desktop log sink. Until the log file is known there is nowhere durable
@@ -516,15 +518,21 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
  * Prepare the Office engine for this launch and return what the server child
  * needs to use and install it.
  *
- * The engine lives under the data directory, one directory per version; every
- * version but the one the kit declares ([[versionToKeep]]) and every staging
+ * The engine lives under the data directory, one directory per version. Every
+ * version but the ones [[versionsToKeep]] names — the one the kit declares
+ * and, while that one is not installed, a complete engine of another version
+ * that a confirmed download, or an upgrade from one, left — and every staging
  * directory an interrupted download left is removed here, also on a launch
- * that offers no engine, before any converter can hold one open. `NODE_PATH` names the
- * current version's directory whether or not it is installed yet, so an
- * engine downloaded while the server runs is found by the next conversion.
- * Failing to open the loopback listener is not a reason to refuse the launch:
- * the server still finds an engine installed earlier, and only the download is
- * out of reach until the next launch.
+ * that offers no engine, before any converter can hold one open. When that
+ * earlier engine is kept and the declared version is registered, the manager
+ * begins its upgrade here, so the state reads `installing` before the server
+ * starts; the download itself waits for [[officeEngine]]'s `runUpgrade` once
+ * the app is shown.
+ * `NODE_PATH` names the current version's directory whether or not it is
+ * installed yet, so an engine downloaded while the server runs is found by the
+ * next conversion. Failing to open the loopback listener is not a reason to
+ * refuse the launch: the server still finds an engine installed earlier, and
+ * only the download is out of reach until the next launch.
  * @param spec - this launch's paths, for the shipped kit and the bundled Node.
  * @param log - the server log sink; never receives the token.
  * @returns the environment additions for the server process; empty when this host has no engine to offer.
@@ -532,13 +540,16 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
 async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
   const requirement = readEngineRequirement(spec.builtinModules, process.platform, process.arch)
   const root = officeEngineRoot(resolveHarnessHome())
-  const pruned = pruneEngineRoot(root, versionToKeep(requirement))
+  const kept = versionsToKeep(root, requirement)
+  const pruned = pruneEngineRoot(root, kept.declared, kept.superseded)
   for (const name of pruned.removed) log(`[desktop] office engine: removed ${name} from ${root}\n`)
   for (const line of pruned.failed) log(`[desktop] office engine: could not remove ${line}\n`)
+  if (kept.superseded !== undefined) log(`[desktop] office engine: kept ${kept.superseded} under ${root} until the version the kit declares is installed\n`)
   if (!requirement.ok) log(`[desktop] office engine: none offered (${requirement.reason})\n`)
   const manager = new OfficeEngineManager({
     requirement,
     root,
+    ...kept.superseded === undefined ? {} : { superseded: kept.superseded },
     pnpm: pnpmInvocation({
       packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, nodeBin: spec.nodeBin,
     }),
@@ -547,13 +558,19 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
     installTimeoutMs: INSTALL_TIMEOUT_MS,
     declineCooldownMs: DECLINE_COOLDOWN_MS,
   })
+  officeEngine = manager
   const engineEnv = requirement.ok ? engineServerEnv(root, requirement.requirement, process.env.NODE_PATH) : {}
   if (requirement.ok) log(`[desktop] office engine: ${requirement.requirement.name}@${requirement.requirement.version} under ${root} (${manager.snapshot().phase})\n`)
+  manager.beginUpgrade()
   let started: OfficeEngineServiceHandle
   try {
     started = await startOfficeEngineService(manager)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // Without the listener the person can neither follow nor cancel an
+    // upgrade, so one begun above does not run; the earlier engine stays for
+    // the next launch.
+    await manager.close()
     log(`[desktop] office engine service unavailable (${message}); the preview engine cannot be downloaded this launch\n`)
     return engineEnv
   }
@@ -965,6 +982,9 @@ if (!locked) {
       setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
       attachSupervision()
       view.showApp(server.authenticatedUrl)
+      // After the server boot and the gate, so an upgrade's download competes
+      // with neither, and a launch that must update first downloads nothing.
+      officeEngine?.runUpgrade()
       // Over the loaded app rather than the boot page, so the message sits on
       // the window it is about. The marker keeps a notice until it has been
       // dismissed there, so a launch that never gets this far shows it next time.

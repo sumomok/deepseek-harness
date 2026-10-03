@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-03-desktop-office-engine-upgrade-without-asking.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-03-desktop-office-engine-upgrade-without-asking.md
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking:
+  en: 79d75b745e245899
+  zh: cfcbf6eb44c03a26
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking/problem:
+  en: 13207c1b78715c7d
+  zh: 466d6cfbfdcf415d
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking/decision:
+  en: d2df45db1e3249f8
+  zh: 67973d80ba8b6c19
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking/alternatives-considered:
+  en: 66fed53aad1800e6
+  zh: 84587fcce8f89563
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking/consequences:
+  en: 74a0450de8f0a842
+  zh: 826267dc6e561abb
+/agent-note-a-kit-s-new-engine-version-upgrades-the-downloaded-engine-without-asking/related:
+  en: 0ebc5132ebcdd9cd
+  zh: 9fbf3f651212114e
