@@ -1015,19 +1015,69 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     expect(readProfile()['dependencies']).toEqual({ [userPlugin]: 'file:../mine.tgz' })
   })
 
-  it('keeps a dependencies entry the desktop profile declared before it admitted the name', () => {
+  it('keeps a dependencies entry the desktop profile declared before it admitted the name, on every launch', () => {
+    // The same value the web profile declares: the marker's empty record, not
+    // the value, is what says this shell did not write it.
     writeWebProfile([userPlugin])
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop-shell', private: true, dependencies: { [userPlugin]: 'file:../mine.tgz' },
+      name: 'dsh-profile-desktop-shell', private: true, dependencies: { [userPlugin]: '^1.2.3' },
       dsh: { profile: { bundles: [...webTemplate] } },
     }, undefined, 2))
     expect(seedBuiltinBundles({ home, serverModules }).migrated).toEqual([userPlugin])
+    expect(dependenciesRecordedNow()).toEqual({})
     rmSync(webPackage(userPlugin), { recursive: true, force: true })
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.dropped).toEqual([
-      `${userPlugin}: no longer resolves in the web profile; kept its dependencies entry "file:../mine.tgz", which is not the value this shell wrote`,
+      `${userPlugin}: no longer resolves in the web profile; kept its dependencies entry "^1.2.3", which is not the value this shell wrote`,
     ])
-    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: 'file:../mine.tgz' })
+    const again = seedBuiltinBundles({ home, serverModules })
+    expect(again.skipped).toEqual([`${userPlugin}: not installed in the web profile (${webPackage(userPlugin)})`])
+    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: '^1.2.3' })
+  })
+
+  it('keeps an entry a drop kept on every later launch, even once the web profile declares the same value', () => {
+    // Updating the plugin on the Plugins page and with `dsh plugin --profile
+    // web` writes the same value into both profiles.
+    migrated()
+    const path = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    writeFileSync(path, JSON.stringify({ ...readProfile(), dependencies: { [userPlugin]: '2.0.0' } }, undefined, 2))
+    declareInWeb(userPlugin, '2.0.0')
+    rmSync(webPackage(userPlugin), { recursive: true, force: true })
+    expect(seedBuiltinBundles({ home, serverModules }).dropped).toEqual([
+      `${userPlugin}: no longer resolves in the web profile; kept its dependencies entry "2.0.0", which is not the value this shell wrote`,
+    ])
+    const again = seedBuiltinBundles({ home, serverModules })
+    expect(again.skipped).toEqual([`${userPlugin}: not installed in the web profile (${webPackage(userPlugin)})`])
+    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: '2.0.0' })
+  })
+
+  it('records the value of a name it recovers through its own link, and drops the entry with it', () => {
+    // A marker write that failed after the manifest write leaves the name
+    // listed and linked with no record.
+    migrated()
+    const marker = JSON.parse(readFileSync(markerPath(), 'utf8')) as Record<string, unknown>
+    writeFileSync(markerPath(), JSON.stringify({ ...marker, migrated: [], dependencies: {} }))
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+    expect(migratedNow()).toEqual([userPlugin])
+    expect(dependenciesRecordedNow()).toEqual({ [userPlugin]: '^1.2.3' })
+    rmSync(webPackage(userPlugin), { recursive: true, force: true })
+    expect(seedBuiltinBundles({ home, serverModules }).dropped).toEqual([
+      `${userPlugin}: no longer resolves in the web profile; removed its dependencies entry "^1.2.3"`,
+    ])
+    expect(readProfile()['dependencies']).toEqual({})
+  })
+
+  it('records no value for a name it recovers whose entry is not the one the web profile declares', () => {
+    migrated()
+    const marker = JSON.parse(readFileSync(markerPath(), 'utf8')) as Record<string, unknown>
+    writeFileSync(markerPath(), JSON.stringify({ ...marker, migrated: [], dependencies: {} }))
+    declareInWeb(userPlugin, '1.4.0')
+    seedBuiltinBundles({ home, serverModules })
+    expect(migratedNow()).toEqual([userPlugin])
+    expect(dependenciesRecordedNow()).toEqual({})
+    rmSync(webPackage(userPlugin), { recursive: true, force: true })
+    seedBuiltinBundles({ home, serverModules })
+    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: '^1.2.3' })
   })
 
   it('drops the entry a marker an earlier build wrote stands for, which records no values', () => {
@@ -1045,6 +1095,18 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     expect(report.dropped).toEqual([`${userPlugin}: no longer resolves in the web profile; removed its dependencies entry "^1.2.3"`])
     expect(readProfile()['dependencies']).toEqual({})
     expect(dependenciesRecordedNow()).toEqual({})
+  })
+
+  it('names the entry it drops for a marker an earlier build wrote once, in the dropped line', () => {
+    // The web profile still lists the name and declares the value dropped, so
+    // the line that passes over the name would match it too.
+    migrated()
+    writeFileSync(markerPath(), JSON.stringify({ from: WEB_PROFILE, migrated: [userPlugin], defective: [], removed: [] }))
+    rmSync(webPackage(userPlugin), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.dropped).toEqual([`${userPlugin}: no longer resolves in the web profile; removed its dependencies entry "^1.2.3"`])
+    expect(report.skipped).toEqual([`${userPlugin}: not installed in the web profile (${webPackage(userPlugin)})`])
+    expect(readProfile()['dependencies']).toEqual({})
   })
 
   it('records what a marker an earlier build wrote stands for, and leaves a healthy plugin as it is', () => {
@@ -1076,6 +1138,8 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
       `${userPlugin}: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`,
     ])
     expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES])
+    // TODO: the Plugins page lists this entry as a plugin that cannot be
+    // resolved; a fix for the tombstone ghost in syncWebBundles flips this.
     expect(readProfile()['dependencies']).toEqual({ [userPlugin]: '^1.2.3' })
     expect(migratedNow()).toEqual([])
     expect(removedNow()).toEqual([userPlugin])

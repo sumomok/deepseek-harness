@@ -85,11 +85,12 @@
  * gone is dropped, and its link and the `dependencies` entry this shell wrote
  * for it go with it: upstream's plugin manager lists every `dependencies` key
  * and shows one that resolves nowhere as a failed plugin. An entry whose value
- * is not the one this shell wrote stays. A profile an earlier build left
- * holding that entry after the drop — the name in no marker list and out of
- * the bundle list, its web copy gone — loses it on the next launch while the
- * name resolves nowhere for the profile and the entry still holds the value
- * the web profile declares. A migrated plugin the server
+ * is not the one this shell wrote stays, on that launch and every later one.
+ * A profile an earlier build left holding that entry after the drop — the name
+ * in no marker list and out of the bundle list, its web copy gone — loses it
+ * on the first launch that reads that build's marker, while the web profile
+ * still lists the name, the name resolves nowhere for the profile, and the
+ * entry still holds the value the web profile declares. A migrated plugin the server
  * still does not load — an import that throws, which manifest-level admission
  * cannot catch, or a package its compatibility check refuses — is named in the
  * server's own output while the server keeps running: `server.ts` passes every
@@ -420,9 +421,13 @@ export interface MigrationMarker {
    * each name it admitted, exactly as written. A name keeps its entry while
    * any of the three lists holds it and loses it when it is dropped; the
    * manifest's entry is deleted with it only while it still holds this value.
-   * Absent from a marker an earlier build wrote, which {@link syncWebBundles}
-   * fills on its first run with the manifest's value for every name in
-   * `migrated`.
+   * A name the map lacks has a manifest entry this shell did not write: one
+   * the manifest held before admission, or one a drop kept. A name whose
+   * record was lost and that {@link syncWebBundles} recovers through its own
+   * link is recorded with the manifest's value when that value is the one the
+   * web profile declares. Absent from a marker an earlier build wrote, which
+   * {@link syncWebBundles} fills on its first run with the manifest's value
+   * for every name in `migrated`.
    */
   dependencies?: Record<string, string>
   /**
@@ -1188,22 +1193,26 @@ function adoptedDependencies(migrated: readonly string[], current: Record<string
  * Upstream's plugin manager lists every `dependencies` key, and shows one that
  * resolves nowhere as a failed plugin, so an entry this shell leaves behind is
  * a row the Plugins page cannot clear. The value shows who wrote it: the one
- * the marker recorded when this shell wrote it, or, for a name it records
- * none for, the one the web profile declares, which is where this shell
- * copies every value from. Any other value was written by someone else and
- * stays.
+ * the marker recorded when this shell wrote it. A marker that records values
+ * and has none for a name is the shell's own statement that it did not write
+ * that entry, so the entry stays. A marker an earlier build wrote records no
+ * values, so the run that first reads one reads a name it has no record for
+ * against the web profile's declared value, which is where that build copied
+ * every value from. Any other value was written by someone else and stays.
  * @param name - the package name.
  * @param current - the desktop manifest's `dependencies` map as read this run.
  * @param recorded - the values the marker records this shell wrote, by name.
- * @param declaredVersions - the web profile's own `dependencies` map.
+ * @param unrecorded - the values to read for a name `recorded` lacks: the web
+ * profile's `dependencies` map while the marker read this run records no
+ * values, and an empty map otherwise.
  * @returns the value to delete, or undefined.
  */
 function ownedDependency(
   name: string, current: Record<string, unknown>, recorded: ReadonlyMap<string, string>,
-  declaredVersions: Record<string, unknown>,
+  unrecorded: Record<string, unknown>,
 ): string | undefined {
   const value = current[name]
-  return typeof value === 'string' && value === (recorded.get(name) ?? declaredVersions[name]) ? value : undefined
+  return typeof value === 'string' && value === (recorded.get(name) ?? unrecorded[name]) ? value : undefined
 }
 
 /**
@@ -1238,11 +1247,16 @@ function dependencyOutcome(value: unknown, owned: string | undefined): string {
  * not yet seen is admitted next: linked, and — when {@link bundleDefect} finds
  * nothing wrong — added to `dsh.profile.bundles` with the web profile's
  * declared version copied into `dependencies` and recorded in the marker; a
- * defective one keeps its link and is recorded in `defective` instead. One the
- * web profile lists but no longer installs is passed over, and a
- * `dependencies` entry an earlier drop left for it is deleted when the name is
- * out of the bundle list, resolves nowhere for the profile, and the entry is
- * this shell's by {@link ownedDependency}'s rule. The wholesale copy of the patch layer
+ * defective one keeps its link and is recorded in `defective` instead. A name
+ * the bundle list already carries through this shell's own link, with no
+ * record left, is recovered into `migrated` or `defective`, and its
+ * `dependencies` value is recorded when it is the one the web profile
+ * declares. One the web profile lists but does not install is passed over, and
+ * a `dependencies` entry an earlier drop left for it is deleted when the name
+ * is out of the bundle list, resolves nowhere for the profile, and the entry
+ * is this shell's by {@link ownedDependency}'s rule, which for a name with no
+ * record holds only on the run that first reads a marker an earlier build
+ * wrote. The wholesale copy of the patch layer
  * and pnpm settings only ever happens on the very first sync a profile ever
  * runs, so a later launch never overwrites edits either profile's owner has
  * made since.
@@ -1269,11 +1283,18 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
   const defective = new Map(marker.defective.map(entry => [entry.name, entry]))
   const removed = new Set(marker.removed)
   const written = new Map(Object.entries(marker.dependencies ?? adoptedDependencies(marker.migrated, current)))
+  // Only a marker without a `dependencies` map leaves a name's owner unknown;
+  // once the map exists, a name it lacks is one this shell did not write.
+  const unrecorded = marker.dependencies === undefined ? declaredVersions : {}
   const bundleAdditions: string[] = []
   const bundleRemovals: string[] = []
   const undeclared: string[] = []
   const dropped = new Set<string>()
 
+  // TODO: two kinds of name keep a `dependencies` entry the Plugins page
+  // lists as a plugin that cannot be resolved: a tombstone whose desktop link
+  // is gone, and a `defective` name whose web copy is gone too, which keeps
+  // its dangling link as well because only `migrated` is reviewed here.
   for (const name of marker.migrated) {
     const review = reviewMigrated(spec, profileDir, webDir, name)
     if (review.status === 'healthy') continue
@@ -1296,7 +1317,7 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
       } catch (error) {
         report.skipped.push(`${join(profileDir, 'node_modules', name)}: ${String(error)}`)
       }
-      const owned = ownedDependency(name, current, written, declaredVersions)
+      const owned = ownedDependency(name, current, written, unrecorded)
       if (owned !== undefined) undeclared.push(name)
       written.delete(name)
       dropped.add(name)
@@ -1317,7 +1338,7 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
       const listedAfter = listed.includes(name) && !bundleRemovals.includes(name)
       const owned = dropped.has(name) || listedAfter || resolvesForProfile(spec, profileDir, name)
         ? undefined
-        : ownedDependency(name, current, written, declaredVersions)
+        : ownedDependency(name, current, written, unrecorded)
       if (owned !== undefined) undeclared.push(name)
       const outcome = owned === undefined ? '' : dependencyOutcome(current[name], owned)
       report.skipped.push(`${name}: not installed in the web profile (${source})${outcome}`)
@@ -1330,6 +1351,10 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
       // this shell's own link recovers it, never a name the profile lists for
       // some other reason.
       if (!linksTo(link, source)) { report.skipped.push(`${name}: already in the desktop profile`); continue }
+      // The lost record's value is recovered only while the manifest holds the
+      // one the web profile declares, the value this shell copies at admission.
+      const value = current[name]
+      if (!written.has(name) && typeof value === 'string' && value === declaredVersions[name]) written.set(name, value)
       if (defect === undefined) migrated.add(name)
       else { defective.set(name, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() }); bundleRemovals.push(name) }
       continue
