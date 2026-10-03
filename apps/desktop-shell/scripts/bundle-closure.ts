@@ -247,6 +247,43 @@ async function textOf(nodeModules: string, name: string): Promise<string> {
   return text
 }
 
+/**
+ * The packages reachable from `roots` through package references: the roots,
+ * plus every member of `candidates` that the text of a reachable package
+ * references. It is a reachability walk, not one pass, because a surviving
+ * third-party package brings its own dependencies with it — `@babel/code-frame`
+ * stays because something imports it, and it needs `picocolors`, which nothing
+ * else names.
+ *
+ * Each reachable package's text is read once and passed to `scan` once,
+ * together with all of `candidates`, so the walk's cost grows with the text it
+ * reads rather than with the text times the number of candidates.
+ * @param roots - the packages kept whether or not anything references them.
+ * @param candidates - the packages kept only when a reachable package references them.
+ * @param read - the text of one package; an empty text references nothing.
+ * @param scan - the members of a set of names that a text references ([[referencedNames]]).
+ * @returns the roots and every reachable candidate.
+ */
+export async function reachable(
+  roots: Iterable<string>,
+  candidates: ReadonlySet<string>,
+  read: (name: string) => Promise<string>,
+  scan: (text: string, names: ReadonlySet<string>) => Set<string>,
+): Promise<Set<string>> {
+  const kept = new Set(roots)
+  const frontier = [...kept]
+  while (frontier.length > 0) {
+    const text = await read(frontier.pop() as string)
+    if (text === '') continue
+    for (const name of scan(text, candidates)) {
+      if (kept.has(name)) continue
+      kept.add(name)
+      frontier.push(name)
+    }
+  }
+  return kept
+}
+
 /** What bundling one package did: how many entry points it built, or that esbuild refused it. */
 interface BuildResult {
   ok: boolean
@@ -350,23 +387,8 @@ export async function bundleClosure(
     else unbundled.push(ours[index] as string)
   }
 
-  // Reachability, not one pass. A surviving third-party package brings its own
-  // dependencies with it — `@babel/code-frame` stays because something imports
-  // it, and it needs `picocolors`, which nothing else names — so deleting on a
-  // single scan leaves a kept package without its own.
-  const candidates = new Set(thirdParty)
-  const kept = new Set([...ours, ...bundles, ...NATIVE])
-  const frontier = [...kept]
-  while (frontier.length > 0) {
-    const text = await textOf(nodeModules, frontier.pop() as string)
-    if (text === '') continue
-    for (const name of referencedNames(text, candidates)) {
-      if (kept.has(name)) continue
-      kept.add(name)
-      frontier.push(name)
-    }
-  }
-
+  const kept = await reachable(
+    [...ours, ...bundles, ...NATIVE], new Set(thirdParty), name => textOf(nodeModules, name), referencedNames)
   const removable = thirdParty.filter(name => !kept.has(name))
   for (const name of removable) await rm(join(nodeModules, name), { recursive: true, force: true })
   return { bundled, unbundled, removed: removable.length, bundles }

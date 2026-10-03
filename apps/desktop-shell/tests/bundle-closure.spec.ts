@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bundleClosure, REFERENCE_SCAN_SOURCE, referencedNames, specifierFor } from '../scripts/bundle-closure.ts'
+import { bundleClosure, reachable, REFERENCE_SCAN_SOURCE, referencedNames, specifierFor } from '../scripts/bundle-closure.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -147,6 +147,37 @@ describe('referencedNames', () => {
     expect(prefixes).toHaveLength(3)
     const scan = new RegExp(REFERENCE_SCAN_SOURCE).source
     expect(scan.startsWith(String.raw`['"\`](?<=(?:` + prefixes.join('|') + String.raw`)['"\`])`)).toBe(true)
+  })
+})
+
+describe('reachable', () => {
+  it('reads and scans each reachable package once, against every candidate at once', async () => {
+    const texts = new Map([
+      ['root', 'require(\'a\'); import b from "b"'],
+      ['a', 'module.exports = require(\'c\')'],
+      ['b', ''],
+      ['c', 'require(\'a\')'],
+      ['d', 'require(\'root\')'],
+    ])
+    const candidates = new Set(['a', 'b', 'c', 'd'])
+    const reads: string[] = []
+    const scans: { text: string; names: ReadonlySet<string> }[] = []
+    const kept = await reachable(
+      ['root'],
+      candidates,
+      async (name) => {
+        reads.push(name)
+        return texts.get(name) ?? ''
+      },
+      (text, names) => {
+        scans.push({ text, names })
+        return referencedNames(text, names)
+      },
+    )
+    expect([...kept].sort()).toEqual(['a', 'b', 'c', 'root'])
+    expect([...reads].sort()).toEqual(['a', 'b', 'c', 'root'])
+    expect(scans.map(scan => scan.text).sort()).toEqual([texts.get('a'), texts.get('c'), texts.get('root')].sort())
+    for (const scan of scans) expect(scan.names).toBe(candidates)
   })
 })
 
