@@ -17,7 +17,7 @@ Status: implemented
 - 映射该字段的适配器在 `tools` 为空或缺省时以 `INVALID_REQUEST` 失败。
 - 提供方无法支持该字段的适配器以 `UNSUPPORTED_OPTION` 失败，消息点名 `GenerateOptions.toolChoice`。
 
-该字段不属于 `LlmCallConfig`。会话请求头没有对应成员，所以一次带着它的 loop 请求无法从日志重建。因此 [`invariant.ts`](../../../../packages/core/agent-loop/src/invariant.ts) 中的 agent-loop 请求不变式要求 loop 请求不设置它。只有 `ctx.llm.stream()` 的一次性调用方会设置它。
+该字段不属于 `LlmCallConfig`。会话请求头没有对应成员，所以一次带着它的 loop 请求无法从日志重建。因此 agent loop 构造请求时不设置它。只有 `ctx.llm.stream()` 的一次性调用方会设置它。
 
 树内每个适配器对该字段的处理是确定的：
 
@@ -41,7 +41,7 @@ DeepSeek 映射在每个推理档位都生效，包括 `session-title` 请求强
 
 **在 pi-ai 里按 API 分别构造请求体。** `onPayload`、`samplingParams` 和运行时透传都能注入 `tool_choice`，但每个 API 的写法不同，逐个书写会拿走 pi-ai 对请求体的所有权。
 
-**只靠提示词加文本解析。** 树内的 auto-review 就是这样解析文本的。实测的判官在同样做法下产出过散文和非法 JSON。[dynamic-workflows note](2026-07-05-dynamic-workflows.zh.md) 以同样的理由为其捕获工具否决了提供方 JSON 模式：合法 JSON 不等于符合 schema。
+**只靠提示词加文本解析。** 树内的 auto-review 就是这样解析文本的。实测的判官在同样做法下产出过散文和非法 JSON。[dynamic-workflows note](../../archived/feature/2026-07-05-dynamic-workflows.md) 以同样的理由为其捕获工具否决了提供方 JSON 模式：合法 JSON 不等于符合 schema。
 
 **强制工具时关闭 thinking。** 那是一个隐藏的默认值，调用方在自己构造的请求里看不到。
 

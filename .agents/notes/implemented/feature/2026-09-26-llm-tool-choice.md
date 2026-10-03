@@ -17,7 +17,7 @@ An auxiliary direct call, such as a plugin judge that parses the answer, needs a
 - An adapter that maps the field fails with `INVALID_REQUEST` when `tools` is empty or absent.
 - An adapter whose provider cannot honor the field fails with `UNSUPPORTED_OPTION`, and the message names `GenerateOptions.toolChoice`.
 
-The field is not part of `LlmCallConfig`. The session header has no member for it, so a loop request that carried it could not be reconstructed from the log. The agent-loop request invariant in [`invariant.ts`](../../../../packages/core/agent-loop/src/invariant.ts) therefore requires loop requests to leave it undefined. Only one-shot callers of `ctx.llm.stream()` set it.
+The field is not part of `LlmCallConfig`. The session header has no member for it, so a loop request that carried it could not be reconstructed from the log. The agent loop therefore builds its requests without it. Only one-shot callers of `ctx.llm.stream()` set it.
 
 Each in-tree adapter handles the field in a fixed way:
 
@@ -41,7 +41,7 @@ The DeepSeek mapping applies at every reasoning effort, including the `off` effo
 
 **Per-API request bodies in pi-ai.** `onPayload`, `samplingParams`, and runtime pass-through could inject `tool_choice`, but each API spells it differently, and writing each spelling would take request-body ownership away from pi-ai.
 
-**Prompt instructions and text parsing only.** The in-tree auto-review parses text this way. The measured judge produced prose and invalid JSON under the same approach. The [dynamic-workflows note](2026-07-05-dynamic-workflows.md) rejected provider JSON mode for its capture tool on the same ground: valid JSON is not schema conformance.
+**Prompt instructions and text parsing only.** The in-tree auto-review parses text this way. The measured judge produced prose and invalid JSON under the same approach. The [dynamic-workflows note](../../archived/feature/2026-07-05-dynamic-workflows.md) rejected provider JSON mode for its capture tool on the same ground: valid JSON is not schema conformance.
 
 **Turn thinking off while a tool is forced.** It would be a hidden default that callers cannot see in the request they built.
 
