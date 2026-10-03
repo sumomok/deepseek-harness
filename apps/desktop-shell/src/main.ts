@@ -687,6 +687,8 @@ function createBootWindow(receipt?: string): BootView {
     height: 900,
     backgroundColor: PALETTES[appearance].background,
     title: PRODUCT_NAME.zh,
+    // macOS: the click that activates the window also reaches the control under the pointer.
+    acceptFirstMouse: true,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
