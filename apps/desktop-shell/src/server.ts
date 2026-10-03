@@ -278,9 +278,14 @@ export function augmentedEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /**
  * Kill the server's whole process tree. Windows has no signal-based group
  * teardown from Node, so it goes through `taskkill /T`, run from
- * `%SystemRoot%\System32`; when that cannot start, only the server itself is
- * killed. POSIX sends SIGTERM (the launcher's ordinary supervisor stop, exit
- * 0) and escalates to SIGKILL after the grace window.
+ * `%SystemRoot%\System32`. When taskkill cannot start and Node reports that
+ * as an 'error' event, as it does for a program that is missing or cannot be
+ * run, only the server itself is killed: the processes it started keep
+ * running, and those that do not run the bundled Node binary are out of
+ * reach of the next launch's sweep. A start that Node reports by throwing
+ * instead rejects the returned promise and kills nothing. POSIX sends SIGTERM
+ * (the launcher's ordinary supervisor stop, exit 0) and escalates to SIGKILL
+ * after the grace window.
  * @param child - the spawned server process.
  * @returns resolves once the process reported exit.
  */

@@ -464,6 +464,7 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - A move is given up as hung only after two minutes without a single file operation; one very large tree walked by the target's print counts as one operation.
 - When a move is taken back because the server's processes could not be confirmed stopped, the restarted server still names the Office engine service the move closed, so the engine cannot be downloaded until the next launch.
 - The data move has not run on real Windows hardware, so its stop of the server tree there, the process listing through the system's `powershell.exe` and the kill through its `taskkill.exe`, is unverified.
+- On Windows, when `taskkill.exe` cannot be started to stop the server, only the server itself is killed. The processes it started keep running, and the next launch's sweep of earlier runs' servers reaches only those that run the bundled Node binary.
 - A terminal that exported `DSH_HOME` before the location changed keeps the old value until it is reopened, and an app launched from it takes that value for a newer one.
 - A block that is no longer the last thing in its profile, because lines were added after it, is removed alone, and the file is not guaranteed to come back byte for byte.
 - A crash before a rename leaves a temporary file beside the profile (`<file>.<pid>.tmp`) or the pointer (`<file>.<pid>.<8 hex digits>.tmp`), and nothing removes it later.
