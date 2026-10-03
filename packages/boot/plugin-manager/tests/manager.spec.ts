@@ -1134,6 +1134,26 @@ it('lists the bundles the profile manifest names as shipped while switched off, 
   expect(await manager.removeBundle('payload')).toMatchObject({ changed: false, application: 'failed' })
 })
 
+it('refuses to remove a switched-on shipped bundle that no dependency holds', async () => {
+  const { manager, dir, bundle } = await fixture()
+  bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: {
+    ...manifest.dsh?.profile, bundles: [...manifest.dsh?.profile?.bundles ?? [], 'payload'], shipped: ['payload'],
+  } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  expect((await manager.listBundles()).find(row => row.name === 'payload')).toMatchObject({
+    enabled: true, installed: false, shipped: true, removable: false,
+  })
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm')
+  onTestFinished(() => { pnpm.mockRestore() })
+  expect(await manager.removeBundle('payload')).toMatchObject({
+    changed: false, application: 'failed', error: { code: 'not-removable' },
+  })
+  expect(pnpm).not.toHaveBeenCalled()
+  expect(readProfileManifest('test', dir).dsh?.profile).toMatchObject({ bundles: expect.arrayContaining(['payload']), shipped: ['payload'] })
+})
+
 it.each([
   ['a string', 'payload'],
   ['an object', { payload: true }],

@@ -524,7 +524,7 @@ describe('PluginManagerPage', () => {
     const name = '@haoran/dsh-crash-resume'
     const required = row({ entryId: 'include:crash-resume' as PluginEntryId, rowId: 'crash-resume', moduleName: name, readOnlyReason: 'deployment-required' })
     const { actions, setLanguage } = renderTab({
-      packages: [pkg({ name, installed: false, shipped: true, readOnlyReason: 'deployment-required', rows: [required] })],
+      packages: [pkg({ name, installed: false, shipped: true, removable: false, readOnlyReason: 'deployment-required', rows: [required] })],
     })
     for (const dict of [en, zh]) {
       setLanguage(dict)
@@ -571,8 +571,8 @@ describe('PluginManagerPage', () => {
   it('lists the bundles the launching application ships among the installed ones, tagged built-in, on or off', () => {
     const { actions } = renderTab({
       packages: [
-        pkg({ name: '@haoran/dsh-screenshot', version: '0.6.0', installed: false, shipped: true }),
-        pkg({ name: '@sumomok/dsh-balance', version: '0.6.1', installed: false, shipped: true, enabled: false }),
+        pkg({ name: '@haoran/dsh-screenshot', version: '0.6.0', installed: false, shipped: true, removable: false }),
+        pkg({ name: '@sumomok/dsh-balance', version: '0.6.1', installed: false, shipped: true, removable: false, enabled: false }),
         // A selected layer the launcher does not name as shipped stays off the page, as before.
         pkg({ name: '@acme/dsh-composition', installed: false }),
         pkg({ name: 'dsh-better-sidebar' }),
