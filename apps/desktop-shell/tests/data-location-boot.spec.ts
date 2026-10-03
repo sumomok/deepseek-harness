@@ -11,10 +11,10 @@ import {
 } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  exportPointerHome, promptView, settleDataLocation,
+  exportPointerHome, promptView, settleDataLocation, terminalSeenAfterRestore,
   type DataLocationHost, type LocationAnswer, type PromptView,
 } from '../src/data-location-boot.ts'
 import {
@@ -166,6 +166,24 @@ describe('exportPointerHome', () => {
   it('does not report its own export from a relaunch as the person\'s value', () => {
     writePointer(userData, pointerAt('/data'))
     expect(exportPointerHome(userData, { DSH_HOME: '/data', [POINTER_HOME_ENV]: '/data' })).toBeUndefined()
+  })
+})
+
+describe('terminalSeenAfterRestore', () => {
+  const set = (value: string) => ({ kind: 'set', value, source: 'login-shell' }) as const
+  const home = resolve('/Users/a')
+
+  it('records a value other than the one before the move, as a launch takes it', () => {
+    expect(terminalSeenAfterRestore(set('/data/old'), set('/data/new/'), home)).toBe(resolve('/data/new'))
+    expect(terminalSeenAfterRestore({ kind: 'unset' }, set('~/new'), home)).toBe(join(home, 'new'))
+    expect(terminalSeenAfterRestore({ kind: 'unknown', detail: 'no shell' }, set('/data/old'), home)).toBe(resolve('/data/old'))
+  })
+
+  it('records nothing when a terminal reads the value before the move, no value, or only blanks', () => {
+    expect(terminalSeenAfterRestore(set('/data/old'), set('/data/old'), home)).toBeUndefined()
+    expect(terminalSeenAfterRestore(set('~/old'), set(`${join(home, 'old')}/`), home)).toBeUndefined()
+    expect(terminalSeenAfterRestore(set('/data/old'), { kind: 'unset' }, home)).toBeUndefined()
+    expect(terminalSeenAfterRestore({ kind: 'unset' }, set('  '), home)).toBeUndefined()
   })
 })
 

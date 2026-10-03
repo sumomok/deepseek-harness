@@ -45,7 +45,7 @@ import {
   POINTER_VERSION, withGeneration, writePointer, type DataLocationPointer,
 } from '../data-location.ts'
 import { NODE_LINK_FS, type LinkFs } from '../home-link.ts'
-import type { TerminalSnapshot } from '../terminal-env.ts'
+import type { ExplicitRead, TerminalSnapshot } from '../terminal-env.ts'
 import { LOCK_FILENAME } from './lock.ts'
 import { copyTree, CopyMismatchError, forgetDone, planLinkResolved, removeExtra, type ByteProgress, type CopyRequest } from './copier.ts'
 import {
@@ -207,6 +207,15 @@ export interface MoveEffects {
    * the move; a rejection is recorded, and the rollback finishes without it.
    */
   restoreTerminal: (snapshot: TerminalSnapshot) => Promise<void>
+  /**
+   * Read the terminal's `DSH_HOME` after a rollback could not put it back,
+   * as a launch would take it.
+   * @param before - what a terminal read before the move.
+   * @returns the `lastSeenEnv` the pointer records; `undefined` when a terminal reads no value or the value it read
+   * before the move, which leaves the pointer as the rollback put it back.
+   * @throws when the setting cannot be read.
+   */
+  terminalSeen: (before: ExplicitRead) => Promise<string | undefined>
   /** Put `~/.dsh` back: remove the link to the target, recreate a link that was there. */
   restoreHomeLink: (before: HomeLinkBefore) => void
   /** The name of a visible folder the move leaves for the person ({@link keptFolderName} in the system's language). */
@@ -990,7 +999,15 @@ async function perform(action: MoveAction, journal: MoveJournal, context: StepCo
       return undefined
     }
     case 'record-terminal-as-seen': {
-      const pointer = pointerSeeingTerminal(journal)
+      // Read in this step, so a rollback resumed before its flag is saved reads the terminal again.
+      let seen: string | undefined
+      try {
+        seen = await effects.terminalSeen(journal.terminalBefore)
+      } catch {
+        // The main process logged why the setting could not be read; it is taken to name the new location, as the switch wrote it.
+        seen = journal.target
+      }
+      const pointer = seen === undefined ? undefined : pointerSeeingTerminal(journal, seen)
       if (pointer !== undefined) effects.writePointer(pointer)
       save({ ...journal, terminalRecordedAsSeen: true })
       return undefined
@@ -1061,8 +1078,8 @@ function freeSibling(effects: MoveEffects, path: string, kind: KeptFolderKind): 
  * the person chose to keep it; a move that went on after an earlier failure
  * because the person chose so, and then passed its check, keeps only the
  * `detail`. A rollback that could not put the terminal setting back names the
- * new location in `terminalNotRestored`; the pointer it wrote before
- * ({@link pointerSeeingTerminal}) keeps the application on the original.
+ * new location in `terminalNotRestored`; the pointer keeps the application on
+ * the original ({@link pointerSeeingTerminal}).
  * @param dir - the move directory.
  * @param journal - the journal.
  * @param outcome - how it ended.
@@ -1207,26 +1224,27 @@ export function rolledBackPointer(before: PointerBefore, generation: number): Po
 
 /**
  * The pointer a rollback leaves when it could not put the terminal setting
- * back: the original, as the rolled-back pointer names it or, when there was
+ * back and a terminal reads a value other than the one it read before the
+ * move: the original, as the rolled-back pointer names it or, when there was
  * no pointer before the move, by the original's path, identity and number,
- * with the new location the terminal still names as `lastSeenEnv`. A later
- * launch that reads that value, from a terminal profile or as the Windows
- * user variable an application started from the Start menu inherits, then
- * stays on the original instead of following the value to a folder the
- * rollback retired or renamed.
+ * with that value as `lastSeenEnv`. A later launch that reads the value, from
+ * a terminal profile or as the Windows user variable an application started
+ * from the Start menu inherits, then stays on the original instead of
+ * following it to a folder the rollback retired or renamed.
  * @param journal - the move.
+ * @param seen - the `DSH_HOME` a terminal reads now ({@link MoveEffects.terminalSeen}).
  * @returns the pointer to write; `undefined` when the main file before the move was not a valid pointer, which then
  * stays byte for byte as it was.
  */
 export function pointerSeeingTerminal(
-  journal: Pick<MoveJournal, 'pointerBefore' | 'originalGeneration' | 'source' | 'target' | 'dataId'>,
+  journal: Pick<MoveJournal, 'pointerBefore' | 'originalGeneration' | 'source' | 'dataId'>, seen: string,
 ): DataLocationPointer | undefined {
   const { main } = rolledBackPointer(journal.pointerBefore, journal.originalGeneration)
   const before = main === undefined ? undefined : parsePointerText(main)
   if (main !== undefined && before === undefined) return undefined
   const original = before
     ?? withGeneration({ version: POINTER_VERSION, path: journal.source, dataId: journal.dataId }, journal.originalGeneration)
-  return { ...original, lastSeenEnv: journal.target }
+  return { ...original, lastSeenEnv: seen }
 }
 
 /**
@@ -1322,6 +1340,7 @@ export function nodeMoveEffects(input: {
   locale: NameLocale
   syncTerminal: MoveEffects['syncTerminal']
   restoreTerminal: MoveEffects['restoreTerminal']
+  terminalSeen: MoveEffects['terminalSeen']
   /** Called before each unit of work; absent in process. */
   activity?: () => void
 }): MoveEffects {
@@ -1355,6 +1374,7 @@ export function nodeMoveEffects(input: {
     restorePointer: (before) => { restorePointerFiles(input.userData, before) },
     syncTerminal: input.syncTerminal,
     restoreTerminal: input.restoreTerminal,
+    terminalSeen: input.terminalSeen,
     restoreHomeLink: (before) => { restoreHomeLink(input.defaultHome, before, input.platform) },
     keptFolderName: (kind, date, attempt) => keptFolderName(input.locale, kind, date, attempt),
     sleep: (ms) => {

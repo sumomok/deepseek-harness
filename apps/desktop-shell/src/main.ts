@@ -724,6 +724,7 @@ async function retireReturnedCopies(home: string): Promise<void> {
     locale: nameLocale(app.getLocale()),
     syncTerminal: () => Promise.reject(new Error('retiring copies never writes the terminal')),
     restoreTerminal: () => Promise.reject(new Error('retiring copies never writes the terminal')),
+    terminalSeen: () => Promise.reject(new Error('retiring copies never reads the terminal')),
   })
   try {
     const retired = await retireAbandonedCopies(moveDir(app.getPath('userData')), home, effects, (a, b) => samePathText(a, b, process.platform))

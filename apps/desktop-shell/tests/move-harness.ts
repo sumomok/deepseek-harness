@@ -8,7 +8,8 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { terminalSeenAfterRestore } from '../src/data-location-boot.ts'
 import { readGeneration, type DataId } from '../src/data-location.ts'
 import { calibrateHomeLink } from '../src/home-link.ts'
 import { moveDir, readJournal, type BlockedChoice, type MoveStart } from '../src/move/journal.ts'
@@ -117,6 +118,10 @@ export function harnessEffects(setup: MoveSetup, faults: Faults = {}): MoveEffec
     restoreTerminal: async () => {
       const before = setup.start.terminalBefore
       writeFileSync(setup.terminalFile, before.kind === 'set' ? before.value : '')
+    },
+    terminalSeen: async (before) => {
+      const value = terminalValue(setup)
+      return terminalSeenAfterRestore(before, value === '' ? { kind: 'unset' } : { kind: 'set', value, source: 'login-shell' }, join(dirname(setup.userData), 'os-home'))
     },
   })
   const target = setup.start.target

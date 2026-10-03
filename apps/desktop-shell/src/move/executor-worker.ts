@@ -72,6 +72,7 @@ const effects = nodeMoveEffects({
   locale: request.locale,
   syncTerminal: async target => (await callMain({ effect: 'syncTerminal', target })) ?? undefined,
   restoreTerminal: async (snapshot) => { await callMain({ effect: 'restoreTerminal', snapshot }) },
+  terminalSeen: async before => (await callMain({ effect: 'terminalSeen', before })) ?? undefined,
   activity: alive,
 })
 

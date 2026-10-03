@@ -51,6 +51,7 @@ function terminal(): MainEffects & { synced: string[]; restored: TerminalSnapsho
     restored,
     syncTerminal: async (target) => { synced.push(target); return target },
     restoreTerminal: async (snapshot) => { restored.push(snapshot) },
+    terminalSeen: async () => undefined,
   }
 }
 
@@ -103,6 +104,21 @@ describe('the data move on a worker thread', () => {
     expect(existsSync(join(f.home, '.dsh-data-id'))).toBe(true)
   })
 
+  posixOnly('asks this process what a terminal reads after a restore that failed, and records it in the pointer', async () => {
+    const { setup, f } = await started()
+    const asked: unknown[] = []
+    const main: MainEffects = {
+      ...terminal(),
+      restoreTerminal: async () => { throw new Error('PowerShell exited with 1 restoring DSH_HOME') },
+      terminalSeen: async (before) => { asked.push(before); return '/elsewhere' },
+    }
+    await runMoveExecutor(requestOf(setup), main)
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    expect(await runMoveExecutor(requestOf(setup), main)).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
+    expect(asked).toEqual([setup.start.terminalBefore])
+    expect(JSON.parse(readFileSync(join(setup.userData, 'data-location.json'), 'utf8'))).toMatchObject({ path: f.home, lastSeenEnv: '/elsewhere' })
+  })
+
   posixOnly('names what stopped a rollback on the worker: a folder it may not change', async () => {
     const { setup, f } = await started()
     const main = terminal()
@@ -135,7 +151,8 @@ describe('the heartbeat', () => {
     let beats = 0
     const effects = nodeMoveEffects({
       userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en',
-      syncTerminal: async () => undefined, restoreTerminal: async () => undefined, activity: () => { beats += 1 },
+      syncTerminal: async () => undefined, restoreTerminal: async () => undefined, terminalSeen: async () => undefined,
+      activity: () => { beats += 1 },
     })
     effects.fs.kind(target)
     expect(beats).toBe(1)
@@ -176,7 +193,9 @@ describe('watching the worker', () => {
   const request = {
     dir: '/d', userData: '/u', defaultHome: '/h', platform: process.platform, locale: 'en' as const, pid: 1, lockSelf: { userData: '/u', pid: 1, startedAt: '' },
   }
-  const idle: MainEffects = { syncTerminal: async () => undefined, restoreTerminal: async () => undefined }
+  const idle: MainEffects = {
+    syncTerminal: async () => undefined, restoreTerminal: async () => undefined, terminalSeen: async () => undefined,
+  }
 
   it('gives a silent worker up as hung and asks it to stop', async () => {
     const thread = new FakeThread()
@@ -191,6 +210,7 @@ describe('watching the worker', () => {
     const slow: MainEffects = {
       syncTerminal: () => new Promise((resolve) => { release = () => { resolve('/t') } }),
       restoreTerminal: async () => undefined,
+      terminalSeen: async () => undefined,
     }
     const run = runMoveExecutor(request, slow, { stallMs: 200, start: () => thread })
     const beat = setInterval(() => { thread.send({ type: 'alive' }) }, 25)
@@ -212,7 +232,7 @@ describe('watching the worker', () => {
 
   it('carries the worker\'s error name and a failed terminal effect back, and passes a cancel on', async () => {
     const thread = new FakeThread()
-    const failing: MainEffects = { syncTerminal: async () => { throw new Error('no shell') }, restoreTerminal: async () => undefined }
+    const failing: MainEffects = { syncTerminal: async () => { throw new Error('no shell') }, restoreTerminal: async () => undefined, terminalSeen: async () => undefined }
     const controller = new AbortController()
     const run = runMoveExecutor(request, failing, { start: () => thread, cancel: controller.signal })
     controller.abort()
@@ -224,6 +244,19 @@ describe('watching the worker', () => {
     const error = await run.catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ExecutorError)
     expect(error).toMatchObject({ name: 'Error', message: 'ENOSPC: no space left on device', kind: 'no-space', stalled: false })
+  })
+
+  it('answers a read of the terminal with the value to record, or none', async () => {
+    const thread = new FakeThread()
+    const reads: MainEffects = { ...idle, terminalSeen: async before => before.kind === 'set' ? before.value : undefined }
+    const run = runMoveExecutor(request, reads, { start: () => thread })
+    thread.send({ type: 'call', id: 3, call: { effect: 'terminalSeen', before: { kind: 'set', value: '/x', source: 'login-shell' } } })
+    thread.send({ type: 'call', id: 4, call: { effect: 'terminalSeen', before: { kind: 'unset' } } })
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    expect(thread.commands).toContainEqual({ type: 'reply', id: 3, ok: true, value: '/x' })
+    expect(thread.commands).toContainEqual({ type: 'reply', id: 4, ok: true, value: null })
+    thread.send({ type: 'done', outcome: { kind: 'switched' } })
+    expect(await run).toEqual({ kind: 'switched' })
   })
 
   it('reports a worker that exits without an answer', async () => {

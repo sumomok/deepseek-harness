@@ -21,7 +21,7 @@
  */
 
 import { Worker } from 'node:worker_threads'
-import type { TerminalSnapshot } from '../terminal-env.ts'
+import type { ExplicitRead, TerminalSnapshot } from '../terminal-env.ts'
 import type { LockSelf } from './lock.ts'
 import type { NameLocale } from './names.ts'
 import type { BlockedChoice, HealthFailures, MoveFailureKind, MoveJournal } from './journal.ts'
@@ -73,6 +73,7 @@ export interface ExecutorPrepared {
 export type MainCall =
   | { effect: 'syncTerminal'; target: string }
   | { effect: 'restoreTerminal'; snapshot: TerminalSnapshot }
+  | { effect: 'terminalSeen'; before: ExplicitRead }
 
 /** Messages the worker posts. */
 export type ExecutorMessage =
@@ -88,7 +89,7 @@ export type ExecutorMessage =
 /** Messages the main process posts. */
 export type ExecutorCommand =
   | { type: 'cancel' }
-  /** A terminal effect's answer: `syncTerminal`'s `lastSeenEnv` (`null` for none), or why it failed. */
+  /** A terminal effect's answer: the `lastSeenEnv` `syncTerminal` or `terminalSeen` gives (`null` for none), or why it failed. */
   | { type: 'reply'; id: number; ok: true; value: string | null }
   | { type: 'reply'; id: number; ok: false; message: string }
 
@@ -101,6 +102,12 @@ export interface MainEffects {
   syncTerminal: (target: string) => Promise<string | undefined>
   /** Put the terminal setting back from its snapshot. */
   restoreTerminal: (snapshot: TerminalSnapshot) => Promise<void>
+  /**
+   * Read the terminal's `DSH_HOME` after a restore that failed.
+   * @param before - what a terminal read before the move.
+   * @returns the `lastSeenEnv` to record; `undefined` to leave the rolled-back pointer.
+   */
+  terminalSeen: (before: ExplicitRead) => Promise<string | undefined>
 }
 
 /** The parts of a worker the executor uses; a real `Worker` in the app. */
@@ -204,8 +211,19 @@ export function runMoveExecutor(request: ExecutorRequest, main: MainEffects, opt
       clearTimeout(stall)
       try {
         let value: string | undefined
-        if (call.effect === 'syncTerminal') value = await main.syncTerminal(call.target)
-        else await main.restoreTerminal(call.snapshot)
+        switch (call.effect) {
+          case 'syncTerminal':
+            value = await main.syncTerminal(call.target)
+            break
+          case 'restoreTerminal':
+            await main.restoreTerminal(call.snapshot)
+            break
+          case 'terminalSeen':
+            value = await main.terminalSeen(call.before)
+            break
+          default:
+            call satisfies never
+        }
         if (!settled) thread.postMessage({ type: 'reply', id, ok: true, value: value ?? null })
       } catch (error) {
         if (!settled) thread.postMessage({ type: 'reply', id, ok: false, message: error instanceof Error ? error.message : String(error) })

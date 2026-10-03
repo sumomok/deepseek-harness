@@ -11,7 +11,7 @@
 
 import { app, BrowserWindow, shell } from 'electron'
 import { appDataLocationHost } from './data-location-window.ts'
-import { defaultHarnessHome } from './data-location-boot.ts'
+import { defaultHarnessHome, terminalSeenAfterRestore } from './data-location-boot.ts'
 import type { MoveFlowDeps, MoveUi } from './move-flow.ts'
 import { moveText } from './move-text.ts'
 import { nameLocale } from './move/names.ts'
@@ -128,8 +128,9 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
 /**
  * The terminal effects of a move in the app: the launch's own terminal sync
  * (write, then read back) for the switch, recorded for the launches that
- * finish the move ({@link syncMoveTerminal}), and the snapshot restore for a
- * rollback.
+ * finish the move ({@link syncMoveTerminal}), the snapshot restore for a
+ * rollback, and, after a restore that failed, the persistent setting read
+ * again ({@link terminalSeenAfterRestore}).
  * @param window - the window the launch prompts would be parented on.
  * @param dir - the move directory, for the journal's identity and the value last seen before the move.
  * @param log - the desktop log sink.
@@ -147,6 +148,17 @@ export function appMoveMainEffects(window: BrowserWindow, dir: string, log: (lin
         log(`[desktop] data move: could not put the terminal setting back; the rollback finishes without it: ${String(error)}\n`)
         throw error
       }
+    },
+    terminalSeen: async (before) => {
+      const now = await host.readPersistentEnv()
+      if (now.kind === 'unknown') {
+        log(`[desktop] data move: could not read the terminal setting after the failed restore; the new location is recorded as seen: ${now.detail}\n`)
+        throw new Error(now.detail)
+      }
+      const seen = terminalSeenAfterRestore(before, now, host.osHome)
+      const reads = now.kind === 'set' ? `DSH_HOME=${now.value}` : 'no DSH_HOME'
+      log(`[desktop] data move: after the failed restore a terminal reads ${reads}; ${seen === undefined ? 'the pointer stays as the rollback put it back' : `recorded as seen: ${seen}`}\n`)
+      return seen
     },
   }
 }

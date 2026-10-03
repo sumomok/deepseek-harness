@@ -227,16 +227,18 @@ export interface MoveJournal {
   terminalWritten: boolean
   /**
    * Putting the terminal setting back during a rollback failed: what
-   * happened, in English, for the log. The rollback finishes without it: the
-   * pointer then names the original with the new location recorded as seen
-   * (`terminalRecordedAsSeen`), and the result names the new location
-   * (`terminalNotRestored`).
+   * happened, in English, for the log. The rollback finishes without it: it
+   * reads the setting again and, when a terminal now reads a value other than
+   * the one it read before the move, the pointer names the original with that
+   * value recorded as seen (`terminalRecordedAsSeen`); the result names the
+   * new location (`terminalNotRestored`).
    */
   terminalRestoreFailed?: string
   /**
-   * Set once a rollback whose terminal setting could not be put back wrote
-   * the pointer naming the original with the new location as its
-   * `lastSeenEnv`.
+   * Set once a rollback whose terminal setting could not be put back read the
+   * setting again and recorded the value a terminal reads, if it differs from
+   * the one before the move, as the `lastSeenEnv` of the pointer naming the
+   * original.
    */
   terminalRecordedAsSeen?: boolean
   /** Set once `~/.dsh` has been put back during a rollback. */
@@ -350,8 +352,9 @@ export interface MoveResult {
   /**
    * A rollback could not put the terminal's data-location setting back, so
    * DSH started from a terminal without the application may still use this
-   * folder, the new location. The application itself keeps the original: the
-   * pointer names it and records this folder as the value already seen.
+   * folder, the new location. The application itself keeps the original: a
+   * value a terminal read after the failed restore, other than the one before
+   * the move, is recorded as already seen in a pointer naming it.
    */
   terminalNotRestored?: KeptFolder
   finishedAt: string
@@ -1129,8 +1132,9 @@ function hideByRename(journal: MoveJournal, facts: MoveFacts, emptyPreexisting: 
  * The next rollback step (plan S8′): `~/.dsh` first; then, only once the
  * original can go back to its path, the target is marked retired and loses
  * its identity, and the original is put back; then the copy is dealt with,
- * and the pointer and the terminal last; a terminal setting that could not
- * be put back is then recorded as seen in a pointer naming the original. A
+ * and the pointer and the terminal last; when the terminal setting could not
+ * be put back, what a terminal then reads is recorded as seen in a pointer
+ * naming the original, unless it is what a terminal read before the move. A
  * copy nothing outside the move could have used is deleted. An exposed one ({@link MoveJournal.targetExposed})
  * is never deleted: it is renamed to a visible folder beside it, which the
  * result names.

@@ -123,7 +123,7 @@ function depsOf(setup: MoveSetup, ui: MoveUi, extra: Partial<MoveFlowDeps> = {})
       dir: setup.dir, userData: setup.userData, defaultHome: setup.defaultHome, platform: process.platform, locale: 'en', pid: process.pid,
       lockSelf: selfOf(setup),
     },
-    main: { syncTerminal: async target => target, restoreTerminal: async () => undefined },
+    main: { syncTerminal: async target => target, restoreTerminal: async () => undefined, terminalSeen: async () => undefined },
     ui, text, locale: 'en', abandoned: abandonedHost(setup, []), log: () => undefined, now: () => new Date(),
     lockProbes: { startTimeOf: async () => undefined }, ...extra,
   }

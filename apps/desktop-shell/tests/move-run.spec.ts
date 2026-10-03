@@ -26,7 +26,8 @@ import {
 } from '../src/move/journal.ts'
 import {
   advanceMove, canonicalPath, failureKindOf, MOVE_MARKERS, MoveStuckError, nodeMoveFs, PRINT_EXCLUDE, recordHealth, resolveBlocked,
-  pointerSeeingTerminal, retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove, StepFailure,
+  pointerSeeingTerminal, readPointerFiles, retireAbandonedCopies, abandonMove, lockExpectedAt, rollBackMove, rolledBackPointer, startMove,
+  StepFailure,
   type BlockedView, type MoveEffects, type MoveOutcome,
 } from '../src/move/run.ts'
 import { CopyMismatchError } from '../src/move/copier.ts'
@@ -529,6 +530,107 @@ describe('a directory a terminal made at the old path', () => {
     expect(next).toEqual({ kind: 'ready', home: s.f.home, via: 'pointer' })
   })
 
+  posixOnly.each([
+    { start: 'pointer', x: 'other-harness-data' },
+    { start: 'pointer', x: 'missing' },
+    { start: 'default-home', x: 'other-harness-data' },
+    { start: 'default-home', x: 'missing' },
+  ] as const)('leaves a terminal the person\'s own DSH_HOME overrides as it was before the move when the restore fails (start $start, that folder $x)', async ({ start, x }) => {
+    const f = await buildFixture({ bigBytes: 200_000 })
+    fixtures.push(f)
+    const target = join(f.targetParent, 'DSH-Data')
+    const prepared = prepareMove({ root: f.root, home: f.home, target, sameVolume: false, start })
+    const own = join(f.root, 'my-terminal-home')
+    if (x === 'other-harness-data') {
+      mkdirSync(join(own, 'sessions'), { recursive: true })
+      writeFileSync(join(own, '.dsh-data-id'), `${INTRUDER_ID}\n`)
+    }
+    if (start === 'pointer') {
+      writeFileSync(join(prepared.userData, 'data-location.json'), `${JSON.stringify({ version: 1, path: f.home, dataId: HARNESS_ID, lastSeenEnv: own }, null, 2)}\n`)
+    }
+    writeFileSync(prepared.terminalFile, own)
+    const setup: MoveSetup = {
+      ...prepared,
+      start: {
+        ...prepared.start,
+        pointerBefore: readPointerFiles(prepared.userData),
+        ...start === 'pointer' ? { lastSeenEnvBefore: own } : {},
+        terminalBefore: { kind: 'set', value: own, source: 'login-shell' },
+      },
+    }
+    const launch = (): Resolution => resolveDataLocation({
+      read: readPointer(setup.userData), env: own, defaultHome: setup.defaultHome, abandoned: readAbandonedCopies(setup.dir),
+    })
+    const beforeMove = launch()
+    startMove(setup.dir, setup.start, { pid: PID, now: new Date() })
+    // The block is written, but a line of the person's own later in the profile keeps their value.
+    const overridden: MoveEffects = { ...harnessEffects(setup), syncTerminal: async () => own }
+    expect(await advanceMove(setup.dir, overridden, { pid: PID })).toEqual({ kind: 'switched' })
+    expect(readPointer(setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: target, lastSeenEnv: own } })
+    recordHealth(setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    const stuck: MoveEffects = { ...overridden, restoreTerminal: async () => { throw new Error('EACCES: permission denied, open \'.zshrc\'') } }
+    expect(await advanceMove(setup.dir, stuck, { pid: PID })).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: target } } })
+    expect(terminalValue(setup)).toBe(own)
+    if (start === 'pointer') {
+      const restored = rolledBackPointer(setup.start.pointerBefore, readGeneration(f.home)).main ?? ''
+      expect(readFileSync(join(setup.userData, 'data-location.json'), 'utf8')).toBe(restored)
+    } else {
+      expect(readPointer(setup.userData)).toEqual({ kind: 'absent' })
+    }
+    expect(launch()).toEqual(beforeMove)
+    expect(launch()).not.toMatchObject({ via: 'followed-env' })
+    expect(launch()).not.toMatchObject({ kind: 'confirm-env' })
+  })
+
+  posixOnly.each([
+    { start: 'pointer', sameVolume: false },
+    { start: 'pointer', sameVolume: true },
+    { start: 'default-home', sameVolume: false },
+    { start: 'default-home', sameVolume: true },
+  ] as const)('keeps the pointer as it was before the move when the restore wrote the old setting and then failed (start $start, same volume $sameVolume)', async ({ start, sameVolume }) => {
+    const s = await scenario({ sameVolume, start })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    const real = harnessEffects(s.setup)
+    const late: MoveEffects = {
+      ...real,
+      restoreTerminal: async (snapshot) => {
+        await real.restoreTerminal(snapshot)
+        throw new Error('EPERM: operation not permitted, chmod \'.zshrc\'')
+      },
+    }
+    const outcome = await advanceMove(s.setup.dir, late, { pid: PID })
+    expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed', terminalNotRestored: { path: s.target } } })
+    const before = s.setup.start.terminalBefore
+    expect(terminalValue(s.setup)).toBe(before.kind === 'set' ? before.value : '')
+    if (start === 'pointer') {
+      expect(pointerText(s, 'data-location.json')).toBe(rolledBackPointer(s.pointerBefore, readGeneration(s.f.home)).main)
+      expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: s.f.home } })
+    } else {
+      expect(readPointer(s.setup.userData)).toEqual({ kind: 'absent' })
+    }
+    const next = resolveDataLocation({
+      read: readPointer(s.setup.userData),
+      env: processDshHome({ DSH_HOME: terminalValue(s.setup) }),
+      defaultHome: s.setup.defaultHome,
+      abandoned: readAbandonedCopies(s.setup.dir),
+    })
+    expect(next).toEqual({ kind: 'ready', home: s.f.home, via: start === 'pointer' ? 'pointer' : 'default' })
+  })
+
+  posixOnly('takes a terminal setting it cannot read after a failed restore to name the new location', async () => {
+    const s = await scenario({ sameVolume: false, start: 'default-home' })
+    await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
+    recordHealth(s.setup.dir, { detail: 'the health check failed', failures: ['fewer-sessions'] })
+    const blind: MoveEffects = {
+      ...harnessEffects(s.setup),
+      restoreTerminal: async () => { throw new Error('PowerShell exited with 1 restoring DSH_HOME') },
+      terminalSeen: async () => { throw new Error('PowerShell exited with 1 reading DSH_HOME') },
+    }
+    await advanceMove(s.setup.dir, blind, { pid: PID })
+    expect(readPointer(s.setup.userData)).toMatchObject({ kind: 'ok', pointer: { path: s.f.home, lastSeenEnv: s.target } })
+  })
+
   posixOnly('records a failed restore once, so a rollback resumed after it does not try again', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer' })
     await advanceMove(s.setup.dir, harnessEffects(s.setup), { pid: PID })
@@ -557,8 +659,8 @@ describe('a directory a terminal made at the old path', () => {
 
   it('names the original without a pointer before the move, and leaves a main file that was not a valid pointer as it was', () => {
     const journal = { pointerBefore: {}, originalGeneration: 2, source: '/data/original', target: '/data/new', dataId: HARNESS_ID }
-    expect(pointerSeeingTerminal({ ...journal, pointerBefore: { main: '{ torn' } })).toBeUndefined()
-    expect(pointerSeeingTerminal(journal)).toEqual({
+    expect(pointerSeeingTerminal({ ...journal, pointerBefore: { main: '{ torn' } }, '/data/new')).toBeUndefined()
+    expect(pointerSeeingTerminal(journal, '/data/new')).toEqual({
       version: 1, path: '/data/original', dataId: HARNESS_ID, generation: 2, lastSeenEnv: '/data/new',
     })
   })

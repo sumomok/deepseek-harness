@@ -334,6 +334,25 @@ export async function syncTerminal(
 }
 
 /**
+ * The `DSH_HOME` value a data move's rollback records as seen when it could
+ * not put the terminal setting back, from what a terminal reads after the
+ * attempt. Both reads are taken as a launch takes them
+ * ({@link normalizeDshHome}).
+ * @param before - what a terminal read before the move.
+ * @param now - what a terminal reads after the restore attempt.
+ * @param osHome - the home `~` stands for.
+ * @returns the value to record as the pointer's `lastSeenEnv`; `undefined` when a terminal reads no value (none, or
+ * only blanks), or reads the value it read before the move, so the pointer stays as the rollback put it back.
+ */
+export function terminalSeenAfterRestore(
+  before: ExplicitRead, now: Exclude<ExplicitRead, { kind: 'unknown' }>, osHome: string,
+): string | undefined {
+  const seen = now.kind === 'set' ? normalizeDshHome(now.value, osHome) : undefined
+  if (seen === undefined) return undefined
+  return before.kind === 'set' && normalizeDshHome(before.value, osHome) === seen ? undefined : seen
+}
+
+/**
  * Log what a terminal sync came to.
  * @param host - the app.
  * @param result - the pointer and the sync outcome.
