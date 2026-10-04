@@ -851,9 +851,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async edit( entry: Entry, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>, ): Promise<void>',
-        description: 'Validate, persist, and reconcile a plugin\'s next config; ordinary fields keep normal lifecycle rules.',
+        description: 'Validate, persist, and reconcile a plugin\'s next config; ordinary fields keep normal lifecycle rules. The next config may carry a Loader expression only where the current or inherited config holds an identical one at the same path; the check precedes validation, so a refused expression is never evaluated.',
         parameters: [{ name: 'entry', description: 'Current Loader entry, also used to detect replacement during the write.' }, { name: 'change', description: 'Derive a raw config from the current entry and its inherited layer.' }],
         returns: 'Fulfillment after Loader reconciliation completes.',
+        throws: ['ConfigExpressionRejectedError when the next config adds or changes an expression; nothing is written or reconciled.'],
       },
     ],
   },

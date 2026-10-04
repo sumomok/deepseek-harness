@@ -33,7 +33,8 @@ interface SettingsNavGroupSpec {
 /**
  * The claimed groups, in rail order. Ids name sections this product composes:
  * the six upstream ones (`general`, `models`, `plugins`, `agent-presets`,
- * `archived-sessions`, `account`) plus the sections the fork's bundled plugins register.
+ * `archived-sessions`, `account`), the sections the fork's bundled plugins register,
+ * and `sumomok-org`, which the separately installed organization plugin registers.
  * An id absent from the running composition contributes nothing.
  */
 const NAV_GROUPS: readonly SettingsNavGroupSpec[] = [
@@ -41,7 +42,7 @@ const NAV_GROUPS: readonly SettingsNavGroupSpec[] = [
   { key: 'models', label: 'nav.group.models', sections: ['models', 'vision-switch'] },
   { key: 'agent', label: 'nav.group.agent', sections: ['agent-presets', 'llm-permission-gateway'] },
   { key: 'extensions', label: 'nav.group.extensions', sections: ['plugins', 'mcp-servers', 'screenshot-logins'] },
-  { key: 'account', label: 'nav.group.account', sections: ['account', 'balance'] },
+  { key: 'account', label: 'nav.group.account', sections: ['account', 'sumomok-org', 'balance'] },
   { key: 'about', label: 'nav.group.about', sections: ['desktop-update'] },
 ]
 
