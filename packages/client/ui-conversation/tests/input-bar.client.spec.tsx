@@ -139,6 +139,8 @@ function bench(over?: BenchOptions) {
       'next-step': over?.nextStep ?? [],
     }),
     ...(over?.steerQueue !== undefined ? { steerQueue: over.steerQueue } : {}),
+    referenceCount: ids => ids.filter(id =>
+      over?.attachments?.find(candidate => candidate.id === id)?.kind === 'reference').length,
     // Lexicon-only stub: adjudication untouched (undefined slash methods are
     // never reached — these benches drive plain-draft flows only).
     ...(lex !== undefined
@@ -223,7 +225,8 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector<HTMLDivElement>('[data-composer-input]')!
-  const sendableDraft = (over?.draft?.trim() ?? '') !== '' || (over?.attachments?.length ?? 0) > 0
+  const sendableDraft = (over?.draft?.trim() ?? '') !== ''
+    || (over?.attachments ?? []).some(attachment => attachment.kind !== 'reference')
   const primaryStops = over?.running === true && over.subagent === undefined
     && (!sendableDraft || over.blocked !== undefined)
   // A running steer-capable composer (ordinary session or continuable child
@@ -982,6 +985,50 @@ describe('running and lock semantics', () => {
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('', ['draft-1'], 'queue', expect.any(AbortSignal))
     await vi.waitFor(() => { expect(button.getAttribute('aria-label')).toBe('停止生成') })
+  })
+
+  it('a reference-only draft is empty: Send stays disabled and Enter sends nothing', () => {
+    const reference = {
+      kind: 'reference' as const,
+      id: 'ref-1' as DraftAttachmentId,
+      source: 'owner',
+      label: '新增',
+      resolve: () => Promise.resolve({}),
+    }
+    const idle = bench({ attachments: [reference] })
+    expect(idle.button.getAttribute('aria-label')).toBe('发送消息')
+    expect(idle.button.disabled).toBe(true)
+    fireEvent.keyDown(idle.textarea, { key: 'Enter' })
+    fireEvent.click(idle.button)
+    expect(idle.sink).not.toHaveBeenCalled()
+    expect(idle.shell.snapshot.attachmentIds).toEqual(['ref-1'])
+
+    // Running, the same draft keeps the empty-draft gestures: Stop and whole-queue steering.
+    const running = bench({ running: true, attachments: [reference], queue: [row('q-1')], steerQueue: vi.fn() })
+    expect(running.button.getAttribute('aria-label')).toBe('停止生成')
+    fireEvent.keyDown(running.textarea, { key: 'Enter', metaKey: true })
+    expect(running.steerQueue).toHaveBeenCalledTimes(1)
+    expect(running.sink).not.toHaveBeenCalled()
+
+    const typed = bench({ draft: '这是什么', attachments: [reference] })
+    fireEvent.keyDown(typed.textarea, { key: 'Enter' })
+    expect(typed.sink).toHaveBeenCalledWith('这是什么', ['ref-1'], 'queue', expect.any(AbortSignal))
+  })
+
+  it('an attachment-only draft with a reference sends the media and the reference together', () => {
+    const image = {
+      kind: 'image' as const,
+      id: 'draft-1' as DraftAttachmentId,
+      file: new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' }),
+      previewUrl: 'blob:pixel',
+    }
+    const reference = {
+      kind: 'reference' as const, id: 'ref-1' as DraftAttachmentId, source: 'owner', label: '新增',
+      resolve: () => Promise.resolve({}),
+    }
+    const { textarea, sink } = bench({ attachments: [reference, image] })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('', ['ref-1', 'draft-1'], 'queue', expect.any(AbortSignal))
   })
 
   it('running blocked composer keeps Stop with a retained draft', () => {

@@ -118,7 +118,9 @@ The registry opens the `workspace` domain (version 2): a `workspaces` table keye
 
 ### Lifecycle
 
-On start, the registry opens the domain, completes a marked mutation if one is pending, validates stored state — duplicate paths, duplicate session accounts, and order drift all fail loud — and, when not yet initialized, bootstraps history from persisted headers before writing the initialized marker last, so an interrupted bootstrap resumes safely. A fresh empty registry is real once initialized; it never re-bootstraps.
+On start, the registry opens the domain, completes a marked mutation if one is pending, validates stored state — duplicate paths, duplicate session accounts, and order drift all fail loud — re-resolves every stored path through `fs.realpath`, and, when not yet initialized, bootstraps history from persisted headers before writing the initialized marker last, so an interrupted bootstrap resumes safely. A fresh empty registry is real once initialized; it never re-bootstraps.
+
+Re-resolution runs before bootstrap and membership checks compare session directories against stored paths, so a project survives a path component that became a symlink, such as a home folder moved to another disk. An unchanged path is not written. A new canonical path that names a directory and is not stored or newly resolved for another project replaces the stored path; id, title, creation time, session list, order, and the first-use identity stay, and `updatedAt` advances. A path that does not resolve, names no directory, or collides with another project stays as stored and is logged as a warning; an unplugged disk therefore shows `missing-dir` and is re-resolved at a later start. Each rewrite is one record write, so an interrupted pass leaves a valid registry that the next start completes.
 
 ### Failure and recovery
 

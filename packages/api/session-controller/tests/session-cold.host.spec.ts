@@ -751,6 +751,79 @@ describe('subagent ownership fence', () => {
     }
     expect(followup).toHaveBeenCalledTimes(3)
   })
+
+  it('records bounded prompt references on the message source and never in its content', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    const session = ctx.sessions.create(sid('session-prompt-references'), { meta: { cwd: '/proj' } })
+    const followup = vi.fn()
+    const agent: Agent = {
+      id: session.id, session, inbox: inboxFor(), status: 'idle', ctx, followup,
+    } as never
+    await ctx.agents.register(agent)
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+    })
+    const references = [
+      { source: 'owner.a', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } },
+      { source: 'owner_b', label: 'Row 2', data: {} },
+    ]
+    const referenced = promptRequest({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'what is this' }],
+      clientTimeZone: 'UTC',
+      references,
+    })
+    await expect(remote.prompt(referenced)).resolves.toMatchObject({ ok: true })
+    expect(followup).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      content: [{ type: 'text', text: 'what is this' }],
+      source: { kind: 'user', rpcId: referenced.requestId, clientTimeZone: 'UTC', references },
+    }))
+
+    const empty = promptRequest({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'no references' }],
+      references: [],
+    })
+    await expect(remote.prompt(empty)).resolves.toMatchObject({ ok: true })
+    expect(followup).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      source: { kind: 'user', rpcId: empty.requestId },
+    }))
+
+    const invalid: readonly [NonNullable<SessionPromptRequest['references']>, string][] = [
+      [Array.from({ length: 17 }, () => references[1]!), 'a prompt accepts at most 16 references'],
+      [[{ source: 'bad source', label: 'x', data: {} }], 'reference 0 source must match [A-Za-z0-9_.-]{1,64}'],
+      [[{ source: 'o', label: 'x'.repeat(65), data: {} }], 'reference 0 label must be 1-64 code points and not blank'],
+      [[{ source: 'o', label: 'a\u202Eb', data: {} }], 'reference 0 label must not contain control, format, or unpaired surrogate characters'],
+      [[{ source: 'o', label: 'x', data: { v: '界'.repeat(2731) } }], 'reference 0 data exceeds 8192 bytes'],
+    ]
+    for (const [invalidReferences, message] of invalid) {
+      const response = await remote.prompt(promptRequest({
+        sessionId: agent.id,
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'invalid references' }],
+        references: invalidReferences,
+      }))
+      expect(response).toMatchObject({ ok: false, error: { code: 'gateway/bad-request', message, details: {} } })
+    }
+    expect(followup).toHaveBeenCalledTimes(2)
+
+    // References are not content: a reference-only prompt is still empty.
+    await expect(remote.prompt(promptRequest({
+      sessionId: agent.id,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: ' ' }],
+      references,
+    }))).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'gateway/bad-request', message: 'prompt content must include non-whitespace text or an attachment' },
+    })
+    expect(followup).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('degenerate composition (no persistence, no factory)', () => {

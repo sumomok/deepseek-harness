@@ -135,7 +135,11 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
   const serialize = vi.fn((ids: readonly DraftAttachmentId[]) => Promise.resolve(ids.map(() => PNG)))
   const release = vi.fn()
-  const shell = new SessionInputShell({ actx, inputTriggers: () => controller, defaultSink: sink, commandAttachments: { serialize, release, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` } })
+  const shell = new SessionInputShell({
+    actx, inputTriggers: () => controller, defaultSink: sink,
+    referenceCount: ids => ids.filter(id => id.startsWith('ref-')).length,
+    commandAttachments: { serialize, release, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` },
+  })
   actx.effect(() => {
     shell.refreshLexiconSubscription()
     return () => { shell.dispose() }
@@ -285,6 +289,21 @@ describe('scenario D: execute-kind /compact', () => {
     // execute with trailing → matchEnter answers undefined → default sink.
     await vi.waitFor(() => { expect(b2.sink).toHaveBeenCalledWith('/compact 现在', [], 'queue', expect.any(AbortSignal)) })
     expect(b2.executed).toHaveLength(0)
+  })
+})
+
+describe('scenario: references never ride a command', () => {
+  it('an accepting command refuses a draft holding a reference with the attachment notice', async () => {
+    const b = await bench()
+    act(() => { b.shell.addAttachments(['img-1' as DraftAttachmentId, 'ref-1' as DraftAttachmentId]) })
+    act(() => { b.shell.setDraft('/vision 这是什么') })
+    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    await vi.waitFor(() => { expect(b.view.getByText('/vision attachments-unsupported')).toBeTruthy() })
+    expect(b.execute).not.toHaveBeenCalled()
+    expect(b.serialize).not.toHaveBeenCalled()
+    expect(b.release).not.toHaveBeenCalled()
+    expect(b.sink).not.toHaveBeenCalled()
+    expect(b.shell.snapshot.attachmentIds).toEqual(['img-1', 'ref-1'])
   })
 })
 

@@ -94,6 +94,7 @@
     "tests/sidebar-browser.e2e.ts",
     "tests/plugin-config.e2e.ts",
     "tests/input-plugin-extensions.e2e.ts",
+    "tests/rail-references.e2e.ts",
     "tests/plugin-manager.e2e.ts",
     "tests/session-inspector.e2e.ts",
     "tests/shared-inspector.e2e.ts",

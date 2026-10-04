@@ -1,6 +1,6 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
 import type { ReactNode, RefObject } from 'react'
-import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef, PromptReference } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -24,7 +24,7 @@ import type { ConversationSnapshot } from './snapshot.ts'
 import type { ViewTab } from './views.ts'
 
 /** Browser-owned draft attachment that has not crossed the durable Host boundary. */
-export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment | ComposerReferenceAttachment
 
 /** Browser-owned image, base64-encoded into the prompt at send time. */
 export interface ComposerImageAttachment {
@@ -43,6 +43,32 @@ export interface ComposerFileAttachment {
   kind: 'file'
   id: DraftAttachmentId
   file: File
+}
+
+/**
+ * Browser-owned reference draft created by an owner plugin through
+ * `createReferenceDraft()`. It sits in the attachment row, is removable
+ * before send, and never becomes prompt content: the send records
+ * `{source, label, data}` on the accepted message source, and end-user
+ * surfaces render only `label`.
+ */
+export interface ComposerReferenceAttachment {
+  kind: 'reference'
+  id: DraftAttachmentId
+  /** Owner name recorded with the reference (`[A-Za-z0-9_.-]{1,64}`). */
+  source: string
+  /** Chip text: 1–64 code points, not blank, no control, format, or unpaired surrogate characters. */
+  label: string
+  /**
+   * Produce the owner payload when this draft is sent.
+   * @param signal - cancellation of the complete send.
+   * @returns the payload recorded on the message; its UTF-8 JSON encoding is
+   * at most 8192 bytes. A rejection aborts the send, restores the draft, and
+   * shows the rejection message as the composer notice.
+   */
+  resolve: (signal: AbortSignal) => Promise<PromptReference['data']>
+  /** Optional action run when the user activates the chip in the attachment row. */
+  activate?: () => void
 }
 
 /** Upload lifecycle of one picked file draft (files upload on pick, not on send). */

@@ -21,7 +21,7 @@ import type { SubmitAttachment, SubmitOutcome } from '../src/client/contract/inp
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { DraftAttachmentId } from '../src/client/contract/input.ts'
-import { SessionInputShell } from '../src/client/input/facade.ts'
+import { SessionInputShell, type SessionInputDeps } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -100,11 +100,16 @@ function bench(over?: {
   disabled?: boolean
   submit?: (args: string) => Promise<SubmitOutcome>
   serialize?: (ids: readonly DraftAttachmentId[]) => Promise<readonly SubmitAttachment[]>
+  referenceCount?: (ids: readonly DraftAttachmentId[]) => number
 }) {
   const sink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
   const serialize = vi.fn(over?.serialize ?? (() => Promise.resolve<readonly SubmitAttachment[]>([])))
   const release = vi.fn()
-  const shell = new SessionInputShell({ actx: SCTX, defaultSink: sink, commandAttachments: { serialize, release, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` } })
+  const shell = new SessionInputShell({
+    actx: SCTX, defaultSink: sink,
+    ...(over?.referenceCount === undefined ? {} : { referenceCount: over.referenceCount }),
+    commandAttachments: { serialize, release, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` },
+  })
   const wiring = shell
   const view = mountBar(shell, over)
   const textarea = view.container.querySelector<HTMLDivElement>('[data-composer-input]')!
@@ -154,6 +159,54 @@ describe('matrix row: plain', () => {
     expect(shell.snapshot.phase).toBe('plain')
     expect(shell.snapshot.draft).toBe('')
     expect(shell.snapshot.claim).toBeUndefined()
+  })
+
+  /** A bare shell whose `ref-` ids count as reference drafts. */
+  function referenceShell(deps?: Pick<SessionInputDeps, 'defaultSink' | 'submissionState' | 'messageSubmitted'>) {
+    return new SessionInputShell({
+      actx: SCTX,
+      defaultSink: () => Promise.resolve({ kind: 'success' }),
+      ...deps,
+      referenceCount: ids => ids.filter(id => id.startsWith('ref-')).length,
+      commandAttachments: {
+        serialize: () => Promise.resolve([]),
+        release: () => {},
+        unsupportedNotice: token => `${token.trim()} attachments-unsupported`,
+      },
+    })
+  }
+
+  it('a reference-only draft takes no submission observation and sends nothing; an added image does', () => {
+    const submissionState = vi.fn(() => ({ runMode: 'default' as const, running: false }))
+    const messageSubmitted = vi.fn()
+    const defaultSink = vi.fn(() => Promise.resolve<SubmitOutcome>({ kind: 'success' }))
+    const shell = referenceShell({ defaultSink, submissionState, messageSubmitted })
+    try {
+      shell.addAttachments(['ref-1' as DraftAttachmentId])
+      shell.submit('queue', 'click')
+      expect(submissionState).not.toHaveBeenCalled()
+      expect(messageSubmitted).not.toHaveBeenCalled()
+      expect(defaultSink).not.toHaveBeenCalled()
+      expect(shell.snapshot.attachmentIds).toEqual(['ref-1'])
+
+      shell.addAttachments(['img-1' as DraftAttachmentId])
+      shell.submit('queue', 'click')
+      expect(submissionState).toHaveBeenCalledOnce()
+      expect(messageSubmitted).toHaveBeenCalledOnce()
+      expect(defaultSink).toHaveBeenCalledWith('', ['ref-1', 'img-1'], 'queue', expect.any(AbortSignal))
+    } finally { shell.dispose() }
+  })
+
+  it('draft initialization keeps a draft that holds only a reference unless clearing is explicit', () => {
+    const shell = referenceShell()
+    try {
+      shell.addAttachments(['ref-1' as DraftAttachmentId])
+      expect(shell.requestDraftInitialization({ prompt: '新任务' })).toBe('preserved')
+      expect(shell.snapshot.draft).toBe('')
+      expect(shell.requestDraftInitialization({ prompt: '新任务', clearPreviousDraft: true })).toBe('applied')
+      expect(shell.snapshot.draft).toBe('新任务')
+      expect(shell.snapshot.attachmentIds).toEqual(['ref-1'])
+    } finally { shell.dispose() }
   })
 })
 
@@ -213,6 +266,22 @@ describe('matrix row: claimed with attachments', () => {
     expect(view.getByText('/goal attachments-unsupported')).toBeTruthy()
     expect(shell.snapshot.attachmentIds).toEqual([img])
     expect(shell.snapshot.draft).toBe('/goal ')
+  })
+
+  it('an accepting claim refuses a reference draft before serializing anything', async () => {
+    const submit = vi.fn(() => Promise.resolve({ kind: 'success' as const }))
+    const { view, textarea, shell, claim, serialize } = bench({
+      submit, referenceCount: ids => ids.filter(id => id.startsWith('ref-')).length,
+    })
+    claim('/goal ', '目标', true)
+    act(() => { shell.addAttachments([img, 'ref-1' as DraftAttachmentId]) })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await Promise.resolve()
+    expect(view.getByText('/goal attachments-unsupported')).toBeTruthy()
+    expect(submit).not.toHaveBeenCalled()
+    expect(serialize).not.toHaveBeenCalled()
+    expect(shell.snapshot.attachmentIds).toEqual([img, 'ref-1'])
+    expect(shell.snapshot.phase).toBe('claimed')
   })
 
   it('an accepting claim serializes and forwards a mixed batch; success consumes and clears', async () => {

@@ -31,7 +31,7 @@ type Step = { id: string; order: number }
 
 /**
  * Every section id the group table names, in ledger order, plus two ids it
- * never heard of. Three groups list their members in an order the ascending
+ * never heard of. Four groups list their members in an order the ascending
  * `order` here contradicts, so a rail drawing ledger order instead of table
  * order reads differently. Labels stand in for the registrants' own copy.
  */
@@ -48,6 +48,7 @@ const EVERY_SECTION: Row[] = [
   { id: 'balance', order: 35, label: 'Balance' },
   { id: 'at-file', order: 55, label: 'At file' },
   { id: 'screenshot-logins', order: 60, label: 'Screenshot logins' },
+  { id: 'data-location', order: 65, label: 'Data & Storage' },
   { id: 'desktop-update', order: 70, label: 'Desktop update' },
   { id: 'contributed-late', order: 90, label: 'Late contribution' },
 ]
@@ -543,12 +544,12 @@ describe('SettingsPanel navigation', () => {
     expect(groupTitles()).toEqual([
       'General', 'Models', 'Agent', 'Extensions', 'Account & usage', 'About', 'Other',
     ])
-    // Members follow the table, not the ledger's `order`: Vision (5) draws
-    // below Models (10), Review settings (15) below Agent presets (20), and
-    // MCP servers (25) below Plugins (30), because each group's table lists
-    // them that way. The trailing group keeps ledger order instead.
+    // Members follow the table, not the ledger's `order`: Data & Storage (65)
+    // draws above At file (55), Vision (5) below Models (10), Review settings
+    // (15) below Agent presets (20), and MCP servers (25) below Plugins (30),
+    // because each group's table lists them that way. The trailing group keeps ledger order instead.
     expect(groupMembers()).toEqual([
-      ['General', 'At file', 'Archived sessions'],
+      ['General', 'Data & Storage', 'At file', 'Archived sessions'],
       ['Models', 'Vision'],
       ['Agent presets', 'Review settings'],
       ['Plugins', 'MCP servers', 'Screenshot logins'],

@@ -513,6 +513,21 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot().subagent).toEqual({ address: CHILD, parentAvailable: true })
   })
 
+  it('forwards prompt references to the subagent prompt Remote', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID, { address: CHILD, parentAvailable: true })
+    await session.open()
+    const references = [{ source: 'owner', label: '行 2', data: { row: 2 } }]
+    await session.prompt([{ type: 'text', text: '这一行' }], 'queue', undefined, undefined, references)
+    expect(mock.log.requests('subagents/prompt')).toEqual([{
+      requestId: expect.any(String) as string,
+      ...CHILD,
+      delivery: 'queue',
+      content: [{ type: 'text', text: '这一行' }],
+      clientTimeZone: TIME_ZONE,
+      references,
+    }])
+  })
+
   it('forwards continuation image parts to the subagent prompt Remote unstripped', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID, { address: CHILD, parentAvailable: true })
     await session.open()

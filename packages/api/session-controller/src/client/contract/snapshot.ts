@@ -34,6 +34,14 @@ export type PendingSubmissionAttachment =
   | PendingSubmissionImageAttachment
   | PendingSubmissionFileAttachment
 
+/** Display fields of one prompt reference shown by a local submission echo. */
+export interface PendingSubmissionReference {
+  /** Owner name sent with the reference. */
+  readonly source: string
+  /** Chip text; the only reference field end-user surfaces render. */
+  readonly label: string
+}
+
 /** Client surface selected when a local submission begins. */
 export type PendingSubmissionPlacement = 'transcript' | 'queued' | 'steering'
 
@@ -54,6 +62,8 @@ export interface PendingSubmission {
   readonly text: string
   /** Ordered image previews and durable file metadata matching the prompt attachments. */
   readonly attachments: readonly PendingSubmissionAttachment[]
+  /** Ordered prompt references; absent when the prompt carries none. */
+  readonly references?: readonly PendingSubmissionReference[]
 }
 
 /** History-open lifecycle of a Session event window. */

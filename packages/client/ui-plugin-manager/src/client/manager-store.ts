@@ -89,7 +89,10 @@ export interface PackageView {
   readonly source?: string
   /** Whether the installation ships the bundle for the person to switch on: official, off until selected, never removable. */
   readonly optional: boolean
-  /** Whether the application that launches the profile supplies the bundle from its own payload: listed while off, never removable. */
+  /**
+   * Whether the application that launches the profile supplies the bundle from its own payload: listed while off, not
+   * removable unless the profile's own dependencies also name it.
+   */
   readonly shipped: boolean
   /**
    * Whether the Host removes the bundle: a profile dependency, or a selection that neither the profile, the installation,

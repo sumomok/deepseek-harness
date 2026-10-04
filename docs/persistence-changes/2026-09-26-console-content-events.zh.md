@@ -27,8 +27,8 @@ id: 2026-09-26-console-content-events
 baseline: false
 changes:
   - root: "event:agent/inbox/spliced"
-    previous: "2026-09-21-user-question-reply"
-    after: "94843f9d9fa8e11376be659407d5cf543a2dd707aaf4f15699e408ee6fc3fa4b"
+    previous: "2026-09-25-prompt-references"
+    after: "13990d298055a3296bf03f5945a5bc67147f28e3c81986be8a9e2d9e44620b68"
     decision: same-version
   - root: "event:content-component/resolved"
     previous: null
@@ -55,28 +55,28 @@ changes:
     after: "a21aefcdb207a9f214b3a5e7ea13a96aa085fcc10b6555b9750679f5be02673c"
     decision: same-version
   - root: "event:developer/message"
-    previous: "2026-09-21-user-question-reply"
-    after: "6bd2e61a23f063b07cf0559b77267357890438a905e420620b198689ee7e8e4c"
+    previous: "2026-09-25-prompt-references"
+    after: "53dcbe174677fb3aa04c4a56ee5ed9fd392e3954d1c0618d53444ceb3b1a0495"
     decision: same-version
   - root: "event:session/title-llm-request"
-    previous: "2026-09-21-user-question-reply"
-    after: "fa70c64552504733734b7d05d6708074cfaee19fce00bfc7bb6c50555a20680c"
+    previous: "2026-09-25-prompt-references"
+    after: "e4bbc373dca50ec970c7112801cb77e3233687c135e700dfe51ebea1e3e8b187"
     decision: same-version
   - root: "event:user/message"
-    previous: "2026-09-21-user-question-reply"
-    after: "703fa13cdf1e1acf2cd64be1aee29a2eb062367d41125e3f1d8182047e3ffc14"
+    previous: "2026-09-25-prompt-references"
+    after: "d6c181927f267021214d1c415aa28abbddd3e344b1a33d810798868cfa25580d"
     decision: same-version
 ```
 
 <a id="compatibility"></a>
 ## 兼容性
 
-六个事件是新的普通事件类型，两种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式，排在本记录之前的用户提问回复来源也是如此。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这两种来源种类及其元数据，不校验也不回放它们。content-component 种类由 component-surface 的动作通知写入。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
+六个事件是新的普通事件类型，两种来源种类以 @persistenceAttribution 标注，因此已有的每条记录都保持原有 schema 与回放方式，排在本记录之前的用户提问回复来源与提示词引用也是如此。不认识这六个事件的旧读取方会拒收携带它们的日志，因为它们没有标记 ignorable；没有对应写入方的读取方会原样保留这两种来源种类及其元数据，不校验也不回放它们。content-component 种类由 component-surface 的动作通知写入。rc.2 基座之前写下的日志把这些来源记为 kind plugin，V3 到 V4 的迁移会把它改写成 plugin:content-surface 之类，控制台不会把它们映射回来。
 
 <a id="verification"></a>
 ## 验证
 
-pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface：75 个文件、1738 个测试通过。pnpm run verify-persistence-changes 通过。
+pnpm exec vitest run packages/experimental/content-surface packages/experimental/content-frame packages/experimental/component-surface：72 个文件、1714 个测试通过。pnpm run verify-persistence-changes 通过。
 
 <a id="dev-note"></a>
 ## 开发备注

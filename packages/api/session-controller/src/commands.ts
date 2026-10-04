@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
-import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, promptReferencesProblem } from '@deepseek-ai/dsh-attachment'
 import type {
   AttachmentAdmissionPart, FileAttachmentRef, ImageAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
@@ -304,8 +304,10 @@ export class SessionCommandController {
   }
 
   /**
-   * Reject empty content, then admit one prompt after Agent and attachment validation.
-   * @param request - Session identity, prompt content, source metadata, and delivery mode.
+   * Reject empty content and out-of-bounds references, then admit one prompt
+   * after Agent and attachment validation. Accepted references are recorded on
+   * the message source only.
+   * @param request - Session identity, prompt content, references, source metadata, and delivery mode.
    * @returns acknowledgement that the Agent accepted the prompt.
    */
   async prompt(request: SessionPromptRequest): Promise<SessionPromptValue> {
@@ -326,12 +328,16 @@ export class SessionCommandController {
         { value: request.clientTimeZone },
       )
     }
+    const references = request.references ?? []
+    const referencesProblem = promptReferencesProblem(references)
+    if (referencesProblem !== undefined) throw new RemoteError('gateway/bad-request', referencesProblem, {})
     const agent = await this.resolveAgent(request.sessionId)
     if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
     const source: MessageSource = {
       kind: 'user',
       rpcId: request.requestId,
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
+      ...(references.length === 0 ? {} : { references }),
     }
     const hasImage = request.content.some(part => part.type === 'image')
     const admit = async (): Promise<SessionPromptValue> => {

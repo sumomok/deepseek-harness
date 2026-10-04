@@ -1894,6 +1894,66 @@ describe('ChatView', () => {
     expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
 
+  it('renders prompt reference labels as chips on the echo, pending steering, and durable bubbles only', withClock(2_000, () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const references = [
+      { source: 'owner', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } },
+      { source: 'owner', label: '所属专题', data: {} },
+    ]
+    const chipsIn = (element: Element | null): (string | null)[] =>
+      [...element?.querySelectorAll('[data-reference-chip]') ?? []].map(chip => chip.getAttribute('title'))
+    const pending = {
+      id: 'steer-ref' as never,
+      role: 'user' as const,
+      source: { kind: 'user' as const, references },
+      content: [{ type: 'text' as const, text: '插话看这里' }],
+    }
+    const h = makeHarness(
+      { nodes: [assistant(1, 'working')] },
+      {
+        running: true,
+        testInbox: { 'next-turn': [], 'next-step': [pending] },
+        pendingSubmissions: [{
+          requestId: 'req-ref' as never, placement: 'transcript',
+          time: 1_000, text: '这两个有什么区别', attachments: [],
+          references: references.map(({ source, label }) => ({ source, label })),
+        }],
+      },
+    )
+    const view = render(<h.ChatView {...h.props} />)
+    const echo = view.getByText('这两个有什么区别').closest('[data-submission-echo]')
+    expect(chipsIn(echo)).toEqual(['新增', '所属专题'])
+    const steering = view.getByText('插话看这里').closest('[data-pending-steering]')
+    expect(chipsIn(steering)).toEqual(['新增', '所属专题'])
+    fireEvent.click(within(steering as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('插话看这里')
+
+    act(() => {
+      h.setSession({ pendingSubmissions: [], testInbox: { 'next-turn': [], 'next-step': [] } })
+      h.setChat({
+        nodes: [
+          assistant(1, 'working'),
+          {
+            kind: 'user', seq: 2, time: 2_000,
+            content: [{ type: 'text', text: '这两个有什么区别' }] as never,
+            source: { kind: 'user', rpcId: 'req-ref', references },
+          },
+          {
+            kind: 'user', seq: 3, time: 2_000,
+            content: [{ type: 'text', text: '坏记录' }] as never,
+            source: { kind: 'user', references: [{ label: 7 }, { label: '保留' }] },
+          },
+        ],
+      })
+    })
+    const durable = view.getByText('这两个有什么区别').closest('[class*="userRow"]')
+    expect(chipsIn(durable)).toEqual(['新增', '所属专题'])
+    expect(durable?.textContent).not.toMatch(/e42|entry|owner/u)
+    expect(chipsIn(view.getByText('坏记录').closest('[class*="userRow"]'))).toEqual(['保留'])
+    expect(view.container.textContent).not.toContain('e42')
+  }))
+
   it('renders local submission echoes at the flow tail and swaps atomically with the durable node', () => {
     const h = makeHarness(
       { nodes: [assistant(1, 'working')] },

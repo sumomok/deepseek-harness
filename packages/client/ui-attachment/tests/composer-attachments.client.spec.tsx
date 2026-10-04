@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
+  ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps, ComposerImageAttachment,
+  ComposerReferenceAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ComposerAttachments } from '../src/client/ComposerAttachments.tsx'
 
@@ -49,6 +50,10 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
     const name = params?.name
     return `移除图片 ${typeof name === 'string' ? name : ''}`
   }
+  if (key === 'reference.remove') {
+    const label = params?.label
+    return `移除「${typeof label === 'string' ? label : ''}」`
+  }
   if (key === 'attachment.dropDesc') {
     const count = params?.count
     const size = params?.size
@@ -57,7 +62,7 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
   return messages[key] ?? key
 }) as ComposerAttachmentsProps['t']
 
-function attachment(id: string, name = `${id}.png`): ComposerAttachment {
+function attachment(id: string, name = `${id}.png`): ComposerImageAttachment {
   return {
     kind: 'image',
     id: id as ComposerAttachment['id'],
@@ -304,5 +309,51 @@ describe('ComposerAttachments file drafts', () => {
       },
     })} />)
     expect(view.getByTitle('.env').textContent).toContain('ENV 3B')
+  })
+})
+
+describe('ComposerAttachments reference drafts', () => {
+  function referenceDraft(id: string, label: string, activate?: () => void): ComposerReferenceAttachment {
+    return {
+      kind: 'reference',
+      id: id as ComposerAttachment['id'],
+      source: 'fixture-owner',
+      label,
+      resolve: () => Promise.resolve({ secret: 'payload-never-rendered' }),
+      ...(activate === undefined ? {} : { activate }),
+    }
+  }
+
+  it('renders a label-only chip with its remove button inside, in pick order beside media', () => {
+    const onRemoveAttachment = vi.fn()
+    const activate = vi.fn()
+    const view = render(<ComposerAttachments {...props({
+      attachments: [attachment('first'), referenceDraft('ref-1', '新增', activate), fileDraft('last')],
+      onRemoveAttachment,
+    })} />)
+    const rail = view.getByRole('group', { name: '待发送附件' })
+    expect([...rail.children].map((child) => {
+      const image = child.querySelector('img')
+      return image?.getAttribute('alt') ?? child.querySelector('[title]')?.getAttribute('title')
+    })).toEqual(['first.png', '新增', 'last.pdf'])
+    const chip = rail.querySelector('[data-reference-chip]')!
+    expect(chip.getAttribute('title')).toBe('新增')
+    expect(chip.textContent).toBe('新增')
+    expect(rail.textContent).not.toContain('payload-never-rendered')
+    expect(rail.textContent).not.toContain('fixture-owner')
+    const remove = view.getByRole('button', { name: '移除「新增」' })
+    expect(chip.contains(remove)).toBe(true)
+    fireEvent.click(remove)
+    expect(onRemoveAttachment).toHaveBeenCalledWith('ref-1')
+    expect(activate).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: '新增' }))
+    expect(activate).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders a chip without an owner action as static text', () => {
+    const view = render(<ComposerAttachments {...props({ attachments: [referenceDraft('ref-2', '所属专题')] })} />)
+    expect(view.queryByRole('button', { name: '所属专题' })).toBeNull()
+    expect(view.getByText('所属专题').tagName).toBe('SPAN')
+    expect(view.getByRole('button', { name: '移除「所属专题」' })).toBeTruthy()
   })
 })

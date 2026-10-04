@@ -3,7 +3,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { InboxState, InboxTarget } from '@deepseek-ai/dsh-agent/types'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentIdType, FileAttachmentRef, ImageAttachmentRef, PromptReference,
+} from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
@@ -234,6 +236,7 @@ export class Session implements SessionFace {
       time: Date.now(),
       text: input.text,
       attachments: input.attachments,
+      ...(input.references === undefined || input.references.length === 0 ? {} : { references: input.references }),
     }]
     this.submissionSettlements.set(requestId, { placement, onRetire: input.onRetire, retiring: false })
     // The blank → engaging edge flips here, ahead of prompt(): the composer
@@ -249,6 +252,7 @@ export class Session implements SessionFace {
    * @param mode - queue appends after the current turn; steer interrupts it.
    * @param signal - optional caller cancellation for the complete admission round-trip.
    * @param requestId - identity from {@link beginSubmission}; a failed identified prompt retires its echo.
+   * @param references - ordered prompt references recorded on the accepted message source.
    * @returns the prompt result (also mirrored into promptError on failure).
    */
   async prompt(
@@ -256,6 +260,7 @@ export class Session implements SessionFace {
     mode: 'queue' | 'steer',
     signal?: AbortSignal,
     requestId?: SessionRequestId,
+    references: readonly PromptReference[] = [],
   ): Promise<RemoteResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
@@ -274,6 +279,7 @@ export class Session implements SessionFace {
         mode,
         content,
         clientTimeZone,
+        ...(references.length === 0 ? {} : { references }),
       }, signal)
     } else if (content.some(part => part.type === 'file')) {
       result = {
@@ -296,6 +302,7 @@ export class Session implements SessionFace {
         delivery: mode,
         content: routedContent,
         clientTimeZone: resolvedClientTimeZone(),
+        ...(references.length === 0 ? {} : { references }),
       }, signal)
       result = routed.ok ? { ok: true, value: { accepted: true } } : routed
     }

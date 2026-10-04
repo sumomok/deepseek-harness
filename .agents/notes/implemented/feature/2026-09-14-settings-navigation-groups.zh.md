@@ -18,7 +18,7 @@ Status: implemented
 
 导航栏画成两级：一张固定的分组表，每组一个图标和一个不可交互的标题，其下是账本行本身。分区 id、`order`、label 与 `openSection(id)` 入口全部未动——变的只是一行画在哪里。
 
-七个分组，按导航栏顺序及各自认领的分区：通用（`general`、`at-file`、`archived-sessions`）、模型（`models`、`vision-switch`）、智能体（`agent-presets`、`llm-permission-gateway`）、扩展（`plugins`、`mcp-servers`、`screenshot-logins`）、账户与用量（`account`、`balance`）、关于（`desktop-update`），以及收尾的「其他」承接表中未点名的一切 id。被点名的分组按表内顺序而非账本顺序排列成员，因此无论注册方选了什么 `order`，导航栏读起来都一样。成员全部缺席的分组一行都不画，卸载的插件不会留下空标题；未被识别的 id 则按账本顺序留在「其他」组内——没有哪个分区会因为不被认识而消失。
+七个分组，按导航栏顺序及各自认领的分区：通用（`general`、`data-location`、`at-file`、`archived-sessions`）、模型（`models`、`vision-switch`）、智能体（`agent-presets`、`llm-permission-gateway`）、扩展（`plugins`、`mcp-servers`、`screenshot-logins`）、账户与用量（`account`、`balance`）、关于（`desktop-update`），以及收尾的「其他」承接表中未点名的一切 id。被点名的分组按表内顺序而非账本顺序排列成员，因此无论注册方选了什么 `order`，导航栏读起来都一样。成员全部缺席的分组一行都不画，卸载的插件不会留下空标题；未被识别的 id 则按账本顺序留在「其他」组内——没有哪个分区会因为不被认识而消失。
 
 **这张表放在外壳里**，硬写在 `nav-groups.ts` 中，因为把它移出去的两条路都不存在。注册方无从声明自己的分组（见上面的 register 选项），浏览器端插件也收不到任何配置：客户端引导线每行只带 `id`、`inject`、`immediately`（`@deepseek-ai/dsh-client-modules` 的 `BootPluginRow`），`bootClient` 以 `loader.create({ name })` 创建每个条目——引导线上根本没有 config 字段。客户端一面的 `apply` 仍可以声明 `Config` 参数（`ui-conversation` 就声明了），但线上没有任何东西能填它，这样的参数只会取到 schema 默认值。双面行在 cordis.yml 里的 `config:` 只到该包的 node 半边。要让这张表可配置，就得为一个纯展示事实新开一条 Host 到 Client 的通道，那比分组本身的改动还大。
 
@@ -46,6 +46,6 @@ Status: implemented
 
 组标题与其下的成员可能读作同一个词，因为组标题是外壳的文案（`nav.group.*`），行标题是注册方的文案（本包的 `general.nav`、`settings.models` 命名空间的 `nav`）。两者会撞名时，**改的是成员行、组标题不动**：组标题是意图名，必须短到能领起一列；成员 label 则描述它打开的那一页。于是「通用」组下是 **General settings**（中文「通用设置」，本就不撞名），「模型」组下是 **Providers & models** / **提供方与模型**——那一页装的正是提供方卡、API 密钥与模型清单。中文取「提供方」而非「供应商」，是因为该页正文每一处都作「提供方」，导航行独用另一个词会让同一页出现两种叫法。分区 id、页面标题与组标题一概未动，只有这两行的 label 承担区分。
 
-包内测试承载证据：每个分区按表内顺序归入其分组——夹具里有三个分组的成员顺序与升序 `order` 相反，退回账本顺序就会失败——每个分区在所有分组里只画一次、表中从未点名的 id 落进「其他」且能打开、成员全部缺席的分组不画标题、六个互不相同的组图标且成员行零图标、每个分组经由不可交互标题上的 `aria-labelledby` 获得名称、组标题跟随当前语言、让导航栏滚动并拉开两级的四条 CSS 声明，以及第二个条目遮蔽已占用 id 时每个分区单元仍只出一行。
+包内测试承载证据：每个分区按表内顺序归入其分组——夹具里有四个分组的成员顺序与升序 `order` 相反，退回账本顺序就会失败——每个分区在所有分组里只画一次、表中从未点名的 id 落进「其他」且能打开、成员全部缺席的分组不画标题、六个互不相同的组图标且成员行零图标、每个分组经由不可交互标题上的 `aria-labelledby` 获得名称、组标题跟随当前语言、让导航栏滚动并拉开两级的四条 CSS 声明，以及第二个条目遮蔽已占用 id 时每个分区单元仍只出一行。
 
 **退役条件。** 这是落在上游客户端包上的 fork 覆盖层，与 `settings.trigger.action` 一族同文件。上游若给 `settings.section` 注册项自带分组或图标，或外壳自己长出任何分组、图标、滚动机制，对应部分即退役、由 fork 适配上游形态。在那之前每轮滚动同步都要重新移植并重新核实，因为它落在上游会改的导航标记、导航样式表与账本投影上。
