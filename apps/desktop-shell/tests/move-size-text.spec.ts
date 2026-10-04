@@ -1,8 +1,9 @@
 /**
  * The size a data move shows on both of its screens. The Settings page's data
  * section asks the person to confirm the preflight's `copyBytes`, and the
- * progress window counts up to the copier's total; both come from the same
- * scan of the data, so one byte count must read the same on both.
+ * progress window counts up to the copier's total; both count the same data,
+ * the preflight's scan and the copier's own scan of it, so one byte count must
+ * read the same on both.
  *
  * The Settings half is `formatSize` from the vendored
  * `@haoran/dsh-data-location` browser bundle, resolved from the server's

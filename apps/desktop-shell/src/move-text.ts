@@ -335,12 +335,12 @@ const GB = MB * 1024
 /**
  * A byte count as the progress line shows it, by the rule of the size the
  * Settings page's data section asks the person to confirm
- * (`formatSize` in `@haoran/dsh-data-location`), since both are worded from
- * the same scan of the data: multiples of 1024 under the symbols `KB`, `MB`,
+ * (`formatSize` in `@haoran/dsh-data-location`), since both count the same
+ * data, the page from the preflight's scan and the progress line from the
+ * copier's own scan of it: multiples of 1024 under the symbols `KB`, `MB`,
  * and `GB`, one decimal from gigabytes up, whole megabytes below that, and
  * whole kilobytes, at least 1, below a megabyte. Zero reads `0 KB`, where
- * that page's rule gives `1 KB`; the progress line starts at zero, and the
- * page words zero only as the free space of a full volume.
+ * that page's rule gives `1 KB`; the progress line starts at zero.
  * @param bytes - the count.
  * @returns e.g. `533 MB` or `1.2 GB`.
  */
