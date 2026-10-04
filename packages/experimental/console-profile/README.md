@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces and prompt sections that carry internal vocabulary or developer tooling, turns Schedule off, mounts the library skills, compacts conversations at 60% of the context window, declares the `console` Agent preset, and disables every shipped Agent preset. Its second file, `permission-lock.patch.yml`, pins the console's access presets and makes `console` the default Agent preset, above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned presets must not be.
+`dsh-experimental-console-profile` turns a `web` profile into the customer console. Its bundle layer swaps in the service shell and the product sidebar, disables the shipped surfaces and prompt sections that carry internal vocabulary or developer tooling, mounts the library skills, compacts conversations at 60% of the context window, declares the `console` Agent preset, and disables every shipped Agent preset. Its second file, `permission-lock.patch.yml`, pins the console's access presets and makes `console` the default Agent preset, above the profile patch. The split follows one rule: the sidebar menu must be saved by the settings service, and the pinned presets must not be.
 
 ## Table of Contents
 

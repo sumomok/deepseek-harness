@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些带有内部术语或开发者工具内容的出厂界面与提示词段落，关闭定时，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
+`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些带有内部术语或开发者工具内容的出厂界面与提示词段落，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
 
 ## 目录
 
