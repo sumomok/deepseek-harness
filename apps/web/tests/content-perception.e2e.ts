@@ -11,21 +11,22 @@
  * Zero model calls. Every gesture is a real click in a real browser, and every
  * assertion is against the host: the injected notice as a `user/message`, the
  * two new events on the session log, and the `content:column` context the next
- * request would carry. The composition is `server-sidebar.overlay.yml` — the
- * product console's own stack — because the page-opening gesture this scenario
- * starts from is that sidebar's navigation menu.
+ * request would carry. The composition is the product console as
+ * `server-sidebar.e2e.ts` launches it — the console bundle, the permission lock,
+ * and `server-sidebar.overlay.yml` as its deployment layer — because the
+ * page-opening gesture this scenario starts from is that sidebar's navigation
+ * menu.
  *
  * The frame's own routing is driven with `history.pushState`, which fires no
  * event of any kind: it is the case the watch's polling exists for, and no unit
  * test can show a real application's route change reaching the log.
  *
- * An experimental package cannot be a dependency of `apps/web`, so the profile
- * links the loader resolves the rows through are created here rather than by
- * `healProfilesModuleFallback` (the same approach `content-show.e2e.ts` uses).
+ * An experimental package cannot be a dependency of `apps/web`, so the event
+ * payloads and copy read from one are restated here, and `console-launch.ts`
+ * creates the profile links the Loader resolves the console's rows through.
  */
 
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page } from 'playwright'
@@ -33,24 +34,15 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-workspace'
-import {
-  acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
-} from './scaffold.ts'
+import { harnessHomeWithRowLinks, launchConsole } from './console-launch.ts'
+import { acknowledgeReloadConnectionLoss, watchConsole, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
+/** The deployment layer installed beside the console bundle: the content column's page catalog. */
 const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 
-/** Every experimental row the overlay inserts, as package name and source directory. */
-const ROWS = [
-  ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
-  ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
-  ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
-  ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
-  ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
-] as const
-
-/** The hosted application this scenario serves; the overlay reads it from the environment. */
+/** The hosted application this scenario serves; the deployment layer reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 
 /** A fresh conversation's composer placeholder — the signal that the workbench opened one. */
@@ -77,20 +69,6 @@ const navSection = (page: Page): Locator => sidebar(page).locator('[data-server-
 const workbenchButton = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workbench"]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 const switcherEntry = (page: Page, key: string): Locator => page.locator(`[data-content-surface-entry="${key}"]`)
-
-/**
- * Prepare a harness home whose profile fallback resolves every experimental row.
- * @returns the harness home the scaffold should adopt.
- */
-async function harnessHomeWithRowLinks(): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-content-perception-'))
-  const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
-  await mkdir(scope, { recursive: true })
-  for (const [packageName, dir] of ROWS) {
-    await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
-  }
-  return home
-}
 
 /**
  * One live session's events, widened past this compilation's own event union.
@@ -197,10 +175,10 @@ describe('web e2e: what the agent knows about the content column', () => {
 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
-    // The overlay's `!!js` expression resolves against this process, which is
-    // where the scaffold runs the Loader.
+    // The deployment layer's `!!js` expression resolves against this process,
+    // which is where the scaffold runs the Loader.
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    scaffold = await launchConsole(harnessHome, OVERLAY)
     const workspaceDir = join(scaffold.workspaceCwd, 'content-perception-workspace')
     await mkdir(workspaceDir, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)
