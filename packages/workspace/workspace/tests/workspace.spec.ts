@@ -1448,6 +1448,22 @@ describe('startup path re-canonicalization', () => {
     expect(workspace.sessionIds).toEqual(['after', 'before'])
   })
 
+  it('re-canonicalizes before an interrupted bootstrap resumes, so one workspace keeps the directory', async () => {
+    const project = await makeDir('resume/CODE/project')
+    const pool = storedPool([[firstId, record(project, ['b1'])]], { initialized: false, workspaceIds: [firstId] })
+    await mkdir(join(base, 'resume-ssd'))
+    await rename(join(base, 'resume', 'CODE'), join(base, 'resume-ssd', 'CODE'))
+    await symlink(join(base, 'resume-ssd', 'CODE'), join(base, 'resume', 'CODE'))
+    const moved = join(base, 'resume-ssd', 'CODE', 'project')
+
+    const result = await start({ pool, sessions: [header('b1', project, 100), header('b2', project, 200)] })
+    expect(result.registry.list().map(item => [item.id, item.path])).toEqual([[firstId, moved]])
+    expect(result.registry.get(firstId)!.sessionIds).toEqual(['b2', 'b1'])
+    expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
+    expect(storedState(pool)).toMatchObject({ initialized: true, workspaceIds: [firstId] })
+    expect(result.warnings).toEqual([])
+  })
+
   it('does not write a path that is already canonical', async () => {
     const dir = await makeDir('canonical')
     const stored = record(dir, [])
