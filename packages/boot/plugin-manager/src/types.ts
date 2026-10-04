@@ -70,7 +70,8 @@ export interface BundleInfo {
   optional: boolean
   /**
    * Whether the profile manifest's `dsh.profile.shipped` names the bundle: supplied from the payload of the application
-   * that launches the profile, listed while switched off, and never removable.
+   * that launches the profile, listed while switched off, and not removable unless the profile's own dependencies also
+   * name it.
    */
   shipped: boolean
   removable: boolean

@@ -77,7 +77,8 @@ export interface DshProfileManifest {
   bundles?: string[]
   /**
    * Bundle names the application that launches this profile supplies from its own payload, written by that
-   * launcher. The plugin manager lists each one whether or not `bundles` selects it and never offers to remove it.
+   * launcher. The plugin manager lists each one whether or not `bundles` selects it and offers to remove it only when
+   * the profile's own dependencies also name it.
    */
   shipped?: string[]
 }
