@@ -92,9 +92,12 @@ interface Entry {
 }
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
-// The deploy root whose closure becomes the payload's `server/node_modules`;
-// its manifest is the installation anchor the shipped Loader resolves bundles
-// from.
+// The deploy root whose closure becomes the payload's `server/node_modules`.
+// The shipped Loader's installation anchor is `@deepseek-ai/dsh`'s manifest
+// inside that closure; resolving from there reaches the closure's top-level
+// `node_modules`, where the deploy puts every bundle this manifest lists, and
+// resolving from this manifest reaches the same packages through
+// `apps/desktop-server/node_modules`.
 const serverDir = join(repoRoot, 'apps', 'desktop-server')
 const installAnchor = join(serverDir, 'package.json')
 
