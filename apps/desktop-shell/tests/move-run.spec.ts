@@ -311,14 +311,17 @@ describe('a move to another volume', () => {
     expect(terminalValue(s.setup)).toBe('')
   })
 
-  posixOnly('replaces an empty folder the person picked, and puts it back on rollback', async () => {
+  posixOnly('replaces an empty folder the person picked', async () => {
+    const s = await scenario({ sameVolume: false, start: 'pointer', targetPreexisting: true })
+    expect(await runToEnd(s, true)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
+    expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
+  })
+
+  posixOnly('puts the empty folder the person picked back on rollback', async () => {
     const s = await scenario({ sameVolume: false, start: 'pointer', targetPreexisting: true })
     const outcome = await runToEnd(s, false)
     expect(outcome).toMatchObject({ kind: 'ended', result: { outcome: 'failed' } })
     expect(readdirSync(s.target)).toEqual([])
-    const again = await scenario({ sameVolume: false, start: 'pointer', targetPreexisting: true })
-    expect(await runToEnd(again, true)).toMatchObject({ kind: 'ended', result: { outcome: 'moved' } })
-    expect(dataFiles(listTree(again.target))).toEqual(dataFiles(again.before))
   })
 
   it('cancels while copying: the partial copy goes and nothing else changed', async () => {
