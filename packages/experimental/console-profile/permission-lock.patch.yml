@@ -5,9 +5,9 @@
 # `agent-preset-registry.selectedDefault`, `session-log-deepseek.enabled`, and
 # the fields of `llm-deepseek` and `agent-default-model` are volatile Config,
 # so the settings service writes them into the profile patch on request, and
-# the `remote.settings` method answers any browser the deployment admits. Composed in a layer above the profile patch, these rows
-# outrank any such write:
-# config-editor refuses it, and a value an earlier release stored in
+# the `remote.settings` method answers any browser the deployment admits.
+# Composed in a layer above the profile patch, these rows outrank any such
+# write: config-editor refuses it, and a value an earlier release stored in
 # `settings.yaml` stays in `settings.yaml.imported` instead of being imported.
 # The bundle layer below carries the rows the settings service must be able to
 # save; this file carries the rows no caller may change.
