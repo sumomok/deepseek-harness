@@ -57,7 +57,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `system-prompt` | 配置 `includeHarnessIdentity: false`，`personaPrefix` 与 `personaSuffix` 照抄 Web bundle 的值：模型请求不再以 `You are an AI agent powered by DeepSeek Harness.` 开头；有这句话时，客户问助手由什么驱动，助手会照着说出 DeepSeek Harness |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
-| `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：设置 → 插件的两个标签页；设置外壳 `ui-settings-general` 保留 |
+| `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：「设置 → 插件」分区及其唯一的标签页（Loader 清单）。四个官方配置页（`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent`、`ui-settings-web-search`）仍组合在插件页上，而控制台里没有任何东西导航到插件页；设置外壳 `ui-settings-general` 保留 |
 | `schedule`、`ui-schedule` | 禁用：定时的两半——带 `schedule.*` Remote 方法的 Host 任务存储，以及「自动化任务」页面与创建提醒后画出的卡片。所有已登录的访客共用控制台的同一个 Host：`schedule.catalog` 返回每个会话的任务，四个 `schedule_*` 工具改动任务时没有审批这一步。这些工具与 `time-context` 时钟行属于出厂的 `standard`、`ptc`、`cordis` 预设，它们都已禁用；两个控制台预设都不声明它们，所以不会有预设带着一个停在等待那个缺失服务上的 `tool-schedule` |
 | `ui-chat` | 配置 `performanceUsage: compact`：设置 → 通用设置 → 性能与用量初始为「简洁」，已完成的回答下不显示每轮 token 用量；用户自己的选择保存进 profile 补丁，并覆盖这个默认值。它的「繁忙时的压缩行为」行由 `server-sidebar` 隐去，`busyCompaction` 保持默认值 `turn-end` |
 | `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮里的每一次模型请求之前（包括第一次），只要已记录的历史占用上下文窗口的 60% 以上，就先压缩对话；一轮的第一次请求之前，这段历史止于刚发出的那条消息之前，那条消息不计入。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；压缩在对话里画出什么，列在「已知限制」里 |

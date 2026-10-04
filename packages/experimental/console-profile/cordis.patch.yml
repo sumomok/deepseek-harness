@@ -92,17 +92,22 @@
 - id: session-log-download
   disabled: true
 
-# Settings → Plugins, both halves. `ui-settings-plugins` owns the one Plugins
-# navigation entry, the `configurable` tab inside it, and the four cards that
-# tab ships (shell, agent loop, subagent model selection, web search);
-# `ui-settings-plugin-inventory` contributes the read-only Loader inventory as
-# a second tab in the same section. Neither registers anything outside that
-# section, so disabling both rows removes the section and nothing else.
+# Settings → Plugins, both rows. `ui-settings-plugins` owns the one Plugins
+# navigation entry and the section's tab chrome; the section's only tab is the
+# read-only Loader inventory that `ui-settings-plugin-inventory` registers into
+# `settings.plugins.tab`. Neither registers anything outside that section, so
+# disabling both rows removes the section and nothing else.
 #
 # A console end user administers no plugins: what this deployment runs is the
-# composition it was delivered with, and every card in that tab names a
-# host-plane subsystem in vendor vocabulary. The inventory tab is the plainer
-# case — it lists Cordis rows by package name.
+# composition it was delivered with, and the inventory tab lists Cordis rows by
+# package name.
+#
+# The four official configuration pages (shell, agent loop, subagent model
+# selection, web search) are separate Web bundle rows, `ui-settings-shell`,
+# `ui-settings-agent-loop`, `ui-settings-subagent`, and `ui-settings-web-search`,
+# which register into the `plugins.item` slot of `ui-plugin-manager`'s Plugins
+# page. They stay composed, and nothing in the console navigates to that page:
+# `ui-sidebar` is disabled and `server-sidebar` never selects the panel.
 #
 # With `ui-settings-plugins` gone the `settings.plugins.tab` slot is never
 # declared, so the inventory row's `ctx.slots.inject('settings.plugins.tab', …)`
@@ -111,8 +116,8 @@
 # land is a composition that misstates what it runs.
 #
 # `subagent-model-selection-settings` (the web bundle's host row) stays: it is
-# the settings namespace that tab edited, not the tab, and the preset
-# delegation path still samples it.
+# the settings namespace `ui-settings-subagent`'s page edits, not the page, and
+# the preset delegation path still samples it.
 - id: ui-settings-plugins
   disabled: true
 
@@ -131,7 +136,8 @@
 # declare them — the shipped rows `preset-standard`, `preset-ptc`, and
 # `preset-cordis`, all disabled below — and neither console preset declares
 # either. A preset that mounted `tool-schedule` without the `schedule` service
-# would leave it pending, with none of the four tools registered.
+# would load it and register none of the four tools: it registers them only
+# once that service resolves.
 - id: schedule
   disabled: true
 

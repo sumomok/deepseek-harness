@@ -332,8 +332,9 @@ describe('the console layer over the shipped Web bundles', () => {
   })
 
   it('leaves the reminder tools and the clock row only in Agent presets it disables', () => {
-    // `tool-schedule` waits for the `schedule` service the rows above remove,
-    // so an enabled preset declaring it would leave it pending.
+    // `tool-schedule` registers its four tools only once the `schedule` service
+    // the rows above remove resolves, so an enabled preset declaring it would
+    // load it and register none of them.
     const presets = entries.filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset')
     const declaring = presets.filter((entry) => {
       const plugins = pluginPackages((entry.config as { plugins?: Row[] } | undefined)?.plugins ?? [])
