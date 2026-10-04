@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-桌面应用组合层在 ACP 自动化传输下的样子。[`apps/desktop-app/cordis.patch.yml`](../../apps/desktop-app/cordis.patch.yml) 给组合加上的行里，本泳道钉住的是 `tool-session-query` 行：它的五个 `session_*` 工具 schema 和先前历史提示词段按模型请求实际携带的样子被钉住，一次 `session_event_read` 调用及其结果按会话日志记录的样子被钉住。补丁的其他行没有被钉住。没有哪个场景调用 `session_search`，所以 `session-query-sqlite` 行的搜索索引从未被用到，改动那一行不会改变回放结果。
+桌面应用组合层在 ACP 自动化传输下的样子。[`apps/desktop-app/cordis.patch.yml`](../../apps/desktop-app/cordis.patch.yml) 给组合加上的行里，本泳道钉住的是 `tool-session-query` 行：它的五个 `session_*` 工具 schema 和先前历史提示词段按模型请求实际携带的样子被钉住，一次 `session_event_read` 调用及其结果按会话日志记录的样子被钉住。补丁的其他行没有被钉住。没有哪个场景调用 `session_search`，所以 `session-query-sqlite` 行的搜索设置（`path`、`openAt`）从未被用到，改动它们不会改变回放结果；这一行本身提供会话工具需要的 `sessionQuery` 服务，停用它回放就会失败。
 
 桌面自己的 profile `desktop-shell` 由 Electron 外壳现种进用户的 harness 主目录，组合的是 web 捆绑包加若干 vendored 第三方插件，没有哪个发行 profile 能复现它。所以 [`desktop.snapshot.ts`](desktop.snapshot.ts) 启动发行的 `acp` profile，把桌面应用的补丁文件原样作为基础补丁，再在其后叠本泳道的 [`cordis.yml`](cordis.yml)。桌面在那个文件里新增或改动的行，不用抄到这里就会作用于本泳道。补丁里指向 `acp` profile 没有组合的 id 的行，例如 `vision-switch`、`llm-permission-gateway` 和两个产品分析行，会被 loader 跳过。
 
