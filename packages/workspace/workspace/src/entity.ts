@@ -108,9 +108,11 @@ export class WorkspaceEntity implements Workspace {
 
   async attachSession(sessionId: SessionId): Promise<void> {
     // Validation is skipped when the settled snapshot already accounts the
-    // id: the cwd fact was checked when it first attached and both inputs
-    // (stored header cwd, workspace path) are immutable. Membership itself is
-    // decided on the write chain inside `mutate`, never on this snapshot.
+    // id: the cwd fact was checked when it first attached, the stored header
+    // cwd is immutable, and the workspace path changes only at registry
+    // startup, before any entity exists, so both are fixed for the process
+    // lifetime. Membership itself is decided on the write chain inside
+    // `mutate`, never on this snapshot.
     if (!this.record.sessionIds.includes(sessionId)) {
       const header = await this.host.readSessionHeader(sessionId)
       if (header.cwd === undefined) {

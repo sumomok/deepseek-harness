@@ -161,9 +161,10 @@ const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
   right.createdAt - left.createdAt || String(left.id).localeCompare(String(right.id))
 
 /**
- * Durable workspace registry. Startup waits for `sessionPersistence`, builds
- * one canonical-cwd header index, and completes the one-time history
- * bootstrap before the service becomes active. The persistence dependency is
+ * Durable workspace registry. Startup waits for `sessionPersistence`,
+ * re-resolves every stored workspace path, builds one canonical-cwd header
+ * index, and completes the one-time history bootstrap before the service
+ * becomes active. The persistence dependency is
  * mandatory so an unavailable peer can never be mistaken for an empty
  * history and commit the initialized marker.
  */
@@ -193,7 +194,7 @@ export class WorkspaceRegistry extends Service {
     super(ctx, 'workspaceRegistry')
   }
 
-  /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
+  /** Open the domain, re-resolve stored paths, finish bootstrap when required, and rebuild the ordered cache. */
   protected async [Service.init](): Promise<void> {
     const domain = await this.ctx.storageDomain.open(workspaceDomainSpec)
     this.ctx.effect(() => () => domain.close(), 'workspace.domainClose')
@@ -654,9 +655,9 @@ export class WorkspaceRegistry extends Service {
    * an unchanged canonical path is not written; a new canonical directory that
    * is neither another record's stored path nor another record's new canonical
    * path replaces `path` and stamps `updatedAt`, keeping every other field and
-   * the registry state; a path that does not resolve, does not name a
-   * directory, or collides stays as stored and is logged, so a later startup
-   * retries it. Each rewrite is one atomic record write that keeps paths
+   * the registry state; a path that does not resolve or cannot be read, does
+   * not name a directory, or collides stays as stored and is logged, so a
+   * later startup retries it. Each rewrite is one atomic record write that keeps paths
    * unique, so an interrupted pass leaves a valid registry and needs no
    * pending-mutation marker; a write failure rejects startup.
    */
@@ -666,16 +667,18 @@ export class WorkspaceRegistry extends Service {
     const targets = new Map<WorkspaceId, string>()
     for (const [id, record] of records) {
       let canonical: string
+      let directory = true
       try {
         canonical = await realpathNormalize(record.path)
+        if (canonical !== record.path) directory = (await stat(canonical)).isDirectory()
       } catch (error) {
         this.ctx.logger.warn(
-          `workspace '${id}' path '${record.path}' kept as stored: it does not resolve (${String(error)})`,
+          `workspace '${id}' path '${record.path}' kept as stored: it does not resolve or cannot be read (${String(error)})`,
         )
         continue
       }
       if (canonical === record.path) continue
-      if (!(await stat(canonical)).isDirectory()) {
+      if (!directory) {
         this.ctx.logger.warn(
           `workspace '${id}' path '${record.path}' kept as stored: it resolves to '${canonical}', which is not a directory`,
         )
@@ -685,10 +688,14 @@ export class WorkspaceRegistry extends Service {
     }
 
     const stored = new Set(records.map(([, record]) => record.path))
-    const claims = new Map<string, number>()
-    for (const canonical of targets.values()) claims.set(canonical, (claims.get(canonical) ?? 0) + 1)
+    const seen = new Set<string>()
+    const shared = new Set<string>()
+    for (const canonical of targets.values()) {
+      if (seen.has(canonical)) shared.add(canonical)
+      seen.add(canonical)
+    }
     for (const [id, canonical] of targets) {
-      if (stored.has(canonical) || (claims.get(canonical) as number) > 1) {
+      if (stored.has(canonical) || shared.has(canonical)) {
         this.ctx.logger.warn(
           `workspace '${id}' path '${(table.get(id) as WorkspaceRecord).path}' kept as stored: `
           + `its canonical path '${canonical}' is claimed by another workspace`,
