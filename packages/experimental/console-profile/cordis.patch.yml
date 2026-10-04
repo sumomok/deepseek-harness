@@ -139,12 +139,13 @@
 # variable it adds to a shell command's environment. The flag gates those three
 # registrations and nothing else, and only the `bash` and `pwsh` tools read the
 # variable; neither console preset offers them. A patch replaces a row's whole
-# config, so the other three fields restate the Web bundle's own values
+# config, so the other four fields restate the Web bundle's own values
 # (`tests/profile.spec.ts` checks that the two rows name the same fields).
 - id: web-runtime
   config:
     openBrowser: !!js ctx.webStartup.openBrowser
     printUrl: true
+    publicUrl: !!js ctx.webStartup.publicUrl
     surfaceContext: false
     trustedHosts: !!js ctx.webStartup.trustedHosts
 
