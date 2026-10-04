@@ -154,6 +154,16 @@ const HOST_PATH_ROWS = [
   ['ui-open-in-app', '@deepseek-ai/dsh-client-ui-open-in-app'],
   ['office-to-pdf', '@deepseek-ai/dsh-office-to-pdf'],
 ] as const
+/** The goal service, its round driver, and the browser half; no console preset arms a goal. */
+const GOAL_ROWS = [
+  ['goal', '@deepseek-ai/dsh-goal'],
+  ['goal-round-driver', '@deepseek-ai/dsh-goal-round-driver'],
+  ['ui-goal', '@deepseek-ai/dsh-client-ui-goal'],
+] as const
+/** The profile-configuration reloader, disabled so an on-disk profile write applies only at the next Host restart. */
+const LIVE_CONFIG_ROWS = [
+  ['hmr', '@deepseek-ai/dsh-hmr'],
+] as const
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
@@ -258,7 +268,7 @@ describe('the console bundle manifest', () => {
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
     expect(manifest.files).toContain('permission-lock.patch.yml')
-    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek', 'llm-deepseek', 'agent-default-model'])
+    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek', 'llm-deepseek', 'llm-deepseek-account', 'agent-default-model'])
     // In the bundle layer each row would sit below the profile patch, where a
     // settings write to `defaultPreset`, `selectedDefault`, `enabled`, the
     // model route, or the default model outranks it.
@@ -418,6 +428,22 @@ describe('the console layer over the shipped Web bundles', () => {
 
   it('turns directory browsing, Open In, and Office rendering off by id, while the shipped Web bundle still composes them', () => {
     expectDisabledHereComposedThere(HOST_PATH_ROWS)
+  })
+
+  it('turns goals off by id — the service, its round driver, and the browser half — while the shipped bundles still compose them', () => {
+    expectDisabledHereComposedThere(GOAL_ROWS)
+    // No preset that stays composed mounts the goal tool that arms the driver.
+    const presets = entries.filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
+    for (const preset of presets) {
+      expect(pluginPackages((preset.config as { plugins?: Row[] } | undefined)?.plugins ?? [])).not.toContain('@deepseek-ai/dsh-tool-goal')
+    }
+  })
+
+  it('turns live profile-configuration reload off by id, while the shipped base bundle still composes it under a profile', () => {
+    // The base row's `disabled` is the expression `!ctx.get('profileContext')`,
+    // false under `dsh --profile`; `composeEntries` leaves it unevaluated, so it
+    // is `not.toBe(true)` here the same way the plugin-manager row is.
+    expectDisabledHereComposedThere(LIVE_CONFIG_ROWS)
   })
 
   it('leaves the reminder tools and the clock row only in Agent presets it disables', () => {
@@ -590,6 +616,14 @@ describe('the lock overlay\'s model rows', () => {
     expect(base.get('llm-deepseek')).toMatchObject({ name: '@deepseek-ai/dsh-llm-deepseek-api-key' })
     expect(base.get('llm-deepseek')?.config ?? {}).toEqual({})
     expect(rowOf(LOCK_PATCH, 'llm-deepseek')).toEqual({ id: 'llm-deepseek', name: '@deepseek-ai/dsh-llm-deepseek-api-key', config: {} })
+  })
+
+  it('patches `llm-deepseek-account` by id and by package name with the empty config the base bundle composes it with', () => {
+    // The account route shares the protocol Config, so its `baseURL` and model
+    // catalog are volatile the same way; `{}` restates the base bundle's config.
+    expect(base.get('llm-deepseek-account')).toMatchObject({ name: '@deepseek-ai/dsh-llm-deepseek-account' })
+    expect(base.get('llm-deepseek-account')?.config ?? {}).toEqual({})
+    expect(rowOf(LOCK_PATCH, 'llm-deepseek-account')).toEqual({ id: 'llm-deepseek-account', name: '@deepseek-ai/dsh-llm-deepseek-account', config: {} })
   })
 
   it('pins `agent-default-model` by id and by package name to the base bundle\'s provider and model', () => {

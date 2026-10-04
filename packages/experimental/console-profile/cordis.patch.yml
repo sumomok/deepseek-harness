@@ -141,8 +141,8 @@
 # public npm registries. The four official configuration pages,
 # `ui-settings-shell`, `ui-settings-agent-loop`, `ui-settings-subagent`, and
 # `ui-settings-web-search`, register only into that page's `plugins.item` slot,
-# which nothing declares once `ui-plugin-manager` is gone. `hmr` stays: it has
-# no Remote method, and it reloads the profile when its files change on disk.
+# which nothing declares once `ui-plugin-manager` is gone. The `hmr` row that
+# applies an on-disk profile change without a restart is disabled below.
 - id: plugin-manager
   disabled: true
 
@@ -162,6 +162,40 @@
   disabled: true
 
 - id: ui-settings-web-search
+  disabled: true
+
+# Live application of an on-disk profile change off. `hmr` has no Remote method,
+# so no browser calls it; the base bundle mounts it with `root: []`, so it
+# watches only the profile's own `cordis.patch.yml`, the home patch, and the
+# manifest, not module roots. The reason it goes is the write path those watches
+# apply: `tool-fs` under `workspace-write` admits a write outside the session
+# workspace on the one approval the admitted visitor is the one to give, so a
+# write to the profile patch or the home patch becomes live code the next
+# profile reload runs — the Inspector bundle enabled, a plugin replaced. With
+# the row gone, such an edit takes effect only at the next Host restart;
+# `config-editor` still saves and reconciles each settings write on its own
+# (`config-editor/src/index.ts` runs its write directly when `hmr` is absent).
+# This narrows the on-disk-write chain; it does not close the write itself,
+# which only confining `tool-fs` or the session `cwd` in an upstream package
+# would.
+- id: hmr
+  disabled: true
+
+# Goals off, both halves and the session driver. `goals.*` answers `create`,
+# `edit`, `resume`, and the rest on the root realm, and `goal-round-driver`
+# keeps running model turns on the Host's key until a goal's round cap once one
+# is armed. No console preset mounts `tool-goal` and the Web bundle disables
+# `command-goal` and `tool-goal`, so no console feature arms a goal; `ui-goal`
+# is the browser half nothing here navigates to. With `goal` and the driver
+# gone, no composed row waits on the `goals` service, which only `command-goal`,
+# `tool-goal`, and `goal-round-driver` inject.
+- id: goal
+  disabled: true
+
+- id: goal-round-driver
+  disabled: true
+
+- id: ui-goal
   disabled: true
 
 # Dynamic Cordis packages off, both halves. `cordis-host-runner` answers

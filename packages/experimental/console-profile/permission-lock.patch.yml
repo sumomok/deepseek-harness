@@ -3,7 +3,8 @@
 # `$DSH_HOME/cordis.patch.yml`). They are not part of this package's bundle
 # layer on purpose. `permission.defaultPreset`,
 # `agent-preset-registry.selectedDefault`, `session-log-deepseek.enabled`, and
-# the fields of `llm-deepseek` and `agent-default-model` are volatile Config,
+# the fields of `llm-deepseek`, `llm-deepseek-account`, and `agent-default-model`
+# are volatile Config,
 # so the settings service writes them into the profile patch on request, and
 # the `remote.settings` method answers any browser the deployment admits.
 # Composed in a layer above the profile patch, these rows outrank any such
@@ -103,6 +104,18 @@
 # config into this row, since this row replaces the row's whole config.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+  config: {}
+
+# The account model route shares the protocol Config, so its `baseURL` and model
+# catalog are volatile the same way `llm-deepseek`'s are: below the lock, one
+# settings write could repoint a session that `session.selectModel` switches to
+# the account provider. The base bundle composes this row with no config, and
+# this row restates that `{}`, so config-editor refuses a write to any field.
+# Signing the Host in or out of a DeepSeek account over `account.*` is a
+# separate Remote surface this row does not touch (see the package README's
+# Known Limitations).
+- id: llm-deepseek-account
+  name: '@deepseek-ai/dsh-llm-deepseek-account'
   config: {}
 
 # The default model of every new session. `provider`, `model`, and

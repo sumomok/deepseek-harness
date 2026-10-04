@@ -377,6 +377,11 @@ const CLOSED_ENDPOINTS: readonly (readonly [string, Readonly<Record<string, unkn
   }],
   ['terminal/create', { agent: 'server-sidebar-closed', request: { id: 'server-sidebar-terminal', cols: 80, rows: 24 } }],
   ['officeToPdf/render', { workspaceFileScope: { sessionId: 'server-sidebar-closed' }, path: '/etc/hosts.docx', priority: 'visible' }],
+  // Goals: arming a goal and continuing one both answer the admitted visitor
+  // when `goal` and `goal-round-driver` are composed; the console disables
+  // them, so no visitor spends the Host's key on model turns until a round cap.
+  ['goals/create', { agent: 'server-sidebar-closed', request: { objective: 'probe the closed goal surface' } }],
+  ['goals/resume', { agent: 'server-sidebar-closed', request: {} }],
 ]
 
 /** Read the server-sidebar row's live menu fields straight from the host, bypassing the HTTP route entirely. */
