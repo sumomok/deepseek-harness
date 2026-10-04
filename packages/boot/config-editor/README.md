@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Save plugin configuration in the active profile’s patch and apply it immediately. Writes validate the complete candidate before touching disk and serialize with profile changes and HMR. Invalid values and higher-layer overrides leave the file unchanged.
+Save plugin configuration in the active profile’s patch and apply it immediately. Writes validate the complete candidate before touching disk and serialize with profile changes and HMR. Invalid values, higher-layer overrides, and a new or changed `!!js` expression leave the file unchanged.
 
 ## Table of Contents
 
@@ -67,6 +67,8 @@ Consumers that change request prefixes determine cache effects.
 - Edits target the active profile patch. Home patches and command-line overlays are read for precedence but are not write targets.
 - A complete config override preserves ordinary fields but pins their current raw values at the profile layer.
 - Only uniquely addressed entries owned by the profile’s root Include are editable.
+- A Loader expression is any object with a `__jsExpr` key, whatever that key’s value or the object’s other keys. An edit may carry one only where the current or inherited config holds an identical object at the same path; otherwise `edit()` throws `ConfigExpressionRejectedError` before validation, so the expression is never evaluated and the file is unchanged. Settings forms that write existing expressions back unchanged are unaffected.
+- Array indices are part of that path, so removing an array element ahead of one that holds an expression moves the expression and is refused.
 
 <a id="dev-note"></a>
 ### Dev Note
