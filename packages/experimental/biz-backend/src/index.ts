@@ -176,9 +176,9 @@ export interface HeldCredential {
  *
  * Opaque: no part of it is read here, and it reaches no model, log line or
  * upload. The type is owned by the console member directory,
- * `@deepseek-ai/dsh-experimental-console-members`, whose declaration rc.39
- * froze on 2026-10-05 as `Branded<'PrincipalKey'>` with the person's
- * `login_uid` as its value. This alias is that same type, because `dsh-brand`
+ * `@deepseek-ai/dsh-experimental-console-members`, which declares it as
+ * `Branded<'PrincipalKey'>` with the person's `login_uid` as its value; that
+ * package is not on this line yet. This alias is that same type, because `dsh-brand`
  * brands every key through its one `BRAND` symbol, so a key the directory
  * hands out is one this seam takes with no conversion.
  *
@@ -221,7 +221,10 @@ export interface CredentialResolver {
    */
   resolve(subject: BizSubject): HeldCredential | undefined
   /**
-   * The signed-in person one browser request was admitted as.
+   * The signed-in person one browser request was admitted as. A resolver
+   * holding one slot per console member answers by delegating to
+   * `consoleMembers.principalOfRequest(req)`; it reads no identity header and
+   * calls no `connection.admit` of its own.
    * @param req - the request a webserver route is answering.
    * @returns that person's key, or `undefined` when the request names nobody this resolver admits.
    */

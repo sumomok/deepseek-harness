@@ -258,6 +258,7 @@ flowchart LR
   pkg_vue2_echarts_tool_poc["vue2-echarts-tool-poc"]
   pkg_biz_backend["biz-backend"]
   svc_bizBackend["ctx.bizBackend<br/>Deployment data-backend reads"]
+  pkg_system_map["system-map"]
   pkg_jobs["jobs"]
   svc_jobs["ctx.jobs<br/>Background job registry"]
   pkg_jobs_local["jobs-local"]
@@ -470,7 +471,9 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
   svc_authorization --> pkg_llm_pi_ai
+  svc_bizBackend --> pkg_component_kit
   svc_bizBackend --> pkg_component_surface
+  svc_bizBackend --> pkg_system_map
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
@@ -698,7 +701,7 @@ flowchart LR
 | `ctx.inspector` | `core` | `inspector` | - | - | - | Owns the Worker-hosted CDP target and the transport-independent Host and Client observation and Cordis-tree query API. |
 | `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | Owns which components a `show_component` call may place; a component plugin registers its host definitions here and its renderers into the browser half's matching registry, so a deployment composing none offers no component and is offered no tool. |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | Owns the extractor table and the single `contentSurface` projection folded from it; each content kind registers what it recognizes in the log and content-column draws the selected entry through a keyed slot. |
-| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | Owns three named reads of a deployment's own data backend, spent with the visitor's access token; auth-gate constructs the service with the base it validated and a resolver over the token(s) it holds, so the credential stays in that package's closure. |
+| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface`, `system-map`, `component-kit` | - | Owns the named reads of a deployment's own data backend, each spent with the access token of the person it is read for; auth-gate constructs the service with the base it validated and a resolver over the token(s) it holds, so the credential stays in that package's closure. |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | Producers (background bash/pwsh, PTY sends, and subagent delegations) register running work; record-declaring jobs additionally stream raw output for non-consuming observers; tool-jobs is the model-facing controller that reads, lists, and kills it; jobs-local is the process-local registry. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill. |
