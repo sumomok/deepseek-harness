@@ -38,7 +38,7 @@ Status: implemented
 
 **`TEMPORARY_GROUP_ID` 与 `MAX_GROUP_NAME_LENGTH` 迁到 `src/menu-constants.ts`——一个什么都不 import 的模块。** 浏览器半边把这两个都当值读：保留的分组 id 是临时段在自己折叠表里的键，长度上限则给命名输入框自己封顶，让一次注定被拒的写入根本不必跑到路由。折叠表是这个保留 id 唯一的实际用途：任何持久数据都不携带它，`validateServerMenu` 既拒绝占用它的存储分组，也拒绝归在它名下的工作流。而 `src/workflows.ts` 为了持久 schema 引入了 `@deepseek-ai/dsh-settings` 与 `@deepseek-ai/schemastery`，从客户端树对该模块做值导入会把这两个都拽进浏览器 bundle，客户端 bundle 纯度门禁会拒绝。`src/route.ts` 早就出于同样的理由收着本包的 HTTP 路径。
 
-**本包的 Node 半边只有一个入口。** `tsdown.config.ts` 只把 `lib/types/index.js` 交给 `clientBundle`，路由与加载时检查都会走到的 `src/workflows.ts` 因此打进 `lib/index.js`。若有第二个 Node 入口走到同一模块，tsdown 会把它提升成一个哈希命名的共享 chunk，而本包精确的 `files` 列表发布不了它，publint 与 `verify-built-package-invariants` 都会拒绝那份产物。本包为什么没有 invariant 伴生插件，由 [rc.2 基座那篇 Note](2026-09-26-server-console-on-the-rc-2-base.zh.md) 记录。
+**本包的 Node 半边只有一个入口。** `tsdown.config.ts` 只把 `lib/types/index.js` 交给 `clientBundle`，路由与加载时检查都会走到的 `src/workflows.ts` 因此打进 `lib/index.js`。若有第二个 Node 入口走到同一模块，tsdown 会把它提升成一个哈希命名的共享 chunk，而本包精确的 `files` 列表发布不了它，publint 会拒绝那份产物。
 
 ## Alternatives considered
 

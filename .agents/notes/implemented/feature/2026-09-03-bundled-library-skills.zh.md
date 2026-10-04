@@ -58,7 +58,7 @@ process.getBuiltinModule('node:path').resolve(
 
 **`!!js` 表达式里的 `createRequire` 能解析到包目录。** 本仓 YAML 中此前无先例。对着一棵合成的 profile 目录树打的探针确认：`createRequire(baseUrl)` 传目录 URL 时会同时搜索 `<profile>/node_modules` 与 `<profile>/../node_modules`，因此一条表达式同时覆盖 profile 本地安装与共享镜像。环境变量回退形（`!!js process.env.DSH_LIBRARY_SKILL_ROOT`，即 `content-column.patch.yml` 给应用根用的形式）在任何地方都不需要，包括 e2e 通道——那里由测试创建与生产安装相同的 profile 链接。
 
-**只有资产的包按原样过不了仓库门禁。** `verify-package-invariants` 需要 `tsconfig.json`；`check-workspace-constraints` 需要 `main`、`types` 以及指向 `lib/index.js` 与 `lib/types/index.d.ts` 的 `exports["."]` 配对；`files` 是推导出来的，因此要发布 `skills/` 就必须在该门禁的 `packageFileExtras` 表里登记一条，与 `skill-badge` 的 `assets` 并列；而省略不变式伴生入口需要 README 里那句「No … companion is published」。因此本包带一个空的 `src/index.ts`，与 `agent-team-profile` 完全一致。
+**只有资产的包按原样过不了仓库门禁。** `check-workspace-constraints` 需要 `main`、`types` 以及指向 `lib/index.js` 与 `lib/types/index.d.ts` 的 `exports["."]` 配对；`files` 是推导出来的，因此要发布 `skills/` 就必须在该门禁的 `packageFileExtras` 表里登记一条，与 `skill-badge` 的 `assets` 并列。因此本包带一个空的 `src/index.ts`，与 `agent-team-profile` 完全一致。
 
 **组合后的树把这一行放在全局层，用户技能放在 preset 层。** `dsh --profile web --dump-config` 显示 `skill-filesystem` 与 `tool-skill` 被 `@deepseek-ai/dsh-web-app` 在 `@deepseek-ai/dsh-base` 之上禁用、一行默认 `standard` 的 `agent-presets`，以及作为 profile 树顶层扁平行的本行。e2e 钉住的是它的后果而不是这份 dump：不带 scope 的目录视图答的是出厂那份，同一个 agent 带 scope 的视图答的是用户那份。
 

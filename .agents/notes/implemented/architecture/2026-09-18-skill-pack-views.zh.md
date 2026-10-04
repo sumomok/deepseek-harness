@@ -30,7 +30,7 @@ Status: implemented
 
 **视图可以摆数据页，而用户点下的那一刻它就打开了。** 加载期那条拒绝在两个来源上都撤了，而且没有任何东西顶上它的位置：没有卡片，没有审批请求，也不铸任何值。有四件事让这就是全部。点击前面再加一张卡片，只是把同一个按钮再按一遍——这个页面画在控制台自己的同源里，旁边就是同一个部署的 [`content-frame`](../../../../packages/experimental/content-frame/README.zh.md) 页面，那些页面点一下就开、什么都不问，所以为人刚刚按下的那一下再讨一句确认，拦不住谁。模型跑不了这条命令：`CommandInvocation` 不带来源，`CommandSourceMap` 只有 `user` 一个成员，并由一条类型断言钉住——哪天多出第二个生产方，那一行就编译不过。模型自己通往那个页面的路——摆 `toy.data-page` 的 `show_component` 调用——仍然走 `ctx.approval` 和它那张卡片，一字未改，因为那里做决定的是模型，而人是在回合中途被打断的。决定权也仍然在部署手上：`dataPage: false` 会把这个组件扣下，而摆它的视图就会在加载时被点名拒掉。至于这句问话本来会住在哪儿，外壳已经替我们答了：`dsh-client-ui-conversation` 对一个从未跑过回合的会话根本不画对话记录，而侧栏旁边那张空白草稿，正是这些点击几乎每一次发生的地方——于是一句摆在命令行上、要人回答的问话，会被造出来、被记进日志，而永远不在屏幕上。
 
-**点击追加的仍是 `content-component/shown`。** `content-component/resolved` 要一个 `ToolCallId`，而一次点击没有；会话折叠对这两者一视同仁，invariant 的 `APPENDED_EVENTS` 本来就把两个都点了名，所以无论从哪条路摆进去，内容列、抽取器和一次重放看到的都是同一条记录。
+**点击追加的仍是 `content-component/shown`。** `content-component/resolved` 要一个 `ToolCallId`，而一次点击没有；会话折叠对这两者一视同仁，所以无论从哪条路摆进去，内容列、抽取器和一次重放看到的都是同一条记录。
 
 ## 这道决策闸
 

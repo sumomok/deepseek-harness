@@ -36,8 +36,6 @@ Status: implemented
 
 **只有一个词典命名空间，归组件行所有。** 座位通过 `componentKit` 取文案，自己不带词典，在自己的注册处点名它。有哪些组件是这一行的事实，因此「没有能画这块的组件」这句话该跟组件走；何况 `locale:` 一次也只接受一个命名空间。
 
-**不变式伴生拿派生数据对着日志审。** `contentSurface` 折叠里每一条 `kind: 'component'` 记录，都必须对得上本会话日志里一次被接受的 `show_component` 调用，且用的是抽取器那同一个读取器。这层关系两个方向都真实存在：内容栏用把抽取器表哈希成 31 位的办法决定一份持久化检查点还能不能用（碰撞被它自己的 README 记为残余风险），而它的注册表不拒绝两个抽取器认领同一种类，因此第二个 `component` 生产者是可组合的。审计在启动时遍历已加载会话，之后对每一条经 `internal/dispatch` 到达的提交事件再审一遍——不走 `sessionProjections.onChanged`，因为 `Session.append` 会把抛错的监听器变成一条 `logger.warn`，那样失败永远到不了调用方。
-
 **快照缺口是被补上了，不是被登记了。** `snapshots/console` 是控制台自己的快照泳道：控制台后端主干在 ACP 自动化传输下的样子，只组合会话记录能观察到的那些行——适配器、ACP 应用、投影注册表、`content-surface`、`host-webserver`，以及会往内容栏里摆条目的那两把工具。四个纯浏览器行按设计缺席，主干自带的技能、目标、后台作业工具也全部关掉，好让上游改动**它们**的描述时冲刷不到本泳道的表头基线。两个场景同属一个表头类，由 `show-chart-turn` 钉住，因此 `tool-schemas.expected.json` 现在完整携带两把工具——每段描述、拼进描述里的上限与目录、每个参数的描述。
 
 ### 落地后的闸表
@@ -81,11 +79,9 @@ Status: implemented
 | 切换条目时同一个座位重画 | 同一场景的第三条断言 |
 | 逐文件覆盖率 | 两个包每个文件的语句、分支、函数、行均为 100% |
 
-**新增一个 experimental 包如今有一张固定的登记清单。** `tsconfig.base.json` 的 paths（三条，必须显式写——`@deepseek-ai/dsh-*` 通配匹配不到 `experimental` 这个目录名）、`tsconfig.client.json` 的 references 与 CSS 模块声明、包内 extends 客户端基座的 `tsconfig.json`、`tsdown.config.ts`、一份真实的 `src/invariant.ts`、两份 README 加配对记录、双语的 `packages/experimental/README.md`，以及一次 `pnpm install`。新增一个 `apps/web` e2e 还要再加两行：`tsconfig.host.json` 的 `include` 与 `apps/web/tsconfig.json` 的 `exclude` 各一行。
+**新增一个 experimental 包如今有一张固定的登记清单。** `tsconfig.base.json` 的 paths（每个入口一条，必须显式写——`@deepseek-ai/dsh-*` 通配匹配不到 `experimental` 这个目录名）、`tsconfig.client.json` 的 references 与 CSS 模块声明、包内 extends 客户端基座的 `tsconfig.json`、`tsdown.config.ts`、两份 README 加配对记录、双语的 `packages/experimental/README.md`，以及一次 `pnpm install`。新增一个 `apps/web` e2e 还要再加两行：`tsconfig.host.json` 的 `include` 与 `apps/web/tsconfig.json` 的 `exclude` 各一行。
 
 **两个包从「未被装配态快照覆盖」那一栏里挪了出来。** `content-surface` 的提示词段落与 `vue2-echarts-tool-poc` 模型可见的全部内容，现在由 `snapshots/console` 钉住。它们的 Known Limitations 被改写为「还有什么没被覆盖」——浏览器画出来的样子——而不是继续重复一句已经不成立的话。另外五个 experimental 包保留原句，那是对的。
-
-**`component-surface` 会发布一个哈希命名的共享 chunk。** 工具入口与不变式伴生用同一份目录和校验器判定一次调用，因此 tsdown 为两者产出 `lib/validate-*.js`。清单的 `files` 与工作区约束的白名单都点名了它，遵循 `dsh-sandbox-windows-acl` 的先例。共享模块集合一旦变化，chunk 就会改名，built-package-invariant 门禁随之变红——这个失败是对的，前提是下一个读到它的人认得出来。
 
 **两个包 README 里带着的 Known Limitations。**
 
@@ -95,7 +91,6 @@ Status: implemented
 - 本次构建不能完整接受的条目会整条画成一句提示，而不是逐块降级：座位重判的是整份 spec，因此只要有一个节点写的组件本目录已经不带了，本来能画的那些块也一起没了。逐块降级需要在 `validate.ts` 里开一个只判结构的入口。
 - 上限是协议常量，不是部署的选择。
 - 一条条目带着自己整份 spec，因此它随线上值与持久化检查点一起走；限住它的是字节上限。
-- 不变式只经调度路径上报，理由见上。
 - 切换条上每条标题旁边仍有一个英文种类角标（`COMPONENT`）。删掉它是 `content-column` 里的一行删除，不在本片范围内。
 
 **设计留下的六个待拍板项，本片一个都没有替你拍。** 第一批真正的组件里到底有没有源库组件、还是继续用仓内 `.tsx`；走 host 侧查询工具是不是取同一份数据的更优路线；内容栏里的业务块要不要固定亮色与中文；一整套组件的体积能不能接受；两处用户可见的术语违规（种类角标，以及聊天里那条折叠的上下文注入行的表头）；以及高级查询条件组件该不该进第一批。每一条都是产品决定，而它们都不挡本片已经证明的这条路。

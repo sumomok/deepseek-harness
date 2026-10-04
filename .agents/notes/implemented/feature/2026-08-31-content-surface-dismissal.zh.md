@@ -40,7 +40,7 @@ Status: implemented
 
 这条命令在本篇落地之后多了一件事：它会注入一句点名关掉了什么的话，好让 agent 不再张罗着去更新用户已经收起来的内容。这句话、它在什么情况下不发、以及为什么一次选择不发，都随感知层一起记录（[note](2026-09-02-content-column-perception.zh.md)）；事件、fold 与派发都没有因此改变。
 
-content-column 现在依赖 `@deepseek-ai/dsh-client-ui-conversation`，并要求 `remote`/`remote.commands`，此前两者都不需要——关闭按钮的命令派发和它自己的隐藏回声注册，正是把两者都拉进来的原因。content-surface 获得了它对 `@deepseek-ai/dsh-commands` 的第一个依赖，以及它的第一个会话事件，因此它的包不变式（此前是一个有文档说明的空操作）现在会校验 `content-surface/dismissed` 的形状。
+content-column 现在依赖 `@deepseek-ai/dsh-client-ui-conversation`，并要求 `remote`/`remote.commands`，此前两者都不需要——关闭按钮的命令派发和它自己的隐藏回声注册，正是把两者都拉进来的原因。content-surface 获得了它对 `@deepseek-ai/dsh-commands` 的第一个依赖，以及它的第一个会话事件 `content-surface/dismissed`。
 
 切换条的 DOM 形状变了：原本每条 entry 一个 `<button>`，现在是一个 wrapper `<div>` 里包着两个。除 `ContentSurface.tsx` 之外没有任何包读取过此前那个单按钮的形状（`data-content-surface-entry`/`-selected` 保持原位），因此这次改动无需触碰任何其他包。
 
@@ -48,7 +48,7 @@ content-column 自己的空状态文案（`locales.ts`）在同一次改动里�
 
 ## Testing
 
-`packages/experimental/content-surface/tests/projection.spec.ts` 直接覆盖了这次 fold：一次关闭移除它指名的记录、针对一个已经不存在的组合的无操作 fold，以及在记录消失之后通过一次普通的 `read` 完成复活。`command.spec.ts` 针对真实的 registry 覆盖了这条命令（注册元数据、一次成功的关闭、畸形输入、HMR 卸载）。`invariant.spec.ts` 在实时追加路径和磁盘上已存在的坏记录两侧都覆盖了持久形状校验。`command-child.spec.ts` 以 `prompt-section.spec.ts` 覆盖可选的 `systemPrompt` 子节点同样的方式，覆盖了可选的 `commands` 子节点。
+`packages/experimental/content-surface/tests/projection.spec.ts` 直接覆盖了这次 fold：一次关闭移除它指名的记录、针对一个已经不存在的组合的无操作 fold，以及在记录消失之后通过一次普通的 `read` 完成复活。`command.spec.ts` 针对真实的 registry 覆盖了这条命令（注册元数据、一次成功的关闭、畸形输入、HMR 卸载）。`command-child.spec.ts` 以 `prompt-section.spec.ts` 覆盖可选的 `systemPrompt` 子节点同样的方式，覆盖了可选的 `commands` 子节点。
 
 `packages/experimental/content-column/tests/content-surface.client.spec.tsx` 覆盖了关闭按钮是一个 DOM 兄弟节点而不是被嵌套的按钮、关闭动作以正确的参数调用注入的 `onDismiss`，以及所选 entry 消失后选择会回落。`surface-seats.client.spec.ts` 在既有的「被替换」情形之外，明确点名了「被关闭」这一情形。`dismiss.client.spec.ts` 覆盖了命令执行这道缝的失败路径。`browser-plugin.client.spec.ts` 覆盖了 `content` 注册所注入的关闭回调，以及新增的 `conversation.chat.commandview`／隐藏样式表注册，与 content-frame 自己对 `show-content-page` 的覆盖方式一一对应。
 
