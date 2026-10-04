@@ -23002,7 +23002,7 @@
       "digest": "4324f588450a543e1dee9c24916ae120809003ca6ac303b5d03fb68dd2b32efd",
       "names": [],
       "sources": [
-        "packages/api/session-controller/src/types.ts:445"
+        "packages/api/session-controller/src/types.ts:448"
       ]
     },
     {
@@ -23271,7 +23271,7 @@
       "names": [],
       "sources": [
         "packages/attachment/attachment/src/types.ts:116",
-        "packages/attachment/attachment/src/types.ts:135",
+        "packages/attachment/attachment/src/types.ts:139",
         "packages/util/values/src/index.ts:4"
       ]
     },
@@ -24261,7 +24261,7 @@
         "packages/attachment/attachment/src/types.ts#PromptReference"
       ],
       "sources": [
-        "packages/attachment/attachment/src/types.ts:129"
+        "packages/attachment/attachment/src/types.ts:133"
       ]
     },
     {

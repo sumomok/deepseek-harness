@@ -120,11 +120,15 @@ export type PromptReferenceJson =
  * content, and recorded verbatim on the accepted user message's source.
  * Host prompt endpoints validate it with `promptReferencesProblem()`.
  *
- * Contract: no harness component sends a reference to a model. Model requests
- * carry message `content` only, never `source`. An owner that wants a model to
- * see text derived from its references must append that text as its own
- * logged message (for example from `agent/pre-step`), so the model-visible
- * text stays reconstructable from the Session log.
+ * Contract: a reference is not message content. Adapters receive it on
+ * `GenerateOptions.messages[].source`; the first-party provider serializers
+ * (`llm-deepseek`, `llm-pi-ai`) never emit a user message's source into the
+ * provider request. A history tool that returns raw Session events, such as
+ * `tool-session-query`'s `session_event_read`, exposes references to the
+ * model inside a logged `tool/result`, so every model-visible copy stays
+ * reconstructable from the Session log. An owner that wants a model to see
+ * text derived from its references appends that text as its own logged
+ * message (for example from `agent/pre-step`).
  */
 export interface PromptReference {
   /** Owner name, `[A-Za-z0-9_.-]{1,64}`; the owner reads back only its own entries. */

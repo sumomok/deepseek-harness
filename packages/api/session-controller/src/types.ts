@@ -437,10 +437,13 @@ declare module '@deepseek-ai/dsh-llm' {
     /**
      * Browser prompt correlation, optional Host-validated time zone, and
      * optional Host-validated prompt references, absent when none were sent.
-     * `references` is display and owner data only and never reaches a model
-     * request; an owner that wants model-visible text derived from it appends
-     * its own logged message from `agent/pre-step`, so every model input stays
-     * reconstructable from the Session log.
+     * `references` is display and owner data, not message content: the
+     * first-party provider serializers never put a user message's source into
+     * a provider request, and a history tool that returns raw Session events
+     * (`tool-session-query`'s `session_event_read`) exposes it inside a logged
+     * `tool/result`. An owner that wants model-visible text derived from it
+     * appends its own logged message from `agent/pre-step`, so every model
+     * input stays reconstructable from the Session log.
      */
     'user-rpc': {
       kind: 'user'

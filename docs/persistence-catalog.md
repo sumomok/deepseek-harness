@@ -4191,7 +4191,7 @@ Array of [`PresentedFile`](#persistence-type-sha256-b8fc636a2121df9d8423c242e03c
 
 SHA-256: `98c832851ec3c2bcb3490e20f92b41e5f791df2ee39fff7ec4d5c0214ae4756d`
 
-Sources: [`packages/attachment/attachment/src/types.ts:129`](../packages/attachment/attachment/src/types.ts)
+Sources: [`packages/attachment/attachment/src/types.ts:133`](../packages/attachment/attachment/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -7310,7 +7310,7 @@ Sources: [`packages/core/tools/src/index.ts:34`](../packages/core/tools/src/inde
 
 SHA-256: `4324f588450a543e1dee9c24916ae120809003ca6ac303b5d03fb68dd2b32efd`
 
-Sources: [`packages/api/session-controller/src/types.ts:445`](../packages/api/session-controller/src/types.ts)
+Sources: [`packages/api/session-controller/src/types.ts:448`](../packages/api/session-controller/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -8816,7 +8816,7 @@ SHA-256: `0aa62ab51b36c0e64b134bd03ba8725d758744180a1a447da49beaad194f219f`
 
 SHA-256: `529e0ccd0e34079ab4ff21ed87f810cee0388246263bf22e8aba5986b56fae05`
 
-Sources: [`packages/attachment/attachment/src/types.ts:116`](../packages/attachment/attachment/src/types.ts) · [`packages/attachment/attachment/src/types.ts:135`](../packages/attachment/attachment/src/types.ts) · [`packages/util/values/src/index.ts:4`](../packages/util/values/src/index.ts)
+Sources: [`packages/attachment/attachment/src/types.ts:116`](../packages/attachment/attachment/src/types.ts) · [`packages/attachment/attachment/src/types.ts:139`](../packages/attachment/attachment/src/types.ts) · [`packages/util/values/src/index.ts:4`](../packages/util/values/src/index.ts)
 
 | Property | Presence | Type |
 |---|---|---|

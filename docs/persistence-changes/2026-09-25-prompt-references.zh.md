@@ -47,7 +47,7 @@ changes:
 <a id="compatibility"></a>
 ## 兼容性
 
-已有记录仍然有效：来源没有 `references` 表示提示未携带引用，宿主省略该属性而不是写入空数组。较旧的第 4 版读取方已经接受带额外 JSON 属性的已知用户来源并原样返回；回放、投影、标题、搜索和模型请求都不读取这个新属性，因此较旧的读取方忽略它，回放不变。
+已有记录仍然有效：来源没有 `references` 表示提示未携带引用，宿主省略该属性而不是写入空数组。较旧的第 4 版读取方已经接受带额外 JSON 属性的已知用户来源并原样返回。回放、投影、标题、session_search 与提供方请求序列化都不读取这个属性，因此较旧的读取方忽略它，回放不变；可选插件 tool-session-query 的 session_event_read 会把整份已存事件（包括 references）放进写入日志的 tool/result 返回。
 
 <a id="verification"></a>
 ## 验证

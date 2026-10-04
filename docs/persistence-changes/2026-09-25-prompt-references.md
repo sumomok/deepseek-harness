@@ -47,7 +47,7 @@ changes:
 <a id="compatibility"></a>
 ## Compatibility
 
-Existing records remain valid: a source without `references` means the prompt carried none, and the Host omits the property instead of writing an empty array. Older format-4 readers already admit a known user source with extra JSON properties and return it verbatim, and no replay, projection, title, search, or model request reads the new property, so older readers ignore it without changing replay.
+Existing records remain valid: a source without `references` means the prompt carried none, and the Host omits the property instead of writing an empty array. Older format-4 readers already admit a known user source with extra JSON properties and return it verbatim. Replay, projections, titles, session_search, and provider request serialization do not read the property, so older readers ignore it without changing replay; session_event_read of the optional tool-session-query plugin returns the whole stored event, including references, inside a logged tool/result.
 
 <a id="verification"></a>
 ## Verification
