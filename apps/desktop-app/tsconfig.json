@@ -19,6 +19,9 @@
       "path": "../../packages/client/locale/tsconfig.client.json"
     },
     {
+      "path": "../../packages/client/ui-plugin-manager/tsconfig.client.json"
+    },
+    {
       "path": "../../packages/client/ui-primitives"
     },
     {

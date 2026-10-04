@@ -4,17 +4,24 @@
  * locale runtime: the sidebar name follows the active language and carries no
  * version, whatever `DSH_CLIENT_VERSION` the build sets; the mark is the fish
  * logo at 1.25 times the owner's size; Settings → General's current-version
- * row is shadowed while every other row renders.
+ * row is shadowed while every other row renders; the add-plugin menu's
+ * create-plugin action is shadowed while every other action renders.
  * @module
  */
 import { act } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FISH_LOGO_PATH, FISH_LOGO_VIEWBOX } from '@deepseek-ai/dsh-client-ui-primitives'
 import * as localeClient from '@deepseek-ai/dsh-client-locale/client'
 import { SlotTestRuntime, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { CurrentVersionRow } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/CurrentVersionRow.tsx'
 import { en as settingsEn, zh as settingsZh } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/locales.ts'
-import { apply, inject } from '../src/client/index.ts'
+import { apply, CREATE_PLUGIN_ACTION_ID, HiddenCreatePluginAction, inject } from '../src/client/index.ts'
+
+/** Stand-in for ui-agent-preset's create-plugin action, registered under its id at its default priority. */
+function CreatePluginStandIn(): ReactElement {
+  return <button type="button">create plugin</button>
+}
 
 const runtimes: SlotTestRuntime[] = []
 
@@ -31,6 +38,7 @@ async function page() {
     'sidebar.brand.mark': { kind: 'single', scope: 'root' },
     'sidebar.brand.name': { kind: 'single', scope: 'root' },
     'settings.general.item': { kind: 'list', scope: 'root' },
+    'plugins.add.actions': { kind: 'list', scope: 'root' },
   })
   // ui-settings-general's own current-version row as it registers it, beside
   // one other row; the brand half mounts after both, as it may in the page.
@@ -38,6 +46,10 @@ async function page() {
     name: 'settings.general.item', id: 'current-version', order: 100, locale: 'settings',
   }, CurrentVersionRow)
   runtime.ctx.slots.register({ name: 'settings.general.item', id: 'other-row', order: 10 }, () => <div>other row</div>)
+  // ui-agent-preset's create-plugin action as it registers it, beside one
+  // other add-plugin action.
+  runtime.ctx.slots.register({ name: 'plugins.add.actions', id: CREATE_PLUGIN_ACTION_ID }, CreatePluginStandIn)
+  runtime.ctx.slots.register({ name: 'plugins.add.actions', id: 'other-action' }, () => <button type="button">other action</button>)
   runtime.ctx.provide('configForms', {
     get: () => stubConfigForm().scope,
     whileServed: (namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) =>
@@ -50,8 +62,9 @@ async function page() {
   const mark = runtime.renderSlot('sidebar.brand.mark', { size: 24 })
   const view = runtime.renderSlot('sidebar.brand.name', {})
   const general = runtime.renderSlot('settings.general.item', {})
+  const addActions = runtime.renderSlot('plugins.add.actions', { onDismiss: () => {} })
   const setLocale = (id: string) => { act(() => { runtime.ctx.locale.setLocale(id) }) }
-  return { runtime, brand, mark, view, general, setLocale }
+  return { runtime, brand, mark, view, general, addActions, setLocale }
 }
 
 describe('desktop brand occupants', () => {
@@ -98,9 +111,17 @@ describe('desktop brand occupants', () => {
     expect(general.container.textContent).not.toContain('0.1.7-rc.2')
   })
 
+  it('renders no create-plugin action and no element in its place in the add-plugin menu', async () => {
+    const { runtime, addActions } = await page()
+    const live = runtime.slots.entriesOfSlot('plugins.add.actions').find(entry => entry.options.id === CREATE_PLUGIN_ACTION_ID)
+    expect(live?.component).toBe(HiddenCreatePluginAction)
+    expect(addActions.container.querySelectorAll('button')).toHaveLength(1)
+    expect(addActions.container.textContent).toBe('other action')
+  })
+
   it('gives every slot back to its fallback and shadowed row once the half is disposed', async () => {
     vi.stubEnv('DSH_CLIENT_VERSION', '0.1.7-rc.2')
-    const { runtime, brand, general, setLocale } = await page()
+    const { runtime, brand, general, addActions, setLocale } = await page()
     setLocale('zh')
     expect(runtime.slots.entries('sidebar.brand.mark')).toHaveLength(1)
     expect(runtime.slots.entries('sidebar.brand.name')).toHaveLength(1)
@@ -109,5 +130,7 @@ describe('desktop brand occupants', () => {
     expect(runtime.slots.entries('sidebar.brand.name')).toHaveLength(0)
     expect(general.container.textContent).toContain('当前版本：0.1.7-rc.2')
     expect(general.container.textContent).toContain('other row')
+    expect(addActions.container.textContent).toContain('create plugin')
+    expect(addActions.container.textContent).toContain('other action')
   })
 })
