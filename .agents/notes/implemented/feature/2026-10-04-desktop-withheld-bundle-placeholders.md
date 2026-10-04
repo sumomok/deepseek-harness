@@ -32,7 +32,7 @@ Builds 0.1.0-rc.34 through rc.37 withheld auto-review from the payload and wrote
 
 ## Consequences
 
-Upstream's Auto and the inspectors cannot be installed on the desktop, rather than installed and kept off. Setting the old row to `disabled: false` no longer turns Auto on, and nothing on screen says so. Entering either package's name in the Plugins page's add-plugin dialog is refused as already installed, because `@deepseek-ai/dsh` lists both as dependencies, while the page's list shows neither; before this build the inspector bundle could be switched on there. An `auto-review` row a person edited stays in the profile, targets no entry, and logs one line per launch.
+Upstream's Auto and the inspectors cannot be installed on the desktop, rather than installed and kept off. Setting the old row to `disabled: false` no longer turns Auto on, and nothing on screen says so. Entering either package's name in the Plugins page's add-plugin dialog is refused as already installed, because `@deepseek-ai/dsh` lists both as dependencies, while the page's list shows neither; before this build the inspector bundle could be switched on in that list. An `auto-review` row a person edited stays in the profile, targets no entry, and logs one line per launch.
 
 The placeholder exempts nothing else: a real copy anywhere in the staged tree still fails `verifyStaging`. A copy an earlier build's user installed into the profile's `node_modules` stays on disk, hidden from the Plugins page once deselected, and is never loaded.
 
