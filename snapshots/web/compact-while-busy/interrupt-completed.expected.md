@@ -10,7 +10,7 @@
 - button "Copy"
 - status: Completed
 - button "Completed in {{duration}}"
-- button "compact Compacted 2 history items (~{{tokens}} tokens)"
+- button "compact Compacted 3 history items (~{{tokens}} tokens)"
 - paragraph: notes.txt says event sourcing stores changes as events.
 - button "Copy"
 - button "Good response"
