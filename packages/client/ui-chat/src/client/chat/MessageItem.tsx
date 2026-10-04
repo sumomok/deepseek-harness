@@ -2,7 +2,9 @@ import { Fragment, memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { MessageImageSource } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { fileExtension, FileTypeIcon, fileSizeText, JsonBlock, projectUserText, StateDot, TextShimmer } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  fileExtension, FileTypeIcon, fileSizeText, JsonBlock, projectUserText, ReferenceChip, referenceLabelsOf, StateDot, TextShimmer,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
@@ -193,7 +195,7 @@ function CompactionFailureItem({ node, t }: {
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
   content, renderMessageImages, actions, pending = false, echo = false, referenceLabels = [], skillNames = [],
-  previewAttachments, references, t,
+  previewAttachments, references, referenceChips = [], t,
 }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
@@ -210,6 +212,8 @@ function UserStyleBubble({
   /** Local submission-echo attachments replacing the content-derived attachment sequence. */
   previewAttachments?: readonly PresentedAttachment[]
   references?: Pick<ChatNodeOwnerProps, 'openFile' | 'openSkill'>
+  /** Labels of the prompt references recorded with this message, in order. */
+  referenceChips?: readonly string[]
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, attachments: contentAttachments, rest } = contentParts(content)
@@ -224,7 +228,7 @@ function UserStyleBubble({
       data-submission-echo={echo || undefined}
     >
       <div className={css.userStack}>
-        {attachments.length > 0 && (
+        {attachments.length + referenceChips.length > 0 && (
           <div className={css.attachmentRow} data-message-attachments>
             {attachments.map((attachment, index) => attachment.type === 'image'
               ? (
@@ -248,6 +252,7 @@ function UserStyleBubble({
                   </span>
                 </span>
               ))}
+            {referenceChips.map((label, index) => <ReferenceChip key={`reference:${index}`} label={label} />)}
           </div>
         )}
         {showBubble && <div className={css.bubble}>
@@ -271,14 +276,17 @@ function UserStyleBubble({
  * @param props - Pending message content and conversation translator.
  * @returns the pending steering bubble.
  */
-export function PendingSteeringBubble({ content, renderMessageImages, t }: {
+export function PendingSteeringBubble({ content, source, renderMessageImages, t }: {
   content: readonly unknown[]
+  /** The pending message source; its prompt references render as chips. */
+  source: unknown
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
   t: ChatViewSlotProps['t']
 }): ReactNode {
   return (
     <UserStyleBubble
       content={content}
+      referenceChips={referenceLabelsOf(source)}
       renderMessageImages={renderMessageImages}
       pending
       t={t}
@@ -331,6 +339,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }: 
     <UserStyleBubble
       content={content}
       previewAttachments={previewAttachments}
+      referenceChips={submission.references?.map(reference => reference.label) ?? []}
       renderMessageImages={renderMessageImages}
       pending={submission.placement === 'steering'}
       echo
@@ -357,6 +366,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
     <UserStyleBubble
       content={data.content}
       references={{ openFile, openSkill }}
+      referenceChips={referenceLabelsOf(data.source)}
       renderMessageImages={renderMessageImages}
       {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
       {...data.skillNames === undefined ? {} : { skillNames: data.skillNames }}

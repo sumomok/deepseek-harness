@@ -56,6 +56,12 @@ export interface SessionInputDeps {
    * order (the empty-draft accelerated-Enter gesture); absent = unsupported.
    */
   steerQueue?: (() => void) | undefined
+  /**
+   * Count the reference drafts among draft ids. References never make a
+   * draft sendable on their own and never reach commands; absent = no id is
+   * a reference.
+   */
+  referenceCount?: ((ids: readonly DraftAttachmentId[]) => number) | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
   defaultSink(
     text: string,
@@ -341,14 +347,15 @@ export class SessionInputShell implements SessionInput {
   submit(mode: InputSubmitMode = 'queue', source?: 'click' | 'enter'): void {
     if (this.disposed) return
     const timestamp = Date.now()
+    const references = this.deps.referenceCount?.(this.attachmentIds) ?? 0
     let state: MessageSubmissionState | undefined
-    if (this.snapshot.phase === 'plain' && (this.snapshot.draft.trim() !== '' || this.attachmentIds.length > 0)) {
+    if (this.snapshot.phase === 'plain' && (this.snapshot.draft.trim() !== '' || this.attachmentIds.length > references)) {
       try { state = this.deps.submissionState?.() } catch (_error) { /* Optional Session observations cannot interrupt submission. */ }
     }
     const submission: MessageSubmission = Object.freeze({
       timestamp, mode, ...source === undefined ? {} : { source }, ...state === undefined ? {} : { state },
     })
-    if (this.snapshot.draft.trim() === '' && this.attachmentIds.length > 0) {
+    if (this.snapshot.draft.trim() === '' && this.attachmentIds.length > references) {
       if (this.snapshot.phase === 'plain') {
         const attachmentIds = [...this.attachmentIds]
         const controller = new AbortController()
@@ -375,7 +382,8 @@ export class SessionInputShell implements SessionInput {
     // Enter-time adjudication applies the same policy for unclaimed lines
     // inside the command source itself.
     const before = this.snapshot
-    if (before.phase === 'claimed' && this.attachmentIds.length > 0 && before.claim?.attachments !== true) {
+    if (before.phase === 'claimed' && this.attachmentIds.length > 0
+      && (before.claim?.attachments !== true || references > 0)) {
       this.notify('error', this.deps.commandAttachments.unsupportedNotice(before.claim?.token ?? before.draft))
       return
     }
@@ -833,7 +841,8 @@ export class SessionInputShell implements SessionInput {
   /**
    * The submit transaction: claim.submit against the session scope; ok maps
    * from the outcome kind. An accepting claim receives the serialized draft
-   * attachments, which are cleared and released only on a success outcome; a
+   * attachments, which are cleared and released only on a success outcome;
+   * reference drafts refuse the claim with the attachment notice; a
    * failure (serialize, transport, or handler error) keeps draft and attachments
    * for correction.
    */
@@ -841,6 +850,9 @@ export class SessionInputShell implements SessionInput {
     const attachmentIds = claim.attachments === true ? [...this.attachmentIds] : []
     Promise.resolve()
       .then(async () => {
+        if ((this.deps.referenceCount?.(attachmentIds) ?? 0) > 0) {
+          throw new Error(this.deps.commandAttachments.unsupportedNotice(claim.token))
+        }
         const attachments = attachmentIds.length > 0 ? await this.deps.commandAttachments.serialize(attachmentIds) : []
         // Serialization may outlive the attempt (large files, session
         // teardown); a dead attempt must not reach the Host executor.

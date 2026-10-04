@@ -23,6 +23,18 @@ const capable = resolveAdapterOptions({ models: [{ id: MODEL, systemPromptUpdate
 const nativeBody = (messages: Message[]) => serialize(options({ messages }), capable, messages, new Map(), () => undefined)
 
 describe('Messages request conversion', () => {
+  it('sends user content only, never source metadata such as prompt references', () => {
+    const recorded = {
+      kind: 'user' as const,
+      rpcId: 'request-1',
+      references: [{ source: 'owner', label: 'LABEL-NOT-SENT', data: { ref: 'DATA-NOT-SENT' } }],
+    }
+    const referenced = createUserMessage({ source: recorded, content: [{ type: 'text', text: 'hello' }] })
+    const wire = body([referenced])
+    expect(wire).toEqual(body([user()]))
+    expect(JSON.stringify(wire)).not.toMatch(/references|LABEL-NOT-SENT|DATA-NOT-SENT|request-1/u)
+  })
+
   it('rejects unknown plugin content without interpreting its payload', () => {
     expect(() => body([createUserMessage({ source: { kind: 'user' }, content: [
       { type: 'plugin:text', text: 'opaque' } as never,

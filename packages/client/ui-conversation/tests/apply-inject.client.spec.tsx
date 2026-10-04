@@ -351,7 +351,7 @@ describe('Conversation inject API', () => {
     expect(state.getSnapshot().draft).toBe('')
     await vi.waitFor(() => {
       expect(b.sessionFake.prompt).toHaveBeenCalledWith(
-        [{ type: 'text', text: 'hello' }], 'queue', expect.any(AbortSignal), expect.any(String),
+        [{ type: 'text', text: 'hello' }], 'queue', expect.any(AbortSignal), expect.any(String), [],
       )
     })
 
@@ -510,11 +510,15 @@ describe('Conversation inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('moves a draft only when Workspace navigation changes Session', async () => {
+  it('moves a draft only when Workspace navigation changes Session, leaving references behind', async () => {
     const b = await bench()
     const resident = b.residentApi(ROOT)
     const { state, actions } = b.inputApi(ROOT)
     actions.setDraft('carry me')
+    const reference = b.runtime.ctx.get('conversation')!.createReferenceDraft({
+      source: 'owner', label: '新增', resolve: () => Promise.resolve({}),
+    })
+    expect(actions.addAttachments([reference.id])).toBe(true)
     expect(b.composerApi(ROOT).addFiles?.([
       new File([Uint8Array.of(1)], 'draft.pdf', { type: 'application/pdf' }),
     ])).toBeNull()
@@ -542,6 +546,8 @@ describe('Conversation inject API', () => {
     expect(b.inputApi(other).state.getSnapshot().draft).toBe('carry me')
     await vi.waitFor(() => { expect(targetUpload).toHaveBeenCalledOnce() })
     expect(b.inputApi(other).state.getSnapshot().attachmentIds).toHaveLength(1)
+    expect(b.inputApi(other).state.getSnapshot().attachmentIds).not.toContain(reference.id)
+    expect(state.getSnapshot().attachmentIds).toEqual([reference.id])
     await b.runtime.dispose()
   })
 

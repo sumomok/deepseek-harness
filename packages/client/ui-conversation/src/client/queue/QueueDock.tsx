@@ -6,7 +6,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconCloseOutlineRegular,
   FileTypeIcon, fileSizeText, IconEditOutlineRegular, InlineEditor, IconQueueOutlineRegular, IconSendOutlineRegular,
-  IconTrashOutlineRegular, projectUserText, Tooltip,
+  IconTrashOutlineRegular, projectUserText, ReferenceChip, referenceLabelsOf, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { QueueAction } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -194,6 +194,7 @@ export function QueueDock({ useSession, useProjection, updateQueue, notify, load
         <ul id={listId} className={css.list} hidden={!listVisible}>
           {listVisible && queue.map((row) => {
             const attachments = queueAttachments(row.content)
+            const referenceLabels = referenceLabelsOf(row.source)
             const text = textOf(row.content)
             return (
               <li key={row.id} className={css.row}>
@@ -211,7 +212,7 @@ export function QueueDock({ useSession, useProjection, updateQueue, notify, load
                   )
                   : (
                     <>
-                      {attachments.length > 0 && (
+                      {attachments.length + referenceLabels.length > 0 && (
                         <span className={css.attachments}>
                           {attachments.map((item, index) => item.type === 'image'
                             ? (
@@ -229,6 +230,7 @@ export function QueueDock({ useSession, useProjection, updateQueue, notify, load
                                 label={t('queue.file', { name: item.attachment.name })}
                               />
                             ))}
+                          {referenceLabels.map((label, index) => <ReferenceChip key={`reference:${index}`} label={label} />)}
                         </span>
                       )}
                       <span className={css.preview}>{projectUserText(previewOf(row.content), [])}</span>
@@ -325,7 +327,7 @@ export function QueueDock({ useSession, useProjection, updateQueue, notify, load
             return (
               <li key={submission.requestId} className={`${css.row} ${css.pendingRow}`} data-submission-echo="">
                 {rowCount === 1 && <span className={css.lead} aria-hidden><IconQueueOutlineRegular /></span>}
-                {submission.attachments.length > 0 && (
+                {submission.attachments.length + (submission.references?.length ?? 0) > 0 && (
                   <span className={css.attachments}>
                     {submission.attachments.map((attachment, index) => attachment.type === 'image'
                       ? (
@@ -343,6 +345,9 @@ export function QueueDock({ useSession, useProjection, updateQueue, notify, load
                           label={t('queue.file', { name: attachment.value.name })}
                         />
                       ))}
+                    {submission.references?.map((reference, index) => (
+                      <ReferenceChip key={`reference:${index}`} label={reference.label} />
+                    ))}
                   </span>
                 )}
                 <span className={css.preview}>{projectUserText(submission.text, [])}</span>

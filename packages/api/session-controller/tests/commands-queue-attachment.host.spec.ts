@@ -289,6 +289,32 @@ describe('Session queue commands', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps prompt references on a queued message through text edits and steering', async () => {
+    const { ctx, controller, agent, inbox, steer } = await commandHarness()
+    const references = [{ source: 'owner', label: 'Add', data: { entry: 'e1' } }]
+    const queued = createUserMessage({
+      content: [{ type: 'text', text: 'before' }],
+      source: { kind: 'user', rpcId: 'req-ref' as never, references },
+    })
+    inbox.append('next-turn', queued)
+
+    expect(await controller.updateQueue({
+      sessionId: agent.id, itemId: queued.id, action: { kind: 'edit', content: [{ type: 'text', text: 'after' }] },
+    })).toEqual({ accepted: true })
+    expect(inbox.nextTurn[0]).toMatchObject({
+      content: [{ type: 'text', text: 'after' }],
+      source: { kind: 'user', rpcId: 'req-ref', references },
+    })
+    expect(await controller.updateQueue({
+      sessionId: agent.id, itemId: queued.id, action: { kind: 'steer' },
+    })).toEqual({ accepted: true })
+    expect(steer).toHaveBeenCalledWith(expect.objectContaining({
+      content: [{ type: 'text', text: 'after' }],
+      source: { kind: 'user', rpcId: 'req-ref', references },
+    }))
+    await ctx.fiber.dispose()
+  })
+
   it('keeps one-shot, seed-only, missing, and malformed child descriptors behind the ownership fence', async () => {
     for (const mode of ['one-shot', 'seed-only', 'unknown', 'corrupt'] as const) {
       const { ctx, controller, agent, inbox } = await commandHarness(mode)

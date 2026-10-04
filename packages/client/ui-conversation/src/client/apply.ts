@@ -331,7 +331,9 @@ export function apply(ctx: Context, config: Config = Config({})): void {
         if (sessionId !== undefined && nextId !== sessionId) {
           const from = inputHub.shell(sessionId)
           const draft = from.draftSnapshot
-          const attachmentIds = from.snapshot.attachmentIds
+          // A reference belongs to the Session its owner created it for; it stays in that draft.
+          const attachmentIds = concreteConversation(ctx).resolveDraftAttachments(from.snapshot.attachmentIds)
+            .filter(attachment => attachment.kind !== 'reference').map(attachment => attachment.id)
           const next = inputHub.shell(nextId)
           if (attachmentIds.length === 0 || next.addAttachments(attachmentIds)) {
             if (sessions.binding(nextId) === undefined) {

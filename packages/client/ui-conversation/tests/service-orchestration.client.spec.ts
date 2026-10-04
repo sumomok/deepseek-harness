@@ -426,7 +426,7 @@ describe('ConversationController', () => {
     expect(b.prompt).toHaveBeenCalledWith([
       { type: 'file', receiptId: 'send-receipt' },
       { type: 'text', text: 'read' },
-    ], 'queue', undefined, expect.any(String))
+    ], 'queue', undefined, expect.any(String), [])
     expect(b.root.resolveDraftAttachments([attachment.id])).toHaveLength(1)
     expect(b.prompt.mock.calls[0]?.[3]).toBe('file-rpc-id')
     retire?.({
@@ -534,6 +534,7 @@ describe('sendSession submission echo', () => {
         'queue',
         undefined,
         'req-echo',
+        [],
       )
       // The draft stays registered until the echo's observed retirement.
       expect(b.root.resolveDraftAttachments([attachment!.id])).toHaveLength(1)
@@ -731,7 +732,7 @@ describe('sendSession submission echo', () => {
     try {
       const session = b.runtime.sessions.binding('s1')!.session
       await expect(b.root.sendSession(session, '纯文本', [], 'queue')).resolves.toEqual({ kind: 'success' })
-      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '纯文本' }], 'queue', undefined, 'req-echo')
+      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '纯文本' }], 'queue', undefined, 'req-echo', [])
     } finally {
       vi.unstubAllGlobals()
       b.restore()
@@ -747,7 +748,7 @@ describe('sendSession submission echo', () => {
       const sending = b.root.sendSession(session, '后台标签', [], 'queue')
       expect(b.prompt).not.toHaveBeenCalled()
       await expect(sending).resolves.toEqual({ kind: 'success' })
-      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '后台标签' }], 'queue', undefined, 'req-echo')
+      expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: '后台标签' }], 'queue', undefined, 'req-echo', [])
     } finally {
       vi.unstubAllGlobals()
       b.restore()
@@ -769,7 +770,122 @@ describe('sendSession submission echo', () => {
     const prompt = vi.spyOn(session, 'prompt').mockResolvedValue({ ok: true, value: { accepted: true } })
     await expect(b.root.sendSession(session, '继续', [], 'queue')).resolves.toEqual({ kind: 'success' })
     expect(beginSubmission).not.toHaveBeenCalled()
-    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined)
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '继续' }], 'queue', undefined, undefined, [])
+    await b.runtime.dispose()
+  })
+
+  it('carries resolved references on a subagent continuation and releases them on acceptance only', async () => {
+    const b = await bench()
+    const session = b.runtime.sessions.binding('s1')!.session
+    const snapshot = session.getSnapshot()
+    vi.spyOn(session, 'getSnapshot').mockReturnValue({
+      ...snapshot,
+      subagent: {
+        address: { parentSessionId: 'parent', childSessionId: 'child', mode: 'continuable' } as never,
+      },
+    })
+    const prompt = vi.spyOn(session, 'prompt')
+      .mockResolvedValueOnce({ ok: false, error: new RemoteError('subagent/parent-unavailable', 'offline', { parentSessionId: 'parent' as never }) })
+      .mockResolvedValueOnce({ ok: true, value: { accepted: true } })
+    const draft = b.root.createReferenceDraft({ source: 'owner', label: '行 2', resolve: () => Promise.resolve({ row: 2 }) })
+    await expect(b.root.sendSession(session, '继续', [draft.id], 'queue')).resolves.toEqual({ kind: 'error' })
+    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+    await expect(b.root.sendSession(session, '继续', [draft.id], 'queue')).resolves.toEqual({ kind: 'success' })
+    expect(prompt).toHaveBeenLastCalledWith(
+      [{ type: 'text', text: '继续' }], 'queue', undefined, undefined,
+      [{ source: 'owner', label: '行 2', data: { row: 2 } }],
+    )
+    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([])
+    await b.runtime.dispose()
+  })
+
+  it('registers an owner draft whose chip action and resolver reach the owner', async () => {
+    const b = await bench()
+    const activate = vi.fn()
+    const resolve = vi.fn((_signal: AbortSignal) => Promise.resolve({ entry: 'e1' }))
+    const draft = b.root.createReferenceDraft({ source: 'owner', label: '新增', resolve, activate })
+    expect(draft).toMatchObject({ kind: 'reference', source: 'owner', label: '新增' })
+    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([draft])
+    draft.activate?.()
+    expect(activate).toHaveBeenCalledOnce()
+    const signal = new AbortController().signal
+    await expect(draft.resolve(signal)).resolves.toEqual({ entry: 'e1' })
+    expect(resolve).toHaveBeenCalledWith(signal)
+    expect(b.root.createReferenceDraft({ source: 'owner', label: 'x', resolve }).activate).toBeUndefined()
+    const revoke = vi.spyOn(URL, 'revokeObjectURL')
+    b.root.releaseDraftAttachment(draft.id)
+    expect(b.root.resolveDraftAttachments([draft.id])).toEqual([])
+    expect(revoke).not.toHaveBeenCalled()
+    revoke.mockRestore()
+    await b.runtime.dispose()
+  })
+
+  it('sends references beside media as data, never content, and releases them on observation', async () => {
+    const b = await echoBench()
+    try {
+      const session = b.runtime.sessions.binding('s1')!.session
+      const seedImageUrl = vi.fn(() => true)
+      b.runtime.ctx.provide('uiConversation')
+      b.runtime.ctx.set('uiConversation', { seedImageUrl })
+      const resolve = vi.fn((_signal: AbortSignal) => Promise.resolve({ entry: 'e1', point: { ref: 'e42' } }))
+      const reference = b.root.createReferenceDraft({ source: 'owner', label: '新增', resolve })
+      const [image] = b.root.createDrafts(session.sessionId, [
+        new File([Uint8Array.of(1)], 'after.png', { type: 'image/png' }),
+      ])
+      const signal = new AbortController().signal
+      const sending = b.root.sendSession(session, '这是什么', [reference.id, image!.id], 'queue', signal)
+      expect(b.beginSubmission).toHaveBeenCalledWith(expect.objectContaining({
+        text: '这是什么',
+        references: [{ source: 'owner', label: '新增' }],
+      }))
+      expect(b.beginSubmission.mock.calls[0]?.[0].attachments.map(attachment => attachment.type)).toEqual(['image'])
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
+      expect(resolve).toHaveBeenCalledWith(signal)
+      expect(b.prompt).toHaveBeenCalledWith(
+        [
+          { type: 'image', mediaType: 'image/png', data: expect.any(String) as string, name: 'after.png' },
+          { type: 'text', text: '这是什么' },
+        ],
+        'queue',
+        signal,
+        'req-echo',
+        [{ source: 'owner', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } }],
+      )
+      const ref = { attachmentId: 'att-after' as never, mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1 }
+      // Observed refs list media only; the image still pairs with the first one.
+      b.retire.onRetire?.({ reason: 'observed', attachments: [ref] })
+      await expect(sending).resolves.toEqual({ kind: 'success' })
+      expect(seedImageUrl).toHaveBeenCalledWith('s1', ref, 'blob:echo-1')
+      expect(b.root.resolveDraftAttachments([reference.id, image!.id])).toEqual([])
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('abandons the echo and keeps every draft when a resolver rejects', async () => {
+    const b = await echoBench()
+    b.restore()
+    const session = b.runtime.sessions.binding('s1')!.session
+    const failing = b.root.createReferenceDraft({
+      source: 'owner', label: '已关闭', resolve: () => Promise.reject(new Error('owner could not describe it')),
+    })
+    const kept = b.root.createReferenceDraft({ source: 'owner', label: '保留', resolve: () => Promise.resolve({}) })
+    await expect(b.root.sendSession(session, '看看', [failing.id, kept.id], 'queue'))
+      .rejects.toThrow('owner could not describe it')
+    expect(b.abandon).toHaveBeenCalledOnce()
+    expect(b.prompt).not.toHaveBeenCalled()
+    expect(b.root.resolveDraftAttachments([failing.id, kept.id])).toEqual([failing, kept])
+    b.retire.onRetire?.({ reason: 'failed' })
+    expect(b.root.resolveDraftAttachments([failing.id, kept.id])).toEqual([failing, kept])
+    await b.runtime.dispose()
+  })
+
+  it('refuses to serialize a reference for a command', async () => {
+    const b = await bench()
+    const draft = b.root.createReferenceDraft({ source: 'owner', label: '新增', resolve: () => Promise.resolve({}) })
+    await expect(b.root.serializeDraftAttachments([draft.id]))
+      .rejects.toThrow('conversation.serializeDraftAttachments: commands do not accept reference drafts')
     await b.runtime.dispose()
   })
 })

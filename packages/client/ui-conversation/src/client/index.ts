@@ -58,7 +58,7 @@ export { ConversationViewRegistry } from './conversation/view-registry.ts'
 export type { ConversationKey } from './locales.ts'
 export type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
-  ComposerFileAttachment, ComposerImageAttachment, DraftFileUpload, DraftFileUploads,
+  ComposerFileAttachment, ComposerImageAttachment, ComposerReferenceAttachment, DraftFileUpload, DraftFileUploads,
   ComposerBarInjected, ComposerBarOwnerProps, ComposerBarProps, ComposerChainProps,
   ConversationHeaderActionOwnerProps, ConversationHeaderCornerOwnerProps, ConversationHeaderLineageOwnerProps,
   ConversationContentInputProps, ConversationContentProps,

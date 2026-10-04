@@ -59,6 +59,7 @@ export type {
   CodeFileType, FileType, FileTypeIconProps, FileTypeKind, FileTypeProjectContext,
 } from './FileTypeIcon.tsx'
 export { projectUserText, type UserTextReferences } from './user-text.tsx'
+export { ReferenceChip, referenceLabelsOf } from './ReferenceChip.tsx'
 export { Tooltip } from './Tooltip.tsx'
 export type { TooltipSide } from './Tooltip.tsx'
 export { pointerModality } from './input-modality.ts'

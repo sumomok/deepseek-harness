@@ -106,6 +106,35 @@ export type PromptContentPart =
     readonly name?: string
   }
 
+/** JSON value carried inside a {@link PromptReference} payload. */
+export type PromptReferenceJson =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly PromptReferenceJson[]
+  | { readonly [key: string]: PromptReferenceJson }
+
+/**
+ * One browser-owned reference attached to a prompt as data rather than as
+ * content, and recorded verbatim on the accepted user message's source.
+ * Host prompt endpoints validate it with `promptReferencesProblem()`.
+ *
+ * Contract: no harness component sends a reference to a model. Model requests
+ * carry message `content` only, never `source`. An owner that wants a model to
+ * see text derived from its references must append that text as its own
+ * logged message (for example from `agent/pre-step`), so the model-visible
+ * text stays reconstructable from the Session log.
+ */
+export interface PromptReference {
+  /** Owner name, `[A-Za-z0-9_.-]{1,64}`; the owner reads back only its own entries. */
+  readonly source: string
+  /** Display text for end-user surfaces: 1–64 code points, not blank, no control, format, or unpaired surrogate characters. */
+  readonly label: string
+  /** Owner payload; its UTF-8 JSON encoding is at most 8192 bytes. */
+  readonly data: { readonly [key: string]: PromptReferenceJson }
+}
+
 /** Host prompt content whose file receipts are resolved and whose image bytes await admission. */
 export type AttachmentAdmissionPart =
   | PromptContentPart

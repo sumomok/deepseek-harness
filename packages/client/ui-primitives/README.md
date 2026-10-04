@@ -51,6 +51,7 @@ Check this table before writing a control in a feature package. A plugin cannot 
 | `Pill` | Selectable capsule button for view switchers and filters; takes `active` and `onClick`. |
 | `SegmentedTabs` | Controlled equal-width tabs with a sliding indicator and Left/Right, Home, and End navigation. The caller supplies labels, tab/panel ids, and panel content. |
 | `Tag` | Read-only capsule badge; `tone` selects one of eight palettes. |
+| `ReferenceChip`, `referenceLabelsOf` | 24px capsule showing one prompt reference by its label, with the label as its hover title; `onActivate` makes the label a button and `remove` adds an in-chip remove button. `referenceLabelsOf(source)` reads labels from a message source and skips malformed entries. |
 | `PathLabel` | Single-line file path with subdued directories, a primary filename, and the full path on hover. Fitting paths align left; clipped paths preserve their suffix with a left-edge fade that updates on path and size changes. |
 | `StateDot` | Solid green `done`, amber `warning`, red `error`, and neutral-grey `idle` marks in a 10px slot, plus a tertiary-grey 14px rotating `ongoing` loader whose animations pin to document time zero on mount and on every animation restart, such as a list reorder, so every visible loader rotates in phase. `aria-hidden`, so the render site owns the name. `appearance="step"` shows a filled check for completion and a hollow pending circle. |
 | `ConnectionIndicator` | Inline connection-recovery control across outage, retry, and recovered states. |

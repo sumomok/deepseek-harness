@@ -77,7 +77,8 @@ export const InputBar = memo(function InputBar({
     () => input === undefined || resolveDraftAttachments === undefined ? [] : resolveDraftAttachments(input.attachmentIds),
     [resolveDraftAttachments, input?.attachmentIds],
   )
-  const empty = draft.trim() === '' && attachments.length === 0
+  // References ride a message but never make one: a draft holding only them is empty.
+  const empty = draft.trim() === '' && attachments.every(attachment => attachment.kind === 'reference')
   const uploads = useFileUploads(snapshot => snapshot)
   // Send waits for every picked file: uploading and failed drafts both hold
   // the gate (a failed upload is retried or removed, never silently dropped).
