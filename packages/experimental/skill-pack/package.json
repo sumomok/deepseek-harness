@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-skill-pack",
   "description": "A skill that is also a directory of interface: the pack root's skill provider, which parses each pack's component requirements, offers only the packs whose parts a component plugin has registered, and publishes every pack's state and reason on one read-only route",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
     "type": "git",

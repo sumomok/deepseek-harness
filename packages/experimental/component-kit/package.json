@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-component-kit",
   "description": "The component row behind the content panel's component kind: the React renderers a placement package draws a validated block with, and nothing about where they are drawn",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
     "type": "git",

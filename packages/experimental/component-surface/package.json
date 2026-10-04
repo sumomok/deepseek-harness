@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-component-surface",
   "description": "The show_component tool: the agent places blocks from a fixed component catalog in the content column, validated against their declared properties before anything is drawn",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
     "type": "git",

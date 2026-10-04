@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-page-refresh",
   "description": "Reloads an open console page once after the server it was served from comes back with a different build, and shows the page's connection state in one banner",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
     "type": "git",
