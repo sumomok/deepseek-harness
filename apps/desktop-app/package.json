@@ -38,6 +38,7 @@
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-tool-session-query": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~"
   },
   "peerDependencies": {

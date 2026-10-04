@@ -50,9 +50,10 @@
 # A search returns at most the package's own `maxSearchResults` (100) hits,
 # and dsh-base's `spill-policy` row, which dsh-web-app leaves on, bounds a long
 # trace or event read inline. The row carries no `config`, so both of the
-# package's fields take their schema defaults. Its module reaches the payload
-# because `apps/desktop-server` lists it; `@deepseek-ai/dsh` does not depend
-# on it.
+# package's fields take their schema defaults. `@deepseek-ai/dsh` does not
+# depend on its module, so this package lists it in `dependencies`: the
+# runtime resolver supplies a row's module only from the installation's
+# dependency closure and from each selected bundle's own.
 - insert:
     - id: tool-session-query
       name: '@deepseek-ai/dsh-tool-session-query'

@@ -209,6 +209,16 @@ describe('the composed tool-session-query row', () => {
     expect(entry(desktop, 'tool-session-query')).toEqual({ id: 'tool-session-query', name: TOOL_SESSION_QUERY })
   })
 
+  // The runtime resolver supplies a row's module from the installation's
+  // dependency closure and each selected bundle's own; `@deepseek-ai/dsh`
+  // does not depend on this one, and apps/desktop-server's list reaches neither.
+  it('has its module declared by the desktop layer, the bundle that names it', () => {
+    const manifest = JSON.parse(readFileSync(join(repoRoot, 'apps', 'desktop-app', 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    expect(Object.keys(manifest.dependencies ?? {})).toContain(TOOL_SESSION_QUERY)
+  })
+
   // A Host row can inject only Host services; a service a preset's isolate
   // realm holds never reaches it.
   it('injects only services Host rows the desktop composes on provide', () => {
@@ -220,17 +230,14 @@ describe('the composed tool-session-query row', () => {
 
   // The deploy installs no peers, so a required peer reaches the payload only
   // when the deploy root lists it.
-  it('resolves from the deploy root, which lists every package it needs', () => {
-    const dir = resolveBundleDir('test', TOOL_SESSION_QUERY, installAnchor, serverDir)
-    expect(dir).toContain(join('apps', 'desktop-server'))
-    const own = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
-      dependencies?: Record<string, string>
+  it('has every required peer listed by the deploy root', () => {
+    const own = JSON.parse(readFileSync(join(repoRoot, 'packages', 'session-query', 'tool-session-query', 'package.json'), 'utf8')) as {
+      name: string
       peerDependencies?: Record<string, string>
     }
+    expect(own.name).toBe(TOOL_SESSION_QUERY)
     const listed = Object.keys((JSON.parse(readFileSync(installAnchor, 'utf8')) as { dependencies: Record<string, string> }).dependencies)
-    for (const name of [TOOL_SESSION_QUERY, ...Object.keys(own.dependencies ?? {}), ...Object.keys(own.peerDependencies ?? {})]) {
-      expect(listed).toContain(name)
-    }
+    for (const name of Object.keys(own.peerDependencies ?? {})) expect(listed).toContain(name)
   })
 
   it('takes the package\'s own search bounds, and keeps the spill policy that bounds long results on', () => {
