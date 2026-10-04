@@ -54,7 +54,7 @@ Status: implemented
 
 页面上没有这三项设置的任何控件。`busyCompaction`、`enabled` 与 `thresholdPercent` 仍是 volatile，所以 `remote.settings` 方法仍接受部署放行的任何浏览器对它们的写入。
 
-tarball 需要手工更新：插件出新版本时，构建一份干净副本、打包、替换文件，再更新 `file:` 说明符、`tests/profile.spec.ts` 与第三方声明所指的归档路径（`scripts/gen-third-party-notices.ts` 的 `OVERRIDES`，登记在 core-patch 记录 `console-vendored-plugin-notice` 下）。Web e2e 脚手架在安装 profile 的 bundle 之前就算好了运行时解析，所以 `apps/web/tests/server-sidebar.e2e.ts` 像链接实验包一样，把解包出来的那一份链接进它的 profile。
+tarball 需要手工更新：插件出新版本时，构建一份干净副本、打包、替换文件，再更新 `file:` 说明符、`tests/profile.spec.ts` 与第三方声明所指的归档路径（`scripts/gen-third-party-notices.ts` 的 `OVERRIDES`，登记在 core-patch 记录 `console-vendored-plugin-notice` 下）。Web e2e 脚手架在安装 profile 的 bundle 之前就算好了运行时解析，所以 `apps/web/tests/console-launch.ts` 像链接实验包一样，把解包出来的那一份链接进它的 profile（它的 `CONSOLE_ROWS` 表，每个控制台场景的 `launchConsole` 都用它）。
 
 Web 快照 `console-auto-compact` 钉住这一行为。一段编写好的对话经由控制台组合、在 200,000 token 的窗口上重放：第二次回复报告占用窗口 62.5% 之后，第三轮的第一次请求之前发生压缩，而后端自己的检查会放过这个占用——它在窗口的 80% 与窗口减去余量两者中较小的那个处触发，这里是 134,464 token；一次 57.5% 的无 key 运行什么都不压缩，`standard` 孪生预设在 62.5% 时同样压缩。同一个快照还钉住控制台组合的系统提示词与工具 schema。
 

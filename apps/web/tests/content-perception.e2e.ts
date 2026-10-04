@@ -11,11 +11,11 @@
  * Zero model calls. Every gesture is a real click in a real browser, and every
  * assertion is against the host: the injected notice as a `user/message`, the
  * two new events on the session log, and the `content:column` context the next
- * request would carry. The composition is the product console as
- * `server-sidebar.e2e.ts` launches it — the console bundle, the permission lock,
- * and `server-sidebar.overlay.yml` as its deployment layer — because the
- * page-opening gesture this scenario starts from is that sidebar's navigation
- * menu.
+ * request would carry. The composition is the product console that
+ * `console-launch.ts`'s `launchConsole` starts — the console bundle, the
+ * permission lock, and `server-sidebar.overlay.yml` as its deployment layer —
+ * because the page-opening gesture this scenario starts from is that sidebar's
+ * navigation menu.
  *
  * The frame's own routing is driven with `history.pushState`, which fires no
  * event of any kind: it is the case the watch's polling exists for, and no unit

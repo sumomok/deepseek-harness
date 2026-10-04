@@ -14,7 +14,8 @@
  *
  * An experimental package cannot be a dependency of `apps/web`, so this file
  * creates the profile link the row's `bundledSkillDir` expression resolves,
- * the same way `server-sidebar.e2e.ts` does for the rows it inserts.
+ * the same way `harnessHomeWithRowLinks` in `console-launch.ts` does for the
+ * console's rows.
  */
 
 import { spawnSync } from 'node:child_process'
