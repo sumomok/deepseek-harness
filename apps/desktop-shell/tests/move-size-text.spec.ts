@@ -81,7 +81,7 @@ describe('the size a data move shows', () => {
     expect([formatSize(558_900_000), formatBytes(558_900_000)]).toEqual(['533 MB', '533 MB'])
   })
 
-  it('reads zero, which only the progress window words, as 0 KB', () => {
-    expect(formatBytes(0)).toBe('0 KB')
+  it('reads zero, where the progress line starts, as 0 KB where the Settings page reads 1 KB', () => {
+    expect([formatBytes(0), formatSize(0)]).toEqual(['0 KB', '1 KB'])
   })
 })

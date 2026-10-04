@@ -338,8 +338,9 @@ const GB = MB * 1024
  * (`formatSize` in `@haoran/dsh-data-location`), since both are worded from
  * the same scan of the data: multiples of 1024 under the symbols `KB`, `MB`,
  * and `GB`, one decimal from gigabytes up, whole megabytes below that, and
- * whole kilobytes, at least 1, below a megabyte. Zero, which that page never
- * words, is `0 KB`.
+ * whole kilobytes, at least 1, below a megabyte. Zero reads `0 KB`, where
+ * that page's rule gives `1 KB`; the progress line starts at zero, and the
+ * page words zero only as the free space of a full volume.
  * @param bytes - the count.
  * @returns e.g. `533 MB` or `1.2 GB`.
  */
