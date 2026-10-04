@@ -66,8 +66,10 @@ export interface Workspace {
 
   /**
    * Canonical directory path: the `fs.realpath` of the path given at create
-   * time (trailing slashes, `..`, and symlinks all resolved). Never rewritten
-   * afterwards, even when the directory disappears (see {@link status}).
+   * time (trailing slashes, `..`, and symlinks all resolved). Registry startup
+   * replaces it with its current `fs.realpath` when that names an existing
+   * directory no other workspace claims; it is never rewritten otherwise, and
+   * a directory that disappears keeps its stored path (see {@link status}).
    */
   readonly path: string
 

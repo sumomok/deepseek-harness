@@ -203,6 +203,7 @@ export class WorkspaceRegistry extends Service {
 
     await this.recoverPendingMutation()
     this.validateStoredState(this.state)
+    await this.recanonicalizeRecordPaths()
     if (!this.state.initialized) {
       const headers = await this.listStoredHeaders()
       await this.replaceHeaderIndex(headers)
@@ -643,6 +644,59 @@ export class WorkspaceRegistry extends Service {
     }
     await this.requireTable().delete(pending.workspaceId)
     await this.setState({ ...state, pendingMutation: undefined })
+  }
+
+  /**
+   * Re-resolve every stored record path through `fs.realpath` before bootstrap,
+   * the header index, and attach validation compare canonical cwd values
+   * against it, so a directory reached through a path component that became a
+   * symlink keeps its workspace. Each record ends in one of three outcomes:
+   * an unchanged canonical path is not written; a new canonical directory that
+   * is neither another record's stored path nor another record's new canonical
+   * path replaces `path` and stamps `updatedAt`, keeping every other field and
+   * the registry state; a path that does not resolve, does not name a
+   * directory, or collides stays as stored and is logged, so a later startup
+   * retries it. Each rewrite is one atomic record write that keeps paths
+   * unique, so an interrupted pass leaves a valid registry and needs no
+   * pending-mutation marker; a write failure rejects startup.
+   */
+  private async recanonicalizeRecordPaths(): Promise<void> {
+    const table = this.requireTable()
+    const records = [...table.entries()]
+    const targets = new Map<WorkspaceId, string>()
+    for (const [id, record] of records) {
+      let canonical: string
+      try {
+        canonical = await realpathNormalize(record.path)
+      } catch (error) {
+        this.ctx.logger.warn(
+          `workspace '${id}' path '${record.path}' kept as stored: it does not resolve (${String(error)})`,
+        )
+        continue
+      }
+      if (canonical === record.path) continue
+      if (!(await stat(canonical)).isDirectory()) {
+        this.ctx.logger.warn(
+          `workspace '${id}' path '${record.path}' kept as stored: it resolves to '${canonical}', which is not a directory`,
+        )
+        continue
+      }
+      targets.set(id, canonical)
+    }
+
+    const stored = new Set(records.map(([, record]) => record.path))
+    const claims = new Map<string, number>()
+    for (const canonical of targets.values()) claims.set(canonical, (claims.get(canonical) ?? 0) + 1)
+    for (const [id, canonical] of targets) {
+      if (stored.has(canonical) || (claims.get(canonical) as number) > 1) {
+        this.ctx.logger.warn(
+          `workspace '${id}' path '${(table.get(id) as WorkspaceRecord).path}' kept as stored: `
+          + `its canonical path '${canonical}' is claimed by another workspace`,
+        )
+        continue
+      }
+      await table.update(id, record => ({ ...record, path: canonical, updatedAt: new Date().toISOString() }))
+    }
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
