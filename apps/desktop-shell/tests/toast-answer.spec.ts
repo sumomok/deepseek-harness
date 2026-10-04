@@ -4,7 +4,10 @@
  * press brings back instead when this shell can no longer answer, and when a
  * toast is taken off the screen. What a toast calls its session: the title
  * `session/list` reports, or 「会话」 with a log line when the lookup fails.
- * On macOS, what the Dock badge counts and when a count comes off it.
+ * What a delivered reminder announces, which deliveries count as new against
+ * the `schedule/catalog` baseline, and which finished-run message the
+ * reminder's replaces. On macOS, what the Dock badge counts and when a count
+ * comes off it.
  *
  * `notifications.ts` opens a real `WebSocket` and constructs a real
  * `Notification`. Both are replaced here — the socket by the stand-in
@@ -12,7 +15,9 @@
  * mock below — while the answers themselves travel over `fetch` to a loopback
  * server, which is where the sent frame is read. `fetch` is wrapped rather
  * than replaced, so a test can assert that no answer was *issued* without
- * waiting on a round trip that is never going to arrive.
+ * waiting on a round trip that is never going to arrive. A `schedule/catalog`
+ * or `session/list` answer can be held back, so a test can act while that
+ * lookup is in flight.
  * @module
  */
 
@@ -48,12 +53,41 @@ const LISTED_SESSIONS = [
 /** The message of the `session/list` refusal a case asks for through {@link listFailures}. */
 const UNAVAILABLE = 'sessionController is not available'
 
+/** The name of the reminder {@link reminder} reports. */
+const REMINDER = '交周报'
+
+/** The instruction of the reminder {@link reminder} reports. */
+const INSTRUCTION = '把本周的周报整理好发给我'
+
+/** When the reminder {@link reminder} reports fell due, and by default was delivered: long before any run a test starts. */
+const DUE = '2000-01-01T00:00:00.000Z'
+
+/**
+ * One `schedule/catalog` entry: a one-shot reminder bound to `session-1`,
+ * due at {@link DUE} and delivered once as `messageId`.
+ * @param messageId - the delivered message; a new id is a new delivery of the task.
+ * @param fields - entry fields to replace.
+ * @param deliveredAt - when the delivery was made; {@link DUE} unless given.
+ * @returns the entry.
+ */
+function reminder(messageId: string, fields: Record<string, unknown> = {}, deliveredAt = DUE): Record<string, unknown> {
+  return {
+    id: 'schedule-1', kind: 'at', title: REMINDER, prompt: INSTRUCTION, scheduledAt: DUE,
+    sessionId: 'session-1', status: 'inactive', lastDelivery: { scheduledAt: DUE, deliveredAt, messageId },
+    ...fields,
+  }
+}
+
 /** One notification the module constructed, with the handlers it attached to it. */
 class FakeNotification {
   readonly handlers = new Map<string, (details: { actionIndex: number }) => void>()
   closed = 0
   shown = 0
   constructor(readonly options: { title: string; body: string; actions: unknown }) {
+    if (notificationFailures > 0) {
+      notificationFailures -= 1
+      throw new Error('the toast was refused')
+    }
     notifications.push(this)
   }
 
@@ -115,7 +149,18 @@ const hiddenWindow = {
   isFocused: () => false,
 }
 
+/** A window the user is looking at. */
+const focusedWindow = {
+  isResizable: () => true,
+  isVisible: () => true,
+  isMinimized: () => false,
+  isFocused: () => true,
+}
+
 const notifications: FakeNotification[] = []
+
+/** How many more notifications fail to be constructed, as a platform that refuses a toast would. */
+let notificationFailures = 0
 
 /** Every value the module set on the Dock badge, in order; the last one is what the Dock shows. */
 const dockBadges: string[] = []
@@ -199,6 +244,56 @@ let resultFailures = 0
 /** How many more well-formed `session/list` requests the gateway refuses. */
 let listFailures = 0
 
+/** The entries `schedule/catalog` reports, read as each request arrives. */
+let catalog: Record<string, unknown>[] = []
+
+/** How many more well-formed `schedule/catalog` requests the gateway refuses. */
+let catalogFailures = 0
+
+/** When set, what `schedule/catalog` answers in place of {@link catalog}. */
+let catalogValue: unknown
+
+/**
+ * How many `schedule/catalog` requests the loopback server answered. The
+ * notifier sends each read only after the previous one was handled, so the
+ * count passing N says the (N-1)th read's handling is over.
+ */
+let catalogReads = 0
+
+/** A unary method whose answers can be held back: the two lookups the notifier makes. */
+type HeldMethod = 'schedule/catalog' | 'session/list'
+
+/** For each held method, what every request for it waits on before it is answered, and what resolves it. */
+const gates = new Map<HeldMethod, { readonly opened: Promise<void>; readonly open: () => void }>()
+
+/**
+ * Hold every request for one method that arrives from now on, until
+ * {@link release}.
+ * @param method - the method to hold.
+ */
+function hold(method: HeldMethod): void {
+  let open = (): void => {}
+  const opened = new Promise<void>((resolve) => { open = resolve })
+  gates.set(method, { opened, open })
+}
+
+/**
+ * Answer every held request for one method, and stop holding it.
+ * @param method - the method to release.
+ */
+function release(method: HeldMethod): void {
+  gates.get(method)?.open()
+  gates.delete(method)
+}
+
+afterEach(() => {
+  catalog = []
+  catalogValue = undefined
+  catalogFailures = 0
+  catalogReads = 0
+  notificationFailures = 0
+})
+
 const realPlatform = process.platform
 let server: Server | undefined
 
@@ -228,9 +323,33 @@ function listResult(args: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * Serve the launch-token exchange and the two unary endpoints the notifier
+ * What the gateway answers a `schedule/catalog` request with. Its server
+ * method takes no parameter, and the gateway refuses an `args` record with
+ * any field. A well-formed request is refused while {@link catalogFailures}
+ * is above zero, and otherwise answered with {@link catalogValue}, or else
+ * {@link catalog}, as it stands when the answer is made.
+ * @param args - the request's `args` record.
+ * @returns the `result` the response carries.
+ */
+function catalogResult(args: Record<string, unknown>): Record<string, unknown> {
+  catalogReads += 1
+  const extra = Object.keys(args)
+  if (extra.length > 0) {
+    const fields = extra.map(key => JSON.stringify(key)).join(', ')
+    return { ok: false, error: { code: 'gateway/arguments-invalid', message: `args fields do not match the descriptor: unexpected ${fields}` } }
+  }
+  if (catalogFailures > 0) {
+    catalogFailures -= 1
+    return { ok: false, error: { code: 'gateway/service-unavailable', message: 'schedule is not available' } }
+  }
+  return { ok: true, value: catalogValue ?? catalog }
+}
+
+/**
+ * Serve the launch-token exchange and the three unary endpoints the notifier
  * calls, recording every `$events/result` payload and answering
- * `session/list` as {@link listResult} says.
+ * `session/list` and `schedule/catalog` as {@link listResult} and
+ * {@link catalogResult} say, once {@link gates} let them.
  * @returns the launch-token URL to hand {@link setupNotifications}.
  */
 async function serving(): Promise<string> {
@@ -244,9 +363,13 @@ async function serving(): Promise<string> {
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       const frame = JSON.parse(body) as { method: string; payload: { args: Record<string, unknown> } }
-      if (frame.method === 'session/list') {
-        response.writeHead(200, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ result: listResult(frame.payload.args) }))
+      if (frame.method === 'session/list' || frame.method === 'schedule/catalog') {
+        const method: HeldMethod = frame.method
+        void (gates.get(method)?.opened ?? Promise.resolve()).then(() => {
+          const result = method === 'session/list' ? listResult(frame.payload.args) : catalogResult(frame.payload.args)
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ result }))
+        })
         return
       }
       const failing = frame.method === '$events/result' && resultFailures > 0
@@ -589,6 +712,418 @@ describe('the approval toast', () => {
   })
 })
 
+/**
+ * Report a change of the schedule service's task table, as it does after
+ * committing a delivery.
+ * @param socket - the stream socket to deliver it on.
+ */
+function scheduleChanged(socket: FakeSocket): void {
+  socket.deliver({ type: 'emit', event: 'schedule/changed', args: [] })
+}
+
+/**
+ * Report one session's running bit.
+ * @param socket - the stream socket to deliver it on.
+ * @param running - whether the session is running now.
+ * @param sessionId - the session; `session-1` unless given.
+ */
+function sessionRunning(socket: FakeSocket, running: boolean, sessionId = 'session-1'): void {
+  socket.deliver({ type: 'emit', event: 'api-session/status', args: [sessionId, running] })
+}
+
+/**
+ * The bodies of every notification raised, in order.
+ * @returns the bodies.
+ */
+function bodies(): string[] {
+  return notifications.map(notification => notification.options.body)
+}
+
+/**
+ * Subscribe and register, and wait until the baseline read on `ready` has
+ * been answered from {@link catalog}.
+ * @returns the stream socket the module opened.
+ */
+async function seeded(): Promise<FakeSocket> {
+  const socket = await subscribed()
+  await until(() => catalogReads >= 1, 'the baseline read')
+  return socket
+}
+
+/**
+ * Whether the shell logged the line that drops the finished-run message of
+ * the run a reminder woke.
+ * @returns true once that line was written.
+ */
+function wokenRunEnded(): boolean {
+  return lines.some(line => line.includes('session session-1 finished the run a reminder woke'))
+}
+
+describe('the reminder message', () => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', writable: false, enumerable: true, configurable: true })
+    windows.push(hiddenWindow)
+  })
+
+  afterEach(async () => {
+    for (const stop of quitHandlers) stop()
+    // A held lookup keeps its response open, and the server would not close.
+    release('schedule/catalog')
+    release('session/list')
+    Object.defineProperty(process, 'platform', { value: realPlatform, writable: false, enumerable: true, configurable: true })
+    notifications.length = 0
+    sockets.length = 0
+    answers.length = 0
+    lines.length = 0
+    posted.length = 0
+    windows.length = 0
+    reveals = 0
+    listFailures = 0
+    answersRead = 0
+    const running = server
+    server = undefined
+    if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
+  })
+
+  it('announces a delivery made since the baseline, naming the session and the reminder', async () => {
+    const socket = await seeded()
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    expect(notifications[0]?.options).toEqual({ title: '提醒', body: `「${TITLE}」：${REMINDER}`, actions: [] })
+    expect(notifications[0]?.shown).toBe(1)
+    expect(lines).toContain(`[desktop] notify: 提醒 — 「${TITLE}」：${REMINDER}\n`)
+    notifications[0]?.handlers.get('click')?.({ actionIndex: 0 })
+    expect(reveals).toBe(1)
+  })
+
+  it('announces nothing for a delivery the baseline read on ready already holds', async () => {
+    catalog = [reminder('message-1')]
+    const socket = await seeded()
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    await settle()
+    expect(notifications.map(notification => notification.options.body)).toEqual([`「${TITLE}」：交房租`])
+  })
+
+  it('announces nothing while the window is attended, and does not announce that delivery afterwards', async () => {
+    windows.length = 0
+    windows.push(focusedWindow)
+    const socket = await seeded()
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    scheduleChanged(socket)
+    // The third read goes out once the first comparison has been decided.
+    await until(() => catalogReads >= 3, 'the read after the attended comparison')
+    windows.length = 0
+    windows.push(hiddenWindow)
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    await settle()
+    expect(notifications.map(notification => notification.options.body)).toEqual([`「${TITLE}」：交房租`])
+  })
+
+  it('reads the baseline again when the stream reopens, so a delivery made while it was closed is not announced', async () => {
+    const socket = await seeded()
+    socket.emit('close', {})
+    catalog = [reminder('message-1')]
+    socket.deliver({ type: 'ready', clientId: CLIENT })
+    await until(() => catalogReads >= 2, 'the second baseline read')
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    await settle()
+    expect(notifications.map(notification => notification.options.body)).toEqual([`「${TITLE}」：交房租`])
+  })
+
+  it('drops the finished-run message of the run the reminder woke, and of no later run', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
+    scheduleChanged(socket)
+    // The woken run ends while the catalog read is still in flight.
+    sessionRunning(socket, false)
+    await until(wokenRunEnded, 'the dropped finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒'])
+    sessionRunning(socket, true)
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the next run\'s message')
+    expect(notifications[1]?.options.title).toBe('任务已完成')
+    expect(notifications[1]?.options.body).toBe(`「${TITLE}」已经跑完,可以回来看结果了。`)
+  })
+
+  it('announces the end of a later run when the woken run ended while the stream was closed', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    // The woken run ends while the stream is closed; a later run then starts
+    // and ends before the read on ready is answered.
+    socket.emit('close', {})
+    hold('schedule/catalog')
+    socket.deliver({ type: 'ready', clientId: CLIENT })
+    sessionRunning(socket, true)
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the later run\'s message')
+    expect(notifications[1]?.options.title).toBe('任务已完成')
+    expect(wokenRunEnded()).toBe(false)
+  })
+
+  it('drops the finished-run message of a woken run that ends after the stream reopened', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    socket.emit('close', {})
+    socket.deliver({ type: 'ready', clientId: CLIENT })
+    sessionRunning(socket, false)
+    await until(wokenRunEnded, 'the dropped finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒'])
+  })
+
+  it('keeps the finished-run message of a run that started well before the reminder was delivered', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    // Due long ago and delivered a minute after this run started: the run
+    // was going before the reminder could wake it.
+    const delivered = new Date(Date.now() + 60_000).toISOString()
+    catalog = [reminder('message-1', {}, delivered)]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒', '任务已完成'])
+    expect(wokenRunEnded()).toBe(false)
+  })
+
+  it('keeps the finished-run message of a woken run whose reminder arrived while the window was attended', async () => {
+    windows.length = 0
+    windows.push(focusedWindow)
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
+    scheduleChanged(socket)
+    scheduleChanged(socket)
+    // The third read goes out once the first comparison has been decided.
+    await until(() => catalogReads >= 3, 'the read after the attended comparison')
+    windows.length = 0
+    windows.push(hiddenWindow)
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 1, 'the finished-run message')
+    expect(notifications[0]?.options.title).toBe('任务已完成')
+  })
+
+  it('announces the end of a run that was not going at the change without waiting for the read', async () => {
+    const socket = await seeded()
+    hold('schedule/catalog')
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    sessionRunning(socket, true, 'session-2')
+    sessionRunning(socket, false, 'session-2')
+    await until(() => notifications.length === 1, 'the finished-run message')
+    expect(notifications[0]?.options.body).toBe('「旅行计划」已经跑完,可以回来看结果了。')
+    release('schedule/catalog')
+    await until(() => notifications.length === 2, 'the reminder toast')
+    expect(notifications[1]?.options.title).toBe('提醒')
+  })
+
+  it('announces nothing for a reminder whose session is named after its generation was stopped', async () => {
+    const socket = await seeded()
+    hold('session/list')
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(() => posted.includes('/api/session/list'), 'the held lookup')
+    for (const stop of quitHandlers) stop()
+    release('session/list')
+    await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('announces nothing for a run whose session is named after its generation was stopped', async () => {
+    const socket = await seeded()
+    hold('session/list')
+    sessionRunning(socket, true)
+    sessionRunning(socket, false)
+    await until(() => posted.includes('/api/session/list'), 'the held lookup')
+    for (const stop of quitHandlers) stop()
+    release('session/list')
+    await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('announces nothing for a read that lands after its generation was stopped', async () => {
+    const socket = await seeded()
+    hold('schedule/catalog')
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(() => posted.filter(path => path === '/api/schedule/catalog').length >= 2, 'the held read')
+    for (const stop of quitHandlers) stop()
+    release('schedule/catalog')
+    await until(() => catalogReads >= 2, 'the answered read')
+    await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+    expect(notifications).toHaveLength(0)
+    expect(posted).not.toContain('/api/session/list')
+  })
+
+  it('announces the tasks of one recurring batch in one message, and not again for a task of it read later', async () => {
+    const socket = await seeded()
+    catalog = [reminder('message-1'), reminder('message-1', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the batch\'s toast')
+    // The server commits each task of a batch on its own, each with its own
+    // `schedule/changed`, and a read can land between two of them.
+    catalog = [...catalog, reminder('message-1', { id: 'schedule-3', title: '交水费' })]
+    scheduleChanged(socket)
+    catalog = [...catalog, reminder('message-2', { id: 'schedule-4', title: '交电费' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 2, 'the next delivery\'s toast')
+    await settle()
+    expect(bodies()).toEqual([`「${TITLE}」：${REMINDER}、交房租`, `「${TITLE}」：交电费`])
+  })
+
+  it('announces a delivery the read on ready reports when it was made after the stream became ready', async () => {
+    hold('schedule/catalog')
+    const socket = await subscribed()
+    // Delivered after the ready frame arrived and committed before the read
+    // on ready was answered; its own `schedule/changed` follows.
+    const delivered = new Date().toISOString()
+    catalog = [reminder('message-1', {}, delivered)]
+    release('schedule/catalog')
+    await until(() => catalogReads >= 1, 'the baseline read')
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    expect(bodies()).toEqual([`「${TITLE}」：${REMINDER}`])
+  })
+
+  it('keeps the finished-run message of a run that started before the reminder fell due', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    await new Promise<void>((resolve) => { setTimeout(resolve, 20) })
+    const due = new Date().toISOString()
+    catalog = [reminder('message-1', { scheduledAt: due, lastDelivery: { scheduledAt: due, deliveredAt: due, messageId: 'message-1' } })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒', '任务已完成'])
+    expect(wokenRunEnded()).toBe(false)
+  })
+
+  it('keeps the finished-run message of a run started long after a delivery that a failed read left to be announced later', async () => {
+    const socket = await seeded()
+    catalogFailures = 1
+    catalog = [reminder('message-1', {}, new Date(Date.now() - 3_600_000).toISOString())]
+    scheduleChanged(socket)
+    await until(() => lines.some(line => line.startsWith('[desktop] reminder deliveries could not be read:')), 'the failed read')
+    // An hour after that delivery the user starts a run of the same session,
+    // and an unrelated change to the task table announces the delivery late.
+    sessionRunning(socket, true)
+    catalog = [...catalog, {
+      id: 'schedule-2', kind: 'at', title: '交房租', prompt: INSTRUCTION, scheduledAt: new Date(Date.now() + 3_600_000).toISOString(),
+      sessionId: 'session-2', status: 'active',
+    }]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the late reminder toast')
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒', '任务已完成'])
+    expect(wokenRunEnded()).toBe(false)
+  })
+
+  it('calls the session 会话 when its title cannot be looked up', async () => {
+    const socket = await seeded()
+    listFailures = 1
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    expect(notifications[0]?.options.body).toBe(`会话：${REMINDER}`)
+  })
+
+  it('quotes the instruction of a reminder without a name, and says only that one arrived when it has neither', async () => {
+    const socket = await seeded()
+    catalog = [
+      reminder('message-1', { title: ' ' }),
+      reminder('message-2', { id: 'schedule-2', title: '', prompt: '' }),
+    ]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 2, 'both reminder toasts')
+    expect(notifications.map(notification => notification.options.body)).toEqual([
+      `「${TITLE}」：${INSTRUCTION}`,
+      `「${TITLE}」有一条提醒到了。`,
+    ])
+  })
+
+  it('logs a failed read, announces nothing for it, and announces its delivery with the next read that succeeds', async () => {
+    const socket = await seeded()
+    catalogFailures = 1
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(
+      () => lines.includes('[desktop] reminder deliveries could not be read: schedule/catalog failed: gateway/service-unavailable: schedule is not available\n'),
+      'the failed read',
+    )
+    expect(notifications).toHaveLength(0)
+    // The first read after the failure already carries the next delivery.
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 2, 'both reminder toasts')
+    expect(bodies()).toEqual([`「${TITLE}」：${REMINDER}`, `「${TITLE}」：交房租`])
+  })
+
+  it('announces a delivery after the read on ready failed, and none made before the stream became ready', async () => {
+    catalogFailures = 1
+    catalog = [reminder('message-1')]
+    const socket = await seeded()
+    await until(() => lines.some(line => line.startsWith('[desktop] reminder deliveries could not be read:')), 'the failed read on ready')
+    const delivered = new Date().toISOString()
+    catalog = [
+      reminder('message-1'),
+      reminder('message-2', { id: 'schedule-2', title: '交房租' }, delivered),
+    ]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the reminder toast')
+    await settle()
+    expect(bodies()).toEqual([`「${TITLE}」：交房租`])
+  })
+
+  it('logs a read answered without a list, and announces nothing', async () => {
+    const socket = await seeded()
+    catalogValue = { items: [reminder('message-1')] }
+    scheduleChanged(socket)
+    await until(
+      () => lines.includes('[desktop] reminder deliveries could not be read: schedule/catalog answered without a list\n'),
+      'the unreadable answer',
+    )
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('logs a reminder message that could not be raised, and goes on to the next delivery', async () => {
+    const socket = await seeded()
+    notificationFailures = 1
+    catalog = [reminder('message-1')]
+    scheduleChanged(socket)
+    await until(() => lines.includes('[desktop] reminder message-1 could not be announced: the toast was refused\n'), 'the failed message')
+    catalog = [reminder('message-2')]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the next delivery\'s toast')
+    expect(bodies()).toEqual([`「${TITLE}」：${REMINDER}`])
+  })
+
+  it('announces the other messages of a read when one of them cannot be raised', async () => {
+    const socket = await seeded()
+    notificationFailures = 1
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the second message\'s toast')
+    expect(bodies()).toEqual([`「${TITLE}」：交房租`])
+    expect(lines).toContain('[desktop] reminder message-1 could not be announced: the toast was refused\n')
+  })
+})
+
 /** What the Dock badge shows now; an empty string is no badge. */
 function shownBadge(): string {
   return dockBadges.at(-1) ?? ''
@@ -680,6 +1215,29 @@ describe('the macOS Dock badge', () => {
     await until(() => shownBadge() === '2', 'the request')
     socket.deliver({ type: 'cancel', eventId: 'event-a' })
     expect(shownBadge()).toBe('1')
+  })
+
+  it('counts the tasks of one recurring batch once', async () => {
+    const socket = await seeded()
+    catalog = [reminder('message-1'), reminder('message-1', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => shownBadge() === '1', 'the batch\'s count')
+    catalog = [...catalog, reminder('message-2', { id: 'schedule-3', title: '交水费' })]
+    scheduleChanged(socket)
+    await until(() => lines.some(line => line.includes('交水费')), 'the next delivery\'s message')
+    await settle()
+    expect(dockBadges).toEqual(['1', '2'])
+  })
+
+  it('counts a reminder once, together with the run it woke', async () => {
+    const socket = await seeded()
+    sessionRunning(socket, true)
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
+    scheduleChanged(socket)
+    sessionRunning(socket, false)
+    await until(wokenRunEnded, 'the dropped finished-run message')
+    expect(shownBadge()).toBe('1')
+    expect(notifications).toHaveLength(0)
   })
 
   it('drops the requests of a generation that was stopped', async () => {
