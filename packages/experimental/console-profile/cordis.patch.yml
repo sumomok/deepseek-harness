@@ -119,6 +119,25 @@
 - id: ui-settings-plugin-inventory
   disabled: true
 
+# Schedule off, both halves. `dsh-web-app` composes `schedule`, the Host task
+# store that delivers each due reminder as a follow-up in the session that
+# created it and answers the `schedule.*` Remote methods, and `ui-schedule`,
+# the browser half: the Automation tasks page and the card a created reminder
+# draws. A console is one Host every signed-in visitor shares:
+# `schedule.catalog` returns every session's tasks, and the four `schedule_*`
+# tools create, change, and delete tasks with no approval step.
+#
+# The four tools and the `time-context` clock row belong to the presets that
+# declare them — the shipped `standard`, `ptc`, and `cordis`, all disabled
+# below — and neither console preset declares either. A preset that mounted
+# `tool-schedule` without the `schedule` service would leave it pending, with
+# none of the four tools registered.
+- id: schedule
+  disabled: true
+
+- id: ui-schedule
+  disabled: true
+
 # Live client plugin replacement off. `dsh-web-app` composes `client-hmr`,
 # which swaps new plugin bundles into an open page that keeps running its
 # loaded shell; after an upgrade that page fails to draw, and a page still

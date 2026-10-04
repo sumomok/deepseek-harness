@@ -98,6 +98,18 @@ const PLUGIN_SETTINGS_ROWS = [
   ['ui-settings-plugins', '@deepseek-ai/dsh-client-ui-settings-plugins'],
   ['ui-settings-plugin-inventory', '@deepseek-ai/dsh-client-ui-settings-plugin-inventory'],
 ] as const
+/**
+ * The two rows that compose Schedule in the shipped Web bundle: the Host task
+ * store with its `schedule.*` Remote methods, and the Automation tasks page
+ * over it. A console's visitors share one Host, so one visitor's reminder
+ * would run in a deployment every other visitor shares.
+ */
+const SCHEDULE_ROWS = [
+  ['schedule', '@deepseek-ai/dsh-schedule'],
+  ['ui-schedule', '@deepseek-ai/dsh-client-ui-schedule'],
+] as const
+/** The preset-owned rows of the reminder stack: the four `schedule_*` tools and the clock reading. */
+const SCHEDULE_PRESET_PACKAGES = ['@deepseek-ai/dsh-tool-schedule', '@deepseek-ai/dsh-time-context'] as const
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
@@ -112,6 +124,18 @@ interface Row {
     presets?: Record<string, { name?: unknown; sandbox?: unknown; approval?: unknown }>
     default?: unknown
   }
+}
+
+/**
+ * Every package a preset's plugin list loads, groups' members included.
+ * @param rows - one preset's `config.plugins`, or a group's `config`.
+ * @returns the package names, depth first.
+ */
+function pluginPackages(rows: readonly Row[]): string[] {
+  return rows.flatMap(row => [
+    ...row.name === undefined || row.name === 'cordis:group' ? [] : [row.name],
+    ...Array.isArray(row.config) ? pluginPackages(row.config as Row[]) : [],
+  ])
 }
 
 /**
@@ -295,6 +319,28 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(shipped.get('client-hmr')).toMatchObject({ name: '@deepseek-ai/dsh-client-hmr' })
     expect(shipped.get('client-hmr')?.disabled).not.toBe(true)
     expect(byId.get('client-hmr')?.disabled).toBe(true)
+  })
+
+  it('turns Schedule off by id, both halves, while the shipped Web bundle still composes them', () => {
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    for (const [id, name] of SCHEDULE_ROWS) {
+      expect(rowOf(CONSOLE_PATCH, id)).toEqual({ id, disabled: true })
+      expect(shipped.get(id)).toMatchObject({ name })
+      expect(shipped.get(id)?.disabled).not.toBe(true)
+      expect(byId.get(id)?.disabled).toBe(true)
+    }
+  })
+
+  it('leaves the reminder tools and the clock row only in Agent presets it disables', () => {
+    // `tool-schedule` waits for the `schedule` service the rows above remove,
+    // so an enabled preset declaring it would leave it pending.
+    const presets = entries.filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset')
+    const declaring = presets.filter((entry) => {
+      const plugins = pluginPackages((entry.config as { plugins?: Row[] } | undefined)?.plugins ?? [])
+      return SCHEDULE_PRESET_PACKAGES.some(name => plugins.includes(name))
+    })
+    expect(declaring.map(entry => entry.id).sort()).toEqual(['preset-cordis', 'preset-ptc', 'preset-standard'])
+    expect(declaring.filter(entry => entry.disabled !== true)).toEqual([])
   })
 
   it('turns the Web surface context off and restates the rest of the shipped `web-runtime` config', () => {
