@@ -41,15 +41,25 @@ function snapshot(): Extract<TerminalSnapshot, { kind: 'profile' }> {
 }
 
 describe('restoring a shell profile', () => {
-  it('deletes a profile the move created, and the backup made beside it', () => {
+  it('deletes a profile the move created, of which no write made a backup', () => {
     const before = snapshot()
     updateShellProfile(zsh(), '/Volumes/Data/DSH-Data')
-    // A second write backs up the file the first one created.
     updateShellProfile(zsh(), '/Volumes/Data/DSH-Data2')
-    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(true)
+    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(false)
     expect(restoreShellProfile(before)).toMatchObject({ kind: 'delete-file', deleteBackup: true })
     expect(existsSync(profile())).toBe(false)
-    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(false)
+  })
+
+  it('keeps the backup of the file before the first move when a second move is rolled back', () => {
+    const original = 'alias a=b\n'
+    writeFileSync(profile(), original)
+    updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+    const before = snapshot()
+    expect(before.backupExisted).toBe(true)
+    updateShellProfile(zsh(), '/Users/me/DSH-Data')
+    expect(restoreShellProfile(before)).toMatchObject({ kind: 'write-whole', deleteBackup: false })
+    expect(readFileSync(profile(), 'utf8')).toContain("'/Volumes/Ext/DSH-Data'")
+    expect(readFileSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`, 'utf8')).toBe(original)
   })
 
   it('keeps a profile the move created once someone else wrote into it, removing only the block', () => {

@@ -7,8 +7,11 @@
  * On macOS the shell profile is restored whole only when nothing outside this
  * module's block changed since the snapshot; otherwise only the block is put
  * back (or removed), and every byte outside it stays as it is now. A profile
- * that did not exist before is deleted, with the `.dsh-backup` this module
- * made beside it. On Windows the user variable is written back with its
+ * that did not exist before is deleted. A `<file>.dsh-backup` that did not
+ * exist before the move is deleted, and one that did is kept: the move's write
+ * makes that copy only of a file that holds no block, so a copy that was there
+ * already still holds the file as it was before the block was first added.
+ * On Windows the user variable is written back with its
  * registry type through the registry, since .NET's `SetEnvironmentVariable`
  * writes only `REG_SZ` and treats an empty value as removal; the change is
  * then announced with `WM_SETTINGCHANGE`, and a failed announcement is only

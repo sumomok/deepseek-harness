@@ -14,8 +14,10 @@
  *
  * Writing touches one place per platform. On Windows it is the user
  * environment, set through .NET's `SetEnvironmentVariable`, which broadcasts
- * `WM_SETTINGCHANGE` itself. On macOS it is one block this module owns in the
- * shell profile, between {@link BLOCK_START} and {@link BLOCK_END}; an
+ * `WM_SETTINGCHANGE` itself; no copy of the earlier value is kept there, and a
+ * data move holds it only in its own record until the move ends. On macOS it
+ * is one block this module owns in the shell profile, between
+ * {@link BLOCK_START} and {@link BLOCK_END}; an
  * assignment the person wrote elsewhere in that file is never edited, and its
  * presence stops the write, because the person's own line would keep deciding
  * what the terminal sees. Other shells, fish among them, are not written.
@@ -42,7 +44,7 @@ export const POINTER_HOME_ENV = 'DSH_DESKTOP_POINTER_HOME'
 export const BLOCK_START = '# >>> DSH data location >>>'
 /** Last line of the profile block this module owns. */
 export const BLOCK_END = '# <<< DSH data location <<<'
-/** Suffix of the copy a profile is saved to before each rewrite. */
+/** Suffix of the copy a profile is saved to before a write adds this module's block to it. */
 export const PROFILE_BACKUP_SUFFIX = '.dsh-backup'
 /** How long the login shell may take to report `DSH_HOME` before it counts as unknown. */
 export const LOGIN_SHELL_TIMEOUT_MS = 5000
@@ -265,6 +267,7 @@ export interface ForeignAssignment {
 
 /** Outcome of {@link updateShellProfile}. */
 export type ProfileUpdate =
+  /** `backup` names `<file>.dsh-backup` when this write copied the file there. */
   | { kind: 'written'; file: string; backup?: string }
   | { kind: 'unchanged'; file: string }
   | { kind: 'unsupported-shell'; shell: string }
@@ -421,9 +424,16 @@ export function withoutProfileBlock(found: Extract<ProfileBlocks, { kind: 'block
 /**
  * Set or remove this module's `DSH_HOME` block in the person's shell profile.
  * A profile that is a symbolic link is written at its target, so a dotfiles
- * checkout keeps its link. The file is copied byte for byte to
- * `<file>.dsh-backup` and then replaced atomically with the same permission
- * bits.
+ * checkout keeps its link. The file is replaced atomically with the same
+ * permission bits.
+ *
+ * Only a write to an existing file that holds no block of this module's
+ * copies it first, byte for byte, to `<file>.dsh-backup`, replacing an earlier
+ * copy. A write to a file that already holds the block leaves the copy as it
+ * is, so the copy keeps the file as it was before this module first added its
+ * block, however many writes follow, and whatever the person changed around
+ * the block since. A person who removes the block by hand gets a fresh copy of
+ * that file on the next write.
  *
  * The profile is handled as bytes, not decoded text: every byte outside the
  * block, in whatever encoding the person saved it, is written back unchanged,
@@ -488,7 +498,7 @@ export function updateShellProfile(target: ProfileTarget, value: string | undefi
   }
   if (content === original) return { kind: 'unchanged', file: path }
   let backup: string | undefined
-  if (choice.exists) {
+  if (choice.exists && start === -1) {
     backup = `${path}${PROFILE_BACKUP_SUFFIX}`
     copyDurably(path, backup)
   }
