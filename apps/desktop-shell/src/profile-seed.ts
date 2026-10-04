@@ -190,7 +190,7 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@haoran/dsh-clickable-refs', '@haoran/dsh-vision-switch',
   '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
   '@haoran/dsh-desktop-update', '@haoran/dsh-auto-compact', '@haoran/dsh-office-preview-notice',
-  '@haoran/dsh-crash-resume',
+  '@haoran/dsh-crash-resume', '@haoran/dsh-data-location',
   DESKTOP_COMPOSITION_BUNDLE,
 ]
 

@@ -46,8 +46,9 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.6.0.tgz) | MIT |
 | [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.4.0.tgz) | MIT |
 | [`@haoran/dsh-crash-resume`](apps/desktop-server/vendor/haoran-dsh-crash-resume-0.4.2.tgz) | MIT |
+| [`@haoran/dsh-data-location`](apps/desktop-server/vendor/haoran-dsh-data-location-0.2.0.tgz) | MIT |
 | [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.3.0.tgz) | MIT |
-| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.6.0.tgz) | MIT |
+| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.7.0.tgz) | MIT |
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.3.0.tgz) | MIT |
 | [`@haoran/dsh-office-preview-notice`](apps/desktop-server/vendor/haoran-dsh-office-preview-notice-0.3.0.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.7.0.tgz) | MIT |
@@ -76,7 +77,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
 | [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.8.0.tgz) | MIT |
-| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.5.0.tgz) | MIT |
+| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.5.1.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@trycua/cua-driver`](https://github.com/trycua/cua) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
