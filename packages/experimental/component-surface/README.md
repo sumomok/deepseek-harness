@@ -236,7 +236,7 @@ No property of a page may be read from another block. Every one of them is on th
 3. `content-component/resolved` records the entry: the same event a read appends, with `fetched` empty because nothing was fetched here.
 4. The call waits, up to `dataPageLoadTimeoutMs`, for a browser to report the page's columns, and answers either with them or with the sentence saying no client reported them in time — which also says the columns and counts will arrive as notices, so a model is not tempted to place the page again and ask the user the same question twice.
 
-A call's own `tool/call` records no entry for this kind, and `recordsEntry` is what both the extractor and the invariant companion read that off, so the two count the same records. Drawing the entry from the call would put the page on screen — and its first request on the wire, with the user's own credential — before the question was answered, and would leave it there after a refusal.
+A call's own `tool/call` records no entry for this kind; the extractor reads that off `recordsEntry`. Drawing the entry from the call would put the page on screen — and its first request on the wire, with the user's own credential — before the question was answered, and would leave it there after a refusal.
 
 ### A view may place one, and the click opens it
 
@@ -561,7 +561,6 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **A deployment with no views serves no catalog route** — the route and the command are claimed only where `views` has an entry, so a sidebar asking a deployment that configured none gets whatever the webserver's fallback answers with rather than an empty catalog. That is the same answer it gets where this row is not composed at all, and it is a case the sidebar already contains; what it costs is that the two cannot be told apart.
 - **A view click has no assembled-transcript coverage** — the `snapshots/console` lane drives an ACP agent and the ACP protocol has no command method, so no recorded transcript can carry a click, exactly as none can carry a press. The lane still configures a view, because the load-time judgement over it is part of what booting that composition proves; what a click then does is covered by this package's own composition suite and by the Playwright scenario against a real console.
 - **A stored entry carries its whole spec** — the column's projection keeps the validated spec per live entry, so it rides the wire value and the persisted checkpoint. The byte ceiling is what bounds it.
-- **The invariant reports through the dispatch path only** — `Session.append` reports a throwing listener to the logger and carries on, so the live audit reaches a caller only where a committed event is dispatched through the context. The startup audit over loaded sessions is unaffected.
 - **The drawn block is not covered by an assembled snapshot** — the tool's whole model-visible surface, the catalog spliced into its description and the result line included, is pinned by the [`snapshots/console`](../../../snapshots/console/README.md) lane, which composes this row for real and runs a call end to end. What the seat then draws is a Playwright scenario against a real console composition.
 
 <a id="dev-note"></a>

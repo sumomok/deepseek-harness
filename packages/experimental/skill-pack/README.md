@@ -284,8 +284,6 @@ The skill registry's consumer owns the durable catalog message and its append-on
 - **A pack root with no parts provider offers nothing with a view.** Until a provider of `ctx.skillPackParts` is mounted, every pack naming a part is inactive. That is the correct fail-closed state and an easy one to mistake for a bug, which is what the status route is for. [`skill-pack-components`](../skill-pack-components/README.md) is the provider a deployment composes.
 - **Not covered by an assembled snapshot** — the package is exercised by its own specs, including a real Loader composition over a real pack root; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
-**Runtime invariant:** No companion is published. This package keeps no mutable state that an independent observation could contradict: every read is computed from the pack root and the parts source at the moment of the call, and the one retained value is the last withheld-pack report, which exists so an unchanged report is not logged twice.
-
 <a id="dev-note"></a>
 ### Dev Note
 

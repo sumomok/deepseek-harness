@@ -6,12 +6,10 @@
  * registrations for both browser-driven commands and their hiding stylesheet,
  * the `content_read` row that exists only where the deployment configured page
  * access, the wait for the column's/conversation's declarations, removal on
- * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
- * ownership reservation.
+ * fiber teardown (HMR safety), and the dictionaries.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
@@ -20,7 +18,6 @@ import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
 import { ContentReadRow } from '../src/client/access/ContentReadRow.tsx'
 import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
-import * as ContentFrameInvariant from '../src/invariant.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
@@ -251,17 +248,5 @@ describe('content-frame browser half', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
-  })
-})
-
-describe('content-frame invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ContentFrameInvariant)
-    await fiber.await()
-    expect(ContentFrameInvariant.name).toBe('experimental-content-frame-invariant')
-    expect(ContentFrameInvariant.inject).toEqual(['invariants'])
-    await fiber.dispose()
   })
 })

@@ -212,8 +212,6 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **The settings route assumes an HTTP carrier.** The browser half fetches `/auth-gate/settings` — the root-absolute route the node half registers, resolved against the page's deployment base — so a transport that serves the shell without exposing the harness over HTTP would fail the row.
 - **Not covered by an assembled snapshot** — the browser evidence is the Playwright scenario in `apps/web/tests/auth-gate.e2e.ts` against a real composition, renewal included; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
-**Runtime invariant:** No companion is published. This package appends no session event and owns no durable data. The one piece of mutable state it does own — the held access token — is deliberately unreachable from anywhere but the plugin closure that holds it, because a reader an invariant could use would be a reader an attacker could use; the token route's own parse enforces its shape where it enters.
-
 <a id="dev-note"></a>
 ### Dev Note
 

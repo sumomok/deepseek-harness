@@ -86,7 +86,6 @@ The vendored tarball declares its harness packages as optional peers, and pnpm 1
 | `vendor/haoran-dsh-auto-compact-0.5.1.tgz` | `@haoran/dsh-auto-compact` 0.5.1 from the out-of-repo plugin repository, packed from a build of its pushed `main` and declared as `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"` |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | The `permission`, `agent-preset-registry`, and `session-log-deepseek` rows, applied above the profile patch |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the two patch files are the runtime content |
-| — | No runtime invariant companion is published; the package owns no mutable relationship. Loader and the profile's patch files own the composition. |
 
 </details>
 

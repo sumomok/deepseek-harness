@@ -69,8 +69,6 @@ None; the package never assembles or sends provider requests.
 - **No shared runtime** — see Bundle cost above; every Vue plugin pays for its own copy until the module table says otherwise.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario run against a real composition, not a recorded transcript; the snapshot lanes project model-visible and conversation output, which this package has none of.
 
-**Runtime invariant:** No companion is published. This package owns no event stream and no mutable durable data. Its only relationship — the header-action registration and its removal on teardown — is a slot effect this package's own tests exercise, and the Vue tree it hosts lives entirely inside one browser container.
-
 <a id="dev-note"></a>
 ### Dev Note
 

@@ -154,8 +154,6 @@ Append-only: a result follows the reusable request prefix and invalidates nothin
 - **The cards are English on a Chinese console.** The host presenters title each call in English, as every other host presenter in this repository does. There is no Client plugin, so the browser falls back to the generic row and shows the tool name and the result text.
 - **No write, and none is coming through here.** Reading a deployment's configuration and changing it are not two methods of one thing: a write spends a person's credential on a change to their own system and needs its own consent question and its own record, and neither exists in this row.
 
-**Runtime invariant:** No companion is published. This package registers no service, appends no session event, owns no durable data and keeps no mutable state: three tools, three pure reductions and the text they render, all of them functions of one backend answer. There is no owned relation two observers could disagree about, which is the only thing `./invariant` exists to check.
-
 <a id="dev-note"></a>
 ### Dev Note
 

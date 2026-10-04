@@ -254,8 +254,6 @@ None; this package neither assembles nor sends a provider request.
 - **A row's relative time does not tick.** It is computed at render, so "刚刚" stays until something else re-renders the section.
 - **Not covered by an assembled snapshot.** The browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
-**Runtime invariant:** No companion is published because the menu is this row's own Loader Config: the settings service writes it through the config editor, the route checks each merged menu before writing, and the row rechecks the committed menu at load, so no second observation of the same value can diverge from it.
-
 <a id="dev-note"></a>
 ### Dev Note
 

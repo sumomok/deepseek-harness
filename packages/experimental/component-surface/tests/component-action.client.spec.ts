@@ -120,14 +120,14 @@ async function setup(ghost?: { data: unknown }): Promise<Context> {
   await ctx.plugin(ShowComponent)
   await installKitCatalog(ctx)
   if (ghost !== undefined) {
-    // A second extractor claiming one kind is composable — the package's own
-    // invariant companion exists for exactly this — and it is the reachable
-    // way a `component` record carries data this build's reader refuses.
+    // A second extractor claiming one kind is composable, and it is the
+    // reachable way a `component` record carries data this build's reader
+    // refuses.
     const rogue: ContentSurfaceExtractor<unknown> = {
       kind: COMPONENT_KIND,
       dataVersion: 1,
       // Over an entry an accepted call already recorded, so the row's own
-      // invariant — no entry without a call — still holds while its data does not.
+      // rule — no entry without a call — still holds while its data does not.
       read: event => (event.type === 'command/run' ? { entryId: 'budget', data: ghost.data } : undefined),
       resolve: () => ({ title: '确认删除', payload: undefined }),
     }

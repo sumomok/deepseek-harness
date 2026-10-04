@@ -81,8 +81,6 @@ None; this package neither assembles nor sends a provider request.
 - **一次关闭没有任何确认界面** —— 点击关闭按钮会立刻触发命令；除了重新导航到（或让 agent 重绘）同一个 `(kind, entryId)`（fold 会把它当作一次普通的新 entry 处理）之外，没有撤销手段。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
 
-**运行时不变式：** 不发布伴生入口。本包是一个浏览器落位：它的宿主半边是空插件，不追加任何会话事件，而它画出来的 entry 流属于 `content-surface`，后者会用 projection unit 自己的 schema 校验每一个发布出去的值。
-
 <a id="dev-note"></a>
 ### 开发备注
 

@@ -5,8 +5,7 @@
  * declaration, removal on fiber teardown (HMR safety), the dictionaries, the
  * two tab callbacks its `content` registration injects, the empty
  * `conversation.chat.commandview` registrations for both switcher commands and
- * their hiding stylesheet, the behaviorless node half, and the invariant
- * companion's ownership reservation.
+ * their hiding stylesheet, and the behaviorless node half.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'

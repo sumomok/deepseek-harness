@@ -3,8 +3,7 @@
  * has to precede the registrations, the keyed tool-view claim and the capture
  * switch it injects, the keyed content-column claim beside it, the wait for
  * each declaration (and the composition where only one of them exists),
- * removal on fiber teardown (HMR safety), the dictionaries, and the invariant
- * companion's ownership reservation.
+ * removal on fiber teardown (HMR safety), and the dictionaries.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

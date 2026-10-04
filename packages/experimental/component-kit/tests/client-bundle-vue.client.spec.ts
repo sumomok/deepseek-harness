@@ -21,14 +21,12 @@
  * build ordered after the coverage gate, so the artifact is absent there as
  * well, and both assertions skip in either case; they run locally, and in any
  * lane that builds first. The repository has no gate that reads a built client
- * bundle's text — `verify-built-package-invariants` reads the compiled
- * companion of every package, not one package's bundle — and the two other
- * specs of this kind, `client/ui-trajectory/tests/client-bundle.client.spec.ts`
- * and `session/session-persistence-sqlite/tests/built-package.spec.ts`, skip on
- * CI for the same reason. Hanging this one assertion on a gate script of its
- * own would give an experimental row CI coverage that shipped rows with the
- * same kind of assertion do not have; the trigger for moving all three is the
- * first gate that reads a built client bundle. Until then, what CI does cover
+ * bundle's text, and the other spec of this kind,
+ * `client/ui-trajectory/tests/client-bundle.client.spec.ts`, skips on CI for
+ * the same reason. Hanging this one assertion on a gate script of its own would
+ * give an experimental row CI coverage that a shipped row with the same kind of
+ * assertion does not have; the trigger for moving both is the first gate that
+ * reads a built client bundle. Until then, what CI does cover
  * is the consequence rather than the cause: `apps/web/tests/component-surface.e2e.ts`
  * draws a vendored component in a real browser against the shipped bundles, and
  * a page whose element-ui landed on a runtime the component does not render on

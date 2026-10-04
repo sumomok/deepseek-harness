@@ -101,8 +101,6 @@ Through the skill registry's consumer only. A component plugin mounted or withdr
 - **A pack that loses an id collision to the deployment's own views learns it from the status route and nowhere else.** The refusal names the id and says it is already offered; it does not name which configured view holds it, because the judgement runs before the index is built and only the index knows the holder. What the operator has is the two documents side by side. A collision between two packs is named on both sides, by the pack root, which can see both.
 - **Not covered by an assembled snapshot** — the row is exercised by its own real-composition spec; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
-**Runtime invariant:** No companion is published because this package holds no state: both reads are computed from `ctx.componentCatalog` at the moment of the call, and there is nothing an independent observation could contradict.
-
 <a id="dev-note"></a>
 ### Dev Note
 

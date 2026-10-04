@@ -86,7 +86,6 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 | `vendor/haoran-dsh-auto-compact-0.5.1.tgz` | 仓外插件仓库的 `@haoran/dsh-auto-compact` 0.5.1，由其已推送的 `main` 构建后打包，声明为 `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"` |
 | [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission`、`agent-preset-registry` 与 `session-log-deepseek` 三行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
-| — | 不发布运行时 invariant 伴生插件；本包不拥有任何可变关系。组合由 Loader 与 profile 的补丁文件拥有。 |
 
 </details>
 

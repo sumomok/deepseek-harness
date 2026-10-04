@@ -77,7 +77,6 @@ metadata:
 | [`cordis.patch.yml`](cordis.patch.yml) | 唯一的组合行：一个以 `skills/` 为根的隔离 `skill-filesystem` provider |
 | `skills/<name>/SKILL.md` | 一份出厂技能；只有这种两层布局会被发现 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；patch 与技能文件才是运行时内容 |
-| — | 不发布运行时不变式伴生入口；本包不拥有任何可变关系。目录合并归 `skill` 注册表，发现归 `skill-filesystem` provider。 |
 
 `bundledSkillDir` 表达式从该层被安装进的 profile 出发，按包名解析本包：
 

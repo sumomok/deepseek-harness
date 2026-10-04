@@ -140,8 +140,6 @@ The constraints below hold for every composition of this row.
 - **The offered reload needs the banner.** On a page whose React tree failed to draw, the automatic reload still runs, but the offer that replaces it — the second time for one build, or without session storage — is not visible.
 - **Not covered by an assembled snapshot** — the evidence is this package's unit suites, its real-composition suite against the web server's index render, the `page-refresh` web scenario, and the console case of the `server-sidebar` web scenario; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
-**Runtime invariant:** No companion is published. The browser half's state is one page's banner and one session-storage record, both checked by this package's own suites; the node half contributes one index row from validated config and owns no session event or durable data.
-
 <a id="dev-note"></a>
 ### Dev Note
 

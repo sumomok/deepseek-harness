@@ -1208,13 +1208,6 @@
     "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1,
     "cf291b74f0a5aa460ec0b9701a77080936a2f12ed4d8c856c1e07444d28d42c9": 8
   },
-  "packages/experimental/component-surface/tests/invariant.client.spec.ts": {
-    "0279428fb66a34aee573c2c5630e651fc24347643ffbe65b8481d23204d6be53": 3,
-    "2be92323e5e0e24f3ab3f37b81457f3624a3b120bc5aedaaf2f9450d8797847c": 1,
-    "5c21c6a9c072e7a7524f45bffa36e036c9a83560fa15b9f18f9470cf5c0d3a2e": 1,
-    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 2,
-    "f1f2068e68d727581643da067bb569a0160b9bbf9d5c168b6b4f72df20c8d7c0": 3
-  },
   "packages/experimental/component-surface/tests/view-command.client.spec.ts": {
     "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
   },
@@ -1331,9 +1324,6 @@
   "packages/experimental/content-frame/tests/content-show-tool.client.spec.ts": {
     "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 1
   },
-  "packages/experimental/content-frame/tests/invariant.client.spec.ts": {
-    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
-  },
   "packages/experimental/content-frame/tests/navigated.client.spec.ts": {
     "279b4c42b4b181bf048c64de98682ec1fa9b5ae5c55d4dc5f0912865eb4adcad": 1
   },
@@ -1350,9 +1340,6 @@
   "packages/experimental/content-surface/tests/command.spec.ts": {
     "2daf460eafa7853ecc9fccd98a0bd7573205434dff10b4eb8b79fc5059150f0c": 1,
     "a66cea6887fa5e33f4d504a7899fcb4b99d79958f6aed01288af1ad6ff557298": 2
-  },
-  "packages/experimental/content-surface/tests/invariant.spec.ts": {
-    "8ab27e347ac61fc5530266e6ae998764c210b61c61619ececfd9cc2e0f558f86": 1
   },
   "packages/experimental/content-surface/tests/projection.spec.ts": {
     "8f81800caca860836842106d989373bcfd47199a8825f07ad7cea5ff07c66ee7": 1,

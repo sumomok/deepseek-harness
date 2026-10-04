@@ -112,7 +112,6 @@ console-mcp: server "iot" names credential "IOT_MCP_TOKEN", which nothing has st
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config` 模式、凭据解析、逐服务器子挂载 |
 | [`src/servers.ts`](src/servers.ts) | 自足检查，以及它们产出的 `ServerSpec` |
-| — | 不发布运行时不变量伴随模块；这一行不拥有任何两个观察者可能看法不一的关系。服务器到工具的世代归桥接所有，模型被提供了什么归工具注册表所有。 |
 
 ### 只支持 Streamable HTTP
 

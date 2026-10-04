@@ -1,8 +1,7 @@
 /**
  * vue2-echarts-poc plugin halves: the browser entry's dictionary registration
  * against the real locale plugin (with fiber teardown proving removal — HMR
- * safety), the inert node entry, and the invariant companion's ownership
- * reservation.
+ * safety), and the inert node entry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'

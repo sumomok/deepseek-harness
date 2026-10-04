@@ -16,11 +16,8 @@
  * arguments and draw nothing for it.
  *
  * All four answer with the same three values, so everything downstream — the
- * judgement, the entry, the invariant's audit — reads one thing and cannot
- * treat a view, a read and a hand-written call differently by accident.
- *
- * Shared by the extractor and by the invariant companion, so what the column
- * shows and what the companion audits are counted the same way.
+ * judgement and the entry — reads one thing and cannot treat a view, a read
+ * and a hand-written call differently by accident.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/projection
  */
 
@@ -75,8 +72,6 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
  * call's own record therefore records no entry: an entry drawn from it would
  * put the page on screen — and its first request on the wire, with the user's
  * own credential — before the answer, and would keep it there after a refusal.
- * Shared by the extractor and the invariant companion so both count the same
- * records.
  * @param event - the committed session event the spec was read from.
  * @param spec - the spec, as validation accepted it.
  * @returns true when the event records the entry; false when a later record does.

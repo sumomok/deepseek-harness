@@ -112,7 +112,6 @@ The second reason is the credential. `dsh-mcp-client`'s `headers` is a string ta
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config` schema, credential resolution, per-server child mount |
 | [`src/servers.ts`](src/servers.ts) | The self-contained checks and the `ServerSpec` they produce |
-| — | No runtime invariant companion is published; this row owns no relationship two observers could see differently. The bridge owns the server-to-tool generation, and the tool registry owns what a model is offered. |
 
 ### Only Streamable HTTP
 

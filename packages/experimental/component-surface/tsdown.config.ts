@@ -7,7 +7,4 @@
  */
 import { clientBundle } from '../../client/tsdown.client.ts'
 
-export default clientBundle(
-  '@deepseek-ai/dsh-experimental-component-surface',
-  ['lib/types/index.js', 'lib/types/invariant.js'],
-)
+export default clientBundle('@deepseek-ai/dsh-experimental-component-surface', ['lib/types/index.js'])

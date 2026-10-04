@@ -212,8 +212,6 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **设置路由假定存在 HTTP 载体。** browser 半边 fetch `/auth-gate/settings`——node 半边注册的那条根绝对路由，按页面的部署基址解析而来——因此一个「提供外壳但不经 HTTP 暴露 harness」的传输会让这一行失败。
 - **不被任何组装快照覆盖** —— 浏览器侧的证据是 `apps/web/tests/auth-gate.e2e.ts` 里那个针对真实组合的 Playwright 场景，续期也在其中；快照通道回放的是已发布组合，而它不组合实验性行。
 
-**运行时不变式：** 不发布伴生入口。本包不追加任何会话事件，也不拥有任何持久数据。它唯一拥有的可变状态——持有的那枚 access token——被刻意做成除持有它的插件闭包外无处可达，因为不变式能用的读取口也就是攻击者能用的读取口；它的形状由 token 路由自己的解析在入口处强制。
-
 <a id="dev-note"></a>
 ### 开发备注
 

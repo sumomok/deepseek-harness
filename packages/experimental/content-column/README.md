@@ -81,8 +81,6 @@ None; this package neither assembles nor sends a provider request.
 - **A dismissal is dispatched with no confirmation UI** — clicking the close button fires the command immediately; there is no undo affordance beyond re-navigating to (or having the agent redraw) the same `(kind, entryId)`, which the fold treats as an ordinary fresh entry.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
-**Runtime invariant:** No companion is published. This package is a browser placement: its host half is an empty plugin, it appends no session event, and the entry stream it draws belongs to `content-surface`, which validates every published value against the projection unit's own schema.
-
 <a id="dev-note"></a>
 ### Dev Note
 

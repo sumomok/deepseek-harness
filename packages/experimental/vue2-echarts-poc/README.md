@@ -99,8 +99,6 @@ None; the package never assembles or sends provider requests.
 - **One bridge, one component** — the bridge mounts a single Vue component and passes it one prop record. Slot children, Vue `provide`/`inject` across bridges, `<Teleport>`, Vue Router, and Vuex are all unexplored.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario run against a real composition, not a recorded transcript; the snapshot lanes project model-visible and conversation output, which this package has none of.
 
-**Runtime invariant:** No companion is published. This package owns no event stream and no mutable durable data. Its only relationship — the dictionary registration and its removal on teardown — is a locale effect this package's own tests exercise, and the Vue tree its components host lives entirely inside one browser container.
-
 <a id="dev-note"></a>
 ### Dev Note
 

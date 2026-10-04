@@ -254,8 +254,6 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **一行的相对时间不会自己走。** 它在渲染时算出，因此「刚刚」会一直停在那里，直到别的什么触发这一段重新渲染。
 - **未被 assembled snapshot 覆盖。** 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
 
-**运行时不变式：** 不发布伴生入口。菜单是本行自己的 Loader Config：settings 服务经 config editor 写入它，路由在写入前检查每一份合并后的菜单，本行加载时再检查一次已提交的菜单，因此不存在第二个能与它分歧的观察点。
-
 <a id="dev-note"></a>
 ### 开发备注
 

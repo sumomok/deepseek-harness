@@ -77,7 +77,6 @@ The package's runtime content is [`cordis.patch.yml`](cordis.patch.yml) and the 
 | [`cordis.patch.yml`](cordis.patch.yml) | The one composition row: an isolated `skill-filesystem` provider over `skills/` |
 | `skills/<name>/SKILL.md` | One bundled skill; only this two-level layout is discovered |
 | [`src/index.ts`](src/index.ts) | Empty module entry; the patch and the skill files are the runtime content |
-| — | No runtime invariant companion is published; the package owns no mutable relationship. The `skill` registry owns catalog merging and the `skill-filesystem` provider owns discovery. |
 
 The `bundledSkillDir` expression resolves this package by name from the profile the layer is installed into:
 

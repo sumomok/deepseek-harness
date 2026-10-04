@@ -1,8 +1,7 @@
 /**
  * vue-ui-poc plugin halves: the browser entry's dictionary and header-slot
  * registrations against the real SlotRegistry (with fiber teardown proving
- * removal — HMR safety), the inert node entry, and the invariant companion's
- * ownership reservation.
+ * removal — HMR safety), and the inert node entry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
