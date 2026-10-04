@@ -34,7 +34,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.bizBackend` — `BizBackendService`
 
-`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in visitor.
+`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.
 
 Nothing here registers the service: it is constructed by the row that holds the visitor's token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer's `ctx.inject(['bizBackend'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.
 
@@ -51,33 +51,47 @@ Nothing here registers the service: it is constructed by the row that holds the 
 judge(rights: BizUserRights | BizBackendFailure): BizPermissions
 
 /**
- * Whether a token is held for the signed-in visitor at all.
+ * Whether a token is held for one subject at all.
  *
  * Reading the slot spends nothing and reaches no network, so a consumer that
  * asks a person for permission before reading can find out beforehand that
  * the answer could not be honoured. It promises nothing about the next call:
  * the backend can refuse the token in between, and every call answers
  * `unauthenticated` on its own whether or not anyone asked here.
- * @returns true while a token is held.
+ * @param subject - whom the reads would be for.
+ * @returns true while a token is held in the slot that subject resolves to.
  */
-holdsCredential(): boolean
+holdsCredential(subject: BizSubject): boolean
+
+/**
+ * Whom one browser request reads for: the person the request was admitted
+ * as, by the same resolver every read finds its slot through.
+ *
+ * Reaches no network and spends nothing. A route answering a request for
+ * which this is `undefined` reads nothing and answers 401.
+ * @param req - the request a webserver route is answering.
+ * @returns the request's subject, or `undefined` when it names nobody the resolver admits.
+ */
+subjectOfRequest(req: IncomingMessage): BizSubject | undefined
 
 /**
  * Read one page of one resource model's rows.
+ * @param subject - whom the read is for; its slot's token is the one spent.
  * @param request - the model to read and how to narrow it.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the rows, or why there are none.
  */
-async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>
+async search(subject: BizSubject, request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>
 
 /**
  * Read one resource model's attribute names, under both of the names the
  * deployment keeps for each.
+ * @param subject - whom the read is for; its slot's token is the one spent.
  * @param meta - the resource model, by its English name.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the model's attributes, or why they could not be read.
  */
-async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>
+async describe(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>
 
 /**
  * Read one resource model's default query scheme — the columns this
@@ -88,11 +102,12 @@ async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBa
  * the one marked default. A caller that has no column list of its own gets
  * the deployment's own choice of columns and their headers, rather than
  * guessing attribute names.
+ * @param subject - whom the read is for; its slot's token is the one spent.
  * @param meta - the resource model, by its English name.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the scheme's columns in its own order, or why they could not be read.
  */
-async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>
+async describeScheme(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>
 
 /**
  * Read this deployment's own catalog of resource models.
@@ -102,10 +117,11 @@ async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult
  * believing it has all of it. Every model's description arrives attached and
  * none of it is kept — {@link BizModelSummary} is the whole of what a caller
  * receives.
+ * @param subject - whom the read is for; its slot's token is the one spent.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the catalog, or why it could not be read.
  */
-async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>
+async listModels(subject: BizSubject, signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>
 
 /**
  * Read one resource model's stored default schemes — the forms and the table
@@ -114,11 +130,12 @@ async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFa
  * The request always names the model. The same endpoint answers with every
  * scheme this deployment stores when it is asked without one, which is tens
  * of megabytes and no caller's question.
+ * @param subject - whom the read is for; its slot's token is the one spent.
  * @param meta - the resource model, by its English name.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the model's default schemes, or why they could not be read.
  */
-async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>
+async describeSchemes(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>
 
 /**
  * Read what the signed-in person may do in this deployment.
@@ -127,10 +144,11 @@ async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelScheme
  * copies it: {@link BizUserRights} is built out of the rights subtree alone,
  * so no account name, employee number, telephone or mail address leaves this
  * seam for a caller to put in front of a model or into a session log.
+ * @param subject - whom the read is for, and so whose rights are read; its slot's token is the one spent.
  * @param signal - aborts the request in flight; an abort answers `unreachable`.
  * @returns the rights, or why they could not be read.
  */
-async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>
+async userRights(subject: BizSubject, signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>
 ```
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)

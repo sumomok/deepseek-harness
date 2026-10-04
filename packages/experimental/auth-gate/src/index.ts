@@ -27,13 +27,16 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import {
   BizBackendService,
   BizOperationRules,
   requireBizOperationRules,
+  type CredentialResolver,
   type HeldCredential,
+  type PrincipalKey,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { answerJson, decodeJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
 import { forwardWithToken, resolveUpstreams } from './proxy.ts'
@@ -364,6 +367,32 @@ function holdCredential(): HeldCredential {
 }
 
 /**
+ * The key this process's one slot answers every browser request with.
+ *
+ * Process-local, and never compared against anything a request carries: one
+ * person per process means every request reaching this process is that
+ * person's, so a route names a principal subject here exactly as it would in a
+ * process serving several people, and that subject resolves to the one slot.
+ */
+const SOLE_VISITOR: PrincipalKey = brandString<PrincipalKey>('auth-gate:sole-visitor')
+
+/**
+ * Resolve every subject to the one slot this process holds.
+ *
+ * Every session and every request in a process this package serves belongs to
+ * the one person the proxy in front of it routed here, so the subject a read
+ * names changes nothing about which token it spends.
+ * @param credential - the process's one slot.
+ * @returns the resolver {@link BizBackendService} finds that slot through.
+ */
+function soleSlotResolver(credential: HeldCredential): CredentialResolver {
+  return {
+    resolve: () => credential,
+    principalOfRequest: () => SOLE_VISITOR,
+  }
+}
+
+/**
  * Validate the configuration, then claim the settings route, the token route,
  * one forwarding route per configured MCP upstream, and — when a data backend
  * is configured — the `bizBackend` service that reads it.
@@ -397,7 +426,7 @@ export function apply(ctx: Context, config: Config): void {
   // The service installs itself on the context and is withdrawn with this
   // plugin's fiber, so nothing here holds the instance. It exists only where a
   // data backend is configured.
-  if (bizUpstream !== undefined) new BizBackendService(ctx, bizUpstream, credential, operationRules)
+  if (bizUpstream !== undefined) new BizBackendService(ctx, bizUpstream, soleSlotResolver(credential), operationRules)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

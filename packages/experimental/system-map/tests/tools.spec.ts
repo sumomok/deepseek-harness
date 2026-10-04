@@ -21,10 +21,11 @@ import {
   type BizMetaResult,
   type BizModelListResult,
   type BizModelSchemes,
+  type BizSubject,
   type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as SystemMap from '../src/index.ts'
-import { DOMAIN_MODELS_TOOL_NAME, DOMAINS_TOOL_NAME, MODEL_TOOL_NAME } from '../src/text.ts'
+import { DOMAIN_MODELS_TOOL_NAME, DOMAINS_TOOL_NAME, MODEL_TOOL_NAME, NO_SESSION_REFUSAL } from '../src/text.ts'
 
 /** What one stub answers with, for each of the four reads a call can make. */
 interface StubAnswers {
@@ -34,7 +35,18 @@ interface StubAnswers {
   schemes?: BizModelSchemes | BizBackendFailure
   /** The deployment's rule table; the defaults where left out. */
   rules?: BizOperationRules
+  /** Every subject a read named, with the read it named it in, in call order. */
+  seen?: (readonly [string, BizSubject])[]
 }
+
+/** The session every call in this file runs in. */
+const SESSION_ID = 'session-1'
+
+/**
+ * The agent the loop hands a tool. Only its session identity is read by this
+ * row, so the rest of the live handle is left out.
+ */
+const AGENT = { id: SESSION_ID } as never
 
 /** Three models across two subject areas, as the catalog lists them. */
 const CATALOG: BizModelListResult = {
@@ -143,38 +155,46 @@ function stubBackend(answers: StubAnswers) {
          * @param inner - the context that owns it.
          */
         constructor(inner: Context) {
-          super(inner, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, answers.rules ?? BizOperationRules({}))
+          super(inner, 'https://biz.invalid/', { resolve: () => undefined, principalOfRequest: () => undefined }, answers.rules ?? BizOperationRules({}))
         }
 
         /**
          * Answer the catalog read.
+         * @param subject - whom the read is for.
          * @returns what the case stated.
          */
-        override listModels(): Promise<BizModelListResult | BizBackendFailure> {
+        override listModels(subject: BizSubject): Promise<BizModelListResult | BizBackendFailure> {
+          answers.seen?.push(['listModels', subject])
           return Promise.resolve(answers.catalog ?? CATALOG)
         }
 
         /**
          * Answer the rights read.
+         * @param subject - whom the read is for.
          * @returns what the case stated.
          */
-        override userRights(): Promise<BizUserRights | BizBackendFailure> {
+        override userRights(subject: BizSubject): Promise<BizUserRights | BizBackendFailure> {
+          answers.seen?.push(['userRights', subject])
           return Promise.resolve(answers.rights ?? RIGHTS)
         }
 
         /**
          * Answer the model description.
+         * @param subject - whom the read is for.
          * @returns what the case stated.
          */
-        override describe(): Promise<BizMetaResult | BizBackendFailure> {
+        override describe(subject: BizSubject): Promise<BizMetaResult | BizBackendFailure> {
+          answers.seen?.push(['describe', subject])
           return Promise.resolve(answers.described ?? DESCRIBED)
         }
 
         /**
          * Answer the scheme read.
+         * @param subject - whom the read is for.
          * @returns what the case stated.
          */
-        override describeSchemes(): Promise<BizModelSchemes | BizBackendFailure> {
+        override describeSchemes(subject: BizSubject): Promise<BizModelSchemes | BizBackendFailure> {
+          answers.seen?.push(['describeSchemes', subject])
           return Promise.resolve(answers.schemes ?? SCHEMES)
         }
       }
@@ -216,7 +236,7 @@ function runtimeOf(ctx: Context): ToolRuntime {
 }
 
 /**
- * Run one call through the composed registry.
+ * Run one call through the composed registry, inside the session every case runs in.
  * @param ctx - the mounted context.
  * @param name - the tool to call.
  * @param args - the call's arguments.
@@ -227,6 +247,7 @@ function run(ctx: Context, name: string, args: Record<string, unknown> = {}): Pr
     callId: ToolCallId('call-1'),
     name,
     arguments: args,
+    agent: AGENT,
     signal: new AbortController().signal,
   })
 }
@@ -496,6 +517,50 @@ describe('a read this deployment would not answer', () => {
       await ctx.fiber.dispose()
       context = undefined
     }
+  })
+})
+
+describe('whom a call reads for', () => {
+  /** The session subject every read of a call in {@link SESSION_ID} names. */
+  const SUBJECT = { kind: 'session', sessionId: SESSION_ID }
+
+  it('reads for the session the call runs in, on every read each tool makes', async () => {
+    const seen: (readonly [string, BizSubject])[] = []
+    const ctx = await mount({ seen })
+    await run(ctx, DOMAINS_TOOL_NAME)
+    await run(ctx, DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' })
+    await run(ctx, MODEL_TOOL_NAME, { model: 'SpaceLayer' })
+    expect(seen.map(([read]) => read).sort()).toEqual([
+      'describe',
+      'describeSchemes',
+      'listModels',
+      'listModels',
+      'listModels',
+      'userRights',
+      'userRights',
+      'userRights',
+    ])
+    for (const [, subject] of seen) expect(subject).toEqual(SUBJECT)
+  })
+
+  it('refuses a call running in no session, and reads nothing for it', async () => {
+    const seen: (readonly [string, BizSubject])[] = []
+    const ctx = await mount({ seen })
+    for (const [name, args] of [
+      [DOMAINS_TOOL_NAME, {}],
+      [DOMAIN_MODELS_TOOL_NAME, { domain: 'TRANSO' }],
+      [MODEL_TOOL_NAME, { model: 'SpaceLayer' }],
+    ] as const) {
+      const result = await runtimeOf(ctx).execute({
+        callId: ToolCallId('call-1'),
+        name,
+        arguments: args,
+        signal: new AbortController().signal,
+      })
+      expect(result.isError).toBe(true)
+      expect(textOf(result)).toContain(NO_SESSION_REFUSAL)
+    }
+    expect(seen).toEqual([])
   })
 })
 

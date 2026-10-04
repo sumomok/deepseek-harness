@@ -516,9 +516,7 @@ flowchart TD
   pkg_app_boot --> pkg_home_paths
   pkg_app_boot --> pkg_launch_environment
   pkg_app_boot --> pkg_system_prompt
-  pkg_experimental_auth_gate --> pkg_client_connection
-  pkg_experimental_auth_gate --> pkg_experimental_biz_backend
-  pkg_experimental_auth_gate --> pkg_host_webserver
+  pkg_experimental_biz_backend --> pkg_session
   pkg_experimental_computer_use_cua_driver_mcp --> pkg_computer_use
   pkg_experimental_inspector --> pkg_client_connection
   pkg_experimental_inspector --> pkg_client_modules
@@ -561,6 +559,9 @@ flowchart TD
   pkg_session_log_export --> pkg_session_persistence
   pkg_hmr --> pkg_app_boot
   pkg_hmr --> pkg_cmdline
+  pkg_experimental_auth_gate --> pkg_client_connection
+  pkg_experimental_auth_gate --> pkg_experimental_biz_backend
+  pkg_experimental_auth_gate --> pkg_host_webserver
   pkg_experimental_speech_to_text --> pkg_settings
   pkg_host_product_telemetry_otel --> pkg_otel
   pkg_ptc_runtime --> pkg_sandbox
@@ -1593,7 +1594,6 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | — |
 | [`office-to-pdf`](../packages/document/office-to-pdf) | `document` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
-| [`experimental-biz-backend`](../packages/experimental/biz-backend) | `experimental` | — |
 | [`experimental-console-profile`](../packages/experimental/console-profile) | `experimental` | — |
 | [`experimental-inspector-profile`](../packages/experimental/inspector-profile) | `experimental` | — |
 | [`experimental-library-skills`](../packages/experimental/library-skills) | `experimental` | — |
@@ -1652,7 +1652,7 @@ flowchart TD
 | [`api-terminal-controller`](../packages/api/terminal-controller) | `api` | [`subprocess`](../packages/subprocess/subprocess) |
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths) |
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
-| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`host-webserver`](../packages/host/webserver) |
+| [`experimental-biz-backend`](../packages/experimental/biz-backend) | `experimental` | [`session`](../packages/core/session) |
 | [`experimental-computer-use-cua-driver-mcp`](../packages/experimental/computer-use-cua-driver-mcp) | `experimental` | [`computer-use`](../packages/computer-use/computer-use) |
 | [`experimental-inspector`](../packages/experimental/inspector) | `experimental` | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
 | [`experimental-page-refresh`](../packages/experimental/page-refresh) | `experimental` | [`client-connection`](../packages/client/connection), [`client-store`](../packages/client/store), [`client-ui-slots`](../packages/client/ui-slots) |
@@ -1674,6 +1674,7 @@ flowchart TD
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`spill`](../packages/spill/spill) |
 | [`session-log-export`](../packages/session-query/session-log-export) | `session-query` | [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence) |
 | [`hmr`](../packages/boot/hmr) | `boot` | [`app-boot`](../packages/boot/app-boot), [`cmdline`](../packages/boot/cmdline) |
+| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`host-webserver`](../packages/host/webserver) |
 | [`experimental-speech-to-text`](../packages/experimental/speech-to-text) | `experimental` | [`settings`](../packages/settings/settings) |
 | [`host-product-telemetry-otel`](../packages/host/product-telemetry-otel) | `host` | [`otel`](../packages/telemetry/otel) |
 | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`sandbox`](../packages/sandbox/sandbox) |

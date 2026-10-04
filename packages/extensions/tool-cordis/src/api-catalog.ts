@@ -550,8 +550,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bizBackend',
-    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.',
-    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
+    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
         signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
@@ -560,45 +560,51 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the permissions that read grants.',
       },
       {
-        signature: 'holdsCredential(): boolean',
-        description: 'Whether a token is held for the signed-in visitor at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
-        parameters: [],
-        returns: 'true while a token is held.',
+        signature: 'holdsCredential(subject: BizSubject): boolean',
+        description: 'Whether a token is held for one subject at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
+        parameters: [{ name: 'subject', description: 'whom the reads would be for.' }],
+        returns: 'true while a token is held in the slot that subject resolves to.',
       },
       {
-        signature: 'async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>',
+        signature: 'subjectOfRequest(req: IncomingMessage): BizSubject | undefined',
+        description: 'Whom one browser request reads for: the person the request was admitted as, by the same resolver every read finds its slot through.\n\nReaches no network and spends nothing. A route answering a request for which this is `undefined` reads nothing and answers 401.',
+        parameters: [{ name: 'req', description: 'the request a webserver route is answering.' }],
+        returns: 'the request\'s subject, or `undefined` when it names nobody the resolver admits.',
+      },
+      {
+        signature: 'async search(subject: BizSubject, request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>',
         description: 'Read one page of one resource model\'s rows.',
-        parameters: [{ name: 'request', description: 'the model to read and how to narrow it.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'request', description: 'the model to read and how to narrow it.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the rows, or why there are none.',
       },
       {
-        signature: 'async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>',
+        signature: 'async describe(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>',
         description: 'Read one resource model\'s attribute names, under both of the names the deployment keeps for each.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the model\'s attributes, or why they could not be read.',
       },
       {
-        signature: 'async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>',
+        signature: 'async describeScheme(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>',
         description: 'Read one resource model\'s default query scheme — the columns this deployment\'s own resource list opens that model with.\n\nThe same request the deployment\'s frontend makes before it draws a resource list: the model\'s stored schemes, narrowed to the resource-list kind and to the one marked default. A caller that has no column list of its own gets the deployment\'s own choice of columns and their headers, rather than guessing attribute names.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the scheme\'s columns in its own order, or why they could not be read.',
       },
       {
-        signature: 'async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
+        signature: 'async listModels(subject: BizSubject, signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
         description: 'Read this deployment\'s own catalog of resource models.\n\nOne request and one answer: this endpoint lists the whole catalog rather than a page of it, so a caller is never left holding part of it and believing it has all of it. Every model\'s description arrives attached and none of it is kept — BizModelSummary is the whole of what a caller receives.',
-        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the catalog, or why it could not be read.',
       },
       {
-        signature: 'async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
+        signature: 'async describeSchemes(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
         description: 'Read one resource model\'s stored default schemes — the forms and the table this deployment\'s own pages open that model with.\n\nThe request always names the model. The same endpoint answers with every scheme this deployment stores when it is asked without one, which is tens of megabytes and no caller\'s question.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the model\'s default schemes, or why they could not be read.',
       },
       {
-        signature: 'async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
+        signature: 'async userRights(subject: BizSubject, signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
         description: 'Read what the signed-in person may do in this deployment.\n\nThe endpoint also answers with that person\'s profile. This read never copies it: BizUserRights is built out of the rights subtree alone, so no account name, employee number, telephone or mail address leaves this seam for a caller to put in front of a model or into a session log.',
-        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for, and so whose rights are read; its slot\'s token is the one spent.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the rights, or why they could not be read.',
       },
     ],
@@ -5011,6 +5017,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
   },
   {
+    name: 'BizSubject',
+    declaration: 'export type BizSubject = {\n    readonly kind: \'session\';\n    readonly sessionId: SessionId;\n} | {\n    readonly kind: \'principal\';\n    readonly principal: PrincipalKey;\n};',
+  },
+  {
     name: 'BizUserRights',
     declaration: 'export interface BizUserRights {\n    readonly resclass: readonly BizModelRights[];\n    readonly rows: readonly BizRowRight[];\n}',
   },
@@ -6577,6 +6587,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreToolDecision',
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n    info?: ToolErrorInfo;\n} | {\n    kind: \'cancel\';\n} | {\n    kind: \'ask\';\n    reason?: string;\n    displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n};',
+  },
+  {
+    name: 'PrincipalKey',
+    declaration: 'export type PrincipalKey = Branded<\'PrincipalKey\'>;',
   },
   {
     name: 'ProbeResult',

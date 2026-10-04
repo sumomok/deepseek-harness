@@ -13,13 +13,16 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import { COMPONENT_KIT_ENTRIES, ComponentCatalogRegistry } from '@deepseek-ai/dsh-experimental-component-surface'
 import {
   BizBackendService,
   BizOperationRules,
   type BizBackendFailure,
+  type BizSubject,
   type BizUserRights,
+  type PrincipalKey,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { readComponentKitSource } from '../src/manifest.ts'
 import * as ComponentKit from '../src/index.ts'
@@ -48,6 +51,18 @@ async function served(config: ComponentKit.Config = {}): Promise<Context> {
 /** What the stub backend's rights read answers with, per case. */
 let rights: BizUserRights | BizBackendFailure = { resclass: [], rows: [] }
 
+/** The person the stub's resolver admits every request as, or nobody, per case. */
+let admitted: PrincipalKey | undefined = brandString<PrincipalKey>('visitor-a')
+
+/** Whom every rights read was for, in order. */
+let readFor: BizSubject[] = []
+
+afterEach(() => {
+  rights = { resclass: [], rows: [] }
+  admitted = brandString<PrincipalKey>('visitor-a')
+  readFor = []
+})
+
 /** The real data-backend service with its rights read stubbed, so the judgement is the deployment's own. */
 class StubBizBackend extends BizBackendService {
   /**
@@ -55,14 +70,16 @@ class StubBizBackend extends BizBackendService {
    * @param ctx - the context that owns it.
    */
   constructor(ctx: Context) {
-    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
+    super(ctx, 'https://biz.invalid/', { resolve: () => undefined, principalOfRequest: () => admitted }, BizOperationRules({}))
   }
 
   /**
    * Answer the rights read.
+   * @param subject - whom the read is for.
    * @returns what the case stated.
    */
-  override userRights(): Promise<BizUserRights | BizBackendFailure> {
+  override userRights(subject: BizSubject): Promise<BizUserRights | BizBackendFailure> {
+    readFor.push(subject)
     return Promise.resolve(rights)
   }
 }
@@ -194,6 +211,19 @@ describe('the component-kit node half', () => {
       .toEqual({ create: false, update: false, delete: false, import: false, export: true })
     // A table the rights table holds no row for, and one nobody has.
     expect(await (await fetch(abilitiesUrl(ctx, 'SITE'))).json()).toEqual(ComponentKit.NO_ABILITIES)
+    // Every one of the three reads was of the rights of the person the request was admitted as.
+    expect(readFor).toEqual(Array.from({ length: 3 }, () => ({ kind: 'principal', principal: 'visitor-a' })))
+  })
+
+  it('answers 401 and reads nothing for a request that names nobody signed in', async () => {
+    admitted = undefined
+    rights = { resclass: [{ resclassenname: 'SpaceLayer', operations: ['add'] }], rows: [] }
+    const ctx = await served()
+    await ctx.plugin(StubBackendPlugin).await()
+    const answer = await fetch(abilitiesUrl(ctx, 'SpaceLayer'))
+    expect(answer.status).toBe(401)
+    expect(await answer.json()).toEqual({ error: 'component-kit: this request names no signed-in person whose rights could be read' })
+    expect(readFor).toEqual([])
   })
 
   it('answers every ability off when the rights cannot be read or name no table', async () => {

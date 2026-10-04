@@ -33,6 +33,7 @@ import type {
   BizMetaResult,
   BizSchemeResult,
   BizSearchResult,
+  BizSubject,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 // Type-only: resolves ctx.approval, the question one read is asked through.
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -429,16 +430,18 @@ function rightsFailureText(failure: BizBackendFailure): string {
  * reading it, so a table needs both. A permissions read that fails refuses the
  * whole call: nothing is read on a guess.
  * @param ctx - the injected context carrying the data backend.
+ * @param subject - the session the call runs in, whose person's rights are read.
  * @param targets - the resolved reads, in the order they were written.
  * @param signal - the execution's own cancellation.
  * @returns the sentence to refuse with, or `undefined` when every table may be read.
  */
 async function refuseUnreadable(
   ctx: Context,
+  subject: BizSubject,
   targets: readonly DataSourceTarget[],
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const rights = await ctx.bizBackend.userRights(signal)
+  const rights = await ctx.bizBackend.userRights(subject, signal)
   if ('kind' in rights) return rightsFailureText(rights)
   const permissions = ctx.bizBackend.judge(rights)
   const barred = targets.find(({ block }) =>
@@ -522,19 +525,21 @@ function checkColumns(
  * before the user has answered. The card such a block is asked about therefore names
  * no column — nothing has been requested when it is drawn.
  * @param ctx - the injected context carrying the data backend.
+ * @param subject - the session the call runs in, whose person's credential is spent.
  * @param target - the resolved read.
  * @param signal - the execution's own cancellation.
  * @returns the columns the rows are read for, or the sentence to refuse with.
  */
 async function settleColumns(
   ctx: Context,
+  subject: BizSubject,
   target: DataSourceTarget,
   signal: AbortSignal,
 ): Promise<{ readonly ok: true; readonly columns: readonly DataSourceColumn[] } | { readonly ok: false; readonly text: string }> {
   const declared = target.columns
   if (declared !== undefined) return { ok: true, columns: declared }
   const { meta } = target.block
-  const scheme = await ctx.bizBackend.describeScheme(meta, signal)
+  const scheme = await ctx.bizBackend.describeScheme(subject, meta, signal)
   if (isFailure(scheme)) {
     // `unreachable` is the one failure whose remedy is the call's own: it
     // carries both "this table has no default scheme" and "the scheme could not
@@ -555,12 +560,14 @@ async function settleColumns(
  * naming an attribute this table does not have is refused with the answer that
  * proves it and before a row is asked for.
  * @param ctx - the injected context carrying the data backend.
+ * @param subject - the session the call runs in, whose person's credential is spent.
  * @param target - the resolved read.
  * @param signal - the execution's own cancellation.
  * @returns the rows to put in and what to say about them, or the sentence to refuse with.
  */
 async function readTarget(
   ctx: Context,
+  subject: BizSubject,
   target: DataSourceTarget,
   signal: AbortSignal,
 ): Promise<
@@ -568,9 +575,9 @@ async function readTarget(
   | { readonly ok: false; readonly text: string }
 > {
   const { block } = target
-  const described = await ctx.bizBackend.describe(block.meta, signal)
+  const described = await ctx.bizBackend.describe(subject, block.meta, signal)
   if (isFailure(described)) return { ok: false, text: failureText(block.meta, described) }
-  const settled = await settleColumns(ctx, target, signal)
+  const settled = await settleColumns(ctx, subject, target, signal)
   if (!settled.ok) return settled
   const read: DataSourceRead = { target, columns: settled.columns }
   const checked = checkColumns(read, described)
@@ -581,7 +588,7 @@ async function readTarget(
     value: condition.value,
   }))
   const attributes = read.columns.map(column => column.attr)
-  const answer = await ctx.bizBackend.search({
+  const answer = await ctx.bizBackend.search(subject, {
     meta: block.meta,
     source: attributes,
     conditions,
@@ -635,19 +642,21 @@ async function readTarget(
  * and a failure names the table it happened on rather than whichever of several
  * concurrent requests lost the race.
  * @param ctx - the injected context carrying the data backend.
+ * @param subject - the session the call runs in, whose person's credential is spent.
  * @param targets - the resolved reads, in the order they were written.
  * @param signal - the execution's own cancellation.
  * @returns every table's rows, or the sentence the first failure refuses with.
  */
 async function readAll(
   ctx: Context,
+  subject: BizSubject,
   targets: readonly DataSourceTarget[],
   signal: AbortSignal,
 ): Promise<{ readonly ok: true; readonly outcome: FetchOutcome } | { readonly ok: false; readonly text: string }> {
   const fills: DataSourceFill[] = []
   const summaries: FetchSummary[] = []
   for (const target of targets) {
-    const done = await readTarget(ctx, target, signal)
+    const done = await readTarget(ctx, subject, target, signal)
     if (!done.ok) return done
     fills.push(done.fill)
     summaries.push(done.summary)
@@ -704,17 +713,18 @@ async function runDataSource(
     throw new Error((options.dataPage ? dataPageBesideDataSource(judged.call.spec) : dataPageNotOffered(catalog, judged.call.spec)).text)
   }
   const { agent } = exec
-  // No session means neither half of this can happen: nobody to ask, and
-  // nowhere to record what the rows became.
+  // No session means none of this can happen: nobody to read for, nobody to
+  // ask, and nowhere to record what the rows became.
   if (agent === undefined) throw new Error(DATA_SOURCE_NO_SESSION)
+  const subject: BizSubject = { kind: 'session', sessionId: agent.id }
   // Asked before the question rather than discovered after it: reading the
   // slot spends nothing, and a person who allows a read this process cannot
   // perform has answered for nothing.
-  if (!ctx.bizBackend.holdsCredential()) throw new Error(DATA_SOURCE_UNAUTHENTICATED)
+  if (!ctx.bizBackend.holdsCredential(subject)) throw new Error(DATA_SOURCE_UNAUTHENTICATED)
   // Before the question for the same reason: a person is never asked to allow a
   // read of a table the deployment's rules would not let them read. The
   // permissions read is of their own rights, and requests nothing of a table.
-  const barred = await refuseUnreadable(ctx, resolved.targets, exec.signal)
+  const barred = await refuseUnreadable(ctx, subject, resolved.targets, exec.signal)
   if (barred !== undefined) throw new Error(barred)
   const outcome = await ctx.approval.request({
     agent,
@@ -724,7 +734,7 @@ async function runDataSource(
     signal: exec.signal,
   })
   if (outcome !== 'allowed-once') throw new Error(DATA_SOURCE_NOT_APPROVED)
-  const read = await readAll(ctx, resolved.targets, exec.signal)
+  const read = await readAll(ctx, subject, resolved.targets, exec.signal)
   if (!read.ok) throw new Error(read.text)
   const { fills, summaries } = read.outcome
   const spec = applyDataSourceRows(args.spec, resolved.nodes, fills)

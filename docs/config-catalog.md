@@ -920,7 +920,7 @@ export interface Config {
 
 - `inject`: `webServer`
 - `refs`: [`BizOperationRules`](../packages/experimental/biz-backend/src/index.ts)
-- `source`: [`packages/experimental/auth-gate/src/index.ts:68`](../packages/experimental/auth-gate/src/index.ts)
+- `source`: [`packages/experimental/auth-gate/src/index.ts:71`](../packages/experimental/auth-gate/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
@@ -1117,7 +1117,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-component-kit`
 
-- `source`: [`packages/experimental/component-kit/src/index.ts:66`](../packages/experimental/component-kit/src/index.ts)
+- `source`: [`packages/experimental/component-kit/src/index.ts:68`](../packages/experimental/component-kit/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the data page's requests go. */

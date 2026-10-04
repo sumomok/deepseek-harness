@@ -36,6 +36,7 @@ import {
   type BizMetaResult,
   type BizSearchRequest,
   type BizSearchResult,
+  type BizSubject,
   type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
@@ -67,7 +68,7 @@ class StubBizBackend extends BizBackendService {
    * @param ctx - Cordis context that owns the service.
    */
   constructor(ctx: Context) {
-    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
+    super(ctx, 'https://biz.invalid/', { resolve: () => undefined, principalOfRequest: () => undefined }, BizOperationRules({}))
   }
 
   /**
@@ -101,10 +102,11 @@ class StubBizBackend extends BizBackendService {
 
   /**
    * Answer with one row.
+   * @param _subject - whom the read is for.
    * @param request - the read that went out.
    * @returns the row, twice over.
    */
-  override search(request: BizSearchRequest): Promise<BizSearchResult> {
+  override search(_subject: BizSubject, request: BizSearchRequest): Promise<BizSearchResult> {
     reads.push(request)
     const row = { zh_label: '东风站', layer_id: 'element:site' }
     return Promise.resolve({ rawValue: [row], displayValue: [row], total: 1 })

@@ -54,7 +54,7 @@ class StubBizBackend extends BizBackendService {
    * @param ctx - Cordis context that owns the service.
    */
   constructor(ctx: Context) {
-    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
+    super(ctx, 'https://biz.invalid/', { resolve: () => undefined, principalOfRequest: () => undefined }, BizOperationRules({}))
   }
 
   /**
@@ -178,6 +178,8 @@ describe('the composed row', () => {
       callId: ToolCallId('call-1'),
       name,
       arguments: args,
+      // A tool call reads for the session it runs in; only that identity is read.
+      agent: { id: 'session-1' } as never,
       signal: new AbortController().signal,
     })
     expect((await call(DOMAINS_TOOL_NAME, {})).value).toMatchObject({ domains: [{ domain: 'TRANSO', models: 1 }] })

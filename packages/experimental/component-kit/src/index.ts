@@ -22,9 +22,11 @@
  *
  * Where a data backend is composed as well, the row answers one more route:
  * what the signed-in visitor may do on one table's data page, judged by
- * `ctx.bizBackend` from one read of that visitor's rights. Without a backend
- * the route is not claimed, and the browser half draws every data page with
- * the entrances it could remove removed.
+ * `ctx.bizBackend` from one read of that visitor's rights. Whose rights are
+ * read is taken from the request, through the same seam: a request it admits
+ * nobody for reads nothing and is answered 401. Without a backend the route is
+ * not claimed, and the browser half draws every data page with the entrances it
+ * could remove removed.
  * @module @deepseek-ai/dsh-experimental-component-kit
  */
 
@@ -124,6 +126,13 @@ export function apply(ctx: Context, config: Config): void {
           rejectMethod(res, 'GET')
           return
         }
+        // Whose rights are read is the request's to say, never the process's:
+        // a request naming nobody reads nothing rather than somebody else.
+        const subject = backendCtx.bizBackend.subjectOfRequest(req)
+        if (subject === undefined) {
+          answerJson(res, 401, { error: 'component-kit: this request names no signed-in person whose rights could be read' })
+          return
+        }
         // A server-side request always carries its URL; the type is shared with client requests.
         const meta = new URL(String(req.url), 'http://component-kit.invalid').searchParams.get('meta')
         if (meta === null || meta === '') {
@@ -134,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
         // before it answers cancels it.
         const abort = new AbortController()
         res.on('close', () => { abort.abort() })
-        const permissions = backendCtx.bizBackend.judge(await backendCtx.bizBackend.userRights(abort.signal))
+        const permissions = backendCtx.bizBackend.judge(await backendCtx.bizBackend.userRights(subject, abort.signal))
         const table = Object.fromEntries(DATA_PAGE_ABILITIES.map(key => [key, permissions.may(meta, key)]))
         answerJson(res, 200, table)
       },

@@ -9,8 +9,12 @@
  * headers and no others".
  */
 
+import { IncomingMessage } from 'node:http'
+import { Socket } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   BIZ_OPERATIONS,
   BizBackendService,
@@ -19,11 +23,14 @@ import {
   type BizBackendFailure,
   type BizMetaResult,
   type BizOperation,
+  type BizSubject,
   type BizUserRights,
   type BizSearchRequest,
   type BizSearchResult,
   type CredentialDropReason,
+  type CredentialResolver,
   type HeldCredential,
+  type PrincipalKey,
 } from '../src/index.ts'
 
 /** The rule table a deployment that writes none gets. */
@@ -122,13 +129,25 @@ function testCredential(initial: string | undefined): TestCredential {
   }
 }
 
+/** The subject every spec that is not about subjects reads for: a tool call's session. */
+const SUBJECT: BizSubject = { kind: 'session', sessionId: SessionId('session-1') }
+
+/**
+ * A resolver handing every subject the one slot a single-person process holds.
+ * @param credential - that slot.
+ * @returns the resolver.
+ */
+function soleSlot(credential: HeldCredential): CredentialResolver {
+  return { resolve: () => credential, principalOfRequest: () => brandString<PrincipalKey>('sole-visitor') }
+}
+
 /**
  * A service reading the fixture upstream with the given credential.
- * @param credential - the token to spend.
+ * @param credential - the token to spend, held as the one slot every subject resolves to.
  * @returns the service.
  */
 function backendWith(credential: HeldCredential): BizBackendService {
-  return new BizBackendService(new Context(), BIZ_UPSTREAM, credential, DEFAULT_RULES)
+  return new BizBackendService(new Context(), BIZ_UPSTREAM, soleSlot(credential), DEFAULT_RULES)
 }
 
 /**
@@ -153,7 +172,7 @@ describe('data-backend read', () => {
     const ctx = new Context()
     await ctx.plugin({
       name: 'biz-backend-fixture',
-      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, testCredential(TOKEN), DEFAULT_RULES) },
+      apply: (inner: Context) => { new BizBackendService(inner, BIZ_UPSTREAM, soleSlot(testCredential(TOKEN)), DEFAULT_RULES) },
     })
     expect(ctx.get('bizBackend')).toBeInstanceOf(BizBackendService)
     // The row that constructed it is the row that owns it: disposing that
@@ -165,7 +184,7 @@ describe('data-backend read', () => {
 
   it('presents the credential in both headers the backend reads it from, and identifies the browser in none', async () => {
     serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
-    await backendWith(testCredential(TOKEN)).search(READ, idleSignal())
+    await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())
     expect(seen).toHaveLength(1)
     expect(seen[0]?.init.headers).toEqual({
       accept: 'application/json',
@@ -181,13 +200,13 @@ describe('data-backend read', () => {
 
   it('builds the read under the configured API prefix rather than at the server root', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
-    await backendWith(testCredential(TOKEN)).search(READ, idleSignal())
+    await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())
     expect(seen[0]?.url).toBe(SEARCH_URL)
   })
 
   it('fills in every default a request leaves out', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
-    await backendWith(testCredential(TOKEN)).search(READ, idleSignal())
+    await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())
     expect(sentBody(seen[0])).toEqual({
       resclassenname: 'SpaceLayer',
       conditions: [],
@@ -200,7 +219,7 @@ describe('data-backend read', () => {
 
   it('carries a fully stated request through as it stands', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
-    await backendWith(testCredential(TOKEN)).search({
+    await backendWith(testCredential(TOKEN)).search(SUBJECT, {
       meta: 'SpaceLayer',
       source: ['int_id', 'zh_label'],
       conditions: [{ key: 'is_show', op: 'EQ', value: '1' }],
@@ -223,7 +242,7 @@ describe('data-backend read', () => {
   it('carries the caller\'s abort signal onto the request', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
     const controller = new AbortController()
-    await backendWith(testCredential(TOKEN)).search(READ, controller.signal)
+    await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, controller.signal)
     expect(seen[0]?.init.signal).toBe(controller.signal)
   })
 
@@ -233,7 +252,7 @@ describe('data-backend read', () => {
       msg: 'success',
       data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS, page: { total: 89, currentPage: 1, pageSize: 20 } },
     }))
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())).toEqual({
       rawValue: RAW_ROWS,
       displayValue: DISPLAY_ROWS,
       total: 89,
@@ -244,7 +263,7 @@ describe('data-backend read', () => {
     for (const page of [undefined, null, {}, { total: 'many' }]) {
       seen = []
       serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS, page } }))
-      const read = await backendWith(testCredential(TOKEN)).search(READ, idleSignal())
+      const read = await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())
       expect(read).toEqual({ rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS })
     }
   })
@@ -252,14 +271,14 @@ describe('data-backend read', () => {
   it('says whether a token is held at all, without spending it or reaching anything', async () => {
     // What a consumer asks before putting a question to a person: a read this
     // process could not perform is one nobody should be asked to allow.
-    expect(backendWith(testCredential(TOKEN)).holdsCredential()).toBe(true)
-    expect(backendWith(testCredential(undefined)).holdsCredential()).toBe(false)
+    expect(backendWith(testCredential(TOKEN)).holdsCredential(SUBJECT)).toBe(true)
+    expect(backendWith(testCredential(undefined)).holdsCredential(SUBJECT)).toBe(false)
     expect(seen).toHaveLength(0)
   })
 
   it('answers unauthenticated without making a request while no token is held', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
-    expect(await backendWith(testCredential(undefined)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(undefined)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'unauthenticated' })
     expect(seen).toHaveLength(0)
   })
@@ -268,7 +287,7 @@ describe('data-backend read', () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [] } }))
     const backend = backendWith(testCredential(TOKEN))
     for (const meta of ['../../nrms-auth/api/renewal', 'Space/Layer', '', '1Layer']) {
-      expect(await backend.search({ meta }, idleSignal()))
+      expect(await backend.search(SUBJECT, { meta }, idleSignal()))
         .toEqual({ kind: 'unreachable', detail: `"${meta}" is not a resource model name, so nothing was requested` })
     }
     expect(seen).toHaveLength(0)
@@ -276,14 +295,14 @@ describe('data-backend read', () => {
 
   it('bounds a model name it names back', async () => {
     serve(answer({ code: 0, data: {} }))
-    const read = await backendWith(testCredential(TOKEN)).search({ meta: '/'.repeat(400) }, idleSignal())
+    const read = await backendWith(testCredential(TOKEN)).search(SUBJECT, { meta: '/'.repeat(400) }, idleSignal())
     expect(read).toEqual({ kind: 'unreachable', detail: `"${'/'.repeat(200)}" is not a resource model name, so nothing was requested` })
   })
 
   it('answers rejected when the backend refuses the request, and keeps the credential', async () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 1, msg: '查询条件不合法' }))
-    expect(await backendWith(credential).search(READ, idleSignal()))
+    expect(await backendWith(credential).search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'rejected', status: 200, code: 1, message: '查询条件不合法' })
     // A refused request is not a refused credential: this one is still held.
     expect(credential.read()).toBe(TOKEN)
@@ -292,7 +311,7 @@ describe('data-backend read', () => {
 
   it('bounds the message it repeats from the backend', async () => {
     serve(answer({ code: 1, msg: 'x'.repeat(400) }, 500))
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'rejected', status: 500, code: 1, message: 'x'.repeat(120) })
   })
 
@@ -301,7 +320,7 @@ describe('data-backend read', () => {
     for (const msg of ['', 7, undefined]) {
       seen = []
       serve(answer({ code: 2, msg }))
-      expect(await backend.search(READ, idleSignal())).toEqual({ kind: 'rejected', status: 200, code: 2 })
+      expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({ kind: 'rejected', status: 200, code: 2 })
     }
   })
 
@@ -311,12 +330,12 @@ describe('data-backend read', () => {
     // this drop can be attributed to.
     serve(answer({ code: 1, msg: '未授权，请登录' }, 401))
     const backend = backendWith(credential)
-    expect(await backend.search(READ, idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
     // The drop is what the next call reads: the process stops presenting a
     // token this backend has already refused.
     expect(credential.read()).toBeUndefined()
-    expect(await backend.search(READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
     expect(seen).toHaveLength(1)
   })
 
@@ -327,12 +346,12 @@ describe('data-backend read', () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 1, msg: '拒绝访问' }, 403))
     const backend = backendWith(credential)
-    expect(await backend.search(READ, idleSignal()))
+    expect(await backend.search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'rejected', status: 403, code: 1, message: '拒绝访问' })
     expect(credential.dropped).toEqual([])
     expect(credential.read()).toBe(TOKEN)
     // The next call spends it again rather than answering that none is held.
-    expect(await backend.search(READ, idleSignal()))
+    expect(await backend.search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'rejected', status: 403, code: 1, message: '拒绝访问' })
     expect(seen).toHaveLength(2)
   })
@@ -347,10 +366,10 @@ describe('data-backend read', () => {
       const credential = testCredential(TOKEN)
       serve(answer({ code, msg: 'token invalid' }, status))
       const backend = backendWith(credential)
-      expect(await backend.search(READ, idleSignal())).toEqual({ kind: 'refused', status })
+      expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({ kind: 'refused', status })
       expect(credential.dropped).toEqual(['refused-by-backend'])
       expect(credential.read()).toBeUndefined()
-      expect(await backend.search(READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
+      expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
     }
   })
 
@@ -359,7 +378,7 @@ describe('data-backend read', () => {
       seen = []
       const credential = testCredential(TOKEN)
       serve(answer({ code, msg: 'token invalid' }))
-      expect(await backendWith(credential).search(READ, idleSignal()))
+      expect(await backendWith(credential).search(SUBJECT, READ, idleSignal()))
         .toEqual({ kind: 'rejected', status: 200, code, message: 'token invalid' })
       expect(credential.dropped).toEqual([])
       expect(credential.read()).toBe(TOKEN)
@@ -368,13 +387,13 @@ describe('data-backend read', () => {
 
   it('answers unreachable when the request never completes', async () => {
     serve(() => { throw new Error('connect ECONNREFUSED') })
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'unreachable', detail: 'Error: connect ECONNREFUSED' })
   })
 
   it('bounds the detail it repeats from a failed request', async () => {
     serve(() => Promise.reject(new Error('x'.repeat(400))))
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ kind: 'unreachable', detail: `Error: ${'x'.repeat(193)}` })
   })
 
@@ -383,7 +402,7 @@ describe('data-backend read', () => {
       new ReadableStream({ start: (controller) => { controller.error(new Error('stream closed')) } }),
       { status: 200 },
     ))
-    const read = await backendWith(testCredential(TOKEN)).search(READ, idleSignal())
+    const read = await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal())
     expect(read).toMatchObject({ kind: 'unreachable' })
   })
 
@@ -397,7 +416,7 @@ describe('data-backend read', () => {
     ] as const) {
       seen = []
       serve(textAnswer(body, status))
-      expect(await backend.search(READ, idleSignal())).toEqual({
+      expect(await backend.search(SUBJECT, READ, idleSignal())).toEqual({
         kind: 'unreachable',
         detail: `the HTTP ${String(status)} answer was not this backend's envelope`,
       })
@@ -424,7 +443,7 @@ describe('data-backend read', () => {
     ]) {
       seen = []
       serve(answer({ code: 0, data }))
-      expect(await backend.search(READ, idleSignal()))
+      expect(await backend.search(SUBJECT, READ, idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the answer carried no rows to read' })
     }
   })
@@ -439,13 +458,13 @@ describe('data-backend read', () => {
       msg: 'success',
       data: { rawValue: null, displayValue: null, page: { currentPage: 1, pageSize: 200, total: null, pageCount: null } },
     }))
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ rawValue: [], displayValue: [], total: 0 })
   })
 
   it('keeps two empty lists as zero rows, with whatever total the answer carried', async () => {
     serve(answer({ code: 0, data: { rawValue: [], displayValue: [], page: { total: 0 } } }))
-    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
       .toEqual({ rawValue: [], displayValue: [], total: 0 })
   })
 
@@ -460,11 +479,154 @@ describe('data-backend read', () => {
     ]) {
       seen = []
       serve(responder)
-      answers.push(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+      answers.push(await backendWith(testCredential(TOKEN)).search(SUBJECT, READ, idleSignal()))
     }
     // The backend echoing a credential back is exactly what a message bound
     // cannot be trusted to cut, so the whole set is checked rather than each.
     for (const returned of answers) expect(JSON.stringify(returned)).not.toContain('eyJzdWIi')
+  })
+})
+
+describe('the subject a read is performed for', () => {
+  /** A second person's token, distinct from {@link TOKEN}. */
+  const OTHER_TOKEN = 'b3RoZXI.eyJzdWIiOiJ1LTIifQ.c2ln'
+
+  /** The two subjects these cases tell apart: a tool call's session and a browser request's person. */
+  const SESSION: BizSubject = { kind: 'session', sessionId: SessionId('session-of-a') }
+  const PERSON: BizSubject = { kind: 'principal', principal: brandString<PrincipalKey>('person-b') }
+
+  /** What one resolver was asked, in order. */
+  interface Asked {
+    readonly subjects: BizSubject[]
+  }
+
+  /**
+   * A resolver giving each subject kind its own slot, or none where the case states none.
+   * @param slots - the slot each subject kind resolves to.
+   * @returns the resolver and what it was asked.
+   */
+  function bySubject(slots: { readonly session?: HeldCredential; readonly principal?: HeldCredential }): CredentialResolver & Asked {
+    const subjects: BizSubject[] = []
+    return {
+      subjects,
+      resolve: (subject) => {
+        subjects.push(subject)
+        return slots[subject.kind]
+      },
+      principalOfRequest: () => undefined,
+    }
+  }
+
+  /**
+   * A service reading the fixture upstream through one resolver.
+   * @param resolver - where each read finds its slot.
+   * @returns the service.
+   */
+  function backendThrough(resolver: CredentialResolver): BizBackendService {
+    return new BizBackendService(new Context(), BIZ_UPSTREAM, resolver, DEFAULT_RULES)
+  }
+
+  /**
+   * The bearer value one recorded request presented.
+   * @param request - the recorded request.
+   * @returns the `authorization` header it carried.
+   */
+  function presented(request: SeenRequest | undefined): unknown {
+    return (request?.init.headers as Record<string, string> | undefined)?.authorization
+  }
+
+  it('spends the one slot a single-person process holds, whichever subject a read names', async () => {
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const backend = backendWith(testCredential(TOKEN))
+    for (const subject of [SESSION, PERSON]) {
+      expect(backend.holdsCredential(subject)).toBe(true)
+      expect(await backend.search(subject, READ, idleSignal())).toEqual({ rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS })
+    }
+    expect(seen.map(presented)).toEqual([`Bearer ${TOKEN}`, `Bearer ${TOKEN}`])
+  })
+
+  it('asks the resolver about the subject the read names, once per read', async () => {
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const resolver = bySubject({ session: testCredential(TOKEN) })
+    await backendThrough(resolver).search(SESSION, READ, idleSignal())
+    expect(resolver.subjects).toEqual([SESSION])
+  })
+
+  it('answers unauthenticated for a subject the resolver holds no slot for, and presents nobody else\'s token', async () => {
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const held = testCredential(TOKEN)
+    const backend = backendThrough(bySubject({ session: held }))
+    expect(backend.holdsCredential(PERSON)).toBe(false)
+    expect(await backend.search(PERSON, READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backend.describe(PERSON, 'SpaceLayer', idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backend.listModels(PERSON, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backend.userRights(PERSON, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(seen).toHaveLength(0)
+    // The slot another subject resolves to is left exactly as it was.
+    expect(held.read()).toBe(TOKEN)
+    expect(held.dropped).toEqual([])
+  })
+
+  it('answers unauthenticated for a subject whose own slot is empty, with another slot still holding a token', async () => {
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const backend = backendThrough(bySubject({ session: testCredential(TOKEN), principal: testCredential(undefined) }))
+    expect(backend.holdsCredential(PERSON)).toBe(false)
+    expect(await backend.search(PERSON, READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(seen).toHaveLength(0)
+  })
+
+  it('spends each subject\'s own token', async () => {
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const backend = backendThrough(bySubject({ session: testCredential(TOKEN), principal: testCredential(OTHER_TOKEN) }))
+    await backend.search(SESSION, READ, idleSignal())
+    await backend.search(PERSON, READ, idleSignal())
+    expect(seen.map(presented)).toEqual([`Bearer ${TOKEN}`, `Bearer ${OTHER_TOKEN}`])
+  })
+
+  it('drops only the slot the refused read resolved to, on either refusal', async () => {
+    for (const refusal of [answer({ code: 1 }, 401), answer({ code: 3 }, 500)]) {
+      seen = []
+      serve(refusal)
+      const mine = testCredential(TOKEN)
+      const theirs = testCredential(OTHER_TOKEN)
+      const backend = backendThrough(bySubject({ session: mine, principal: theirs }))
+      expect(await backend.search(SESSION, READ, idleSignal())).toMatchObject({ kind: 'refused' })
+      expect(mine.dropped).toEqual(['refused-by-backend'])
+      expect(theirs.dropped).toEqual([])
+      expect(theirs.read()).toBe(OTHER_TOKEN)
+      expect(backend.holdsCredential(PERSON)).toBe(true)
+    }
+  })
+
+  it('drops the slot the read spent, even when the subject would resolve elsewhere by the time the answer arrives', async () => {
+    serve(answer({ code: 1 }, 401))
+    const spent = testCredential(TOKEN)
+    const later = testCredential(OTHER_TOKEN)
+    let resolved = 0
+    const backend = backendThrough({
+      resolve: () => (resolved++ === 0 ? spent : later),
+      principalOfRequest: () => undefined,
+    })
+    expect(await backend.userRights(SESSION, idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(spent.dropped).toEqual(['refused-by-backend'])
+    expect(later.dropped).toEqual([])
+  })
+
+  it('names a browser request\'s subject by the person the resolver admits it as, and names none it admits nobody for', () => {
+    const request = new IncomingMessage(new Socket())
+    const asked: IncomingMessage[] = []
+    const person = brandString<PrincipalKey>('person-b')
+    const admitting = backendThrough({
+      resolve: () => undefined,
+      principalOfRequest: (req) => {
+        asked.push(req)
+        return person
+      },
+    })
+    expect(admitting.subjectOfRequest(request)).toEqual({ kind: 'principal', principal: person })
+    expect(asked).toEqual([request])
+    expect(backendThrough(bySubject({})).subjectOfRequest(request)).toBeUndefined()
+    expect(seen).toHaveLength(0)
   })
 })
 
@@ -481,7 +643,7 @@ describe('auth-gate data-backend model description', () => {
         ],
       },
     }))
-    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).describe(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({
       attributes: [
         { attributeEnName: 'int_id', attributeCnName: '唯一标识', dataType: 'long' },
         { attributeEnName: 'zh_label', attributeCnName: '名称', dataType: 'string' },
@@ -509,7 +671,7 @@ describe('auth-gate data-backend model description', () => {
         ],
       },
     }))
-    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describe(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ attributes: [{ attributeEnName: 'zh_label', attributeCnName: '名称' }] })
   })
 
@@ -518,7 +680,7 @@ describe('auth-gate data-backend model description', () => {
     for (const data of [null, 'attributes', {}, { attributes: 'int_id' }]) {
       seen = []
       serve(answer({ code: 0, data }))
-      expect(await backend.describe('SpaceLayer', idleSignal()))
+      expect(await backend.describe(SUBJECT, 'SpaceLayer', idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the answer listed no attributes' })
     }
   })
@@ -526,12 +688,12 @@ describe('auth-gate data-backend model description', () => {
   it('classifies its failures exactly as a read does', async () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 0 }, 401))
-    expect(await backendWith(credential).describe('SpaceLayer', idleSignal()))
+    expect(await backendWith(credential).describe(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
-    expect(await backendWith(testCredential(undefined)).describe('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(undefined)).describe(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'unauthenticated' })
-    expect(await backendWith(testCredential(TOKEN)).describe('Space Layer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describe(SUBJECT, 'Space Layer', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: '"Space Layer" is not a resource model name, so nothing was requested' })
   })
 })
@@ -548,7 +710,7 @@ describe('auth-gate data-backend default query scheme', () => {
 
   it('asks the schema service for the one default scheme of the resource-list kind', async () => {
     serve(schemeAnswer([{ relatedMetaAttr: 'zh_label', alias: '名称' }]))
-    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ columns: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] })
     expect(seen[0]?.url).toBe(SCHEME_URL)
     expect(seen[0]?.init.method).toBe('GET')
@@ -565,7 +727,7 @@ describe('auth-gate data-backend default query scheme', () => {
       { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: true, isSortable: false },
       { relatedMetaAttr: 'belong_scene', alias: '所属场景', isShow: 'yes', isSortable: 2 },
     ]))
-    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).describeScheme(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({
       columns: [
         { relatedMetaAttr: 'zh_label', alias: '名称', isShow: true, isSortable: false },
         { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: true, isSortable: false },
@@ -586,7 +748,7 @@ describe('auth-gate data-backend default query scheme', () => {
       { relatedMetaAttr: 'layer_id', alias: '' },
       { relatedMetaAttr: 'belong_scene', alias: 41 },
     ]))
-    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ columns: [{ relatedMetaAttr: 'layer_id' }, { relatedMetaAttr: 'belong_scene' }] })
   })
 
@@ -608,7 +770,7 @@ describe('auth-gate data-backend default query scheme', () => {
     ]) {
       seen = []
       serve(answer({ code: 0, data }))
-      expect(await backend.describeScheme('SpaceLayer', idleSignal()))
+      expect(await backend.describeScheme(SUBJECT, 'SpaceLayer', idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the model has no default query scheme' })
     }
   })
@@ -616,12 +778,12 @@ describe('auth-gate data-backend default query scheme', () => {
   it('classifies its failures exactly as the other two reads do', async () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 0 }, 401))
-    expect(await backendWith(credential).describeScheme('SpaceLayer', idleSignal()))
+    expect(await backendWith(credential).describeScheme(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
-    expect(await backendWith(testCredential(undefined)).describeScheme('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(undefined)).describeScheme(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'unauthenticated' })
-    expect(await backendWith(testCredential(TOKEN)).describeScheme('Space Layer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme(SUBJECT, 'Space Layer', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: '"Space Layer" is not a resource model name, so nothing was requested' })
   })
 })
@@ -646,7 +808,7 @@ describe('the deployment\'s own catalog of resource models', () => {
         metaSchemaMap: {},
       }],
     }))
-    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).listModels(SUBJECT, idleSignal())).toEqual({
       models: [{
         resClassEnName: 'SpaceLayer',
         resClassCnName: '空间图层',
@@ -673,14 +835,14 @@ describe('the deployment\'s own catalog of resource models', () => {
       code: 0,
       data: [null, 'SpaceLayer', {}, { resClassEnName: '' }, { resClassEnName: 'SITE' }, { resClassEnName: 'CITY', resClassCnName: 7 }],
     }))
-    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).listModels(SUBJECT, idleSignal())).toEqual({
       models: [{ resClassEnName: 'SITE', resClassCnName: '' }, { resClassEnName: 'CITY', resClassCnName: '' }],
     })
   })
 
   it('reads a catalog of no models as an answer rather than as a failure', async () => {
     serve(answer({ code: 0, data: [] }))
-    expect(await backendWith(testCredential(TOKEN)).listModels(idleSignal())).toEqual({ models: [] })
+    expect(await backendWith(testCredential(TOKEN)).listModels(SUBJECT, idleSignal())).toEqual({ models: [] })
   })
 
   it('answers unreachable when the payload is not a catalog at all', async () => {
@@ -688,7 +850,7 @@ describe('the deployment\'s own catalog of resource models', () => {
     for (const data of [null, 'SpaceLayer', { models: [] }]) {
       seen = []
       serve(answer({ code: 0, data }))
-      expect(await backend.listModels(idleSignal()))
+      expect(await backend.listModels(SUBJECT, idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the answer listed no resource models' })
     }
   })
@@ -696,9 +858,9 @@ describe('the deployment\'s own catalog of resource models', () => {
   it('classifies its failures exactly as the model reads do', async () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 0 }, 401))
-    expect(await backendWith(credential).listModels(idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(await backendWith(credential).listModels(SUBJECT, idleSignal())).toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
-    expect(await backendWith(testCredential(undefined)).listModels(idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backendWith(testCredential(undefined)).listModels(SUBJECT, idleSignal())).toEqual({ kind: 'unauthenticated' })
   })
 })
 
@@ -718,7 +880,7 @@ describe('one model\'s stored default schemes', () => {
         grid: { gridItems: [{ relatedMetaAttr: 'zh_label', isShow: '1' }] },
       }],
     }))
-    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({
       schemes: [{
         schemaType: 2,
         formItems: [
@@ -756,7 +918,7 @@ describe('one model\'s stored default schemes', () => {
         },
       ],
     }))
-    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({
       schemes: [
         { schemaType: 3, formItems: [], columns: [] },
         {
@@ -770,20 +932,20 @@ describe('one model\'s stored default schemes', () => {
 
   it('reads a model with no stored scheme as an answer rather than as a failure', async () => {
     serve(answer({ code: 0, data: [] }))
-    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal())).toEqual({ schemes: [] })
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({ schemes: [] })
   })
 
   it('answers unreachable when the payload is not a scheme list, and refuses a name that is not one segment', async () => {
     serve(answer({ code: 0, data: { schemes: [] } }))
-    expect(await backendWith(testCredential(TOKEN)).describeSchemes('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: 'the answer listed no schemes' })
-    expect(await backendWith(testCredential(TOKEN)).describeSchemes('../secret', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describeSchemes(SUBJECT, '../secret', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: '"../secret" is not a resource model name, so nothing was requested' })
-    expect(await backendWith(testCredential(undefined)).describeSchemes('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(undefined)).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'unauthenticated' })
     const credential = testCredential(TOKEN)
     serve(answer({ code: 0 }, 401))
-    expect(await backendWith(credential).describeSchemes('SpaceLayer', idleSignal()))
+    expect(await backendWith(credential).describeSchemes(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
   })
@@ -814,7 +976,7 @@ describe('the signed-in person\'s own rights', () => {
         },
       },
     }))
-    const rights = await backendWith(testCredential(TOKEN)).userRights(idleSignal())
+    const rights = await backendWith(testCredential(TOKEN)).userRights(SUBJECT, idleSignal())
     expect(rights).toEqual({
       resclass: [{ resclassenname: 'SpaceLayer', operations: ['add', 'gridexp', 'search'], columns: 'zh_label,layer_id' }],
       rows: [{ resourceName: 'city_id', resourceValue: '531,532' }],
@@ -839,13 +1001,13 @@ describe('the signed-in person\'s own rights', () => {
         },
       },
     }))
-    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).userRights(SUBJECT, idleSignal()))
       .toEqual({ resclass: [{ resclassenname: 'SITE', operations: [] }], rows: [] })
   })
 
   it('reads tables this deployment states as something other than lists as empty ones', async () => {
     serve(answer({ code: 0, data: { auth: { resclass: 'SpaceLayer' } } }))
-    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).userRights(SUBJECT, idleSignal()))
       .toEqual({ resclass: [], rows: [] })
   })
 
@@ -854,7 +1016,7 @@ describe('the signed-in person\'s own rights', () => {
     for (const data of [null, 'auth', { useraccount: 'zhangsan' }, { auth: null }, { auth: 'resclass' }]) {
       seen = []
       serve(answer({ code: 0, data }))
-      expect(await backend.userRights(idleSignal()))
+      expect(await backend.userRights(SUBJECT, idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the answer carried no rights table' })
     }
   })
@@ -862,11 +1024,11 @@ describe('the signed-in person\'s own rights', () => {
   it('classifies its failures exactly as the model reads do', async () => {
     const credential = testCredential(TOKEN)
     serve(answer({ code: 0 }, 401))
-    expect(await backendWith(credential).userRights(idleSignal())).toEqual({ kind: 'refused', status: 401 })
+    expect(await backendWith(credential).userRights(SUBJECT, idleSignal())).toEqual({ kind: 'refused', status: 401 })
     expect(credential.dropped).toEqual(['refused-by-backend'])
-    expect(await backendWith(testCredential(undefined)).userRights(idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(await backendWith(testCredential(undefined)).userRights(SUBJECT, idleSignal())).toEqual({ kind: 'unauthenticated' })
     serve(textAnswer('<html>gateway</html>', 502))
-    expect(await backendWith(testCredential(TOKEN)).userRights(idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).userRights(SUBJECT, idleSignal()))
       .toEqual({ kind: 'unreachable', detail: 'the HTTP 502 answer was not this backend\'s envelope' })
   })
 })
@@ -893,7 +1055,7 @@ describe('what a model description states about one attribute', () => {
         }],
       },
     }))
-    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal())).toEqual({
+    expect(await backendWith(testCredential(TOKEN)).describe(SUBJECT, 'SpaceLayer', idleSignal())).toEqual({
       attributes: [{
         attributeEnName: 'zh_label',
         attributeCnName: '名称',
@@ -922,7 +1084,7 @@ describe('what a model description states about one attribute', () => {
         }],
       },
     }))
-    expect(await backendWith(testCredential(TOKEN)).describe('SpaceLayer', idleSignal()))
+    expect(await backendWith(testCredential(TOKEN)).describe(SUBJECT, 'SpaceLayer', idleSignal()))
       .toEqual({ attributes: [{ attributeEnName: 'zh_label', attributeCnName: '名称' }] })
   })
 })
@@ -939,7 +1101,7 @@ function permitted(
   model: string,
   rules: BizOperationRules = DEFAULT_RULES,
 ): readonly BizOperation[] {
-  const backend = new BizBackendService(new Context(), BIZ_UPSTREAM, testCredential(TOKEN), rules)
+  const backend = new BizBackendService(new Context(), BIZ_UPSTREAM, soleSlot(testCredential(TOKEN)), rules)
   const permissions = backend.judge(rights)
   return BIZ_OPERATIONS.filter(operation => permissions.may(model, operation))
 }
