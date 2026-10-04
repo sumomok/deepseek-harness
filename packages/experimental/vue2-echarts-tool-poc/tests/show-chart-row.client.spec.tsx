@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import type { StartedToolCall, ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ShowChartRow, type ShowChartRowProps } from '../src/client/ShowChartRow.tsx'
@@ -70,11 +71,13 @@ const PAINTED = { ok: true, seriesCount: 1, pointCount: 3 } as const
 
 /** A running call slice carrying one chart's arguments. */
 function running(args: unknown, callId = CALL_ID): StartedToolCall {
+  const argsRaw = JSON.stringify(args)
   return {
     phase: 'start',
     callId,
     name: 'show_chart',
-    argsRaw: JSON.stringify(args),
+    args: PartialArguments.fromText(argsRaw),
+    argsRaw,
     turn: 1,
     step: 1,
     time: 0,
@@ -84,12 +87,15 @@ function running(args: unknown, callId = CALL_ID): StartedToolCall {
 
 /** A settled call slice whose head still carries the arguments. */
 function settled(args: unknown, callId = CALL_ID): ToolCallBlock {
+  const argsRaw = JSON.stringify(args)
   return {
     kind: 'tool-result',
     seq: 2,
     time: 0,
     callId,
-    call: { name: 'show_chart', argsRaw: JSON.stringify(args) },
+    name: 'show_chart',
+    args: PartialArguments.fromText(argsRaw),
+    call: { name: 'show_chart', argsRaw },
     callTime: 0,
     content: [],
     isError: false,
@@ -244,14 +250,14 @@ describe('ShowChartRow', () => {
   })
 
   it('draws no chart and posts no report for a call still preparing its arguments', () => {
-    mount({ phase: 'preparing', callId: CALL_ID, name: 'show_chart', turn: 1, step: 1, time: 0, subCalls: [] })
+    mount({ phase: 'preparing', callId: CALL_ID, name: 'show_chart', args: PartialArguments.EMPTY, turn: 1, step: 1, time: 0, subCalls: [] })
     expect(screen.getByText(en['row.unreadable'])).toBeDefined()
     expect(bridge.renders).toHaveLength(0)
     expect(posted).toEqual([])
   })
 
   it('shows the unreadable row for a settled call whose head was cut from the window', () => {
-    mount({ ...(settled({ option: OPTION }) as Extract<ToolCallBlock, { kind: 'tool-result' }>), call: null })
+    mount({ ...(settled({ option: OPTION }) as Extract<ToolCallBlock, { kind: 'tool-result' }>), call: null, name: '', args: PartialArguments.EMPTY })
     expect(screen.getByText(en['row.unreadable'])).toBeDefined()
   })
 

@@ -14,7 +14,7 @@ Status: implemented
 
 由启动器在 profile 清单里写明这个事实。`DshProfileManifest.shipped` 是启动该 profile 的应用从自身载荷提供的组合包名单；由启动器写入，DSH 内没有任何代码写它。`listBundles` 把这些名字并入它读取的名字，并对每一个报 `BundleInfo.shipped: true`。随附组合包无论 `dsh.profile.bundles` 是否选中都会列出；包缺失或没有组合包 patch 的随附名字带着问题列出。`setBundleEnabled` 展开保留 `dsh.profile`，关掉组合包不改动这份名单。`dsh.profile.shipped` 不是字符串数组时按没有名字处理，每个不同的值记一次警告；否则字符串会按字符列出多条，对象会让整次读取失败。`removable` 不变：只有 profile 自己的依赖也持有一份副本时，随附组合包才可卸载。
 
-插件页把 `shipped` 组合包收进**已安装**，卡片和详情页都带**内置**标签。分组和没有卸载沿用现有规则：它不是 `optional`，而卸载只对 `installed` 提供。启动器不把组合层与迁移来的用户插件写进 `shipped`，所以它们和以前一样不出现在页面上。
+插件页把 `shipped` 组合包收进**已安装**，卡片和详情页都带**内置**标签。分组和没有卸载沿用现有规则：它不是 `optional`，而页面只对 profile 依赖持有或 Host 报为可卸载的组合包提供卸载；随附组合包两者都不是，除非 profile 自己的依赖也点名它。启动器不把组合层与迁移来的用户插件写进 `shipped`，所以它们和以前一样不出现在页面上。
 
 ## 考虑过的方案
 

@@ -12,6 +12,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { StartedToolCall } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
@@ -60,8 +61,9 @@ function node<Kind extends ChatNodeKind>(kind: Kind, data: ChatNode<Kind>['data'
 
 /** One dispatched root Tool call awaiting its result, as the Chat snapshot carries it. */
 function running(name: string, args: unknown, callId = 'call-1'): ChatNode<'tool-call'> {
+  const argsRaw = JSON.stringify(args)
   const root: StartedToolCall = {
-    phase: 'start', callId, name, argsRaw: JSON.stringify(args), turn: 1, step: 1, time: 0, subCalls: [],
+    phase: 'start', callId, name, args: PartialArguments.fromText(argsRaw), argsRaw, turn: 1, step: 1, time: 0, subCalls: [],
   }
   return node('tool-call', { root }, `tool-${callId}`)
 }
@@ -152,11 +154,12 @@ describe('ApprovalDiffPreview', () => {
       node('compaction-running', null),
       running('write', { file_path: `${CWD}/other.txt`, content: 'x' }, 'call-2'),
       node('tool-call', {
-        root: { phase: 'preparing', callId: 'call-1', name: 'write', turn: 1, step: 1, time: 0, subCalls: [] },
+        root: { phase: 'preparing', args: PartialArguments.EMPTY, callId: 'call-1', name: 'write', turn: 1, step: 1, time: 0, subCalls: [] },
       }, 'tool-preparing'),
       node('tool-call', {
         root: {
           kind: 'tool-result', seq: 3, time: 0, callId: 'call-1', callTime: 0, content: [], isError: false, subCalls: [],
+          name: 'write', args: PartialArguments.fromText('{"file_path":"/w/project/a.txt","content":"x"}'),
           call: { name: 'write', argsRaw: '{"file_path":"/w/project/a.txt","content":"x"}' },
         },
       }, 'tool-settled'),

@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
-import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
-import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import * as CompactionInvariant from '@deepseek-ai/dsh-compaction/invariant'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, ManualCompactionWhileBusy } from '@deepseek-ai/dsh-compaction'
@@ -97,15 +92,10 @@ interface Bench {
   readonly log: string[]
 }
 
-/** A real loop with one `work` tool, invariants, and a scripted adapter. */
+/** A real loop with one `work` tool and a scripted adapter. */
 async function bench(script: Reply[]): Promise<Bench> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(InvariantRegistry)
-  await ctx.plugin(SessionInvariant)
-  await ctx.plugin(AgentInvariant)
-  await ctx.plugin(AgentLoopInvariant)
-  await ctx.plugin(CompactionInvariant)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeter)
   const adapter = new ScriptedAdapter(script)

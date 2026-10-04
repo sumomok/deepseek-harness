@@ -185,7 +185,9 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp` | yes | Experimental per-Session Chromium browser tools through chrome-devtools-mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp` | yes | Experimental per-Session Chromium browser tools through @playwright/mcp |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | yes | Experimental Stagehand browser tools with separately configured native models |
+| `@deepseek-ai/dsh-experimental-claude-code-mods` | yes | Experimental bridge: load Claude Code mods (hooks modules) and run their hook chains on DeepSeek Harness extension points |
 | `@deepseek-ai/dsh-experimental-client-ui-agent-team` | no | Web Agent Teams roster, task board, and teammate navigation |
+| `@deepseek-ai/dsh-experimental-client-ui-claude-code-mods` | no | Web band above the prompt for Claude Code mods: draws each session's mod tree and sends button presses back to the bridge |
 | `@deepseek-ai/dsh-experimental-client-ui-voice-input` | no | Record speech and insert editable text into the conversation draft |
 | `@deepseek-ai/dsh-experimental-component-kit` | yes | The component row behind the content panel's component kind: the React renderers a placement package draws a validated block with, and nothing about where they are drawn |
 | `@deepseek-ai/dsh-experimental-component-surface` | yes | The show_component tool: the agent places blocks from a fixed component catalog in the content column, validated against their declared properties before anything is drawn |
@@ -201,6 +203,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-experimental-server-base` | yes | Tells the browser whether reaching a served dsh page means owning the Host behind it: injects a __DSH_TRANSPORT__ carrier declaring ownsHost into the served index |
 | `@deepseek-ai/dsh-experimental-server-layout` | no | Service-line shell: a permanent four-track AppFrame (session | content | chat | details) that replaces ui-layout through a patch overlay |
 | `@deepseek-ai/dsh-experimental-server-sidebar` | yes | Product console sidebar: replaces ui-sidebar through a patch overlay with a fixed workbench/navigation/workflows console, plus a session-header "save as workflow" action |
+| `@deepseek-ai/dsh-experimental-session-inspector` | no | Experimental virtualized Session log and live Chat group/node inspectors |
 | `@deepseek-ai/dsh-experimental-skill-pack` | yes | A skill that is also a directory of interface: the pack root's skill provider, which parses each pack's component requirements, offers only the packs whose parts a component plugin has registered, and publishes every pack's state and reason on one read-only route |
 | `@deepseek-ai/dsh-experimental-skill-pack-components` | no | The adapter between the component catalog and the pack root: it publishes the components this deployment offers as the parts a skill pack requires, judges each pack view against the catalog that would draw it, and feeds every active pack's views to the content surface |
 | `@deepseek-ai/dsh-experimental-speech-to-text` | yes | Experimental speech recognition with independently selectable providers |
@@ -339,12 +342,6 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-ptc-runtime-node` | yes | Sandboxed Node process implementation of the DeepSeek Harness PTC execution capability |
 
-## runtime-diagnostics
-
-| Package | Config | Description |
-|---|---|---|
-| `@deepseek-ai/dsh-invariants` | yes | Registry service for package-owned DeepSeek Harness runtime invariants |
-
 ## sandbox
 
 | Package | Config | Description |
@@ -357,6 +354,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | Package | Config | Description |
 |---|---|---|
 | `@deepseek-ai/dsh-schedule` | yes | Host-wide durable reminders with shared management and original-Session delivery |
+| `@deepseek-ai/dsh-tool-schedule` | no | Model-facing reminder management tools (schedule_create, schedule_list, schedule_update, schedule_delete) over the Host ctx.schedule service |
 
 ## sdk
 

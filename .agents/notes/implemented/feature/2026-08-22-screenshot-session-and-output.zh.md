@@ -14,7 +14,7 @@ macOS 那一边出于同样的原因写了 `/tmp/redmine_proxy.py`,随后彻底�
 
 两个会话都再没有回头考虑过这个内置工具,而原因在会话日志里,不在模型里。装配出来的系统提示词里有十一行 `Use the X tool` 指令——read、write、edit、glob、grep、web_search、goal、workflow、ralph、subagent、subagent_fork——没有一行是给 `screenshot` 的。它在那里唯一的出场是 code-mode 段落里那句否定式的:*the browser provides no implicit DOM, route, or screenshot context*。而工具自己的描述写的是 `Use it to verify visual work (layout, colors, spacing) against a reference before calling it done`,这把一件取像仪器框定成了"检查自己刚写的 CSS"。加进一份没人会再读的 schema 里的参数不是能力,提示词从不提名的工具也不是。
 
-同一个工具返回的图像尺寸还取决于机器。`capturePage` 返回的位图带着显示器的缩放系数,所以 `screenshot({ width: 900, height: 700 })` 在 Retina Mac 上存下的是 1800x1400,在 Windows 上是 900x700。在 rc.17 那条 2000 px 的准入上限下,这让工具自己的默认视口——1024x768,截出来是 2048x1536——直接以 `IMAGE_DIMENSION_TOO_LARGE` 失败。[rc.18 把准入抬到 8192,并把更大的归一化下压到 2048](2026-08-20-unified-image-request-pipeline.zh.md),失败因此结束,尺寸依然是错的:1440x900 回来的是 2048x1280,既不是请求的视口,也不是它的整数倍,而 `width` 与 `height` 对模型的说法是"视口像素"。
+同一个工具返回的图像尺寸还取决于机器。`capturePage` 返回的位图带着显示器的缩放系数,所以 `screenshot({ width: 900, height: 700 })` 在 Retina Mac 上存下的是 1800x1400,在 Windows 上是 900x700。在 rc.17 那条 2000 px 的准入上限下,这让工具自己的默认视口——1024x768,截出来是 2048x1536——直接以 `IMAGE_DIMENSION_TOO_LARGE` 失败。[rc.18 把准入抬到 8192,并把更大的归一化下压到 2048](../../archived/feature/2026-08-20-unified-image-request-pipeline.md),失败因此结束,尺寸依然是错的:1440x900 回来的是 2048x1280,既不是请求的视口,也不是它的整数倍,而 `width` 与 `height` 对模型的说法是"视口像素"。
 
 ## Decision
 

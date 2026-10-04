@@ -360,9 +360,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a Session already addressable through the Session Controller.',
       },
       {
-        signature: 'startSession(workspaceId?: WorkspaceId): void',
+        signature: 'startSession(workspaceId?: WorkspaceId, options?: StartSessionOptions): void',
         description: 'Start a New Session flow and navigate to its Session; a creation the Host refuses is shown through the Workspace notice and leaves the selection as it was.',
-        parameters: [{ name: 'workspaceId', description: 'explicit target; absent inherits the current or most recent Workspace.' }],
+        parameters: [{ name: 'workspaceId', description: 'explicit target; absent inherits the current or most recent Workspace.' }, { name: 'options', description: 'initial content; existing text or attachments are preserved unless clearPreviousDraft is true.' }],
       },
       {
         signature: 'archiveSession(sessionId: SessionId, options?: { readonly stopActivity?: boolean }): Promise<void>',
@@ -610,6 +610,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ControlState',
     declaration: 'export interface ControlState {\n    readonly value: string | undefined;\n    readonly secret: boolean;\n    readonly checked: boolean | undefined;\n    readonly required: boolean;\n    readonly readonly: boolean;\n    readonly disabled: boolean;\n}',
+  },
+  {
+    name: 'DraftInitializationOptions',
+    declaration: 'export interface DraftInitializationOptions {\n    readonly prompt?: string;\n    readonly clearPreviousDraft?: boolean;\n}',
   },
   {
     name: 'ElementItem',
@@ -1022,6 +1026,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SnapshotSelectorHook',
     declaration: 'export type SnapshotSelectorHook<T> = <S>(sel: (s: T) => S, eq?: (a: S, b: S) => boolean) => S;',
+  },
+  {
+    name: 'StartSessionOptions',
+    declaration: 'export type StartSessionOptions = DraftInitializationOptions;',
   },
   {
     name: 'StoreDecl',

@@ -45,5 +45,3 @@ None; approval request and response rendering does not alter a model request.
 The headline draws the reason's own line breaks rather than collapsing them, because a Host reason writes an identifier on a line of its own at the same size beneath its prose, and a blank line between two requests it describes. A reason that means one paragraph writes one line.
 
 </details>
-
-**Runtime invariant:** No companion is published. Registries own and observe the Remote listener and temporary Slot entry.

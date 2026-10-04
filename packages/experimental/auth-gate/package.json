@@ -41,8 +41,7 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
-    "@deepseek-ai/dsh-host-webserver": "workspace:*",
-    "@deepseek-ai/dsh-invariants": "workspace:*"
+    "@deepseek-ai/dsh-host-webserver": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -50,8 +49,7 @@
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
-    "@deepseek-ai/dsh-host-webserver": "workspace:*",
-    "@deepseek-ai/dsh-invariants": "workspace:*"
+    "@deepseek-ai/dsh-host-webserver": "workspace:*"
   },
   "files": [
     "lib/index.js",

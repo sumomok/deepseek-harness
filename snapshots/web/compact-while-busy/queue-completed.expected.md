@@ -17,7 +17,7 @@
 - button "Bad response"
 - button "Branch into a new conversation" [disabled]
 - text: Available only on the last message of a completed turn {{clock}}
-- button "compact Compacted 4 history items (~{{tokens}} tokens)"
+- button "compact Compacted 5 history items (~{{tokens}} tokens)"
 - textbox "Message or run a task, / commands, @ files or sessions":
   - paragraph
 - button "Add files or run commands"
