@@ -310,12 +310,12 @@ function RowsSection({ rows, t, resolveText, toggle, configure }: {
 
 /**
  * Where a bundle comes from: the spec that installs it elsewhere, or built in
- * for one whose loaded copy the installation supplies, and its version. A
- * selected bundle that neither the profile nor the installation holds has no
- * section.
+ * for one whose loaded copy the installation or the launching application
+ * supplies, and its version. A selected bundle that neither the profile, the
+ * installation, nor the launcher's `dsh.profile.shipped` holds has no section.
  */
 function SourceSection({ pkg, t }: { readonly pkg: PackageView; readonly t: Translate }): ReactNode {
-  if (pkg.source === undefined && !pkg.installed && !pkg.optional) return null
+  if (pkg.source === undefined && !pkg.installed && !pkg.optional && !pkg.shipped) return null
   return (
     <section className={css.detailSection} data-plugin-source>
       <h4 className={css.sectionTitle}>{t('sourceTitle')}</h4>

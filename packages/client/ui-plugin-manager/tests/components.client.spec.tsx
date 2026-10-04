@@ -586,11 +586,13 @@ describe('PluginManagerPage', () => {
     expect(within(group).getAllByText(en.statusShipped)).toHaveLength(2)
     fireEvent.click(screen.getByRole('switch', { name: en.enableToggle.replace('{name}', '@sumomok/dsh-balance') }))
     expect(actions.setEnabled).toHaveBeenCalledExactlyOnceWith('@sumomok/dsh-balance', true)
-    // Its page carries the tag and the version and offers no uninstall.
+    // Its page carries the tag, the version, and a built-in source, and offers no uninstall.
     fireEvent.click(screen.getByRole('button', { name: en.openDetail.replace('{name}', '@haoran/dsh-screenshot') }))
     const detail = document.querySelector('[data-plugin-detail]') as HTMLElement
     expect(within(detail).getByText(en.statusShipped)).toBeTruthy()
     expect(within(detail).getByText(en.versionTag.replace('{version}', '0.6.0'))).toBeTruthy()
+    expect([...detail.querySelectorAll('[data-plugin-source] dt, [data-plugin-source] dd')].map(node => node.textContent))
+      .toEqual([en.sourceSpec, en.sourceBuiltIn, en.sourceVersion, '0.6.0'])
     expect(within(detail).queryByRole('button', { name: en.uninstallLabel.replace('{name}', '@haoran/dsh-screenshot') })).toBeNull()
   })
 
