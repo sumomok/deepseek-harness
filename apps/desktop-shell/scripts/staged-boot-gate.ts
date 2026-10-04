@@ -203,14 +203,15 @@ export async function findWithheldDirectories(root: string, names: readonly stri
 /**
  * Packages the payload must carry exactly one copy of. `@deepseek-ai/cordis`
  * is the framework every built-in plugin names as a peer, and the server
- * closure gets it from the repository's `vendor/cordis` through a `link:`
- * override. A second copy can only be a different build, such as a registry
- * release a plugin's own install resolved, and a plugin that loads it defines
- * its `Service` and `Context` subclasses against classes and module state the
- * running host does not share. The other vendored cordis packages are not
- * listed: plugins import none of them except `@deepseek-ai/schemastery`, whose
- * schema brand is a global symbol and which the Loader recognizes by its
- * Standard Schema vendor field, so a second copy of it still validates.
+ * closure gets it from the repository's `vendor/cordis` workspace package,
+ * which `apps/desktop-server` depends on as `workspace:~`. A second copy can
+ * only be a different build, such as a registry release a plugin's own install
+ * resolved, and a plugin that loads it defines its `Service` and `Context`
+ * subclasses against classes and module state the running host does not
+ * share. The other vendored cordis packages are not listed: plugins import
+ * none of them except `@deepseek-ai/schemastery`, whose schema brand is a
+ * global symbol and which the Loader recognizes by its Standard Schema vendor
+ * field, so a second copy of it still validates.
  */
 export const SINGLE_COPY_PACKAGES = ['@deepseek-ai/cordis'] as const
 
