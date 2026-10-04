@@ -1,0 +1,10 @@
+version: 1
+scenario: session-query-turn
+profile: acp
+composition: desktop
+recording: authored
+header:
+  class: desktop
+  pin: true
+replay:
+  override: true
