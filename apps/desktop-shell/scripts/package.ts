@@ -27,7 +27,7 @@
  *        [--skip-repo-build] [--skip-deploy]
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -42,6 +42,7 @@ import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src
 import { SERVER_LOG_ENV } from '../src/server.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
+import { packedTarball, type PackSource } from './npm-pack-cache.ts'
 import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEnvironment } from './client-build.ts'
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
@@ -70,6 +71,8 @@ const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-fronte
 const NODE_VERSION = 'v24.15.0'
 const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
 const CACHE_DIR = join(APP_DIR, '.cache')
+/** Registry tarballs `npm pack` wrote, kept across runs ([[packedTarball]]). */
+const NPM_PACK_DIR = join(CACHE_DIR, 'npm-pack')
 /** The staged package manager, copied into `resources/runtime/pnpm` by scripts/after-pack.cjs. */
 const PNPM_STAGING = join(STAGING, 'pnpm')
 /** The staged package manager's entry, which the launcher scripts run under the bundled Node. */
@@ -178,6 +181,55 @@ function batchInvocation(file: string, args: string[]): { command: string; args:
   return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`] }
 }
 
+/**
+ * Start one subprocess with `CI=true` in its environment, resolving the
+ * command against PATH ([[resolveCommand]]) and wrapping a batch shim for
+ * `cmd.exe` ([[batchInvocation]]).
+ * @param label - the name the build log gives the step.
+ * @param command - the command name or path.
+ * @param args - its arguments, passed verbatim.
+ * @param cwd - the working directory.
+ * @param environment - the environment, before `CI=true` is added.
+ * @param stdout - `inherit` to print into the build log, `pipe` to read it.
+ * @returns the started child; stdin and stderr are inherited.
+ */
+function startCommand(
+  label: string,
+  command: string,
+  args: string[],
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  stdout: 'inherit' | 'pipe',
+): ChildProcess {
+  console.log(`package: ${label}: ${[command, ...args].join(' ')}`)
+  const resolved = resolveCommand(command)
+  const isBatch = /\.(?:cmd|bat)$/i.test(resolved)
+  const invocation = isBatch ? batchInvocation(resolved, args) : { command: resolved, args }
+  return spawn(invocation.command, invocation.args, {
+    cwd,
+    stdio: ['inherit', stdout, 'inherit'],
+    env: { ...environment, CI: 'true' },
+    windowsVerbatimArguments: isBatch,
+  })
+}
+
+/**
+ * Wait for a child from [[startCommand]] to end.
+ * @param child - the started child.
+ * @param label - the name the build log gives the step.
+ * @param event - `exit`, or `close` when its piped output has to be read to the end first.
+ * @throws when it fails to spawn or ends other than with exit code 0.
+ */
+async function ended(child: ChildProcess, label: string, event: 'exit' | 'close'): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    child.once('error', (error) => { reject(new Error(`package: ${label} failed to spawn: ${error.message}`)) })
+    child.once(event, (code: number | null, signal: NodeJS.Signals | null) => {
+      if (code === 0) resolvePromise()
+      else reject(new Error(`package: ${label} failed (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${String(code)}`})`))
+    })
+  })
+}
+
 /** Run one subprocess with inherited stdio from the repo root; non-zero exit throws. */
 async function run(
   label: string,
@@ -186,23 +238,52 @@ async function run(
   cwd: string = ROOT,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  console.log(`package: ${label}: ${[command, ...args].join(' ')}`)
-  const resolved = resolveCommand(command)
-  const isBatch = /\.(?:cmd|bat)$/i.test(resolved)
-  const invocation = isBatch ? batchInvocation(resolved, args) : { command: resolved, args }
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(invocation.command, invocation.args, {
-      cwd,
-      stdio: 'inherit',
-      env: { ...environment, CI: 'true' },
-      windowsVerbatimArguments: isBatch,
-    })
-    child.once('error', (error) => { reject(new Error(`package: ${label} failed to spawn: ${error.message}`)) })
-    child.once('exit', (code, signal) => {
-      if (code === 0) resolvePromise()
-      else reject(new Error(`package: ${label} failed (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${String(code)}`})`))
-    })
-  })
+  await ended(startCommand(label, command, args, cwd, environment, 'inherit'), label, 'exit')
+}
+
+/**
+ * Run one subprocess and return what it printed on standard output.
+ * @param label - the name the build log gives the step.
+ * @param command - the command name or path.
+ * @param args - its arguments, passed verbatim.
+ * @param cwd - the working directory.
+ * @returns its standard output; standard error goes to the build log.
+ * @throws when it fails to spawn or exits non-zero.
+ */
+async function capture(label: string, command: string, args: string[], cwd: string): Promise<string> {
+  const child = startCommand(label, command, args, cwd, process.env, 'pipe')
+  let output = ''
+  child.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString() })
+  await ended(child, label, 'close')
+  return output
+}
+
+/**
+ * The registry's `dist.integrity` for one exact version, from `npm view`,
+ * which picks the registry, scoped registries and credentials the same way
+ * the `npm pack` it stands in for does. Each call is one registry request,
+ * about 1 s when measured, made once per cached tarball.
+ * @param spec - `<name>@<version>`.
+ * @returns the integrity string, or undefined when `npm view` fails or prints none.
+ */
+async function npmIntegrity(spec: string): Promise<string | undefined> {
+  let output: string
+  try {
+    output = await capture(`npm view ${spec}`, 'npm', ['view', spec, 'dist.integrity', '--json'], APP_DIR)
+  } catch (error) {
+    console.log(`package: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+  const printed = output.trim()
+  if (!printed.startsWith('"')) return undefined
+  const value: unknown = JSON.parse(printed)
+  return typeof value === 'string' ? value : undefined
+}
+
+/** The registry as `npm` reaches it, for [[packedTarball]]. */
+const NPM_PACK: PackSource = {
+  integrity: npmIntegrity,
+  pack: (spec, directory) => run(`npm pack ${spec}`, 'npm', ['pack', spec, '--pack-destination', directory], APP_DIR),
 }
 
 /**
@@ -297,9 +378,10 @@ async function prunePlatformBuilds(): Promise<void> {
  * ([[namesWindowsX64]]) of platform-split optional-dependency families the
  * macOS install skipped (`node-addon-require-builtin-*` style), each at the
  * version [[pinnedVariantVersion]] picks, except the Office engines no payload
- * carries ([[isOfficeEngine]]). Nothing is silently dropped: every fetch, every
- * engine left unfetched, and every remaining platform-specific artifact is
- * printed.
+ * carries ([[isOfficeEngine]]). Each tarball comes from [[packedTarball]], so
+ * a cached one that matches the registry is extracted without `npm pack`.
+ * Nothing is silently dropped: every fetch, every engine left unfetched, and
+ * every remaining platform-specific artifact is printed.
  */
 async function stageWindowsVariants(): Promise<void> {
   const nodeModules = join(SERVER_STAGING, 'node_modules')
@@ -339,18 +421,12 @@ async function stageWindowsVariants(): Promise<void> {
     }
   }
   for (const [dependency, version] of [...wanted.entries()].sort()) {
-    const spec = `${dependency}@${version}`
-    console.log(`package: staging Windows variant ${spec}`)
-    const packDir = join(CACHE_DIR, 'npm-pack')
-    await mkdir(packDir, { recursive: true })
-    await run(`npm pack ${spec}`, 'npm', ['pack', spec, '--pack-destination', packDir], APP_DIR)
-    const tarball = (await readdir(packDir)).find(name =>
-      name === `${dependency.replaceAll('/', '-').replace(/^@/, '')}-${version}.tgz`)
-    if (tarball === undefined) throw new Error(`package: npm pack produced no tarball for ${spec}`)
+    console.log(`package: staging Windows variant ${dependency}@${version}`)
+    const tarball = await packedTarball(NPM_PACK_DIR, dependency, version, NPM_PACK)
     const destination = join(nodeModules, dependency)
     await rm(destination, { recursive: true, force: true })
     await mkdir(destination, { recursive: true })
-    await run(`extract ${tarball}`, 'tar', ['-xzf', join(packDir, tarball), '-C', destination, '--strip-components', '1'], APP_DIR)
+    await run(`extract ${basename(tarball)}`, 'tar', ['-xzf', tarball, '-C', destination, '--strip-components', '1'], APP_DIR)
   }
   // Full native inventory, so a platform gap is visible in the build log.
   const natives: string[] = []
@@ -394,8 +470,12 @@ async function pnpmVersion(): Promise<string> {
  * loads at runtime, natives included — so the whole extracted package is what
  * ships, not the entry alone.
  *
- * It is staged once for every platform, because it is JavaScript and its
- * natives are published for all four of them in the same tarball. It lands
+ * It is staged once per run, before either platform's electron-builder runs,
+ * because it is JavaScript and its natives are published for all four
+ * platforms in the same tarball; the tarball comes from [[packedTarball]].
+ * Nothing else in the run deletes or rewrites `staging/pnpm`: each builder's
+ * scripts/after-pack.cjs copies it, and staging it again removes the
+ * directory before extracting it anew. It lands
  * under `runtime/` rather than beside the server closure because
  * [[bundleClosure]]'s sweep deletes anything under `server/` the closure does
  * not reference, and nothing in that closure references pnpm; scripts/
@@ -407,23 +487,18 @@ async function stagePnpm(): Promise<void> {
   const version = await pnpmVersion()
   const spec = `pnpm@${version}`
   console.log(`package: staging ${spec}`)
-  const packDir = join(CACHE_DIR, 'npm-pack')
-  await mkdir(packDir, { recursive: true })
-  await run(`npm pack ${spec}`, 'npm', ['pack', spec, '--pack-destination', packDir], APP_DIR)
-  const tarball = `pnpm-${version}.tgz`
-  if (!existsSync(join(packDir, tarball))) throw new Error(`package: npm pack produced no tarball for ${spec}`)
+  const tarball = await packedTarball(NPM_PACK_DIR, 'pnpm', version, NPM_PACK)
   await rm(PNPM_STAGING, { recursive: true, force: true })
   await mkdir(PNPM_STAGING, { recursive: true })
-  await run(`extract ${tarball}`, 'tar', ['-xzf', join(packDir, tarball), '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
+  await run(`extract ${basename(tarball)}`, 'tar', ['-xzf', tarball, '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
   if (!existsSync(join(PNPM_STAGING, PNPM_ENTRY))) throw new Error(`package: the staged ${spec} has no ${PNPM_ENTRY}.`)
 }
 
-/** Stage the bundled Node runtime, and the pnpm that runs on it, for one platform. */
+/** Stage the bundled Node runtime for one platform; [[stagePnpm]] stages the pnpm that runs on it. */
 async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
   const dir = join(STAGING, 'runtime', platform)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true })
-  await stagePnpm()
   if (platform === 'darwin') {
     // The build machine's own Node is the tested engines match.
     if (!process.version.startsWith('v24.')) {
@@ -1007,6 +1082,7 @@ async function main(buildHome: string): Promise<void> {
   // scripts/publish-update.ts's job, and the feed's generic provider has no
   // uploader at all, so the build must only ever emit the manifests.
   const builder = ['--filter', '@deepseek-ai/dsh-desktop-shell', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
+  await stagePnpm()
   if (cli.mac) {
     await stageRuntime('darwin')
     await derivePayloadOnce('darwin')

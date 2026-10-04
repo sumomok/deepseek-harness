@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bundleClosure, specifierFor } from '../scripts/bundle-closure.ts'
+import { bundleClosure, reachable, REFERENCE_SCAN_SOURCE, referencedNames, specifierFor } from '../scripts/bundle-closure.ts'
 
 const roots: string[] = []
 afterEach(() => {
@@ -59,6 +59,128 @@ describe('specifierFor', () => {
   })
 })
 
+/**
+ * Every name the reachability walk could be asked about, including names that
+ * prefix one another (`lodash` / `lodash.merge`, `@a/b` / `@a/b-c`), a name
+ * that is a path segment of another, and names that look like keywords.
+ */
+const NAMES = [
+  'open', 'lodash', 'lodash.merge', 'lodash.mergewith', '@a/b', '@a/b-c', '@a/bc', '@xterm/headless',
+  '@img/sharp-libvips-darwin-arm64', '@vscode/ripgrep', 'import', 'require', 'from', 'a', 'b', 'x$y', 'q.r',
+]
+
+/** The same answer for every name, by the per-name pattern and by the single scan. */
+function expectSameAnswers(text: string): void {
+  const found = referencedNames(text, new Set(NAMES))
+  for (const name of NAMES) {
+    expect(found.has(name), `${name} in ${JSON.stringify(text)}`).toBe(specifierFor(name).test(text))
+  }
+}
+
+/** A deterministic generator (mulberry32), so a failing text reproduces from the seed. */
+function seeded(seed: number): () => number {
+  let state = seed
+  return () => {
+    state = (state + 0x6D2B79F5) | 0
+    let t = Math.imul(state ^ (state >>> 15), 1 | state)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+describe('referencedNames', () => {
+  it('answers like specifierFor for every name on crafted texts', () => {
+    for (const text of [
+      'import open from \'open\'',
+      'export * from "lodash.merge"',
+      'require(`lodash`)',
+      'require("lodash/fp/merge.js")',
+      'require(\'lodash.mergewith/index.js\')',
+      'await import(\'@a/b-c\')',
+      'import("@a/b/deep/sub/path.js")',
+      'import.meta.resolve(\'@img/sharp-libvips-darwin-arm64/binary\')',
+      'createRequire(import.meta.url).resolve("@vscode/ripgrep/bin/rg")',
+      'const { Terminal } = createRequire(import.meta.url)(\'@xterm/headless\')',
+      'nodeRequire.resolve(`open`)',
+      '__webpack_require__.resolve(\'q.r\')',
+      'requireFoo$.resolve("x$y")',
+      'require(\'\')',
+      'require(\'/abs\')',
+      'require(\'a\'\'b\')',
+      'require(\'./import\')(\'a\')',
+      'require("./import" + "from")',
+      'import\'a\'',
+      'from"b"',
+      'require(\'@a/b\'',
+      'const label = \'open\'; throw new Error("lodash")',
+      '{"name": "open", "main": "require"}',
+      'const p = `@img/sharp-${platform}-${arch}`',
+      'require(\'lodash.merge',
+      // Minified identifier runs; specifierFor's cost grows with the square of
+      // their length, which is what bounds them here.
+      `${'a'.repeat(600)}require('open')${'_$Zz9'.repeat(120)}from"@a/bc"`,
+      `var ${'r'.repeat(600)}equire_${'q'.repeat(600)}=0;${'x'.repeat(600)}Require.resolve('b')`,
+    ]) expectSameAnswers(text)
+  })
+
+  it('answers like specifierFor for every name on generated texts', () => {
+    const tokens = [
+      'from', 'require', 'import', 'import.meta', '.resolve', 'createRequire(import.meta.url)', 'nodeRequire',
+      '(', ')', ' ', '\n', '.', ';', '/', '\'', '"', '`', '$', '_', 'x', 'q.r', ...NAMES,
+    ]
+    const next = seeded(20261004)
+    for (let round = 0; round < 3000; round++) {
+      let text = ''
+      const length = 1 + Math.floor(next() * 24)
+      for (let index = 0; index < length; index++) text += tokens[Math.floor(next() * tokens.length)] ?? ''
+      expectSameAnswers(text)
+    }
+  })
+
+  it('looks for the same call forms as specifierFor', () => {
+    // The prefixes are read back out of specifierFor's own pattern, so this
+    // fails when either pattern is changed without the other.
+    const literal = new RegExp(String.raw`['"\`]probe(?:/[^'"\`]*)?['"\`]`).source
+    const pieces = specifierFor('probe').source.split(literal)
+    expect(pieces.at(-1)).toBe('')
+    const prefixes = pieces.slice(0, -1).map((piece, index) => index === 0 ? piece : piece.replace(/^\|/, ''))
+    expect(prefixes).toHaveLength(3)
+    const scan = new RegExp(REFERENCE_SCAN_SOURCE).source
+    expect(scan.startsWith(String.raw`['"\`](?<=(?:` + prefixes.join('|') + String.raw`)['"\`])`)).toBe(true)
+  })
+})
+
+describe('reachable', () => {
+  it('reads and scans each reachable package once, against every candidate at once', async () => {
+    const texts = new Map([
+      ['root', 'require(\'a\'); import b from "b"'],
+      ['a', 'module.exports = require(\'c\')'],
+      ['b', ''],
+      ['c', 'require(\'a\')'],
+      ['d', 'require(\'root\')'],
+    ])
+    const candidates = new Set(['a', 'b', 'c', 'd'])
+    const reads: string[] = []
+    const scans: { text: string; names: ReadonlySet<string> }[] = []
+    const kept = await reachable(
+      ['root'],
+      candidates,
+      async (name) => {
+        reads.push(name)
+        return texts.get(name) ?? ''
+      },
+      (text, names) => {
+        scans.push({ text, names })
+        return referencedNames(text, names)
+      },
+    )
+    expect([...kept].sort()).toEqual(['a', 'b', 'c', 'root'])
+    expect([...reads].sort()).toEqual(['a', 'b', 'c', 'root'])
+    expect(scans.map(scan => scan.text).sort()).toEqual([texts.get('a'), texts.get('c'), texts.get('root')].sort())
+    for (const scan of scans) expect(scan.names).toBe(candidates)
+  })
+})
+
 describe('bundleClosure', () => {
   it('keeps both platforms\' sherpa-onnx members, which only a relative require reaches', async () => {
     const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
@@ -74,5 +196,36 @@ describe('bundleClosure', () => {
     for (const name of ['sherpa-onnx-node', ...members]) expect(existsSync(join(payload, 'node_modules', name))).toBe(true)
     expect(existsSync(join(payload, 'node_modules', 'unreferenced'))).toBe(false)
     expect(result.removed).toBe(1)
+  })
+
+  it('refuses a third-party name with a quote character before it builds or deletes anything', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const quoted = 'o\'q'
+    for (const name of ['@deepseek-ai/a', quoted]) {
+      const dir = join(payload, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+      writeFileSync(join(dir, 'index.js'), 'export default 1\n')
+    }
+    await expect(bundleClosure(payload)).rejects.toThrow(`quote character: ${quoted}`)
+    expect(existsSync(join(payload, 'node_modules', '@deepseek-ai', 'a', 'lib'))).toBe(false)
+    expect(existsSync(join(payload, 'node_modules', quoted))).toBe(true)
+  })
+
+  it('reports the packages esbuild refused in package order', async () => {
+    const payload = mkdtempSync(join(tmpdir(), 'bundle-closure-'))
+    roots.push(payload)
+    const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(letter => `@deepseek-ai/${letter}`)
+    const refused = new Set(['@deepseek-ai/b', '@deepseek-ai/e', '@deepseek-ai/f'])
+    for (const name of names) {
+      const dir = join(payload, 'node_modules', name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, main: 'index.js' }))
+      writeFileSync(join(dir, 'index.js'), refused.has(name) ? 'import missing from \'./missing.js\'\nexport default missing\n' : 'export default 1\n')
+    }
+    const result = await bundleClosure(payload)
+    expect(result.unbundled).toEqual([...refused])
+    expect(result.bundled).toBe(names.length - refused.size)
   })
 })

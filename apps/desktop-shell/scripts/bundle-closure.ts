@@ -31,6 +31,7 @@ import { build } from 'esbuild'
 import { existsSync } from 'node:fs'
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { mapInOrder } from './ordered-pool.ts'
 
 /** The manifest fields this module reads. */
 interface PackageManifest {
@@ -134,6 +135,28 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
   return [...found]
 }
 
+/** Any of the three quote characters a JavaScript string literal opens or closes with. */
+const QUOTE = String.raw`['"\`]`
+
+/** The rest of a string literal after its opening quote: everything up to the next quote. */
+const UNQUOTED_RUN = String.raw`[^'"\`]*`
+
+/**
+ * The text that has to come right before a string literal's opening quote for
+ * the literal to count as a package reference, one pattern per form
+ * [[specifierFor]] documents. [[specifierFor]] and [[referencedNames]] are both
+ * built from this list, so the per-name pattern and the single scan cannot
+ * accept different call forms.
+ */
+const REFERENCE_PREFIXES = [
+  String.raw`(?:from|require|import)\s*\(?\s*`,
+  String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*`,
+  // A require built and invoked in one expression — `createRequire(url)('x')`
+  // — loads the module at run time without the bundler ever seeing it, and
+  // the directory has to be there just as for a resolution call.
+  String.raw`createRequire\s*\([^()]*\)\s*\(\s*`,
+]
+
 /**
  * Matches a reference to `name` — the specifier itself, not the word appearing
  * anywhere. Two forms count, because both make the package a directory the
@@ -154,20 +177,58 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
  * template with a substitution (`@img/sharp-${platform}-${arch}`, how sharp and
  * `@vscode/ripgrep` select their platform package) and the dynamic library
  * search a `.node` performs on its own. Those are what `NATIVE` is for.
+ *
+ * The reachability walk does not run this pattern; it runs [[referencedNames]],
+ * which accepts exactly the texts this pattern accepts for a name without a
+ * quote character.
  * @param name - the package name a reference would have to spell out.
  * @returns a pattern matching either reference form for that name.
  */
 export function specifierFor(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, match => `\\${match}`)
-  const literal = String.raw`['"\`]` + escaped + String.raw`(?:/[^'"\`]*)?['"\`]`
-  return new RegExp([
-    String.raw`(?:from|require|import)\s*\(?\s*` + literal,
-    String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*` + literal,
-    // A require built and invoked in one expression — `createRequire(url)('x')`
-    // — loads the module at run time without the bundler ever seeing it, and
-    // the directory has to be there just as for a resolution call.
-    String.raw`createRequire\s*\([^()]*\)\s*\(\s*` + literal,
-  ].join('|'))
+  const literal = QUOTE + escaped + `(?:/${UNQUOTED_RUN})?` + QUOTE
+  return new RegExp(REFERENCE_PREFIXES.map(prefix => prefix + literal).join('|'))
+}
+
+/**
+ * The source of the single-scan pattern: an opening quote preceded by one of
+ * [[REFERENCE_PREFIXES]] (a lookbehind ending at that quote), then the run up
+ * to the next quote, captured, with the closing quote required but not
+ * consumed, so the closing quote of one literal is also tried as the opening
+ * quote of the next.
+ */
+export const REFERENCE_SCAN_SOURCE =
+  `${QUOTE}(?<=(?:${REFERENCE_PREFIXES.join('|')})${QUOTE})(${UNQUOTED_RUN})(?=${QUOTE})`
+
+/**
+ * The members of `names` that `text` references: for every name `n` that
+ * contains none of `'`, `"` and `` ` ``, `n` is returned exactly when
+ * `specifierFor(n).test(text)` holds, found in one scan of `text` instead of
+ * one regular-expression search per name. A name with a quote character is
+ * never returned, because the run the scan reads ends at the first quote,
+ * while `specifierFor` matches the quote inside the name as a literal
+ * character; [[bundleClosure]] refuses a payload that has such a name.
+ *
+ * `specifierFor(n)` accepts a text when some opening quote follows one of the
+ * reference prefixes and the run after it, up to the next quote, is `n` itself
+ * or starts with `n/`. The scan visits every quote that follows a prefix, reads
+ * that run once, and looks up the run and each part of it that ends before a
+ * `/` in `names`.
+ * @param text - the source text to scan.
+ * @param names - the package names to look for.
+ * @returns the referenced names, a subset of `names`.
+ */
+export function referencedNames(text: string, names: ReadonlySet<string>): Set<string> {
+  const found = new Set<string>()
+  for (const match of text.matchAll(new RegExp(REFERENCE_SCAN_SOURCE, 'g'))) {
+    const run = match[1] ?? ''
+    if (names.has(run)) found.add(run)
+    for (let slash = run.indexOf('/'); slash !== -1; slash = run.indexOf('/', slash + 1)) {
+      const head = run.slice(0, slash)
+      if (names.has(head)) found.add(head)
+    }
+  }
+  return found
 }
 
 /** Every JavaScript-ish file one package ships, concatenated. */
@@ -187,10 +248,115 @@ async function textOf(nodeModules: string, name: string): Promise<string> {
 }
 
 /**
+ * The packages reachable from `roots` through package references: the roots,
+ * plus every member of `candidates` that the text of a reachable package
+ * references. It is a reachability walk, not one pass, because a surviving
+ * third-party package brings its own dependencies with it — `@babel/code-frame`
+ * stays because something imports it, and it needs `picocolors`, which nothing
+ * else names.
+ *
+ * Each reachable package's text is read once and passed to `scan` once,
+ * together with all of `candidates`, so the walk's cost grows with the text it
+ * reads rather than with the text times the number of candidates.
+ * @param roots - the packages kept whether or not anything references them.
+ * @param candidates - the packages kept only when a reachable package references them.
+ * @param read - the text of one package; an empty text references nothing.
+ * @param scan - the members of a set of names that a text references ([[referencedNames]]).
+ * @returns the roots and every reachable candidate.
+ */
+export async function reachable(
+  roots: Iterable<string>,
+  candidates: ReadonlySet<string>,
+  read: (name: string) => Promise<string>,
+  scan: (text: string, names: ReadonlySet<string>) => Set<string>,
+): Promise<Set<string>> {
+  const kept = new Set(roots)
+  const frontier = [...kept]
+  while (frontier.length > 0) {
+    const text = await read(frontier.pop() as string)
+    if (text === '') continue
+    for (const name of scan(text, candidates)) {
+      if (kept.has(name)) continue
+      kept.add(name)
+      frontier.push(name)
+    }
+  }
+  return kept
+}
+
+/** What bundling one package did: how many entry points it built, or that esbuild refused it. */
+interface BuildResult {
+  ok: boolean
+  entries: number
+}
+
+/**
+ * How many packages esbuild bundles at once. Builds cannot see one another:
+ * each writes only its own package's `lib/`, and every package it could read
+ * from another build's output is external. Each `build()` call already spreads
+ * its work over every core, so the pool only overlaps one package's file reads
+ * and call setup with another's build: on the rc.37 payloads `bundleClosure`
+ * took 2.4-2.6 s one package at a time, 1.75-1.89 s with 4, and 1.65-1.68 s
+ * with 10, so 4 keeps nearly all of the gain with fewer builds in memory.
+ */
+const BUILD_CONCURRENCY = 4
+
+/**
+ * Bundle one of our packages' Node entry points in place.
+ * @param nodeModules - the payload's node_modules directory.
+ * @param name - the package to bundle.
+ * @param external - the packages every bundle leaves as imports.
+ * @returns the outcome, or undefined when the package has no manifest or no Node entry point.
+ */
+async function bundlePackage(nodeModules: string, name: string, external: string[]): Promise<BuildResult | undefined> {
+  const dir = join(nodeModules, name)
+  const manifestPath = join(dir, 'package.json')
+  if (!existsSync(manifestPath)) return undefined
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+  const declared = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
+  // Browser artifacts are left exactly as the client face built them. They
+  // register themselves with `window.__ModuleLoader__.load` when the page
+  // evaluates them, and rebundling one for `platform: 'node'` puts an
+  // `import ... from 'node:module'` on top of it — the registration is still
+  // in the file, and the browser never reaches it. Detected by content
+  // rather than by the `./client` export key, because the name of the entry
+  // is not what makes it a browser artifact.
+  const entries: string[] = []
+  for (const entry of declared) {
+    const source = await readFile(join(dir, entry), 'utf8').catch(() => '')
+    if (source.includes('__ModuleLoader__')) continue
+    entries.push(entry)
+  }
+  if (entries.length === 0) return undefined
+  try {
+    await build({
+      entryPoints: entries.map(entry => join(dir, entry)),
+      outdir: join(dir, 'lib'),
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node22',
+      external,
+      allowOverwrite: true,
+      logLevel: 'silent',
+      banner: { js: BANNER },
+    })
+    return { ok: true, entries: entries.length }
+  } catch {
+    // A package that will not bundle keeps every file it had, which costs
+    // file count and nothing else. Reported rather than fatal: the boot gate
+    // downstream is what decides whether the payload is usable.
+    return { ok: false, entries: entries.length }
+  }
+}
+
+/**
  * Bundle one derived payload in place and drop what nothing imports any more.
  * @param payload - the derived payload directory, mutated in place.
  * @returns what changed, plus the out-of-scope profile bundles kept whole, for
  * the caller to report.
+ * @throws before it builds or deletes anything, when the name of a package the
+ * reachability walk would look up contains `'`, `"` or `` ` ``.
  */
 export async function bundleClosure(
   payload: string,
@@ -202,69 +368,27 @@ export async function bundleClosure(
   for (const name of all) {
     if (!name.startsWith(`${OURS}/`) && await declaresBundle(nodeModules, name)) bundles.push(name)
   }
-  const external = [...ours, ...bundles, ...NATIVE]
-
-  let bundled = 0
-  const unbundled: string[] = []
-  for (const name of ours) {
-    const dir = join(nodeModules, name)
-    const manifestPath = join(dir, 'package.json')
-    if (!existsSync(manifestPath)) continue
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
-    const declared = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
-    // Browser artifacts are left exactly as the client face built them. They
-    // register themselves with `window.__ModuleLoader__.load` when the page
-    // evaluates them, and rebundling one for `platform: 'node'` puts an
-    // `import ... from 'node:module'` on top of it — the registration is still
-    // in the file, and the browser never reaches it. Detected by content
-    // rather than by the `./client` export key, because the name of the entry
-    // is not what makes it a browser artifact.
-    const entries: string[] = []
-    for (const entry of declared) {
-      const source = await readFile(join(dir, entry), 'utf8').catch(() => '')
-      if (source.includes('__ModuleLoader__')) continue
-      entries.push(entry)
-    }
-    if (entries.length === 0) continue
-    try {
-      await build({
-        entryPoints: entries.map(entry => join(dir, entry)),
-        outdir: join(dir, 'lib'),
-        bundle: true,
-        platform: 'node',
-        format: 'esm',
-        target: 'node22',
-        external,
-        allowOverwrite: true,
-        logLevel: 'silent',
-        banner: { js: BANNER },
-      })
-      bundled += entries.length
-    } catch {
-      // A package that will not bundle keeps every file it had, which costs
-      // file count and nothing else. Reported rather than fatal: the boot gate
-      // downstream is what decides whether the payload is usable.
-      unbundled.push(name)
-    }
-  }
-
-  // Reachability, not one pass. A surviving third-party package brings its own
-  // dependencies with it — `@babel/code-frame` stays because something imports
-  // it, and it needs `picocolors`, which nothing else names — so deleting on a
-  // single scan leaves a kept package without its own.
   const thirdParty = all.filter(name =>
     !name.startsWith(`${OURS}/`) && !NATIVE.includes(name) && !bundles.includes(name))
-  const kept = new Set([...ours, ...bundles, ...NATIVE])
-  const frontier = [...kept]
-  while (frontier.length > 0) {
-    const text = await textOf(nodeModules, frontier.pop() as string)
-    if (text === '') continue
-    for (const name of thirdParty) {
-      if (kept.has(name)) continue
-      if (specifierFor(name).test(text)) { kept.add(name); frontier.push(name) }
-    }
+  // Only the walk's candidates are checked: every other package is kept
+  // without being looked up, so a quote in its name changes nothing.
+  const unscannable = thirdParty.filter(name => /['"`]/.test(name))
+  if (unscannable.length > 0) {
+    throw new Error(`package: the reachability scan cannot read a package name that contains a quote character: ${unscannable.join(', ')}`)
+  }
+  const external = [...ours, ...bundles, ...NATIVE]
+
+  const results = await mapInOrder(ours, BUILD_CONCURRENCY, name => bundlePackage(nodeModules, name, external))
+  let bundled = 0
+  const unbundled: string[] = []
+  for (const [index, result] of results.entries()) {
+    if (result === undefined) continue
+    if (result.ok) bundled += result.entries
+    else unbundled.push(ours[index] as string)
   }
 
+  const kept = await reachable(
+    [...ours, ...bundles, ...NATIVE], new Set(thirdParty), name => textOf(nodeModules, name), referencedNames)
   const removable = thirdParty.filter(name => !kept.has(name))
   for (const name of removable) await rm(join(nodeModules, name), { recursive: true, force: true })
   return { bundled, unbundled, removed: removable.length, bundles }
