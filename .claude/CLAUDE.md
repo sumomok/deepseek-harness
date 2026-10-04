@@ -8,9 +8,9 @@ Root `CLAUDE.md` is upstream's `AGENTS.md` (budgeted, never edited here); this f
 - One `git worktree` per task, created from `origin/develop` after `git fetch`; build, pack, and commit only in a worktree that has `node_modules` (lefthook runs from it). Never `--no-verify`.
 - Every `core-patches` addition, modification, or retirement is registered in the same change in [`.claude/core-patches.md`](core-patches.md) (what changed / why / intended effect / retirement condition); unregistered, it does not merge.
 
-## Desktop release (`apps/desktop`)
+## Desktop release (`apps/desktop-shell`)
 
-- Package both platforms explicitly — `pnpm --filter @deepseek-ai/dsh-desktop run package --mac --win` — in the background with logs redirected and no pipes (about fifteen minutes per platform; a pipe hides the exit code). The run ends by verifying the six artifacts of the version.
+- Package both platforms explicitly — `pnpm --filter @deepseek-ai/dsh-desktop-shell run package --mac --win` — in the background with logs redirected and no pipes (about fifteen minutes per platform; a pipe hides the exit code). The run ends by verifying the six artifacts of the version.
 - `pnpm run doc-sync` must be green before `publish-update.ts --notes …`, which uploads, reads both manifests back, prunes the feed (current + previous artifacts, ten blockmaps), and tags `desktop-v<version>` on `origin`.
 - Any content change bumps the version; `--republish` only repairs a cut-off upload and never triggers client updates.
 
