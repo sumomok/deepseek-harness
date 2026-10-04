@@ -23,12 +23,13 @@
  *   dropped rather than announced twice.
  * - `schedule/changed` is emitted, without arguments, after every committed
  *   change to the schedule service's task table, a delivery among them. The
- *   shell then reads `schedule/catalog` and compares each task's
- *   `lastDelivery.messageId` with the baseline it holds; a task whose message
- *   id differs was delivered since. The baseline is read again on every
- *   `ready` frame, so a delivery made while the shell was not listening —
- *   before launch, or between a close and the reopen — is never announced.
- *   The run a reminder woke ends without a finished-run message;
+ *   shell then reads `schedule/catalog` and announces, once per message, each
+ *   delivered message id (`lastDelivery.messageId`) its baseline does not
+ *   hold; the tasks of one recurring batch share one message. The baseline is
+ *   read again on every `ready` frame, so a delivery made while the shell was
+ *   not listening — before launch, or between a close and the reopen — is
+ *   never announced; {@link Generation.deliveries} states the rule. The run a
+ *   reminder woke ends without a finished-run message;
  *   {@link announceReminder} states which run that is.
  *
  * A waterfall delivery is owed an answer: the Host holds the request until
@@ -91,9 +92,9 @@
  * that want an answer. macOS gets a Dock badge and one bounce, and no
  * notification centre entry at all. The badge counts finished runs and
  * delivered reminders plus the requests still waiting: a request's count is
- * taken off when a `cancel` frame
- * says someone answered it, or when its generation is stopped, and the whole
- * badge is cleared when an app window takes focus.
+ * taken off when a `cancel` frame says someone answered it, or when its
+ * generation is stopped, and the whole badge is cleared when an app window
+ * takes focus.
  * @module @deepseek-ai/dsh-desktop-shell/notifications
  */
 
@@ -198,8 +199,19 @@ function isNodeWebSocket(ctor: typeof WebSocket): ctor is NodeWebSocketConstruct
   return typeof process.versions.node === 'string' && typeof ctor === 'function'
 }
 
-/** How much of a question or a reminder's name is quoted in a notification before it is cut. */
+/** How much of a question, or of a reminder's names or instruction, is quoted in a notification before it is cut. */
 const BODY_LIMIT = 120
+
+/**
+ * How long before a reminder's `deliveredAt` the run it woke can have
+ * started. The schedule service sets the session running, waits for the
+ * session log to persist the reminder, and only then samples `deliveredAt`;
+ * this covers that persist. A persist that takes longer leaves the woken run
+ * unmarked, so its finished-run message is raised as well; a run the user
+ * starts within this long before a delivery is taken for the woken one and
+ * loses its finished-run message.
+ */
+const WAKE_FLUSH_MS = 5_000
 
 /** What the notifier needs from the main process. */
 export interface NotifyHost {
@@ -259,6 +271,15 @@ let notices = 0
 type Announcement = { readonly kind: 'toast'; readonly toast: Notification } | { readonly kind: 'badge' }
 
 /**
+ * One run of a session, from the running frame that started it. Every
+ * running frame makes a new object, and the object is the run's identity.
+ */
+interface Run {
+  /** The shell's clock reading when the run's running frame arrived. */
+  readonly startedAt: number
+}
+
+/**
  * One call to {@link setupNotifications}'s worth of stream and reconnect
  * loop, torn down together — by the next `setupNotifications` call
  * (retargeting after a server rebind) or by quitting. `stopped` is checked
@@ -314,28 +335,49 @@ interface Generation {
    */
   rejected: Set<string>
   /**
-   * Sessions last seen running, each with the shell's clock reading when its
-   * running frame arrived, so only the running → idle edge announces itself
-   * and a reminder can tell the run it woke from one already going.
+   * The run each session is in, as last seen, so only the running → idle edge
+   * announces itself and a reminder can tell the run it woke from one already
+   * going.
    */
-  running: Map<string, number>
+  running: Map<string, Run>
   /**
-   * The last delivery of each schedule task, as message id by task id, from
-   * the most recent `schedule/catalog` read. Undefined until the read on
-   * `ready` lands, and again after a read fails: the next read is then taken
-   * as the baseline without announcing anything, because a delivery compared
-   * against an older baseline could be announced hours after it happened.
+   * The shell's clock reading when the current stream's `ready` frame
+   * arrived; infinite before the first one. The server registers this client
+   * for forwarding before it sends `ready`, so a delivery whose `deliveredAt`
+   * is not earlier than this was committed, and its `schedule/changed` sent,
+   * while the shell was listening.
    */
-  deliveries: Map<string, string> | undefined
+  listeningSince: number
   /**
-   * Sessions whose current run a reminder woke and announced, each until that
-   * session's next running → idle edge, whose finished-run message is dropped.
-   * Cleared when the baseline is read again on `ready`.
+   * The delivered message ids a `schedule/catalog` read is compared with; a
+   * message id outside the set is a new delivery. Read on every `ready`
+   * frame, leaving out the deliveries made at or after
+   * {@link Generation.listeningSince}, whose own `schedule/changed` announces
+   * them. Undefined while that read has failed; the next read that succeeds
+   * then derives it the same way before comparing. Every later read that
+   * succeeds replaces it, and one that fails leaves it as it was, so the next
+   * read that succeeds announces what the failed one would have, as late as
+   * the next `schedule/changed`. A task's catalog entry holds only its last
+   * delivery, so a delivery its own next delivery replaced before a read
+   * succeeded is never announced.
    */
-  reminderRuns: Set<string>
+  deliveries: Set<string> | undefined
   /**
-   * Every catalog read and comparison of this generation, in frame order, and
-   * the tail every finished-run decision waits on. It never rejects.
+   * Runs a reminder woke and announced, whose finished-run message is
+   * dropped. A mark matches that one run and no later run of its session,
+   * across a reconnect too.
+   */
+  reminderRuns: WeakSet<Run>
+  /**
+   * For each run that was going when a `schedule/changed` frame arrived, the
+   * reminder queue's tail as it stood once the latest such frame's comparison
+   * was queued. That comparison may mark the run, so the run's finished-run
+   * message waits for it; a run absent here is decided at once.
+   */
+  comparing: WeakMap<Run, Promise<void>>
+  /**
+   * Every catalog read and comparison of this generation, in frame order. It
+   * never rejects.
    */
   reminders: Promise<void>
   /** Logging and reveal for this generation's messages. */
@@ -742,49 +784,77 @@ function announceDelivery(
   })
 }
 
-/** One reminder delivery, read off a `schedule/catalog` entry. */
+/** One task's last delivery, read off a `schedule/catalog` entry. */
 interface ReminderDelivery {
-  /** The schedule task that was delivered (`id`). */
-  readonly taskId: string
   /** The session it was delivered to (`sessionId`). */
   readonly sessionId: string
-  /** The delivered message (`lastDelivery.messageId`); the task's next delivery carries another. */
+  /** The delivered message (`lastDelivery.messageId`), which the tasks of one recurring batch share. */
   readonly messageId: string
   /** When the delivered occurrence fell due (`lastDelivery.scheduledAt`), in ms since the epoch, or undefined when unreadable. */
   readonly dueAt: number | undefined
-  /** The reminder's name (`title`), or else its instruction (`prompt`), clipped; undefined when both are blank. */
+  /** When the session log acknowledged the delivery (`lastDelivery.deliveredAt`), in ms since the epoch, or undefined when unreadable. */
+  readonly deliveredAt: number | undefined
+  /** The reminder's name (`title`), or else its instruction (`prompt`); undefined when both are blank. */
   readonly label: string | undefined
+}
+
+/** The deliveries of one message, in catalog order: one task's, or every task's of one recurring batch. */
+type DeliveredMessage = readonly [ReminderDelivery, ...ReminderDelivery[]]
+
+/**
+ * Read one timestamp field off a wire frame.
+ * @param frame - the decoded frame.
+ * @param key - the field to read.
+ * @returns ms since the epoch, or undefined when the field is absent or not a parseable time.
+ */
+function instant(frame: Record<string, unknown>, key: string): number | undefined {
+  const at = Date.parse(text(frame, key) ?? '')
+  return Number.isNaN(at) ? undefined : at
 }
 
 /**
  * The last delivery one `schedule/catalog` entry reports.
  * @param entry - one decoded catalog item.
  * @returns the delivery, or undefined for a task never delivered or an entry
- * without its task id, session id, or delivered message id.
+ * without its session id or delivered message id.
  */
 function deliveryOf(entry: unknown): ReminderDelivery | undefined {
   const task = record(entry)
   const last = task === undefined ? undefined : nested(task, 'lastDelivery')
   if (task === undefined || last === undefined) return undefined
-  const taskId = text(task, 'id')
   const sessionId = text(task, 'sessionId')
   const messageId = text(last, 'messageId')
-  if (taskId === undefined || sessionId === undefined || messageId === undefined) return undefined
-  const dueAt = Date.parse(text(last, 'scheduledAt') ?? '')
+  if (sessionId === undefined || messageId === undefined) return undefined
   const label = [text(task, 'title'), text(task, 'prompt')].find(value => value !== undefined && value.trim() !== '')
-  return {
-    taskId, sessionId, messageId, dueAt: Number.isNaN(dueAt) ? undefined : dueAt, label: label === undefined ? undefined : clip(label),
-  }
+  return { sessionId, messageId, dueAt: instant(last, 'scheduledAt'), deliveredAt: instant(last, 'deliveredAt'), label }
 }
 
 /**
  * The body of a reminder message.
  * @param who - the subject phrase for the session.
- * @param label - what the reminder is called, if anything.
- * @returns one line naming the session and the reminder.
+ * @param message - the deliveries the message announces.
+ * @returns one line naming the session and every reminder that has a name.
  */
-function reminderBody(who: string, label: string | undefined): string {
-  return label === undefined ? `${who}有一条提醒到了。` : `${who}：${label}`
+function reminderBody(who: string, message: DeliveredMessage): string {
+  const labels = message.flatMap(delivery => delivery.label ?? [])
+  return labels.length === 0 ? `${who}有一条提醒到了。` : `${who}：${clip(labels.join('、'))}`
+}
+
+/**
+ * The earliest time, by the machine clock, at which the run a message woke
+ * can have started: the latest due time among its deliveries, or
+ * {@link WAKE_FLUSH_MS} before its `deliveredAt` when that is later.
+ * @param message - the deliveries of one message.
+ * @returns the time in ms since the epoch, or undefined when a due or
+ * delivery time is unreadable.
+ */
+function wokenNotBefore(message: DeliveredMessage): number | undefined {
+  let bound = Number.NEGATIVE_INFINITY
+  for (const delivery of message) {
+    if (delivery.dueAt === undefined || delivery.deliveredAt === undefined) return undefined
+    bound = Math.max(bound, delivery.dueAt, delivery.deliveredAt - WAKE_FLUSH_MS)
+  }
+  return bound
 }
 
 /**
@@ -811,12 +881,33 @@ async function readDeliveries(generation: Generation): Promise<ReminderDelivery[
 }
 
 /**
- * The baseline a later read is compared with.
+ * The baseline of a stream that became ready at `since`: every delivered
+ * message id one read reports, except those delivered at or after `since`,
+ * and those whose delivery time is unreadable.
  * @param deliveries - one read's deliveries.
- * @returns the delivered message id by task id.
+ * @param since - {@link Generation.listeningSince} of that stream.
+ * @returns the message ids already accounted for.
  */
-function baselineOf(deliveries: readonly ReminderDelivery[]): Map<string, string> {
-  return new Map(deliveries.map(delivery => [delivery.taskId, delivery.messageId]))
+function baselineSince(deliveries: readonly ReminderDelivery[], since: number): Set<string> {
+  return new Set(deliveries.filter(delivery => delivery.deliveredAt === undefined || delivery.deliveredAt < since)
+    .map(delivery => delivery.messageId))
+}
+
+/**
+ * Group the deliveries of every message a baseline does not hold.
+ * @param deliveries - one read's deliveries.
+ * @param baseline - the message ids already accounted for.
+ * @returns one entry per new message, in catalog order.
+ */
+function newMessages(deliveries: readonly ReminderDelivery[], baseline: ReadonlySet<string>): DeliveredMessage[] {
+  const messages = new Map<string, [ReminderDelivery, ...ReminderDelivery[]]>()
+  for (const delivery of deliveries) {
+    if (baseline.has(delivery.messageId)) continue
+    const message = messages.get(delivery.messageId)
+    if (message === undefined) messages.set(delivery.messageId, [delivery])
+    else message.push(delivery)
+  }
+  return [...messages.values()]
 }
 
 /**
@@ -835,111 +926,117 @@ function queueReminders(generation: Generation, step: () => Promise<void>): void
 
 /**
  * Read the baseline the next `schedule/changed` is compared with, on a
- * stream that just became ready. Every reminder mark is dropped first: the
- * run a mark names may have ended while the stream was closed, and its edge is
- * not replayed.
+ * stream that just became ready.
  * @param generation - the generation whose stream became ready.
+ * @param since - the stream's {@link Generation.listeningSince}.
  */
-async function seedReminders(generation: Generation): Promise<void> {
-  generation.reminderRuns.clear()
+async function seedReminders(generation: Generation, since: number): Promise<void> {
   const deliveries = await readDeliveries(generation)
-  generation.deliveries = deliveries === undefined ? undefined : baselineOf(deliveries)
+  generation.deliveries = deliveries === undefined ? undefined : baselineSince(deliveries, since)
 }
 
 /**
- * Announce every delivery made since the baseline, and keep this read as the
- * next baseline.
+ * Announce every message delivered since the baseline, and keep this read as
+ * the next baseline.
  * @param generation - the generation that received `schedule/changed`.
+ * @param since - {@link Generation.listeningSince} of the stream the frame arrived on.
  * @param runningAtChange - {@link Generation.running} as it stood when the
  * `schedule/changed` frame arrived.
  */
-async function compareReminders(generation: Generation, runningAtChange: ReadonlyMap<string, number>): Promise<void> {
+async function compareReminders(generation: Generation, since: number, runningAtChange: ReadonlyMap<string, Run>): Promise<void> {
   const deliveries = await readDeliveries(generation)
-  const baseline = generation.deliveries
-  generation.deliveries = deliveries === undefined ? undefined : baselineOf(deliveries)
-  if (deliveries === undefined) return
-  if (baseline === undefined) {
-    generation.host.log('[desktop] reminder deliveries read as a new baseline; nothing announced\n')
-    return
-  }
-  for (const delivery of deliveries) {
-    if (baseline.get(delivery.taskId) !== delivery.messageId) await announceReminder(generation, delivery, runningAtChange)
-  }
+  if (deliveries === undefined || generation.stopped) return
+  const baseline = generation.deliveries ?? baselineSince(deliveries, since)
+  generation.deliveries = new Set(deliveries.map(delivery => delivery.messageId))
+  for (const message of newMessages(deliveries, baseline)) await announceReminder(generation, message, runningAtChange)
 }
 
 /**
- * Raise the message for one reminder delivery, and mark the run it woke.
+ * Raise the message for one delivered message, and mark the run it woke.
  *
  * A reminder delivered to an idle session wakes it: the schedule service's
- * `followup` sets the session running before the delivery is flushed and
- * committed, so that session's `api-session/status` running frame arrives
- * before the `schedule/changed` frame. The reminder's message already says
- * what that run is for, so the run's finished-run message is dropped. The run
- * marked is the session's run that was going when `schedule/changed` arrived
- * and that started — by the shell's clock, when its running frame arrived — at
- * or after the delivery's `scheduledAt`: the server delivers only once that
- * time has passed on the machine clock the shell reads too, so the run a
- * reminder woke always qualifies. A run already
- * going when the reminder fell due started before it; the reminder joins that
- * run as its next turn, and the run's finished-run message still announces
- * the work it was started for. Only a reminder message that was raised marks
- * a run, and the session's next running → idle edge consumes the mark.
+ * `followup` sets the session running, the session log persists the
+ * reminder, `deliveredAt` is sampled, and the delivery is committed and
+ * `schedule/changed` emitted, so the woken run's `api-session/status` running
+ * frame arrives before the `schedule/changed` frame. The reminder's message
+ * already says what that run is for, so the run's finished-run message is
+ * dropped. The run marked is the session's run that was going when
+ * `schedule/changed` arrived and that started — by the shell's clock, when
+ * its running frame arrived — no earlier than {@link wokenNotBefore}: the
+ * latest due time among the message's tasks, or {@link WAKE_FLUSH_MS} before
+ * `deliveredAt` when that is later. The server and the shell read the same
+ * machine clock; the server delivers only once every due time has passed, and
+ * sets the session running a single persist before it samples `deliveredAt`,
+ * so the woken run qualifies. A run the user started before the due time, or
+ * more than {@link WAKE_FLUSH_MS} before the delivery, receives the reminder
+ * as its next turn and keeps its finished-run message. Only a reminder
+ * message that was raised marks a run, and that run's own running → idle edge
+ * consumes the mark.
  *
- * Three cases get both messages, and none loses the reminder's: a woken run
- * that ended before `schedule/changed` arrived (one that failed within the
- * delivery's flush and commit), a wake held behind maintenance that starts
- * only after the frame, and a marked run whose mark a reconnect dropped. A
- * run the user started between the due time and the delivery is marked, and
- * its finished-run message gives way to the reminder's.
+ * Both messages are raised for a woken run that ended before
+ * `schedule/changed` arrived (one that failed within the persist and the
+ * commit), for a wake held behind maintenance that starts only after the
+ * frame, and for a woken run whose persist outlasted {@link WAKE_FLUSH_MS};
+ * the reminder's message is never the one dropped. A run the user started
+ * after the due time and less than {@link WAKE_FLUSH_MS} before the delivery
+ * is taken for the woken run, and its finished-run message gives way to the
+ * reminder's.
  * @param generation - the generation that received `schedule/changed`.
- * @param delivery - the delivery made since the baseline.
+ * @param message - the deliveries of a message made since the baseline.
  * @param runningAtChange - {@link Generation.running} as it stood when the
  * `schedule/changed` frame arrived.
  */
 async function announceReminder(
-  generation: Generation, delivery: ReminderDelivery, runningAtChange: ReadonlyMap<string, number>,
+  generation: Generation, message: DeliveredMessage, runningAtChange: ReadonlyMap<string, Run>,
 ): Promise<void> {
   // The title lookup lists every session; not worth it for a delivery the
   // user is watching arrive.
   if (!unattended()) return
-  const who = await subject(generation, delivery.sessionId)
-  const raised = announce(generation.host, '提醒', reminderBody(who, delivery.label))
+  const { sessionId } = message[0]
+  const who = await subject(generation, sessionId)
+  if (generation.stopped) return
+  const raised = announce(generation.host, '提醒', reminderBody(who, message))
   if (raised === undefined) return
   if (raised.kind === 'badge') {
     notices += 1
     renderBadge()
   }
-  const startedAt = runningAtChange.get(delivery.sessionId)
-  if (startedAt !== undefined && delivery.dueAt !== undefined && startedAt >= delivery.dueAt) {
-    generation.reminderRuns.add(delivery.sessionId)
-  }
+  const run = runningAtChange.get(sessionId)
+  const notBefore = wokenNotBefore(message)
+  if (run !== undefined && notBefore !== undefined && run.startedAt >= notBefore) generation.reminderRuns.add(run)
 }
 
 /**
  * Announce that one session finished running, unless a reminder announced
- * the run already ({@link announceReminder}). Decided once every reminder
- * comparison queued before the session's idle frame has run, so a reminder
- * read still in flight when the woken run ends marks that run in time.
+ * the run already ({@link announceReminder}). A run that was going when a
+ * `schedule/changed` frame arrived is decided once that frame's comparison
+ * has run, so a reminder read still in flight when the woken run ends marks
+ * that run in time; any other run is decided at once.
  * @param generation - the generation the edge arrived on.
  * @param sessionId - the session that went idle.
- * @param startedAt - when its running frame arrived, or undefined for a run
- * this shell never saw start, which is not announced.
+ * @param run - the run that ended, or undefined for a run this shell never
+ * saw start, which is not announced.
  */
-function finishRun(generation: Generation, sessionId: string, startedAt: number | undefined): void {
-  void generation.reminders.then(() => {
-    if (generation.reminderRuns.delete(sessionId)) {
+function finishRun(generation: Generation, sessionId: string, run: Run | undefined): void {
+  if (run === undefined) return
+  const decide = (): void => {
+    if (generation.reminderRuns.delete(run)) {
       generation.host.log(`[desktop] session ${sessionId} finished the run a reminder woke; the reminder's message stands for it\n`)
       return
     }
     // The title lookup lists every session; not worth it for an edge the
     // user is watching happen.
-    if (startedAt === undefined || !unattended()) return
+    if (generation.stopped || !unattended()) return
     void subject(generation, sessionId).then((who) => {
+      if (generation.stopped) return
       if (announce(generation.host, '任务已完成', `${who}已经跑完,可以回来看结果了。`)?.kind !== 'badge') return
       notices += 1
       renderBadge()
     })
-  })
+  }
+  const comparison = generation.comparing.get(run)
+  if (comparison === undefined) decide()
+  else void comparison.then(decide)
 }
 
 /**
@@ -957,7 +1054,9 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       // The one success line the field log carries for this stream: its
       // absence after the server's URL line is the diagnostic.
       host.log(`[desktop] attention stream ready (client ${generation.clientId ?? '?'})\n`)
-      queueReminders(generation, () => seedReminders(generation))
+      const since = Date.now()
+      generation.listeningSince = since
+      queueReminders(generation, () => seedReminders(generation, since))
       return
     }
     case 'emit': {
@@ -965,7 +1064,9 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
         // Sampled now, not when the read lands: the run a reminder woke can
         // end while the read is in flight.
         const runningAtChange = new Map(generation.running)
-        queueReminders(generation, () => compareReminders(generation, runningAtChange))
+        const since = generation.listeningSince
+        queueReminders(generation, () => compareReminders(generation, since, runningAtChange))
+        for (const run of runningAtChange.values()) generation.comparing.set(run, generation.reminders)
         return
       }
       const args = frame['args']
@@ -974,17 +1075,16 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       if (typeof sessionId !== 'string') return
       if (frame['event'] === 'api-session/removed') {
         generation.running.delete(sessionId)
-        generation.reminderRuns.delete(sessionId)
         return
       }
       if (frame['event'] !== 'api-session/status') return
       if (isRunning === true) {
-        generation.running.set(sessionId, Date.now())
+        generation.running.set(sessionId, { startedAt: Date.now() })
         return
       }
-      const startedAt = generation.running.get(sessionId)
+      const run = generation.running.get(sessionId)
       generation.running.delete(sessionId)
-      finishRun(generation, sessionId, startedAt)
+      finishRun(generation, sessionId, run)
       return
     }
     case 'waterfall': {
@@ -1167,7 +1267,8 @@ export function setupNotifications(host: NotifyHost, authenticatedUrl: string): 
   const generation: Generation = {
     stopped: false, socket: undefined, authenticatedUrl, cookie: undefined, clientId: undefined,
     pending: new Map(), announced: new Set(), toasts: new Map(), badged: new Set(), rejected: new Set(), running: new Map(),
-    deliveries: undefined, reminderRuns: new Set(), reminders: Promise.resolve(), host,
+    listeningSince: Number.POSITIVE_INFINITY, deliveries: undefined, reminderRuns: new WeakSet(), comparing: new WeakMap(),
+    reminders: Promise.resolve(), host,
   }
   current = generation
   subscribe(generation, host)
