@@ -18,7 +18,7 @@ Status: implemented
 
 **打包门禁要求占位包逐字节一致。**`findWithheldDirectories` 只放过位于树根 `node_modules/<包名>`、目录里只有 `package.json`、且字节与占位包一致的目录；嵌套的副本、多出的文件或不同的字节照样报出。`verifyStaging`（`--skip-deploy` 也一样）要求每个占位包都这样在位。暂存启动经浏览器用的 RPC 路由调用 `pluginManager/listBundles` 与 `pluginManager/setBundleEnabled`：列表必须有组合包且不含任何扣下的包，每个占位包都必须以 `not-bundle` 被拒且不改任何东西，启动输出与 `--dump-config` 的 stderr 都不得出现 `auto-review` 的 not found 那一行。
 
-**壳在每次启动时退役守护行、删掉对占位包的选中。**在 `web` profile 同步之前，`retireAutoReviewGuard` 删掉早先构建写下的那段原文（含注释块）和它上方的一个空行，删完不剩条目时在原处写回 `[]`，于是带守护行的模板变回空模板。其他任何 `auto-review` 行原样保留并记日志。同步之后，`deselectPlaceholderBundles` 把两个包名从 `dsh.profile.bundles` 删掉，`migrationRefusal` 让 `web` 同步不再接纳它们。
+**壳在每次启动时退役守护行、删掉对占位包的选中。**在 `web` profile 同步之前，`retireAutoReviewGuard` 删掉早先构建写下的那段原文（含注释块，且它下面没有同一条目的后续行）和它上方的一个空行，删完不剩条目时在原处写回 `[]`，于是带守护行的模板变回空模板。其他任何 `auto-review` 行，包括在那段原文下面加了键的，原样保留并记日志。同步之后，`deselectPlaceholderBundles` 把两个包名从 `dsh.profile.bundles` 删掉，`migrationRefusal` 让 `web` 同步不再接纳它们。
 
 ## 备选方案
 

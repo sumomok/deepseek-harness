@@ -1828,6 +1828,40 @@ describe('seedBuiltinBundles retiring the auto-review guard row an earlier build
     }
   })
 
+  it('leaves the row alone, every launch, once its owner added a key under it', () => {
+    desktopProfileFromAnEarlierBuild()
+    const extended = `- id: foo\n  disabled: true\n\n${AUTO_REVIEW_GUARD_TEXT}  config:\n    x: 1\n`
+    writeFileSync(patchPath(), extended)
+    for (let launch = 0; launch < 2; launch += 1) {
+      const report = seedBuiltinBundles({ home, serverModules })
+      expect(report.retired).toEqual([])
+      expect(report.skipped).toEqual([keptLine])
+      expect(readFileSync(patchPath(), 'utf8')).toBe(extended)
+    }
+    expect(loaded()).toEqual([{ id: 'foo', disabled: true }, { id: 'auto-review', disabled: true, config: { x: 1 } }])
+  })
+
+  it('leaves the row alone when it is the only entry and its owner added a key under it past a blank line and a comment', () => {
+    desktopProfileFromAnEarlierBuild()
+    const extended = `${AUTO_REVIEW_GUARD_TEXT}\n# mine\n  config:\n    x: 1\n`
+    writeFileSync(patchPath(), extended)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual([])
+    expect(report.skipped).toEqual([keptLine])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(extended)
+    expect(loaded()).toEqual([{ id: 'auto-review', disabled: true, config: { x: 1 } }])
+  })
+
+  it('takes an unextended row and leaves an extended one in the same layer', () => {
+    desktopProfileFromAnEarlierBuild()
+    const extended = `${AUTO_REVIEW_GUARD_TEXT}  config:\n    x: 1\n`
+    writeFileSync(patchPath(), `- id: foo\n  disabled: true\n\n${AUTO_REVIEW_GUARD_TEXT}${extended}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the auto-review off row'])
+    expect(report.skipped).toEqual([keptLine])
+    expect(readFileSync(patchPath(), 'utf8')).toBe(`- id: foo\n  disabled: true\n${extended}`)
+  })
+
   it('leaves an auto-review row of the owner\'s own alone, in any form', () => {
     desktopProfileFromAnEarlierBuild()
     const own = '- id: auto-review\n  config:\n    reviewer: !!js "pick()"\n'

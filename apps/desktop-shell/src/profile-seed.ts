@@ -1830,7 +1830,9 @@ const GUARDED_PATCH_TEMPLATE = PROFILE_PATCH_TEMPLATE.replace(/^\[\]\n$/m, AUTO_
  * `patch: entry "auto-review" not found` on every boot.
  *
  * The row is recognized as {@link AUTO_REVIEW_GUARD_TEXT} exactly, comment
- * block included, starting at the beginning of a line. The text survives the
+ * block included, starting at the beginning of a line and ending its entry: an
+ * occurrence with more lines of the same entry below it is a row its owner
+ * extended, and stays like any other. The text survives the
  * Plugins page's and the settings migration's edits of other rows, which
  * re-serialize the whole file through the `yaml` library and keep every
  * comment and line of an untouched entry. Each occurrence is removed together
@@ -1887,14 +1889,24 @@ function retireAutoReviewGuardIn(patchPath: string, report: SeedReport): void {
   if (kept) report.skipped.push(`${PROFILE_PATCH_FILENAME}: an ${AUTO_REVIEW_ID} row this shell did not write is there; left exactly as it is`)
 }
 
+/** Lines of {@link AUTO_REVIEW_GUARD_TEXT} above its `- id:` line: the comment block. */
+const GUARD_COMMENT_LINES = AUTO_REVIEW_GUARD_TEXT.split('\n').findIndex(line => line.startsWith('- '))
+
 /**
- * Where {@link AUTO_REVIEW_GUARD_TEXT} starts on a line of its own.
+ * Where {@link AUTO_REVIEW_GUARD_TEXT} starts on a line of its own and holds
+ * the whole of its entry. An occurrence followed by more lines of the same
+ * entry — a key the owner added under `disabled: true` — is that owner's row
+ * and is not one.
  * @param text - the patch layer.
  * @returns the offset of the first such occurrence, or undefined when there is none.
  */
 function guardOffset(text: string): number | undefined {
+  const lines = text.split('\n')
+  const entries = patchEntries(lines)
   for (let at = text.indexOf(AUTO_REVIEW_GUARD_TEXT); at >= 0; at = text.indexOf(AUTO_REVIEW_GUARD_TEXT, at + 1)) {
-    if (at === 0 || text[at - 1] === '\n') return at
+    if (at !== 0 && text[at - 1] !== '\n') continue
+    const start = text.slice(0, at).split('\n').length - 1 + GUARD_COMMENT_LINES
+    if (entries.find(entry => entry.start === start)?.end === start + 1) return at
   }
   return undefined
 }

@@ -319,7 +319,7 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
   disabled: true
 ```
 
-有了占位包,没有哪一层会插入这个条目,这一行只会让 `dsh --profile desktop-shell --dump-config` 打印 `patch: entry "auto-review" not found`。启动时把这一行连同它的注释块和上方那一个空行一起删掉;删完不剩别的条目时在原处写回 `[]`,所以只装着这一行的层会变回空模板。插件页修改别的行时会重写整个文件,但这一行的文字原样保留,所以修改之后照样能认出来。写着别的内容的 `auto-review` 行——插件页的启用会在这一行上写 `disabled: false`——原样保留,每次启动日志里记一行;它不指向任何条目,所以改成 `disabled: false` 已经打不开上游的 Auto。
+有了占位包,没有哪一层会插入这个条目,这一行只会让 `dsh --profile desktop-shell --dump-config` 打印 `patch: entry "auto-review" not found`。启动时把这一行连同它的注释块和上方那一个空行一起删掉;删完不剩别的条目时在原处写回 `[]`,所以只装着这一行的层会变回空模板。插件页修改别的行时会重写整个文件,但这一行的文字原样保留,所以修改之后照样能认出来。写着别的内容的 `auto-review` 行——插件页的启用会在这一行上写 `disabled: false`,用户也可能在它下面加了键——原样保留,每次启动日志里记一行;它不指向任何条目,所以改成 `disabled: false` 已经打不开上游的 Auto。
 
 **每次 `plugin_manager` 调用都交给人。**一次调用就能装上在工作区沙箱之外运行的代码,或者停用某一行——包括权限网关自己那一行。所以桌面层的 `llm-permission-gateway` 行把 `plugin_manager` 加进网关的 `alwaysAsk`,与它重述的网关自带的 `browser_auth` 并列。在「自动审查」与两个有围墙的档位下,网关在任何审查模型看到这次调用之前先问你,附一句说明它能改动什么的话。在「完全权限」下,什么都不问。
 
