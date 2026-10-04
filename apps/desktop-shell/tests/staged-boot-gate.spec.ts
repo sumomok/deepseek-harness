@@ -219,6 +219,34 @@ describe('singleCopyProblems', () => {
   })
 })
 
+describe('verifyStaging in package.ts', () => {
+  const source = readFileSync(new URL('../scripts/package.ts', import.meta.url), 'utf8')
+  const start = source.indexOf('async function verifyStaging(): Promise<void> {')
+  const body = source.slice(start, source.indexOf('\n}\n', start))
+
+  it('runs on every package run, --skip-deploy included', () => {
+    expect(source).toContain('\n  await stagePnpmLaunchers(PNPM_LAUNCHER_STAGING)\n  await verifyStaging()\n')
+  })
+
+  it('throws when the staged server carries a withheld package directory', () => {
+    expect(start).toBeGreaterThan(-1)
+    expect(body).toContain([
+      'const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES)',
+      '  if (withheld.length > 0) {',
+      '    throw new Error(',
+    ].join('\n'))
+  })
+
+  it('throws when the staged server does not carry exactly one copy of each single-copy package', () => {
+    expect(start).toBeGreaterThan(-1)
+    expect(body).toContain([
+      'const duplicated = await singleCopyProblems(SERVER_STAGING, SINGLE_COPY_PACKAGES)',
+      '  if (duplicated.length > 0) {',
+      '    throw new Error(',
+    ].join('\n'))
+  })
+})
+
 describe('stagedServerEnv', () => {
   // Named, the desktop layer's server-log row mounts in the staged boot and
   // its module has to resolve from the payload, as it does under the shell.
