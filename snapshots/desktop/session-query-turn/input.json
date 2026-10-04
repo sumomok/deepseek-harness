@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    { "op": "prompt", "text": "Read this session's permission preset event with session_event_read, then reply with exactly the single word DONE." }
+  ]
+}
