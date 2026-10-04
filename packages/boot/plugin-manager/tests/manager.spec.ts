@@ -1098,7 +1098,7 @@ it.each(OPTIONAL_BUNDLES)('offers %s switched off and never removable', async (o
   expect(await manager.removeBundle(offered)).toMatchObject({ changed: false, application: 'failed' })
 })
 
-it('lists the bundles the profile manifest names as shipped while switched off, never removable', async () => {
+it('lists the bundles the profile manifest names as shipped while switched off, not removable while no dependency holds them', async () => {
   const { manager, dir, bundle } = await fixture()
   // The launcher links its payload's bundles beside the profile rather than installing them, and records their names.
   bundle('payload', [{ id: 'payload-row', name: './plugin.mjs', config: { service: 'payloadProbe' } }])
@@ -1154,6 +1154,31 @@ it('refuses to remove a switched-on shipped bundle that no dependency holds', as
   const kept = readProfileManifest('test', dir).dsh?.profile
   expect(kept?.bundles).toContain('payload')
   expect(kept?.shipped).toEqual(['payload'])
+})
+
+it('removes a shipped bundle the profile also depends on through pnpm and keeps the shipped record', async () => {
+  const { manager, dir } = await fixture()
+  // A user who added the package the launcher ships owns that copy, so removing it removes the profile dependency.
+  const manifest = readProfileManifest('test', dir)
+  manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh?.profile, shipped: ['extra'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: true, installed: true, shipped: true, removable: true,
+  })
+  const remove = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(async (_context, args) => {
+    expect(args).toContain('extra')
+    const current = readProfileManifest('test', dir)
+    delete current.dependencies?.extra
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(current))
+    return { exitCode: 0, output: 'removed', truncated: false, logPath: join(dir, 'pnpm.log') }
+  })
+  onTestFinished(() => { remove.mockRestore() })
+  expect(await manager.removeBundle('extra')).toMatchObject({ changed: true, application: 'applied' })
+  expect(remove).toHaveBeenCalledOnce()
+  expect(readProfileManifest('test', dir).dsh?.profile?.shipped).toEqual(['extra'])
+  expect((await manager.listBundles()).find(row => row.name === 'extra')).toMatchObject({
+    enabled: false, installed: false, shipped: true, removable: false,
+  })
 })
 
 it.each([
