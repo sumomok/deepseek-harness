@@ -34,6 +34,13 @@ export type Verification =
   | { outcome: 'refused'; reason: string }
   | { outcome: 'unavailable'; detail: string }
 
+/** How a client request's body is delimited, or why the proxy refuses the request. */
+export type RequestFraming =
+  | { body: 'none' }
+  | { body: 'length'; length: string }
+  | { body: 'chunked' }
+  | { body: 'refused'; reason: 'content-length-and-transfer-encoding' | 'transfer-encoding' | 'content-length' }
+
 /** The login check with its cache and in-flight coalescing. */
 export interface Gate {
   /** Decide one credential, cached and coalesced. */
@@ -104,6 +111,12 @@ export function isRemote(pathname: string): boolean
  * @returns true when the gate lets it through unchecked.
  */
 export function isGateExempt(pathname: string): boolean
+/**
+ * How a client request's body is delimited, read from its decoded headers.
+ * @param headers - inbound request headers.
+ * @returns the body's framing, or why the request is refused.
+ */
+export function requestFraming(headers: IncomingHttpHeaders): RequestFraming
 /**
  * Copy headers for one hop, removing any member header and attaching `assertion` when given.
  * @param headers - inbound headers.

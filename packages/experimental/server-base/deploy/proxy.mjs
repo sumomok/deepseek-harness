@@ -35,6 +35,15 @@
  * Requests routed to the remote application are never gated; the remote
  * enforces its own login.
  *
+ * Every forwarded request body is framed by this proxy: the Content-Length
+ * the client sent, or chunked encoding when the client sent chunked, and no
+ * body when it sent neither. A request carrying both, or a Transfer-Encoding
+ * other than chunked, and an upgrade request carrying a body are answered 400
+ * before anything upstream is contacted. An upgrade is spliced into a raw
+ * byte pipe only after the upstream answers 101; a body or bytes after a
+ * handshake that the upstream read as another request would reach it without
+ * passing this gate (see requestFraming).
+ *
  * The member assertion. Every request and WebSocket upgrade this gate
  * forwards has any client-supplied `x-dsh-member` header removed. When
  * MEMBER_ASSERTION_KEY_FILE names an Ed25519 private key, a request the gate
@@ -73,6 +82,10 @@ import { pathToFileURL } from 'node:url'
 
 /**
  * @typedef {{ outcome: 'admitted', member: string } | { outcome: 'refused', reason: string } | { outcome: 'unavailable', detail: string }} Verification
+ */
+
+/**
+ * @typedef {{ body: 'none' } | { body: 'length', length: string } | { body: 'chunked' } | { body: 'refused', reason: 'content-length-and-transfer-encoding' | 'transfer-encoding' | 'content-length' }} RequestFraming
  */
 
 /**
@@ -128,6 +141,8 @@ const AUTH_CHECK_MAX_SOCKETS = 16
 const AUTH_CHECK_MAX_INFLIGHT = 64
 /** Largest renewal reply body the gate reads; a longer one counts as the service being unavailable. */
 const AUTH_REPLY_LIMIT_BYTES = 65_536
+/** Largest upgrade response head the proxy buffers while it waits for the upstream's status. */
+const UPGRADE_RESPONSE_HEAD_LIMIT_BYTES = 65_536
 /** One-shot marker set with the exchange redirect; see sendExchange. */
 const EXCHANGE_MARKER_COOKIE = 'dsh-auth-exchange'
 const EXCHANGE_MARKER_SECONDS = 15
@@ -237,6 +252,9 @@ export function isGateExempt(pathname) {
 /**
  * Copy headers for one hop. The member header is removed whatever its casing
  * and whichever way the headers travel, and is then set only from `assertion`.
+ * A name that reads as the member header once underscores become hyphens is
+ * removed too, so a reader that normalizes header names cannot be handed the
+ * client's value.
  * @param {import('node:http').IncomingHttpHeaders} headers - inbound headers.
  * @param {string | undefined} host - replacement Host, or undefined to keep the inbound one.
  * @param {string | undefined} [assertion] - a freshly signed member assertion to attach, or undefined to attach none.
@@ -246,12 +264,62 @@ export function forwardHeaders(headers, host, assertion) {
   const out = {}
   for (const [name, value] of Object.entries(headers)) {
     const lower = name.toLowerCase()
-    if (HOP_BY_HOP.has(lower) || lower === MEMBER_HEADER || value === undefined) continue
+    if (HOP_BY_HOP.has(lower) || lower.replaceAll('_', '-') === MEMBER_HEADER || value === undefined) continue
     out[name] = value
   }
   if (host !== undefined) out.host = host
   if (assertion !== undefined) out[MEMBER_HEADER] = assertion
   return out
+}
+
+/**
+ * How a client request's body is delimited, read from the headers Node's
+ * parser framed it by. The proxy frames every forwarded body from this value
+ * and never from Node's per-method default: `transfer-encoding` is a
+ * hop-by-hop header, and without an explicit replacement a GET, DELETE, or
+ * OPTIONS body would go upstream with no framing at all, where the upstream
+ * reads it as the next request on a kept-alive connection. A request whose
+ * framing two parsers could read differently is refused instead of forwarded.
+ * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
+ * @returns {RequestFraming} the body's framing, or why the request is refused.
+ */
+export function requestFraming(headers) {
+  const length = headers['content-length']
+  const coding = headers['transfer-encoding']
+  if (length !== undefined && coding !== undefined) return { body: 'refused', reason: 'content-length-and-transfer-encoding' }
+  if (coding !== undefined) {
+    return coding.trim().toLowerCase() === 'chunked' ? { body: 'chunked' } : { body: 'refused', reason: 'transfer-encoding' }
+  }
+  if (length !== undefined) return /^\d+$/.test(length) ? { body: 'length', length } : { body: 'refused', reason: 'content-length' }
+  return { body: 'none' }
+}
+
+/**
+ * Headers for one upstream request: forwardHeaders, with the body framing set
+ * from `framing` alone.
+ * @param {import('node:http').IncomingHttpHeaders} headers - inbound request headers.
+ * @param {string | undefined} host - replacement Host, or undefined to keep the inbound one.
+ * @param {string | undefined} assertion - a freshly signed member assertion, or undefined.
+ * @param {RequestFraming} framing - the forwarded body's framing; `none` sends neither framing header.
+ * @returns {Record<string, string | string[]>} headers for the upstream request.
+ */
+function upstreamRequestHeaders(headers, host, assertion, framing) {
+  const out = {}
+  for (const [name, value] of Object.entries(forwardHeaders(headers, host, assertion))) {
+    if (name.toLowerCase() !== 'content-length') out[name] = value
+  }
+  if (framing.body === 'length') out['content-length'] = framing.length
+  else if (framing.body === 'chunked') out['transfer-encoding'] = 'chunked'
+  return out
+}
+
+/**
+ * A host as it appears in a URL or a Host header: an IPv6 literal in brackets.
+ * @param {string} host - a host name or IP address, IPv6 without brackets.
+ * @returns {string} the host for an authority.
+ */
+function authorityHost(host) {
+  return host.includes(':') ? `[${host}]` : host
 }
 
 /**
@@ -562,6 +630,29 @@ function envList(env, name) {
 }
 
 /**
+ * Parse an http or https origin: a scheme, a host, and an optional port, with
+ * no userinfo, path, query, or fragment.
+ * @param {string} text - the origin text.
+ * @param {string} message - the error message naming the variable the text came from.
+ * @returns {URL} the parsed origin.
+ * @throws {Error} with `message` when the text is anything else.
+ */
+function httpOrigin(text, message) {
+  let origin
+  try {
+    origin = new URL(text)
+  } catch (_notAUrl) {
+    // The message names the variable; the parser's own text adds nothing to it.
+    throw new Error(message)
+  }
+  if ((origin.protocol !== 'http:' && origin.protocol !== 'https:') || origin.username !== '' || origin.password !== ''
+    || origin.pathname !== '/' || origin.search !== '' || origin.hash !== '') {
+    throw new Error(message)
+  }
+  return origin
+}
+
+/**
  * Read and validate this process's configuration from the environment. Every
  * misconfiguration throws, so `node proxy.mjs` exits before it listens.
  * @param {Record<string, string | undefined>} env - the environment, normally `process.env`.
@@ -580,25 +671,20 @@ export function readSettings(env, readFile = readFileSync) {
   let dshPort
   let remoteHost
   let remotePort
+  let remoteOrigin
   if (mode === 'proxy') {
     dshPort = envInteger(env, 'DSH_WEB_PORT', undefined, 1, 65_535)
     remoteHost = envText(env, 'REMOTE_HOST')
     if (remoteHost === undefined) throw new Error('proxy: REMOTE_HOST must name the remote application host')
     remotePort = envInteger(env, 'REMOTE_PORT', undefined, 1, 65_535)
+    remoteOrigin = httpOrigin(`http://${authorityHost(remoteHost)}:${String(remotePort)}`, 'proxy: REMOTE_HOST must be a host name or an IP address, with an IPv6 address written without brackets')
   }
 
-  const originText = envText(env, 'AUTH_ORIGIN') ?? (mode === 'proxy' ? `http://${String(remoteHost)}:${String(remotePort)}` : undefined)
-  if (originText === undefined) throw new Error('proxy: AUTH_ORIGIN must name the authentication service in PROXY_MODE=verify')
-  let authOrigin
-  try {
-    authOrigin = new URL(originText)
-  } catch (_notAUrl) {
-    throw new Error('proxy: AUTH_ORIGIN must be an http or https origin')
-  }
-  if ((authOrigin.protocol !== 'http:' && authOrigin.protocol !== 'https:')
-    || authOrigin.pathname !== '/' || authOrigin.search !== '' || authOrigin.hash !== '' || authOrigin.username !== '') {
-    throw new Error('proxy: AUTH_ORIGIN must be an http or https origin with no path, query, or credentials')
-  }
+  const originText = envText(env, 'AUTH_ORIGIN')
+  if (originText === undefined && remoteOrigin === undefined) throw new Error('proxy: AUTH_ORIGIN must name the authentication service in PROXY_MODE=verify')
+  const authOrigin = originText === undefined
+    ? remoteOrigin
+    : httpOrigin(originText, 'proxy: AUTH_ORIGIN must be an http or https origin with no path, query, or credentials')
   const caFile = envText(env, 'AUTH_CA_FILE')
   if (caFile !== undefined && authOrigin.protocol !== 'https:') throw new Error('proxy: AUTH_CA_FILE needs an https AUTH_ORIGIN')
   const authCa = caFile === undefined ? undefined : readFile(caFile)
@@ -912,15 +998,49 @@ function denyRequest(res, outcome) {
 }
 
 /**
- * Answer an upgrade on the raw socket with a bodiless status and close it once
- * the status line is flushed. No upstream connection was made.
+ * Answer a request this proxy will not forward because of its form, and close
+ * the connection after the answer: whatever the client sends next on it cannot
+ * be trusted to start where this request ended. Nothing was sent upstream.
+ * @param {import('node:http').ServerResponse} res - the client response.
+ * @returns {void}
+ */
+function refuseRequest(res) {
+  res.writeHead(400, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'connection': 'close',
+  })
+  res.end('{"error":"bad request"}')
+}
+
+/**
+ * Answer on a raw socket with a bodiless status and close it once the status
+ * line is flushed: an upgrade that is not forwarded, or a request Node's
+ * parser refused. No upstream connection was made.
  * @param {import('node:stream').Duplex} socket - the client socket.
  * @param {string} status - the status code and reason phrase.
  * @returns {void}
  */
-function closeUpgrade(socket, status) {
+function closeWithStatus(socket, status) {
   if (socket.destroyed) return
+  if (!socket.writable) {
+    socket.destroy()
+    return
+  }
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () => socket.destroy())
+}
+
+/**
+ * The `clientError` listener both modes install: a request Node's parser
+ * refused is malformed, so it is answered 400, never as an upstream failure.
+ * @param {Runtime} runtime - the log sink.
+ * @returns {(error: Error, socket: import('node:stream').Duplex) => void} the listener.
+ */
+function refuseMalformed(runtime) {
+  return (error, socket) => {
+    runtime.log(`proxy: client error: ${String(error)}`)
+    closeWithStatus(socket, '400 Bad Request')
+  }
 }
 
 /**
@@ -930,7 +1050,79 @@ function closeUpgrade(socket, status) {
  * @returns {void}
  */
 function denyUpgrade(socket, outcome) {
-  closeUpgrade(socket, outcome === 'unavailable' ? '503 Service Unavailable' : '401 Unauthorized')
+  closeWithStatus(socket, outcome === 'unavailable' ? '503 Service Unavailable' : '401 Unauthorized')
+}
+
+/**
+ * Whether an upgrade request declares a body. A handshake carries none, and
+ * Node hands every byte after the request's headers to the upgrade listener
+ * as `head` whatever the request declared, so a declared body has nowhere to
+ * go but the upstream connection, where it reads as the start of another
+ * request.
+ * @param {RequestFraming} framing - the upgrade request's framing.
+ * @returns {boolean} true when the upgrade must be refused.
+ */
+function upgradeCarriesBody(framing) {
+  return framing.body === 'refused' || framing.body === 'chunked' || (framing.body === 'length' && !/^0+$/.test(framing.length))
+}
+
+/**
+ * Carry an upgrade handshake to the upstream and splice the two sockets once
+ * it switches protocols. The handshake goes first and alone; the upstream's
+ * response head is forwarded to the client verbatim, with whatever follows it
+ * in the same read. Only a 101 opens the client-to-upstream direction and
+ * sends `head`, the client's bytes that followed its handshake. Any other
+ * answer is the upstream treating the handshake as an ordinary request on a
+ * connection it may keep for more, so no further client byte is sent: the
+ * upstream's write side is ended and its answer is relayed until it closes.
+ * An upstream that closes before its response head is complete is answered
+ * 502.
+ * @param {import('node:stream').Duplex} socket - the client socket.
+ * @param {Buffer} head - client bytes that followed the handshake.
+ * @param {string} handshake - the request head to send, ending in a blank line.
+ * @param {{ host: string, port: number }} target - the upstream address.
+ * @param {(error: Error) => void} logFailure - receives a connection failure before both sockets are destroyed.
+ * @returns {void}
+ */
+function spliceUpgrade(socket, head, handshake, target, logFailure) {
+  const upstream = net.connect(target.port, target.host, () => {
+    upstream.write(handshake)
+  })
+  /** @param {Error} error - why the upgrade stops. */
+  const fail = (error) => {
+    logFailure(error)
+    socket.destroy()
+    upstream.destroy()
+  }
+  upstream.on('error', fail)
+  socket.on('error', fail)
+  socket.on('close', () => upstream.destroy())
+  let received = Buffer.alloc(0)
+  let answered = false
+  upstream.on('close', () => {
+    if (!answered) closeWithStatus(socket, '502 Bad Gateway')
+  })
+  /** @param {Buffer} chunk - bytes read from the upstream before its response head is complete. */
+  const readResponseHead = (chunk) => {
+    received = Buffer.concat([received, chunk])
+    if (received.indexOf('\r\n\r\n') < 0) {
+      if (received.length > UPGRADE_RESPONSE_HEAD_LIMIT_BYTES) fail(new Error('upgrade response head too large'))
+      return
+    }
+    answered = true
+    upstream.off('data', readResponseHead)
+    upstream.pause()
+    socket.write(received)
+    const statusLine = received.toString('latin1', 0, received.indexOf('\r\n'))
+    if (/^HTTP\/1\.[01] 101(?: |$)/.test(statusLine)) {
+      if (head.length > 0) upstream.write(head)
+      socket.pipe(upstream)
+    } else {
+      upstream.end()
+    }
+    upstream.pipe(socket)
+  }
+  upstream.on('data', readResponseHead)
 }
 
 /**
@@ -959,7 +1151,7 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
  */
 export function createProxyServer(settings, runtime) {
   const gate = createGate(settings, runtime)
-  const remoteHostHeader = `${String(settings.remoteHost)}:${String(settings.remotePort)}`
+  const remoteHostHeader = `${authorityHost(String(settings.remoteHost))}:${String(settings.remotePort)}`
   const remoteAgent = new http.Agent({ keepAlive: true })
   const dshAgent = new http.Agent({ keepAlive: true })
 
@@ -971,11 +1163,15 @@ export function createProxyServer(settings, runtime) {
       // The target is attacker-controlled and never logged. Answering here keeps
       // a parse failure off the generic failure path below, which names the path.
       runtime.log('proxy: bad request target')
-      res.writeHead(400, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-      })
-      res.end('{"error":"bad request"}')
+      refuseRequest(res)
+      return
+    }
+    // Before the login check, so a refused request reaches neither the
+    // authentication service nor an upstream.
+    const framing = requestFraming(req.headers)
+    if (framing.body === 'refused') {
+      runtime.log(`proxy: refused ${req.method ?? '?'} ${pathname}: request framing (${framing.reason})`)
+      refuseRequest(res)
       return
     }
     try {
@@ -995,7 +1191,7 @@ export function createProxyServer(settings, runtime) {
         port: remote ? settings.remotePort : settings.dshPort,
         method: req.method,
         path: req.url,
-        headers: forwardHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion),
+        headers: upstreamRequestHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion, framing),
         agent: remote ? remoteAgent : dshAgent,
       }, (upstreamRes) => {
         const headers = remote ? remoteResponseHeaders(upstreamRes.headers) : forwardHeaders(upstreamRes.headers, undefined)
@@ -1017,7 +1213,13 @@ export function createProxyServer(settings, runtime) {
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad gateway')
       })
-      req.pipe(upstream)
+      // A client that leaves before its body is complete leaves the upstream
+      // waiting on bytes its framing promised; that connection is dropped.
+      req.on('close', () => {
+        if (!req.complete) upstream.destroy()
+      })
+      if (framing.body === 'none') upstream.end()
+      else req.pipe(upstream)
     } catch (error) {
       // An async handler's rejection is an unhandled rejection, which ends the
       // process and, in the container, the console with it. Nothing above is
@@ -1050,7 +1252,12 @@ export function createProxyServer(settings, runtime) {
     } catch (_badTarget) {
       // As above: the target is attacker-controlled and stays out of the log.
       runtime.log('proxy: bad request target')
-      closeUpgrade(socket, '400 Bad Request')
+      closeWithStatus(socket, '400 Bad Request')
+      return
+    }
+    if (upgradeCarriesBody(requestFraming(req.headers))) {
+      runtime.log(`proxy: refused upgrade ${pathname}: request body`)
+      closeWithStatus(socket, '400 Bad Request')
       return
     }
     try {
@@ -1065,42 +1272,32 @@ export function createProxyServer(settings, runtime) {
         }
         assertion = decision.assertion
       }
-      const headers = forwardHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion)
-      // The upgrade handshake is replayed verbatim on a raw socket: the gateway's
-      // stream client negotiates the WebSocket itself
+      const headers = upstreamRequestHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion, { body: 'none' })
+      // The upgrade handshake is replayed on a raw socket: the gateway's stream
+      // client negotiates the WebSocket itself
       // (packages/api/gateway/src/client/stream-client.ts), so nothing here may
-      // consume or reframe the bytes.
+      // consume or reframe the bytes either way once the protocol switches.
       const lines = [`${req.method ?? 'GET'} ${req.url ?? '/'} HTTP/${req.httpVersion}`]
       for (const [name, value] of Object.entries(headers)) {
         for (const single of Array.isArray(value) ? value : [String(value)]) lines.push(`${name}: ${single}`)
       }
       lines.push('Connection: Upgrade')
       lines.push(`Upgrade: ${String(req.headers.upgrade ?? 'websocket')}`)
-      const upstream = net.connect(remote ? settings.remotePort : settings.dshPort, remote ? settings.remoteHost : DSH_HOST, () => {
-        upstream.write(lines.join('\r\n') + '\r\n\r\n')
-        if (head.length > 0) upstream.write(head)
-        upstream.pipe(socket)
-        socket.pipe(upstream)
-      })
-      const fail = (error) => {
+      const target = remote
+        ? { host: String(settings.remoteHost), port: Number(settings.remotePort) }
+        : { host: DSH_HOST, port: Number(settings.dshPort) }
+      spliceUpgrade(socket, head, `${lines.join('\r\n')}\r\n\r\n`, target, (error) => {
         runtime.log(`proxy: upgrade ${pathname} failed: ${String(error)}`)
-        socket.destroy()
-        upstream.destroy()
-      }
-      upstream.on('error', fail)
-      socket.on('error', fail)
+      })
     } catch (error) {
       // Same reason as the request handler: a rejection from this async listener
       // would end the process, and this socket is not worth the console.
       runtime.log(`proxy: upgrade ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
-      closeUpgrade(socket, '500 Internal Server Error')
+      closeWithStatus(socket, '500 Internal Server Error')
     }
   })
 
-  server.on('clientError', (error, socket) => {
-    runtime.log(`proxy: client error: ${String(error)}`)
-    if (socket.writable) socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n')
-  })
+  server.on('clientError', refuseMalformed(runtime))
   server.on('close', () => {
     remoteAgent.destroy()
     dshAgent.destroy()
@@ -1147,16 +1344,33 @@ export function createVerifierServer(settings, runtime) {
       res.end()
     }
   })
-  server.on('clientError', (error, socket) => {
-    runtime.log(`proxy: client error: ${String(error)}`)
-    if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
-  })
+  server.on('clientError', refuseMalformed(runtime))
   return { server, gate }
 }
 
 /**
+ * The message a failed listen exits with, naming the variable the error
+ * points at: the port for an address in use or a port this user may not
+ * bind, the host for an address that is not local or does not resolve, and
+ * both otherwise.
+ * @param {NodeJS.ErrnoException} error - the server's listen error.
+ * @param {Settings} settings - validated settings.
+ * @returns {string} the message.
+ */
+function listenFailure(error, settings) {
+  const code = String(error.code ?? error.name)
+  const host = `PROXY_HOST=${settings.listenHost}`
+  const port = `PROXY_PORT=${String(settings.listenPort)}`
+  let named = `${host} ${port}`
+  if (code === 'EADDRINUSE' || code === 'EACCES') named = port
+  else if (code === 'EADDRNOTAVAIL' || code === 'ENOTFOUND' || code === 'EAI_AGAIN') named = host
+  return `proxy: cannot listen on ${named}: ${code}`
+}
+
+/**
  * Start the configured mode from `process.env` and listen. A configuration
- * error is printed and exits 1 before anything listens.
+ * error is printed and exits 1 before anything listens, and so does a listen
+ * that fails.
  * @returns {void}
  */
 function main() {
@@ -1170,17 +1384,25 @@ function main() {
   /** @type {Runtime} */
   const runtime = { log: line => console.error(line), now: () => Date.now() }
   const { server } = settings.mode === 'verify' ? createVerifierServer(settings, runtime) : createProxyServer(settings, runtime)
-  // Last resort behind the specific guards above, not a substitute for them: this
-  // process holds no state worth preserving, and staying up beats taking dsh and
-  // every open session down with it.
-  process.on('uncaughtException', (error) => {
-    console.error(`proxy: uncaught ${String(error)}`)
-  })
+  /** @param {NodeJS.ErrnoException} error - the listen error. */
+  const listenFailed = (error) => {
+    console.error(listenFailure(error, settings))
+    process.exit(1)
+  }
+  server.once('error', listenFailed)
   server.listen(settings.listenPort, settings.listenHost, () => {
+    server.off('error', listenFailed)
+    // Last resort behind the specific guards above, not a substitute for them:
+    // this process holds no state worth preserving, and staying up beats taking
+    // dsh and every open session down with it. Installed once listening, so it
+    // cannot turn a failed listen into a process that exits 0.
+    process.on('uncaughtException', (error) => {
+      console.error(`proxy: uncaught ${String(error)}`)
+    })
     const target = settings.mode === 'verify'
       ? `verifier, authentication service ${settings.authOrigin.origin}`
-      : `dsh ${DSH_HOST}:${String(settings.dshPort)}, remote ${String(settings.remoteHost)}:${String(settings.remotePort)}, login gate ${settings.loginGate ? 'on' : 'off'}`
-    console.error(`proxy: listening on http://${settings.listenHost}:${String(settings.listenPort)} -> ${target}, member assertions ${settings.assertion === undefined ? 'off' : 'signed'}`)
+      : `dsh ${DSH_HOST}:${String(settings.dshPort)}, remote ${authorityHost(String(settings.remoteHost))}:${String(settings.remotePort)}, login gate ${settings.loginGate ? 'on' : 'off'}`
+    console.error(`proxy: listening on http://${authorityHost(settings.listenHost)}:${String(settings.listenPort)} -> ${target}, member assertions ${settings.assertion === undefined ? 'off' : 'signed'}`)
   })
 }
 
