@@ -198,7 +198,7 @@ function isNodeWebSocket(ctor: typeof WebSocket): ctor is NodeWebSocketConstruct
   return typeof process.versions.node === 'string' && typeof ctor === 'function'
 }
 
-/** How much of a question is quoted in a notification before it is cut. */
+/** How much of a question or a reminder's name is quoted in a notification before it is cut. */
 const BODY_LIMIT = 120
 
 /** What the notifier needs from the main process. */
