@@ -16,7 +16,7 @@ Status: implemented
 
 **`web-runtime` 照抄 `publicUrl`。** 控制台的这一行在其余照抄字段之外带上 `publicUrl: !!js ctx.webStartup.publicUrl`，所以部署在剥前缀反向代理之后时，宣告的是启动器拿到的根地址，而不是回环 URL。
 
-**持久化链不变。** 合并后的树上 `verify-persistence-changes` 退出 0。上游在 0.2.0-rc.2 与 0.2.1-alpha.1 之间没有新增记录，所以 `2026-09-26-console-content-events` 仍把 `2026-09-21-user-question-reply` 记为四个共有根的前驱，这正是 [0.2.0-rc.2 基座 Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.zh.md) 的改接规则给它的位置。
+**持久化链跟着补丁线走。** 上游在 0.2.0-rc.2 与 0.2.1-alpha.1 之间没有新增记录，但补丁线的 `rail-references` 新增了 `2026-09-25-prompt-references`，它与 `2026-09-26-console-content-events` 认领同样四个共有根，也把 `2026-09-21-user-question-reply` 记为它们的前驱。第二轮合并用 `persistence-changes --update` 重写了控制台记录，四个共有根改记 `2026-09-25-prompt-references` 为前驱，这正是 [0.2.0-rc.2 基座 Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.zh.md) 的改接规则给它的位置；六个内容根仍是本记录新增的根。合并后的树上 `verify-persistence-changes` 与 `verify-persistence-formats` 都退出 0。
 
 ## The inspector bundle in the console
 
@@ -24,7 +24,7 @@ Status: implemented
 
 ## The second merge of this base
 
-补丁线在 2026-10-10 之后还会给这个基座追加提交，本线在第二轮合并它们。其中有 `settings-navigation-groups`，它挪动「数据与存储」设置分区。`server-sidebar` 在 `packages/experimental/server-sidebar/src/client/settings-entries.ts` 里按 slot 与 id 扣下设置条目（`settings.general.item` 里的 `busy-compaction` 与 `auto-compact`，`settings.action` 里的 `open-document`），而所属包把条目挪到别的 slot 或 id 后，就没有任何东西再遮住它，所以那一轮要对照挪动后的分区逐条重核被扣下的行。
+2026-10-04 本线合并了补丁线给这个基座追加的提交；上游在 `dsh-v0.2.1-alpha.1` 之后没有新提交。其中有 `settings-navigation-groups`，它把「数据与存储」设置分区（`data-location`）归入「通用」组。`server-sidebar` 在 `packages/experimental/server-sidebar/src/client/settings-entries.ts` 里按 slot 与 id 扣下设置条目（`settings.general.item` 里的 `busy-compaction` 与 `auto-compact`，`settings.action` 里的 `open-document`），而所属包把条目挪到别的 slot 或 id 后，就没有任何东西再遮住它。这次挪动只改了 `packages/client/ui-settings-general/src/client/nav-groups.ts` 里「通用」组的分区列表：被扣下的 slot 与 id 都没变，控制台组合的包也没有注册 `data-location`，所以控制台的「通用」组不变。补丁线之后再给这个基座追加的提交按同样方式合并、同样重核。
 
 ## Alternatives considered
 

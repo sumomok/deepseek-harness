@@ -16,7 +16,7 @@ The merge of the 0.2.1-alpha.1 base into the console line met four conditions. U
 
 **`web-runtime` restates `publicUrl`.** The console row carries `publicUrl: !!js ctx.webStartup.publicUrl` beside its other restated fields, so a deployment behind a prefix-stripping proxy advertises the root the launcher was given rather than the loopback URL.
 
-**The persistence chain is unchanged.** `verify-persistence-changes` exits 0 on the merged tree. Upstream added no record between 0.2.0-rc.2 and 0.2.1-alpha.1, so `2026-09-26-console-content-events` still names `2026-09-21-user-question-reply` as the predecessor of the four shared roots, which is where the rebase rule of the [0.2.0-rc.2 base Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.md) puts it.
+**The persistence chain follows the patch line.** Upstream added no record between 0.2.0-rc.2 and 0.2.1-alpha.1, but the patch line's `rail-references` adds `2026-09-25-prompt-references`, which acknowledges the same four shared roots as `2026-09-26-console-content-events` and also names `2026-09-21-user-question-reply` as their predecessor. The second merge refreshed the console record with `persistence-changes --update`, so its four shared roots now name `2026-09-25-prompt-references`, which is where the rebase rule of the [0.2.0-rc.2 base Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.md) puts it; the six content roots stay roots this record adds. `verify-persistence-changes` and `verify-persistence-formats` exit 0 on the merged tree.
 
 ## The inspector bundle in the console
 
@@ -24,7 +24,7 @@ The console composes `@deepseek-ai/dsh-experimental-inspector-profile` as upstre
 
 ## The second merge of this base
 
-The patch line appends commits to this base after 2026-10-10, and this line merges them in a second round. They include `settings-navigation-groups`, which moves the 「数据与存储」 Settings section. `server-sidebar` withholds Settings entries by slot and id in `packages/experimental/server-sidebar/src/client/settings-entries.ts` (`busy-compaction` and `auto-compact` in `settings.general.item`, `open-document` in `settings.action`), and an entry whose owner moves it to another slot or id is one nothing shadows, so that round rechecks each withheld row against the moved section.
+On 2026-10-04 this line merged the patch line's commits appended to this base; upstream had nothing past `dsh-v0.2.1-alpha.1`. They include `settings-navigation-groups`, which files the 「数据与存储」 Settings section (`data-location`) under the General group. `server-sidebar` withholds Settings entries by slot and id in `packages/experimental/server-sidebar/src/client/settings-entries.ts` (`busy-compaction` and `auto-compact` in `settings.general.item`, `open-document` in `settings.action`), and an entry whose owner moves it to another slot or id is one nothing shadows. The move changes only the General group's section list in `packages/client/ui-settings-general/src/client/nav-groups.ts`: no withheld slot or id changed, and no package the console composes registers `data-location`, so the console's General group is unchanged. Commits the patch line appends to this base later are merged the same way and get the same recheck.
 
 ## Alternatives considered
 
