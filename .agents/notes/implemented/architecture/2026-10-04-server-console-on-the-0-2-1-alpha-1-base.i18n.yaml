@@ -1,10 +1,10 @@
 # Bilingual-pair consistency record for 2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md (docs/i18n/README.md): per heading
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md
 /agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach:
-  en: 79d2c842b16e2b23
-  zh: 90c9d3b04c95b567
+  en: 72d3b30535865bd0
+  zh: 3af1eb0c1908fc3a
 /agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/problem:
   en: 835e77e06e665eb6
   zh: 8ca999e1de4d7e73

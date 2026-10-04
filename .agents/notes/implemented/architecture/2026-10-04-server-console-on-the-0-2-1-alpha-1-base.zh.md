@@ -16,7 +16,7 @@ Status: implemented
 
 **`web-runtime` 照抄 `publicUrl`。** 控制台的这一行在其余照抄字段之外带上 `publicUrl: !!js ctx.webStartup.publicUrl`，所以部署在剥前缀反向代理之后时，宣告的是启动器拿到的根地址，而不是回环 URL。
 
-**持久化链不变。** 合并后的树上 `verify-persistence-changes` 退出 0。上游在 0.2.0-rc.2 与 0.2.1-alpha.1 之间没有新增记录，所以 `2026-09-26-console-content-events` 仍把 `2026-09-21-user-question-reply` 记为四个共有根的前驱，这正是 [0.2.0-rc.2 基座 Note](../architecture/2026-10-01-server-console-on-the-0-2-0-rc-2-base.zh.md) 的改接规则给它的位置。
+**持久化链不变。** 合并后的树上 `verify-persistence-changes` 退出 0。上游在 0.2.0-rc.2 与 0.2.1-alpha.1 之间没有新增记录，所以 `2026-09-26-console-content-events` 仍把 `2026-09-21-user-question-reply` 记为四个共有根的前驱，这正是 [0.2.0-rc.2 基座 Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.zh.md) 的改接规则给它的位置。
 
 ## Developer Tools in the console
 

@@ -16,7 +16,7 @@ The merge of the 0.2.1-alpha.1 base into the console line met four conditions. U
 
 **`web-runtime` restates `publicUrl`.** The console row carries `publicUrl: !!js ctx.webStartup.publicUrl` beside its other restated fields, so a deployment behind a prefix-stripping proxy advertises the root the launcher was given rather than the loopback URL.
 
-**The persistence chain is unchanged.** `verify-persistence-changes` exits 0 on the merged tree. Upstream added no record between 0.2.0-rc.2 and 0.2.1-alpha.1, so `2026-09-26-console-content-events` still names `2026-09-21-user-question-reply` as the predecessor of the four shared roots, which is where the rebase rule of the [0.2.0-rc.2 base Note](../architecture/2026-10-01-server-console-on-the-0-2-0-rc-2-base.md) puts it.
+**The persistence chain is unchanged.** `verify-persistence-changes` exits 0 on the merged tree. Upstream added no record between 0.2.0-rc.2 and 0.2.1-alpha.1, so `2026-09-26-console-content-events` still names `2026-09-21-user-question-reply` as the predecessor of the four shared roots, which is where the rebase rule of the [0.2.0-rc.2 base Note](2026-10-01-server-console-on-the-0-2-0-rc-2-base.md) puts it.
 
 ## Developer Tools in the console
 
