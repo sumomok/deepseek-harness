@@ -79,7 +79,7 @@ const ChatNodeList = memo(function ChatNodeList({ entries, useChatGroup, pending
     <PendingSubmissionBubble key={item.requestId} submission={item}
       renderMessageImages={seatProps.renderMessageImages} t={seatProps.t} />
   ) : (
-    <PendingSteeringBubble key={item.id} content={item.content}
+    <PendingSteeringBubble key={item.id} content={item.content} source={item.source}
       renderMessageImages={seatProps.renderMessageImages} t={seatProps.t} />
   ))
   const tail = entries.at(-1)

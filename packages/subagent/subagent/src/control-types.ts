@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-subagent/control-types
  */
 
-import type { PromptContentPart } from '@deepseek-ai/dsh-attachment/types'
+import type { PromptContentPart, PromptReference } from '@deepseek-ai/dsh-attachment/types'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -99,6 +99,8 @@ export interface SubagentPromptRequest {
   readonly content: readonly PromptContentPart[]
   /** Optional browser zone sampled for this exact human prompt. */
   readonly clientTimeZone?: string
+  /** Browser-owned references recorded on the accepted message source; they never count as content. */
+  readonly references?: readonly PromptReference[]
 }
 
 /** Inbox identity returned once the continuation accepts one human message. */

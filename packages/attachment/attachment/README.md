@@ -43,6 +43,10 @@ Any non-image file attaches to a prompt as a generic file: the exact bytes are s
 
 Commands declaring attachment input receive images and generic files in selection order. Commands that do not accept attachments return an error and retain the composer's draft and cards.
 
+### Attach references to a prompt
+
+A client plugin can attach a reference to a prompt instead of bytes: `{source, label, data}`, where `source` names the owning plugin, `label` is the text that end-user surfaces show, and `data` is the owner's JSON payload. Prompt endpoints check each prompt with `promptReferencesProblem()`: at most 16 references, a source matching `[A-Za-z0-9_.-]{1,64}`, a label of 1–64 code points that is not blank and has no control, format, or unpaired surrogate characters, and at most 8192 UTF-8 bytes of JSON data per reference. Accepted references are recorded on the message source. They are never message content: they do not make an empty message sendable, and the first-party provider serializers (`llm-deepseek`, `llm-pi-ai`) never put a user message's source into a provider request. A history tool that returns raw Session events, such as `tool-session-query`'s `session_event_read`, shows them to the model inside a logged `tool/result`. An owner that wants the model to see text derived from its references appends that text as its own logged message.
+
 ### Reuse images across the session
 
 Saved normalized images stay in conversation history and are projected into deterministic, route-sized request versions in later turns; after a restart, a resumed session shows and reuses the same images. When the current execution filesystem maps the stored host object, the request descriptor also carries a read-only process path that the model can inspect. When history or a request version is read back, the stored bytes are checked against what was recorded, so a missing, corrupted, or swapped image surfaces as an error rather than wrong bytes.
@@ -81,6 +85,7 @@ The service family runs one admission-and-storage flow: every entry point enforc
 | [`src/index.ts`](src/index.ts) | Plugin entry: abstract `AttachmentStore` service and re-exports |
 | [`src/types.ts`](src/types.ts) | Durable vocabulary: references, limits, upload and store payloads |
 | [`src/admission.ts`](src/admission.ts) | Canonical-base64 enforcement and store delegation for encoded image and file uploads |
+| [`src/prompt-references.ts`](src/prompt-references.ts) | Prompt-reference protocol bounds and `promptReferencesProblem()` |
 | [`src/error.ts`](src/error.ts) | `AttachmentError` class and the `isImageAdmissionError` runtime subset |
 | [`src/brand.ts`](src/brand.ts) | `AttachmentId` branded opaque identifier |
 
@@ -102,7 +107,7 @@ For the full service contract and payload types, read the subsystem reference; f
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the provider adapter, which resolves each durable image reference into an exact request version and sends its stable attachment id and actual dimensions beside the image. When the execution filesystem maps the stored object, the descriptor also includes a read-only process path and a matching extension for a writable copy. A generic file never reaches the provider as bytes: every route receives one deterministic handle line naming the file, its byte size, its digest prefix, and the saved read-only path to read with file tools.
+Indirectly, through the provider adapter, which resolves each durable image reference into an exact request version and sends its stable attachment id and actual dimensions beside the image. When the execution filesystem maps the stored object, the descriptor also includes a read-only process path and a matching extension for a writable copy. A generic file never reaches the provider as bytes: every route receives one deterministic handle line naming the file, its byte size, its digest prefix, and the saved read-only path to read with file tools. Prompt references stay on the message source, which the first-party provider serializers never put into a provider request; `tool-session-query`'s `session_event_read` returns them inside a logged `tool/result` when the model reads the raw event.
 
 #### KV Cache effect
 

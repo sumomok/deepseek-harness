@@ -63,6 +63,7 @@
     "apps/web/tests/sidebar-browser.e2e.ts",
     "apps/web/tests/plugin-config.e2e.ts",
     "apps/web/tests/input-plugin-extensions.e2e.ts",
+    "apps/web/tests/rail-references.e2e.ts",
     "apps/web/tests/plugin-manager.e2e.ts",
     "apps/web/tests/session-inspector.e2e.ts",
     "apps/web/tests/shared-inspector.e2e.ts",

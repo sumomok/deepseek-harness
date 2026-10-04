@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ComposerAttachment, ComposerAttachmentsProps, ComposerImageAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { IconCloseFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseFillRegular, ReferenceChip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
@@ -17,7 +17,7 @@ interface ComposerRailItem extends AttachmentRailItem {
   attachment: ComposerAttachment
 }
 
-/** Draft image previews, pending-file cards, drop target, and original-image preview. */
+/** Draft image previews, pending-file cards, reference chips, drop target, and original-image preview. */
 export function ComposerAttachments({
   attachments, canAcceptDrop, onAddFiles, onRemoveAttachment, uploads, onRetryFile, dropLimits, t,
 }: ComposerAttachmentsProps) {
@@ -53,6 +53,18 @@ export function ComposerAttachments({
             labels={attachmentRailLabels(t)}
             renderItem={(item) => {
               const attachment = item.attachment
+              if (attachment.kind === 'reference') {
+                return (
+                  <ReferenceChip
+                    label={attachment.label}
+                    onActivate={attachment.activate}
+                    remove={{
+                      label: t('reference.remove', { label: attachment.label }),
+                      onRemove: () => { onRemoveAttachment(attachment.id) },
+                    }}
+                  />
+                )
+              }
               if (attachment.kind === 'file') {
                 const upload = uploads[attachment.id]
                 return (

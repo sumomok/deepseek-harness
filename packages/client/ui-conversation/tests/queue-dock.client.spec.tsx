@@ -568,6 +568,71 @@ describe('QueueDock', () => {
     expect(loadImage).toHaveBeenCalledTimes(1)
   })
 
+  it('shows prompt references as label chips on sending and queued rows, and edits text only', async () => {
+    const references = [
+      { source: 'owner', label: '新增', data: { entry: 'e1', point: { ref: 'e42' } } },
+      { source: 'owner', label: '所属专题', data: {} },
+    ]
+    const pending = {
+      ...snapshotWith([]),
+      pendingSubmissions: [{
+        requestId: 'req-ref-queue' as never,
+        placement: 'queued' as const,
+        time: 1,
+        text: '这两个有什么区别',
+        attachments: [],
+        references: references.map(({ source, label }) => ({ source, label })),
+      }],
+    }
+    const source = liveSession(pending)
+    const updateQueue = vi.fn(() => Promise.resolve())
+    const view = render(
+      <QueueDock {...kitFor(pending, { updateQueue })} useSession={source.useSession} useProjection={source.useProjection} />,
+    )
+    const sendingRow = view.getByText('这两个有什么区别').closest('li')!
+    expect([...sendingRow.querySelectorAll('[data-reference-chip]')].map(chip => chip.textContent))
+      .toEqual(['新增', '所属专题'])
+
+    act(() => {
+      source.push({
+        ...pending,
+        pendingSubmissions: [],
+        testInbox: {
+          'next-turn': [{
+            ...row('queued-ref', '这两个有什么区别'),
+            source: { kind: 'user', rpcId: 'req-ref-queue' as never, references } as never,
+          }],
+          'next-step': [],
+        },
+      })
+    })
+    const queuedRow = view.getByText('这两个有什么区别').closest('li')!
+    expect([...queuedRow.querySelectorAll('[data-reference-chip]')].map(chip => chip.getAttribute('title')))
+      .toEqual(['新增', '所属专题'])
+    expect(queuedRow.textContent).not.toMatch(/e42|entry|owner|\[/u)
+    fireEvent.click(view.getByRole('button', { name: '编辑排队消息' }))
+    expect((view.getByRole('textbox') as HTMLTextAreaElement).value).toBe('这两个有什么区别')
+    expect(queuedRow.querySelector('[data-reference-chip]')).toBeNull()
+    fireEvent.change(view.getByRole('textbox'), { target: { value: '改过的问题' } })
+    fireEvent.keyDown(view.getByRole('textbox'), { key: 'Enter' })
+    await waitFor(() => {
+      expect(updateQueue).toHaveBeenCalledWith(iid('queued-ref'), { kind: 'edit', content: [{ type: 'text', text: '改过的问题' }] })
+    })
+  })
+
+  it('skips malformed reference records on a queued row', () => {
+    for (const [references, labels] of [
+      [[null, { label: 3 }, 'x', { label: '好' }], ['好']],
+      [{ label: '坏' }, []],
+    ] as const) {
+      const snap = snapshotWith([{ ...row('bad-ref', '坏记录'), source: { kind: 'user', references } as never }])
+      const source = liveSession(snap)
+      const view = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} useProjection={source.useProjection} />)
+      expect([...view.container.querySelectorAll('[data-reference-chip]')].map(chip => chip.textContent)).toEqual(labels)
+      view.unmount()
+    }
+  })
+
   it('edits text inline with save and cancel controls, then saves with the same item identity', async () => {
     const snap = snapshotWith([row('i-edit', 'before')])
     const source = liveSession(snap)

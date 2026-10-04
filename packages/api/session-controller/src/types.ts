@@ -2,7 +2,7 @@
 import type { NativeFileApplication } from '@deepseek-ai/dsh-native-command/types'
 
 import type {
-  AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+  AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType, PromptReference,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -340,6 +340,8 @@ export interface SessionPromptRequest {
   /** At least one non-whitespace text part or attachment. */
   readonly content: readonly PromptContentPart[]
   readonly clientTimeZone?: string
+  /** Browser-owned references recorded on the accepted message source; they never count as content. */
+  readonly references?: readonly PromptReference[]
 }
 
 /** Receipt after one prompt enters the target Agent inbox. */
@@ -432,8 +434,23 @@ export type SessionRequestId = Branded<'session-request-id'>
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
-    /** Browser prompt correlation and optional Host-validated time zone. */
-    'user-rpc': { kind: 'user'; rpcId: SessionRequestId; clientTimeZone?: string }
+    /**
+     * Browser prompt correlation, optional Host-validated time zone, and
+     * optional Host-validated prompt references, absent when none were sent.
+     * `references` is display and owner data, not message content: the
+     * first-party provider serializers never put a user message's source into
+     * a provider request, and a history tool that returns raw Session events
+     * (`tool-session-query`'s `session_event_read`) exposes it inside a logged
+     * `tool/result`. An owner that wants model-visible text derived from it
+     * appends its own logged message from `agent/pre-step`, so every model
+     * input stays reconstructable from the Session log.
+     */
+    'user-rpc': {
+      kind: 'user'
+      rpcId: SessionRequestId
+      clientTimeZone?: string
+      references?: readonly PromptReference[]
+    }
   }
 }
 

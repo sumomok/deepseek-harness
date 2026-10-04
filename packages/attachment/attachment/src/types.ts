@@ -106,6 +106,39 @@ export type PromptContentPart =
     readonly name?: string
   }
 
+/** JSON value carried inside a {@link PromptReference} payload. */
+export type PromptReferenceJson =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly PromptReferenceJson[]
+  | { readonly [key: string]: PromptReferenceJson }
+
+/**
+ * One browser-owned reference attached to a prompt as data rather than as
+ * content, and recorded verbatim on the accepted user message's source.
+ * Host prompt endpoints validate it with `promptReferencesProblem()`.
+ *
+ * Contract: a reference is not message content. Adapters receive it on
+ * `GenerateOptions.messages[].source`; the first-party provider serializers
+ * (`llm-deepseek`, `llm-pi-ai`) never emit a user message's source into the
+ * provider request. A history tool that returns raw Session events, such as
+ * `tool-session-query`'s `session_event_read`, exposes references to the
+ * model inside a logged `tool/result`, so every model-visible copy stays
+ * reconstructable from the Session log. An owner that wants a model to see
+ * text derived from its references appends that text as its own logged
+ * message (for example from `agent/pre-step`).
+ */
+export interface PromptReference {
+  /** Owner name, `[A-Za-z0-9_.-]{1,64}`; the owner reads back only its own entries. */
+  readonly source: string
+  /** Display text for end-user surfaces: 1–64 code points, not blank, no control, format, or unpaired surrogate characters. */
+  readonly label: string
+  /** Owner payload; its UTF-8 JSON encoding is at most 8192 bytes. */
+  readonly data: { readonly [key: string]: PromptReferenceJson }
+}
+
 /** Host prompt content whose file receipts are resolved and whose image bytes await admission. */
 export type AttachmentAdmissionPart =
   | PromptContentPart
