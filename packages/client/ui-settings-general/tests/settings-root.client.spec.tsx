@@ -31,11 +31,12 @@ type Step = { id: string; order: number }
 
 /**
  * Every section id the group table names, in ledger order, plus two ids it
- * never heard of. Four groups list their members in an order the ascending
+ * never heard of. Five groups list their members in an order the ascending
  * `order` here contradicts, so a rail drawing ledger order instead of table
  * order reads differently. Labels stand in for the registrants' own copy.
  */
 const EVERY_SECTION: Row[] = [
+  { id: 'account', order: -10, label: 'Account' },
   { id: 'general', order: 0, label: 'General' },
   { id: 'vision-switch', order: 5, label: 'Vision' },
   { id: 'models', order: 10, label: 'Models' },
@@ -46,6 +47,7 @@ const EVERY_SECTION: Row[] = [
   { id: 'contributed', order: 28, label: 'Contributed' },
   { id: 'plugins', order: 30, label: 'Plugins' },
   { id: 'balance', order: 35, label: 'Balance' },
+  { id: 'sumomok-org', order: 40, label: 'Organization' },
   { id: 'at-file', order: 55, label: 'At file' },
   { id: 'screenshot-logins', order: 60, label: 'Screenshot logins' },
   { id: 'data-location', order: 65, label: 'Data & Storage' },
@@ -546,14 +548,15 @@ describe('SettingsPanel navigation', () => {
     ])
     // Members follow the table, not the ledger's `order`: Data & Storage (65)
     // draws above At file (55), Vision (5) below Models (10), Review settings
-    // (15) below Agent presets (20), and MCP servers (25) below Plugins (30),
-    // because each group's table lists them that way. The trailing group keeps ledger order instead.
+    // (15) below Agent presets (20), MCP servers (25) below Plugins (30), and
+    // Organization (40) above Balance (35), because each group's table lists
+    // them that way. The trailing group keeps ledger order instead.
     expect(groupMembers()).toEqual([
       ['General', 'Data & Storage', 'At file', 'Archived sessions'],
       ['Models', 'Vision'],
       ['Agent presets', 'Review settings'],
       ['Plugins', 'MCP servers', 'Screenshot logins'],
-      ['Balance'],
+      ['Account', 'Organization', 'Balance'],
       ['Desktop update'],
       ['Contributed', 'Late contribution'],
     ])
@@ -577,6 +580,21 @@ describe('SettingsPanel navigation', () => {
     fireEvent.click(unknown)
     expect(unknown.getAttribute('aria-current')).toBe('true')
     expect(screen.getByTestId('section-contributed')).toBeTruthy()
+  })
+
+  it('draws the remaining members of a group when one named section is absent', () => {
+    // Without the organization plugin the account group holds Account and Balance.
+    mount({ rows: EVERY_SECTION.filter(row => row.id !== 'sumomok-org') })
+    openPanel()
+    expect(groupMembers()).toEqual([
+      ['General', 'Data & Storage', 'At file', 'Archived sessions'],
+      ['Models', 'Vision'],
+      ['Agent presets', 'Review settings'],
+      ['Plugins', 'MCP servers', 'Screenshot logins'],
+      ['Account', 'Balance'],
+      ['Desktop update'],
+      ['Contributed', 'Late contribution'],
+    ])
   })
 
   it('draws no title for a group whose sections are all absent', () => {
