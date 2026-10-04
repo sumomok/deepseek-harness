@@ -126,7 +126,7 @@ describe('desktop brand occupants', () => {
     // owners' sources, so an id an upstream sync renames fails here.
     const source = (owner: string): string =>
       readFileSync(resolve(import.meta.dirname, '../../../packages/client', owner, 'src/client/index.ts'), 'utf8')
-    expect(source('ui-settings-general')).toMatch(/name: 'settings\.general\.item', id: 'current-version',/)
+    expect(source('ui-settings-general')).toMatch(/name: 'settings\.general\.item',\s+id: 'current-version',/)
     expect(source('ui-agent-preset')).toMatch(/name: 'plugins\.add\.actions',\s+id: 'create-plugin',/)
   })
 
