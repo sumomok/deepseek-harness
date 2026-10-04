@@ -199,7 +199,8 @@ describe('singleCopyProblems', () => {
   })
 
   it('counts a copy by its manifest name, not its directory name', async () => {
-    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', 'node_modules/vendored-framework': '@deepseek-ai/cordis', 'node_modules/cordis': 'cordis' })
+    const sameDirName = 'node_modules/@haoran/dsh-btw/node_modules/@deepseek-ai/cordis'
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', 'node_modules/vendored-framework': '@deepseek-ai/cordis', [sameDirName]: '@deepseek-ai/cordis-plugin-timer' })
     expect(await findPackageCopies(root, '@deepseek-ai/cordis')).toEqual([HOISTED, 'node_modules/vendored-framework'])
   })
 
