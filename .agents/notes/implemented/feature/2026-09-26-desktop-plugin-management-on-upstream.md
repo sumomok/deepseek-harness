@@ -40,7 +40,7 @@ Turning upstream's pair on raises three problems of its own. `pnpmCommand` names
 
 **Turn `preset-cordis` off whole.** One id-targeted `disabled: true` row reaches it and takes `plugin_manager` away with it. Rejected: it also takes the cordis preset away, and that preset stays available on the desktop.
 
-**Have the gateway step aside when upstream's Auto is mounted (Q-G5).** Not taken: the seeded `auto-review` off row in the profile layer does that job from composition, so the gateway carries no such check. Through 0.1.0-rc.37 the row was the only thing that kept the two reviewers apart; from 0.1.0-rc.38 the payload's placeholder keeps Auto from loading at all ([the placeholder note](2026-10-04-desktop-withheld-bundle-placeholders.md)). A person who changes it to `disabled: false`, which is what the Plugins page's enable writes, mounts Auto beside the gateway, and every call is then reviewed twice with no message saying so.
+**Have the gateway step aside when upstream's Auto is mounted (Q-G5).** Not taken: the desktop keeps Auto from mounting, so the gateway carries no such check. Through 0.1.0-rc.37 the seeded `auto-review` off row in the profile layer was the only thing that kept the two reviewers apart, and a person who changed it to `disabled: false`, which is what the Plugins page's enable writes, mounted Auto beside the gateway, where every call was then reviewed twice with no message saying so. From 0.1.0-rc.38 the payload's placeholder keeps Auto from loading at all ([the placeholder note](2026-10-04-desktop-withheld-bundle-placeholders.md)).
 
 ## Consequences
 

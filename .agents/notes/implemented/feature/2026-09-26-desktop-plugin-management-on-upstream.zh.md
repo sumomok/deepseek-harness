@@ -40,7 +40,7 @@ Status: implemented
 
 **整体关掉 `preset-cordis`。**一条按 id 的 `disabled: true` 行就够得到它，`plugin_manager` 也随之消失。不采纳：它把 cordis 预设也一起拿掉了，而这个预设在桌面上要保持可用。
 
-**让网关在上游 Auto 挂载时自己让路（Q-G5）。**没有采用：profile 层里播种的 `auto-review` 关闭行从组合层面做了这件事，所以网关里没有这样的检查。到 0.1.0-rc.37 为止，把两个审查者隔开的只有这一行；从 0.1.0-rc.38 起，载荷里的占位包让 Auto 根本加载不了（[占位包 note](2026-10-04-desktop-withheld-bundle-placeholders.zh.md)）。有人把它改成 `disabled: false`（插件页的启用写的正是这个）后，Auto 就挂在网关旁边，之后每次调用都被审两遍，没有任何提示。
+**让网关在上游 Auto 挂载时自己让路（Q-G5）。**没有采用：桌面让 Auto 挂不上，所以网关里没有这样的检查。到 0.1.0-rc.37 为止，把两个审查者隔开的只有 profile 层里播种的 `auto-review` 关闭行，有人把它改成 `disabled: false`（插件页的启用写的正是这个）后，Auto 就挂在网关旁边，之后每次调用都被审两遍，没有任何提示。从 0.1.0-rc.38 起，载荷里的占位包让 Auto 根本加载不了（[占位包 note](2026-10-04-desktop-withheld-bundle-placeholders.zh.md)）。
 
 ## 后果
 
