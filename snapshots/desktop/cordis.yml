@@ -122,13 +122,17 @@
 # The desktop's brand row is off. Its Host half adds a system-prompt line that
 # quotes the harness home, which is a fresh temporary directory on every run,
 # and its module is the built `lib/index.js` of a package the source tree does
-# not install. The row is targeted by id alone so the launcher does not try to
-# link that package; a disabled row is never imported.
+# not install; a disabled row is never imported. The include loader skips a
+# patch whose `name` differs from its target's (`vendor/include/src/index.ts`),
+# and a skipped disable here would leave no trace in this lane's pins, because
+# the row's module does not resolve from the source tree. The row is therefore
+# targeted by id alone, so the disable holds whatever package the base row names.
 - id: desktop-brand
   disabled: true
 
 # The desktop's server-log exporter mounts only when the desktop shell names
 # a log file in `DSH_DESKTOP_SERVER_LOG`. It is off here so that a value
-# inherited from the developer's environment cannot mount it.
+# inherited from the developer's environment cannot mount it, and targeted by
+# id alone for the same reason as `desktop-brand`.
 - id: desktop-server-log
   disabled: true
