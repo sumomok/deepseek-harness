@@ -808,7 +808,7 @@
 - **为什么**：该 e2e 断言控制台组合的预设注册表里没有名为 `cordis` 的预设，必须写出带引号的预设 id；rescope 门禁把任何带引号的裸 `cordis` 当成未改名的包名，报 residue。上游对「`cordis` 也是预设 id」的文件用的就是这张表。
 - **要达到的效果**：rescope 门禁照常覆盖该文件里的其余包名，只对 `cordis` 这一个名字放行。
 - **退役条件**：该用例不再写出这个预设 id，或上游门禁改为区分预设 id 与包名。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `GENERIC_SKIPS` 仍无该文件；取回 `dsh-v0.2.0-rc.2` 版 `rescope-vendor.ts` 后 `rescope-vendor:check` 报 `apps/web/tests/server-sidebar.e2e.ts` residue。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `GENERIC_SKIPS` 仍无该文件；取回 `dsh-v0.2.1-alpha.1` 版 `rescope-vendor.ts` 后 `rescope-vendor:check` 报 17 处 residue，其中有 `apps/web/tests/server-sidebar.e2e.ts`，本线版本报的是另外 16 处上游带来的 residue。
 - **路径**：`scripts/rescope-vendor.ts`
 
 ## client-catalog-toolview-budget — `tool.call.toolview` 的单槽报告预算放宽到 121 行（本线专属）
