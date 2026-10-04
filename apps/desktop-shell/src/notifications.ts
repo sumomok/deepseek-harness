@@ -203,13 +203,14 @@ function isNodeWebSocket(ctor: typeof WebSocket): ctor is NodeWebSocketConstruct
 const BODY_LIMIT = 120
 
 /**
- * How long before a reminder's `deliveredAt` the run it woke can have
- * started. The schedule service sets the session running, waits for the
- * session log to persist the reminder, and only then samples `deliveredAt`;
- * this covers that persist. A persist that takes longer leaves the woken run
- * unmarked, so its finished-run message is raised as well; a run the user
- * starts within this long before a delivery is taken for the woken one and
- * loses its finished-run message.
+ * How far from a reminder's `deliveredAt`, on either side, the shell can have
+ * received the running frame of the run it woke. The schedule service sets the
+ * session running, waits for the session log to persist the reminder, and only
+ * then samples `deliveredAt`; this covers that persist before the delivery, and
+ * the running frame's way to the shell after it. A woken run outside this
+ * window is left unmarked, so its finished-run message is raised as well; a run
+ * the user starts within it is taken for the woken one and loses its
+ * finished-run message.
  */
 const WAKE_FLUSH_MS = 5_000
 
@@ -840,21 +841,28 @@ function reminderBody(who: string, message: DeliveredMessage): string {
   return labels.length === 0 ? `${who}有一条提醒到了。` : `${who}：${clip(labels.join('、'))}`
 }
 
+/** When, by the machine clock, the run a message woke can have started; both ends inclusive, in ms since the epoch. */
+interface WakeWindow {
+  /** The latest due time among the message's deliveries, or {@link WAKE_FLUSH_MS} before its latest `deliveredAt` when that is later. */
+  readonly from: number
+  /** {@link WAKE_FLUSH_MS} after the message's latest `deliveredAt`. */
+  readonly until: number
+}
+
 /**
- * The earliest time, by the machine clock, at which the run a message woke
- * can have started: the latest due time among its deliveries, or
- * {@link WAKE_FLUSH_MS} before its `deliveredAt` when that is later.
+ * The window in which the run a message woke can have started.
  * @param message - the deliveries of one message.
- * @returns the time in ms since the epoch, or undefined when a due or
- * delivery time is unreadable.
+ * @returns the window, or undefined when a due or delivery time is unreadable.
  */
-function wokenNotBefore(message: DeliveredMessage): number | undefined {
-  let bound = Number.NEGATIVE_INFINITY
+function wakeWindow(message: DeliveredMessage): WakeWindow | undefined {
+  let dueAt = Number.NEGATIVE_INFINITY
+  let deliveredAt = Number.NEGATIVE_INFINITY
   for (const delivery of message) {
     if (delivery.dueAt === undefined || delivery.deliveredAt === undefined) return undefined
-    bound = Math.max(bound, delivery.dueAt, delivery.deliveredAt - WAKE_FLUSH_MS)
+    dueAt = Math.max(dueAt, delivery.dueAt)
+    deliveredAt = Math.max(deliveredAt, delivery.deliveredAt)
   }
-  return bound
+  return { from: Math.max(dueAt, deliveredAt - WAKE_FLUSH_MS), until: deliveredAt + WAKE_FLUSH_MS }
 }
 
 /**
@@ -913,7 +921,9 @@ function newMessages(deliveries: readonly ReminderDelivery[], baseline: Readonly
 /**
  * Append one step to the generation's reminder queue. A step that throws is
  * logged and the queue goes on: a rejected tail would never release the
- * finished-run decisions waiting on it.
+ * finished-run decisions waiting on it. The steps catch their own expected
+ * failures, so this holds the queue's never-rejects invariant against the
+ * unexpected ones.
  * @param generation - the generation the queue belongs to.
  * @param step - the read or comparison to run after every step queued before it.
  */
@@ -937,7 +947,8 @@ async function seedReminders(generation: Generation, since: number): Promise<voi
 
 /**
  * Announce every message delivered since the baseline, and keep this read as
- * the next baseline.
+ * the next baseline. A message whose announcement throws writes one log line
+ * with its reason, and the messages after it are still announced.
  * @param generation - the generation that received `schedule/changed`.
  * @param since - {@link Generation.listeningSince} of the stream the frame arrived on.
  * @param runningAtChange - {@link Generation.running} as it stood when the
@@ -948,7 +959,16 @@ async function compareReminders(generation: Generation, since: number, runningAt
   if (deliveries === undefined || generation.stopped) return
   const baseline = generation.deliveries ?? baselineSince(deliveries, since)
   generation.deliveries = new Set(deliveries.map(delivery => delivery.messageId))
-  for (const message of newMessages(deliveries, baseline)) await announceReminder(generation, message, runningAtChange)
+  for (const message of newMessages(deliveries, baseline)) {
+    try {
+      await announceReminder(generation, message, runningAtChange)
+    } catch (error) {
+      // The baseline already holds every message of this read, so one that
+      // cannot be raised must not take the messages after it along.
+      const reason = error instanceof Error ? error.message : String(error)
+      generation.host.log(`[desktop] reminder ${message[0].messageId} could not be announced: ${reason}\n`)
+    }
+  }
 }
 
 /**
@@ -962,25 +982,28 @@ async function compareReminders(generation: Generation, since: number, runningAt
  * already says what that run is for, so the run's finished-run message is
  * dropped. The run marked is the session's run that was going when
  * `schedule/changed` arrived and that started — by the shell's clock, when
- * its running frame arrived — no earlier than {@link wokenNotBefore}: the
- * latest due time among the message's tasks, or {@link WAKE_FLUSH_MS} before
- * `deliveredAt` when that is later. The server and the shell read the same
- * machine clock; the server delivers only once every due time has passed, and
- * sets the session running a single persist before it samples `deliveredAt`,
- * so the woken run qualifies. A run the user started before the due time, or
- * more than {@link WAKE_FLUSH_MS} before the delivery, receives the reminder
- * as its next turn and keeps its finished-run message. Only a reminder
- * message that was raised marks a run, and that run's own running → idle edge
- * consumes the mark.
+ * its running frame arrived — within {@link wakeWindow}: no earlier than the
+ * latest due time among the message's tasks, nor than {@link WAKE_FLUSH_MS}
+ * before the latest `deliveredAt`, and no later than {@link WAKE_FLUSH_MS}
+ * after it. The server and the shell read the same machine clock; the server
+ * delivers only once every due time has passed, and sets the session running
+ * a single persist before it samples `deliveredAt`, so the woken run
+ * qualifies. A run the user started before the due time, or more than
+ * {@link WAKE_FLUSH_MS} before the delivery, receives the reminder as its next
+ * turn and keeps its finished-run message. A run the user started more than
+ * {@link WAKE_FLUSH_MS} after the delivery keeps it too, which matters when a
+ * failed read leaves the reminder to be announced by a later
+ * `schedule/changed`. Only a reminder message that was raised marks a run,
+ * and that run's own running → idle edge consumes the mark.
  *
  * Both messages are raised for a woken run that ended before
  * `schedule/changed` arrived (one that failed within the persist and the
  * commit), for a wake held behind maintenance that starts only after the
- * frame, and for a woken run whose persist outlasted {@link WAKE_FLUSH_MS};
- * the reminder's message is never the one dropped. A run the user started
- * after the due time and less than {@link WAKE_FLUSH_MS} before the delivery
- * is taken for the woken run, and its finished-run message gives way to the
- * reminder's.
+ * frame, and for a woken run whose persist, or whose running frame's way to
+ * the shell, outlasted {@link WAKE_FLUSH_MS}; the reminder's message is never
+ * the one dropped. A run the user started after the due time and within
+ * {@link WAKE_FLUSH_MS} of the delivery is taken for the woken run, and its
+ * finished-run message gives way to the reminder's.
  * @param generation - the generation that received `schedule/changed`.
  * @param message - the deliveries of a message made since the baseline.
  * @param runningAtChange - {@link Generation.running} as it stood when the
@@ -1002,8 +1025,10 @@ async function announceReminder(
     renderBadge()
   }
   const run = runningAtChange.get(sessionId)
-  const notBefore = wokenNotBefore(message)
-  if (run !== undefined && notBefore !== undefined && run.startedAt >= notBefore) generation.reminderRuns.add(run)
+  const wake = wakeWindow(message)
+  if (run !== undefined && wake !== undefined && wake.from <= run.startedAt && run.startedAt <= wake.until) {
+    generation.reminderRuns.add(run)
+  }
 }
 
 /**

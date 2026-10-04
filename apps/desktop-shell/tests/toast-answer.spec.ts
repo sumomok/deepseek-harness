@@ -59,20 +59,21 @@ const REMINDER = '交周报'
 /** The instruction of the reminder {@link reminder} reports. */
 const INSTRUCTION = '把本周的周报整理好发给我'
 
-/** When the reminder {@link reminder} reports fell due: long before any run a test starts. */
+/** When the reminder {@link reminder} reports fell due, and by default was delivered: long before any run a test starts. */
 const DUE = '2000-01-01T00:00:00.000Z'
 
 /**
  * One `schedule/catalog` entry: a one-shot reminder bound to `session-1`,
- * delivered once as `messageId`.
+ * due at {@link DUE} and delivered once as `messageId`.
  * @param messageId - the delivered message; a new id is a new delivery of the task.
  * @param fields - entry fields to replace.
+ * @param deliveredAt - when the delivery was made; {@link DUE} unless given.
  * @returns the entry.
  */
-function reminder(messageId: string, fields: Record<string, unknown> = {}): Record<string, unknown> {
+function reminder(messageId: string, fields: Record<string, unknown> = {}, deliveredAt = DUE): Record<string, unknown> {
   return {
     id: 'schedule-1', kind: 'at', title: REMINDER, prompt: INSTRUCTION, scheduledAt: DUE,
-    sessionId: 'session-1', status: 'inactive', lastDelivery: { scheduledAt: DUE, deliveredAt: DUE, messageId },
+    sessionId: 'session-1', status: 'inactive', lastDelivery: { scheduledAt: DUE, deliveredAt, messageId },
     ...fields,
   }
 }
@@ -840,7 +841,7 @@ describe('the reminder message', () => {
   it('drops the finished-run message of the run the reminder woke, and of no later run', async () => {
     const socket = await seeded()
     sessionRunning(socket, true)
-    catalog = [reminder('message-1')]
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
     scheduleChanged(socket)
     // The woken run ends while the catalog read is still in flight.
     sessionRunning(socket, false)
@@ -856,7 +857,7 @@ describe('the reminder message', () => {
   it('announces the end of a later run when the woken run ended while the stream was closed', async () => {
     const socket = await seeded()
     sessionRunning(socket, true)
-    catalog = [reminder('message-1')]
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the reminder toast')
     // The woken run ends while the stream is closed; a later run then starts
@@ -874,7 +875,7 @@ describe('the reminder message', () => {
   it('drops the finished-run message of a woken run that ends after the stream reopened', async () => {
     const socket = await seeded()
     sessionRunning(socket, true)
-    catalog = [reminder('message-1')]
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the reminder toast')
     socket.emit('close', {})
@@ -890,7 +891,7 @@ describe('the reminder message', () => {
     // Due long ago and delivered a minute after this run started: the run
     // was going before the reminder could wake it.
     const delivered = new Date(Date.now() + 60_000).toISOString()
-    catalog = [reminder('message-1', { lastDelivery: { scheduledAt: DUE, deliveredAt: delivered, messageId: 'message-1' } })]
+    catalog = [reminder('message-1', {}, delivered)]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the reminder toast')
     sessionRunning(socket, false)
@@ -904,7 +905,7 @@ describe('the reminder message', () => {
     windows.push(focusedWindow)
     const socket = await seeded()
     sessionRunning(socket, true)
-    catalog = [reminder('message-1')]
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
     scheduleChanged(socket)
     scheduleChanged(socket)
     // The third read goes out once the first comparison has been decided.
@@ -990,7 +991,7 @@ describe('the reminder message', () => {
     // Delivered after the ready frame arrived and committed before the read
     // on ready was answered; its own `schedule/changed` follows.
     const delivered = new Date().toISOString()
-    catalog = [reminder('message-1', { lastDelivery: { scheduledAt: DUE, deliveredAt: delivered, messageId: 'message-1' } })]
+    catalog = [reminder('message-1', {}, delivered)]
     release('schedule/catalog')
     await until(() => catalogReads >= 1, 'the baseline read')
     scheduleChanged(socket)
@@ -1006,6 +1007,27 @@ describe('the reminder message', () => {
     catalog = [reminder('message-1', { scheduledAt: due, lastDelivery: { scheduledAt: due, deliveredAt: due, messageId: 'message-1' } })]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the reminder toast')
+    sessionRunning(socket, false)
+    await until(() => notifications.length === 2, 'the finished-run message')
+    expect(notifications.map(notification => notification.options.title)).toEqual(['提醒', '任务已完成'])
+    expect(wokenRunEnded()).toBe(false)
+  })
+
+  it('keeps the finished-run message of a run started long after a delivery that a failed read left to be announced later', async () => {
+    const socket = await seeded()
+    catalogFailures = 1
+    catalog = [reminder('message-1', {}, new Date(Date.now() - 3_600_000).toISOString())]
+    scheduleChanged(socket)
+    await until(() => lines.some(line => line.startsWith('[desktop] reminder deliveries could not be read:')), 'the failed read')
+    // An hour after that delivery the user starts a run of the same session,
+    // and an unrelated change to the task table announces the delivery late.
+    sessionRunning(socket, true)
+    catalog = [...catalog, {
+      id: 'schedule-2', kind: 'at', title: '交房租', prompt: INSTRUCTION, scheduledAt: new Date(Date.now() + 3_600_000).toISOString(),
+      sessionId: 'session-2', status: 'active',
+    }]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the late reminder toast')
     sessionRunning(socket, false)
     await until(() => notifications.length === 2, 'the finished-run message')
     expect(notifications.map(notification => notification.options.title)).toEqual(['提醒', '任务已完成'])
@@ -1060,7 +1082,7 @@ describe('the reminder message', () => {
     const delivered = new Date().toISOString()
     catalog = [
       reminder('message-1'),
-      reminder('message-2', { id: 'schedule-2', title: '交房租', lastDelivery: { scheduledAt: DUE, deliveredAt: delivered, messageId: 'message-2' } }),
+      reminder('message-2', { id: 'schedule-2', title: '交房租' }, delivered),
     ]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the reminder toast')
@@ -1084,11 +1106,21 @@ describe('the reminder message', () => {
     notificationFailures = 1
     catalog = [reminder('message-1')]
     scheduleChanged(socket)
-    await until(() => lines.includes('[desktop] reminder step failed: the toast was refused\n'), 'the failed message')
+    await until(() => lines.includes('[desktop] reminder message-1 could not be announced: the toast was refused\n'), 'the failed message')
     catalog = [reminder('message-2')]
     scheduleChanged(socket)
     await until(() => notifications.length === 1, 'the next delivery\'s toast')
     expect(bodies()).toEqual([`「${TITLE}」：${REMINDER}`])
+  })
+
+  it('announces the other messages of a read when one of them cannot be raised', async () => {
+    const socket = await seeded()
+    notificationFailures = 1
+    catalog = [reminder('message-1'), reminder('message-2', { id: 'schedule-2', title: '交房租' })]
+    scheduleChanged(socket)
+    await until(() => notifications.length === 1, 'the second message\'s toast')
+    expect(bodies()).toEqual([`「${TITLE}」：交房租`])
+    expect(lines).toContain('[desktop] reminder message-1 could not be announced: the toast was refused\n')
   })
 })
 
@@ -1200,7 +1232,7 @@ describe('the macOS Dock badge', () => {
   it('counts a reminder once, together with the run it woke', async () => {
     const socket = await seeded()
     sessionRunning(socket, true)
-    catalog = [reminder('message-1')]
+    catalog = [reminder('message-1', {}, new Date().toISOString())]
     scheduleChanged(socket)
     sessionRunning(socket, false)
     await until(wokenRunEnded, 'the dropped finished-run message')
