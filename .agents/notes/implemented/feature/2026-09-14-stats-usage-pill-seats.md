@@ -8,7 +8,7 @@ English | [中文](2026-09-14-stats-usage-pill-seats.zh.md)
 
 The fork's balance plugin knows what a session cost in money. The place a reader looks for that is the token reading already under the composer, and nothing there could hold it.
 
-`conversation.composer.dock` is a session-scoped list, and the dock stacks its entries in a column, so an occupant gets a row of its own under the stats pills rather than a place inside them. Each pill is its own dock entry, and the `usage` entry that draws the token-usage pill declares no children, so the only way into the pill or its dialog is to reuse the `usage` id and shadow that entry wholesale — replacing the shipped usage pill and its dialog to append two figures. No plugin can open a seat from outside either, because a slot key is a `SlotMap` declaration merge owned by the package that renders the location.
+`conversation.composer.dock` is a session-scoped list that renders its entries in one horizontal flex row (`.dock` in `ui-conversation`'s `InputBar.module.css`), so an occupant appears as a separate element beside the stats pills rather than inside them. Each pill is its own dock entry, and the `usage` entry that draws the token-usage pill declares no children, so the only way into the pill or its dialog is to reuse the `usage` id and shadow that entry wholesale — replacing the shipped usage pill and its dialog to append two figures. No plugin can open a seat from outside either, because a slot key is a `SlotMap` declaration merge owned by the package that renders the location.
 
 ## Decision
 
@@ -28,7 +28,7 @@ The seats carry presentation only. The plugin owns what money means: its price t
 
 **Shadow the `usage` dock entry and re-render the pill.** Rejected: the plugin would own the shipped usage pill and its dialog — every future upstream change to that pill would have to be re-implemented in the fork's plugin to stay visible.
 
-**Register a second `conversation.composer.dock` entry.** Rejected by the requirement: the dock is a column, so a cost reading lands on its own row under the token reading rather than beside it, and the composer's bottom clearance grows for a figure that belongs in the existing row.
+**Register a second `conversation.composer.dock` entry.** Rejected by the requirement: the dock lays its entries out side by side, so a cost reading becomes a separate element next to the pills rather than part of the token reading's label, and it cannot add a row to the usage pill's dialog.
 
 **Hand the seats the raw `TokenUsageProjection`.** Rejected: an occupant would re-derive the billed total and the cache-hit share, and the two readings in one pill could then disagree after any change to how the pill sums its buckets.
 
