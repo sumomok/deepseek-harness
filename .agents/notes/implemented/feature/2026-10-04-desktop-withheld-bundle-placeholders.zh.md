@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**载荷为每个扣下的组合包放一个占位包。**`apps/desktop-shell/src/profile-seed.ts` 的 `PLACEHOLDER_BUNDLES` 点名 auto-review 与 inspector-profile。`scripts/package.ts` 把它们和其余 `WITHHELD_PACKAGES` 一起从暂存树删掉，再写入 `server/node_modules/<包名>/package.json`，里面只有包名和版本 `0.0.0-withheld`（`scripts/staged-boot-gate.ts` 的 `placeholderManifest`）。这个清单没有 `dsh` 字段、入口或依赖。安装目录优先的解析于是每次都落到占位包上：`listBundles` 跳过没被选中、也没有 `dsh.bundle` 的包，`setBundleEnabled(name, true)` 以 `not-bundle` 失败，经 `plugin_manager` 工具或远程 API 的安装以同一个代码回滚，`dsh plugin add` 只把它装成普通依赖、不选中任何东西。profile 里的副本永远不会被解析到。
+**载荷为每个扣下的组合包放一个占位包。**`apps/desktop-shell/src/profile-seed.ts` 的 `PLACEHOLDER_BUNDLES` 点名 auto-review 与 inspector-profile。`scripts/package.ts` 把它们和其余 `WITHHELD_PACKAGES` 一起从暂存树删掉，再写入 `server/node_modules/<包名>/package.json`，里面只有包名和版本 `0.0.0-withheld`（`scripts/staged-boot-gate.ts` 的 `placeholderManifest`）。这个清单没有 `dsh` 字段、入口或依赖。安装目录优先的解析于是每次都落到占位包上：`listBundles` 跳过没被选中、也没有 `dsh.bundle` 的包，`setBundleEnabled(name, true)` 以 `not-bundle` 失败，经 `plugin_manager` 工具或远程 API 的安装以同一个代码回滚，从载荷自己的安装目录运行的 `dsh plugin add` 只把它装成普通依赖、不选中任何东西。profile 里的副本永远不会被解析到。别的安装目录里、与桌面共用 `DSH_HOME` 的 `dsh` CLI 会从它自己的安装目录解析到真包并选中它；下次桌面启动撤掉这个选中，桌面自始至终解析到的都是占位包。
 
 **只有检查器组合包依赖的两个插件直接扣下，不放占位包。**`@deepseek-ai/dsh-experimental-inspector` 与 `@deepseek-ai/dsh-experimental-session-inspector` 是插件包而不是组合包，它们的组合包扣下以后，闭包里没有别的东西会加载它们。
 
@@ -32,7 +32,7 @@ Status: implemented
 
 ## 后果
 
-上游的 Auto 和检查器在桌面上是装不上，而不是装上后保持关闭。把旧的那一行改成 `disabled: false` 已经打不开 Auto，界面上也没有任何提示。用户改过的 `auto-review` 行留在 profile 里，不指向任何条目，每次启动记一行日志。
+上游的 Auto 和检查器在桌面上是装不上，而不是装上后保持关闭。把旧的那一行改成 `disabled: false` 已经打不开 Auto，界面上也没有任何提示。在插件页的添加插件对话框里输入这两个包名中的任何一个，都会因为 `@deepseek-ai/dsh` 把两者列为依赖而以「已安装」被拒绝，而页面列表里两个都不显示；在这个构建之前，检查器组合包在那里可以被打开。用户改过的 `auto-review` 行留在 profile 里，不指向任何条目，每次启动记一行日志。
 
 占位包不豁免任何别的东西：暂存树任何位置出现真副本，`verifyStaging` 仍然失败。早先构建的用户装进 profile `node_modules` 的副本留在磁盘上，取消选中后插件页不再显示它，也永远不会被加载。
 
