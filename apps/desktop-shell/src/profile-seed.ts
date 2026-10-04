@@ -314,7 +314,17 @@ const PROFILES_DIR = 'profiles'
  * @returns the absolute profile directory.
  */
 export function profileDirectory(home: string, profile: string): string {
-  return join(home, PROFILES_DIR, profile)
+  return join(profilesDirectory(home), profile)
+}
+
+/**
+ * The directory holding every profile under a Harness home, and the shared
+ * flat fallback `node_modules` beside them.
+ * @param home - the Harness home, from {@link resolveHarnessHome}.
+ * @returns the absolute directory.
+ */
+export function profilesDirectory(home: string): string {
+  return join(home, PROFILES_DIR)
 }
 
 /** The user patch layer inside a profile directory (`PROFILE_PATCH_FILENAME` in dsh-app-boot). */

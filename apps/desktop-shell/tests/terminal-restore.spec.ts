@@ -1,13 +1,14 @@
 /**
  * Putting the terminal setting back after a rolled-back move: a shell profile
  * restored whole when nothing outside the block changed, only the block
- * otherwise, and deleted with its backup when it did not exist; the Windows
+ * otherwise, and deleted when it did not exist; a backup the move made
+ * deleted only with a profile restored whole or deleted; the Windows
  * variable written back with its registry type. Profiles live in a temporary
  * home; the Windows side is checked through a recording runner.
  * @module
  */
 
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,15 +42,37 @@ function snapshot(): Extract<TerminalSnapshot, { kind: 'profile' }> {
 }
 
 describe('restoring a shell profile', () => {
-  it('deletes a profile the move created, and the backup made beside it', () => {
+  it('deletes a profile the move created, of which no write made a backup', () => {
     const before = snapshot()
     updateShellProfile(zsh(), '/Volumes/Data/DSH-Data')
-    // A second write backs up the file the first one created.
     updateShellProfile(zsh(), '/Volumes/Data/DSH-Data2')
-    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(true)
+    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(false)
     expect(restoreShellProfile(before)).toMatchObject({ kind: 'delete-file', deleteBackup: true })
     expect(existsSync(profile())).toBe(false)
-    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(false)
+  })
+
+  it('keeps the backup of the file before the first move when a second move is rolled back', () => {
+    const original = 'alias a=b\n'
+    writeFileSync(profile(), original)
+    updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+    const before = snapshot()
+    expect(before.backupExisted).toBe(true)
+    updateShellProfile(zsh(), '/Users/me/DSH-Data')
+    expect(restoreShellProfile(before)).toMatchObject({ kind: 'write-whole', deleteBackup: false })
+    expect(readFileSync(profile(), 'utf8')).toContain("'/Volumes/Ext/DSH-Data'")
+    expect(readFileSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`, 'utf8')).toBe(original)
+  })
+
+  it('keeps the backup the move made when the profile is gone, since it may be the only copy left', () => {
+    const original = 'alias a=b\n'
+    writeFileSync(profile(), original)
+    const before = snapshot()
+    expect(before.backupExisted).toBe(false)
+    updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+    unlinkSync(profile())
+    expect(restoreShellProfile(before)).toEqual({ kind: 'nothing', why: 'the profile is gone', deleteBackup: false })
+    expect(existsSync(profile())).toBe(false)
+    expect(readFileSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`, 'utf8')).toBe(original)
   })
 
   it('keeps a profile the move created once someone else wrote into it, removing only the block', () => {
@@ -106,7 +129,7 @@ describe('restoring a shell profile', () => {
     expect(readFileSync(profile(), 'utf8')).toContain('/new')
     expect(restoreShellProfile(before)).toMatchObject({ kind: 'write-whole', deleteBackup: false })
     expect(readFileSync(profile(), 'utf8')).toBe(original)
-    expect(existsSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`)).toBe(true)
+    expect(readFileSync(`${profile()}${PROFILE_BACKUP_SUFFIX}`, 'utf8')).toBe('earlier backup')
   })
 
   it('puts only the old block back when the rest of the profile changed, keeping that change', () => {

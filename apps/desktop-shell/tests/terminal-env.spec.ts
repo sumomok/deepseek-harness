@@ -356,6 +356,53 @@ describe('updateShellProfile', () => {
     const read = execFileSync('/bin/bash', ['-c', `. '${join(home, '.bash_profile')}'; printf %s "$DSH_HOME"`], { env: shellEnv(), encoding: 'utf8' })
     expect(read).toBe(TRICKY)
   })
+
+  describe('the backup', () => {
+    const original = 'alias ll="ls -l"\nexport PATH=$HOME/bin:$PATH\n'
+    const file = (): string => join(home, '.zshrc')
+    const backup = (): string => `${file()}${PROFILE_BACKUP_SUFFIX}`
+
+    it('copies the file the first time the block is added', () => {
+      writeFileSync(file(), original)
+      expect(updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')).toEqual({ kind: 'written', file: file(), backup: backup() })
+      expect(readFileSync(backup(), 'utf8')).toBe(original)
+    })
+
+    it('keeps the first copy when a second move rewrites the block', () => {
+      writeFileSync(file(), original)
+      updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+      expect(updateShellProfile(zsh(), '/Users/me/DSH-Data')).toEqual({ kind: 'written', file: file() })
+      expect(readFileSync(backup(), 'utf8')).toBe(original)
+      expect(readFileSync(file(), 'utf8')).toBe(`${original}\n${BLOCK_START}\nexport DSH_HOME='/Users/me/DSH-Data'\n${BLOCK_END}\n`)
+    })
+
+    it('keeps the first copy when the person edited the file between two moves', () => {
+      writeFileSync(file(), original)
+      updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+      const edited = `export EDITOR=vim\n${readFileSync(file(), 'utf8')}alias gs='git status'\n`
+      writeFileSync(file(), edited)
+      expect(updateShellProfile(zsh(), '/Users/me/DSH-Data')).toEqual({ kind: 'written', file: file() })
+      expect(readFileSync(backup(), 'utf8')).toBe(original)
+      expect(readFileSync(file(), 'utf8')).toBe(edited.replace("'/Volumes/Ext/DSH-Data'", "'/Users/me/DSH-Data'"))
+    })
+
+    it('keeps the copy when a write removes the block', () => {
+      writeFileSync(file(), original)
+      updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+      expect(updateShellProfile(zsh(), undefined)).toEqual({ kind: 'written', file: file() })
+      expect(readFileSync(file(), 'utf8')).toBe(original)
+      expect(readFileSync(backup(), 'utf8')).toBe(original)
+    })
+
+    it('copies the file again once the person removed the block by hand', () => {
+      writeFileSync(file(), original)
+      updateShellProfile(zsh(), '/Volumes/Ext/DSH-Data')
+      const later = `${original}export EDITOR=vim\n`
+      writeFileSync(file(), later)
+      expect(updateShellProfile(zsh(), '/Users/me/DSH-Data')).toEqual({ kind: 'written', file: file(), backup: backup() })
+      expect(readFileSync(backup(), 'utf8')).toBe(later)
+    })
+  })
 })
 
 describe('Windows user environment', () => {

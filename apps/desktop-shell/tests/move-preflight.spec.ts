@@ -15,6 +15,7 @@ import {
   resolveMoveTarget, SPACE_RESERVE_BYTES, tempRoots, windowsFileSystem, WINDOWS_PATH_BUDGET,
   type PreflightFacts, type PreflightProbes, type PreflightRequest, type TargetState,
 } from '../src/move/preflight.ts'
+import { scanTree } from '../src/move/tree.ts'
 import { buildFixture, scratchDir, type Fixture } from './move-fixture.ts'
 
 let fixture: Fixture | undefined
@@ -431,6 +432,8 @@ describe('gatherPreflightFacts', () => {
     expect(gathered.target).toEqual({ target: join(fixture.targetParent, DATA_DIR_NAME), parent: fixture.targetParent, preexisting: false })
     expect(gathered.sameVolume).toBe(true)
     expect(gathered.scan.bytes).toBeGreaterThan(1000)
+    // The size the person confirms counts the session projection cache, which the move copies.
+    expect(gathered.scan.bytes).toBe((await scanTree(fixture.home, { exclude: ['cache', 'session-search'] })).bytes)
     expect(evaluatePreflight(gathered).ok).toBe(true)
   })
 

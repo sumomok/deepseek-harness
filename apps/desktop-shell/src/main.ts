@@ -78,6 +78,7 @@ import {
 import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
+import { pinProfileStores } from './profile-store.ts'
 import { acknowledgeSettingsMigrationNotices, migrateLegacySettings, type SettingsMigrationReport } from './settings-migration.ts'
 import { migrateModelCatalog } from './model-catalog-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
@@ -1423,8 +1424,8 @@ if (!locked) {
       // the host is an earlier launch's, so none of them can be this one's.
       await clearStaleAuthCookies(session.defaultSession.cookies, sink)
       // Everything from the seeding to the server's URL line reads or writes the data location settled above, so for a move
-      // that switched to it, a rejection here is the new location failing. The seeding and the settings and model catalog
-      // migrations never reject: they log their own failures and go on.
+      // that switched to it, a rejection here is the new location failing. The seeding, the store pins, and the settings
+      // and model catalog migrations never reject: they log their own failures and go on.
       const startOnHome = async (): Promise<StartedOnHome> => {
         // Before the server reads the profile, not after: `initProfile` writes a
         // profile once and never revisits it, so a name added later would not
@@ -1436,6 +1437,9 @@ if (!locked) {
         if (seeded !== undefined) sink(seeded)
         // After the seeding, which creates a fresh installation's data directory.
         markSettledHome(settled, sink)
+        // Before the server, whose plugin manager runs pnpm in these profiles.
+        const storePins = pinProfileStores({ home: resolveHarnessHome(), platform: process.platform })
+        for (const line of [...storePins.changed, ...storePins.skipped]) sink(`[desktop] pnpm store: ${line}\n`)
         // After the seeding, whose permission-row retirement the gateway step
         // waits for (the migration reads its record in web-migration.json, so a
         // seeding that stopped before recording it defers that step), and before

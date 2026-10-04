@@ -26,13 +26,16 @@ afterEach(async () => {
 })
 
 describe('scanTree', () => {
-  it('leaves out the rebuildable entries and everything below them', async () => {
+  it('leaves out the rebuildable entries and everything below them, and keeps the session projection cache', async () => {
     fixture = await buildFixture({ bigBytes: 1000 })
     const scan = await scanTree(fixture.home, { exclude: REBUILDABLE_ENTRIES })
     const rels = scan.entries.map(entry => entry.rel)
-    expect(scan.excluded.sort()).toEqual([...REBUILDABLE_ENTRIES].sort())
-    expect(rels.some(rel => rel.startsWith('cache') || rel.startsWith('session-search') || rel.includes('session_projcache'))).toBe(false)
+    expect(scan.excluded.sort()).toEqual(['cache', 'session-search'])
+    expect(rels.some(rel => rel.startsWith('cache') || rel.startsWith('session-search'))).toBe(false)
     expect(rels).toContain('storages/workspace.json')
+    expect(rels).toEqual(expect.arrayContaining([
+      'storages/session_projcache', 'storages/session_projcache/a.json', 'storages/session_projcache.json',
+    ]))
   })
 
   it('records links with their text and never walks into them', async () => {

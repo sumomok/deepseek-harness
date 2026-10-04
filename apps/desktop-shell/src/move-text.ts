@@ -328,17 +328,27 @@ function durationEn(seconds: number): string {
   return `${String(Math.round(seconds / 60))} minutes`
 }
 
+const KB = 1024
+const MB = KB * 1024
+const GB = MB * 1024
+
 /**
- * A byte count as the progress line shows it: decimal units, one decimal
- * from gigabytes up.
+ * A byte count as the progress line shows it, by the rule of the size the
+ * Settings page's data section asks the person to confirm
+ * (`formatSize` in `@haoran/dsh-data-location`), since both count the same
+ * data, the page from the preflight's scan and the progress line from the
+ * copier's own scan of it: multiples of 1024 under the symbols `KB`, `MB`,
+ * and `GB`, one decimal from gigabytes up, whole megabytes below that, and
+ * whole kilobytes, at least 1, below a megabyte. Zero reads `0 KB`, where
+ * that page's rule gives `1 KB`; the progress line starts at zero.
  * @param bytes - the count.
- * @returns e.g. `820 MB` or `1.2 GB`.
+ * @returns e.g. `533 MB` or `1.2 GB`.
  */
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
-  if (bytes >= 1e6) return `${String(Math.round(bytes / 1e6))} MB`
-  if (bytes >= 1e3) return `${String(Math.round(bytes / 1e3))} KB`
-  return `${String(bytes)} B`
+  if (bytes >= GB) return `${(bytes / GB).toFixed(1)} GB`
+  if (bytes >= MB) return `${String(Math.round(bytes / MB))} MB`
+  if (bytes === 0) return '0 KB'
+  return `${String(Math.max(1, Math.round(bytes / KB)))} KB`
 }
 
 /**

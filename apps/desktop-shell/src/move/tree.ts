@@ -26,15 +26,21 @@ import { join } from 'node:path'
 import { foldPath, pathApi } from '../path-text.ts'
 
 /**
- * Entries under the Harness home that the server rebuilds by itself, so a move
- * leaves them behind (design doc 1.2): the attachment request cache, the
- * session search index, and the session projection cache.
+ * Entries under the Harness home that the server rebuilds by itself when it
+ * first needs them, so a move leaves them behind: the attachment request
+ * cache (request images made again from the stored attachments on a miss)
+ * and the session search index (built again on the first search).
+ *
+ * The session projection cache (`storages/session_projcache`, and the older
+ * single-file `storages/session_projcache.json`) is not one of them and moves
+ * with the data: the conversation list reads each conversation's title from
+ * it alone, and the server writes a conversation's record again only once
+ * that conversation is opened, so a home without it lists every conversation
+ * not opened since as untitled.
  */
 export const REBUILDABLE_ENTRIES: readonly string[] = [
   'cache',
   'session-search',
-  'storages/session_projcache',
-  'storages/session_projcache.json',
 ]
 
 export { MOVE_STATE_FILENAME } from '../data-location.ts'
