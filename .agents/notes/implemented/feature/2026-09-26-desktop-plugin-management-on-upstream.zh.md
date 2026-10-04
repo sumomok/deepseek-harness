@@ -20,7 +20,7 @@ Status: implemented
 
 **`web-migration.json` 里的 `defective` 与 `removed` 两张名单照旧写入，只有启动日志显示它们。**每条记录名字的路径都往 `dsh-server.log` 写一行，内容是 `disabled migrated <name>: …`、`removed <name>: …` 或 `disabled migrated <name> after it failed to load`。没有任何界面列出这两张名单。从标记文件里删掉某个名字的条目，下一次启动就会再次接纳它，`tests/profile-seed.spec.ts` 覆盖了这一点。
 
-**每次启动都在 profile 层让上游的 auto-review 保持关闭。**`src/profile-seed.ts` 的 `seedAutoReviewGuard` 在 `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 里保留 `- id: auto-review` / `disabled: true`，上方有一段注释写明用途。profile 层在所有 bundle 层之后生效，包括插件页后来加进的 bundle，所以装上的 auto-review 组合出来是关的。这一行的认法与 `SEEDED_PERMISSION_ROWS` 相同。恰好就是这一行的条目不动。其他任何声明这个 id 的条目也不动，并记一行日志；例如插件页的启用会在这一行写上 `disabled: false`。否则这一行替换模板或被清空的层里的 `[]`，或者接在最后一个块条目之后。写成非空流式序列的层只记日志、不动。web profile 同步把带着这一行的模板视为未编辑，所以它对 web 补丁层的一次性复制照样发生。
+**到 0.1.0-rc.37 为止，每次启动都在 profile 层让上游的 auto-review 保持关闭；[占位包 note](2026-10-04-desktop-withheld-bundle-placeholders.zh.md)取代了这一行。**`src/profile-seed.ts` 的 `seedAutoReviewGuard` 曾在 `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 里保留 `- id: auto-review` / `disabled: true`，上方有一段注释写明用途。profile 层在所有 bundle 层之后生效，包括插件页后来加进的 bundle，所以装上的 auto-review 组合出来是关的。这一行的认法与 `SEEDED_PERMISSION_ROWS` 相同。恰好就是这一行的条目不动。其他任何声明这个 id 的条目也不动，并记一行日志；例如插件页的启用会在这一行写上 `disabled: false`。否则这一行替换模板或被清空的层里的 `[]`，或者接在最后一个块条目之后。写成非空流式序列的层只记日志、不动。web profile 同步把带着这一行的模板视为未编辑，所以它对 web 补丁层的一次性复制照样发生。
 
 **网关把每次 `plugin_manager` 调用都交给人。**桌面层的 `llm-permission-gateway` 行设了 `alwaysAsk`，里面有 `plugin_manager` 和一句说明这次调用能改动什么的话。这个字段整体替换网关的默认表，所以这一行逐字重述 0.5.0 `DEFAULT_ALWAYS_ASK` 里的 `browser_auth`。在「自动审查」与两个有围墙的档位下，网关在任何审查模型看到调用之前先问人。在「完全权限」下网关让开，工具自己的规则让 `danger-full-access` 会话不经询问就能调用它。
 
@@ -40,7 +40,7 @@ Status: implemented
 
 **整体关掉 `preset-cordis`。**一条按 id 的 `disabled: true` 行就够得到它，`plugin_manager` 也随之消失。不采纳：它把 cordis 预设也一起拿掉了，而这个预设在桌面上要保持可用。
 
-**让网关在上游 Auto 挂载时自己让路（Q-G5）。**没有采用：profile 层里播种的 `auto-review` 关闭行从组合层面做了这件事，所以网关里没有这样的检查。把两个审查者隔开的只有这一行。有人把它改成 `disabled: false`（插件页的启用写的正是这个）后，Auto 就挂在网关旁边，之后每次调用都被审两遍，没有任何提示。
+**让网关在上游 Auto 挂载时自己让路（Q-G5）。**没有采用：profile 层里播种的 `auto-review` 关闭行从组合层面做了这件事，所以网关里没有这样的检查。到 0.1.0-rc.37 为止，把两个审查者隔开的只有这一行；从 0.1.0-rc.38 起，载荷里的占位包让 Auto 根本加载不了（[占位包 note](2026-10-04-desktop-withheld-bundle-placeholders.zh.md)）。有人把它改成 `disabled: false`（插件页的启用写的正是这个）后，Auto 就挂在网关旁边，之后每次调用都被审两遍，没有任何提示。
 
 ## 后果
 
@@ -48,7 +48,7 @@ Status: implemented
 
 被停用或打了墓碑的迁移插件，只在 `dsh-server.log` 里看得到。
 
-在没装 auto-review 的 profile 上，`--dump-config` 往 stderr 写一行 `patch: entry "auto-review" not found`，`web` 不为它写任何东西。在 `mkdtemp` 出来的 home 上实测，这两处都不含 `LOAD_FAILURE_MARKERS` 的任何片段，也不匹配 `quarantineLoadFailureFromOutput`。
+到 0.1.0-rc.37 为止，在没装 auto-review 的 profile 上，`--dump-config` 往 stderr 写一行 `patch: entry "auto-review" not found`，`web` 不为它写任何东西。在 `mkdtemp` 出来的 home 上实测，这两处都不含 `LOAD_FAILURE_MARKERS` 的任何片段，也不匹配 `quarantineLoadFailureFromOutput`。
 
 `alwaysAsk` 只在网关组合出来的 `config` 带着本层这张表时才到得了一台机器。网关在设置页、`/review` 或一次性 `settings.yaml` 导入里保存时，会把整行组合后的 config 写进 profile 层，所以在本构建上保存的会保留 `plugin_manager`。`settings-migration.ts` 把同一张表补给它从留下来的 `insert` 改写出来的那条按 id 的行，以及 `config` 里没有 `alwaysAsk` 的任何按 id 的网关行。profile 层里 `config` 自带 `alwaysAsk` 的行会替换这张表。
 
@@ -58,4 +58,4 @@ Windows 启动脚本还没有在真实安装上跑过。Execa 10 以 `cmd.exe /d
 
 ## 相关
 
-[0.1.7-rc.2 基座上的桌面载荷](../process/2026-09-26-desktop-payload-on-the-rc2-base.zh.md)拥有被扣下的 auto-review 包与启动闸；[web profile 迁移](2026-08-25-desktop-web-profile-migration.zh.md)拥有 `defective` 与 `removed` 两张名单；[撤回播种的权限行](../bug-fix/2026-09-17-retire-seeded-permission-patch-rows.zh.md)拥有这道守卫复用的行识别器。
+[0.1.7-rc.2 基座上的桌面载荷](../process/2026-09-26-desktop-payload-on-the-rc2-base.zh.md)拥有扣包与启动闸；[占位包 note](2026-10-04-desktop-withheld-bundle-placeholders.zh.md)拥有顶替 auto-review 与检查器组合包的占位包，并取代 auto-review 守护行；[web profile 迁移](2026-08-25-desktop-web-profile-migration.zh.md)拥有 `defective` 与 `removed` 两张名单；[撤回播种的权限行](../bug-fix/2026-09-17-retire-seeded-permission-patch-rows.zh.md)拥有这道守卫复用的行识别器。

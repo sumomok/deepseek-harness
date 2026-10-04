@@ -10,9 +10,11 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, SINGLE_COPY_PACKAGES, singleCopyProblems,
-  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES,
+  findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
+  placeholderManifest, placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
+  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES, writePlaceholders,
 } from '../scripts/staged-boot-gate.ts'
+import { PLACEHOLDER_BUNDLES } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 
 describe('loadFailureLines', () => {
@@ -119,8 +121,60 @@ describe('findWithheldDirectories', () => {
     return root
   }
 
-  it('withholds the upstream auto-review bundle', () => {
-    expect(WITHHELD_PACKAGES).toContain('@deepseek-ai/dsh-experimental-auto-review')
+  it('withholds upstream\'s auto-review and inspector bundles and the two plugins only the inspector bundle depends on', () => {
+    expect(WITHHELD_PACKAGES).toEqual([
+      '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+      '@deepseek-ai/dsh-experimental-inspector', '@deepseek-ai/dsh-experimental-session-inspector',
+    ])
+    expect(PLACEHOLDER_BUNDLES).toEqual(['@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile'])
+  })
+
+  const PLACEHELD = 'node_modules/@deepseek-ai/dsh-experimental-auto-review'
+
+  it('passes over the exact top-level placeholder of a placeholder bundle', async () => {
+    const root = tree(['node_modules/@deepseek-ai/dsh-base'])
+    await writePlaceholders(root, PLACEHOLDER_BUNDLES)
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([])
+  })
+
+  it('finds the placeholder when no placeholders are named', async () => {
+    const root = tree([])
+    await writePlaceholders(root, PLACEHOLDER_BUNDLES)
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([
+      PLACEHELD, 'node_modules/@deepseek-ai/dsh-experimental-inspector-profile',
+    ])
+  })
+
+  it('finds a placeholder-identical copy nested under another package', async () => {
+    const nested = `node_modules/@deepseek-ai/dsh/${PLACEHELD}`
+    const root = tree([nested])
+    writeFileSync(join(root, nested, 'package.json'), placeholderManifest('@deepseek-ai/dsh-experimental-auto-review'))
+    await writePlaceholders(root, PLACEHOLDER_BUNDLES)
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([nested])
+  })
+
+  it('finds a top-level placeholder that holds another file beside its manifest', async () => {
+    const root = tree([])
+    await writePlaceholders(root, PLACEHOLDER_BUNDLES)
+    writeFileSync(join(root, PLACEHELD, 'index.js'), '')
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([PLACEHELD])
+  })
+
+  it('finds a top-level placeholder whose manifest differs by one byte, or that holds the real package', async () => {
+    const root = tree([`${PLACEHELD}/lib`])
+    writeFileSync(join(root, 'node_modules/@deepseek-ai/dsh-experimental-auto-review/package.json'), placeholderManifest('@deepseek-ai/dsh-experimental-auto-review'))
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([PLACEHELD])
+    rmSync(join(root, PLACEHELD, 'lib'), { recursive: true })
+    writeFileSync(join(root, PLACEHELD, 'package.json'), `${placeholderManifest('@deepseek-ai/dsh-experimental-auto-review')} `)
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([PLACEHELD])
+  })
+
+  it('finds the plugins withheld without a placeholder at the top level too', async () => {
+    const root = tree(['node_modules/@deepseek-ai/dsh-experimental-inspector', 'node_modules/@deepseek-ai/dsh-experimental-session-inspector'])
+    writeFileSync(join(root, 'node_modules/@deepseek-ai/dsh-experimental-inspector/package.json'), placeholderManifest('@deepseek-ai/dsh-experimental-inspector'))
+    expect(await findWithheldDirectories(root, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)).toEqual([
+      'node_modules/@deepseek-ai/dsh-experimental-inspector', 'node_modules/@deepseek-ai/dsh-experimental-session-inspector',
+    ])
   })
 
   it('finds nothing in a tree without the package', async () => {
@@ -146,6 +200,90 @@ describe('findWithheldDirectories', () => {
   it('ignores a file of that name', async () => {
     const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+})
+
+describe('placeholderManifest', () => {
+  it('names the package and a version and declares nothing else', () => {
+    const text = placeholderManifest('@deepseek-ai/dsh-experimental-auto-review')
+    expect(JSON.parse(text)).toEqual({ name: '@deepseek-ai/dsh-experimental-auto-review', version: '0.0.0-withheld' })
+    expect(text.endsWith('}\n')).toBe(true)
+  })
+})
+
+describe('placeholderProblems', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /** An empty staged tree. */
+  function root(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'staged-placeholder-'))
+    roots.push(dir)
+    return dir
+  }
+
+  it('accepts the placeholders writePlaceholders wrote', async () => {
+    const dir = root()
+    await writePlaceholders(dir, PLACEHOLDER_BUNDLES)
+    expect(await placeholderProblems(dir, PLACEHOLDER_BUNDLES)).toEqual([])
+  })
+
+  it('names a missing placeholder', async () => {
+    const dir = root()
+    await writePlaceholders(dir, PLACEHOLDER_BUNDLES.slice(1))
+    expect(await placeholderProblems(dir, PLACEHOLDER_BUNDLES)).toEqual([
+      '@deepseek-ai/dsh-experimental-auto-review: no placeholder at node_modules/@deepseek-ai/dsh-experimental-auto-review',
+    ])
+  })
+
+  it('names a placeholder with other bytes or another file beside it', async () => {
+    const dir = root()
+    await writePlaceholders(dir, PLACEHOLDER_BUNDLES)
+    writeFileSync(join(dir, 'node_modules/@deepseek-ai/dsh-experimental-auto-review/package.json'), '{"name":"@deepseek-ai/dsh-experimental-auto-review","version":"0.2.1-alpha.1"}\n')
+    writeFileSync(join(dir, 'node_modules/@deepseek-ai/dsh-experimental-inspector-profile/cordis.patch.yml'), '')
+    expect(await placeholderProblems(dir, PLACEHOLDER_BUNDLES)).toEqual([
+      '@deepseek-ai/dsh-experimental-auto-review: node_modules/@deepseek-ai/dsh-experimental-auto-review is not the placeholder this build writes',
+      '@deepseek-ai/dsh-experimental-inspector-profile: node_modules/@deepseek-ai/dsh-experimental-inspector-profile is not the placeholder this build writes',
+    ])
+  })
+})
+
+describe('placeholderBundleProblems', () => {
+  const refused = { stage: 'enable', target: 'x', enabled: true, changed: false, application: 'failed', error: { code: 'not-bundle' } }
+  const enabled = PLACEHOLDER_BUNDLES.map(name => ({ name, result: { ...refused, target: name } }))
+
+  it('accepts a list without the withheld packages and a not-bundle refusal for each placeholder', () => {
+    expect(placeholderBundleProblems([{ name: '@deepseek-ai/dsh-base' }, { name: '@haoran/dsh-btw' }], enabled)).toEqual([])
+  })
+
+  it('names a listed withheld package', () => {
+    expect(placeholderBundleProblems([{ name: '@deepseek-ai/dsh-base' }, { name: '@deepseek-ai/dsh-experimental-inspector-profile' }], enabled))
+      .toEqual(['listBundles lists the withheld @deepseek-ai/dsh-experimental-inspector-profile'])
+  })
+
+  it('refuses an empty or malformed list, which would prove nothing', () => {
+    expect(placeholderBundleProblems([], enabled)).toEqual(['listBundles returned no bundles: []'])
+    expect(placeholderBundleProblems(undefined, enabled)).toEqual(['listBundles returned no bundles: undefined'])
+  })
+
+  it('names an enable that was not refused as not-bundle, or that changed a file', () => {
+    const resolveFailure = { ...refused, error: { code: 'operation-error', diagnostic: 'dsh: cannot resolve profile bundle' } }
+    const changed = { ...refused, changed: true }
+    const [autoReview, inspector] = PLACEHOLDER_BUNDLES as [string, string]
+    expect(placeholderBundleProblems([{ name: '@deepseek-ai/dsh-base' }], [
+      { name: autoReview, result: resolveFailure }, { name: inspector, result: changed },
+    ])).toEqual([
+      `setBundleEnabled(${autoReview}, true) was not refused as not-bundle without a change: ${JSON.stringify(resolveFailure)}`,
+      `setBundleEnabled(${inspector}, true) was not refused as not-bundle without a change: ${JSON.stringify(changed)}`,
+    ])
+  })
+})
+
+describe('RETIRED_GUARD_WARNING', () => {
+  it('is the warning the loader prints for an auto-review row no layer inserts', () => {
+    expect(RETIRED_GUARD_WARNING).toBe('patch: entry "auto-review" not found')
   })
 })
 
@@ -231,8 +369,17 @@ describe('verifyStaging in package.ts', () => {
   it('throws when the staged server carries a withheld package directory', () => {
     expect(start).toBeGreaterThan(-1)
     expect(body).toContain([
-      'const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES)',
+      'const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)',
       '  if (withheld.length > 0) {',
+      '    throw new Error(',
+    ].join('\n'))
+  })
+
+  it('throws when the staged server does not carry the exact placeholder of each placeholder bundle', () => {
+    expect(start).toBeGreaterThan(-1)
+    expect(body).toContain([
+      'const placeholders = await placeholderProblems(SERVER_STAGING, PLACEHOLDER_BUNDLES)',
+      '  if (placeholders.length > 0) {',
       '    throw new Error(',
     ].join('\n'))
   })
@@ -242,6 +389,26 @@ describe('verifyStaging in package.ts', () => {
     expect(body).toContain([
       'const duplicated = await singleCopyProblems(SERVER_STAGING, SINGLE_COPY_PACKAGES)',
       '  if (duplicated.length > 0) {',
+      '    throw new Error(',
+    ].join('\n'))
+  })
+})
+
+describe('verifyStagedBoot in package.ts', () => {
+  const source = readFileSync(new URL('../scripts/package.ts', import.meta.url), 'utf8')
+  const start = source.indexOf('async function verifyStagedBoot(')
+  const body = source.slice(start, source.indexOf('\n}\n', start))
+
+  it('asks the booted server\'s plugin manager about the withheld bundles before stopping it', () => {
+    expect(start).toBeGreaterThan(-1)
+    expect(body).toContain('    await verifyPlaceholderBundles(base, cookie)\n')
+    expect(body.indexOf('await verifyPlaceholderBundles(base, cookie)')).toBeLessThan(body.indexOf("child.kill('SIGTERM')"))
+  })
+
+  it('throws when the boot output or the dump\'s stderr reports the retired auto-review row', () => {
+    expect(body).toContain([
+      "const guardWarnings = [...collected.split('\\n'), ...dump.stderr.split('\\n')].filter(line => line.includes(RETIRED_GUARD_WARNING))",
+      '  if (guardWarnings.length > 0) {',
       '    throw new Error(',
     ].join('\n'))
   })

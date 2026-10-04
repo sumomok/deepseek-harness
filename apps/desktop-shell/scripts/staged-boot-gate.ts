@@ -10,16 +10,18 @@
  * entry that fails to start is reported in a warning while its siblings keep
  * running. These functions turn those lines, and the composed tree
  * `--dump-config` prints, into build failures. The tree checks find packages
- * the payload withholds wherever a hoisting change put them, and count the
- * copies of packages the payload must carry exactly once.
+ * the payload withholds wherever a hoisting change put them, write and check
+ * the placeholders that stand in for some of them, and count the copies of
+ * packages the payload must carry exactly once.
  * @module
  */
 
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import yaml from 'js-yaml'
 import { holdLoopbackPort } from '../src/listen-socket.ts'
+import { AUTO_REVIEW_ID, PLACEHOLDER_BUNDLES } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV, startServer, type ServerSpec } from '../src/server.ts'
 
 /**
@@ -33,14 +35,130 @@ export const LOAD_FAILURE_MARKERS = ['skipping profile bundle', 'disabling profi
 
 /**
  * Packages the desktop payload leaves out although the server closure brings
- * them in. `@deepseek-ai/dsh-experimental-auto-review` is a runtime dependency
- * of `@deepseek-ai/dsh` so that upstream's plugin page can offer it; its review
- * runs beside this deployment's own permission gateway rather than in place of
- * it. The desktop profile names it in one row only, the one the shell seeds to
- * keep it off should the plugin page install it (`seedAutoReviewGuard` in
- * `src/profile-seed.ts`).
+ * them in. The two bundles of [[PLACEHOLDER_BUNDLES]] are runtime dependencies
+ * of `@deepseek-ai/dsh` so that upstream's Plugins page can offer them, and the
+ * payload carries a placeholder in their place ([[placeholderManifest]]).
+ * `@deepseek-ai/dsh-experimental-inspector` and
+ * `@deepseek-ai/dsh-experimental-session-inspector` are the two plugins
+ * `@deepseek-ai/dsh-experimental-inspector-profile` depends on, and nothing
+ * else in the closure does; with that bundle withheld nothing can load them,
+ * so they get no placeholder.
  */
-export const WITHHELD_PACKAGES = ['@deepseek-ai/dsh-experimental-auto-review'] as const
+export const WITHHELD_PACKAGES: readonly string[] = [
+  ...PLACEHOLDER_BUNDLES,
+  '@deepseek-ai/dsh-experimental-inspector', '@deepseek-ai/dsh-experimental-session-inspector',
+]
+
+/**
+ * The `package.json` text of the placeholder the payload carries for one of
+ * [[PLACEHOLDER_BUNDLES]]: the package's name and a fixed version, nothing
+ * else. Without a `dsh` field it declares no bundle, so the plugin manager
+ * refuses to list or enable it, and the Loader skips it with one stderr line
+ * should a profile still select it. Without `main`, `exports`, or dependencies
+ * it gives the bundling and closure checks nothing to follow. The text depends
+ * on the name alone, so a `--skip-deploy` run checks a reused staging against
+ * the same bytes the deploy run wrote.
+ * @param name - the bundle package name.
+ * @returns the manifest text, ending in one newline.
+ */
+export function placeholderManifest(name: string): string {
+  return `${JSON.stringify({ name, version: '0.0.0-withheld' }, undefined, 2)}\n`
+}
+
+/**
+ * Write the placeholder of each bundle into a staged tree's top-level
+ * `node_modules`, where the Loader resolves installation bundles from.
+ * @param root - the staged server tree.
+ * @param names - the bundle package names.
+ */
+export async function writePlaceholders(root: string, names: readonly string[]): Promise<void> {
+  for (const name of names) {
+    const dir = join(root, 'node_modules', name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'package.json'), placeholderManifest(name))
+  }
+}
+
+/**
+ * Whether one directory is the placeholder of a bundle exactly: at
+ * `node_modules/<name>` directly under the tree root, holding nothing but a
+ * `package.json` whose bytes are [[placeholderManifest]]'s.
+ * @param root - the staged tree.
+ * @param path - the directory, relative to `root` with `/` separators.
+ * @param names - the bundles that have a placeholder.
+ * @returns true only for an exact placeholder.
+ */
+async function isPlaceholder(root: string, path: string, names: readonly string[]): Promise<boolean> {
+  const name = names.find(candidate => path === `node_modules/${candidate}`)
+  if (name === undefined) return false
+  const dir = join(root, path)
+  const entries = await readdir(dir)
+  if (entries.length !== 1 || entries[0] !== 'package.json') return false
+  return await readFile(join(dir, 'package.json'), 'utf8') === placeholderManifest(name)
+}
+
+/**
+ * The bundles of `names` whose placeholder a staged tree does not carry
+ * exactly ([[isPlaceholder]]).
+ * @param root - the staged tree.
+ * @param names - the bundles that must have a placeholder.
+ * @returns one line per bundle whose placeholder is missing, holds other files, or has other bytes; empty when all are exact.
+ */
+export async function placeholderProblems(root: string, names: readonly string[]): Promise<string[]> {
+  const problems: string[] = []
+  for (const name of names) {
+    const path = `node_modules/${name}`
+    if (!existsSync(join(root, path, 'package.json'))) problems.push(`${name}: no placeholder at ${path}`)
+    else if (!await isPlaceholder(root, path, names)) problems.push(`${name}: ${path} is not the placeholder this build writes`)
+  }
+  return problems
+}
+
+/**
+ * The row of the `auto-review` guard earlier builds wrote into the desktop
+ * profile's own patch layer, as the loader reports it when no layer inserts
+ * that entry: `patch: entry "auto-review" not found`.
+ */
+export const RETIRED_GUARD_WARNING = `patch: entry "${AUTO_REVIEW_ID}" not found`
+
+/** One `BundleInfo` of `pluginManager/listBundles`, as far as [[placeholderBundleProblems]] reads it. */
+interface ListedBundle {
+  name?: unknown
+}
+
+/** One `ChangeResult` of `pluginManager/setBundleEnabled`, as far as [[placeholderBundleProblems]] reads it. */
+interface BundleChange {
+  changed?: unknown
+  error?: { code?: unknown }
+}
+
+/**
+ * Check what a booted staged server's plugin manager said about the withheld
+ * bundles: `listBundles` lists bundles and none of [[WITHHELD_PACKAGES]], and
+ * `setBundleEnabled(<name>, true)` for each placeholder bundle is refused as
+ * `not-bundle` without changing a file.
+ * @param listed - the value `pluginManager/listBundles` returned.
+ * @param enabled - each placeholder bundle's name and the value `pluginManager/setBundleEnabled` returned for it.
+ * @returns one line per finding; empty when the manager treats every placeholder as no bundle.
+ */
+export function placeholderBundleProblems(listed: unknown, enabled: readonly { name: string; result: unknown }[]): string[] {
+  const problems: string[] = []
+  if (!Array.isArray(listed) || listed.length === 0) {
+    problems.push(`listBundles returned no bundles: ${JSON.stringify(listed)}`)
+  } else {
+    for (const row of listed) {
+      const name = typeof row === 'object' && row !== null ? (row as ListedBundle).name : undefined
+      if (typeof name === 'string' && WITHHELD_PACKAGES.includes(name)) problems.push(`listBundles lists the withheld ${name}`)
+    }
+  }
+  for (const { name, result } of enabled) {
+    const change = (typeof result === 'object' && result !== null ? result : {}) as BundleChange
+    if (change.error?.code !== 'not-bundle' || change.changed !== false) {
+      problems.push(`setBundleEnabled(${name}, true) was not refused as not-bundle without a change: ${JSON.stringify(result)}`)
+    }
+  }
+  return problems
+}
 
 /** The row the desktop composition layer opens full-text search on, and the value it sets. */
 const DESKTOP_LAYER_PROBE = { id: 'session-query-sqlite', openAt: 'first-search' } as const
@@ -180,19 +298,26 @@ export async function missingProductionDependencies(
  * A directory counts when its name is the package's unscoped name, wherever it
  * sits: a hoisting change can nest a copy under another package's own
  * `node_modules`, where a removal addressed at the top-level path misses it.
- * Files of that name do not count, and symbolic links are not followed.
+ * Files of that name do not count, and symbolic links are not followed. The
+ * one directory that does not count is an exact placeholder of a package
+ * `placeholders` names ([[isPlaceholder]]); a copy anywhere else, or one
+ * holding anything but the placeholder's own bytes, still does.
  * @param root - the staged tree to search.
  * @param names - the package names to look for, scoped or not.
+ * @param placeholders - the scoped names whose top-level placeholder is not a withheld copy.
  * @returns each matching directory relative to `root`, with `/` separators, sorted.
  */
-export async function findWithheldDirectories(root: string, names: readonly string[]): Promise<string[]> {
+export async function findWithheldDirectories(
+  root: string, names: readonly string[], placeholders: readonly string[] = [],
+): Promise<string[]> {
   const wanted = new Set(names.map(name => name.slice(name.lastIndexOf('/') + 1)))
   const found: string[] = []
   const walk = async (dir: string): Promise<void> => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
       const path = join(dir, entry.name)
-      if (wanted.has(entry.name)) found.push(relative(root, path).split(sep).join('/'))
+      const relativePath = relative(root, path).split(sep).join('/')
+      if (wanted.has(entry.name) && !await isPlaceholder(root, relativePath, placeholders)) found.push(relativePath)
       await walk(path)
     }
   }

@@ -28,6 +28,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -38,7 +39,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
-import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
+import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, PLACEHOLDER_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
@@ -47,9 +48,10 @@ import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEn
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
-  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, SINGLE_COPY_PACKAGES, singleCopyProblems,
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, placeholderBundleProblems,
+  placeholderProblems, RETIRED_GUARD_WARNING, SINGLE_COPY_PACKAGES, singleCopyProblems,
   stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot,
-  WITHHELD_PACKAGES,
+  WITHHELD_PACKAGES, writePlaceholders,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import { verifyStagedOfficeEngines } from './office-engine-gate.ts'
@@ -546,10 +548,17 @@ async function verifyStaging(): Promise<void> {
   }
   // Found at any depth rather than at the path `withholdPackages` removes: a
   // copy hoisting nests under another package would otherwise ship unnoticed.
-  const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES)
+  const withheld = await findWithheldDirectories(SERVER_STAGING, WITHHELD_PACKAGES, PLACEHOLDER_BUNDLES)
   if (withheld.length > 0) {
     throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
   }
+  // Checked on every run: without its placeholder, a bundle name resolves past
+  // the installation to a copy installed into the profile, which then loads.
+  const placeholders = await placeholderProblems(SERVER_STAGING, PLACEHOLDER_BUNDLES)
+  if (placeholders.length > 0) {
+    throw new Error(`package: staged server does not carry the placeholder of each withheld bundle:\n  ${placeholders.join('\n  ')}`)
+  }
+  console.log(`package: staged server carries the placeholders of ${PLACEHOLDER_BUNDLES.join(', ')}`)
   // Counted by package.json name at any depth, store entries included
   // ([[SINGLE_COPY_PACKAGES]] says why each package needs exactly one copy).
   const duplicated = await singleCopyProblems(SERVER_STAGING, SINGLE_COPY_PACKAGES)
@@ -573,8 +582,9 @@ async function verifyStaging(): Promise<void> {
 /**
  * Remove the packages the payload withholds ([[WITHHELD_PACKAGES]]) from the
  * staged tree's top-level `node_modules`, where the hoisted deploy places
- * every package of the closure. Runs before the payload inventory is taken, so
- * the payload gate never sees them as removed.
+ * every package of the closure, and write the placeholders of
+ * [[PLACEHOLDER_BUNDLES]] in their place. Runs before the payload inventory is
+ * taken, so the payload gate never sees them as removed.
  */
 async function withholdPackages(): Promise<void> {
   for (const name of WITHHELD_PACKAGES) {
@@ -583,6 +593,8 @@ async function withholdPackages(): Promise<void> {
     await rm(dir, { recursive: true, force: true })
     console.log(`package: withheld ${name} from the staged server`)
   }
+  await writePlaceholders(SERVER_STAGING, PLACEHOLDER_BUNDLES)
+  console.log(`package: wrote the placeholders of ${PLACEHOLDER_BUNDLES.join(', ')}`)
 }
 
 /**
@@ -605,6 +617,11 @@ async function withholdPackages(): Promise<void> {
  * `--dump-config` against the same home must show the desktop composition
  * layer's own value on its search row ([[verifyDesktopLayer]]). The dump runs
  * after the boot because both rewrite the profile's root config.
+ *
+ * While the server runs, its plugin manager is asked about the withheld
+ * bundles ([[verifyPlaceholderBundles]]), and neither the boot's output nor the
+ * dump's stderr may carry [[RETIRED_GUARD_WARNING]]: the seeded profile holds
+ * no `auto-review` row, and no layer inserts that entry.
  * @param root - the staged server tree to boot.
  * @param buildHome - this build's throwaway `$DSH_HOME`.
  */
@@ -664,6 +681,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       throw new Error(`package: staged boot served an unexpected index from ${base}.`)
     }
     await verifyClientModules(root, base, index, cookie)
+    await verifyPlaceholderBundles(base, cookie)
     console.log(`package: staged boot verified at ${base}`)
   } finally {
     child.kill('SIGTERM')
@@ -681,8 +699,59 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   if (dump.code !== 0 || dumpFailures.length > 0) {
     throw new Error(`package: staged --dump-config failed (exit ${String(dump.code)}):\n${dump.stderr.split('\n').slice(-20).join('\n')}`)
   }
+  const guardWarnings = [...collected.split('\n'), ...dump.stderr.split('\n')].filter(line => line.includes(RETIRED_GUARD_WARNING))
+  if (guardWarnings.length > 0) {
+    throw new Error(`package: the staged profile still targets the retired auto-review entry:\n  ${guardWarnings.join('\n  ')}`)
+  }
   verifyDesktopLayer(dump.stdout)
   console.log('package: staged profile composed every seeded bundle, the desktop layer included')
+}
+
+/**
+ * Call one plugin manager method on a booted staged server through the
+ * Connection RPC route the browser uses, `POST /api/pluginManager/<method>`.
+ * @param base - the booted server's URL.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
+ * @param method - the plugin manager method.
+ * @param args - the method's arguments by parameter name.
+ * @returns the method's return value.
+ * @throws when the route answers with an HTTP error or the call reports a failure.
+ */
+async function callPluginManager(base: string, cookie: string, method: string, args: Record<string, unknown>): Promise<unknown> {
+  const endpoint = `pluginManager/${method}`
+  const response = await fetch(new URL(`api/${endpoint}`, base), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method: endpoint, payload: { args } }),
+  })
+  if (!response.ok) throw new Error(`package: staged ${endpoint} answered HTTP ${String(response.status)}.`)
+  const body = await response.json() as { result?: { ok?: boolean; value?: unknown; error?: unknown } }
+  if (body.result?.ok !== true) throw new Error(`package: staged ${endpoint} failed: ${JSON.stringify(body.result)}`)
+  return body.result.value
+}
+
+/**
+ * Ask a booted staged server's plugin manager about the withheld bundles, the
+ * way the Plugins page and its agent tool do: the bundle list must hold
+ * bundles and none of [[WITHHELD_PACKAGES]], and enabling each of
+ * [[PLACEHOLDER_BUNDLES]] by name must be refused as `not-bundle` without
+ * changing a profile file ([[placeholderBundleProblems]]). A refusal writes
+ * nothing, so the `--dump-config` after the boot reads the profile as seeded.
+ * @param base - the booted server's URL.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
+ * @throws when the manager lists a withheld package or accepts or fails differently on enabling a placeholder.
+ */
+async function verifyPlaceholderBundles(base: string, cookie: string): Promise<void> {
+  const listed = await callPluginManager(base, cookie, 'listBundles', {})
+  const enabled: { name: string; result: unknown }[] = []
+  for (const name of PLACEHOLDER_BUNDLES) {
+    enabled.push({ name, result: await callPluginManager(base, cookie, 'setBundleEnabled', { name, enabled: true }) })
+  }
+  const problems = placeholderBundleProblems(listed, enabled)
+  if (problems.length > 0) {
+    throw new Error(`package: the staged plugin manager does not treat the withheld bundles as absent:\n  ${problems.join('\n  ')}`)
+  }
+  console.log(`package: staged plugin manager lists none of the withheld packages and refuses ${PLACEHOLDER_BUNDLES.join(', ')} as not-bundle`)
 }
 
 /**

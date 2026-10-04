@@ -51,6 +51,9 @@
  * it cannot resolve and the server writes one `skipping profile bundle` line to
  * stderr for it on every boot, so an upgrade that just stopped shipping a
  * package would leave that name, and that line, in every profile it had seeded.
+ * For the same line, a run also removes the names in
+ * {@link PLACEHOLDER_BUNDLES}, which resolve to a placeholder that declares no
+ * bundle.
  *
  * **The plugins a user installed into the CLI's shared `web` profile stay in
  * step with the desktop profile on every launch**, because every build before
@@ -230,6 +233,28 @@ export const WITHDRAWN_WEB_BUNDLES: readonly string[] = [
 ]
 
 /**
+ * Bundles of the `@deepseek-ai/dsh` closure the payload replaces with an inert
+ * placeholder: a directory holding only a `package.json` with the package's
+ * name and a version, and no `dsh` field, entry point, or dependency
+ * (`scripts/staged-boot-gate.ts` writes and checks it).
+ *
+ * `@deepseek-ai/dsh-experimental-auto-review` mounts upstream's own reviewed
+ * access mode, which reads the same knob pair as
+ * `@haoran/dsh-llm-permission-gateway`, so a call under it would be reviewed
+ * twice. `@deepseek-ai/dsh-experimental-inspector-profile` mounts the
+ * developer inspectors. The Loader and the plugin manager resolve a bundle
+ * name from the installation before the profile, so the placeholder is what
+ * every lookup finds: the Plugins page lists neither name, enabling either one
+ * by name is refused as not a bundle, and a copy installed into the profile is
+ * never loaded. A run removes both names from `dsh.profile.bundles`, which is
+ * where a selection made before the placeholder shipped would make the boot
+ * print one `skipping profile bundle` line per launch.
+ */
+export const PLACEHOLDER_BUNDLES: readonly string[] = [
+  '@deepseek-ai/dsh-experimental-auto-review', '@deepseek-ai/dsh-experimental-inspector-profile',
+]
+
+/**
  * The profile the desktop shell boots (`dsh --profile desktop-shell`), which no
  * other dsh installation launches. The CLI's own `web` profile is left
  * untouched, and so is `desktop`: upstream's own Electron application
@@ -331,8 +356,8 @@ export interface SeedReport {
   copied: string[]
   /** Rows this run took back out of the profile's own patch layer, each named. */
   retired: string[]
-  /** Guard rows this run wrote into the profile's own patch layer, by row id. */
-  guarded: string[]
+  /** {@link PLACEHOLDER_BUNDLES} names this run removed from `dsh.profile.bundles`. */
+  deselected: string[]
   /** One line per name this run recorded or updated as defective, each stating why. */
   disabled: string[]
   /** One line per name this run tombstoned into `removed`, each stating why. */
@@ -629,7 +654,7 @@ export function removeLink(link: string): void {
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = {
-    seeded: [], keptOff: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], guarded: [],
+    seeded: [], keptOff: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], deselected: [],
     disabled: [], removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
@@ -668,10 +693,11 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     }
     reportShadowing(spec, profileDir, name, report)
   }
+  retireAutoReviewGuard(profileDir, report)
   syncWebBundles(spec, profileDir, report)
   retireSeededPermissionRows(profileDir, report)
-  seedAutoReviewGuard(profileDir, report)
   pruneWithdrawnBundles(spec, profileDir, report)
+  deselectPlaceholderBundles(profileDir, report)
   return report
 }
 
@@ -808,6 +834,7 @@ function linksTo(link: string, target: string): boolean {
 function migrationRefusal(name: string): string | undefined {
   if (BUILTIN_WEB_BUNDLES.includes(name)) return 'covered by built-in'
   if (WITHDRAWN_WEB_BUNDLES.includes(name)) return 'withdrawn, not migrated'
+  if (PLACEHOLDER_BUNDLES.includes(name)) return 'withheld from this build, not migrated'
   return undefined
 }
 
@@ -1050,7 +1077,8 @@ function updateTrackedBundles(
  * @param profileDir - the desktop profile directory.
  * @param filename - the file to copy, the same name in both profiles.
  * @param pristine - every content this module writes for a fresh profile: the
- * template, and for the patch layer the template carrying the auto-review guard.
+ * template, and for the patch layer also the template carrying the auto-review
+ * guard row earlier builds wrote ({@link GUARDED_PATCH_TEMPLATE}).
  * @param names - the migrated names, for the line that says what to carry by hand.
  * @param report - the run's report, extended with the decision.
  */
@@ -1769,15 +1797,13 @@ function retireSeededPermissionRowsIn(profileDir: string, report: SeedReport): v
  * The row id of upstream's own reviewed access mode,
  * `@deepseek-ai/dsh-experimental-auto-review`, as its bundle layer inserts it.
  */
-const AUTO_REVIEW_ID = 'auto-review'
+export const AUTO_REVIEW_ID = 'auto-review'
 
 /**
- * The guard row {@link seedAutoReviewGuard} keeps in the profile's own patch
- * layer, with the comment written above it.
- *
- * The comment is the one place a person reading the file learns what the row
- * is for and how to override it: an `auto-review` row that says anything else
- * is left alone from then on.
+ * The guard row builds from 0.1.0-rc.34 through 0.1.0-rc.37 wrote into the
+ * profile's own patch layer on every launch, with the comment written above
+ * it, byte for byte. {@link retireAutoReviewGuard} takes exactly this text back
+ * out.
  */
 export const AUTO_REVIEW_GUARD_TEXT = `# Written by the desktop shell on every launch: upstream's auto-review stays
 # off, because this deployment's permission gateway already reviews the same
@@ -1787,95 +1813,105 @@ export const AUTO_REVIEW_GUARD_TEXT = `# Written by the desktop shell on every l
   disabled: true
 `
 
-/** The {@link canonical} text of the guard row as {@link patchEntries} reads it. */
-const AUTO_REVIEW_GUARD_ROW = canonical({ id: AUTO_REVIEW_ID, disabled: 'true' })
-
-/** What {@link seedAutoReviewGuard} writes into a patch layer that is still the empty template. */
+/**
+ * What those builds wrote into a patch layer that was still the empty template;
+ * {@link syncWebBundles} still counts it as a pristine patch layer.
+ */
 const GUARDED_PATCH_TEMPLATE = PROFILE_PATCH_TEMPLATE.replace(/^\[\]\n$/m, AUTO_REVIEW_GUARD_TEXT)
 
 /**
- * Keep `@deepseek-ai/dsh-experimental-auto-review` off in the desktop profile,
- * on every launch.
+ * Take the `auto-review` guard row an earlier build of this shell wrote back
+ * out of the profile's own patch layer, on every launch.
  *
- * The payload withholds that package, but upstream's plugin manager can install
- * it from a registry, and its bundle layer mounts upstream's own reviewed access
- * mode beside `@haoran/dsh-llm-permission-gateway`: both read the same knob
- * pair, so a call under it would be reviewed twice. The profile's own patch
- * layer applies after every bundle layer, so an `auto-review` row there that
- * says `disabled: true` keeps the installed package composed off.
+ * The row kept `@deepseek-ai/dsh-experimental-auto-review` composed off should
+ * the Plugins page install it. The payload now carries a placeholder under
+ * that name ({@link PLACEHOLDER_BUNDLES}), so no layer inserts an
+ * `auto-review` entry, and the row only made the loader print
+ * `patch: entry "auto-review" not found` on every boot.
  *
- * The row is recognized the way {@link SEEDED_PERMISSION_ROWS} are, through
- * {@link patchEntries} and {@link canonical}. A row that is exactly this one
- * is left as it is. Any other entry declaring the `auto-review` id — the
- * plugin page's enable writes `disabled: false` onto this same row — is a
- * decision its owner made, and stays, with a line in
- * {@link SeedReport.skipped}. With no such entry the row is written: in place
- * of the `[]` a template or an emptied layer ends with, or after the last entry
- * of a block sequence. A layer written as a non-empty flow sequence is left
- * alone and named in the log, because a block entry appended to it would give
- * the file a second top-level node.
- *
- * While the package is not installed, the loader writes one
- * `patch: entry "auto-review" not found` line for the row to stderr and
- * applies every other entry; no pattern the packaging gate or
- * {@link quarantineLoadFailureFromOutput} matches is in it.
+ * The row is recognized as {@link AUTO_REVIEW_GUARD_TEXT} exactly, comment
+ * block included, starting at the beginning of a line. The text survives the
+ * Plugins page's and the settings migration's edits of other rows, which
+ * re-serialize the whole file through the `yaml` library and keep every
+ * comment and line of an untouched entry. Each occurrence is removed together
+ * with one blank line directly above it. A layer left without any entry gets
+ * the `[]` back in the occurrence's place, so a layer that was the guarded
+ * template becomes the empty template again. Any other entry declaring the
+ * `auto-review` id — the Plugins page's enable writes `disabled: false` onto
+ * this row — is a decision its owner made, and stays, with a line in
+ * {@link SeedReport.skipped}. A layer without the text is not written, so a
+ * second launch changes nothing.
  *
  * No fault in here is worth a launch: anything it does not otherwise handle
  * becomes a line in {@link SeedReport.skipped} naming the file.
  * @param profileDir - the desktop profile directory.
- * @param report - the run's report, extended with the row written or the reason none was.
+ * @param report - the run's report, extended with the row retired or the row left alone.
  */
-function seedAutoReviewGuard(profileDir: string, report: SeedReport): void {
+function retireAutoReviewGuard(profileDir: string, report: SeedReport): void {
   const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
   try {
-    seedAutoReviewGuardIn(patchPath, report)
+    retireAutoReviewGuardIn(patchPath, report)
   } catch (error) {
     report.skipped.push(`${patchPath}: ${String(error)}`)
   }
 }
 
 /**
- * The body {@link seedAutoReviewGuard} guards: everything it describes, free to throw.
+ * The body {@link retireAutoReviewGuard} guards: everything it describes, free to throw.
  * @param patchPath - the profile's own patch layer.
- * @param report - the run's report, extended with the row written or the reason none was.
+ * @param report - the run's report, extended with the row retired or the row left alone.
  */
-function seedAutoReviewGuardIn(patchPath: string, report: SeedReport): void {
+function retireAutoReviewGuardIn(patchPath: string, report: SeedReport): void {
   let text
   try {
     text = readFileSync(patchPath, 'utf8')
   } catch {
-    // No patch layer: a profile whose owner deleted the file is one this
-    // launch's `initDesktopProfile` could not write either, and the server
-    // reports that profile with the diagnostic it owns.
+    // No patch layer: nothing of this shell's is in a file that does not exist.
     return
   }
-  const lines = text.split('\n')
-  const entries = patchEntries(lines)
-  if (entries.some(entry => entry.value !== undefined && canonical(entry.value) === AUTO_REVIEW_GUARD_ROW)) return
-  const owned = entries.some(entry => (entry.value === undefined
+  let next = text
+  for (let at = guardOffset(next); at !== undefined; at = guardOffset(next)) {
+    const end = at + AUTO_REVIEW_GUARD_TEXT.length
+    const start = next.slice(Math.max(0, at - 2), at) === '\n\n' ? at - 1 : at
+    const removed = next.slice(0, start) + next.slice(end)
+    next = patchEntries(removed.split('\n')).length > 0 ? removed : `${next.slice(0, at)}[]\n${next.slice(end)}`
+  }
+  if (next !== text) {
+    writeAtomic(patchPath, next)
+    report.retired.push(`the ${AUTO_REVIEW_ID} off row`)
+  }
+  const lines = next.split('\n')
+  const kept = patchEntries(lines).some(entry => (entry.value === undefined
     ? declaresId(lines.slice(entry.start, entry.end + 1), AUTO_REVIEW_ID)
     : declaredIds(entry.value).includes(AUTO_REVIEW_ID)))
-  if (owned) {
-    report.skipped.push(`${PROFILE_PATCH_FILENAME}: an ${AUTO_REVIEW_ID} row this shell did not write is there; left exactly as it is`)
-    return
+  if (kept) report.skipped.push(`${PROFILE_PATCH_FILENAME}: an ${AUTO_REVIEW_ID} row this shell did not write is there; left exactly as it is`)
+}
+
+/**
+ * Where {@link AUTO_REVIEW_GUARD_TEXT} starts on a line of its own.
+ * @param text - the patch layer.
+ * @returns the offset of the first such occurrence, or undefined when there is none.
+ */
+function guardOffset(text: string): number | undefined {
+  for (let at = text.indexOf(AUTO_REVIEW_GUARD_TEXT); at >= 0; at = text.indexOf(AUTO_REVIEW_GUARD_TEXT, at + 1)) {
+    if (at === 0 || text[at - 1] === '\n') return at
   }
-  const structural = lines.flatMap((line, index) => {
-    const trimmed = line.trim()
-    return trimmed.length === 0 || trimmed.startsWith('#') ? [] : [{ index, trimmed }]
-  })
-  let next
-  if (entries.length > 0 || structural.length === 0) {
-    next = `${text.replace(/\n*$/, '')}${text.trim().length === 0 ? '' : '\n\n'}${AUTO_REVIEW_GUARD_TEXT}`
-  } else if (structural.length === 1 && structural[0]?.trimmed === '[]') {
-    const replaced = [...lines]
-    replaced.splice(structural[0].index, 1, AUTO_REVIEW_GUARD_TEXT.replace(/\n$/, ''))
-    next = `${replaced.join('\n').replace(/\n*$/, '')}\n`
-  } else {
-    report.skipped.push(`${PROFILE_PATCH_FILENAME}: not a block sequence; the ${AUTO_REVIEW_ID} off row was not written`)
-    return
+  return undefined
+}
+
+/**
+ * Take the {@link PLACEHOLDER_BUNDLES} names out of `dsh.profile.bundles`, on
+ * every launch. A manifest that lists neither is not written.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with the names removed.
+ */
+function deselectPlaceholderBundles(profileDir: string, report: SeedReport): void {
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    report.deselected.push(...dropBundleNames(manifestPath, PLACEHOLDER_BUNDLES))
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: ${String(error)}`)
   }
-  writeAtomic(patchPath, next)
-  report.guarded.push(AUTO_REVIEW_ID)
 }
 
 /**
@@ -2244,8 +2280,8 @@ export function describeSeed(report: SeedReport): string | undefined {
   if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)
   if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
   if (report.retired.length > 0) parts.push(`retired ${report.retired.join(', ')} from ${PROFILE_PATCH_FILENAME}`)
-  if (report.guarded.length > 0) parts.push(`wrote the ${report.guarded.join(', ')} off row into ${PROFILE_PATCH_FILENAME}`)
   if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
+  if (report.deselected.length > 0) parts.push(`dropped withheld ${report.deselected.join(', ')}`)
   if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
   for (const line of report.disabled) parts.push(`disabled migrated ${line}`)
   for (const line of report.removed) parts.push(`removed ${line}`)

@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-04-desktop-withheld-bundle-placeholders.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-04-desktop-withheld-bundle-placeholders.md
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds:
+  en: 2cfbd2f78ea5b935
+  zh: 9630a84ff0fbe07d
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds/problem:
+  en: 3bebe178bf41968a
+  zh: e9b604191e09d6c7
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds/decision:
+  en: 1ce15b1e9b20072d
+  zh: 81c46c68a1ce2b59
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds/alternatives-considered:
+  en: 5551f1a1ee350791
+  zh: 4b86cb63e4187eca
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds/consequences:
+  en: ef84915ddda8ce86
+  zh: e05f31b674555a0e
+/agent-note-the-desktop-payload-carries-placeholders-for-the-bundles-it-withholds/related:
+  en: 8f23df256b26f670
+  zh: a2b8f0f134a6761e

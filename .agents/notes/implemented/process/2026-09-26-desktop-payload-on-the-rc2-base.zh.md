@@ -16,11 +16,11 @@ Status: implemented
 
 ## 决策
 
-**载荷不带上游的 auto-review。** `apps/desktop-shell/scripts/staged-boot-gate.ts` 里的 `WITHHELD_PACKAGES` 点名它；`package.ts` 在 `stageWindowsVariants` 之后、载荷清点之前，把它从暂存树顶层 `node_modules` 删掉，所以载荷闸从来看不到这次移除。随后只要任何深度还留着同名目录，`verifyStaging` 就失败，因为提升方式一变，副本可能嵌到别的包下面，顶层删除就落空了。
+**载荷不带上游的 auto-review。** `apps/desktop-shell/scripts/staged-boot-gate.ts` 里的 `WITHHELD_PACKAGES` 点名它；`package.ts` 在 `stageWindowsVariants` 之后、载荷清点之前，把它从暂存树顶层 `node_modules` 删掉，所以载荷闸从来看不到这次移除。随后只要任何深度还留着同名目录，`verifyStaging` 就失败，因为提升方式一变，副本可能嵌到别的包下面，顶层删除就落空了。从 0.1.0-rc.38 起，这份名单还点名检查器组合包及其两个插件，两个组合包各有一个占位包，检查只放过它恰好位于顶层的那个目录（[占位包 note](../feature/2026-10-04-desktop-withheld-bundle-placeholders.zh.md)）。
 
 **没有哪份载荷带 LibreOffice 引擎，Office 预览关闭。** `apps/desktop-shell/scripts/platform-dir-rules.ts` 里的 `platformDirRules` 在两个目标上丢掉每一个 `@deepseek-ai/libreoffice-kit-<suffix>` 目录，保留 kit 的入口包，因为 `dsh-office-to-pdf` 静态导入它；kit 只在创建转换器时才解析引擎。`stageWindowsVariants` 不再取 win32-x64 引擎，并打印一行说明跳过了它。`payload-gate.ts` 的 `EXEMPTIONS['platform-variant']` 收下各目标原生的引擎目录，因为该目标的载荷现在不带它。这条豁免点名的是目录而不是方向，所以引擎混进另一个目标的载荷时它同样放行；因此只要成品载荷在任何深度还留着一个以暂存 kit 的 `optionalDependencies` 所声明的引擎命名的目录，`deriveServerPayload` 就让它失败。desktop-app 层禁用 `office-to-pdf`，于是没有谁会创建转换器。
 
-**插件管理归上游；这一决定归[插件管理那份 Note](../feature/2026-09-26-desktop-plugin-management-on-upstream.zh.md)。**desktop-app 层让 `plugin-manager` 与 `ui-plugin-manager` 保持开启，并把 `pnpmCommand` 指向随包的 pnpm 启动脚本；壳在 profile 层让被扣下的 auto-review 组合为关闭。这一层不加 `tool-plugin-manager` 行。cordis 预设启用的那个 agent 工具位于 `preset-cordis` 的 `config.plugins` 里，按 id 的 patch 够不到那里；一行 `id: tool-plugin-manager` 只会改到 dsh-base 的顶层行，而 dsh-base 与 dsh-web-app 早已把它关掉。改由网关行的 `alwaysAsk` 把这个工具的每次调用交给人。
+**插件管理归上游；这一决定归[插件管理那份 Note](../feature/2026-09-26-desktop-plugin-management-on-upstream.zh.md)。**desktop-app 层让 `plugin-manager` 与 `ui-plugin-manager` 保持开启，并把 `pnpmCommand` 指向随包的 pnpm 启动脚本；载荷里的占位包让注册表来的 auto-review 副本加载不了（[占位包 note](../feature/2026-10-04-desktop-withheld-bundle-placeholders.zh.md)）。这一层不加 `tool-plugin-manager` 行。cordis 预设启用的那个 agent 工具位于 `preset-cordis` 的 `config.plugins` 里，按 id 的 patch 够不到那里；一行 `id: tool-plugin-manager` 只会改到 dsh-base 的顶层行，而 dsh-base 与 dsh-web-app 早已把它关掉。改由网关行的 `alwaysAsk` 把这个工具的每次调用交给人。
 
 **暂存启动遇到加载报告就失败，组合出的 dump 必须显出桌面层。** `verifyStagedBoot` 收集服务端的 stderr，任何一行带有 `LOAD_FAILURE_MARKERS` 之一——`skipping profile bundle`、`disabling profile plugin` 或 `did not activate`——都让打包失败。随后它在同一个构建 home 上跑 `--dump-config`，要求 `verifyDesktopLayer` 找到以 `openAt: first-search` 组合出的 `session-query-sqlite`，这个值只有最后一个 bundle `@deepseek-ai/dsh-desktop-app` 会设。
 

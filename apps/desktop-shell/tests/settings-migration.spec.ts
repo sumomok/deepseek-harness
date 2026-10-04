@@ -624,7 +624,8 @@ describe('migrateLegacySettings before the seeding has retired the copied permis
   })
 
   it('runs the gateway step at once on a profile the web sync never reached', () => {
-    // A fresh profile: no web-migration.json, the guard row the seeding writes, and a gateway row its owner added.
+    // A profile the web sync never reached: no web-migration.json, the auto-review guard row builds
+    // 0.1.0-rc.34 through rc.37 seeded, and a gateway row its owner added.
     rmSync(join(profileDir, MIGRATION_MARKER_FILENAME))
     writeFileSync(join(profileDir, 'cordis.patch.yml'), `${AUTO_REVIEW_GUARD_TEXT}- id: llm-permission-gateway\n  config:\n    provider: my-proxy\n    model: my-model\n`)
     const report = migrateLegacySettings(home, profileDir)

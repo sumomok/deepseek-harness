@@ -19,7 +19,7 @@ pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installe
 
 **整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求每个声明了浏览器那一半的内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
 
-**启动门禁像已安装的壳那样运行暂存的服务端,暂存树必须带齐安装包的整个依赖闭包。**暂存启动与 `--dump-config` 运行时去掉 `NODE_PATH`、`npm_*` 与 `PNPM_*`:pnpm 的 `.bin` shim 会导出指向工作区 `node_modules/.pnpm/node_modules` 的 `NODE_PATH`,继承它的服务端会从构建检出里找到载荷缺的任何东西。暂存树缺少 `@deepseek-ai/dsh` 的任一生产依赖或必需 peer(沿每个包自己的依赖追下去,扣掉有意扣下的包)时,`verifyStaging` 失败;每份成品载荷只按这个闭包里 `@deepseek-ai` 的部分核对,因为 `scripts/bundle-closure.ts` 会把第三方包内联掉。pnpm 的 legacy 部署器把 `@deepseek-ai/dsh` 放在部署源旁边,它的一部分生产依赖(包括 `@deepseek-ai/dsh-base`)只在它内部的 `node_modules` 里;`restoreLegacyHoists` 通过 `scripts/legacy-hoists.ts` 把它们拷进暂存树。部署不安装 peer,所以闭包只以 peer 形式点名的 Service Definition 包,由 `apps/desktop-server/package.json` 直接列出。暂存树里的 `@deepseek-ai/cordis` 不恰好是一份时,`verifyStaging` 同样失败;份数按每个目录自己 `package.json` 的 name 在任意深度计数,嵌套的 `node_modules` 与 `.pnpm` 存储条目都算:每个内置插件都把它列为 peer,第二份(比如某个插件自己安装时解析到的 registry 版本)会让加载它的插件拿到宿主的 cordis 不共享的类与模块状态(`scripts/staged-boot-gate.ts` 的 `SINGLE_COPY_PACKAGES`)。
+**启动门禁像已安装的壳那样运行暂存的服务端,暂存树必须带齐安装包的整个依赖闭包。**暂存启动与 `--dump-config` 运行时去掉 `NODE_PATH`、`npm_*` 与 `PNPM_*`:pnpm 的 `.bin` shim 会导出指向工作区 `node_modules/.pnpm/node_modules` 的 `NODE_PATH`,继承它的服务端会从构建检出里找到载荷缺的任何东西。暂存树缺少 `@deepseek-ai/dsh` 的任一生产依赖或必需 peer(沿每个包自己的依赖追下去,扣掉有意扣下的包)时,`verifyStaging` 失败;每份成品载荷只按这个闭包里 `@deepseek-ai` 的部分核对,因为 `scripts/bundle-closure.ts` 会把第三方包内联掉。pnpm 的 legacy 部署器把 `@deepseek-ai/dsh` 放在部署源旁边,它的一部分生产依赖(包括 `@deepseek-ai/dsh-base`)只在它内部的 `node_modules` 里;`restoreLegacyHoists` 通过 `scripts/legacy-hoists.ts` 把它们拷进暂存树。部署不安装 peer,所以闭包只以 peer 形式点名的 Service Definition 包,由 `apps/desktop-server/package.json` 直接列出。暂存树里的 `@deepseek-ai/cordis` 不恰好是一份时,`verifyStaging` 同样失败;份数按每个目录自己 `package.json` 的 name 在任意深度计数,嵌套的 `node_modules` 与 `.pnpm` 存储条目都算:每个内置插件都把它列为 peer,第二份(比如某个插件自己安装时解析到的 registry 版本)会让加载它的插件拿到宿主的 cordis 不共享的类与模块状态(`scripts/staged-boot-gate.ts` 的 `SINGLE_COPY_PACKAGES`)。`withholdPackages` 删掉扣下的包后写入占位包;`verifyStaging`(`--skip-deploy` 也一样)要求每个占位包都在 `node_modules/<包名>`、目录里只有逐字节一致的 `package.json`,否则失败;扣包目录检查只放过恰好这些目录,别处的副本或多出文件的目录照样报出。暂存启动经浏览器用的 RPC 路由问启动起来的服务端的插件管理器:组合包列表必须非空且不含任何扣下的包,按名字启用每个占位组合包必须以 `not-bundle` 被拒且不改任何文件;启动输出与 `--dump-config` 的 stderr 都不得出现 `patch: entry "auto-review" not found`。
 
 ## 关掉窗口,以及被叫回来
 
@@ -310,14 +310,16 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **安装跑的是安装包自带的 pnpm,经由一个启动脚本。**`scripts/package.ts` 把仓库自己的 `packageManager` 钉住的那个 `pnpm` 版本在每次运行中、任一平台的 electron-builder 开跑之前暂存一次到 `staging/pnpm`,复用 `.cache/npm-pack` 的方式与 Windows 成员相同,并把 `src/pnpm-launcher.ts` 里两个平台的启动脚本暂存到 `staging/pnpm-launchers`;`verifyStaging` 要求两个脚本都在,且 macOS 那个带可执行位。`scripts/after-pack.cjs` 把 pnpm 复制到 `resources/runtime/pnpm`——extraResources 带不了它,因为 pnpm 自己的目录树里有 `node_modules`,而打包器的复制器硬性排除这类目录——并把目标平台的脚本复制为 `resources/runtime/dsh-pnpm` 或 `resources/runtime/dsh-pnpm.cmd`。脚本用 `runtime/node` 运行 `runtime/pnpm/bin/pnpm.mjs`,并把 `runtime/` 放到 `PATH` 最前面,因为 `pnpm.mjs` 以 `#!/usr/bin/env node` 开头而机器上没有 Node,而插件管理器的 `pnpmCommand` 只指一个可执行文件、不带它自己的参数。壳只给服务端子进程设 `DSH_DESKTOP_PNPM=<脚本路径>`,桌面层的 `plugin-manager` 行把它读成 `pnpmCommand: !!js process.env.DSH_DESKTOP_PNPM ?? 'pnpm'`。开发启动什么都不设,用的是 `PATH` 上的 `pnpm`。
 
-**即使插件页装上了上游的 auto-review,它也保持关闭。**载荷有意不带 `@deepseek-ai/dsh-experimental-auto-review`,但注册表仍能提供它;它的层会在权限网关旁边挂上上游的 Auto,两者读同一对旋钮,同一次调用会被审两遍。每次启动都在 `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 里保留下面这一行,上方有一段注释写明用途;这个文件在所有 bundle 层之后生效:
+**上游的 auto-review 与开发者检查器都装不上。**载荷用一个占位包顶替 `@deepseek-ai/dsh-experimental-auto-review` 与 `@deepseek-ai/dsh-experimental-inspector-profile`:只有一个 `package.json`,写着包名和版本 `0.0.0-withheld`,没有 `dsh` 字段、入口或依赖(`src/profile-seed.ts` 的 `PLACEHOLDER_BUNDLES`)。上游的 Auto 会和权限网关审同一批调用,两者读同一对旋钮;检查器是开发者工具。插件管理器与 Loader 解析组合包名时先找安装目录再找 profile,所以每次查找都落到占位包上:插件页两个包都不列,经 `plugin_manager` 工具或远程 API 按名字启用会因为它没声明组合包而被拒绝,`dsh plugin --profile desktop-shell add` 只把它装成普通依赖、不选中任何东西,装进 profile 的副本永远不会被加载。只有检查器组合包依赖的两个插件 `@deepseek-ai/dsh-experimental-inspector` 与 `@deepseek-ai/dsh-experimental-session-inspector` 直接不带,没有占位包。每次启动都把这两个组合包名从 profile 的 `dsh.profile.bundles` 里删掉,`web` profile 同步也不会把它们迁移过来。
+
+**每次启动都把 0.1.0-rc.34 到 rc.37 写下的 `auto-review` 行删掉。**那些构建在 `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 里保留下面这一行,上方有四行注释,让注册表提供的 auto-review 组合时保持关闭:
 
 ```yaml
 - id: auto-review
   disabled: true
 ```
 
-那里的 `auto-review` 行只要写着别的内容——插件页的启用会在这一行上写 `disabled: false`——就原样保留,启动日志里记一行。删掉这一行只管到下一次启动。这个包没装时,`dsh --profile desktop-shell --dump-config` 会为这一行打印 `patch: entry "auto-review" not found`,服务端照常运行。
+有了占位包,没有哪一层会插入这个条目,这一行只会让 `dsh --profile desktop-shell --dump-config` 打印 `patch: entry "auto-review" not found`。启动时把这一行连同它的注释块和上方那一个空行一起删掉;删完不剩别的条目时在原处写回 `[]`,所以只装着这一行的层会变回空模板。插件页修改别的行时会重写整个文件,但这一行的文字原样保留,所以修改之后照样能认出来。写着别的内容的 `auto-review` 行——插件页的启用会在这一行上写 `disabled: false`——原样保留,每次启动日志里记一行;它不指向任何条目,所以改成 `disabled: false` 已经打不开上游的 Auto。
 
 **每次 `plugin_manager` 调用都交给人。**一次调用就能装上在工作区沙箱之外运行的代码,或者停用某一行——包括权限网关自己那一行。所以桌面层的 `llm-permission-gateway` 行把 `plugin_manager` 加进网关的 `alwaysAsk`,与它重述的网关自带的 `browser_auth` 并列。在「自动审查」与两个有围墙的档位下,网关在任何审查模型看到这次调用之前先问你,附一句说明它能改动什么的话。在「完全权限」下,什么都不问。
 
