@@ -84,9 +84,9 @@ describe('the progress window', () => {
   it('shows bytes and time left while copying, with cancel, and none once the copy is in place', () => {
     const clock: ProgressClock = { startedAt: 0, stage: undefined }
     expect(progressView({ stage: 'copying', phase: 'copying', done: 0, total: 2e9 }, text, clock, 1000))
-      .toEqual({ line: '已搬 0 B / 2.0 GB', cancellable: true, fraction: 0 })
+      .toEqual({ line: '已搬 0 KB / 1.9 GB', cancellable: true, fraction: 0 })
     expect(progressView({ stage: 'copying', phase: 'copying', done: 8.2e8, total: 2e9 }, text, clock, 11_000).line)
-      .toBe('已搬 820 MB / 2.0 GB，还需约 14 秒')
+      .toBe('已搬 782 MB / 1.9 GB，还需约 14 秒')
     expect(progressView({ stage: 'checking', phase: 'verifying', done: 1, total: 2 }, text, clock, 12_000))
       .toEqual({ line: text.checking, cancellable: true, fraction: 0.5 })
     expect(progressView({ stage: 'finishing', phase: 'hiding-source' }, text, clock, 13_000))
@@ -97,7 +97,8 @@ describe('the progress window', () => {
   })
 
   it('formats sizes and picks the language by locale', () => {
-    expect([formatBytes(512), formatBytes(4_000), formatBytes(820e6), formatBytes(1.24e9)]).toEqual(['512 B', '4 KB', '820 MB', '1.2 GB'])
+    expect([formatBytes(0), formatBytes(512), formatBytes(4_000), formatBytes(820e6), formatBytes(1.24e9)])
+      .toEqual(['0 KB', '1 KB', '4 KB', '782 MB', '1.2 GB'])
     expect(moveText('zh-CN')).toBe(MOVE_TEXT.zh)
     expect(moveText('en-US')).toBe(MOVE_TEXT.en)
   })
