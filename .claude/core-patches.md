@@ -669,7 +669,7 @@
 - **为什么**：上游契约写「served 页面根本不带这个全局」，本线 `dsh-experimental-server-base` 在登录门之后的 served index 里注入 `__DSH_TRANSPORT__ = { ownsHost: true }`，上游代码照读这个全局，注释却把本线的用法写成不可能的情况；注释在上游声明处，插件层改不到。
 - **要达到的效果**：契约文字写明两类声明方（自带 worker 的外壳、由门控决定谁能访问的部署）以及代价：不移动任何服务端检查，门控放进来的每个访客拿到同样的特权面。
 - **退役条件**：上游契约文字承认 served 页面也可以声明 `ownsHost`，或本线不再注入该载体。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 `connection/src/client/index.ts` 仍写 `served pages never carry the global at all` 与 `absent in the served web app`，`settings-document-store.ts` 的 `@param ctx` 仍写 loopback `remote.settings`。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `connection/src/client/index.ts` 仍写 `served pages never carry the global at all` 与 `absent in the served web app`，`settings-document-store.ts` 的 `@param ctx` 仍写 loopback `remote.settings`。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`connection/src/client/index.ts` 的包头注释去掉 `base.ts` 的再导出与前缀一句，只保留 `ownsHost` 的说法。
 - **路径**：`packages/client/connection/src/client/index.ts` `packages/client/ui-settings-general/src/client/settings-document-store.ts` `packages/client/web/src/boot.ts`
 
@@ -679,7 +679,7 @@
 - **为什么**：本线 `show_component` 的 `dataSource` 卡与 `toy.crud` 卡的审批理由按行写后端表名，上游标题规则把换行折叠成空格；样式在 CSS Modules 里，类名构建时散列，没有外部选择器可挂，也没有渲染理由文本的插件座位。
 - **要达到的效果**：审批面板照理由原样分行显示，连续空格仍折叠。
 - **退役条件**：上游审批标题保留换行，或本线审批理由不再依赖换行排版。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的该文件仍无 `pre-line`。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的该文件仍无 `pre-line`。
 - **路径**：`packages/client/ui-approval/README.*` `packages/client/ui-approval/src/client/ApprovalPanel.module.css`
 
 ## client-library-config-export — 导出 client 库的 tsdown 配置函数
@@ -696,14 +696,14 @@
 - **为什么**：这些是上游门禁与生成器里手写或扫描全工作区的全量表，不点名就 `typecheck`、`constraints`、`doc-sync` 失败；仓库没有让包自己登记进去的扩展点。
 - **要达到的效果**：本线实验包与上游包受同一套构建、类型、目录与文档门禁约束，不靠豁免过关。
 - **退役条件**：结构性常驻；把这些包移出仓库（仓外 tarball 引入），或上游门禁改为从包元数据推导这些表。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的根 `tsconfig.{base,host,client}.json`、`check-workspace-constraints.ts` 的 `packageFileExtras`、`gen-cordis-catalog.ts` 的 `SERVICE_PAGE`、`client-tsconfig.spec.ts` 的 `clientGroups`（仍只有 `client`、`extensions`）都还是手写表，没有从包元数据推导。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的根 `tsconfig.{base,host,client}.json`、`check-workspace-constraints.ts` 的 `packageFileExtras`、`gen-cordis-catalog.ts` 的 `SERVICE_PAGE`、`client-tsconfig.spec.ts` 的 `clientGroups`（仍只有 `client`、`extensions`）都还是手写表，没有从包元数据推导。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`tsconfig.host.json` 删掉已不存在的 `agent-team-web-profile` 引用；code-runtime-python 与 attachment-spill 的别名随上游退役删掉；`type-equiv.manifest.json` 重新接回 `content-surface` 三项。本线三种消息来源种类（`content-surface`、`content-frame`、`content-component`）标了 `@persistenceAttribution`，六个内容事件是新增根；`verify-persistence-changes` 把它们全部判为 same-version 允许但未确认（`unacknowledged-changes`），在 `docs/persistence-changes/` 补不补一份本线的确认记录尚未决定。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：同版本确认记录已补为本线新文件 `docs/persistence-changes/2026-09-26-console-content-events.*`，kind 名保持裸名；提取器只看到 `content-surface` 一种来源，`content-frame`、`content-component` 的 `MessageSourceMap` 声明在 `tsconfig.host.json` 之外的 client 聚合包里，未进记录。`tsconfig.client.json` 增加对 `tsconfig.vue2-tests.json` 的引用并排除其中的 spec（见上条退役记录）；`tsconfig.base.json` 删掉 `server-sidebar` 已移除的 `invariant` 别名。`packages.md` 核查：console 叠加层之下的 web 配置装配了 web-app 包的 `cordis` 预设（`tool-cordis` + 挂 `agent-preset/skills` 的 `skill-filesystem`），叠加层没有移除它；默认预设是 `standard`，`ui-agent-preset` 下拉与其设置行被叠加层禁用，控制台界面上选不到它。本轮不改。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：新增本线包 `console-profile`（客户控制台的 bundle 层）：`tsconfig.base.json` 手写一条 `paths` 别名（包名带 `experimental-` 前缀，生成器不覆盖）、`tsconfig.host.json` 加一条引用、`packages/experimental/README.*` 加一行；`scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 为它登记 `permission-lock.patch.yml`，这份锁 overlay 不在 `dsh.bundle.patch` 里，但要随包发布。`scripts/verify-package-readme-model-experience.ts` 为它加一条 `indirect` 的审计条目。
 - **本轮适配（并入 `feat/skill-pack-v0`）**：四个新本线包 `console-mcp`、`system-map`、`skill-pack`、`skill-pack-components` 按同一方式登记：`tsconfig.base.json` 的 `paths` 别名、`tsconfig.host.json` 的 host 引用（`skill-pack-components` 另进 `tsconfig.client.json`）、`packages/experimental/README.*` 各一行；`scripts/gen-cordis-catalog.ts` 的 `SERVICE_PAGE`（`skillPacks`、`skillPackParts`、`componentCatalog`、`componentViews`）、`SERVICE_WALK_EXEMPTIONS`（`componentRenderers`）与 `TYPE_LINK_EXEMPTIONS`（组件目录、业务后端权限、技能包的类型）；`scripts/gen-doc-graphs.ts` 的 `SERVICE_ROLES` 三项与 `ctx.skills` 实现加 `skill-pack`；`scripts/type-equiv.manifest.json` 加 `PartsSource`；`scripts/verify-package-readme-model-experience.ts` 为两个技能包包加 `indirect` 条目；`scripts/check-workspace-constraints.ts` 的 `packageFileExtras` 为 `component-surface` 加 `lib/projection-*.js`。skill-pack 线带来的 `connection` 遍历豁免在 rc.2 上已失效（`ctx.connection` 由投影渲染），删去。`tsconfig.client.json` 把经由 component-kit 渲染器够到 Vue 2 全局 JSX 的四个 component-surface 测试文件排除到 `tsconfig.vue2-tests.json`（该程序另引用 `auth-gate`）；`apps/web/tsconfig.json` 排除、`tsconfig.host.json` 收录新的 `apps/web/tests/console-preset.spec.ts`。`console-mcp` 行随控制台 bundle 层（`packages/experimental/console-profile/cordis.patch.yml`）交付；它的 `servers` 是普通 Config，不是 `.volatile()` 字段，settings 服务不为它投影表单、以 `Plugin entry "console-mcp" has no volatile fields` 拒绝写入，所以与侧栏菜单不同，部署放行的浏览器改不了它（server-sidebar e2e 断言）。持久化提取器因 `skill-pack-components` 引入 `component-surface` 而看到 `content-component` 来源种类，`docs/persistence-changes/historical-formats/README.*` 随 `verify-persistence-formats --write` 更新，同版本记录为本线新文件 `docs/persistence-changes/2026-09-27-console-content-component-source.*`。
 - **本轮适配（`dsh-v0.2.0-rc.2`）**：上游把浏览器侧 `ClientRemote` 的增补移进 Host 那遍 tsdown 才写出的 `lib/typert.remote-client.d.ts`，Host 聚合 `tsc -b` 摸得到的工程因此不能再引入任何 `*/remote` 子路径。本线 `tsconfig.host.json → skill-pack-components → component-surface`（单一 client 配置）`→ ui-chat` 的 client 工程正好摸到，干净树上 `typecheck` 报 69 个错。`component-surface` 改为 Host／Client 两个叶子配置加只做引用的根 `tsconfig.json`（与上游 `inspector` 同式；Host 叶子只含 `src/client/` 以外的源文件、只引 Host 工程，Client 叶子保留原来整份 `src` 与全部引用）；`skill-pack-components` 改继承 `tsconfig.base.json`、引 Host 叶子；`tsconfig.host.json` 加一条对 `component-surface/tsconfig.host.json` 的引用，否则 Typert 的 Host 面不再登记这个包、`gen-cordis-catalog` 报 `ctx.componentCatalog`／`ctx.componentViews` 失踪；`tsconfig.client.json` 改引 `component-surface/tsconfig.client.json`，并删掉上游已删除的 `tsconfig.desktop-keyboard-tests.json` 引用。`check-workspace-constraints.ts`（上游给 `sandbox-windows-acl` 加 `assets`）、`gen-cordis-catalog.ts`（上游加 `manualCompactionTiming`）、`gen-doc-graphs.ts`（上游给 `ctx.skills` 实现加 `sandbox-windows-acl`）三处冲突两侧都留。上游 `2026-09-21-user-question-reply` 与本线 `2026-09-26-console-content-events` 对四个共有根（`agent/inbox/spliced`、`developer/message`、`session/title-llm-request`、`user/message`）各自从 V4 基线分叉，`verify-persistence-changes` 报 forked history；把两份本线记录取回并入前的原文件，报 `forked persistence history for event:agent/inbox/spliced: 2026-09-21-user-question-reply and 2026-09-26-console-content-events`。分叉点是 `2026-09-16-session-format-v4`：在四个共有根上它有两个后继，上游的 `2026-09-21-user-question-reply` 与本线原来的 `2026-09-26-console-content-events`，后者在本线还有一个后继 `2026-09-27-console-content-component-source`。`validatePersistenceHistory` 对同一前驱的两个后继一律拒绝；新增记录改不了已有记录的 `previous`，上游记录不改，所以本线记录的机器声明必须改写。现状：`2026-09-27-console-content-component-source.*` 已删，它的 `content-component` 来源种类并进以 `--update` 重算的 `2026-09-26-console-content-events`（四个共有根的 `previous` 改为上游记录，`after` 取当前树），`historical-formats/README.*` 由 `verify-persistence-formats --write` 重写，`verify-persistence-changes` 与 `verify-persistence-formats` 退出 0。`docs/persistence-changes/README.md` 要求保留已接受记录的机器声明与 schema 快照；本线规则是：本线的持久化记录在产品发行把它们定稿之前都不算已接受，每轮基座同步把它们改接到上游历史之后，理由见 Agent Note [`server-console-on-the-0-2-0-rc-2-base`](../.agents/notes/implemented/architecture/2026-10-01-server-console-on-the-0-2-0-rc-2-base.md)。`component-surface/tsconfig.{host,client}.json` 与 `tsconfig.vue2-tests.json` 是本线自有文件，基座 tag 里没有，不进路径口径。
 - **本轮适配（并入 `feat/page-refresh`）**：新增本线包 `page-refresh`（控制台页面的构建检查与连接横幅）按同一方式登记：`tsconfig.base.json` 手写两条 `paths` 别名（包根与 `/client`）；`tsconfig.client.json` 加一条 project 引用与 `src/css-modules.d.ts` 的 `include`；`apps/web/tsconfig.json` 的 `exclude` 与 `tsconfig.host.json` 的 `include` 收录新场景 `apps/web/tests/page-refresh.e2e.ts`；`packages/experimental/README.*` 加一行；`scripts/verify-package-readme-model-experience.ts` 为它加一条 `none` 的审计条目。随之由生成器写出、又不在生成物豁免集里的 `docs/module-graph.*` 与 `cordis-composition-reference/references/packages.md` 各多出它的一行。现有 `路径` 已覆盖这些文件，不加新路径。
-- **本轮适配（`dsh-v0.2.1-alpha.1`）**：上游删除 `@deepseek-ai/dsh-invariants` 与全部 `./invariant` 子路径（`docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/`），本线随之删掉 `component-surface`、`content-frame`、`content-surface` 的 invariant 伴生插件：`tsconfig.base.json` 删去三条 `*/invariant` 别名；`check-workspace-constraints.ts` 的 `packageFileExtras` 删去 `component-surface` 的 `lib/projection-*.js`、`lib/validate-*.js`（工具入口与伴生插件共用的带哈希 chunk 随单入口构建消失）；`gen-cordis-catalog.ts` 冲突保留本线的 `TYPE_LINK_EXEMPTIONS` 各行、按上游删去 `InvariantRegistration`；`packages/experimental/README.*` 与 `docs/subsystems/README.*` 冲突两侧的行都留，上游新增的 `session-inspector`、`inspector-profile` 行在 `inspector` 之后、本线各行之前；`tsconfig.base.json` 冲突保留本线别名、按上游删去 `schedule-bundle`。
+- **本轮适配（`dsh-v0.2.1-alpha.1`）**：上游删除 `@deepseek-ai/dsh-invariants` 与全部 `./invariant` 子路径（`docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/`），本线随之删掉 `component-surface`、`content-frame`、`content-surface` 的 invariant 伴生插件：`tsconfig.base.json` 删去三条 `*/invariant` 别名；`check-workspace-constraints.ts` 的 `packageFileExtras` 删去 `component-surface` 的 `lib/projection-*.js`、`lib/validate-*.js`（工具入口与伴生插件共用的带哈希 chunk 随单入口构建消失）；`gen-cordis-catalog.ts` 冲突保留本线的 `TYPE_LINK_EXEMPTIONS` 各行、按上游删去 `InvariantRegistration`；`packages/experimental/README.*` 与 `docs/subsystems/README.*` 冲突两侧的行都留，上游新增的 `session-inspector`、`inspector-profile` 行在 `inspector` 之后、本线各行之前；`tsconfig.base.json` 冲突保留本线别名、按上游删去 `schedule-bundle`。持久化：上游在 `dsh-v0.2.0-rc.2` 与 `dsh-v0.2.1-alpha.1` 之间没有新增 `docs/persistence-changes/` 记录，`2026-09-26-console-content-events` 仍以 `2026-09-21-user-question-reply` 为四个共有根的前驱，合并后的树上 `verify-persistence-changes`、`verify-persistence-formats`、`verify-persistence-catalog` 都退出 0，本线记录这一轮不需要改接。
 - **路径**：`apps/web/tsconfig.json` `docs/capability-seams.zh.md` `docs/module-graph.*` `docs/persistence-changes/historical-formats/README.*` `docs/subsystems/README.*` `package.json` `packages/core/session/src/known-event-types.ts` `packages/experimental/README.*` `packages/preset/agent-preset/skills/cordis-composition-reference/references/packages.md` `scripts/check-workspace-constraints.ts` `scripts/client-tsconfig.spec.ts` `scripts/gen-cordis-catalog.ts` `scripts/gen-doc-graphs.ts` `scripts/type-equiv.manifest.json` `scripts/verify-package-readme-model-experience.ts` `tsconfig.base.json` `tsconfig.client.json` `tsconfig.host.json`
 
 ## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
@@ -712,7 +712,7 @@
 - **为什么**：上游自己的缺口：`client-ui-agent-team` 只在聚合里加了 project 引用，没有把 CSS 模块声明写进 `include`；上游 `scripts/client-tsconfig.spec.ts` 只查 `client` 与 `extensions` 两组，看不到它，本线把检查扩到 `experimental` 后照出来。
 - **要达到的效果**：`experimental` 组的 client 包在同一条规则下受检，不为过门禁豁免上游包。
 - **退役条件**：上游自己把这两行写进 `tsconfig.client.json`。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 `include` 里 `packages/client` 之外的 CSS 模块声明仍只有 `ui-cordis` 一行。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `include` 里 `packages/client` 之外的 CSS 模块声明仍只有 `ui-cordis` 一行。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：上游新增的 `client-ui-voice-input` 同样只有 project 引用、没有 CSS 模块声明的 `include` 行，`scripts/client-tsconfig.spec.ts` 照出后补上第二行。
 - **路径**：`tsconfig.client.json`
 
@@ -730,7 +730,8 @@
 - **为什么**：本线组件行用 `file:` 引入仓外 tarball，把 Vue 2 与 element-ui 拉进工作区；上游这几道门禁按「仓内包从 registry 发布、第三方代码都在 lockfile」写死，插件层碰不到。
 - **要达到的效果**：vendored 第三方代码照样被披露（缺声明就报错），豁免只覆盖不发布的 `packages/experimental/`，文档站构建与 install 不受本线依赖影响，样式契约只管本产品自己写的样式表。
 - **退役条件**：`@sumomok/toy-*-kit` 改为 registry 包或移出本仓，且 Vue 2／element-ui 不再进入工作区；或上游门禁自己处理这些情况。
-- **状态**：在役（`product/server-console`）。核实依据：`component-kit` 仍以 `file:` 引入 `@sumomok/toy-crud-kit` 与 `@sumomok/toy-surface-kit`；`dsh-v0.2.0-rc.2` 的 `FIRST_PARTY` 仍是名字集合、`OVERRIDES` 无 `element-ui` 与 `randomcolor`，`publint-all.ts` 无 `packages/experimental/` 豁免，`pnpm-workspace.yaml` 无 `vitepress-plugin-mermaid` 与 `core-js` 条目，`stylesheet-scan.ts` 不排除 element-ui 主题表。
+- **状态**：在役（`product/server-console`）。核实依据：`component-kit` 仍以 `file:` 引入 `@sumomok/toy-crud-kit` 与 `@sumomok/toy-surface-kit`；`dsh-v0.2.1-alpha.1` 的 `FIRST_PARTY` 仍是名字集合、`OVERRIDES` 无 `element-ui` 与 `randomcolor`，`publint-all.ts` 无 `packages/experimental/` 豁免，`pnpm-workspace.yaml` 无 `vitepress-plugin-mermaid` 与 `core-js` 条目，`stylesheet-scan.ts` 不排除 element-ui 主题表。
+- **本轮适配（`dsh-v0.2.1-alpha.1`）**：`gen-third-party-notices.ts` 一处冲突：上游在补丁行之后新增「Chrome DevTools frontend」一节（实验 Inspector 分发的 `chrome-devtools-frontend`），本族在同一位置渲染 `renderBundled(bundled)`；合并后 `renderBundled` 在前、上游那一节在后，再接 `renderClaudeDistribution`，`gen-third-party-notices` 重新生成的 `THIRD_PARTY_NOTICES.md` 两节都在。上游对 `browser.add('chrome-devtools-frontend')` 与 kit 仓库地址的改动自动合并。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`gen-third-party-notices.ts` 的 `FIRST_PARTY` 改用上游的 `node-addon-system` 包名，`collectNpmDeps` 接上游的浏览器分层参数，`renderBundled` 放在 `renderClaudeDistribution` 之前；`stylesheet-scan.ts` 以上游 `packageFiles(accepts)` 为底接回排除；`publint-all.spec.ts` 的 vendored tarball 用例改为 await 上游的异步 `run`；桌面删除后 `OVERRIDES` 里 desktop-server tarball 的条目与 `node-pty` 覆盖一起删掉。第二轮删掉 `pnpm-workspace.yaml` `allowBuilds` 里的 `electron: set this to true or false`：它是删桌面外壳那次安装时 pnpm 写进去的占位行，随那次删除一起提交；删掉后清掉工作区安装状态重跑 `pnpm install --frozen-lockfile` 退出 0，不再需要 `--config.strict-dep-builds=false`。
 - **路径**：`packages/client/ui-theme/tests/stylesheet-scan.ts` `pnpm-workspace.yaml` `scripts/gen-third-party-notices.spec.ts` `scripts/gen-third-party-notices.ts` `scripts/publint-all.spec.ts` `scripts/publint-all.ts`
 
@@ -740,7 +741,7 @@
 - **为什么**：console 场景要在进程起来后先向路由提交凭据，上游 harness 只有进程起来之前的 `prepareWorkspace`；语料门禁把目录名与 profile 写死成一一对应。
 - **要达到的效果**：console 通道与上游通道受同一语料门禁约束，`afterSpawn` 抛错时照常拆掉子进程。
 - **退役条件**：上游 harness 提供进程起来后的准备钩子且语料门禁支持通道目录与 profile 解耦，或 console 通道移出本仓。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 harness 只有进程起来之前的 `prepareWorkspace`，语料门禁的 `profiles` 仍把目录名与 profile 一一对应；本线 `pnpm run test:snapshot snapshots/console` 20 个测试全部通过。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 harness 只有进程起来之前的 `prepareWorkspace`，语料门禁的 `profiles` 仍把目录名与 profile 一一对应；本线 `pnpm run test:snapshot snapshots/console` 20 个测试全部通过。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：`snapshots/console/cordis.yml` 的 `system-prompt` 配置 `persona` 改为上游改名后的 `personaPrefix`。已录的 12 个场景夹具是 V4 之前录的：keyless 回放 12 个场景全部与期望输出不符，夹具头检查报「pinning fixture 必须恰好带一条 system 消息」；按本通道规则需要带 key 重录（`pnpm run test:snapshot:record`），本轮没有重录。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第二轮）**：`docs/testing.{md,zh.md}` 里本线加的那一句撤回，两文件回到 `dsh-v0.1.7-rc.2` 版本：上游对该文件设了字数预算，加句后超限。通道目录与 profile 解耦的事实由 `scripts/session-snapshot-corpus.corpus.ts` 的 `profileByLane` 与 `snapshots/console/README.*` 承载。
 - **本轮适配（并入 `feat/skill-pack-v0`）**：`snapshots/console/cordis.yml` 随 skill-pack 线加 `console-mcp`（`servers: []`）与 `system-map` 两行；`show-crud-turn` 改名 `show-data-page-turn`，其 V4 日志按 skill-pack 的 V0 脚本无 key 重新生成，新场景 `system-map-turn` 首次生成 V4 日志，两者都是 `recording: authored`；十三个场景全部回放通过。
@@ -752,7 +753,7 @@
 - **为什么**：登录门场景要在同一 context 里开第二个同源标签页；控制台锁要以 `--patch` 的形式组合；控制台快照要钉住控制台 bundle 自己选的 `surfaceContext`。
 - **要达到的效果**：本线浏览器场景复用上游的起壳、录制与回放机制，不分叉脚手架。
 - **退役条件**：上游提供等价能力，或本线场景移出本仓。
-- **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。在役子件的核实依据：`dsh-v0.2.0-rc.2` 的 `scaffold.ts` 无 `commandLinePatchPath`，`support.ts` 无 `newEnglishContext`。
+- **状态**：局部退役（`product/server-console`）。已退役子件：桩模型目录里的 `deepseek-v4-flash-vision-exp` 条目，`dsh-v0.1.7-rc.2` 自带同名条目，取上游侧；`newEnglishContext` 用上游 `englishOptions` 的 `timezoneId: 'Asia/Shanghai'`。在役子件的核实依据：`dsh-v0.2.1-alpha.1` 的 `scaffold.ts` 无 `commandLinePatchPath`，`support.ts` 无 `newEnglishContext`。
 - **本轮退役（`dsh-v0.1.7-rc.2` 第七轮）**：`recordFixture` 的 `afterSeed` 选项、`withoutSeededHistory`／`afterSeededHistory`、`stableSessionFixture` 的 `keep` 参数、`assertReplaySession` 里按种子边界剪日志的 `drivenLog`，以及回放模型目录旁那段本线注释，全部回到 `dsh-v0.1.7-rc.2` 的文本。机械依据：V4 日志里被驱动那一轮的 `system/message` 以 `surfaceOp.replace` 和 `sourceEventSeqs` 引用种子轮的序号，剪掉种子轮后的日志过不了 V4 的引用校验（`sourceEventSeqs ranges must contain unique earlier seqs`）。本线内容栏场景（`apps/web/tests/content-column.ts`）改为只种一个不含模型调用的轮次（`turn/start`、`content/shown`、`turn/end`），整段会话照上游方式录制与回放；图片场景的回放目录由 `content-column.ts` 经上游已有的 `replayProviders` 传入。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第四轮）**：`LaunchOptions` 新增 `commandLinePatchPath`：把一个补丁文件原样追加到 profile context 的 `overlays`，即启动器 `--patch` 所在的位置（`apps/cli/src/profile-boot.ts` 的 `overlays`），不经过 `extraOverlayPath` 那条把 `permission`、`agent-preset-registry` 等行的 config 挪进可编辑默认层的映射。用途：`server-sidebar.e2e.ts` 的「无工作区」describe 以 `--patch` 形式组合控制台锁，证明该形式同样拒绝 `defaultPreset` 写入（去掉该选项后同一用例失败：`promise resolved "undefined" instead of rejecting`）。
 - **本轮适配（控制台提示词去掉开发者段落）**：控制台 bundle 以 `web-runtime` 的 `surfaceContext: false` 去掉 `harness:source` 与 `app:web-surface` 两段。脚手架为关掉 URL 行与浏览器交接，在全部 profile 层之上重新应用 `web-runtime`，沿用的 `surfaceContext` 原先只从 base、Web bundle 与 `extraOverlayPath` 组合，作为 profile 包装进来的控制台 bundle 的 `false` 被改回 `true`。现在按 `dsh.profile.bundles` 的顺序把每个 `enabled` 的 profile 包的 `dsh.bundle.patch` 组合在 Web bundle 与 `extraOverlayPath` 之间；启用却不声明 `dsh.bundle` 的包直接报错。取回这一轮改动前的 `scaffold.ts` 后，`console-auto-compact` 回放以 `system-prompt pin` 不符失败。决定见 Agent Note [`console-prompt-without-developer-sections`](../.agents/notes/implemented/feature/2026-10-03-console-prompt-without-developer-sections.md)。
@@ -764,7 +765,7 @@
 - **为什么**：上游自己的死引用：基座 tag 里没有 `examples/` 目录。
 - **要达到的效果**：预算目标只列真实存在的文件。
 - **退役条件**：上游删掉这一项，或合并时直接取上游侧放弃这一行（不影响任何门禁）。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 仍列这一项。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 仍列这一项。
 - **本轮适配（`dsh-v0.2.0-rc.2`）**：上游把根 `AGENTS.md` 的目标从 1,950 改为 1,960，与本族删掉的那一项在同一行冲突；取上游的 1,960，仍不列 `examples/AGENTS.md`。
 - **路径**：`docs/AGENTS.md`
 
@@ -774,7 +775,7 @@
 - **为什么**：本线基线已把这两份 Note 封存进归档清单；`verify-archived-agent-notes` 以 HEAD 清单为基线，已封存的条目不能删除。
 - **要达到的效果**：归档门禁在本线通过，归档 Note 冻结不改。
 - **退役条件**：`core-patches` 的归档清单自己收录这些 Note，或本线决定按归档政策删除它们。
-- **状态**：在役（`product/server-console`）。核实依据：本线这一轮并入的 `core-patches` 线头（记下 `rescope-vendor` 上游红项的那一提交）的 `.agents/notes/archived/manifest.json` 不含这九份 Note 的任何条目，`dsh-v0.2.0-rc.2` 的归档清单同样不含；本线清单含它们的二十七个条目。
+- **状态**：在役（`product/server-console`）。核实依据：本线并入的 `dsh-v0.2.1-alpha.1` 这一轮 `core-patches` 线头的 `.agents/notes/archived/manifest.json` 不含这九份 Note 的任何条目，`dsh-v0.2.1-alpha.1` 的归档清单同样不含；本线清单含它们的二十七个条目。本线清单另有本线自有的 `architecture/2026-09-04-base-path-for-the-server-console`、`feature/2026-09-10-toy-crud-kind` 两份 Note 的六个条目，它们的文件不在基座 tag 里。这一轮合并时清单冲突取本线侧，再由 `verify-archived-agent-notes --write` 封存上游新归档的条目，结果恰好是两侧条目的并集。
 - **路径**：`.agents/notes/archived/manifest.json`
 
 ## experimental-private-publication — 本线实验包按上游显式例外表不发布
@@ -783,7 +784,7 @@
 - **为什么**：`dsh-v0.1.7-rc.2` 把实验包默认改为公开发布，只有这张显式例外表能把包排除在公开发布与 npm 基线之外；本线这些包只随本线部署交付，不应进入公开发布。
 - **要达到的效果**：上游发布与 npm 基线门禁照常覆盖全工作区，本线包按上游自己的例外机制排除，不改门禁逻辑。
 - **退役条件**：本线包移出本仓（仓外 tarball 引入），或上游让包以自身元数据声明不发布。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 `PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES` 仍是空表，`isPublicExperimentalPackageDirectory` 只按这张表判定。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES` 仍是空表，`isPublicExperimentalPackageDirectory` 只按这张表判定。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第三轮）**：表中加 `packages/experimental/console-profile`，共十五个目录。
 - **本轮适配（并入 `feat/skill-pack-v0`）**：表中加 `console-mcp`、`skill-pack`、`skill-pack-components`、`system-map`，共十九个目录。
 - **本轮适配（并入 `feat/page-refresh`）**：表中加 `page-refresh`，共二十个目录。
@@ -795,7 +796,7 @@
 - **为什么**：`dsh-v0.1.7-rc.2` 的 `verify-no-unknown-casts` 拒绝基线外的每一处断言，脚本只提供 `--prune`，没有登记新增的模式；逐处改写两百处断言不在合并轮的范围内。
 - **要达到的效果**：新写的 `as unknown` 在本线同样被拒，既有的这批按上游机制计数冻结，改掉一处就能用 `--prune` 收紧。
 - **退役条件**：本线把这些断言改成类型化取值或收窄后 `pnpm run verify-no-unknown-casts --prune` 删净本线条目，或这些文件移出本仓。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 `verify-no-unknown-casts` 仍只接受 `--prune`，没有登记新增断言的模式；本线 `verify-no-unknown-casts` 退出 0。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `verify-no-unknown-casts` 仍只接受 `--prune`，没有登记新增断言的模式；本线 `verify-no-unknown-casts` 退出 0。生成方法：用脚本导出的 `scanUnknownCasts` 与 `countUnknownCasts` 算出当前计数，确认新增条目全部落在本线文件、且无过期条目后整表写回。
 - **本轮适配（`dsh-v0.1.7-rc.2` 第八轮）**：`packages/experimental/server-layout/tests/shell-frame.client.spec.tsx` 的会话列表桩改为类型化的 `SessionListState`，用 `--prune` 删去它原来那条断言的指纹，本线条目剩 200 处。
 - **本轮适配（并入 `feat/skill-pack-v0`）**：skill-pack 线带来 28 处新断言，全部在本线测试文件里（component-kit 的 data-page 与能力组合 spec、component-surface 的 data-page 与视图组合 spec、skill-pack、skill-pack-components、system-map 的 spec、`apps/web/tests/component-surface-data-page.e2e.ts`），按同一方法整表写回；改名后不存在的 `crud` 两文件条目随之删去。`console-mcp/src/index.ts` 里唯一一处源码断言改为直接 `as z<ConfigInput, Config>`，不进基线。
 - **本轮适配（`dsh-v0.2.1-alpha.1`）**：三份 invariant spec（`component-surface/tests/invariant.client.spec.ts`、`content-frame/tests/invariant.client.spec.ts`、`content-surface/tests/invariant.spec.ts`）随伴生插件删除，`--prune` 删去它们的 7 处指纹，没有新增断言。
@@ -807,7 +808,7 @@
 - **为什么**：该 e2e 断言控制台组合的预设注册表里没有名为 `cordis` 的预设，必须写出带引号的预设 id；rescope 门禁把任何带引号的裸 `cordis` 当成未改名的包名，报 residue。上游对「`cordis` 也是预设 id」的文件用的就是这张表。
 - **要达到的效果**：rescope 门禁照常覆盖该文件里的其余包名，只对 `cordis` 这一个名字放行。
 - **退役条件**：该用例不再写出这个预设 id，或上游门禁改为区分预设 id 与包名。
-- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.0-rc.2` 的 `GENERIC_SKIPS` 仍无该文件；取回 `dsh-v0.2.0-rc.2` 版 `rescope-vendor.ts` 后 `rescope-vendor:check` 报 `apps/web/tests/server-sidebar.e2e.ts` residue。
+- **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `GENERIC_SKIPS` 仍无该文件；取回 `dsh-v0.2.0-rc.2` 版 `rescope-vendor.ts` 后 `rescope-vendor:check` 报 `apps/web/tests/server-sidebar.e2e.ts` residue。
 - **路径**：`scripts/rescope-vendor.ts`
 
 ## client-catalog-toolview-budget — `tool.call.toolview` 的单槽报告预算放宽到 121 行（本线专属）
@@ -818,6 +819,7 @@
 - **退役条件**：上游自己在 `tool.call.toolview` 上的计数降到 118 行及以下，或上游把预算提高到 121 行及以上，或上游提供逐槽预算机制（届时改用上游机制）；任一成立即删掉 `SLOT_LINE_BUDGETS` 并还原两文件。这是本线有意保留的专属补丁，不进 `core-patches`。
 - **状态**：在役（`product/server-console`）。核实依据：取回 `dsh-v0.2.0-rc.2` 版 `gen-client-catalog.{ts,spec.ts}` 后 `gen-client-catalog --check` 报 `tool.call.toolview` 121 行超出写死的 120 行，扣掉本线两行后上游自身仍是 119 行。
 - **本轮核对（并入 `feat/skill-pack-v0`）**：system-map 的三个工具不注册 toolview，`gen-client-catalog --check` 在 121 行预算下退出 0，预算与退役条件不变。
+- **本轮核对（`dsh-v0.2.1-alpha.1`）**：取回 `dsh-v0.2.1-alpha.1` 版 `gen-client-catalog.{ts,spec.ts}` 后 `verify-client-catalog` 仍报 `tool.call.toolview` 121 行超出写死的 120 行；本线版本退出 0。
 - **路径**：`scripts/gen-client-catalog.spec.ts` `scripts/gen-client-catalog.ts`
 
 ## console-vendored-plugin-notice — 第三方声明指向 `console-profile` 提交的自动压缩插件归档
@@ -826,7 +828,7 @@
 - **为什么**：`console-profile` 以 `file:` 引入这个仓外插件的 tarball。插件 manifest 的 `repository` 指向插件仓库，而本仓分发的是提交进来的这份归档，不是某个 registry 版本，也不是插件仓库里的某个提交，所以声明里写的出处是这份归档；develop 线对它 vendored 的 `@haoran` tarball 用同样的写法。
 - **要达到的效果**：`THIRD_PARTY_NOTICES.md` 里这个插件的条目指向随本仓提交的归档，换版本时归档路径与 `file:` 说明符一起改。
 - **退役条件**：`@haoran/dsh-auto-compact` 改为 registry 包，或移出 `console-profile`；任一成立即删掉这一项。
-- **状态**：在役（`product/server-console`）。核实依据：`console-profile` 的 `package.json` 以 `file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz` 引入该插件；`dsh-v0.2.0-rc.2` 的 `OVERRIDES` 没有这一项。
+- **状态**：在役（`product/server-console`）。核实依据：`console-profile` 的 `package.json` 以 `file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz` 引入该插件；`dsh-v0.2.1-alpha.1` 的 `OVERRIDES` 没有这一项。
 - **路径**：`scripts/gen-third-party-notices.ts`
 
 ## 历史轮次

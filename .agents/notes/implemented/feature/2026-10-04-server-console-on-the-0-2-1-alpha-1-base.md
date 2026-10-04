@@ -1,0 +1,43 @@
+# Agent Note: The product-console line on the 0.2.1-alpha.1 base — invariant companions removed, Schedule off, Developer Tools within a visitor's reach
+
+Status: implemented
+
+English | [中文](2026-10-04-server-console-on-the-0-2-1-alpha-1-base.zh.md)
+
+## Problem
+
+The merge of the 0.2.1-alpha.1 base into the console line met four conditions. Upstream deleted `@deepseek-ai/dsh-invariants` and every `./invariant` subpath ([upgrade guide](../../../../docs/upgrade-guide/v0.2.0-rc.2/remove-runtime-invariants/guide.md)); `component-surface`, `content-frame`, and `content-surface` each published a companion importing it, and those three and `auth-gate` listed it as a dependency, so `pnpm install` refused the merged tree with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND` and `tsc` refused each companion with `TS2307`. The Web composition mounts Schedule itself: the Host rows `schedule` and `ui-schedule`, and `time-context` with the four `schedule_*` tools inside the shipped `standard`, `ptc`, and `cordis` presets ([upgrade guide](../../../../docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md)). The shipped `web-runtime` row gained `publicUrl`, the application root it advertises, and the console's `web-runtime` row, which restates that row's whole config, left it out. The installation offers a new optional bundle, `@deepseek-ai/dsh-experimental-inspector-profile` (Developer Tools), which mounts the experimental Inspector with unredacted Host fetch capture and a DevTools frontend whose CDP target evaluates code in the Host; the desktop line is designing the mechanism that withholds it, so this round records only what a console visitor can do with it.
+
+## Decision
+
+**The console packages publish no invariant companion.** Following upstream's migration, `component-surface`, `content-frame`, and `content-surface` drop `src/invariant.ts`, the `./invariant` export and its `files` entry, the tsdown entry, the `tsconfig.base.json` alias, and the companion specs, and the four manifests drop `@deepseek-ai/dsh-invariants`. `component-surface` builds one Node entry, so the hashed `lib/projection-*.js` and `lib/validate-*.js` chunk that the tool and the companion shared is gone from its `files` list and from `packageFileExtras` in `scripts/check-workspace-constraints.ts`. The package READMEs drop their "No companion is published" statements, as upstream's did with the rule that required them.
+
+**Schedule is off in the console.** The bundle layer disables `schedule` and `ui-schedule` by id. Every signed-in visitor shares the console's one Host: `schedule.catalog` returns every session's tasks, and the four `schedule_*` tools create, change, and delete tasks with no approval step. Neither console preset declares `tool-schedule` or `time-context`, and the three shipped presets that do are disabled rows. `packages/experimental/console-profile/tests/profile.spec.ts` pins both rows as disabled while the shipped Web bundle still composes them, and pins the three disabled presets as the only ones declaring either package; `apps/web/tests/server-sidebar.e2e.ts` boots the composition through the scaffold's startup audit.
+
+**`web-runtime` restates `publicUrl`.** The console row carries `publicUrl: !!js ctx.webStartup.publicUrl` beside its other restated fields, so a deployment behind a prefix-stripping proxy advertises the root the launcher was given rather than the loopback URL.
+
+**The persistence chain is unchanged.** `verify-persistence-changes` exits 0 on the merged tree. Upstream added no record between 0.2.0-rc.2 and 0.2.1-alpha.1, so `2026-09-26-console-content-events` still names `2026-09-21-user-question-reply` as the predecessor of the four shared roots, which is where the rebase rule of the [0.2.0-rc.2 base Note](../architecture/2026-10-01-server-console-on-the-0-2-0-rc-2-base.md) puts it.
+
+## Developer Tools in the console
+
+The console composes Developer Tools as upstream ships it: offered and off. No console surface opens the page that switches it on. `ui-sidebar` is disabled, so `ui-plugin-manager`'s `sidebar.panellist` entry never lands; `server-sidebar` never selects the `plugins` panel; Settings → Plugins is disabled. The Host side is reachable. The base bundle mounts `plugin-manager` and `hmr` whenever a profile is loaded (`packages/bundle/base/cordis.patch.yml`), and the console addresses neither. `dsh-client-connection` admits every `/api` request that passes the Host and Origin fence and carries the browser session cookie as the one operator Peer, with no per-method check (`packages/client/connection/src/rpc-host.ts`). A signed-in visitor can therefore call `pluginManager.setBundleEnabled('@deepseek-ai/dsh-experimental-inspector-profile', true)` from the page's own origin: the installation offers the bundle (`OPTIONAL_BUNDLES` in `packages/boot/app-boot/src/profile.ts`), and with `hmr` mounted the change applies live. The Inspector then serves its DevTools frontend and the `/inspector/devtools/cdp` upgrade on the main webserver under the same login (`packages/experimental/inspector/src/host/plugin.ts`), so the CDP target and the unredacted fetch capture are reachable through the deployment's proxy. `pluginManager.installBundle` and `pluginManager.setPluginEnabled` are on the same surface. `server-base`'s `ownsHost` makes `ctx.connection.isLoopback` true for every admitted visitor, so no browser-side check stands in front of any of it.
+
+## The second merge of this base
+
+The patch line appends commits to this base after 2026-10-10, and this line merges them in a second round. They include `settings-navigation-groups`, which moves the 「数据与存储」 Settings section. `server-sidebar` withholds Settings entries by slot and id in `packages/experimental/server-sidebar/src/client/settings-entries.ts` (`busy-compaction` and `auto-compact` in `settings.general.item`, `open-document` in `settings.action`), and an entry whose owner moves it to another slot or id is one nothing shadows, so that round rechecks each withheld row against the moved section.
+
+## Alternatives considered
+
+**Keeping the companions on a line-owned copy of the registry.** It would carry a package upstream deleted and a core path no base has, for checks no gate runs.
+
+**Disabling only `ui-schedule`.** The Automation tasks page would go, but the Host's `schedule.*` Remote methods would still answer every admitted browser.
+
+**Leaving the Host rows on and relying on the presets.** Neither console preset declares the tools, but `schedule` would still keep a task store and Remote methods that list every session's tasks.
+
+**Withholding Developer Tools in this round with a console disable row.** Disabling `plugin-manager` or the bundle here would answer the question before the desktop line's mechanism exists, and a second, console-only answer would have to be reconciled with it.
+
+**Restating `web-runtime` without `publicUrl`.** The row would leave the field unset, and a console behind a proxy would advertise the loopback URL.
+
+## Consequences
+
+The three console packages' recorded events are checked only by the validation each package applies when it writes them; their own suites keep every source file at 100% coverage without the companion specs. Console conversations have no reminders and no clock reading; a deployment that wants Schedule re-enables both rows in its own layer and accepts that one Host's task list is every visitor's. Until the withholding mechanism lands, any visitor the deployment's login admits can switch Developer Tools on and then evaluate code in the Host, a reach that `installBundle` and `setPluginEnabled` already had before this base. The Web goldens moved with the base: tool-fs's `edit` and `write` descriptions now ask for `file_path` first, and the scenarios composed from the shipped `standard` preset rather than the console bundle record one clock reading and list the `schedule_*` tools.

@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach:
+  en: 79d2c842b16e2b23
+  zh: 90c9d3b04c95b567
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/problem:
+  en: 835e77e06e665eb6
+  zh: 8ca999e1de4d7e73
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/decision:
+  en: f35af36d7b8b82a0
+  zh: 9cd3fe41071618df
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/developer-tools-in-the-console:
+  en: e559119668c3302d
+  zh: 277b2d6bd50aa6bc
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/the-second-merge-of-this-base:
+  en: 32ba88ec426158ca
+  zh: dae8ce15a1d3cf90
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/alternatives-considered:
+  en: cf7c49b22feb13a2
+  zh: 6a888523c2ef821e
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-developer-tools-within-a-visitor-s-reach/consequences:
+  en: 359b375bd9a6eef9
+  zh: 7faddffff7b5c7d1
