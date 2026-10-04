@@ -94,7 +94,7 @@ it('persists Coding Tools and limits the built-in PTC and Minimal choices in ses
   await expect.poll(() => menu.getByRole('menuitem').count()).toBe(3)
   await page.keyboard.press('Escape')
   await openSettings(page, 'en')
-  await settings.getByRole('button', { name: 'General', exact: true }).click()
+  await settings.getByRole('button', { name: 'General settings', exact: true }).click()
   await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('false')
   await settings.getByRole('button', { name: 'Agent presets', exact: true }).click()
   await expect.poll(visiblePresets).toEqual(['standard', 'cordis', 'custom'])
