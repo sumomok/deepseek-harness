@@ -1536,8 +1536,11 @@ if (!locked) {
       view.showApp(running.authenticatedUrl)
       if (cleanUp) cleanUpMoveInBackground(view.window)
       if (found.kind === 'requested') {
-        const text = moveText(app.getLocale())
-        dialog.showMessageBox(view.window, { type: 'info', message: text.requestWithdrawn, buttons: [text.understood] }).catch((error: unknown) => {
+        const locale = app.getLocale()
+        const text = moveText(locale)
+        dialog.showMessageBox(view.window, {
+          type: 'info', title: PRODUCT_NAME[locale.startsWith('zh') ? 'zh' : 'en'], message: text.requestWithdrawn, buttons: [text.understood],
+        }).catch((error: unknown) => {
           sink(`[desktop] data move: could not show the withdrawal notice: ${String(error)}\n`)
         })
       }
