@@ -1,7 +1,9 @@
 /**
  * Declarations for `proxy.mjs`, the deployment-layer login gate, so the
  * package's TypeScript tests import it with types. The behavior and every
- * contract stated here are owned by the JSDoc in `proxy.mjs`.
+ * contract stated here are owned by the JSDoc in `proxy.mjs`. This file is
+ * maintained by hand: tests/deploy-proxy.spec.ts, which imports and calls each
+ * declared export, is the only check that it matches the module.
  * @module @deepseek-ai/dsh-experimental-server-base/deploy/proxy
  */
 

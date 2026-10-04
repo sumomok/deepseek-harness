@@ -18,14 +18,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ASSERTION_LIFETIME_SECONDS,
   MEMBER_HEADER,
+  claimsRefusal,
+  createGate,
   createProxyServer,
   createVerifierServer,
   decodeClaims,
   forwardHeaders,
   headerCredential,
   inspectCredential,
+  isGateExempt,
+  isRemote,
   presentedCredential,
   readSettings,
+  remoteResponseHeaders,
+  requestPathname,
   signAssertion,
   verdictOf,
 } from '../deploy/proxy.mjs'
@@ -329,6 +335,35 @@ describe('configuration fails loud at start', () => {
   })
 })
 
+describe('routing', () => {
+  it('classifies the pathname dsh will route, after resolving dot segments', () => {
+    expect(requestPathname('/plugins/../api/rpc?x=1')).toBe('/api/rpc')
+    expect(isRemote('/api/rpc')).toBe(false)
+    expect(isGateExempt('/api/rpc')).toBe(false)
+    expect(isRemote('/apis')).toBe(true)
+    expect(isRemote('/ini-web2/index.html')).toBe(true)
+    expect(isRemote('/open-in-app/apps')).toBe(false)
+    expect(isRemote('/favicon-dark.svg')).toBe(false)
+    expect(isGateExempt('/favicon-dark.svg')).toBe(true)
+    expect(isGateExempt('/component-kit/settings')).toBe(true)
+    expect(isGateExempt('/component-kit/data')).toBe(false)
+  })
+
+  it('strips the framing and cookie attributes that block embedding the remote application', () => {
+    expect(remoteResponseHeaders({
+      'x-frame-options': 'DENY',
+      'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
+      'set-cookie': ['a=1; Secure; Domain=example.com; Path=/'],
+      'connection': 'close',
+      'content-type': 'text/html',
+    })).toEqual({
+      'content-security-policy': "default-src 'self'",
+      'set-cookie': ['a=1; Path=/'],
+      'content-type': 'text/html',
+    })
+  })
+})
+
 describe('header filtering', () => {
   it('removes the member header in any casing and attaches only the given assertion', () => {
     const headers = { 'X-Dsh-Member': 'forged', 'x-dsh-member': 'forged', 'connection': 'keep-alive', 'accept': 'text/html' }
@@ -368,6 +403,11 @@ describe('verification result', () => {
     expect(inspectCredential(credential, { ...NO_CLAIMS_CHECKS, allowedAppIds: ['42'] }).ok).toBe(true)
     expect(inspectCredential(credential, { ...NO_CLAIMS_CHECKS, allowedAppIds: ['7'] })).toEqual({ ok: false, reason: 'app-id' })
     expect(inspectCredential(`Bearer ${jwt(`{"login_uid":${MEMBER}}`)}`, { ...NO_CLAIMS_CHECKS, allowedAppIds: ['42'] })).toEqual({ ok: false, reason: 'app-id' })
+  })
+
+  it('names the failed claims check directly', () => {
+    expect(claimsRefusal({ iss: 'Inspur', tenants: ['t1'], login_app_id: '42' }, { expectedIss: 'Inspur', allowedTenants: ['t1'], allowedAppIds: ['42'] })).toBeUndefined()
+    expect(claimsRefusal({}, { ...NO_CLAIMS_CHECKS, allowedTenants: ['t1'] })).toBe('tenants')
   })
 
   it('admits on renewal only when the reply token carries the submitted login_uid and jti', () => {
@@ -432,6 +472,12 @@ describe('proxy mode', () => {
       expect(lastMemberHeader(w.dsh.requests)).toBeUndefined()
     }
     expect(w.renewals()).toBe(0)
+  })
+
+  it('gates a dot-segment path that resolves outside the exempt list', async () => {
+    const w = await world()
+    expect((await send(w.port, '/plugins/../api/rpc', FORGED_ONLY)).status).toBe(401)
+    expect(w.dsh.requests).toHaveLength(0)
   })
 
   it('forwards a remote-application path with the forged header removed and no assertion', async () => {
@@ -516,6 +562,30 @@ describe('proxy mode', () => {
   })
 })
 
+describe('gate', () => {
+  it('shares one check among concurrent requests and asks again once the admission expires', async () => {
+    let renewals = 0
+    const customer = await stub((req, res) => {
+      renewals += 1
+      res.end(JSON.stringify({ renewal: '3600000', token: req.headers.authorization }))
+      return true
+    })
+    const clock = { now: 1_800_000_000_000 }
+    const gate = createGate(readSettings({ PROXY_MODE: 'verify', AUTH_ORIGIN: `http://127.0.0.1:${String(customer.port)}`, AUTH_CACHE_SECONDS: '30' }), { log: () => {}, now: () => clock.now })
+    closers.push(async () => { gate.close() })
+    const credential = `Bearer ${TOKEN}`
+    const admitted = { outcome: 'admitted', member: MEMBER }
+    expect(await Promise.all([gate.authorize(credential), gate.authorize(credential)])).toEqual([admitted, admitted])
+    expect(renewals).toBe(1)
+    clock.now += 29_000
+    expect(await gate.authorize(credential)).toEqual(admitted)
+    expect(renewals).toBe(1)
+    clock.now += 2_000
+    expect(await gate.authorize(credential)).toEqual(admitted)
+    expect(renewals).toBe(2)
+  })
+})
+
 describe('verify mode', () => {
   it('answers 200 with a fresh assertion for a verified login, whatever member header the subrequest carries', async () => {
     const w = await world({ PROXY_MODE: 'verify' })
@@ -537,6 +607,16 @@ describe('verify mode', () => {
 
     const down = await world({ PROXY_MODE: 'verify' }, () => ({ status: 504, body: '' }))
     expect((await send(down.port, '/', { authorization: `Bearer ${TOKEN}` })).status).toBe(503)
+  })
+
+  it.each([
+    ['jti', memberToken({ jti: 'jti-2' })],
+    ['login_uid', memberToken({ uid: OTHER_MEMBER })],
+  ])('answers 401 with no assertion when the renewal reply carries another %s', async (_claim, replied) => {
+    const w = await world({ PROXY_MODE: 'verify' }, () => ({ status: 200, body: JSON.stringify({ renewal: '3600000', token: replied }) }))
+    const answer = await send(w.port, '/', { authorization: `Bearer ${TOKEN}` })
+    expect(answer.status).toBe(401)
+    expect(answer.headers[MEMBER_HEADER]).toBeUndefined()
   })
 
   it('answers 200 with no header when no signing key is configured', async () => {
