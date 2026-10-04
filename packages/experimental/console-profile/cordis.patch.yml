@@ -110,8 +110,8 @@
 # land is a composition that misstates what it runs.
 #
 # `subagent-model-selection-settings` (the web bundle's host row) stays: it is
-# the settings namespace `ui-settings-subagent`'s page edits, not the page, and
-# the preset delegation path still samples it.
+# the settings namespace the preset delegation path samples, not a page. The
+# page that edits it, `ui-settings-subagent`, is disabled below.
 - id: ui-settings-plugins
   disabled: true
 
