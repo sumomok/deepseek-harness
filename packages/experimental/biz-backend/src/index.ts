@@ -175,10 +175,16 @@ export interface HeldCredential {
  * The key one signed-in person is known by inside this process.
  *
  * Opaque: no part of it is read here, and it reaches no model, log line or
- * upload. Every package that keys signed-in people for these reads — the
- * console member directory (`console-members`) among them — declares its key
- * as this same brand, `Branded<'PrincipalKey'>`, so a key one of them hands out
- * is a key this seam takes, with no conversion between them.
+ * upload. The type is owned by the console member directory,
+ * `@deepseek-ai/dsh-experimental-console-members`, whose declaration rc.39
+ * froze on 2026-10-05 as `Branded<'PrincipalKey'>` with the person's
+ * `login_uid` as its value. This alias is that same type, because `dsh-brand`
+ * brands every key through its one `BRAND` symbol, so a key the directory
+ * hands out is one this seam takes with no conversion.
+ *
+ * TODO: replace this alias with an import from
+ * `@deepseek-ai/dsh-experimental-console-members` once that package lands on
+ * `product/server-console`.
  */
 export type PrincipalKey = Branded<'PrincipalKey'>
 

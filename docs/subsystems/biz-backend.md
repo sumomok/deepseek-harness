@@ -8,7 +8,7 @@ Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experi
 
 ## The service is constructed, not composed
 
-There is no plugin row for it. The service is created by whichever row holds the visitor's access token — in this fork, [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.md) — and that row passes the token in by reference rather than publishing it. The credential therefore stays in one closure while the three reads that spend it are named on the context, which is the whole of the split: a plugin beside this one can read the deployment's data, and none can read the token.
+There is no plugin row for it. The service is created by whichever row holds the visitors' access tokens — in this fork, [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.md) — and that row passes in, by reference, a resolver that answers each read's subject with the slot holding that person's token, rather than publishing any token. The credentials therefore stay in that row's closure while the reads that spend them are named on the context, which is the whole of the split: a plugin beside this one can read the deployment's data, and none can read a token.
 
 A deployment that configures no base for the backend constructs nothing, so a consumer's `ctx.inject(['bizBackend'])` stays pending with the missing service named. That is the intended way to say "this deployment offers no data backend" — an installed service whose every call failed would say it once per call instead of once at load.
 
@@ -16,7 +16,7 @@ A deployment that configures no base for the backend constructs nothing, so a co
 
 This backend refuses a request with HTTP 200 and a non-zero code in its envelope, so status alone reads a refusal as data. Every call therefore classifies the envelope, and answers with its result or with one member of a closed failure union — `unauthenticated`, `refused`, `rejected`, `unreachable` — which a consumer switches on and ends in `assertNever`. Nothing throws.
 
-Two answers additionally make the holder give the token up, through the `drop` the credential was passed in with: HTTP 401, and any failing status carrying result code 2 or 3 — a 403 among them, though a 403 on its own is a refused request and keeps the token. That is the same terminal state a sign-out reaches, so one refused read is process-wide rather than local to the read that met it.
+Two answers additionally make the holder give a token up, through the `drop` of the slot the read's subject resolved to: HTTP 401, and any failing status carrying result code 2 or 3 — a 403 among them, though a 403 on its own is a refused request and keeps the token. That slot then reaches the same terminal state a sign-out reaches: every later read whose subject resolves to it answers `unauthenticated` until a new token is posted into it, and no other slot is dropped.
 
 ## Nothing a failure carries reaches a log
 

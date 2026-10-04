@@ -12,8 +12,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
   BizBackendService,
   BizOperationRules,
@@ -40,13 +41,13 @@ interface StubAnswers {
 }
 
 /** The session every call in this file runs in. */
-const SESSION_ID = 'session-1'
+const SESSION_ID = SessionId('session-1')
 
 /**
  * The agent the loop hands a tool. Only its session identity is read by this
  * row, so the rest of the live handle is left out.
  */
-const AGENT = { id: SESSION_ID } as never
+const AGENT = { id: SESSION_ID } as NonNullable<ToolExecutionInput['agent']>
 
 /** Three models across two subject areas, as the catalog lists them. */
 const CATALOG: BizModelListResult = {

@@ -64,9 +64,9 @@ const forToolCall: BizSubject = { kind: 'session', sessionId }
 const forRequest: BizSubject | undefined = backend.subjectOfRequest(req)
 ```
 
-`PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`：一个不透明的键，不进模型、不进日志、不上传。凡是为这些读取给已登录者编键的包——控制台的成员目录也在其中——都把自己的键声明成同一个品牌，于是它发出的键这个服务直接收，不必转换。
+`PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`：一个不透明的键，不进模型、不进日志、不上传。它归控制台成员目录 `@deepseek-ai/dsh-experimental-console-members` 所有，那边把它声明成这个品牌，值是这个人的 `login_uid`；这里导出的是同一个类型，因为 `dsh-brand` 给每个键打品牌都用同一个符号，于是成员目录发出的键这个服务直接收，不必转换。
 
-一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人。
+一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人。按控制台成员各握一个槽的解析器，必须把 `principalOfRequest` 委托给 `consoleMembers.principalOfRequest(req)` 来答，这样「一个请求点名的是谁」就只有成员目录这一个来源：路由不自己读身份头，也不自己调 `connection.admit`，只经由 `subjectOfRequest` 拿到成员。
 
 <a id="the-six-reads"></a>
 ## 这六次读取
@@ -129,7 +129,7 @@ None, as this package registers no tool, prompt section, or result: it performs 
 - **不复刻控制台的按模型地址覆盖。** 本部署前端有一份运行期注册表，能把某个模型的查询指到它自己的地址上，而这一侧没有注册方。这样配置过的模型会在默认地址上被读取，那里未必是控制台读的那份。触发器是第一次读出来的行与页面对不上。
 - **组合里的每一行都能用这个服务。** `ctx.bizBackend` 在上下文上具名，所以与构造它的那一行一同加载的任何插件，都能以这位已登录访客的身份读本部署的数据。这些具名方法之窄就是这条边界的全部；谁可以调用它们是组合的决定，而第三方插件默认不声明任何审批闸。主体由调用方自己点名，这里不核对调用方是不是在替它点名的那个主体办事：一个拿到别的会话 id 或别人主体键的插件，只要解析器替那个人握着槽，就能以那个人的身份读。令牌本身仍够不着——它握在调用方的闭包里，没有作为任何服务发布。
 - **这条缝只有读。** 没有新增、修改、删除，加一个也不是再写一个方法的事：一次写入是把一个人的凭据花在改动他自己的系统上，那需要它自己的同意问句和它自己的记录，两样这里都没有。
-- **未被组装快照覆盖** ——本服务由本包自己的用例覆盖，端到端则由 `apps/web/tests/component-surface-datasource.e2e.ts` 里针对真实组合的 Playwright 场景覆盖；快照泳道回放的是出厂组合，那里不组合实验性行。
+- **组装快照只握一个槽。** [`snapshots/console`](../../../snapshots/console/README.zh.md) 泳道组合了 auth-gate，并把 `bizUpstream` 指向套件自己起的假数据后端，所以它的数据源场景和 `system_map` 场景都端到端经过本服务读取，每个主体都解析到 auth-gate 唯一的那个槽；没有快照组合每人各握一个槽的解析器。快照之外，本服务由本包自己的用例覆盖，并由 `apps/web/tests/component-surface-datasource.e2e.ts` 里针对真实组合的 Playwright 场景覆盖。
 
 <a id="dev-note"></a>
 ### 开发备注
