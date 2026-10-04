@@ -227,6 +227,10 @@ describe('a move to another volume', () => {
     expect(readdirSync(s.setup.dir)).toEqual(['last-result.json'])
     expect(readMoveResult(s.setup.dir)?.outcome).toBe('moved')
     expect(dataFiles(listTree(s.target))).toEqual(dataFiles(s.before))
+    // The conversation list reads titles from the projection cache alone, so the moved home keeps it.
+    const projectionCache = (listing: readonly string[]): string[] => listing.filter(line => line.startsWith('file storages/session_projcache'))
+    expect(projectionCache(listTree(s.target))).toHaveLength(2)
+    expect(projectionCache(listTree(s.target))).toEqual(projectionCache(s.before))
     expect(readlinkSync(join(s.target, 'profiles', 'desktop-shell', 'node_modules', 'clsx')))
       .toBe(join(s.target, 'profiles', 'desktop-shell', '.dsh-module-fallback', 'node_modules', 'clsx'))
     expect(readFileSync(join(s.f.sentinel, 'keep.txt'), 'utf8')).toBe('sentinel\n')

@@ -76,7 +76,11 @@ describe('copyTree', () => {
     expect(report.skipped).toBe(0)
     const dest = req.dest
     expect(existsSync(join(dest, '.dsh-data-id'))).toBe(false)
-    for (const excluded of REBUILDABLE_ENTRIES) expect(existsSync(join(dest, ...excluded.split('/')))).toBe(false)
+    for (const excluded of ['cache', 'session-search']) expect(existsSync(join(dest, excluded))).toBe(false)
+    // The conversation list reads titles from the projection cache alone, so it moves with the data.
+    for (const kept of [['storages', 'session_projcache', 'a.json'], ['storages', 'session_projcache.json']]) {
+      expect(readFileSync(join(dest, ...kept)).equals(readFileSync(join(fixture.home, ...kept)))).toBe(true)
+    }
     const nm = join(dest, 'profiles', 'desktop-shell', 'node_modules')
     expect(readlinkSync(join(nm, 'clsx'))).toBe(join(req.links.destRoot, 'profiles', 'desktop-shell', '.dsh-module-fallback', 'node_modules', 'clsx'))
     expect(readlinkSync(join(nm, 'clsx-relative'))).toBe('../.dsh-module-fallback/node_modules/clsx')
