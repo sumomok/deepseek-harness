@@ -1,7 +1,7 @@
 /**
  * The customer-console package: its manifest, how its bundle layer composes
- * over the shipped Web bundles, and the `permission` row of its lock overlay
- * pinned as a closed set.
+ * over the shipped Web bundles, the `permission` row of its lock overlay
+ * pinned as a closed set, and the lock's other rows.
  *
  * The `permission` row does three things no other file states: it renames the
  * three access presets into customer vocabulary, it isolates `commands` so the
@@ -110,6 +110,50 @@ const SCHEDULE_ROWS = [
 ] as const
 /** The preset-owned rows of the reminder stack: the four `schedule_*` tools and the clock reading. */
 const SCHEDULE_PRESET_PACKAGES = ['@deepseek-ai/dsh-tool-schedule', '@deepseek-ai/dsh-time-context'] as const
+/**
+ * The rows that administer the Host's plugins: the Host service that installs
+ * and switches bundles, the Loader inventory, the sidebar Plugins page with its
+ * registry probe, and the four configuration pages that register only into
+ * that page. Every visitor the console admits is the Host's operator, so each
+ * Remote method these rows serve answers every visitor.
+ */
+const PLUGIN_ADMINISTRATION_ROWS = [
+  ['plugin-manager', '@deepseek-ai/dsh-plugin-manager'],
+  ['plugin-inventory', '@deepseek-ai/dsh-host-plugin-inventory'],
+  ['ui-plugin-manager', '@deepseek-ai/dsh-client-ui-plugin-manager'],
+  ['ui-settings-shell', '@deepseek-ai/dsh-client-ui-settings-shell'],
+  ['ui-settings-agent-loop', '@deepseek-ai/dsh-client-ui-settings-agent-loop'],
+  ['ui-settings-subagent', '@deepseek-ai/dsh-client-ui-settings-subagent'],
+  ['ui-settings-web-search', '@deepseek-ai/dsh-client-ui-settings-web-search'],
+] as const
+/** The dynamic Cordis package runner, both halves, and the inspect providers that register into it. */
+const DYNAMIC_CORDIS_ROWS = [
+  ['cordis-host-runner', '@deepseek-ai/dsh-cordis-host-runner'],
+  ['cordis-inspect-providers', '@deepseek-ai/dsh-tool-cordis/host'],
+  ['cordis-client-runner', '@deepseek-ai/dsh-cordis-client-runner'],
+] as const
+/** The interactive terminal, both halves: the Host controller that spawns a shell and the right sidebar's tab. */
+const TERMINAL_ROWS = [
+  ['terminal-controller', '@deepseek-ai/dsh-api-terminal-controller'],
+  ['ui-sidebar-terminal', '@deepseek-ai/dsh-client-ui-sidebar-terminal'],
+] as const
+/** The only model-discovery registrant, whose volatile `providers` field adds routes with their own endpoint and credential reference. */
+const PROVIDER_DISCOVERY_ROWS = [
+  ['llm-pi-ai', '@deepseek-ai/dsh-llm-pi-ai'],
+] as const
+/** The web search and fetch services, which no console preset's tool calls. */
+const WEB_ROWS = [
+  ['web', '@deepseek-ai/dsh-web'],
+  ['web-search-deepseek', '@deepseek-ai/dsh-web-search-deepseek'],
+  ['web-fetch-http', '@deepseek-ai/dsh-web-fetch-http'],
+] as const
+/** The rows that browse, create, open, or render paths on the Host outside any session's tools. */
+const HOST_PATH_ROWS = [
+  ['directory-picker', '@deepseek-ai/dsh-host-directory-picker-auto'],
+  ['open-in-app', '@deepseek-ai/dsh-host-open-in-app'],
+  ['ui-open-in-app', '@deepseek-ai/dsh-client-ui-open-in-app'],
+  ['office-to-pdf', '@deepseek-ai/dsh-office-to-pdf'],
+] as const
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
@@ -214,13 +258,11 @@ describe('the console bundle manifest', () => {
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
     expect(manifest.files).toContain('permission-lock.patch.yml')
-    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek'])
+    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek', 'llm-deepseek', 'agent-default-model'])
     // In the bundle layer each row would sit below the profile patch, where a
-    // settings write to `defaultPreset`, `selectedDefault`, or `enabled`
-    // outranks it.
-    expect(idsOf(CONSOLE_PATCH)).not.toContain('permission')
-    expect(idsOf(CONSOLE_PATCH)).not.toContain('agent-preset-registry')
-    expect(idsOf(CONSOLE_PATCH)).not.toContain('session-log-deepseek')
+    // settings write to `defaultPreset`, `selectedDefault`, `enabled`, the
+    // model route, or the default model outranks it.
+    for (const id of idsOf(LOCK_PATCH)) expect(idsOf(CONSOLE_PATCH)).not.toContain(id)
   })
 })
 
@@ -329,6 +371,53 @@ describe('the console layer over the shipped Web bundles', () => {
       expect(shipped.get(id)?.disabled).not.toBe(true)
       expect(byId.get(id)?.disabled).toBe(true)
     }
+  })
+
+  /**
+   * Each row is a bare disable row here, composed and enabled by the shipped
+   * layers, and disabled in the result: a row retired upstream surfaces as a
+   * warning in the first case rather than as dead configuration here.
+   * @param rows - the rows' ids and the package each shipped row names.
+   */
+  function expectDisabledHereComposedThere(rows: readonly (readonly [string, string])[]): void {
+    const shipped = new Map(composeEntries(web, () => {}).map(entry => [entry.id, entry]))
+    for (const [id, name] of rows) {
+      expect(rowOf(CONSOLE_PATCH, id)).toEqual({ id, disabled: true })
+      expect(shipped.get(id)).toMatchObject({ name })
+      expect(shipped.get(id)?.disabled).not.toBe(true)
+      expect(byId.get(id)?.disabled).toBe(true)
+    }
+  }
+
+  it('turns plugin management off by id — the Host service, its inventory, and every page over them — while the shipped bundles still compose them', () => {
+    // The base row's `disabled` is an expression that is false under
+    // `dsh --profile`, which is how the console starts.
+    expectDisabledHereComposedThere(PLUGIN_ADMINISTRATION_ROWS)
+  })
+
+  it('turns the dynamic Cordis runner off by id, both halves and the inspect providers that wait for it, while the shipped Web bundle still composes them', () => {
+    expectDisabledHereComposedThere(DYNAMIC_CORDIS_ROWS)
+  })
+
+  it('turns interactive terminals off by id, both halves, while the shipped Web bundle still composes them', () => {
+    expectDisabledHereComposedThere(TERMINAL_ROWS)
+  })
+
+  it('turns provider discovery off by id, while the shipped base bundle still composes it', () => {
+    expectDisabledHereComposedThere(PROVIDER_DISCOVERY_ROWS)
+  })
+
+  it('turns web search and fetch off by id, all three Host rows, while the shipped base bundle still composes them', () => {
+    expectDisabledHereComposedThere(WEB_ROWS)
+    // No preset that stays composed mounts the web tool these rows serve.
+    const presets = entries.filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
+    for (const preset of presets) {
+      expect(pluginPackages((preset.config as { plugins?: Row[] } | undefined)?.plugins ?? [])).not.toContain('@deepseek-ai/dsh-tool-web')
+    }
+  })
+
+  it('turns directory browsing, Open In, and Office rendering off by id, while the shipped Web bundle still composes them', () => {
+    expectDisabledHereComposedThere(HOST_PATH_ROWS)
   })
 
   it('leaves the reminder tools and the clock row only in Agent presets it disables', () => {
@@ -489,6 +578,26 @@ describe('the lock overlay\'s Session-log row', () => {
     // The row replaces the base bundle's config: without `enabled: false` here
     // the plugin's own default, which is on, would apply.
     expect(sessionLog?.config).toEqual({ enabled: false })
+  })
+})
+
+describe('the lock overlay\'s model rows', () => {
+  const base = new Map(composeEntries([bundlePatches(resolve(REPO_ROOT, 'packages/bundle/base'))], () => {}).map(entry => [entry.id, entry]))
+
+  it('patches `llm-deepseek` by id and by package name with the empty config the base bundle composes it with', () => {
+    // A row with no `config` key would leave every field writable; `{}` is
+    // the base bundle's configuration stated, which config-editor then holds.
+    expect(base.get('llm-deepseek')).toMatchObject({ name: '@deepseek-ai/dsh-llm-deepseek-api-key' })
+    expect(base.get('llm-deepseek')?.config ?? {}).toEqual({})
+    expect(rowOf(LOCK_PATCH, 'llm-deepseek')).toEqual({ id: 'llm-deepseek', name: '@deepseek-ai/dsh-llm-deepseek-api-key', config: {} })
+  })
+
+  it('pins `agent-default-model` by id and by package name to the base bundle\'s provider and model', () => {
+    const shippedConfig: unknown = base.get('agent-default-model')?.config
+    expect(shippedConfig).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+    expect(rowOf(LOCK_PATCH, 'agent-default-model')).toEqual({
+      id: 'agent-default-model', name: '@deepseek-ai/dsh-agent-default-model', config: shippedConfig,
+    })
   })
 })
 

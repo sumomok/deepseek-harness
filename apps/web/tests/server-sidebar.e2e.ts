@@ -18,6 +18,9 @@
  * the vendored `@haoran/dsh-auto-compact` row, and the Settings header's
  * configuration-file action) while both console presets reach the compaction
  * engine the plugin drives,
+ * the Host administration Remote methods the console bundle disables, which
+ * answer 404 to a request the login cookie admits while the console's own
+ * Remote calls answer,
  * hiding the `show-content-page` command's own chat echo while its durable
  * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
@@ -65,6 +68,7 @@
  * below that patch; a `--patch` overlay composes above it.
  */
 
+import { randomUUID } from 'node:crypto'
 import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -72,6 +76,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
+import { FiberState } from '@deepseek-ai/cordis'
 import { createMessage, createUserMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -409,6 +414,60 @@ function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'us
     return data.page === page && data.by === by
   }))
 }
+
+/** One Remote unary's RPC result. */
+interface RemoteResult {
+  ok: boolean
+  value?: unknown
+  error?: { code: string; message: string }
+}
+
+/** What the Host answered to one Remote unary: the HTTP status, and the result when the API Gateway claimed the endpoint. */
+interface RemoteAnswer {
+  status: number
+  result?: RemoteResult
+}
+
+/**
+ * Send one Typert Remote unary the way the page's own client does: a
+ * `client-request` envelope POSTed to `/api/<namespace>/<method>` with the
+ * scaffold's login cookie, which admits it as the Host's operator.
+ * @param scaffold - the launched console.
+ * @param endpoint - `<namespace>/<method>`.
+ * @param args - the method's arguments, by parameter name.
+ * @returns the HTTP status, with the RPC result when the status is 200.
+ */
+async function remoteCall(scaffold: WebScaffold, endpoint: string, args: Readonly<Record<string, unknown>>): Promise<RemoteAnswer> {
+  const response = await scaffold.hostFetch(`/api/${endpoint}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request', rpcId: `server-sidebar-${endpoint}-${randomUUID()}`, method: endpoint, payload: { args },
+    }),
+  })
+  if (response.status !== 200) return { status: response.status }
+  return { status: 200, result: (await response.json() as { result: RemoteResult }).result }
+}
+
+/**
+ * Remote methods of the Host administration services the console bundle
+ * disables, each with arguments of the kind its method takes. No Gateway claim
+ * covers them, so each answers 404 to an admitted visitor. The read-only
+ * listing call comes first: a composition that still serves the plugin manager
+ * fails on a call that changes nothing.
+ */
+const CLOSED_ENDPOINTS: readonly (readonly [string, Readonly<Record<string, unknown>>])[] = [
+  ['pluginManager/listBundles', {}],
+  ['pluginManager/setBundleEnabled', { name: '@deepseek-ai/dsh-experimental-inspector-profile', enabled: true }],
+  ['pluginManager/installBundle', { spec: '@deepseek-ai/dsh-experimental-inspector-profile' }],
+  ['pluginInventory/list', {}],
+  ['pluginRegistryProbe/fastest', {}],
+  ['dynamicCordisRunner/runHostHalf', {
+    agent: 'server-sidebar-closed', pluginId: 'probe', packageId: 'probe', mode: 'once', requestId: null, approveFutureVersions: false,
+  }],
+  ['terminal/create', { agent: 'server-sidebar-closed', request: { id: 'server-sidebar-terminal', cols: 80, rows: 24 } }],
+  ['officeToPdf/render', { workspaceFileScope: { sessionId: 'server-sidebar-closed' }, path: '/etc/hosts.docx', priority: 'visible' }],
+]
 
 /** Read the server-sidebar row's live menu fields straight from the host, bypassing the HTTP route entirely. */
 function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
@@ -1039,6 +1098,39 @@ describe('web e2e: the product-console sidebar', () => {
     // and the lock holds `enabled: false` against the same RPC write.
     await expect(scaffold.ctx.settings.update('session-log-deepseek', { enabled: true }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+  })
+
+  it('serves an admitted visitor no Host administration method, while the console\'s own calls still answer', async () => {
+    // Every row the composition keeps activated: a disabled row whose
+    // dependent stayed composed would leave that dependent waiting.
+    const inactive = [...scaffold.ctx.loader.entries()]
+      .filter(entry => !entry.disabled && entry.fiber?.state !== FiberState.ACTIVE)
+      .map(entry => entry.options.id)
+    expect(inactive).toEqual([])
+    // The login cookie admits this request as the operator Peer with no
+    // per-method check, so absence from the composition is the only refusal.
+    for (const [endpoint, args] of CLOSED_ENDPOINTS) {
+      expect({ endpoint, ...await remoteCall(scaffold, endpoint, args) }).toEqual({ endpoint, status: 404 })
+    }
+    // `llm` itself stays; with `llm-pi-ai` gone no discovery fetches the URL.
+    const discovery = await remoteCall(scaffold, 'llm/discoverModels', {
+      settingsNs: 'llm-pi-ai', request: { baseURL: 'http://127.0.0.1:9/v1', api: 'openai-completions' },
+    })
+    expect(discovery.result).toMatchObject({
+      ok: false, error: { code: 'llm/model-discovery-rejected', message: 'no model discovery is registered for "llm-pi-ai"' },
+    })
+    // The lock refuses the same write the settings page would send.
+    const write = await remoteCall(scaffold, 'settings/update', { ns: 'agent-default-model', patch: { model: 'deepseek-v4-pro' } })
+    expect(write.result).toMatchObject({ ok: false, error: { code: 'settings/rejected' } })
+    expect(write.result?.error?.message).toMatch(/overridden by a home patch or command-line overlay/)
+    expect(scaffold.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+    // The console's own calls take the same path and answer.
+    expect(await remoteCall(scaffold, 'session/list', { _request: {} })).toMatchObject({ status: 200, result: { ok: true } })
+    const described = await remoteCall(scaffold, 'settings/describe', {})
+    expect(described).toMatchObject({ status: 200, result: { ok: true } })
+    const namespaces = (described.result?.value as { namespaces: { ns: string }[] }).namespaces.map(view => view.ns)
+    expect(namespaces).toContain(SERVER_SIDEBAR_NAMESPACE)
+    expect(namespaces.filter(ns => ['llm-pi-ai', 'web-search-deepseek'].includes(ns))).toEqual([])
   })
 
   it('mounts the MCP capability with no server, and offers no settings form that could add one', async () => {

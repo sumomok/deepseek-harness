@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-04-console-drops-host-administration-surfaces.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-04-console-drops-host-administration-surfaces.md
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator:
+  en: 25f30d1c464440cb
+  zh: e261766fa4d9ec26
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/problem:
+  en: ee742758045aa2ce
+  zh: 4134e624bd9f59ab
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/decision:
+  en: b7a4d5c2e22768fc
+  zh: f89c5276c1f6b918
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/what-stays-reachable:
+  en: 915b007f5820e759
+  zh: f361492ff52a43a8
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/testing:
+  en: 2476f0d5827af689
+  zh: 480400e2e35a94a3
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/alternatives-considered:
+  en: 1ae7342f9ccea858
+  zh: e302fd8cfa3c1125
+/agent-note-the-console-composition-drops-host-administration-surfaces-because-every-admitted-visitor-is-the-operator/consequences:
+  en: 1d4dcc7d3177420d
+  zh: 4fc076bf3f6631d9

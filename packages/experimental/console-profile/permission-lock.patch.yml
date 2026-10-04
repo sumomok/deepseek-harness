@@ -2,10 +2,10 @@
 # with `dsh --profile <name> --patch <this file>` (or as the home patch,
 # `$DSH_HOME/cordis.patch.yml`). They are not part of this package's bundle
 # layer on purpose. `permission.defaultPreset`,
-# `agent-preset-registry.selectedDefault`, and `session-log-deepseek.enabled`
-# are volatile Config, so the settings service writes them into the profile
-# patch on request, and the `remote.settings` method answers any browser the
-# deployment admits. Composed in a layer above the profile patch, these rows
+# `agent-preset-registry.selectedDefault`, `session-log-deepseek.enabled`, and
+# the fields of `llm-deepseek` and `agent-default-model` are volatile Config,
+# so the settings service writes them into the profile patch on request, and
+# the `remote.settings` method answers any browser the deployment admits. Composed in a layer above the profile patch, these rows
 # outrank any such write:
 # config-editor refuses it, and a value an earlier release stored in
 # `settings.yaml` stays in `settings.yaml.imported` instead of being imported.
@@ -90,3 +90,31 @@
   name: '@deepseek-ai/dsh-session-log-deepseek'
   config:
     enabled: false
+
+# The model route is the deployment's. Every field of the `llm-deepseek` row is
+# volatile Config, `baseURL` and the `apiKeyEnv` credential reference included:
+# below the lock, one settings write could point every session's model requests
+# at the writer's endpoint and send it whichever stored credential the reference
+# names. The base bundle composes the row with no config, and this row restates
+# exactly that: every field takes its schema default (`baseURL` falls back to
+# `$DEEPSEEK_BASE_URL` from a trusted environment layer, then the public API;
+# `apiKeyEnv` to `DEEPSEEK_API_KEY`), and config-editor refuses a write to any
+# of them. A deployment that configures this row in its own layer moves that
+# config into this row, since this row replaces the row's whole config.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek-api-key'
+  config: {}
+
+# The default model of every new session. `provider`, `model`, and
+# `reasoningEffort` are volatile Config, and `session.selectModel` saves each
+# per-session choice into them, so below the lock one visitor's choice, or a
+# settings write naming no available model, would become every later session's
+# default. This row restates the base bundle's values; with it composed,
+# `session.selectModel` still switches the one session and logs that the
+# default was not saved. A deployment that runs another default model states it
+# here.
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: deepseek-official
+    model: deepseek-flash

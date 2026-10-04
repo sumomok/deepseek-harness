@@ -100,14 +100,8 @@
 #
 # A console end user administers no plugins: what this deployment runs is the
 # composition it was delivered with, and the inventory tab lists Cordis rows by
-# package name.
-#
-# The four official configuration pages (shell, agent loop, subagent model
-# selection, web search) are separate Web bundle rows, `ui-settings-shell`,
-# `ui-settings-agent-loop`, `ui-settings-subagent`, and `ui-settings-web-search`,
-# which register into the `plugins.item` slot of `ui-plugin-manager`'s Plugins
-# page. They stay composed, and nothing in the console navigates to that page:
-# `ui-sidebar` is disabled and `server-sidebar` never selects the panel.
+# package name. The sidebar Plugins page and the Host service behind both
+# pages are disabled with the other Host administration rows below.
 #
 # With `ui-settings-plugins` gone the `settings.plugins.tab` slot is never
 # declared, so the inventory row's `ctx.slots.inject('settings.plugins.tab', …)`
@@ -122,6 +116,137 @@
   disabled: true
 
 - id: ui-settings-plugin-inventory
+  disabled: true
+
+# Host administration off. Every visitor the deployment's login admits is the
+# Host's one operator: `dsh-client-connection` admits each `/api` request that
+# passes the Host and Origin fence and carries the browser session cookie as
+# the operator Peer, with no per-method check, and the API Gateway dispatches
+# every Typert Remote service on the root realm to that Peer. A Host service
+# composed here is therefore a method every admitted visitor can call, whether
+# or not a page offers it. The rows from here to the Schedule rows remove the
+# services that administer the Host and that no console page uses; the package
+# README's Known Limitations lists what stays reachable.
+#
+# Plugin management. The base bundle mounts `plugin-manager` whenever a profile
+# is loaded. `pluginManager.installBundle` runs `pnpm add` with a caller-chosen
+# package spec and reloads the profile; `setBundleEnabled` and
+# `setPluginEnabled` rewrite the profile patch, which `hmr` applies without a
+# restart, so one call switches on an installed bundle such as
+# `@deepseek-ai/dsh-experimental-inspector-profile`, whose CDP target evaluates
+# code in the Host. `plugin-inventory` answers `pluginInventory.*` with every
+# Loader row, for the two Plugins pages. `ui-plugin-manager` is the sidebar
+# Plugins page, which nothing here navigates to, and its refresh toast; its
+# Host half answers `pluginRegistryProbe.fastest` with HTTPS requests to two
+# public npm registries. The four official configuration pages,
+# `ui-settings-shell`, `ui-settings-agent-loop`, `ui-settings-subagent`, and
+# `ui-settings-web-search`, register only into that page's `plugins.item` slot,
+# which nothing declares once `ui-plugin-manager` is gone. `hmr` stays: it has
+# no Remote method, and it reloads the profile when its files change on disk.
+- id: plugin-manager
+  disabled: true
+
+- id: plugin-inventory
+  disabled: true
+
+- id: ui-plugin-manager
+  disabled: true
+
+- id: ui-settings-shell
+  disabled: true
+
+- id: ui-settings-agent-loop
+  disabled: true
+
+- id: ui-settings-subagent
+  disabled: true
+
+- id: ui-settings-web-search
+  disabled: true
+
+# Dynamic Cordis packages off, both halves. `cordis-host-runner` answers
+# `dynamicCordisRunner.*`: `runHostHalf` activates a caller-supplied package
+# whose Host half runs in a `node:vm` realm inside the Host process, and
+# `invoke` calls the handlers that half registered. No console preset mounts
+# `tool-cordis` and `ui-cordis` is disabled above, so nothing here defines such
+# a package. `cordis-inspect-providers` registers the Host inspect providers
+# into the runner's `cordisInspect` registry and would otherwise wait for it;
+# `cordis-client-runner`, the browser half, calls the runner's Remote methods
+# from every page.
+- id: cordis-host-runner
+  disabled: true
+
+- id: cordis-inspect-providers
+  disabled: true
+
+- id: cordis-client-runner
+  disabled: true
+
+# Interactive terminals off, both halves. `terminal-controller` answers
+# `terminal.create`, which spawns a shell in the session's directory with the
+# Host user's permissions, outside the Agent sandbox and with no approval step,
+# and `terminal.write`, which types into it. `ui-sidebar-terminal` is the right
+# sidebar's Terminal tab over the controller's browser half.
+- id: terminal-controller
+  disabled: true
+
+- id: ui-sidebar-terminal
+  disabled: true
+
+# Provider discovery off. `llm-pi-ai` registers the only model discovery
+# `llm.discoverModels` runs, which fetches a caller-supplied base URL from the
+# Host. Its `providers` field is volatile Config a settings write reaches, and a
+# provider written there names its own endpoint and credential reference, so a
+# prompt on that route would send the named stored credential to the writer's
+# endpoint. The row is mounted with no provider, the console's model runs on
+# `llm-deepseek`, and the Models page that fills the row, `ui-settings-models`,
+# is disabled above; with the row gone, `llm.discoverModels` answers that no
+# discovery is registered.
+- id: llm-pi-ai
+  disabled: true
+
+# Web search and fetch off, all three Host rows. The Web bundle disables
+# `tool-web`, and neither console preset mounts `web_search` or `web_fetch`, so
+# `web`, `web-search-deepseek`, and `web-fetch-http` serve no caller here. The
+# search row's `apiKey`, `apiKeyEnv`, and `baseURL` are still volatile Config a
+# settings write reaches: a credential reference and an endpoint no console
+# feature reads, which a later caller of the service would use.
+- id: web
+  disabled: true
+
+- id: web-search-deepseek
+  disabled: true
+
+- id: web-fetch-http
+  disabled: true
+
+# Directory browsing off. Off a loopback bind, under SSH, or on a Linux Host
+# without a display and a chooser program, `directory-picker` mounts the browse
+# backend: `directoryPicker.list` lists any directory from the filesystem root,
+# and `directoryPicker.createDirectory` creates one, as the Host user. It
+# serves `ui-workspace`'s add-workspace flow, which the console sidebar does not
+# offer. With no backend composed, `workspace-controller`'s picker child waits
+# and `directoryPicker.*` is not served, while the rest of that controller
+# runs.
+- id: directory-picker
+  disabled: true
+
+# Open In off, both halves. `open-in-app` serves the routes that list the Host's
+# applications and launch one on an absolute path, and `ui-open-in-app` is the
+# session header's "Open In…" button over them. A Host with no display lists no
+# application, and the console has no use for opening a path on the Host's
+# desktop either way.
+- id: open-in-app
+  disabled: true
+
+- id: ui-open-in-app
+  disabled: true
+
+# Office rendering off. `office-to-pdf` answers `officeToPdf.render`, which
+# converts the Office file at a caller-named path with the bundled LibreOffice
+# kit inside the Host. Office previews are not a console feature; the right
+# sidebar's document tab reports an Office file it cannot render.
+- id: office-to-pdf
   disabled: true
 
 # Schedule off, both halves. `dsh-web-app` composes `schedule`, the Host task

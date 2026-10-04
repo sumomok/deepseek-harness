@@ -1,4 +1,4 @@
-# Agent Note: The product-console line on the 0.2.1-alpha.1 base — invariant companions removed, Schedule off, any admitted visitor can enable the inspector bundle
+# Agent Note: The product-console line on the 0.2.1-alpha.1 base — invariant companions removed, Schedule off, the inspector bundle's path through plugin management
 
 Status: implemented
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ## The inspector bundle in the console
 
-控制台按上游的出厂方式组合 `@deepseek-ai/dsh-experimental-inspector-profile`：提供，但关着。控制台没有任何界面能打开开启它的那个页面。`ui-sidebar` 被禁用，所以 `ui-plugin-manager` 的 `sidebar.panellist` 入口永远不会注册；`server-sidebar` 从不选中 `plugins` 面板；「设置 → 插件」被禁用。那个页面背后的 Host 方法却照样应答。只要加载了 profile，base bundle 就挂载 `plugin-manager` 与 `hmr`（`packages/bundle/base/cordis.patch.yml`），控制台对这两行都没有处理。`dsh-client-connection` 把每个通过 Host 与 Origin 围栏、带着浏览器会话 cookie 的 `/api` 请求都当作唯一的操作者 Peer 放行，不按方法区分（`packages/client/connection/src/rpc-host.ts`）。于是已登录的访客可以从页面自己的源调用 `pluginManager.setBundleEnabled('@deepseek-ai/dsh-experimental-inspector-profile', true)`：安装包提供这个组合包（`packages/boot/app-boot/src/profile.ts` 的 `OPTIONAL_BUNDLES`），挂着 `hmr` 时改动立即生效。随后 Inspector 在主 webserver 上、以同一套登录提供它的 DevTools 前端与 `/inspector/devtools/cdp` 升级（`packages/experimental/inspector/src/host/plugin.ts`），经部署反向代理的请求因此能到达 CDP 目标与未脱敏的 fetch 采集。被放行的访客同样可以调用 `pluginManager.installBundle` 与 `pluginManager.setPluginEnabled`。`server-base` 的 `ownsHost` 让 `ctx.connection.isLoopback` 对每个被放进来的访客都为真，所以这些调用之前没有任何浏览器侧的检查。
+控制台按上游的出厂方式组合 `@deepseek-ai/dsh-experimental-inspector-profile`：提供，但关着。控制台没有任何界面能打开开启它的那个页面：`ui-sidebar`、`ui-plugin-manager` 与「设置 → 插件」都被禁用，`server-sidebar` 也从不选中 `plugins` 面板。页面不在，并不能扣下它背后的 Host 方法。只要加载了 profile，base bundle 就挂载 `plugin-manager` 与 `hmr`（`packages/bundle/base/cordis.patch.yml`），而控制台 bundle 把 `plugin-manager` 与其他 Host 管理行一起禁用，见[Host 管理 Note](2026-10-04-console-drops-host-administration-surfaces.zh.md)的记录。组合着这一行时，`dsh-client-connection` 把每个通过 Host 与 Origin 围栏、带着浏览器会话 cookie 的 `/api` 请求都当作唯一的操作者 Peer 放行，不按方法区分（`packages/client/connection/src/rpc-host.ts`）。这时已登录的访客可以从页面自己的源调用 `pluginManager.setBundleEnabled('@deepseek-ai/dsh-experimental-inspector-profile', true)`：安装包提供这个组合包（`packages/boot/app-boot/src/profile.ts` 的 `OPTIONAL_BUNDLES`），挂着 `hmr` 时改动立即生效。随后 Inspector 在主 webserver 上、以同一套登录提供它的 DevTools 前端与 `/inspector/devtools/cdp` 升级（`packages/experimental/inspector/src/host/plugin.ts`），经部署反向代理的请求因此能到达 CDP 目标与未脱敏的 fetch 采集。被放行的访客同样可以调用 `pluginManager.installBundle` 与 `pluginManager.setPluginEnabled`。`server-base` 的 `ownsHost` 让 `ctx.connection.isLoopback` 对每个被放进来的访客都为真，所以这些调用之前没有任何浏览器侧的检查。
 
 ## The second merge of this base
 
@@ -34,10 +34,10 @@ Status: implemented
 
 **保留 Host 行，依靠预设。** 两个控制台预设都不声明这些工具，但 `schedule` 仍会保有任务存储，以及列出每个会话任务的 Remote 方法。
 
-**本轮就用一条控制台禁用行扣下这个 inspector 组合包。** 在这里禁用 `plugin-manager` 或这个组合包，等于在桌面线的机制出现之前先给出答案，而第二个只属于控制台的答案之后还得与它调和。
+**本轮就用一条控制台禁用行扣下这个 inspector 组合包。** 在这里禁用 `plugin-manager` 或这个组合包，等于在桌面线的机制出现之前先给出答案，而第二个只属于控制台的答案之后还得与它调和。[Host 管理 Note](2026-10-04-console-drops-host-administration-surfaces.zh.md)取代了这一选择：控制台 bundle 禁用 `plugin-manager`。
 
 **照抄 `web-runtime` 时不带 `publicUrl`。** 这一行会让该字段保持未设置，反向代理之后的控制台就会宣告回环 URL。
 
 ## Consequences
 
-这三个控制台包记录下的事件，只由各包写入时自己做的校验把关；没有伴生插件的测试，它们自己的测试套件仍让每个源文件保持 100% 覆盖。控制台对话没有提醒，也没有时钟读数。想恢复定时的部署要在自己的层里重新启用 `schedule` 与 `ui-schedule` 两行，并把两个控制台预设 `preset-console` 与 `preset-standard-as-console` 加上 `tool-schedule` 与 `time-context` 后整份重述：patch 替换一行的整份 config，而 `standard` 孪生预设声明的插件与 `console` 完全相同。控制台侧栏仍然没有「自动化任务」入口，因为 `ui-schedule` 把这个入口注册进 `sidebar.panellist`，而声明这个 slot 的只有被禁用的 `ui-sidebar`。这样的部署还要接受同一个 Host 的任务列表就是每个访客的任务列表。在扣下机制落地之前，部署登录放进来的任何访客都能开启这个 inspector 组合包，进而在 Host 里执行代码；在这个基座之前，`installBundle` 与 `setPluginEnabled` 就已经让同一批访客能改动 Host 运行哪些插件。Web 金样随基座变动：tool-fs 的 `edit` 与 `write` 描述现在要求先给 `file_path`，由出厂 `standard` 预设而不是控制台 bundle 组合的场景多记一次时钟读数，并列出 `schedule_*` 工具。
+这三个控制台包记录下的事件，只由各包写入时自己做的校验把关；没有伴生插件的测试，它们自己的测试套件仍让每个源文件保持 100% 覆盖。控制台对话没有提醒，也没有时钟读数。想恢复定时的部署要在自己的层里重新启用 `schedule` 与 `ui-schedule` 两行，并把两个控制台预设 `preset-console` 与 `preset-standard-as-console` 加上 `tool-schedule` 与 `time-context` 后整份重述：patch 替换一行的整份 config，而 `standard` 孪生预设声明的插件与 `console` 完全相同。控制台侧栏仍然没有「自动化任务」入口，因为 `ui-schedule` 把这个入口注册进 `sidebar.panellist`，而声明这个 slot 的只有被禁用的 `ui-sidebar`。这样的部署还要接受同一个 Host 的任务列表就是每个访客的任务列表。组合着 `plugin-manager` 时，部署登录放进来的任何访客都能开启这个 inspector 组合包，进而在 Host 里执行代码，`installBundle` 与 `setPluginEnabled` 也让同一批访客能改动 Host 运行哪些插件；控制台 bundle 禁用了这一行，见[Host 管理 Note](2026-10-04-console-drops-host-administration-surfaces.zh.md)的记录。Web 金样随基座变动：tool-fs 的 `edit` 与 `write` 描述现在要求先给 `file_path`，由出厂 `standard` 预设而不是控制台 bundle 组合的场景多记一次时钟读数，并列出 `schedule_*` 工具。

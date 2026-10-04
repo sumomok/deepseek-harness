@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些带有内部术语或开发者工具内容的出厂界面与提示词段落，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住控制台的访问预设，并把 `console` 定为默认 Agent 预设。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的预设不能被保存。
+`dsh-experimental-console-profile` 把一个 `web` profile 变成客户控制台。它的 bundle 层换上服务外壳与产品侧栏，禁用那些带有内部术语、开发者工具或 Host 管理内容的出厂界面与提示词段落，挂载库技能，在上下文窗口用到 60% 时压缩对话，声明 `console` Agent 预设，并禁用全部出厂 Agent 预设。它的第二个文件 `permission-lock.patch.yml` 在 profile 补丁之上的层里钉住访问预设、模型路由、默认模型，以及默认 Agent 预设 `console`。拆成两份依据一条规则：侧栏菜单必须能由 settings 服务保存，而钉住的行不能被保存。
 
 ## 目录
 
@@ -57,7 +57,13 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `system-prompt` | 配置 `includeHarnessIdentity: false`，`personaPrefix` 与 `personaSuffix` 照抄 Web bundle 的值：模型请求不再以 `You are an AI agent powered by DeepSeek Harness.` 开头；有这句话时，客户问助手由什么驱动，助手会照着说出 DeepSeek Harness |
 | `ui-layout`、`ui-sidebar` | 禁用：它们的单一槽位由外壳与侧栏占用 |
 | `ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`、`ui-settings-session-log` | 禁用：内部术语、官方品牌与开发者界面 |
-| `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：「设置 → 插件」分区及其唯一的标签页（Loader 清单）。四个官方配置页（`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent`、`ui-settings-web-search`）仍组合在插件页上，而控制台里没有任何东西导航到插件页；设置外壳 `ui-settings-general` 保留 |
+| `ui-settings-plugins`、`ui-settings-plugin-inventory` | 禁用：「设置 → 插件」分区及其唯一的标签页（Loader 清单）。设置外壳 `ui-settings-general` 保留 |
+| `plugin-manager`、`plugin-inventory`、`ui-plugin-manager`、`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent`、`ui-settings-web-search` | 禁用：插件管理。登录放行的每个访客都是 Host 的操作者，而 `pluginManager.installBundle`、`setBundleEnabled` 与 `setPluginEnabled` 会安装一个包，或开启一个 bundle，例如 Inspector——它的 CDP 目标在 Host 里执行代码。`plugin-inventory` 为两个插件页列出 Loader 的各行；`ui-plugin-manager` 是侧栏的插件页，控制台里没有任何东西打开它，它的 Host 一半会探测两个公共 npm 源；四个配置页只往这个页面里注册。`hmr` 保留：它没有 Remote 方法 |
+| `cordis-host-runner`、`cordis-inspect-providers`、`cordis-client-runner` | 禁用：动态 Cordis 包，两半都禁用。`dynamicCordisRunner.runHostHalf` 激活一个由调用方提供的包，它的 Host 一半在 Host 进程里的 `node:vm` realm 中运行；没有控制台预设挂载 `tool-cordis`，检查 provider 也只往这个 runner 里注册 |
+| `terminal-controller`、`ui-sidebar-terminal` | 禁用：`terminal.create` 以 Host 用户的权限启动一个 shell，不受 Agent 沙箱约束，也没有审批这一步；右侧栏的终端标签页画出它 |
+| `llm-pi-ai` | 禁用：唯一的模型发现——`llm.discoverModels` 让 Host 去请求调用方给出的 URL——以及一个 volatile 的 `providers` 字段，其中的路由各自带着自己的端点与凭据引用。控制台里这一行没有任何 provider，控制台的模型跑在 `llm-deepseek` 上 |
+| `web`、`web-search-deepseek`、`web-fetch-http` | 禁用：没有控制台预设提供 `web_search` 或 `web_fetch`，而搜索行的 `apiKey`、`apiKeyEnv` 与 `baseURL` 是设置写入够得着的 volatile Config |
+| `directory-picker`、`open-in-app`、`ui-open-in-app`、`office-to-pdf` | 禁用：`directoryPicker.list` 与 `directoryPicker.createDirectory` 在 Host 文件系统的任何位置列出并创建目录，「打开方式」在一个路径上启动 Host 的应用，`officeToPdf.render` 在 Host 里用 LibreOffice 转换调用方点名的 Office 文件。控制台侧栏不提供添加工作区的流程、「打开方式」按钮或 Office 预览 |
 | `schedule`、`ui-schedule` | 禁用：定时的两半——带 `schedule.*` Remote 方法的 Host 任务存储，以及「自动化任务」页面与创建提醒后画出的卡片。所有已登录的访客共用控制台的同一个 Host：`schedule.catalog` 返回每个会话的任务，四个 `schedule_*` 工具改动任务时没有审批这一步。这些工具与 `time-context` 时钟行属于出厂的 `standard`、`ptc`、`cordis` 预设，它们都已禁用；两个控制台预设都不声明它们，所以不会有预设带着一个停在等待那个缺失服务上的 `tool-schedule` |
 | `ui-chat` | 配置 `performanceUsage: compact`：设置 → 通用设置 → 性能与用量初始为「简洁」，已完成的回答下不显示每轮 token 用量；用户自己的选择保存进 profile 补丁，并覆盖这个默认值。它的「繁忙时的压缩行为」行由 `server-sidebar` 隐去，`busyCompaction` 保持默认值 `turn-end` |
 | `auto-compact` | 从 vendored 的 `vendor/haoran-dsh-auto-compact-0.5.1.tgz` 插入，带 `enabled: true` 与 `thresholdPercent: 60`：一轮里的每一次模型请求之前（包括第一次），只要已记录的历史占用上下文窗口的 60% 以上，就先压缩对话；一轮的第一次请求之前，这段历史止于刚发出的那条消息之前，那条消息不计入。插件能找到 `console` 预设及其 `standard` 孪生预设里的压缩引擎。它在设置 → 通用设置里的行由 `server-sidebar` 隐去；压缩在对话里画出什么，列在「已知限制」里 |
@@ -65,7 +71,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `preset-standard-as-console` | 插入：一个插件与 `console` 完全相同的 `standard` Agent 预设；会话按创建时记下的预设 id 恢复，控制台部署在 `console` 出现之前建的会话记的是 `standard` |
 | `preset-standard`、`preset-ptc`、`preset-minimal`、`preset-cordis` | 禁用：它们带着 shell 与其他开发者行，`cordis` 还挂载 `tool-cordis` 以及一份列出全部工作区包的技能，而 `session.create` 经 RPC 接受 `agentPreset`，只隐藏选择器不够；每个会话运行的都是 `console` 的插件，id 为 `console` 或 `standard` |
 
-锁 overlay 重述三行。`permission` 行带三个面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。`agent-preset-registry` 行带 `default: console`、不带 `selectedDefault`，所以每个新会话都跑 `console` 预设。`session-log-deepseek` 行带 `enabled: false`，所以没有会话会把 Session log 上传到官方模型 API。
+锁 overlay 重述五行。`permission` 行带三个面向客户名字的预设、`defaultPreset: workspace-write`，以及 `isolate: { commands: true }`——正是它让 `/permission` 保持未注册。`agent-preset-registry` 行带 `default: console`、不带 `selectedDefault`，所以每个新会话都跑 `console` 预设。`session-log-deepseek` 行带 `enabled: false`，所以没有会话会把 Session log 上传到官方模型 API。`llm-deepseek` 行带一份空配置，也就是 base bundle 的配置，所以任何设置写入都不能把模型路由指向别的端点或凭据引用。`agent-default-model` 行带 base bundle 的 `deepseek-official` 与 `deepseek-flash`，所以 `session.selectModel` 只切换那一个会话，并记一条默认值未保存的日志。在自己的层里配置了后两行之一的部署，要把那份配置移进锁里的这一行，因为它替换整份配置。
 
 -----
 
@@ -75,7 +81,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 <details>
 <summary>实现细节——点击展开</summary>
 
-层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset`、`agent-preset-registry.selectedDefault` 与 `session-log-deepseek.enabled` 同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以这三行必须位于 profile 补丁之上。存下的 `selectedDefault` 若指向控制台没有声明的预设，每个新会话都会以 `agent-preset/not-found` 失败。
+层的顺序决定每一行放进哪个文件。bundle 层组合在 profile 补丁之下，而 `dsh-config-editor` 只有在写入后的有效配置等于它写入的值时，才把一行的配置写进那份 profile 补丁。由 `--patch` overlay 或 home 补丁插入或配置的行会压过这次写入，编辑器因此拒绝它。侧栏的 `workflows`、`groups` 与 `workbenchSessionId` 是侧栏要保存的 volatile Config，所以这一行必须位于 bundle 层。`permission.defaultPreset`、`agent-preset-registry.selectedDefault`、`session-log-deepseek.enabled`，以及 `llm-deepseek` 与 `agent-default-model` 的各字段，同样是 volatile Config，而 `remote.settings` 方法会回应部署放行的任何浏览器，所以这五行必须位于 profile 补丁之上。存下的 `selectedDefault` 若指向控制台没有声明的预设，每个新会话都会以 `agent-preset/not-found` 失败。
 
 禁用行只按 id 指向出厂条目。bundle 的插件行通过 bundle 自己的 `dependencies` 解析，这一点由 `scripts/verify-cordis-config.ts` 强制；禁用行不加载任何东西。
 
@@ -85,7 +91,7 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 |---|---|
 | [`cordis.patch.yml`](cordis.patch.yml) | bundle 层：外壳、侧栏、页面构建检查、MCP 能力、库技能、自动压缩、`console` Agent 预设，以及全部禁用行 |
 | `vendor/haoran-dsh-auto-compact-0.5.1.tgz` | 仓外插件仓库的 `@haoran/dsh-auto-compact` 0.5.1，由其已推送的 `main` 构建后打包，声明为 `"@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.5.1.tgz"` |
-| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission`、`agent-preset-registry` 与 `session-log-deepseek` 三行，叠在 profile 补丁之上应用 |
+| [`permission-lock.patch.yml`](permission-lock.patch.yml) | `permission`、`agent-preset-registry`、`session-log-deepseek`、`llm-deepseek` 与 `agent-default-model` 五行，叠在 profile 补丁之上应用 |
 | [`src/index.ts`](src/index.ts) | 空模块入口；两个补丁文件才是运行时内容 |
 
 </details>
@@ -116,12 +122,20 @@ vendored 的 tarball 把它用到的 harness 包声明为可选 peer，而 pnpm 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，一个任何设置写入都能改的 `defaultPreset`，以及一次设置写入就能打开的 Session log 上传。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
+- **锁是一个启动参数。** 启动 profile 时既没带 `--patch permission-lock.patch.yml`、也没有 home 补丁的部署，会得到出厂的预设名字、斜杠菜单里的 `/permission`，一个任何设置写入都能改的 `defaultPreset`，一次设置写入就能打开的 Session log 上传，以及任何设置写入都能改指的模型路由与默认模型。它的默认 Agent 预设是 Web bundle 的 `standard`，而本 bundle 禁用了它，所以每个新会话都会以 `agent-preset/not-found` 失败。
 - **MCP 服务器列表是部署 Config，不是设置。** `console-mcp.servers` 和侧栏菜单一样位于 bundle 层，但它不是 `.volatile()` 字段：设置服务不为它投影表单，写入时以 `Plugin entry "console-mcp" has no volatile fields` 拒绝，所以部署放行的任何浏览器都加不了服务器。部署在自己的层里给这一行打 `config` 补丁来点名服务器，改过的列表在这一行重新加载时生效。桥接进来的 MCP 工具不声明审批闸门，所以在每个访问预设下都会直接运行，用的是这一行 `auth` 点名的凭据。
 - **客户看不到压缩摘要。** 压缩进行时，对话里显示 `ui-chat` 的「正在压缩…」（Compacting context…）。压缩落定后，这一轮的过程行里出现 `server-sidebar` 的「已压缩较早的对话」（Earlier conversation compacted），一次失败的尝试会单独显示一行「较早的对话压缩失败」（Couldn’t compact the earlier conversation）；两行都不显示计数或 token 数。一轮第一次请求之前的压缩，进行中与失败的行出现在客户刚发出的那条消息上方，因为那条消息要等压缩结束后才进入对话。没有哪一行能打开 `compaction-basic` 写下的摘要（它的摘要提示词要求用英文写），所以客户读不到模型用来代替较早对话的那段内容。两个预设都不组合 `command-compact`，所以斜杠菜单里没有 `/compact`；它的卡片会显示条数和 token 数，并能打开那段摘要。
 - **一轮开头的压缩进行时按停止，会丢掉刚发出的消息。** 一轮第一次请求之前的压缩，运行在 harness 把开启这一轮的那条消息从队列里取出之后、把它加进对话之前。压缩进行时按停止会取消摘要并结束这一轮，那条消息就此丢掉：它不会进入对话，也不会得到回答。这是 harness 自己的行为；在 60% 处压缩比后端自己的触发点更常碰到它。
 - **隐去的压缩设置仍可写入。** `auto-compact.enabled`、`auto-compact.thresholdPercent` 与 `ui-chat.busyCompaction` 是 bundle 层里的 volatile Config，所以页面上没有控件，而 `remote.settings` 方法仍接受部署放行的任何浏览器的写入。
-- **每个被放行的访客都能改动 Host 运行哪些插件。** base bundle 挂载 `plugin-manager` 与 `hmr`，连接层把每个带着登录 cookie 的 `/api` 请求都当作 Host 的操作者放行，不按方法区分。因此部署放行的任何浏览器都能调用 `pluginManager.setBundleEnabled`、`pluginManager.installBundle` 与 `pluginManager.setPluginEnabled`，`hmr` 无需重启就让改动生效。一次这样的调用就能开启 `@deepseek-ai/dsh-experimental-inspector-profile`：随后 Inspector 的 `/inspector/devtools/cdp` 路由转发到一个 CDP 目标，它的 `Runtime.evaluate` 在 Host 里执行代码；它的 fetch 采集不脱敏地记录 Host 发出的请求；两者都在同一套登录之后。页面上没有这些方法的控件。本 bundle 为什么暂不扣下它们，见 [0.2.1-alpha.1 基座 Note](../../../.agents/notes/implemented/architecture/2026-10-04-server-console-on-the-0-2-1-alpha-1-base.zh.md)。
+- **每个被放行的访客都是 Host 的操作者。** 连接层把每个带着登录 cookie 的 `/api` 请求都当作 Host 唯一的操作者放行，不按方法区分，所以组合提供的每个 Remote 方法都回应每个已登录访客。本 bundle 禁用了上表列出的 Host 管理行，所以插件管理、动态 Cordis 包、终端、provider 发现、目录浏览、「打开方式」与 Office 渲染不回应任何访客；这一决定记录在 [Host 管理 Note](../../../.agents/notes/implemented/architecture/2026-10-04-console-drops-host-administration-surfaces.zh.md)。下面这些仍然够得着：
+  - `/api/file` 提供 Host 文件系统 provider 能读的任何绝对路径，上限是 `attachments.imageLimits.maxImageBytes`（默认 20 MiB）；对话里的内联图片经它加载。
+  - `workspaceFiles.read`、`readBytes` 与 `stat` 读取工作区之外的路径；右侧栏的文档标签页经它们读取，文件链接、工具行里的路径或技能引用都会打开这个标签页。
+  - `credentials.set` 与 `credentials.unset` 写入受管凭据存储，不返回任何值；部署从进程环境提供的引用会以 `credential/rejected` 回应。
+  - `session.create` 接受任何绝对路径的 `cwd`，而 `workspace-write` 把这个会话的文件写入限制在那个目录与平台临时目录里。
+  - `session.*`、`workspace.*`、`job.*` 与 `subagents.*` 作用于 Host 服务的每个会话。
+  - `goals.*` 设下一个目标，让会话以模型轮次继续进行；`fileReferences.list` 列出一个会话目录下的名字；`account.*` 让 Host 登录一个 DeepSeek 账号，其 token 只发往该账号的推理源。
+  - `agent-loop`、`subagent`、`subagent-model-selection-settings` 与 `llm-deepseek-account` 的 volatile 字段接受设置写入；没有控制台预设会委派，也没有控制台预设跑账号路由。
+  - `hmr` 仍然挂载，所以磁盘上 profile 文件的改动无需重启就会生效。
 - **`console` 预设保留文件工具。** `tool-fs` 让 agent 能把它提炼的技能写进 `<workspace>/.dsh/skills`，也让它能写 `permission` 预设沙箱放行的任何其他文件。
 
 <a id="dev-note"></a>

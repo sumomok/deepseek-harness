@@ -2,24 +2,24 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-04-server-console-on-the-0-2-1-alpha-1-base.md
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle:
-  en: 24f2d3aad3e28df8
-  zh: 8b8eaeacd758baaf
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/problem:
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management:
+  en: 9fca44dcc5e86006
+  zh: 7bc54733769a03aa
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/problem:
   en: f1140e1aaf0e4cc2
   zh: 00f266d69b3eb03c
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/decision:
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/decision:
   en: f35af36d7b8b82a0
   zh: 9cd3fe41071618df
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/the-inspector-bundle-in-the-console:
-  en: 5a73223fc0cb2730
-  zh: 40bf7e168e872a8e
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/the-second-merge-of-this-base:
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/the-inspector-bundle-in-the-console:
+  en: cca257e6429c6563
+  zh: 3e115ae2076ef2ad
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/the-second-merge-of-this-base:
   en: 32ba88ec426158ca
   zh: dae8ce15a1d3cf90
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/alternatives-considered:
-  en: c3649ca50c40d727
-  zh: 0749b132b581e00c
-/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-any-admitted-visitor-can-enable-the-inspector-bundle/consequences:
-  en: 7d66a167e0b67736
-  zh: a501ae98109b0af1
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/alternatives-considered:
+  en: a48812b0031344e2
+  zh: eb4067809bdda0b9
+/agent-note-the-product-console-line-on-the-0-2-1-alpha-1-base-invariant-companions-removed-schedule-off-the-inspector-bundle-s-path-through-plugin-management/consequences:
+  en: f3b6d8036eebca8d
+  zh: 9f4df863a79fe050
