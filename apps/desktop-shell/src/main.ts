@@ -1543,8 +1543,10 @@ if (!locked) {
       }
       // After the server boot and the gate, so an upgrade's download competes
       // with neither, and a launch that must update first downloads nothing.
-      // After a cleanup of a finished move's old copy has ended, too: the
-      // download writes under the data directory, and never beside that cleanup.
+      // After a running cleanup of a finished move's old copy has ended, too:
+      // the download writes under the data directory, so it does not start
+      // beside that cleanup. A cleanup retried from Settings is not held back
+      // by a download already under way.
       void moveCleanup.idle().then(() => { officeEngine?.runUpgrade() })
       // Over the loaded app rather than the boot page, so the message sits on
       // the window it is about. The marker keeps a notice until it has been
