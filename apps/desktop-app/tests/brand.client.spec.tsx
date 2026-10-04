@@ -8,6 +8,8 @@
  * create-plugin action is shadowed while every other action renders.
  * @module
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { act } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +18,7 @@ import * as localeClient from '@deepseek-ai/dsh-client-locale/client'
 import { SlotTestRuntime, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { CurrentVersionRow } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/CurrentVersionRow.tsx'
 import { en as settingsEn, zh as settingsZh } from '@deepseek-ai/dsh-client-ui-settings-general/src/client/locales.ts'
-import { apply, CREATE_PLUGIN_ACTION_ID, HiddenCreatePluginAction, inject } from '../src/client/index.ts'
+import { apply, HiddenCreatePluginAction, inject } from '../src/client/index.ts'
 
 /** Stand-in for ui-agent-preset's create-plugin action, registered under its id at its default priority. */
 function CreatePluginStandIn(): ReactElement {
@@ -48,7 +50,7 @@ async function page() {
   runtime.ctx.slots.register({ name: 'settings.general.item', id: 'other-row', order: 10 }, () => <div>other row</div>)
   // ui-agent-preset's create-plugin action as it registers it, beside one
   // other add-plugin action.
-  runtime.ctx.slots.register({ name: 'plugins.add.actions', id: CREATE_PLUGIN_ACTION_ID }, CreatePluginStandIn)
+  runtime.ctx.slots.register({ name: 'plugins.add.actions', id: 'create-plugin' }, CreatePluginStandIn)
   runtime.ctx.slots.register({ name: 'plugins.add.actions', id: 'other-action' }, () => <button type="button">other action</button>)
   runtime.ctx.provide('configForms', {
     get: () => stubConfigForm().scope,
@@ -113,10 +115,19 @@ describe('desktop brand occupants', () => {
 
   it('renders no create-plugin action and no element in its place in the add-plugin menu', async () => {
     const { runtime, addActions } = await page()
-    const live = runtime.slots.entriesOfSlot('plugins.add.actions').find(entry => entry.options.id === CREATE_PLUGIN_ACTION_ID)
+    const live = runtime.slots.entriesOfSlot('plugins.add.actions').find(entry => entry.options.id === 'create-plugin')
     expect(live?.component).toBe(HiddenCreatePluginAction)
     expect(addActions.container.querySelectorAll('button')).toHaveLength(1)
     expect(addActions.container.textContent).toBe('other action')
+  })
+
+  it('takes the ids ui-settings-general and ui-agent-preset register the shadowed row and action under', () => {
+    // The stand-ins above register under these literals; this ties them to the
+    // owners' sources, so an id an upstream sync renames fails here.
+    const source = (owner: string): string =>
+      readFileSync(resolve(import.meta.dirname, '../../../packages/client', owner, 'src/client/index.ts'), 'utf8')
+    expect(source('ui-settings-general')).toMatch(/name: 'settings\.general\.item', id: 'current-version',/)
+    expect(source('ui-agent-preset')).toMatch(/name: 'plugins\.add\.actions',\s+id: 'create-plugin',/)
   })
 
   it('gives every slot back to its fallback and shadowed row once the half is disposed', async () => {
