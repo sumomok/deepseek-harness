@@ -14,9 +14,8 @@
  *
  * Writing touches one place per platform. On Windows it is the user
  * environment, set through .NET's `SetEnvironmentVariable`, which broadcasts
- * `WM_SETTINGCHANGE` itself; no copy of the earlier value is kept there, and a
- * data move holds it only in its own record until the move ends. On macOS it
- * is one block this module owns in the shell profile, between
+ * `WM_SETTINGCHANGE` itself; no copy of the earlier value is kept there. On
+ * macOS it is one block this module owns in the shell profile, between
  * {@link BLOCK_START} and {@link BLOCK_END}; an
  * assignment the person wrote elsewhere in that file is never edited, and its
  * presence stops the write, because the person's own line would keep deciding

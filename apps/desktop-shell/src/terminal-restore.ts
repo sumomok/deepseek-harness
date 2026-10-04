@@ -7,10 +7,13 @@
  * On macOS the shell profile is restored whole only when nothing outside this
  * module's block changed since the snapshot; otherwise only the block is put
  * back (or removed), and every byte outside it stays as it is now. A profile
- * that did not exist before is deleted. A `<file>.dsh-backup` that did not
- * exist before the move is deleted, and one that did is kept: the move's write
- * makes that copy only of a file that holds no block, so a copy that was there
- * already still holds the file as it was before the block was first added.
+ * that did not exist before is deleted. When the profile is restored whole or
+ * deleted, a `<file>.dsh-backup` that did not exist before the move is
+ * deleted, and one that did is kept: the move's write makes that copy only of
+ * a file that holds no block, so a copy that was there already still holds
+ * the file as it was before the block was first added. Every other step keeps
+ * the copy, including when the profile is gone, since the copy may then be
+ * the only one left of the person's file.
  * On Windows the user variable is written back with its
  * registry type through the registry, since .NET's `SetEnvironmentVariable`
  * writes only `REG_SZ` and treats an empty value as removal; the change is
@@ -51,7 +54,7 @@ export function planProfileRestore(
   snapshot: Extract<TerminalSnapshot, { kind: 'profile' }>, current: Buffer | undefined,
 ): ProfileRestore {
   const deleteBackup = !snapshot.backupExisted
-  if (current === undefined) return { kind: 'nothing', why: 'the profile is gone', deleteBackup }
+  if (current === undefined) return { kind: 'nothing', why: 'the profile is gone', deleteBackup: false }
   const now = findProfileBlock(current.toString('latin1'))
   if (now.kind === 'damaged') return { kind: 'nothing', why: 'the profile has a damaged block', deleteBackup: false }
   const outsideNow = now.kind === 'block' ? withoutProfileBlock(now) : current.toString('latin1')

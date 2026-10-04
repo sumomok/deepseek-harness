@@ -1439,7 +1439,7 @@ if (!locked) {
         markSettledHome(settled, sink)
         // Before the server, whose plugin manager runs pnpm in these profiles.
         const storePins = pinProfileStores({ home: resolveHarnessHome(), platform: process.platform })
-        for (const line of [...storePins.pinned, ...storePins.skipped]) sink(`[desktop] pnpm store: ${line}\n`)
+        for (const line of [...storePins.changed, ...storePins.skipped]) sink(`[desktop] pnpm store: ${line}\n`)
         // After the seeding, whose permission-row retirement the gateway step
         // waits for (the migration reads its record in web-migration.json, so a
         // seeding that stopped before recording it defers that step), and before
