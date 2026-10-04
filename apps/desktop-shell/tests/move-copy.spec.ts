@@ -69,7 +69,7 @@ function check(f: Fixture, hash: VerifyRequest['hash'] = 'all'): VerifyRequest {
 const posixOnly = process.platform === 'win32' ? it.skip : it
 
 describe('copyTree', () => {
-  posixOnly('copies the data, leaves out the identity and the rebuildable entries, and rewrites links into the home', async () => {
+  posixOnly('copies the data with the session projection cache, leaves out the identity and the rebuildable entries, and rewrites links into the home', async () => {
     fixture = await buildFixture()
     const req = request(fixture)
     const report = await copyTree(req)
