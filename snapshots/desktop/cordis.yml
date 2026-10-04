@@ -2,7 +2,7 @@
 # `apps/desktop-app/cordis.patch.yml`, which `desktop.snapshot.ts` names as
 # this lane's base patch. The base layer is the desktop application's own
 # deployment layer, byte for byte, so a row the desktop adds or changes there
-# reaches this lane's model requests without being copied here. This file
+# applies to this lane without being copied here. This file
 # states only what a keyless, reproducible transcript needs on top of it.
 #
 # The `dsh` launcher owns environment loading, plugin resolution, and process

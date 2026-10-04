@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write snapshots/desktop/README.md
 /desktop:
-  en: 42727e339e74ad09
-  zh: f0d7b153b877283f
+  en: f46d61d44c08dbee
+  zh: afae7467b8f15644
 /desktop/snapshot-scenarios:
   en: eb2274a54b02982f
   zh: c1eb7f8acf8facc9
