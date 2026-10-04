@@ -37,7 +37,7 @@ interface SettingsNavGroupSpec {
  * An id absent from the running composition contributes nothing.
  */
 const NAV_GROUPS: readonly SettingsNavGroupSpec[] = [
-  { key: 'general', label: 'nav.group.general', sections: ['general', 'at-file', 'archived-sessions'] },
+  { key: 'general', label: 'nav.group.general', sections: ['general', 'data-location', 'at-file', 'archived-sessions'] },
   { key: 'models', label: 'nav.group.models', sections: ['models', 'vision-switch'] },
   { key: 'agent', label: 'nav.group.agent', sections: ['agent-presets', 'llm-permission-gateway'] },
   { key: 'extensions', label: 'nav.group.extensions', sections: ['plugins', 'mcp-servers', 'screenshot-logins'] },
