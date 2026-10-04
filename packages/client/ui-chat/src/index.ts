@@ -46,6 +46,6 @@ export const Config = z.object({
  * @param config Live preferences; the Loader updates volatile fields in place.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
   ctx.provide('manualCompactionTiming', { whileBusy: () => config.busyCompaction.get() })
+  ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
 }
