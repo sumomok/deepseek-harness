@@ -47,8 +47,8 @@ import { assertDesktopClientTitle, DESKTOP_BUILD_STEPS, desktopRepositoryBuildEn
 import { restoreHoistedDependencies, type RestoredHoist } from './legacy-hoists.ts'
 import { pnpmLauncherProblems, stagePnpmLaunchers } from './pnpm-launcher-staging.ts'
 import {
-  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv,
-  verifyDesktopLayer, verifyHeldSocketBoot,
+  findWithheldDirectories, INSTALLATION_PACKAGE, loadFailureLines, missingProductionDependencies, SINGLE_COPY_PACKAGES, singleCopyProblems,
+  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot,
   WITHHELD_PACKAGES,
 } from './staged-boot-gate.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
@@ -550,6 +550,13 @@ async function verifyStaging(): Promise<void> {
   if (withheld.length > 0) {
     throw new Error(`package: staged server carries withheld package directories:\n  ${withheld.join('\n  ')}`)
   }
+  // Counted by package.json name at any depth, store entries included
+  // ([[SINGLE_COPY_PACKAGES]] says why each package needs exactly one copy).
+  const duplicated = await singleCopyProblems(SERVER_STAGING, SINGLE_COPY_PACKAGES)
+  if (duplicated.length > 0) {
+    throw new Error(`package: staged server does not carry exactly one copy of each single-copy package:\n  ${duplicated.join('\n  ')}`)
+  }
+  console.log(`package: staged server carries one copy each of ${SINGLE_COPY_PACKAGES.join(', ')}`)
   // A dependency the deployer left outside the staging tree resolves nowhere
   // once the payload is installed; the resolution smoke below cannot see it
   // when it is only reached through a profile bundle at boot.

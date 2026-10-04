@@ -4,14 +4,14 @@
  * @module
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  findWithheldDirectories, loadFailureLines, missingProductionDependencies, stagedBootEnv, stagedServerEnv, verifyDesktopLayer,
-  verifyHeldSocketBoot, WITHHELD_PACKAGES,
+  findPackageCopies, findWithheldDirectories, loadFailureLines, missingProductionDependencies, SINGLE_COPY_PACKAGES, singleCopyProblems,
+  stagedBootEnv, stagedServerEnv, verifyDesktopLayer, verifyHeldSocketBoot, WITHHELD_PACKAGES,
 } from '../scripts/staged-boot-gate.ts'
 import { SERVER_LOG_ENV } from '../src/server.ts'
 
@@ -146,6 +146,75 @@ describe('findWithheldDirectories', () => {
   it('ignores a file of that name', async () => {
     const root = tree(['node_modules/@deepseek-ai'], ['node_modules/@deepseek-ai/dsh-experimental-auto-review'])
     expect(await findWithheldDirectories(root, WITHHELD_PACKAGES)).toEqual([])
+  })
+})
+
+describe('singleCopyProblems', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  /**
+   * A staged tree holding a `package.json` with the given name in each directory.
+   * @param packages - directory relative to the root, mapped to the package name its manifest declares.
+   * @returns the tree's root.
+   */
+  function tree(packages: Readonly<Record<string, string>>): string {
+    const root = mkdtempSync(join(tmpdir(), 'staged-single-copy-'))
+    roots.push(root)
+    for (const [dir, name] of Object.entries(packages)) {
+      mkdirSync(join(root, dir), { recursive: true })
+      writeFileSync(join(root, dir, 'package.json'), JSON.stringify({ name, version: '4.0.5-alpha.1' }))
+    }
+    return root
+  }
+
+  const HOISTED = 'node_modules/@deepseek-ai/cordis'
+
+  it('requires one copy of cordis', () => {
+    expect(SINGLE_COPY_PACKAGES).toContain('@deepseek-ai/cordis')
+  })
+
+  it('accepts the one copy the hoisted deploy places at the top level', async () => {
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', 'node_modules/@deepseek-ai/schemastery': '@deepseek-ai/schemastery' })
+    expect(await singleCopyProblems(root, SINGLE_COPY_PACKAGES)).toEqual([])
+  })
+
+  it('refuses a second copy nested under a plugin', async () => {
+    const nested = 'node_modules/@haoran/dsh-screenshot/node_modules/@deepseek-ai/cordis'
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', [nested]: '@deepseek-ai/cordis' })
+    expect(await singleCopyProblems(root, SINGLE_COPY_PACKAGES)).toEqual([`@deepseek-ai/cordis: 2 copies: ${HOISTED}, ${nested}`])
+  })
+
+  it('refuses a second copy in a pnpm store entry', async () => {
+    const store = 'node_modules/.pnpm/@deepseek-ai+cordis@4.0.3/node_modules/@deepseek-ai/cordis'
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', [store]: '@deepseek-ai/cordis' })
+    expect(await singleCopyProblems(root, SINGLE_COPY_PACKAGES)).toEqual([`@deepseek-ai/cordis: 2 copies: ${store}, ${HOISTED}`])
+  })
+
+  it('refuses a tree without cordis', async () => {
+    const root = tree({ 'node_modules/@deepseek-ai/dsh': '@deepseek-ai/dsh' })
+    expect(await singleCopyProblems(root, SINGLE_COPY_PACKAGES)).toEqual(['@deepseek-ai/cordis: no copy'])
+  })
+
+  it('counts a copy by its manifest name, not its directory name', async () => {
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis', 'node_modules/vendored-framework': '@deepseek-ai/cordis', 'node_modules/cordis': 'cordis' })
+    expect(await findPackageCopies(root, '@deepseek-ai/cordis')).toEqual([HOISTED, 'node_modules/vendored-framework'])
+  })
+
+  it('does not count a symbolic link to the copy', async () => {
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis' })
+    mkdirSync(join(root, 'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai'), { recursive: true })
+    symlinkSync(join(root, HOISTED), join(root, 'node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis'), 'dir')
+    expect(await singleCopyProblems(root, SINGLE_COPY_PACKAGES)).toEqual([])
+  })
+
+  it('names a manifest that mentions the package and is not JSON', async () => {
+    const root = tree({ [HOISTED]: '@deepseek-ai/cordis' })
+    mkdirSync(join(root, 'node_modules/broken'), { recursive: true })
+    writeFileSync(join(root, 'node_modules/broken/package.json'), '{"name": "@deepseek-ai/cordis",')
+    await expect(findPackageCopies(root, '@deepseek-ai/cordis')).rejects.toThrow(/node_modules\/broken\/package\.json is not valid JSON/)
   })
 })
 

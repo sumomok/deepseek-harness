@@ -9,8 +9,9 @@
  * that bundle's layer. A refused plugin row is disabled the same way, and an
  * entry that fails to start is reported in a warning while its siblings keep
  * running. These functions turn those lines, and the composed tree
- * `--dump-config` prints, into build failures. The tree check finds packages
- * the payload withholds wherever a hoisting change put them.
+ * `--dump-config` prints, into build failures. The tree checks find packages
+ * the payload withholds wherever a hoisting change put them, and count the
+ * copies of packages the payload must carry exactly once.
  * @module
  */
 
@@ -197,6 +198,86 @@ export async function findWithheldDirectories(root: string, names: readonly stri
   }
   await walk(root)
   return found.sort()
+}
+
+/**
+ * Packages the payload must carry exactly one copy of. `@deepseek-ai/cordis`
+ * is the framework every built-in plugin names as a peer, and the server
+ * closure gets it from the repository's `vendor/cordis` through a `link:`
+ * override. A second copy can only be a different build, such as a registry
+ * release a plugin's own install resolved, and a plugin that loads it defines
+ * its `Service` and `Context` subclasses against classes and module state the
+ * running host does not share. The other vendored cordis packages are not
+ * listed: plugins import none of them except `@deepseek-ai/schemastery`, whose
+ * schema brand is a global symbol and which the Loader recognizes by its
+ * Standard Schema vendor field, so a second copy of it still validates.
+ */
+export const SINGLE_COPY_PACKAGES = ['@deepseek-ai/cordis'] as const
+
+/**
+ * The directories under `root` whose `package.json` names a package, at any
+ * depth.
+ *
+ * The name is read from each directory's own `package.json`, so a copy
+ * counts wherever it sits: the top-level `node_modules`, a package's nested
+ * `node_modules`, or a `.pnpm/<name>@<version>/node_modules` store entry.
+ * Directories whose names begin with a dot are searched too. Symbolic links
+ * are not followed, so a link to a counted copy is not a second copy.
+ * @param root - the staged tree to search.
+ * @param name - the package name, scoped or not.
+ * @returns each matching directory relative to `root`, with `/` separators, sorted.
+ * @throws when a `package.json` that mentions the name is not valid JSON.
+ */
+export async function findPackageCopies(root: string, name: string): Promise<string[]> {
+  const quoted = JSON.stringify(name)
+  const found: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const path = join(dir, entry.name)
+      const manifest = join(path, 'package.json')
+      if (existsSync(manifest)) {
+        const text = await readFile(manifest, 'utf8')
+        if (text.includes(quoted) && parseManifestName(manifest, text) === name) {
+          found.push(relative(root, path).split(sep).join('/'))
+        }
+      }
+      await walk(path)
+    }
+  }
+  await walk(root)
+  return found.sort()
+}
+
+/**
+ * The `name` field of one `package.json`.
+ * @param path - the file, named in the error.
+ * @param text - the file's contents.
+ * @returns the field's value; undefined when it is absent.
+ * @throws when the text is not valid JSON.
+ */
+function parseManifestName(path: string, text: string): unknown {
+  try {
+    return (JSON.parse(text) as { name?: unknown }).name
+  } catch (error) {
+    throw new Error(`package: ${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * The packages of `names` that a tree does not carry exactly once.
+ * @param root - the staged tree to search.
+ * @param names - the package names that must have exactly one copy.
+ * @returns one line per package with zero or several copies, naming each copy found; empty when every package has one.
+ */
+export async function singleCopyProblems(root: string, names: readonly string[]): Promise<string[]> {
+  const problems: string[] = []
+  for (const name of names) {
+    const copies = await findPackageCopies(root, name)
+    if (copies.length === 1) continue
+    problems.push(copies.length === 0 ? `${name}: no copy` : `${name}: ${String(copies.length)} copies: ${copies.join(', ')}`)
+  }
+  return problems
 }
 
 /** The `!!js` dialect a config dump prints, read back as an opaque expression. */
