@@ -45,6 +45,7 @@
     "tests/server-layout.e2e.ts",
     "tests/content-frame.e2e.ts",
     "tests/content-column.ts",
+    "tests/console-launch.ts",
     "tests/console-preset.spec.ts",
     "tests/content-read.e2e.ts",
     "tests/content-read-dom.e2e.ts",

@@ -33,6 +33,7 @@
     "apps/web/tests/server-layout.e2e.ts",
     "apps/web/tests/content-frame.e2e.ts",
     "apps/web/tests/content-column.ts",
+    "apps/web/tests/console-launch.ts",
     "apps/web/tests/content-read.e2e.ts",
     "apps/web/tests/content-read-dom.e2e.ts",
     "apps/web/tests/content-read-attrs.e2e.ts",
