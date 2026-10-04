@@ -98,13 +98,12 @@ describe('verifyStagedOfficeEngines', () => {
   })
 
   it('stops the run when the kit declares another registered version, naming the declared version, the shipped one, and where it is set', () => {
-    for (const version of ['0.1.1', '0.1.3']) {
-      expect(refusal(stagedClosure(version)), version).toBe([
-        HEADER,
-        `  darwin-arm64: the kit declares ${version}, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)`,
-        `  win32-x64: the kit declares ${version}, and this package ships 0.1.5 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)`,
-      ].join('\n'))
-    }
+    const hosts = [{ platform: 'darwin', arch: 'arm64', engineVersion: '0.2.0' }, { platform: 'win32', arch: 'x64', engineVersion: '0.2.0' }] as const
+    expect(refusal(stagedClosure('0.1.5'), hosts)).toBe([
+      HEADER,
+      '  darwin-arm64: the kit declares 0.1.5, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+      '  win32-x64: the kit declares 0.1.5, and this package ships 0.2.0 (DESKTOP_ENGINE_HOSTS in scripts/office-engine-gate.ts)',
+    ].join('\n'))
   })
 
   it('stops the run when the kit declares the version a host ships and the table does not register it, naming each missing entry', () => {

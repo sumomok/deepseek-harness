@@ -78,8 +78,21 @@ describe('officeEngineTarget', () => {
 
 describe('readEngineRequirement', () => {
   it('reads the engine name and exact version from the kit, and the size and integrity the table records', () => {
-    const modules = serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.1.1', '@deepseek-ai/libreoffice-kit-wasm': '0.1.1' })
-    expect(readEngineRequirement(modules, 'darwin', 'arm64')).toEqual({ ok: true, requirement: REQUIREMENT })
+    const modules = serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': '0.1.5', '@deepseek-ai/libreoffice-kit-wasm': '0.1.5' })
+    expect(readEngineRequirement(modules, 'darwin', 'arm64')).toEqual({ ok: true, requirement: {
+      target: 'darwin-arm64',
+      name: '@deepseek-ai/libreoffice-kit-darwin-arm64',
+      version: '0.1.5',
+      downloadBytes: 67_261_855,
+      integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
+    } })
+  })
+
+  it('offers no version only an earlier kit declared', () => {
+    for (const version of ['0.1.1', '0.1.3']) {
+      const found = readEngineRequirement(serverTree({ '@deepseek-ai/libreoffice-kit-darwin-arm64': version }), 'darwin', 'arm64')
+      expect(found.ok, version).toBe(false)
+    }
   })
 
   it('offers no version the table does not record', () => {
@@ -120,22 +133,6 @@ describe('readEngineRequirement', () => {
       expect(readEngineRequirement(SERVER_MODULES, platform, arch).ok).toBe(true)
     }
     expect(ENGINE_DOWNLOADS).toEqual({
-      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
-        bytes: 66_711_287,
-        integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
-      },
-      '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': {
-        bytes: 71_367_891,
-        integrity: 'sha512-03CUYg9j2qJ7Q6K27xFCvTLa7FgawOZ1DtE6NlEYttF6TxGuyHEv358vBGc3cwlR1yG1Vfj+pa4e5MdPGpy8mA==',
-      },
-      '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.3': {
-        bytes: 67_259_060,
-        integrity: 'sha512-HinPGEyUNZUhBceN9kL9EeiFHo6bfhuY7D1uNBEdwJOzB+QJZVwWmbtc2A6Ds//bOukg9V+7FQEcOnjbqdRTUw==',
-      },
-      '@deepseek-ai/libreoffice-kit-win32-x64@0.1.3': {
-        bytes: 71_374_248,
-        integrity: 'sha512-PrUb4ykkI6fJBJ6MX40XgctY0mOUfO4yPWdWB5QdQSw5seq3fulBv0BcrJMTGw2ZT81wwB181MQja4AfOMWg2A==',
-      },
       '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
         bytes: 67_261_855,
         integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',

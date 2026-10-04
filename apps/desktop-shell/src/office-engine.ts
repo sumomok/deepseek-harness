@@ -110,29 +110,15 @@ export interface EngineDownload {
  * the legacy hoisted `pnpm deploy`. It does not take the lockfile's pin: it
  * resolves the kit's `^0.1.5` range to the highest release that is at least
  * pnpm's `minimumReleaseAge` (one day unless configured) old when the deploy
- * runs, so a later deploy can stage a newer kit. The 0.1.1 and 0.1.3 entries
- * are registered too; no kit in the `^0.1.5` range declares them. The spec
- * fails when the workspace kit declares an engine for either desktop target
+ * runs, so a later deploy can stage a newer kit. {@link readEngineRequirement}
+ * reads only the entry of the version the shipped kit declares, and an engine
+ * an earlier kit declared is kept or pruned by its directory alone
+ * ({@link versionsToKeep}), so a version no kit in that range declares has no
+ * entry. The spec fails when the workspace kit declares an engine for either desktop target
  * that this table does not carry, and `scripts/office-engine-gate.ts` fails a
  * package run whose staged kit does.
  */
 export const ENGINE_DOWNLOADS: Readonly<Record<string, EngineDownload>> = {
-  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.1': {
-    bytes: 66_711_287,
-    integrity: 'sha512-D6NBvtoNpm9pOgBXGQTdxpds1tYMeiFKhGJgnXF/SE0124ZM8j0AOXI7cZ8CErHctqIoVYP+gKWCrnQl4we41A==',
-  },
-  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.1': {
-    bytes: 71_367_891,
-    integrity: 'sha512-03CUYg9j2qJ7Q6K27xFCvTLa7FgawOZ1DtE6NlEYttF6TxGuyHEv358vBGc3cwlR1yG1Vfj+pa4e5MdPGpy8mA==',
-  },
-  '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.3': {
-    bytes: 67_259_060,
-    integrity: 'sha512-HinPGEyUNZUhBceN9kL9EeiFHo6bfhuY7D1uNBEdwJOzB+QJZVwWmbtc2A6Ds//bOukg9V+7FQEcOnjbqdRTUw==',
-  },
-  '@deepseek-ai/libreoffice-kit-win32-x64@0.1.3': {
-    bytes: 71_374_248,
-    integrity: 'sha512-PrUb4ykkI6fJBJ6MX40XgctY0mOUfO4yPWdWB5QdQSw5seq3fulBv0BcrJMTGw2ZT81wwB181MQja4AfOMWg2A==',
-  },
   '@deepseek-ai/libreoffice-kit-darwin-arm64@0.1.5': {
     bytes: 67_261_855,
     integrity: 'sha512-SjeXmyaTevEq2TxK7reb1rhCrQZ4QOXmXt/qEwfQD5Fx3odU0ILx2uiXN+nphSCQ95LFCzrElHGgv2c7a824yg==',
