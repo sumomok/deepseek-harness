@@ -110,7 +110,7 @@ describe('respondToCrash', () => {
 describe('rebindOnNewPort', () => {
   it('asks for a system-picked port whatever port the recorded spec names', async () => {
     const asked: Array<number | undefined> = []
-    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
+    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', pid: undefined, stop: async () => {}, exited: () => false, onExit: () => {} }
     const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env: {}, port: 49_321 }
     const started = await rebindOnNewPort(spec, async (s) => { asked.push(s.port); return handle }, () => {})
     expect(asked).toEqual([0])
@@ -123,7 +123,7 @@ describe('rebindOnNewPort', () => {
       DSH_DESKTOP_OFFICE_ENGINE_ENDPOINT: 'http://127.0.0.1:53000',
       DSH_DESKTOP_OFFICE_ENGINE_TOKEN: 'secret',
     }
-    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
+    const handle: ServerHandle = { url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', pid: undefined, stop: async () => {}, exited: () => false, onExit: () => {} }
     const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env, port: 49_321 }
     const seen: Array<Record<string, string>> = []
     const started = await rebindOnNewPort(spec, async (s) => { seen.push(s.env); return handle }, () => {})
@@ -143,7 +143,7 @@ function recordingSocket(steps: string[]): HeldListenSocket {
 }
 
 describe('rebindOnHeldSocket', () => {
-  const handle: ServerHandle = { url: 'http://127.0.0.1:49321', authenticatedUrl: 'http://127.0.0.1:49321/?token=t', stop: async () => {}, exited: () => false, onExit: () => {} }
+  const handle: ServerHandle = { url: 'http://127.0.0.1:49321', authenticatedUrl: 'http://127.0.0.1:49321/?token=t', pid: undefined, stop: async () => {}, exited: () => false, onExit: () => {} }
   const spec: ServerSpec = { nodeBin: 'node', entry: 'bin.js', cwd: '/', reportDirectory: '/', env: {}, port: 49_321 }
 
   it('starts the new server on the held socket and keeps it, so the port and the origin stay', async () => {
@@ -270,7 +270,7 @@ function recordingHandle(sentinel: string, exited: boolean): { handle: ServerHan
   let present: boolean | undefined
   return {
     handle: {
-      url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t',
+      url: 'http://127.0.0.1:52000', authenticatedUrl: 'http://127.0.0.1:52000/?token=t', pid: undefined,
       stop: async () => { present = existsSync(sentinel) }, exited: () => exited, onExit: () => {},
     },
     presentAtStop: () => present,
@@ -538,23 +538,44 @@ describe('main.ts', () => {
     expect(body('reveal')).toContain('quitting: () => quitting,')
     expect(source).toMatch(new RegExp([
       'resumeAfterFailedInstall: \\(blocking: boolean\\) => resumeAfterFailedInstall\\(\\{\\s+blocking,',
-      '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: restartAfterFailedInstall,\\s+reveal,',
+      '\\s+clearQuitting: \\(\\) => \\{ quitting = false \\},\\s+restartServer: \\(\\) => restartAfterStop\\(\'the failed install\'\\),\\s+reveal,',
     ].join(''), 'u'))
-    expect(body('restartAfterFailedInstall')).toContain('await choosePort(readState().serverPort, isPortFree)')
-    expect(body('restartAfterFailedInstall')).toMatch(new RegExp([
+    expect(body('restartAfterStop')).toContain('await choosePort(readState().serverPort, isPortFree)')
+    expect(body('restartAfterStop')).toMatch(new RegExp([
       'await rebindOnHeldSocket\\(\\s*spec, held, startEmbeddedServer,',
       ' \\{ log: logLine, forgetPort: forgetServerPort, release: releaseHeld \\}',
     ].join(''), 'u'))
     expect(body('reveal')).toContain('backendStopped: () => stoppedDialog.stopped(),')
     expect(body('reveal')).toContain("showStopped: () => { void stoppedDialog.run('reveal') },")
     expect(body('handleUnexpectedServerExit')).toContain("else if (outcome === 'stop') void stoppedDialog.run('ladder')")
-    expect(body('restartAfterFailedInstall')).toContain('stoppedDialog.serverStarted()')
+    expect(body('restartAfterStop')).toContain('stoppedDialog.serverStarted()')
     expect(source).toMatch(/const stoppedDialog = createStoppedDialog\(\{\s+ask: askStoppedDialog,\s+rebind: performRebind,/u)
     expect(source).toContain('reveal: () => { reveal() },')
+    expect(body('carryMoveFromSettings')).toContain("await restartAfterStop('the withdrawn data move')")
+    // The Office engine download writes under the data directory from this process, outside the server's tree.
+    expect(body('stopServerCompletely')).toMatch(/stopServerTree\(\{\s+closeShellWriters: async \(\) => \{\s+const engine = officeEngineService\s+officeEngineService = undefined\s+if \(engine !== undefined\) await engine\.close\(\)/u)
+  })
+
+  it('starts the server on a switched move\'s new location inside the check that rolls the move back, and marks a fresh home once the seeding made it', () => {
+    const opening = source.indexOf('const startOnHome = async (')
+    expect(opening).toBeGreaterThan(-1)
+    const startOnHome = source.slice(opening, source.indexOf('\n      }\n', opening))
+    // The seeding creates a fresh installation's home, so the mark can only follow it.
+    const seed = startOnHome.indexOf('seedBuiltinBundles({')
+    expect(seed).toBeGreaterThan(-1)
+    expect(startOnHome.indexOf('markSettledHome(settled, sink)')).toBeGreaterThan(seed)
+    expect(source.match(/markSettledHome\(/gu)).toHaveLength(1)
+    // A start that fails there reaches the rollback rather than the launch's own failure page.
+    const branchStart = source.indexOf("if (pendingMove.kind === 'health-check') {")
+    expect(branchStart).toBeGreaterThan(-1)
+    const branch = source.slice(branchStart, source.indexOf('} else {', branchStart))
+    expect(branch).toMatch(/await launchOnSwitchedMove\(pendingMove\.journal\.baseline, \{\s+start: startOnHome,\n/u)
+    expect(branch).not.toContain('startOnHome()')
+    expect(source.match(/startOnHome\(\)/gu)).toEqual(['startOnHome()'])
   })
 
   it('writes the intentional-stop sentinel at a quit, the mandatory-update stop, and a session end, and nowhere else', () => {
-    expect(source).toContain('await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })')
+    expect(source).toContain('await stopForMandatoryUpdate(running, { home: resolveHarnessHome(), log: sink })')
     expect(source).toContain("}, () => { markIntentionalStop(server, 'shutdown', { home: resolveHarnessHome(), log: logLine }) })")
     expect(source).not.toContain('writeIntentionalStop(')
     expect(source.match(/markIntentionalStop\(|stopServerForQuit\(|stopForMandatoryUpdate\(/gu)).toHaveLength(3)

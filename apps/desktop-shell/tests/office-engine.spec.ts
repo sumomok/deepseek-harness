@@ -21,6 +21,7 @@ import {
   officeEngineRoot, officeEngineTarget, pruneEngineRoot, readEngineRequirement, readProgressLine, supersededEngine, versionsToKeep,
   type EngineRequirement, type InstallProgress,
 } from '../src/office-engine.ts'
+import { LAUNCH_ENV } from './launch-env.ts'
 
 /** The workspace's own desktop server closure, whose kit is the one the payload ships. */
 const SERVER_MODULES = fileURLToPath(new URL('../../desktop-server/node_modules', import.meta.url))
@@ -371,13 +372,21 @@ describe('the office engine in main.ts', () => {
 
   // The page reads the state once when it loads and follows it only while it
   // moves, so the upgrade has to read `installing` before the server starts.
-  it('begins an upgrade before the engine service and the server start, and starts its download only after the launch gate', () => {
+  // The download writes under the data directory, so it never runs beside a
+  // cleanup of a finished data move's old copy.
+  it('begins an upgrade before the engine service and the server start, and starts its download only after the launch gate and the move cleanup', () => {
     const begin = source.indexOf('\n  manager.beginUpgrade()\n')
     expect(begin).toBeGreaterThan(-1)
     expect(begin).toBeLessThan(source.indexOf('started = await startOfficeEngineService(manager)'))
     const run = source.indexOf('officeEngine?.runUpgrade()')
+    const shown = source.indexOf('view.showApp(running.authenticatedUrl)')
+    expect(shown).toBeGreaterThan(-1)
     expect(run).toBeGreaterThan(source.indexOf('if (await gate) {'))
-    expect(run).toBeGreaterThan(source.indexOf('view.showApp(server.authenticatedUrl)'))
+    expect(run).toBeGreaterThan(shown)
+    const cleanup = source.indexOf('if (cleanUp) cleanUpMoveInBackground(view.window)', shown)
+    expect(cleanup).toBeGreaterThan(shown)
+    expect(source).toContain('\n      void moveCleanup.idle().then(() => { officeEngine?.runUpgrade() })\n')
+    expect(source.indexOf('void moveCleanup.idle().then(', shown)).toBeGreaterThan(cleanup)
     expect([...source.matchAll(/\.runUpgrade\(\)/g)]).toHaveLength(1)
   })
 
@@ -409,13 +418,14 @@ describe('the office engine in main.ts', () => {
     const service = source.indexOf('const officeEngineEnv = await startOfficeEngineForServer(spec, sink)')
     expect(service).toBeGreaterThan(-1)
     expect(service).toBeLessThan(source.lastIndexOf('await choosePort('))
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain(LAUNCH_ENV)
   })
 
-  // Every rebind and the restart after a failed install start from the
-  // recorded spec, so the launch environment is the only one composed.
+  // Every rebind and the restart after a failed install or a withdrawn data
+  // move start from the recorded spec, so the launch environment is the only
+  // one composed. The other `env:` keys hand `process.env` to the data move's checks.
   it('composes one server environment and records specs in one place', () => {
-    expect([...source.matchAll(/\benv: /g)]).toHaveLength(1)
+    expect([...source.matchAll(/\benv: \{/g)]).toHaveLength(1)
     expect([...source.matchAll(/\bactiveServerSpec = /g)]).toHaveLength(1)
     expect(source).toContain('function rememberServerPort(spec: ServerSpec): void {\n  activeServerSpec = spec\n')
   })

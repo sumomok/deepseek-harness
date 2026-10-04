@@ -22,6 +22,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, powerMonitor, session, shell, systemPreferences, type DownloadItem } from 'electron'
 import { appBootCss, restateAppBootPage } from './app-boot-text.ts'
@@ -31,6 +32,12 @@ import { bootPage } from './boot-page.ts'
 import { PRODUCT_NAME } from './brand.ts'
 import { clearStaleAuthCookies } from './auth-cookies.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
+import { defaultHarnessHome, exportPointerHome, markSettledHome, settleDataLocation, type TerminalSync } from './data-location-boot.ts'
+import {
+  ENDPOINT_ENV as DATA_ENDPOINT_ENV, startDataLocationService, TOKEN_ENV as DATA_TOKEN_ENV, type DataLocationServiceHandle,
+  type DataLocationServiceSpec, type MoveBody,
+} from './data-location-service.ts'
+import { appDataLocationHost } from './data-location-window.ts'
 import { forgetServerPort, readState, recordRun, reportStateWritesTo, setServerPort } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
@@ -38,6 +45,26 @@ import { shellLanguage } from './menu-text.ts'
 import { appDirsEnv } from './app-dirs.ts'
 import { INSTALL_DIR_ENV, installDirEnv } from './install-dir.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
+import {
+  bootMove, countSessions, launchOnSwitchedMove, moveFacts, passHealthCheck, quarantinedPlugins, type BootMove,
+} from './move-boot.ts'
+import { singleFlight } from './single-flight.ts'
+import { carryMove, settleForeignLock, type MoveFlowEnd, type MoveUi } from './move-flow.ts'
+import { stopPage, type ForeignLock } from './move-page.ts'
+import {
+  beginDataMove, checkDataMove, handOverToMove, installPlaces, lockSelf, withdrawRequestAtBoot, type MoveRefusal, type MoveRequest,
+  type MoveStartOutcome,
+} from './move-start.ts'
+import { moveText } from './move-text.ts'
+import { appMoveFlowDeps, openMoveWindow } from './move-window.ts'
+import type { ExecutorBefore } from './move/executor.ts'
+import { moveDir, readMoveResult, type MoveJournal } from './move/journal.ts'
+import { inspectMoveLock, releaseMoveLock, type LockSelf, type LockState } from './move/lock.ts'
+import { nameLocale } from './move/names.ts'
+import { cloudRoots, iCloudSyncsDesktopAndDocuments, nodePreflightProbes, tempRoots } from './move/preflight.ts'
+import { nodeMoveEffects, retireAbandonedCopies } from './move/run.ts'
+import { samePathText } from './path-text.ts'
+import { nodeLockProbes, nodeProcessProbes, stopServerTree, type TreeCheck } from './process-tree.ts'
 import { isExternalNavigationTarget, isServerNavigation } from './navigation.ts'
 import type { ListenHandoff } from './listen-socket.ts'
 import { setupNotifications, stopNotifications } from './notifications.ts'
@@ -51,7 +78,7 @@ import {
 import {
   DESKTOP_PROFILE, describeSeed, profileDirectory, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles,
 } from './profile-seed.ts'
-import { acknowledgeSettingsMigrationNotices, migrateLegacySettings } from './settings-migration.ts'
+import { acknowledgeSettingsMigrationNotices, migrateLegacySettings, type SettingsMigrationReport } from './settings-migration.ts'
 import { migrateModelCatalog } from './model-catalog-migration.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
@@ -67,6 +94,11 @@ import {
   stopForMandatoryUpdate, stopServerForQuit,
 } from './server-lifecycle.ts'
 import { watchSessionEnd } from './session-end.ts'
+import {
+  LOGIN_SHELL_TIMEOUT_MS, POINTER_HOME_ENV, readPersistentDshHome, snapshotTerminal, systemPowerShell, windowsSystemRoot,
+  type TerminalEnvHost,
+} from './terminal-env.ts'
+import { terminalForLaunch } from './terminal-sync-record.ts'
 import { PALETTES, resolveAppearance } from './theme.ts'
 import { storedLanguagePreference } from './theme-preference.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -81,12 +113,14 @@ import { superviseAppLoad, type AppLoader } from './window-load.ts'
 // application name, and the state of an existing installation lives under the
 // name this package no longer carries.
 pinAppIdentity(app)
+// Before anything reads the Harness home, the boot window's theme included.
+const launchDshHome = exportPointerHome(app.getPath('userData'), process.env)
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded
  * from. The environment additions are not part of it: they carry the render,
- * update, and Office engine services' addresses, which do not exist yet when
- * the paths are resolved.
+ * update, data-location, and Office engine services' addresses, which do not
+ * exist yet when the paths are resolved.
  */
 interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
@@ -135,10 +169,22 @@ function resolveSpec(logDir: string): LaunchSpec {
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let updateService: UpdateServiceHandle | undefined
+let dataLocationService: DataLocationServiceHandle | undefined
+/** Why the last move asked for from Settings was taken back after the service answered; reported by `/state`. */
+let lastMoveRefusal: MoveRefusal | undefined
+/** What the terminal's data location came to, as `/state` reports it ({@link terminalForLaunch}). */
+let settledTerminal: TerminalSync | undefined
 let officeEngineService: OfficeEngineServiceHandle | undefined
 /** This launch's Office engine state machine, which the launch tells when to start an upgrade's download. */
 let officeEngine: OfficeEngineManager | undefined
 let quitting = false
+/**
+ * The data move this process is carrying, while its window is up: asking it
+ * to cancel, and its end. `before-quit` uses it so a quit during a move
+ * cancels it where it still can, instead of stopping a server that is not
+ * running.
+ */
+let moving: { cancel: () => void; ended: Promise<unknown> } | undefined
 /**
  * The desktop log sink. Until the log file is known there is nowhere durable
  * to write, so a line goes to stderr rather than nowhere — which is what
@@ -246,6 +292,41 @@ function clearAuthCookies(): Promise<number> {
 }
 
 /**
+ * Stop the server and make sure its whole process tree is gone, the
+ * processes it started included ([[@deepseek-ai/dsh-desktop-shell/process-tree]]),
+ * with this installation's leftovers from earlier runs swept too. The Office
+ * engine service is closed first: its download runs in this process, outside
+ * that tree, and writes under the data directory, so closing it stops a
+ * running download and keeps a confirmation answered later from starting one.
+ * It is not opened again before the next launch. Without a handle (a start
+ * that failed before its URL line), a server still running is found among
+ * this process's children by the bundled Node binary's path.
+ * @returns whether the tree is gone.
+ */
+async function stopServerCompletely(): Promise<TreeCheck> {
+  const handle = server
+  const { nodeBin } = resolveSpec(app.getPath('logs'))
+  const check = await stopServerTree({
+    closeShellWriters: async () => {
+      const engine = officeEngineService
+      officeEngineService = undefined
+      if (engine !== undefined) await engine.close()
+    },
+    pid: handle?.pid,
+    unhandled: { shell: process.pid, executable: nodeBin },
+    stop: stopServerBounded,
+    sweep: () => sweepOrphanedServers(nodeBin, logLine),
+    probes: nodeProcessProbes(process.platform),
+  })
+  server = undefined
+  if (check.kind === 'running') {
+    logLine(`[desktop] server tree not confirmed stopped; still running: ${check.survivors.map(entry => `${String(entry.pid)} ${entry.command}`).join(', ')}\n`)
+  }
+  if (check.kind === 'unconfirmed') logLine(`[desktop] server tree not confirmed stopped: ${check.detail}\n`)
+  return check
+}
+
+/**
  * Point every window showing the served UI at a rebound server's URL — the
  * same origin with a new launch token while the shell holds the port, a new
  * origin otherwise. The windows are the one holder the ordinary reload path
@@ -336,17 +417,22 @@ function rememberServerPort(spec: ServerSpec): void {
 }
 
 /**
- * Start the server again after an install that stopped it failed: on the
- * {@link held} socket when the shell holds one, as a crash rebind does, and
- * otherwise through the ordinary start, on the remembered port when it is
- * free, else one the system picks. A handoff that fails then falls back as in
- * a crash rebind, to a port the system picks and not the held one, because a
- * window may still be open on that origin. On success every window and the
- * notification streams move to it and supervision resumes; on failure the
- * stopped-server dialog offers a retry, as after repeated crashes.
+ * Start the server again after a stop the shell made on purpose did not lead
+ * where it was meant to — an install that failed, or a data move taken back
+ * before it copied anything: on the {@link held} socket when the shell holds
+ * one, as a crash rebind does, and otherwise through the ordinary start, on
+ * the remembered port when it is free, else one the system picks. Both stops
+ * removed the sign-in cookies first, as a quit does, so without a held socket
+ * the port need not change as it does after a crash. A handoff that fails
+ * falls back as in a crash rebind, to a port the system picks and not the
+ * held one, because a window may still be open on that origin. On success
+ * every window and the notification streams move to it and supervision
+ * resumes; on failure the stopped-server dialog offers a retry, as after
+ * repeated crashes.
+ * @param cause - what the stop was for, as the log names it.
  * @returns once the server is up or the dialog is shown.
  */
-async function restartAfterFailedInstall(): Promise<void> {
+async function restartAfterStop(cause: string): Promise<void> {
   const spec = activeServerSpec
   if (spec === undefined) return
   try {
@@ -366,12 +452,12 @@ async function restartAfterFailedInstall(): Promise<void> {
     server = started.server
     rememberServerPort(started.spec)
     stoppedDialog.serverStarted()
-    logLine(`[desktop] server restarted after the failed install at ${started.server.url}\n`)
+    logLine(`[desktop] server restarted after ${cause} at ${started.server.url}\n`)
     retargetWindows(started.server.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, started.server.authenticatedUrl)
     attachSupervision()
   } catch (error) {
-    logLine(`[desktop] server restart after the failed install failed: ${error instanceof Error ? error.message : String(error)}\n`)
+    logLine(`[desktop] server restart after ${cause} failed: ${error instanceof Error ? error.message : String(error)}\n`)
     void stoppedDialog.run('ladder')
   }
 }
@@ -546,6 +632,300 @@ async function startUpdateForServer(host: UpdateHost, log: (chunk: string) => vo
 }
 
 /**
+ * Relaunch the application onto a data directory. `app.relaunch()` takes no
+ * environment: the new process inherits this one's, so `DSH_HOME` and the
+ * shell's own export marker are both set to `home` first, and the next launch
+ * reads neither as a change made outside the app (plan trap 1, confirmed with
+ * a real Electron 43 probe). `app.exit` skips `before-quit`: the server is
+ * not running while a move relaunches.
+ * @param home - the data directory the next launch uses.
+ */
+function relaunchOnto(home: string): void {
+  logLine(`[desktop] data move: relaunching onto ${home}\n`)
+  quitting = true
+  process.env['DSH_HOME'] = home
+  process.env[POINTER_HOME_ENV] = home
+  app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== RECOVERY_RELAUNCH_FLAG) })
+  app.exit(0)
+}
+
+/**
+ * Carry the data move on disk to its end in the move's own window, then
+ * relaunch where it leads or quit. The server is not running: this runs
+ * before it starts (a resumed move, a failed health check) or after it was
+ * stopped (a move started from Settings).
+ * @param log - the desktop log sink.
+ * @param replacing - the window the move's window takes the place of; closed once the new one is open, so
+ * the application never has no window (which would quit it on Windows).
+ * @param before - a step the move's worker takes first (a failed health check), if any.
+ * @returns once the application is on its way out.
+ */
+async function runMoveToEnd(log: (line: string) => void, replacing: BrowserWindow | undefined, before?: ExecutorBefore): Promise<void> {
+  const moveWindow = openMoveWindow(moveText(app.getLocale()), log)
+  replacing?.destroy()
+  const flow = carryMove(appMoveFlowDeps(moveWindow.window, moveWindow, log, await thisLockSelf(), before))
+  moving = { cancel: moveWindow.requestCancel, ended: flow }
+  let end: MoveFlowEnd
+  try {
+    end = await flow
+  } catch (error) {
+    log(`[desktop] data move: ${String(error)}\n`)
+    end = { kind: 'quit' }
+  }
+  moving = undefined
+  moveWindow.close()
+  if (end.kind === 'relaunch' && !quitting) {
+    relaunchOnto(end.home)
+    return
+  }
+  quitting = true
+  app.exit(0)
+}
+
+/**
+ * Show one of the pages that keep the application from starting, in the
+ * move's window, and quit once the person closes it.
+ * @param title - the page title.
+ * @param sentence - what it says.
+ * @param replacing - the window this one takes the place of; closed once the new one is open.
+ * @param reveal - a file the page can show, if any.
+ * @returns once the application is on its way out.
+ */
+async function stopForMove(title: string, sentence: string, replacing: BrowserWindow, reveal?: string): Promise<void> {
+  const text = moveText(app.getLocale())
+  const moveWindow = openMoveWindow(text, logLine)
+  replacing.destroy()
+  await moveWindow.showPage(stopPage(title, sentence, text, { platform: process.platform, ...reveal === undefined ? {} : { reveal } }))
+  moveWindow.close()
+  quitting = true
+  app.exit(0)
+}
+
+/**
+ * Show the page for another installation's lock on the data in the move's
+ * window. When the person discards that installation's unfinished move, the
+ * application relaunches and looks at the lock again; otherwise it quits.
+ * @param lock - the lock.
+ * @param home - the data directory.
+ * @param replacing - the window this one takes the place of; closed once the new one is open.
+ * @returns once the application is on its way out.
+ */
+async function settleForeignLockInWindow(lock: ForeignLock, home: string, replacing: BrowserWindow): Promise<void> {
+  const text = moveText(app.getLocale())
+  const moveWindow = openMoveWindow(text, logLine)
+  replacing.destroy()
+  let end: 'quit' | 'discarded' = 'quit'
+  try {
+    const inspect = (): Promise<LockState> => inspectMoveLock(home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
+    end = await settleForeignLock({ ui: moveWindow, text, lock, inspect, home, platform: process.platform, log: logLine })
+  } catch (error) {
+    logLine(`[desktop] data move: could not discard the other installation's lock: ${String(error)}\n`)
+  }
+  moveWindow.close()
+  quitting = true
+  if (end === 'discarded') app.relaunch({ args: process.argv.slice(1).filter(arg => arg !== RECOVERY_RELAUNCH_FLAG) })
+  app.exit(0)
+}
+
+/**
+ * This installation and process as the move lock records them.
+ * @returns the lock's owner fields.
+ */
+async function thisLockSelf(): Promise<LockSelf> {
+  return await lockSelf({ userData: app.getPath('userData'), pid: process.pid }, nodeLockProbes(process.platform))
+}
+
+/**
+ * The one cleanup of a finished move that may run at a time: the launch's own
+ * and a retry asked for from Settings share it, so two never delete the old
+ * copy side by side.
+ */
+const moveCleanup = singleFlight((error) => {
+  logLine(`[desktop] data move: cleanup failed, retried next launch: ${String(error)}\n`)
+})
+
+/**
+ * Delete the old copy of a move that switched and passed its health check,
+ * in the background once the interface is shown; a failure is logged and
+ * retried on the next launch.
+ * @param window - the app window, for the launch prompts' parent.
+ * @returns false when a cleanup is already running, and this one was not started.
+ */
+function cleanUpMoveInBackground(window: BrowserWindow): boolean {
+  const silent: MoveUi = {
+    cancel: new AbortController().signal,
+    showProgress: () => undefined,
+    showPage: (page) => {
+      logLine(`[desktop] data move: cleanup stopped at a page (${page.title}); the next launch tries again\n`)
+      return Promise.resolve({ kind: 'quit' })
+    },
+  }
+  return moveCleanup.run(async () => {
+    const end = await carryMove(appMoveFlowDeps(window, silent, logLine, await thisLockSelf()))
+    logLine(`[desktop] data move: cleanup ${JSON.stringify(end)}\n`)
+  })
+}
+
+/**
+ * Rename copies a data move left on drives that are attached again, now that
+ * no move is in progress; a failure is logged and retried on the next launch.
+ * @param home - the data directory in use.
+ */
+async function retireReturnedCopies(home: string): Promise<void> {
+  const effects = nodeMoveEffects({
+    userData: app.getPath('userData'), defaultHome: defaultHarnessHome(app.getPath('home')), platform: process.platform,
+    locale: nameLocale(app.getLocale()),
+    syncTerminal: () => Promise.reject(new Error('retiring copies never writes the terminal')),
+    restoreTerminal: () => Promise.reject(new Error('retiring copies never writes the terminal')),
+    terminalSeen: () => Promise.reject(new Error('retiring copies never reads the terminal')),
+  })
+  try {
+    const retired = await retireAbandonedCopies(moveDir(app.getPath('userData')), home, effects, (a, b) => samePathText(a, b, process.platform))
+    for (const path of retired) logLine(`[desktop] data move: a copy left behind is back; renamed to ${path}\n`)
+  } catch (error) {
+    logLine(`[desktop] data move: could not retire copies left behind, retried next launch: ${String(error)}\n`)
+  }
+}
+
+/**
+ * The move the Settings window asks about, with the places the data may not go.
+ * @param body - the folder picked and the workspace folders the server knows.
+ * @returns the request, dated now.
+ */
+function settingsMoveRequest(body: MoveBody): MoveRequest {
+  const home = app.getPath('home')
+  return {
+    chosen: body.target, home: resolveHarnessHome(), userData: app.getPath('userData'), defaultHome: defaultHarnessHome(home),
+    platform: process.platform, pid: process.pid, now: new Date(), workspaces: body.workspaces.length,
+    forbidden: {
+      install: installPlaces({ platform: process.platform, execPath: process.execPath, appPath: app.getAppPath() }),
+      userData: app.getPath('userData'),
+      updateCache: updaterCacheDir(),
+      workspaces: body.workspaces,
+      cloud: cloudRoots({
+        platform: process.platform, home, env: process.env, iCloudDesktopAndDocuments: iCloudSyncsDesktopAndDocuments(home),
+      }),
+      temp: tempRoots({ platform: process.platform, env: process.env, tmpdir: tmpdir() }),
+    },
+  }
+}
+
+/**
+ * How the shell reads and writes the terminal's data location, for a move.
+ * @returns the host.
+ */
+function moveTerminalHost(): TerminalEnvHost {
+  return {
+    platform: process.platform, env: process.env, home: app.getPath('home'),
+    powershell: systemPowerShell(windowsSystemRoot(process.env), 15_000), shellTimeoutMs: LOGIN_SHELL_TIMEOUT_MS,
+  }
+}
+
+/**
+ * Check a move the person confirmed in Settings again and, when it may start,
+ * write its journal (the data-location service's `/start`, before it answers).
+ * @param body - the folder picked and the workspace folders.
+ * @returns the journal, or why the move did not start.
+ */
+async function beginMoveFromSettings(body: MoveBody): Promise<MoveStartOutcome> {
+  const terminal = moveTerminalHost()
+  lastMoveRefusal = undefined
+  return await beginDataMove(settingsMoveRequest(body), {
+    preflight: nodePreflightProbes(process.platform, terminal.powershell),
+    snapshotTerminal: () => snapshotTerminal(terminal),
+    readTerminal: () => readPersistentDshHome(terminal),
+    lock: nodeLockProbes(process.platform),
+  })
+}
+
+/**
+ * Carry a move whose journal the data-location service just wrote, after its
+ * answer: stop the server and every process it started, close the app window,
+ * and carry the move in its own window to the relaunch. When some process
+ * cannot be confirmed stopped, the move is taken back and the server started
+ * again, and the next `/state` says why.
+ * @param journal - the journal just written.
+ */
+function carryMoveFromSettings(journal: MoveJournal): void {
+  logLine(`[desktop] data move: requested to ${journal.target}; stopping the server and every process it started\n`)
+  const run = async (): Promise<void> => {
+    // stop() marks the exit expected, so supervision does not answer it with a rebind. Nothing is copied while
+    // something the server started may still write to the data: then the move is taken back.
+    const handed = await handOverToMove(journal, { userData: app.getPath('userData'), pid: process.pid }, {
+      stopServerTree: stopServerCompletely,
+      restartServer: async () => {
+        logLine('[desktop] data move: withdrawn before copying anything; starting the server again\n')
+        logLine('[desktop] data move: the Office engine download stays unavailable until the next launch\n')
+        await restartAfterStop('the withdrawn data move')
+      },
+    })
+    if (handed.kind === 'refused') {
+      lastMoveRefusal = handed.refusal
+      return
+    }
+    await runMoveToEnd(logLine, mainWindow())
+  }
+  run().catch((error: unknown) => { logLine(`[desktop] data move: could not carry the move from Settings: ${String(error)}\n`) })
+}
+
+/**
+ * What the data-location service drives in this application.
+ * @returns the service's spec.
+ */
+function dataLocationActions(): DataLocationServiceSpec {
+  const dir = moveDir(app.getPath('userData'))
+  return {
+    state: () => {
+      const result = readMoveResult(dir)
+      return {
+        home: resolveHarnessHome(),
+        ...moveFacts(dir, moveCleanup.running()),
+        ...result === undefined ? {} : { lastResult: result },
+        ...lastMoveRefusal === undefined ? {} : { lastRefusal: lastMoveRefusal },
+        ...settledTerminal === undefined ? {} : { terminal: settledTerminal },
+      }
+    },
+    choose: async () => {
+      const window = mainWindow()
+      const options = { properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'> }
+      const picked = window === undefined ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options)
+      return picked.canceled ? undefined : picked.filePaths[0]
+    },
+    preflight: async (body) => {
+      const request = settingsMoveRequest(body)
+      return await checkDataMove(request, nodePreflightProbes(process.platform, moveTerminalHost().powershell))
+    },
+    begin: beginMoveFromSettings,
+    carry: carryMoveFromSettings,
+    retryCleanup: () => {
+      if (bootMove(dir).kind !== 'cleanup') return 'none-waiting'
+      if (moveCleanup.running()) return 'running'
+      const window = mainWindow()
+      if (window === undefined) return 'no-window'
+      return cleanUpMoveInBackground(window) ? 'started' : 'running'
+    },
+  }
+}
+
+/**
+ * Start the data-location service for the server about to be spawned.
+ * @param log - the desktop log sink.
+ * @returns the environment variables that tell the server where it is, or none when it could not start.
+ */
+async function startDataLocationForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
+  let started: DataLocationServiceHandle
+  try {
+    started = await startDataLocationService(dataLocationActions())
+  } catch (error) {
+    log(`[desktop] data location service unavailable (${error instanceof Error ? error.message : String(error)}); Settings shows no move\n`)
+    return {}
+  }
+  dataLocationService = started
+  log(`[desktop] data location service on ${started.endpoint}\n`)
+  return { [DATA_ENDPOINT_ENV]: started.endpoint, [DATA_TOKEN_ENV]: started.token }
+}
+
+/**
  * Put the Office engine download question on screen.
  *
  * A native modal rather than anything the web UI draws: the page asking for a
@@ -577,7 +957,7 @@ async function confirmOfficeEngine(request: EngineConfirmRequest): Promise<boole
  * earlier engine is kept and the declared version is registered, the manager
  * begins its upgrade here, so the state reads `installing` before the server
  * starts; the download itself waits for [[officeEngine]]'s `runUpgrade` once
- * the app is shown.
+ * the app is shown and a cleanup of a finished data move's old copy has ended.
  * `NODE_PATH` names the current version's directory whether or not it is
  * installed yet, so an engine downloaded while the server runs is found by the
  * next conversion. Failing to open the loopback listener is not a reason to
@@ -640,6 +1020,15 @@ async function startOfficeEngineForServer(spec: LaunchSpec, log: (chunk: string)
  * A no-op on every other platform.
  */
 const APP_USER_MODEL_ID = 'dev.dsh.desktop'
+
+/** What a launch's start on the settled data location leaves for the rest of the launch. */
+interface StartedOnHome {
+  server: ServerHandle
+  /** The settings migration run before the start, whose notices are shown over the loaded app. */
+  settingsMigration: SettingsMigrationReport
+  /** The desktop profile directory, holding the migration's marker. */
+  desktopProfileDir: string
+}
 
 /** One window whose boot page the main process can drive. */
 interface BootView {
@@ -872,12 +1261,23 @@ if (!locked) {
     // and unawaited: the listeners die with the process anyway, this quit must
     // not wait on a render that is still running, and the download's child is
     // sent its kill before the close returns. Closing a closed service again
-    // does nothing.
+    // does nothing. A data move under way uses none of these services.
     void renderService?.close()
     void updateService?.close()
+    void dataLocationService?.close()
     void officeEngineService?.close()
     if (quitting) return
     quitting = true
+    const move = moving
+    if (move !== undefined) {
+      // A quit during a move cancels it where the copy is still partial; past that it ends like a crash,
+      // and the next launch resumes from the journal.
+      event.preventDefault()
+      move.cancel()
+      const deadline = new Promise((resolve) => { setTimeout(resolve, STOP_TIMEOUT_MS) })
+      void Promise.race([move.ended, deadline]).finally(() => { app.exit(0) })
+      return
+    }
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -959,7 +1359,7 @@ if (!locked) {
       resumeAfterFailedInstall: (blocking: boolean) => resumeAfterFailedInstall({
         blocking,
         clearQuitting: () => { quitting = false },
-        restartServer: restartAfterFailedInstall,
+        restartServer: () => restartAfterStop('the failed install'),
         reveal,
       }),
     }
@@ -969,93 +1369,183 @@ if (!locked) {
     // already in by the time the UI would be shown and it costs nothing.
     const gate = launchGate(host, (message) => { view.block(message) })
     try {
+      // The data move comes first: while one is recorded in a phase that does not allow the server, nothing
+      // below may read or write either location.
+      const found: BootMove = bootMove(moveDir(app.getPath('userData')))
+      if (found.kind !== 'none') sink(`[desktop] data move on disk: ${found.kind}\n`)
+      // A move that never started copying is withdrawn: after a crash, processes the server started may still write to the data.
+      const pendingMove = withdrawRequestAtBoot(found, { userData: app.getPath('userData'), pid: process.pid })
+      if (pendingMove.kind === 'withdraw-failed') {
+        sink(`[desktop] data move: could not withdraw at launch: ${pendingMove.detail}\n`)
+        clearInterval(ticker)
+        const text = moveText(app.getLocale())
+        await stopForMove(text.withdrawFailedTitle, text.withdrawFailed(pendingMove.path), view.window, pendingMove.path)
+        return
+      }
+      if (found.kind === 'requested') sink('[desktop] data move: withdrawn at launch before copying anything\n')
+      if (pendingMove.kind === 'unreadable') {
+        clearInterval(ticker)
+        const text = moveText(app.getLocale())
+        await stopForMove(text.journalUnreadableTitle, text.journalUnreadable(pendingMove.path), view.window, pendingMove.path)
+        return
+      }
+      if (pendingMove.kind === 'resume') {
+        clearInterval(ticker)
+        await runMoveToEnd(sink, view.window)
+        return
+      }
+      // Every step below reads the Harness home this exports.
+      const settled = await settleDataLocation(appDataLocationHost(view.window, view.block, sink), launchDshHome)
+      if (settled === undefined) {
+        clearInterval(ticker)
+        app.quit()
+        return
+      }
+      settledTerminal = terminalForLaunch(app.getPath('userData'), {
+        home: settled.home, settled: settled.terminal, pending: pendingMove, lastResult: readMoveResult(moveDir(app.getPath('userData'))),
+      }, process.platform, sink)
+      const lock = await inspectMoveLock(settled.home, { userData: app.getPath('userData') }, nodeLockProbes(process.platform))
+      if (lock.kind !== 'none' && lock.kind !== 'ours') {
+        // Another installation is moving this data, or stopped partway through moving it: its journal is not ours to read,
+        // so nothing here may touch the data until that installation has finished.
+        sink(`[desktop] data move: ${settled.home} has another installation's move lock (${lock.kind})\n`)
+        clearInterval(ticker)
+        await settleForeignLockInWindow(lock, settled.home, view.window)
+        return
+      }
+      // Our own lock without a journal is left from a move that ended before it could remove it.
+      if (lock.kind === 'ours' && pendingMove.kind === 'none') releaseMoveLock([settled.home], { userData: app.getPath('userData') })
+      if (pendingMove.kind === 'none' || pendingMove.kind === 'cleanup') await retireReturnedCopies(settled.home)
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)
       // Once per process and before the spawn: every `dsh-auth-*` cookie on
       // the host is an earlier launch's, so none of them can be this one's.
       await clearStaleAuthCookies(session.defaultSession.cookies, sink)
-      // Before the server reads the profile, not after: `initProfile` writes a
-      // profile once and never revisits it, so a name added later would not
-      // reach this launch's composition.
-      const seeded = describeSeed(seedBuiltinBundles({
-        home: resolveHarnessHome(),
-        serverModules: spec.builtinModules,
-      }))
-      if (seeded !== undefined) sink(seeded)
-      // After the seeding, whose permission-row retirement the gateway step
-      // waits for (the migration reads its record in web-migration.json, so a
-      // seeding that stopped before recording it defers that step), and before
-      // the server whose settings import this prepares.
-      const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
-      const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
-      for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
-      // After the settings migration, whose finished record is what lets this
-      // step clear settings.yaml, and before the server that imports it.
-      const modelCatalog = migrateModelCatalog(resolveHarnessHome(), desktopProfileDir)
-      for (const line of modelCatalog.lines) sink(`[desktop] model catalog migration: ${line}\n`)
-      // Before the spawn, because the address and token reach the server as
-      // environment variables of that child and of nothing else.
-      const renderEnv = await startRenderServiceForServer(sink)
-      const updateEnv = await startUpdateForServer(host, sink)
-      const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
-      const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
-      const pnpmEnv = pnpmLauncherEnv(location)
-      const installEnv = installDirEnv(location)
-      const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
-      sink(launcher === undefined
-        ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
-        : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
-      const installDir = installEnv[INSTALL_DIR_ENV]
-      sink(installDir === undefined
-        ? '[desktop] install dir: none in a development launch\n'
-        : `[desktop] install dir: ${installDir}\n`)
-      const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
-      for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
-      // The server appends its own logger records to the same file, as one
-      // write per record, rather than printing them into the streams above.
-      // After the orphan sweep and the loopback services: an orphan can still
-      // hold the remembered port, and a service bound to port 0 can land on it.
-      const port = await choosePort(readState().serverPort, isPortFree)
-      sink(port.line)
-      const launch: ServerSpec = {
-        ...spec,
-        env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile },
-        port: port.port,
+      // Everything from the seeding to the server's URL line reads or writes the data location settled above, so for a move
+      // that switched to it, a rejection here is the new location failing. The seeding and the settings and model catalog
+      // migrations never reject: they log their own failures and go on.
+      const startOnHome = async (): Promise<StartedOnHome> => {
+        // Before the server reads the profile, not after: `initProfile` writes a
+        // profile once and never revisits it, so a name added later would not
+        // reach this launch's composition.
+        const seeded = describeSeed(seedBuiltinBundles({
+          home: resolveHarnessHome(),
+          serverModules: spec.builtinModules,
+        }))
+        if (seeded !== undefined) sink(seeded)
+        // After the seeding, which creates a fresh installation's data directory.
+        markSettledHome(settled, sink)
+        // After the seeding, whose permission-row retirement the gateway step
+        // waits for (the migration reads its record in web-migration.json, so a
+        // seeding that stopped before recording it defers that step), and before
+        // the server whose settings import this prepares.
+        const desktopProfileDir = profileDirectory(resolveHarnessHome(), DESKTOP_PROFILE)
+        const settingsMigration = migrateLegacySettings(resolveHarnessHome(), desktopProfileDir)
+        for (const line of settingsMigration.lines) sink(`[desktop] settings migration: ${line}\n`)
+        // After the settings migration, whose finished record is what lets this
+        // step clear settings.yaml, and before the server that imports it.
+        const modelCatalog = migrateModelCatalog(resolveHarnessHome(), desktopProfileDir)
+        for (const line of modelCatalog.lines) sink(`[desktop] model catalog migration: ${line}\n`)
+        // Before the spawn, because the address and token reach the server as
+        // environment variables of that child and of nothing else.
+        const renderEnv = await startRenderServiceForServer(sink)
+        const updateEnv = await startUpdateForServer(host, sink)
+        const dataEnv = await startDataLocationForServer(sink)
+        const officeEngineEnv = await startOfficeEngineForServer(spec, sink)
+        const location = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform }
+        const pnpmEnv = pnpmLauncherEnv(location)
+        const installEnv = installDirEnv(location)
+        const launcher = pnpmEnv[PNPM_LAUNCHER_ENV]
+        sink(launcher === undefined
+          ? '[desktop] pnpm launcher: none in a development launch; plugin installs use pnpm on PATH\n'
+          : `[desktop] pnpm launcher: ${launcher} (exists: ${String(existsSync(launcher))})\n`)
+        const installDir = installEnv[INSTALL_DIR_ENV]
+        sink(installDir === undefined
+          ? '[desktop] install dir: none in a development launch\n'
+          : `[desktop] install dir: ${installDir}\n`)
+        const appDirs = appDirsEnv({ userData: app.getPath('userData'), logs: logDir, updateCache: updaterCacheDir() })
+        for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\n`)
+        // The server appends its own logger records to the same file, as one
+        // write per record, rather than printing them into the streams above.
+        // After the orphan sweep and the loopback services: an orphan can still
+        // hold the remembered port, and a service bound to port 0 can land on it.
+        const port = await choosePort(readState().serverPort, isPortFree)
+        sink(port.line)
+        const launch: ServerSpec = {
+          ...spec,
+          env: {
+            ...renderEnv, ...updateEnv, ...dataEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile,
+          },
+          port: port.port,
+        }
+        // Held from here until the process exits, so a crash rebind finds the
+        // port still bound by this process; without it, the start is the one
+        // every launch made before.
+        const socket = holdLaunchSocket(port.port, sink)
+        const started: HeldStart = socket === undefined
+          ? { ...await startOnPort(launch, startEmbeddedServer, sink), held: undefined }
+          : await startHeldOrFallback(
+            launch, { socket, preload: spec.listenPreload }, startEmbeddedServer, { log: sink, beforeClose: () => {} },
+          )
+        held = started.held
+        server = started.server
+        rememberServerPort(started.spec)
+        if (held !== undefined) sink(`[desktop] server listens on the socket this process holds; a crash rebind keeps port ${String(held.socket.port)}\n`)
+        clearInterval(ticker)
+        sink(`[desktop] server ready at ${started.server.url}\n`)
+        return { server: started.server, settingsMigration, desktopProfileDir }
       }
-      // Held from here until the process exits, so a crash rebind finds the
-      // port still bound by this process; without it, the start is the one
-      // every launch made before.
-      const socket = holdLaunchSocket(port.port, sink)
-      const started: HeldStart = socket === undefined
-        ? { ...await startOnPort(launch, startEmbeddedServer, sink), held: undefined }
-        : await startHeldOrFallback(
-          launch, { socket, preload: spec.listenPreload }, startEmbeddedServer, { log: sink, beforeClose: () => {} },
-        )
-      held = started.held
-      server = started.server
-      rememberServerPort(started.spec)
-      if (held !== undefined) sink(`[desktop] server listens on the socket this process holds; a crash rebind keeps port ${String(held.socket.port)}\n`)
-      clearInterval(ticker)
-      sink(`[desktop] server ready at ${server.url}\n`)
+      let cleanUp = pendingMove.kind === 'cleanup'
+      let launched: StartedOnHome
+      if (pendingMove.kind === 'health-check') {
+        const home = resolveHarnessHome()
+        const outcome = await launchOnSwitchedMove(pendingMove.journal.baseline, {
+          start: startOnHome,
+          read: () => ({ sessions: countSessions(home), quarantined: quarantinedPlugins(home) }),
+          stopServerTree: stopServerCompletely,
+          rollBack: async (detail, failures) => {
+            clearInterval(ticker)
+            // The move's worker records the result, because the print reads the whole new location.
+            await runMoveToEnd(sink, view.window, { kind: 'health-failed', detail, failures })
+          },
+          pass: () => { passHealthCheck(moveDir(app.getPath('userData')), { userData: app.getPath('userData') }, sink) },
+          log: sink,
+        })
+        if (outcome.kind === 'rolled-back') return
+        launched = outcome.started
+        cleanUp = true
+      } else {
+        launched = await startOnHome()
+      }
+      const { server: running, settingsMigration, desktopProfileDir } = launched
       view.phase(2)
       if (await gate) {
         // A build below the feed's minimumVersion may not reach the UI. The
         // server goes down with it, so nothing here is usable until the
         // update the updater is now driving has been installed.
         sink('[desktop] launch blocked: a mandatory update must be installed first\n')
-        await stopForMandatoryUpdate(server, { home: resolveHarnessHome(), log: sink })
+        await stopForMandatoryUpdate(running, { home: resolveHarnessHome(), log: sink })
         server = undefined
         return
       }
       // After the gate, so a launch that must update first never subscribes to
       // a server it is about to take down.
-      setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
+      setupNotifications({ log: sink, reveal }, running.authenticatedUrl)
       attachSupervision()
-      view.showApp(server.authenticatedUrl)
+      view.showApp(running.authenticatedUrl)
+      if (cleanUp) cleanUpMoveInBackground(view.window)
+      if (found.kind === 'requested') {
+        const text = moveText(app.getLocale())
+        dialog.showMessageBox(view.window, { type: 'info', message: text.requestWithdrawn, buttons: [text.understood] }).catch((error: unknown) => {
+          sink(`[desktop] data move: could not show the withdrawal notice: ${String(error)}\n`)
+        })
+      }
       // After the server boot and the gate, so an upgrade's download competes
       // with neither, and a launch that must update first downloads nothing.
-      officeEngine?.runUpgrade()
+      // After a cleanup of a finished move's old copy has ended, too: the
+      // download writes under the data directory, and never beside that cleanup.
+      void moveCleanup.idle().then(() => { officeEngine?.runUpgrade() })
       // Over the loaded app rather than the boot page, so the message sits on
       // the window it is about. The marker keeps a notice until it has been
       // dismissed there, so a launch that never gets this far shows it next time.

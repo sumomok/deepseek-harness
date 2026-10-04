@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { appDirsEnv, LOG_DIR_ENV, UPDATE_CACHE_DIR_ENV, USER_DATA_DIR_ENV } from '../src/app-dirs.ts'
+import { LAUNCH_ENV } from './launch-env.ts'
 
 describe('appDirsEnv', () => {
   it('names userData, the log directory, and the update cache on macOS, where the logs sit outside userData', () => {
@@ -42,6 +43,6 @@ describe('the server launch in main.ts', () => {
 
   it('logs each one and adds them to the environment of the server it starts', () => {
     expect(source).toContain('for (const [name, path] of Object.entries(appDirs)) sink(`[desktop] ${name}: ${path}\\n`)')
-    expect(source).toContain('env: { ...renderEnv, ...updateEnv, ...pnpmEnv, ...installEnv, ...appDirs, ...officeEngineEnv, [SERVER_LOG_ENV]: logFile }')
+    expect(source).toContain(LAUNCH_ENV)
   })
 })

@@ -39,11 +39,17 @@
   en: 0ca88951276ca4c5
   zh: d2ca0f13c3709cd0
 /deepseek-ai-dsh-desktop-shell/office-engine-service:
-  en: 542221f91528333f
-  zh: fd7d9a59b605fe61
+  en: 9a065cd61aa828ce
+  zh: 5192694c3eb8c1b7
+/deepseek-ai-dsh-desktop-shell/data-location-service:
+  en: 88dcb8a6a84d5328
+  zh: 93d012bcb030a357
+/deepseek-ai-dsh-desktop-shell/where-your-data-lives:
+  en: 265f7f2e6552033f
+  zh: fa3a1df0e754a4e4
 /deepseek-ai-dsh-desktop-shell/server-environment:
-  en: 67201c433c11e127
-  zh: f253f631949743d9
+  en: c5d2d3549dca08f0
+  zh: f684b445710eb808
 /deepseek-ai-dsh-desktop-shell/known-limitations-and-deferred-work:
-  en: 8f9f0c0f18ccbb64
-  zh: fb176fa5bd53a85d
+  en: f85f3ae8b9e9259f
+  zh: 8a54e44c1c5cb2db

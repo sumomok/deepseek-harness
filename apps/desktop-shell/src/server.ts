@@ -6,12 +6,14 @@
  * @module @deepseek-ai/dsh-desktop-shell/server
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import {
   HANDOFF_FAILED_PREFIX, HANDOFF_READY_LINE, handoffListeningLine, LISTEN_HANDOFF_ENV, LISTEN_HANDOFF_MESSAGE, type ListenHandoff,
 } from './listen-socket.ts'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
+import { system32Program, WINDOWS_POWERSHELL } from './terminal-env.ts'
 
 /**
  * The environment variable naming the desktop log file to the server child.
@@ -111,7 +113,7 @@ async function findProcessesRunning(executable: string): Promise<number[]> {
     // path rather than the `node.exe` name every Node install shares.
     const quoted = executable.replace(/'/g, "''")
     const script = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Path -eq '${quoted}' } | ForEach-Object { $_.ProcessId }`
-    const output = await capture('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
+    const output = await capture(system32Program(process.env, ...WINDOWS_POWERSHELL), ['-NoProfile', '-NonInteractive', '-Command', script])
     return parsePids(output)
   }
   // `comm` is the executable path on macOS, and `=` drops the header.
@@ -139,7 +141,7 @@ function parsePids(output: string): number[] {
  */
 async function killPid(pid: number): Promise<void> {
   if (process.platform === 'win32') {
-    await capture('taskkill', ['/PID', String(pid), '/T', '/F'])
+    await capture(system32Program(process.env, 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'])
     return
   }
   try {
@@ -160,7 +162,14 @@ async function killPid(pid: number): Promise<void> {
  */
 async function capture(command: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    let child: ChildProcessByStdio<null, Readable, null>
+    try {
+      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+    } catch {
+      // Node throws instead of emitting 'error' for some failed starts; either is a command that cannot run.
+      resolve('')
+      return
+    }
     let out = ''
     child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString() })
     child.once('error', () => { resolve('') })
@@ -231,6 +240,8 @@ export interface ServerHandle {
   url: string
   /** The readiness-line URL carrying the launch token; loading it exchanges the token for the browser-session cookie. */
   authenticatedUrl: string
+  /** The server process's id; `undefined` only when the system gave none. */
+  pid: number | undefined
   /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
   /**
@@ -308,7 +319,12 @@ export function augmentedEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 /**
  * Kill the server's whole process tree. Windows has no signal-based group
- * teardown from Node, so it goes through `taskkill /T`; POSIX sends SIGTERM
+ * teardown from Node, so it goes through `taskkill /T`, run from
+ * `%SystemRoot%\System32`. When taskkill cannot start, whether Node reports
+ * that as an 'error' event (a program that is missing or cannot be run) or
+ * by throwing, only the server itself is killed: the processes it started
+ * keep running, and those that do not run the bundled Node binary are out of
+ * reach of the next launch's sweep. The returned promise never rejects. POSIX sends SIGTERM
  * (the launcher's ordinary supervisor stop, exit 0) and escalates to SIGKILL
  * after the grace window.
  * @param child - the spawned server process.
@@ -318,7 +334,14 @@ async function killTree(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   const exited = new Promise<void>((resolve) => { child.once('exit', () => { resolve() }) })
   if (process.platform === 'win32' && child.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+    // Without the kill on a failed start, a taskkill that cannot start would leave the wait for the exit below open.
+    try {
+      spawn(system32Program(process.env, 'taskkill.exe'), ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+        .once('error', () => { child.kill('SIGKILL') })
+    } catch {
+      // Node throws instead of emitting 'error' for some failed starts (an error code other than a missing or unrunnable program).
+      child.kill('SIGKILL')
+    }
     await exited
     return
   }
@@ -539,6 +562,7 @@ export async function startServer(
   return {
     url: new URL(authenticatedUrl).origin,
     authenticatedUrl,
+    pid: child.pid,
     stop: () => {
       expectedExit = true
       return killTree(child)

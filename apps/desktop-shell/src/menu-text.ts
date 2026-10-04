@@ -6,7 +6,9 @@
  * Only menus and the served UI's pre-locale loading page
  * ([[@deepseek-ai/dsh-desktop-shell/app-boot-text]]) follow this choice:
  * dialogs and notifications stay Chinese, which is a deliberate stopping point
- * rather than a half-done translation of the whole surface.
+ * rather than a half-done translation of the whole surface. The data-location
+ * prompts are the one exception and carry their own two sets in
+ * [[@deepseek-ai/dsh-desktop-shell/data-location-text]].
  * @module @deepseek-ai/dsh-desktop-shell/menu-text
  */
 

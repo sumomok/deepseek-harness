@@ -147,6 +147,7 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { FAILSAFE_SCHEMA, load } from 'js-yaml'
+import { sameLinkTarget } from './link-target.ts'
 
 /** This product's composition layer: the one {@link BUILTIN_WEB_BUNDLES} member that is no plugin. */
 export const DESKTOP_COMPOSITION_BUNDLE = '@deepseek-ai/dsh-desktop-app'
@@ -561,26 +562,6 @@ function initDesktopProfile(dir: string, bundles: readonly string[], shipped: re
   const workspacePath = join(dir, PROFILE_WORKSPACE_FILENAME)
   if (!existsSync(workspacePath)) writeAtomic(workspacePath, PROFILE_PNPM_WORKSPACE)
   return created
-}
-
-/**
- * Whether a link Windows or POSIX reported already resolves to `target`.
- *
- * `readlinkSync` does not return the string that created the link. Windows
- * reads a junction back in its extended-length form — `\\?\C:\dir\`, with the
- * prefix and a trailing separator `target` never carries — so a plain string
- * comparison is false for a correct link and the launch deletes and rebuilds it
- * every time. A relative read resolves against the link's own directory, which
- * is what a symbolic link means.
- * @param read - what `readlinkSync` returned for the link.
- * @param target - the directory the link is supposed to resolve to.
- * @param linkDir - the directory holding the link, the base of a relative read.
- * @returns true when the existing link already points at `target`.
- */
-export function sameLinkTarget(read: string, target: string, linkDir: string): boolean {
-  const canonical = (path: string): string =>
-    resolve(linkDir, path.startsWith('\\\\?\\') ? path.slice(4) : path)
-  return canonical(read) === canonical(target)
 }
 
 /**
