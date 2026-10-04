@@ -7,6 +7,7 @@
  */
 
 import { app, dialog, shell, type BrowserWindow } from 'electron'
+import { PRODUCT_NAME } from './brand.ts'
 import { defaultHarnessHome, type DataLocationHost } from './data-location-boot.ts'
 import { dataLocationText } from './data-location-text.ts'
 import {
@@ -26,7 +27,9 @@ const POWERSHELL_TIMEOUT_MS = 15_000
 export function appDataLocationHost(
   window: BrowserWindow, block: (message: string) => void, log: (line: string) => void,
 ): DataLocationHost {
-  const text = dataLocationText(app.getLocale())
+  const locale = app.getLocale()
+  const text = dataLocationText(locale)
+  const title = PRODUCT_NAME[locale.startsWith('zh') ? 'zh' : 'en']
   const osHome = app.getPath('home')
   const terminal: TerminalEnvHost = {
     platform: process.platform,
@@ -49,7 +52,7 @@ export function appDataLocationHost(
       block(view.message)
       const answer = await dialog.showMessageBox(window, {
         type: 'warning',
-        title: 'DSH Desktop',
+        title,
         message: view.message,
         detail: view.detail,
         buttons: view.buttons.map(button => button.label),
@@ -68,7 +71,7 @@ export function appDataLocationHost(
     },
     reveal: (path) => { shell.showItemInFolder(path) },
     tell: async (message) => {
-      await dialog.showMessageBox(window, { type: 'info', title: 'DSH Desktop', message, buttons: [text.ok] })
+      await dialog.showMessageBox(window, { type: 'info', title, message, buttons: [text.ok] })
     },
   }
 }

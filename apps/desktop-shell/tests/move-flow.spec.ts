@@ -191,8 +191,8 @@ describe('carrying a data move', () => {
       reveal: [kept],
     }])
     expect(text.keptTarget(target, kept, ['not-started'])).toBe(
-      `The new location "${target}" you chose to keep did not pass its check: DSH could not start there. `
-      + `DSH keeps using it as you chose, and starts from there when you reopen it. Your original data was not deleted; it is kept in "${kept ?? ''}". DSH quits now.`,
+      `The new location "${target}" you chose to keep did not pass its check: Beiming could not start there. `
+      + `Beiming keeps using it as you chose, and starts from there when you reopen it. Your original data was not deleted; it is kept in "${kept ?? ''}". Beiming quits now.`,
     )
   })
 
@@ -557,35 +557,35 @@ describe('a move that cannot go on', () => {
     for (const kind of ['other', 'copy-mismatch', 'target-occupied', 'copy-gone', 'source-changed', 'lock-lost', 'not-started'] as const) {
       expect(stopCauseOf(kind)).toBe('other')
     }
-    expect(MOVE_TEXT.zh.failed('no-space')).toBe('磁盘空间不够，搬运没法继续。请先腾出一些空间；DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。')
+    expect(MOVE_TEXT.zh.failed('no-space')).toBe('磁盘空间不够，搬运没法继续。请先腾出一些空间；北冥现在退出，重新打开北冥时会从停下的地方接着处理。')
     expect(MOVE_TEXT.zh.failed('no-permission')).toBe(
-      'DSH 没有权限修改数据所在的文件夹（原来的位置或新位置）。请确认你能修改那里的文件，并且没有别的程序（比如安全软件）正占用着它们；'
-      + 'DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。',
+      '北冥没有权限修改数据所在的文件夹（原来的位置或新位置）。请确认你能修改那里的文件，并且没有别的程序（比如安全软件）正占用着它们；'
+      + '北冥现在退出，重新打开北冥时会从停下的地方接着处理。',
     )
-    expect(MOVE_TEXT.zh.failed('other')).toBe('搬运时出了错。DSH 现在退出，重新打开 DSH 时会从停下的地方接着处理。如果重新打开后又看到这一页，请重新启动电脑，再打开 DSH。')
+    expect(MOVE_TEXT.zh.failed('other')).toBe('搬运时出了错。北冥现在退出，重新打开北冥时会从停下的地方接着处理。如果重新打开后又看到这一页，请重新启动电脑，再打开北冥。')
     expect(MOVE_TEXT.en.failed('no-space')).toBe(
-      'There is not enough free space on the drive to go on. Free up some space. DSH quits now; when you reopen it, it picks up where it stopped.',
+      'There is not enough free space on the drive to go on. Free up some space. Beiming quits now; when you reopen it, it picks up where it stopped.',
     )
     expect(MOVE_TEXT.en.failed('no-permission')).toBe(
-      'DSH was not allowed to change the folders that hold your data, at the original location or the new one. Check that you can change files there '
-      + 'and that no other program, such as security software, has them open. DSH quits now; when you reopen it, it picks up where it stopped.',
+      'Beiming was not allowed to change the folders that hold your data, at the original location or the new one. Check that you can change files there '
+      + 'and that no other program, such as security software, has them open. Beiming quits now; when you reopen it, it picks up where it stopped.',
     )
     expect(MOVE_TEXT.en.failed('other')).toBe(
-      'The move ran into an error. DSH quits now; when you reopen it, it picks up where it stopped. '
-      + 'If this page comes back after you reopen DSH, restart your computer, then open DSH again.',
+      'The move ran into an error. Beiming quits now; when you reopen it, it picks up where it stopped. '
+      + 'If this page comes back after you reopen Beiming, restart your computer, then open Beiming again.',
     )
     expect(MOVE_TEXT.en.withdrawFailed('/u/data-move')).toBe(
-      'The last data move, which had not started, could not be withdrawn. While its record is there, DSH does not start, so it does not use data '
-      + 'that was about to move. Check that the folder "/u/data-move" can be written to, then open DSH again.',
+      'The last data move, which had not started, could not be withdrawn. While its record is there, Beiming does not start, so it does not use data '
+      + 'that was about to move. Check that the folder "/u/data-move" can be written to, then open Beiming again.',
     )
     expect(MOVE_TEXT.zh.withdrawFailed('/u/data-move')).toBe(
-      '上次没有开始的数据搬运没能撤回。搬运记录还在的时候，DSH 不会启动，以免使用正要搬走的数据。请检查文件夹「/u/data-move」能否写入，然后重新打开 DSH。',
+      '上次没有开始的数据搬运没能撤回。搬运记录还在的时候，北冥不会启动，以免使用正要搬走的数据。请检查文件夹「/u/data-move」能否写入，然后重新打开北冥。',
     )
   })
 
   it('names each failure of a kept new location in the person\'s language, joined into one sentence', () => {
     const named: Record<HealthFailure, { zh: string; en: string }> = {
-      'not-started': { zh: 'DSH 没能在这里启动', en: 'DSH could not start there' },
+      'not-started': { zh: '北冥没能在这里启动', en: 'Beiming could not start there' },
       'unreadable': { zh: '这里的数据读不出来', en: 'the data there could not be read' },
       'fewer-sessions': { zh: '这里的对话比搬运前少', en: 'it holds fewer conversations than before the move' },
       'plugin-quarantined': { zh: '有插件在这里没能加载', en: 'a plugin could not be loaded there' },
@@ -593,19 +593,19 @@ describe('a move that cannot go on', () => {
     }
     for (const [failure, words] of Object.entries(named) as Array<[HealthFailure, { zh: string; en: string }]>) {
       expect(MOVE_TEXT.zh.keptTarget('/T', undefined, [failure])).toBe(
-        `你选择保留的新位置「/T」没有通过检查：${words.zh}。DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。DSH 现在退出。`,
+        `你选择保留的新位置「/T」没有通过检查：${words.zh}。北冥按你的选择继续使用这个位置，重新打开北冥时仍从这里启动。北冥现在退出。`,
       )
       expect(MOVE_TEXT.en.keptTarget('/T', undefined, [failure])).toBe(
-        `The new location "/T" you chose to keep did not pass its check: ${words.en}. DSH keeps using it as you chose, and starts from there when you reopen it. DSH quits now.`,
+        `The new location "/T" you chose to keep did not pass its check: ${words.en}. Beiming keeps using it as you chose, and starts from there when you reopen it. Beiming quits now.`,
       )
     }
     expect(MOVE_TEXT.zh.keptTarget('/Volumes/T7/DSH', '/Users/a/DSH 原来的数据', ['fewer-sessions', 'plugin-quarantined'])).toBe(
       '你选择保留的新位置「/Volumes/T7/DSH」没有通过检查：这里的对话比搬运前少；有插件在这里没能加载。'
-      + 'DSH 按你的选择继续使用这个位置，重新打开 DSH 时仍从这里启动。原来的数据没有删除，保留在「/Users/a/DSH 原来的数据」。DSH 现在退出。',
+      + '北冥按你的选择继续使用这个位置，重新打开北冥时仍从这里启动。原来的数据没有删除，保留在「/Users/a/DSH 原来的数据」。北冥现在退出。',
     )
     expect(MOVE_TEXT.en.keptTarget('/T', undefined, ['unreadable', 'workspaces-differ'])).toBe(
       'The new location "/T" you chose to keep did not pass its check: the data there could not be read; '
-      + 'it holds a different number of workspaces than before the move. DSH keeps using it as you chose, and starts from there when you reopen it. DSH quits now.',
+      + 'it holds a different number of workspaces than before the move. Beiming keeps using it as you chose, and starts from there when you reopen it. Beiming quits now.',
     )
   })
 

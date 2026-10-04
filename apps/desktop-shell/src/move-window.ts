@@ -10,6 +10,7 @@
  */
 
 import { app, BrowserWindow, shell } from 'electron'
+import { PRODUCT_NAME } from './brand.ts'
 import { appDataLocationHost } from './data-location-window.ts'
 import { defaultHarnessHome, terminalSeenAfterRestore } from './data-location-boot.ts'
 import type { MoveFlowDeps, MoveUi } from './move-flow.ts'
@@ -52,7 +53,7 @@ export function openMoveWindow(text: MoveText, log: (line: string) => void): Mov
     resizable: false,
     maximizable: false,
     backgroundColor: PALETTES[appearance].background,
-    title: 'DSH Desktop',
+    title: PRODUCT_NAME[app.getLocale().startsWith('zh') ? 'zh' : 'en'],
     webPreferences: { sandbox: true, contextIsolation: true },
   })
   const cancel = new AbortController()
