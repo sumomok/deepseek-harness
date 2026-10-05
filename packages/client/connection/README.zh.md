@@ -82,6 +82,8 @@ API Gateway Client 把内部 `$events` 逻辑流注册为唯一 generation sourc
 - **缓冲型 `/api` 路由会把每个请求体保留在内存里**：`maxRequestBodyBytes`（默认 300 MiB，按默认 200 MiB 图片总量上限经 base64 膨胀加信封余量得出）限制普通图片与 RPC 信封。显式启用的流式路由接收带背压的分块并绕过总量上限；路由实现负责持久化、取消与存储配额。
 - **浏览器 cookie 不带 `Secure`**：当前随产品提供的传输方式是 loopback HTTP；若部署经明文网络暴露同一 authority，bearer cookie 可能在传输中泄露。
 - **没有 logout 操作**：清除浏览器 cookie 会结束单个浏览器会话；删除 owner 凭据记录并重启 `dsh` 会撤销全部会话。
+- **在 `pull()` 里取路由 body 的 reader、又没有 `cancel()` 的转交，会让路由 body 保持打开**：`connection/fetch` 监听器返回的 Response 的 body 只在首次 `pull()` 里才取路由 body 的 reader、又没有定义 `cancel()` 时，调用方读过一部分后取消这个 body，该 reader 仍锁着路由 body，Connection 对它的取消失败，路由 body 不会被取消。
+- **监听器等待期间被释放的成员 Peer 仍会到达精确路由**：`connection/fetch` 监听器 await 期间，准入的成员 Peer 的 `dispose()` 完成，监听器随后调用 `next()` 时，仍在登记的精确路由照常运行，收到的是这个已释放的 Peer。
 
 
 <a id="dev-note"></a>
