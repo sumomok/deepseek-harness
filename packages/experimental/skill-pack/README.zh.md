@@ -140,7 +140,9 @@ interface PartsSource {
    *
    * A view id the deployment's own configuration already claims is refused
    * here, because the deployment's views own their ids. Two packs claiming one
-   * id is settled by the pack root instead, which withholds both of them.
+   * id is settled by this package instead: two packs of the pack root are both
+   * withheld, and an offered organization pack keeps the id against the pack
+   * root.
    * @param view - the parsed view file.
    * @returns the refusal, or `undefined` when the view can be drawn here.
    */

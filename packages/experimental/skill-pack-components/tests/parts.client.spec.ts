@@ -161,7 +161,7 @@ async function skillNames(ctx: Context): Promise<string[]> {
 describe('the component catalog as a pack reads it', () => {
   it('offers a pack whose part the deployment registered and offers', { timeout: 60_000 }, async () => {
     const ctx = await loadComposition(true)
-    expect(await statusOf(ctx)).toEqual({ skill: 'space-data-page', version: '1.0.0', state: 'active', missing: [] })
+    expect(await statusOf(ctx)).toEqual({ skill: 'space-data-page', version: '1.0.0', origin: 'pack-root', state: 'active', missing: [] })
     expect(await skillNames(ctx)).toContain('space-data-page')
   })
 
@@ -184,6 +184,7 @@ describe('the component catalog as a pack reads it', () => {
     expect(await statusOf(ctx)).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [{ kind: 'part-absent', part: 'toy.data-page' }],
     })
@@ -198,6 +199,7 @@ describe('the component catalog as a pack reads it', () => {
     expect(await statusOf(ctx)).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [
         { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },

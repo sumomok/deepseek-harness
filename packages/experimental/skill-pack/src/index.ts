@@ -32,10 +32,16 @@
  * archive's own manifest and makes the pack root equal to what it carries. The
  * directory names the delivery the deployment holds, and nothing here ever
  * writes into it.
+ *
+ * A deployment that configures an organization root also provides
+ * `ctx.skillPackIntake` (`intake.ts`): the plugin handing over an
+ * organization's packs installs them there and reports their skills itself,
+ * while this plugin judges them and offers their views. A view id an offered
+ * organization pack holds withholds any pack of the pack root declaring it.
  * @module @deepseek-ai/dsh-experimental-skill-pack
  */
 
-import { isAbsolute } from 'node:path'
+import { isAbsolute, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -50,10 +56,12 @@ import type {
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installDelivery, type DeliveryDirectory } from './deliveries.ts'
 import type { StagedPack, StagedPackRefusal } from './install.ts'
-import { describeMissing, reconcilePacks } from './reconcile.ts'
+import { NO_ORGANIZATION_SET, OrganizationPackIntake } from './intake.ts'
+import { admitEveryRequest, placeRequestByMember, reportDirectoryMismatch } from './members.ts'
+import { describeMissing, judgePackAlone, reconcilePacks, undrawableViews, type PackObservation } from './reconcile.ts'
 import { packStatusRoute } from './route.ts'
 import { readPackRoot, type PackSource } from './scan.ts'
-import type { ActivePackView, PackManifest, PackMissing, PackStatus, PartsSource } from './types.ts'
+import type { ActivePackView, PackManifest, PackStatus, PartsSource, SkillPackIntake } from './types.ts'
 
 export type * from './types.ts'
 export { buildPackArchive, PACK_ARCHIVE_EXTENSION, PACK_ARCHIVE_FORMAT } from './archive.ts'
@@ -70,6 +78,7 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     skillPacks: SkillPackRegistry
     skillPackParts: PartsSource
+    skillPackIntake: SkillPackIntake
   }
 }
 
@@ -118,24 +127,6 @@ const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024
  */
 const DEFAULT_MAX_FILES = 512
 
-/**
- * The unmet requirements a delivery is allowed to arrive carrying.
- *
- * A pack naming a plugin, a part or a platform version this deployment does
- * not have is a delivery that arrived before the row it was written against:
- * it installs, stays inactive, says on the status route what it is waiting
- * for, and activates by itself when that row is composed. A view the composed
- * surface refuses is the opposite case — nothing that arrives later makes it
- * drawable — so it is checked only for a pack whose other requirements this
- * deployment already meets, and it refuses the delivery.
- */
-const DEFERRED_REQUIREMENTS: ReadonlySet<PackMissing['kind']> = new Set([
-  'platform-version',
-  'plugin-absent',
-  'plugin-version',
-  'part-absent',
-])
-
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
 export interface PackDeliveryDirectory {
   /** Absolute path of the directory a delivery archive is copied into. */
@@ -158,15 +149,32 @@ export interface Config {
   watch?: boolean
   /** Where a delivery archive is dropped; absent where a deployment installs its packs some other way. */
   deliveries?: PackDeliveryDirectory
+  /**
+   * Absolute path of the organization root: one `<name>@<version>` directory
+   * per organization entry, written by `ctx.skillPackIntake` and by nothing
+   * else, and not watched. Configured, it provides `ctx.skillPackIntake`;
+   * absent, no organization pack is installed or offered. Its parent holds the
+   * staging and retired siblings a replacement writes, so it is a directory of
+   * its own.
+   */
+  organizationRoot?: string
+  /**
+   * Whether `GET /skill-pack/status` answers only a request `ctx.consoleMembers`
+   * places with a member: 503 while no such service runs, 401 when it places
+   * the request with nobody. Every placed member reads the same document. The
+   * default is false, which answers every request.
+   */
+  perMember?: boolean
 }
 
 /**
  * `ctx.skillPacks`: the pack root's skill provider, and the reader of what it
  * decided.
  *
- * Both reads answer from the pack root and the parts source as they stand at
- * the moment of the call rather than from a retained snapshot, so a caller
- * cannot observe a state that the skill catalog has already moved past.
+ * Both reads answer from the pack root, the offered organization set and the
+ * parts source as they stand at the moment of the call rather than from a
+ * retained snapshot, so a caller cannot observe a state that the skill catalog
+ * has already moved past.
  */
 export class SkillPackRegistry extends Service {
   static inject = ['skills']
@@ -185,6 +193,8 @@ export class SkillPackRegistry extends Service {
       maxFileBytes: z.natural().min(1).default(DEFAULT_MAX_FILE_BYTES),
       maxFiles: z.natural().min(1).default(DEFAULT_MAX_FILES),
     }).default(undefined as never),
+    organizationRoot: z.string(),
+    perMember: z.boolean().default(false),
   })
 
   private readonly root: string
@@ -208,14 +218,19 @@ export class SkillPackRegistry extends Service {
 
   /** Subscribers, in registration order, which is the order a change reaches them in. */
   private readonly watchers = new Set<() => void>()
+  /** The organization intake; absent where no organization root is configured. */
+  private readonly intake: OrganizationPackIntake | undefined
 
   /**
    * Create the registry, claim the pack root's provider seat, and mount the
-   * optional parts source, root watcher, delivery watch and status route.
+   * optional parts source, root watcher, delivery watch, organization intake
+   * and status route.
    * @param ctx - Cordis context that owns the service.
-   * @param config - the pack root, the platform version, whether to watch, and where a delivery arrives.
-   * @throws {Error} when `root` or `deliveries.directory` is not an absolute path, or `platformVersion` is
-   *   not an exact semantic version.
+   * @param config - the pack root, the platform version, whether to watch, where a delivery arrives, the
+   *   organization root, and whether the status route answers per member.
+   * @throws {Error} when `root`, `deliveries.directory` or `organizationRoot` is not an absolute path,
+   *   `organizationRoot` is `root` or `deliveries.directory` or lies inside or around either, or
+   *   `platformVersion` is not an exact semantic version.
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'skillPacks')
@@ -229,6 +244,16 @@ export class SkillPackRegistry extends Service {
     this.root = config.root
     this.platformVersion = config.platformVersion
     this.deliveries = resolveDeliveries(config.deliveries)
+    const organizationRoot = resolveOrganizationRoot(config)
+    this.intake = organizationRoot === undefined ? undefined : new OrganizationPackIntake(ctx, {
+      root: organizationRoot,
+      judge: observation => this.judgeAlone(observation),
+      subscribe: (listener) => {
+        this.watchers.add(listener)
+        return () => { this.watchers.delete(listener) }
+      },
+      moved: () => { this.moved() },
+    })
 
     ctx.effect(() => ctx.skills.registerProvider(control => this.provider(control)), 'skill-pack: the pack root skill provider')
 
@@ -290,17 +315,22 @@ export class SkillPackRegistry extends Service {
       }, 'skill-pack: the delivery directory watcher')
     }
 
+    const perMember = config.perMember === true
+    reportDirectoryMismatch(ctx, perMember)
+    const place = perMember ? placeRequestByMember(ctx) : admitEveryRequest
     ctx.inject(['webServer'], (serverCtx: Context) => {
       serverCtx.effect(
-        () => serverCtx.webServer.register(packStatusRoute(() => this.statuses())),
+        () => serverCtx.webServer.register(packStatusRoute(() => this.statuses(), place)),
         'skill-pack: the pack status route',
       )
     })
   }
 
   /**
-   * Judge every pack in the root as it stands now.
-   * @returns one status per pack, active and inactive alike, in skill-name order.
+   * Judge every pack in the root, and every entry of the offered organization
+   * set, as they stand now.
+   * @returns one status per pack, active and inactive alike: the root's in skill-name order, then the
+   *   organization set's in `name@version` order.
    */
   async statuses(): Promise<PackStatus[]> {
     return (await this.judge()).statuses
@@ -327,15 +357,20 @@ export class SkillPackRegistry extends Service {
   }
 
   /**
-   * The views of every active pack, in pack order and then manifest order.
-   * An inactive pack contributes none, including views that read cleanly.
+   * The views of every active pack, in pack order and then manifest order:
+   * the root's packs, then the offered organization set's entries. An inactive
+   * pack contributes none, including views that read cleanly, and an id two
+   * active organization entries declare with one file is listed once.
    * @returns each active pack's declared views, carrying the pack that declared them.
    */
   async activeViews(): Promise<ActivePackView[]> {
-    const { active } = await this.judge()
-    return [...active.values()].flatMap(({ source }) => source.views
-      .filter(view => view.ok)
-      .map(view => ({ pack: source.skill, ...view.view })))
+    const { active, organizationViews } = await this.judge()
+    return [
+      ...[...active.values()].flatMap(({ source }) => source.views
+        .filter(view => view.ok)
+        .map(view => ({ pack: source.skill, ...view.view }))),
+      ...organizationViews,
+    ]
   }
 
   /**
@@ -372,39 +407,62 @@ export class SkillPackRegistry extends Service {
    * @returns the first refusal this deployment can already state, or `undefined`.
    */
   private refuseUndrawable(packs: readonly StagedPack[]): StagedPackRefusal | undefined {
-    const parts = this.parts
-    if (parts === undefined) return undefined
-    const refusals = packs.flatMap((pack) => {
-      const judged = reconcilePacks([pack], parts.list(), this.platformVersion, view => parts.judgeView(view))
-      return judged.flatMap(status => refusalsOf(pack, status))
-    })
+    if (this.parts === undefined) return undefined
+    const refusals = packs.flatMap(pack => undrawableViews(this.judgeAlone(pack))
+      .map(missing => ({ pack: pack.name, file: missing.view, reason: missing.reason })))
     return refusals[0]
   }
 
   /**
-   * Read the root and reconcile it against the parts registered now.
-   *
-   * `active` holds only packs whose manifest parsed and whose every
-   * requirement is met, so the pack identity every active-pack read needs is
-   * in hand without re-deciding what reconciliation already decided.
+   * Judge one pack on its own against the parts registered now, with no other
+   * pack's view ids compared with its own.
+   * @param pack - the pack, already read.
+   * @returns its status.
    */
-  private async judge(): Promise<{ statuses: PackStatus[]; active: Map<string, ActivePack> }> {
+  private judgeAlone(pack: PackObservation): PackStatus {
+    const parts = this.parts
+    return judgePackAlone(
+      pack,
+      parts === undefined ? [] : parts.list(),
+      this.platformVersion,
+      parts === undefined ? undefined : (view => parts.judgeView(view)),
+    )
+  }
+
+  /**
+   * Read the root and reconcile it, and the offered organization set, against
+   * the parts registered now.
+   *
+   * `active` holds only packs of the root whose manifest parsed and whose
+   * every requirement is met, so the pack identity every active-pack read
+   * needs is in hand without re-deciding what reconciliation already decided.
+   * The organization set is judged first, because a view id its active entries
+   * hold withholds a pack of the root.
+   */
+  private async judge(): Promise<{
+    statuses: PackStatus[]
+    active: Map<string, ActivePack>
+    organizationViews: readonly ActivePackView[]
+  }> {
     const sources = await readPackRoot(this.root)
     const parts = this.parts
-    const statuses = reconcilePacks(
+    const organization = this.intake === undefined ? NO_ORGANIZATION_SET : this.intake.reading()
+    const rootStatuses = reconcilePacks(
       sources,
       parts?.list() ?? [],
       this.platformVersion,
       parts === undefined ? undefined : (view => parts.judgeView(view)),
+      organization.held,
     )
+    const statuses = [...rootStatuses, ...organization.statuses]
     this.announce(statuses)
-    const offered = new Set(statuses.filter(status => status.state === 'active').map(status => status.skill))
+    const offered = new Set(rootStatuses.filter(status => status.state === 'active').map(status => status.skill))
     const active = new Map<string, ActivePack>()
     for (const source of sources) {
       if (!offered.has(source.skill) || !source.manifest.ok) continue
       active.set(source.skill, { source, manifest: source.manifest.manifest })
     }
-    return { statuses, active }
+    return { statuses, active, organizationViews: organization.views }
   }
 
   /**
@@ -430,12 +488,12 @@ export class SkillPackRegistry extends Service {
    * moment that row is composed; a pack whose view was judged and refused will
    * never activate, however much of the deployment arrives afterwards, and
    * somebody has to edit the view file or retire the pack.
-   * @param statuses - every pack in the root, active and inactive alike.
+   * @param statuses - every pack in the root and every offered organization entry, active and inactive alike.
    */
   private announce(statuses: readonly PackStatus[]): void {
     const inactive = statuses.filter(status => status.state === 'inactive')
     const report = inactive
-      .map(status => `${status.skill}: ${status.missing.map(describeMissing).join('; ')}`)
+      .map(status => `${labelOf(status)}: ${status.missing.map(describeMissing).join('; ')}`)
       .join(' | ')
     if (report === this.announced) return
     this.announced = report
@@ -468,19 +526,52 @@ interface ActivePack {
 }
 
 /**
- * The views of one staged pack this deployment can already say it will not
- * draw. A pack still waiting on a plugin, a part or a platform version has
- * none, because its views were judged against a surface that is not finished
- * arriving.
- * @param pack - the staged pack, for the directory name a refusal is reported under.
- * @param status - what reconciliation made of that pack on its own.
- * @returns one refusal per refused view, in the order the pack declares them.
+ * How a withholding report names one pack: a pack of the root by its skill
+ * name, an organization entry by its skill name and entry version.
+ * @param status - the pack's status.
+ * @returns the name the report uses.
  */
-function refusalsOf(pack: StagedPack, status: PackStatus): StagedPackRefusal[] {
-  if (status.missing.some(missing => DEFERRED_REQUIREMENTS.has(missing.kind))) return []
-  return status.missing
-    .filter(missing => missing.kind === 'view-refused')
-    .map(missing => ({ pack: pack.name, file: missing.view, reason: missing.reason }))
+function labelOf(status: PackStatus): string {
+  return status.origin === 'organization' ? `organization ${status.skill}@${String(status.entryVersion)}` : status.skill
+}
+
+/**
+ * Read the organization root, refusing one that would share a directory with
+ * a root this row replaces wholesale.
+ * @param config - the row's configuration.
+ * @returns the organization root, or `undefined` where none is configured.
+ * @throws {Error} when the organization root is not an absolute path, or is `root` or
+ *   `deliveries.directory`, lies inside either, or contains either: replacing the one
+ *   would replace the other's contents.
+ */
+function resolveOrganizationRoot(config: Config): string | undefined {
+  const organizationRoot = config.organizationRoot
+  if (organizationRoot === undefined) return undefined
+  if (!isAbsolute(organizationRoot)) {
+    throw new Error(`skill-pack: organizationRoot must be an absolute path, received ${JSON.stringify(organizationRoot)}`)
+  }
+  const neighbours: [string, string][] = [
+    ['root', config.root],
+    ...config.deliveries === undefined ? [] : [['deliveries.directory', config.deliveries.directory] as [string, string]],
+  ]
+  for (const [field, path] of neighbours) {
+    if (within(organizationRoot, path) || within(path, organizationRoot)) {
+      throw new Error(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and ${field} ${JSON.stringify(path)} `
+        + 'must be separate directories, neither inside the other, because replacing one would replace the other\'s contents')
+    }
+  }
+  return organizationRoot
+}
+
+/**
+ * Whether one absolute path is another, or lies inside it.
+ * @param outer - the containing path.
+ * @param inner - the path that may be inside it.
+ * @returns `true` when `inner` is `outer` or a descendant of it.
+ */
+function within(outer: string, inner: string): boolean {
+  const path = relative(outer, inner)
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
 }
 
 /**

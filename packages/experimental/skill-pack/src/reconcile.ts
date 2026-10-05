@@ -47,6 +47,41 @@ export interface PackObservation {
   readonly views: readonly PackViewResult[]
 }
 
+/**
+ * The unmet requirements a pack is allowed to be installed carrying.
+ *
+ * A pack naming a plugin, a part or a platform version this deployment does
+ * not have arrived before the row it was written against: it installs, stays
+ * inactive, says on the status route what it is waiting for, and activates by
+ * itself when that row is composed. A view the composed surface refuses is the
+ * opposite case — nothing that arrives later makes it drawable — so it is
+ * checked only for a pack whose other requirements this deployment already
+ * meets, and it refuses the install. An anchor format this build does not read
+ * is never deferred either: which formats a build reads is fixed by the build.
+ */
+const DEFERRED_REQUIREMENTS: ReadonlySet<PackMissing['kind']> = new Set([
+  'platform-version',
+  'plugin-absent',
+  'plugin-version',
+  'part-absent',
+])
+
+/** The member naming one view the component surface will not draw. */
+export type RefusedView = Extract<PackMissing, { kind: 'view-refused' }>
+
+/**
+ * The views of one judged pack this deployment can already say it will not
+ * draw. A pack still waiting on a plugin, a part or a platform version has
+ * none, because its views were judged against a surface that is not finished
+ * arriving.
+ * @param status - the pack's status, judged on its own.
+ * @returns one member per refused view, in the order the pack declares them.
+ */
+export function undrawableViews(status: PackStatus): RefusedView[] {
+  if (status.missing.some(missing => DEFERRED_REQUIREMENTS.has(missing.kind))) return []
+  return status.missing.filter((missing): missing is RefusedView => missing.kind === 'view-refused')
+}
+
 /** How one view file is judged against the surface that would draw it, where a surface is composed. */
 export type ViewJudge = (view: PackView) => PackViewRefusal | undefined
 
@@ -66,10 +101,14 @@ interface JudgedPack {
  * platform-bearing pack inactive, which is why the plugin refuses it at load
  * instead.
  *
- * Two packs this root would otherwise offer that declare one view id are both
- * withheld: one menu row cannot have two owners, and choosing the first of them
- * would make what a deployment offers depend on the order its packs were read
- * in. A pack that is inactive for another reason claims nothing, so a pack
+ * A view id an offered organization pack holds is that pack's: a pack of this
+ * root declaring it is withheld, whatever order anything was read in, because
+ * the organization set is the deployment's chosen source for a pack delivered
+ * both ways. Among what remains, two packs this root would otherwise offer
+ * that declare one view id are both withheld: one menu row cannot have two
+ * owners, and choosing the first of them would make what a deployment offers
+ * depend on the order its packs were read in. A pack that is inactive for
+ * another reason, an organization claim included, claims nothing, so a pack
  * nobody is offered cannot withhold one that would be.
  * @param packs - every pack found in the pack root, in any order.
  * @param providedParts - the parts registered right now; an empty list is the state before any component plugin is mounted.
@@ -77,6 +116,8 @@ interface JudgedPack {
  * @param judgeView - how a view file is judged; absent where no component
  *   surface is composed, and then a view that parsed is carried through
  *   unjudged, because nothing could draw it either way.
+ * @param held - view id to the skill name of the active organization pack
+ *   holding it; absent where no organization set is offered.
  * @returns one status per pack, in skill-name order by code unit.
  */
 export function reconcilePacks(
@@ -84,17 +125,64 @@ export function reconcilePacks(
   providedParts: readonly ProvidedPart[],
   platformVersion: string,
   judgeView?: ViewJudge,
+  held: ReadonlyMap<string, string> = new Map(),
 ): PackStatus[] {
+  const parts = indexParts(providedParts)
+  const judged = [...packs]
+    .sort((left, right) => compareCodeUnits(left.skill, right.skill))
+    .map(pack => judgePack(pack, parts, platformVersion, judgeView))
+  return withContestedIds(judged.map(pack => withHeldIds(pack, held)))
+}
+
+/**
+ * Judge one pack on its own, against nothing but the registered parts and the
+ * platform version: no other pack's view ids are compared with its own.
+ * @param pack - the pack, already read.
+ * @param providedParts - the parts registered right now.
+ * @param platformVersion - the console platform's own exact version.
+ * @param judgeView - how a view file is judged; absent where no component surface is composed.
+ * @returns the pack's status, with `origin: 'pack-root'` for the caller to restate.
+ */
+export function judgePackAlone(
+  pack: PackObservation,
+  providedParts: readonly ProvidedPart[],
+  platformVersion: string,
+  judgeView?: ViewJudge,
+): PackStatus {
+  return judgePack(pack, indexParts(providedParts), platformVersion, judgeView).status
+}
+
+/** The registered parts as a judgement reads them: each plugin's first-seen version, and every part id. */
+interface PartIndex {
+  readonly pluginVersions: ReadonlyMap<string, string>
+  readonly partIds: ReadonlySet<string>
+}
+
+/** Index the registered parts once for every pack judged against them. */
+function indexParts(providedParts: readonly ProvidedPart[]): PartIndex {
   const pluginVersions = new Map<string, string>()
   const partIds = new Set<string>()
   for (const part of providedParts) {
     if (!pluginVersions.has(part.plugin)) pluginVersions.set(part.plugin, part.version)
     partIds.add(part.id)
   }
-  const judged = [...packs]
-    .sort((left, right) => compareCodeUnits(left.skill, right.skill))
-    .map(pack => judgePack(pack, pluginVersions, partIds, platformVersion, judgeView))
-  return withContestedIds(judged)
+  return { pluginVersions, partIds }
+}
+
+/**
+ * Withhold a pack that would otherwise be offered and declares a view id an
+ * offered organization pack holds, naming that pack for each such id.
+ * @param judged - one pack, judged for everything but its view ids.
+ * @param held - view id to the skill name of the organization pack holding it.
+ * @returns the pack, unchanged or withheld; a withheld pack claims no id.
+ */
+function withHeldIds(judged: JudgedPack, held: ReadonlyMap<string, string>): JudgedPack {
+  if (judged.status.missing.length > 0) return judged
+  const missing = [...new Set(judged.viewIds)].flatMap((id): PackMissing[] => {
+    const holder = held.get(id)
+    return holder === undefined ? [] : [{ kind: 'view-id-conflict', id, pack: holder, origin: 'organization' }]
+  })
+  return missing.length === 0 ? judged : { status: { ...judged.status, state: 'inactive', missing }, viewIds: [] }
 }
 
 /**
@@ -119,7 +207,7 @@ function withContestedIds(judged: readonly JudgedPack[]): PackStatus[] {
     if (status.missing.length > 0) return status
     const missing = viewIds.flatMap(id => (contested.get(id) ?? [])
       .filter(other => other !== status.skill)
-      .map((other): PackMissing => ({ kind: 'view-id-conflict', id, pack: other })))
+      .map((other): PackMissing => ({ kind: 'view-id-conflict', id, pack: other, origin: 'pack-root' })))
     return missing.length === 0 ? status : { ...status, state: 'inactive', missing }
   })
 }
@@ -132,8 +220,7 @@ function withContestedIds(judged: readonly JudgedPack[]): PackStatus[] {
  */
 function judgePack(
   pack: PackObservation,
-  pluginVersions: ReadonlyMap<string, string>,
-  partIds: ReadonlySet<string>,
+  { pluginVersions, partIds }: PartIndex,
   platformVersion: string,
   judgeView: ViewJudge | undefined,
 ): JudgedPack {
@@ -143,7 +230,7 @@ function judgePack(
       field: pack.manifest.field,
       reason: pack.manifest.reason,
     }
-    return { status: { skill: pack.skill, state: 'inactive', missing: [missing] }, viewIds: [] }
+    return { status: { skill: pack.skill, origin: 'pack-root', state: 'inactive', missing: [missing] }, viewIds: [] }
   }
   const manifest = pack.manifest.manifest
   const missing: PackMissing[] = []
@@ -191,6 +278,7 @@ function judgePack(
     status: {
       skill: pack.skill,
       version: manifest.pack.version,
+      origin: 'pack-root',
       state: missing.length === 0 ? 'active' : 'inactive',
       missing,
     },
@@ -225,7 +313,9 @@ export function describeMissing(missing: PackMissing): string {
     case 'view-refused':
       return `view ${missing.view} cannot be drawn: ${missing.reason}`
     case 'view-id-conflict':
-      return `the view id ${missing.id} is declared by ${missing.pack} as well`
+      return missing.origin === 'organization'
+        ? `the view id ${missing.id} is held by the organization pack ${missing.pack}`
+        : `the view id ${missing.id} is declared by ${missing.pack} as well`
     /* v8 ignore start -- PackMissing is a closed union; a future member must fail compilation here. */
     default:
       return assertNever(missing, 'PackMissing.kind')

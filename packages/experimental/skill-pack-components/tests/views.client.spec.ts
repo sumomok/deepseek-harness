@@ -32,7 +32,7 @@ import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surfac
 import * as ShowComponent from '@deepseek-ai/dsh-experimental-component-surface'
 import { COMPONENT_KIT_ENTRIES } from '@deepseek-ai/dsh-experimental-component-surface'
 import SkillPackRegistry, { buildPackArchive } from '@deepseek-ai/dsh-experimental-skill-pack'
-import type { DeliveredPack, PackStatus } from '@deepseek-ai/dsh-experimental-skill-pack'
+import type { DeliveredPack, OrgPackInput, PackStatus, SkillPackIntake } from '@deepseek-ai/dsh-experimental-skill-pack'
 import * as SkillPackComponents from '../src/index.ts'
 
 const PLATFORM_VERSION = '0.5.2'
@@ -137,6 +137,8 @@ interface Deployment {
   readonly configured?: readonly string[]
   /** Whether the row also watches a delivery directory beside the root. */
   readonly deliveries?: boolean
+  /** Whether the row also configures an organization root, and so provides the organization intake. */
+  readonly organization?: boolean
   /** The view ids this deployment ends up offering, which the boot is awaited against. */
   readonly offered: readonly string[]
 }
@@ -175,6 +177,7 @@ async function loadComposition(deployment: Deployment): Promise<Context> {
     ...deployment.deliveries === true
       ? ['    deliveries:', `      directory: ${JSON.stringify(deliveryDirectory())}`]
       : [],
+    ...deployment.organization === true ? [`    organizationRoot: ${JSON.stringify(join(world, 'organization', 'packs'))}`] : [],
     "- name: '@deepseek-ai/dsh-experimental-skill-pack-components'",
     '',
   ].join('\n'))
@@ -276,6 +279,34 @@ async function readCatalog(ctx: Context): Promise<{ status: number; body: unknow
   return { status: response.status, body: response.status === 200 ? await response.json() : undefined }
 }
 
+/** The same pack as the organization plugin hands it over. */
+function organizationEntry(name: string, version: string, views: Record<string, string>): OrgPackInput {
+  return { name, version, channel: 'stable', files: deliveredPack(name, views).files }
+}
+
+/** A stand-in for the organization plugin: the intake it reads from its own `inject` fiber, and that fiber. */
+async function organization(ctx: Context): Promise<{ intake: SkillPackIntake; dispose: () => Promise<void> }> {
+  let intake: SkillPackIntake | undefined
+  const fiber = ctx.inject(['skillPackIntake'], (scope: Context) => { intake = scope.skillPackIntake })
+  await fiber
+  if (intake === undefined) throw new Error('the organization intake is not provided')
+  return { intake, dispose: async () => { await fiber.dispose() } }
+}
+
+/** Poll the sidebar's catalog until it answers what the case waits for, and hand back what it found. */
+async function catalogSettlesOn(
+  ctx: Context,
+  done: (catalog: { status: number; body: unknown }) => boolean,
+): Promise<{ status: number; body: unknown }> {
+  const deadline = Date.now() + 20_000
+  let catalog = await readCatalog(ctx)
+  while (Date.now() < deadline && !done(catalog)) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+    catalog = await readCatalog(ctx)
+  }
+  return catalog
+}
+
 /** One pack's status, as the pack root's provider judges it now. */
 async function statusOf(ctx: Context, skill: string): Promise<PackStatus | undefined> {
   return (await ctx.skillPacks.statuses()).find(status => status.skill === skill)
@@ -303,6 +334,7 @@ describe('a pack\'s views', () => {
     expect(await statusOf(ctx, 'space-data-page')).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'active',
       missing: [],
     })
@@ -345,6 +377,7 @@ describe('a pack\'s views', () => {
     expect(await statusOf(ctx, 'space-data-page')).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [{
         kind: 'view-refused',
@@ -448,6 +481,7 @@ describe('a pack\'s views', () => {
     expect(await statusOf(ctx, 'other-pack')).toEqual({
       skill: 'other-pack',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'active',
       missing: [],
     })
@@ -460,5 +494,40 @@ describe('a pack\'s views', () => {
       .find(entry => entry.options.name === '@deepseek-ai/dsh-experimental-skill-pack-components')?.fiber?.dispose()
     await settle(ctx, [])
     expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
+  it('reach the sidebar from an organization set the intake installed, and leave when that set is withdrawn', async () => {
+    const ctx = await loadComposition({ offered: [], organization: true, packs: {} })
+    const { intake, dispose } = await organization(ctx)
+    expect(await intake.replace([organizationEntry('org-guide', '3', { 'sites.yml': recordView('sites', '站点', 'sys_site') })]))
+      .toEqual({ kind: 'ok', refused: [] })
+    expect(intake.isActive('org-guide', '3')).toBe(true)
+    await settle(ctx, ['sites'])
+    expect((await readCatalog(ctx)).body).toEqual({ views: [{ id: 'sites', title: '站点' }] })
+    // The organization plugin reports the skill; this deployment's skill catalog does not.
+    expect((await ctx.skills.list()).map(candidate => candidate.name)).not.toContain('org-guide')
+
+    await dispose()
+    await settle(ctx, [])
+    expect((await readCatalog(ctx)).status).not.toBe(200)
+  })
+
+  it('appear once where an organization pack and a pack of the root claim one id, drawn from the organization pack', async () => {
+    const ctx = await loadComposition({
+      offered: ['layers'],
+      organization: true,
+      packs: { 'space-data-page': { 'layers.yml': recordView('layers', '图层数据', 'sys_layer') } },
+    })
+    const { intake } = await organization(ctx)
+    await intake.replace([organizationEntry('org-guide', '3', { 'layers.yml': recordView('layers', '组织图层', 'org_layer') })])
+    expect(await catalogSettlesOn(ctx, catalog => JSON.stringify(catalog.body).includes('组织图层')))
+      .toEqual({ status: 200, body: { views: [{ id: 'layers', title: '组织图层' }] } })
+    expect(await statusOf(ctx, 'space-data-page')).toEqual({
+      skill: 'space-data-page',
+      version: '1.0.0',
+      origin: 'pack-root',
+      state: 'inactive',
+      missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'org-guide', origin: 'organization' }],
+    })
   })
 })

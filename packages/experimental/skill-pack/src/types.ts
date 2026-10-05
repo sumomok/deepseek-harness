@@ -1,7 +1,8 @@
 /**
  * The values this package hands across its own edges: what a pack's manifest
  * says, what a component plugin has registered, what reconciliation answered,
- * what the status route publishes, and what a delivery is made of.
+ * what the status route publishes, what a delivery is made of, and what the
+ * organization intake takes and answers.
  *
  * Runtime code lives in the modules that own each value — `manifest.ts` parses
  * a manifest, `views.ts` parses a view file, `reconcile.ts` judges a pack,
@@ -67,7 +68,9 @@ export interface PartsSource {
    *
    * A view id the deployment's own configuration already claims is refused
    * here, because the deployment's views own their ids. Two packs claiming one
-   * id is settled by the pack root instead, which withholds both of them.
+   * id is settled by this package instead: two packs of the pack root are both
+   * withheld, and an offered organization pack keeps the id against the pack
+   * root.
    * @param view - the parsed view file.
    * @returns the refusal, or `undefined` when the view can be drawn here.
    */
@@ -157,15 +160,40 @@ export type PackMissing =
   | { readonly kind: 'view-unreadable'; readonly view: string; readonly reason: string }
   /** A declared view parsed, and the component surface will not draw it. */
   | { readonly kind: 'view-refused'; readonly view: string; readonly path: string; readonly reason: string }
-  /** Another pack this root would otherwise offer declares one of this pack's view ids, so neither is offered. */
-  | { readonly kind: 'view-id-conflict'; readonly id: string; readonly pack: string }
+  /**
+   * Another pack declares one of this pack's view ids. With `origin:
+   * 'pack-root'` it is a pack this root would otherwise offer, and neither is
+   * offered; with `origin: 'organization'` it is an offered organization pack,
+   * which keeps the id.
+   */
+  | {
+    readonly kind: 'view-id-conflict'
+    readonly id: string
+    /** The skill name of the other pack. */
+    readonly pack: string
+    /** Where the other pack is installed. */
+    readonly origin: 'pack-root' | 'organization'
+  }
 
 /** One pack's state and, when it is inactive, every reason it is. */
 export interface PackStatus {
   /** The skill name the pack's frontmatter declares, which is how a user and the model address it. */
   readonly skill: string
-  /** The pack's own version; absent when the manifest did not parse far enough to carry one. */
+  /**
+   * The pack's own `metadata.pack.version`, absent when the manifest did not
+   * parse far enough to carry one. Shown and traced only: nothing here
+   * compares it with {@link PackStatus.entryVersion}.
+   */
   readonly version?: string
+  /** Where the pack is installed: the pack root, or the organization root `ctx.skillPackIntake` writes. */
+  readonly origin: 'pack-root' | 'organization'
+  /**
+   * The `version` of the organization manifest entry, which keys the entry
+   * together with its skill name; present on organization entries only.
+   */
+  readonly entryVersion?: string
+  /** The organization channel the entry was handed over under; present on organization entries only. */
+  readonly channel?: 'stable' | 'trial'
   /** `active` exactly when `missing` is empty. */
   readonly state: 'active' | 'inactive'
   /**
@@ -185,7 +213,10 @@ export interface ActivePackView extends PackView {
 
 /** What `GET /skill-pack/status` answers. */
 export interface PackStatusDocument {
-  /** Every pack in the pack root, in skill-name order, active and inactive alike. */
+  /**
+   * Every pack in the pack root in skill-name order, then every entry of the
+   * offered organization set in `name@version` order, active and inactive alike.
+   */
   readonly packs: readonly PackStatus[]
 }
 
@@ -244,3 +275,146 @@ export interface PackArchiveDelivery {
 
 /** Where the delivered set comes from. */
 export type PackDelivery = PackSetSource | PackArchiveDelivery
+
+/**
+ * One skill pack an organization hands over, whose files the handing plugin
+ * has already verified against the organization's signature and digests.
+ */
+export interface OrgPackInput {
+  /** The skill name; the `name` of the entry's `SKILL.md` frontmatter must be this name. */
+  readonly name: string
+  /**
+   * The `version` of the organization manifest entry, which keys the entry and
+   * names its directory `<name>@<version>`; it must be one directory name (no
+   * `/`, `\` or NUL, and neither `.` nor `..`). It need not equal the pack's
+   * own `metadata.pack.version`, and nothing here compares the two.
+   */
+  readonly version: string
+  /** Shown on `GET /skill-pack/status` only; this package chooses no version by it. */
+  readonly channel: 'stable' | 'trial'
+  /**
+   * Every file of the skill directory, its path relative to that directory
+   * with `/` separators. Content is accepted as bytes or as a string, which is
+   * written as UTF-8; either way the bytes judged are the bytes written, a
+   * byte-order mark included.
+   */
+  readonly files: readonly DeliveredFile[]
+}
+
+/**
+ * Why `replace` refused one entry.
+ *
+ * Members are added as the pack rules grow. A consumer compiled against an
+ * earlier list shows one general sentence for a code it does not know rather
+ * than switching exhaustively.
+ */
+export type IntakeRefusalCode =
+  /**
+   * A file, path, extension, frontmatter, manifest or view file breaks the
+   * pack rules; or the frontmatter `name` is not the entry's name, or the
+   * version is not one directory name.
+   */
+  | 'pack-invalid'
+  /** `metadata.pack.anchorFormat` states an anchor format this build does not read. */
+  | 'anchor-format'
+  /** The entry declares views in a view format this build does not read, or states none. */
+  | 'view-format'
+  /** Every other requirement is met, and the component surface this deployment composes will not draw one of its views. */
+  | 'view-refused'
+  /** Another entry of the set declares one of its view ids with a file of different bytes. */
+  | 'view-id-conflict'
+  /**
+   * The set names the same `name@version` more than once. Every occurrence is
+   * refused, because nothing says which of them is the one meant.
+   */
+  | 'duplicate'
+
+/** One entry `replace` refused, and why. */
+export interface IntakeRefusal {
+  /** The entry's skill name. */
+  readonly name: string
+  /** The entry's organization manifest version. */
+  readonly version: string
+  /** Which rule refused it. */
+  readonly code: IntakeRefusalCode
+  /** One English sentence for an operator, naming the refused value. */
+  readonly detail: string
+}
+
+/**
+ * What one `replace` call did. The union is closed: `ok` and `failed` are its
+ * only members.
+ */
+export type IntakeResult =
+  /** Every entry not in `refused` is installed and offered; no refused entry was written. */
+  | { readonly kind: 'ok'; readonly refused: readonly IntakeRefusal[] }
+  /**
+   * The new set is not offered: the offered organization set is the one
+   * offered before the call. The organization root is as it was too, except
+   * where the calling fiber stopped while the set was being written; then the
+   * root already holds the new set, and a later call handing over the same
+   * files writes nothing.
+   */
+  | { readonly kind: 'failed'; readonly detail: string }
+
+/**
+ * `ctx.skillPackIntake`: installs the skill packs an organization hands over,
+ * and answers which of them may be offered now. The skill-pack row provides it
+ * only where `organizationRoot` is configured.
+ *
+ * The plugin handing the packs over is their only skill provider: this
+ * package reports none of them to `ctx.skills`, and only installs them, judges
+ * them, and hands their views to the component surface.
+ */
+export interface SkillPackIntake {
+  /**
+   * Replace the organization root with `packs`.
+   *
+   * Each entry is judged on its own: an entry breaking a rule is refused and
+   * not written. The accepted entries are staged and swapped in together, so
+   * the root holds all of them or is left as it was. An entry waiting for a
+   * plugin, a part or a platform version installs and stays inactive until
+   * that arrives, without a restart. `replace([])` withdraws the set and
+   * empties the root.
+   *
+   * The calling fiber — the fiber of the context the caller read
+   * `skillPackIntake` from, an `inject` callback's own fiber included — holds
+   * the set it hands over: once written, the set is offered through
+   * {@link SkillPackIntake.isActive}, `ctx.skillPacks.activeViews()` and the
+   * status route for as long as that fiber is active, and withdrawn when it
+   * stops, its files staying on disk. Nothing is offered after a process
+   * starts until the first `replace`. A set already on disk byte for byte is
+   * offered without being written again.
+   *
+   * When the promise resolves with `ok`, `isActive` already answers from the
+   * new set, and every `onChange` listener has been called after it was
+   * offered. Calls run one at a time in the order they arrive, and the last
+   * one offered is the set offered. A call that reaches its turn after this
+   * row has stopped, or whose calling fiber is no longer active when its turn
+   * comes or when its write finishes, answers `failed` and offers nothing new.
+   * @param packs - every entry to offer, keyed by name and version.
+   * @param options - `signal` rejects the call with its `reason`, changing
+   *   nothing, while the call waits for its turn or before it writes; once the
+   *   write starts the call no longer reads it.
+   * @returns which entries were refused and why, or why the new set is not offered.
+   */
+  replace(packs: readonly OrgPackInput[], options?: { readonly signal?: AbortSignal }): Promise<IntakeResult>
+  /**
+   * Whether one entry may be offered now, judged synchronously against the
+   * offered set and the parts registered at the moment of the call.
+   * @param name - the entry's skill name.
+   * @param version - the entry's organization manifest version.
+   * @returns `true` when the offered set holds the entry and its parts, plugins,
+   *   platform range, anchor format and views are all met.
+   */
+  isActive(name: string, version: string): boolean
+  /**
+   * Watch for a change in what {@link SkillPackIntake.isActive} answers: a set
+   * offered or withdrawn, or the registered parts changing. The listener is
+   * called after the change, so the read it makes sees it. The watch lasts as
+   * long as the calling fiber.
+   * @param listener - called after each change; it reads `isActive` again.
+   * @returns the disposer that stops the watch.
+   */
+  onChange(listener: () => void): () => void
+}

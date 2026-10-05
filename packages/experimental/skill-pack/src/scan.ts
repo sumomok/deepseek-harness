@@ -3,6 +3,10 @@
  * `SKILL.md` that is both the skill and the manifest, plus the view files that
  * manifest declares.
  *
+ * The same reading runs over files held in memory, through
+ * {@link observePack} and a reader of their text, so a pack judged before it
+ * is written is judged by the code that reads it back from disk.
+ *
  * Nothing here judges a pack. It answers what the files say, including what
  * they failed to say, and `reconcile.ts` decides what that means.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/scan
@@ -60,17 +64,35 @@ export function readFrontmatter(raw: string): Frontmatter | undefined {
 }
 
 /**
+ * How a pack's files are read: the complete text of the file at one absolute
+ * path, decoded as UTF-8 with any byte-order mark kept, or a rejection when
+ * there is no such file.
+ * @param path - the file's absolute path.
+ * @returns the file's text.
+ */
+export type PackTextReader = (path: string) => Promise<string>
+
+/**
  * Read one directory's `SKILL.md` into a pack source, including its declared views.
  * @param root - absolute pack root.
  * @param directoryName - the pack directory's own name inside the root.
  * @returns the pack source, or `undefined` when the directory holds no readable `SKILL.md` with a skill name and description.
  */
 export async function readPack(root: string, directoryName: string): Promise<PackSource | undefined> {
-  const directory = join(root, directoryName)
+  return await observePack(join(root, directoryName), async path => await readFile(path, 'utf8'))
+}
+
+/**
+ * Read one pack through a reader of its files' text, including its declared views.
+ * @param directory - absolute path of the pack's own directory; every path the reader is asked for lies under it.
+ * @param readText - how one file's text is read.
+ * @returns the pack source, or `undefined` when the reader has no `SKILL.md` with a skill name and description.
+ */
+export async function observePack(directory: string, readText: PackTextReader): Promise<PackSource | undefined> {
   const path = join(directory, PACK_ENTRY_FILE)
   let raw: string
   try {
-    raw = await readFile(path, 'utf8')
+    raw = await readText(path)
   } catch {
     // Swallowed here and nowhere else: a root entry without a readable
     // SKILL.md is not a pack, and the caller lists the ones that are.
@@ -82,7 +104,7 @@ export async function readPack(root: string, directoryName: string): Promise<Pac
   const description = stringField(frontmatter.data, 'description')
   if (skill === undefined || description === undefined || !isSkillName(skill)) return undefined
   const manifest = parsePackManifest(frontmatter.data.metadata)
-  const views = manifest.ok ? await readViews(directory, manifest.manifest.views) : []
+  const views = manifest.ok ? await readViews(directory, manifest.manifest.views, readText) : []
   const whenToUse = stringField(frontmatter.data, 'whenToUse')
   return {
     skill,
@@ -119,10 +141,10 @@ export async function readPackRoot(root: string): Promise<PackSource[]> {
 }
 
 /** Read each declared view file, in manifest order, keeping the pack-relative path each was declared under. */
-async function readViews(directory: string, declared: readonly string[]): Promise<PackViewResult[]> {
+async function readViews(directory: string, declared: readonly string[], readText: PackTextReader): Promise<PackViewResult[]> {
   const results: PackViewResult[] = []
   for (const relative of declared) {
-    results.push(await readView(directory, relative))
+    results.push(await readView(directory, relative, readText))
   }
   return results
 }
@@ -132,14 +154,14 @@ async function readViews(directory: string, declared: readonly string[]): Promis
  * rather than followed: a pack names files inside itself, and a manifest is
  * runtime-installed data.
  */
-async function readView(directory: string, relative: string): Promise<PackViewResult> {
+async function readView(directory: string, relative: string, readText: PackTextReader): Promise<PackViewResult> {
   const resolved = resolve(directory, relative)
   if (resolved !== directory && !resolved.startsWith(directory + sep)) {
     return { ok: false, path: relative, reason: 'leaves the pack directory' }
   }
   let raw: string
   try {
-    raw = await readFile(resolved, 'utf8')
+    raw = await readText(resolved)
   } catch (error) {
     return { ok: false, path: relative, reason: String(error) }
   }

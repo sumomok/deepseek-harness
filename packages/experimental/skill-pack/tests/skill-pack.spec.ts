@@ -21,13 +21,16 @@ import SkillRegistry, { isModelInvocable, isUserInvocable } from '@deepseek-ai/d
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import { PACK_ARCHIVE_MANIFEST } from '../src/archive.ts'
 import SkillPackRegistry, { buildPackArchive, SKILL_PACK_STATUS_ROUTE } from '../src/index.ts'
+import { reportDirectoryMismatch } from '../src/members.ts'
 import type {
   DeliveredPack,
   PackStatusDocument,
   PackView,
   PackViewRefusal,
   ProvidedPart,
+  SkillPackIntake,
 } from '../src/types.ts'
+import * as MembersFixture from './fixtures/console-members.ts'
 
 const PLATFORM_VERSION = '0.5.2'
 
@@ -42,6 +45,9 @@ const SETTLE_MS = 10_000
 const WATCHED_MS = 20_000
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
 const CRUD: ProvidedPart = { id: 'toy.data-page', plugin: KIT, version: '0.4.0' }
+
+/** The name the test-only member directory row is mounted under. */
+const MEMBERS_ROW = 'test:console-members'
 
 /** A parts source standing in for the component catalog's registered parts. */
 class TestParts extends Service {
@@ -197,6 +203,7 @@ async function boot(rows: string[]): Promise<Context> {
     ['@deepseek-ai/dsh-skill', SkillRegistry],
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
     ['@deepseek-ai/dsh-experimental-skill-pack', SkillPackRegistry],
+    [MEMBERS_ROW, MembersFixture],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -211,8 +218,8 @@ async function boot(rows: string[]): Promise<Context> {
 }
 
 /** Read the status route the composition serves. */
-async function fetchStatus(ctx: Context, method = 'GET'): Promise<Response> {
-  return await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${SKILL_PACK_STATUS_ROUTE}`, { method })
+async function fetchStatus(ctx: Context, method = 'GET', headers: Record<string, string> = {}): Promise<Response> {
+  return await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}${SKILL_PACK_STATUS_ROUTE}`, { method, headers })
 }
 
 /** Poll the merged catalog until it holds the expected names, so a watch event has somewhere to arrive. */
@@ -317,6 +324,7 @@ describe('a pack root whose parts nothing has registered', () => {
     expect(document.packs).toEqual([
       {
         skill: 'broken-pack',
+        origin: 'pack-root',
         state: 'inactive',
         missing: [{
           kind: 'manifest-invalid',
@@ -324,10 +332,11 @@ describe('a pack root whose parts nothing has registered', () => {
           reason: 'must be an exact semantic version',
         }],
       },
-      { skill: 'plain-note', version: '2.0.0', state: 'active', missing: [] },
+      { skill: 'plain-note', version: '2.0.0', origin: 'pack-root', state: 'active', missing: [] },
       {
         skill: 'space-data-page',
         version: '1.0.0',
+        origin: 'pack-root',
         state: 'inactive',
         missing: [
           { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },
@@ -378,6 +387,7 @@ describe('a parts source arriving and going away', () => {
     expect((await ctx.skillPacks.statuses()).find(status => status.skill === 'space-data-page')).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [{
         kind: 'view-refused',
@@ -459,10 +469,11 @@ describe('a delivery archive copied into the delivery directory', () => {
 
     expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
     expect(await ctx.skillPacks.statuses()).toEqual([
-      { skill: 'plain-note', version: '2.0.0', state: 'active', missing: [] },
+      { skill: 'plain-note', version: '2.0.0', origin: 'pack-root', state: 'active', missing: [] },
       {
         skill: 'space-data-page',
         version: '1.0.0',
+        origin: 'pack-root',
         state: 'inactive',
         missing: [
           { kind: 'plugin-absent', plugin: KIT, range: '>=0.4.0' },
@@ -632,5 +643,107 @@ describe('disposal and configuration', () => {
     context = new Context()
     expect(() => new SkillPackRegistry(context!, { root: join(tmpdir(), 'packs'), platformVersion: 'newest' }))
       .toThrow('skill-pack: platformVersion must be an exact semantic version, received "newest"')
+  })
+})
+
+describe('the status route beside an organization set', () => {
+  it('lists the offered organization entries after the pack root, each with its origin, entry version and channel', async () => {
+    world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
+    const root = join(world, 'packs')
+    const organizationRoot = join(world, 'organization', 'packs')
+    await writePack(root, 'plain-note', '  pack:\n    version: 2.0.0')
+    const ctx = await boot(skillPackRow(root, false, [`    organizationRoot: ${JSON.stringify(organizationRoot)}`]))
+    let intake: SkillPackIntake | undefined
+    await ctx.inject(['skillPackIntake'], (scope: Context) => { intake = scope.skillPackIntake })
+    const handed = (version: string, channel: 'stable' | 'trial', packVersion: string): Parameters<SkillPackIntake['replace']>[0][number] => ({
+      name: 'layer-guide',
+      version,
+      channel,
+      files: [{ path: 'SKILL.md', content: skillText('layer-guide', `  pack:\n    version: ${packVersion}`) }],
+    })
+    expect(await intake?.replace([handed('4', 'trial', '1.1.0'), handed('3', 'stable', '1.0.0')])).toEqual({ kind: 'ok', refused: [] })
+
+    const document = await (await fetchStatus(ctx)).json() as PackStatusDocument
+    expect(document.packs).toEqual([
+      { skill: 'plain-note', version: '2.0.0', origin: 'pack-root', state: 'active', missing: [] },
+      { skill: 'layer-guide', version: '1.0.0', origin: 'organization', entryVersion: '3', channel: 'stable', state: 'active', missing: [] },
+      { skill: 'layer-guide', version: '1.1.0', origin: 'organization', entryVersion: '4', channel: 'trial', state: 'active', missing: [] },
+    ])
+  })
+})
+
+describe('a status route that answers per member', () => {
+  /** Boot a composition whose row answers per member, with or without the member directory row. */
+  async function loadMemberComposition(perMember: boolean, members: boolean): Promise<Context> {
+    world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
+    const root = join(world, 'packs')
+    await writePack(root, 'plain-note', '  pack:\n    version: 2.0.0')
+    return await boot([
+      ...skillPackRow(root, false, [`    perMember: ${String(perMember)}`]),
+      ...members ? [`- name: '${MEMBERS_ROW}'`, '  config:', '    requests:', '      assertion-of-a: member-a'] : [],
+    ])
+  }
+
+  it('answers a request the member directory places with a member', async () => {
+    const ctx = await loadMemberComposition(true, true)
+    const response = await fetchStatus(ctx, 'GET', { [MembersFixture.MEMBER_HEADER]: 'assertion-of-a' })
+    expect(response.status).toBe(200)
+    expect((await response.json() as PackStatusDocument).packs.map(status => status.skill)).toEqual(['plain-note'])
+  })
+
+  it('refuses a request the member directory places with nobody', async () => {
+    const ctx = await loadMemberComposition(true, true)
+    for (const headers of [{}, { [MembersFixture.MEMBER_HEADER]: 'assertion-of-nobody' }]) {
+      const response = await fetchStatus(ctx, 'GET', headers)
+      expect(response.status).toBe(401)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(await response.json()).toEqual({ error: 'skill-pack: the pack status route could not tell which member sent this request' })
+    }
+  })
+
+  it('refuses every request while no member directory runs, and says so once the composition has loaded', async () => {
+    const ctx = await loadMemberComposition(true, false)
+    const response = await fetchStatus(ctx, 'GET', { [MembersFixture.MEMBER_HEADER]: 'assertion-of-a' })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'skill-pack: the pack status route needs the consoleMembers service, which is not running' })
+    expect(await logSettlesOn('perMember is set and no consoleMembers service is running'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+  })
+
+  it('says once the composition has loaded that a row without perMember answers anyone beside a running member directory', async () => {
+    const ctx = await loadMemberComposition(false, true)
+    expect((await fetchStatus(ctx)).status).toBe(200)
+    expect(await logSettlesOn('perMember is off and a consoleMembers service is running'))
+      .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
+  })
+
+  it('logs nothing about a member directory that matches the row', async () => {
+    await loadMemberComposition(true, true)
+    await new Promise((resolveTick) => { setImmediate(resolveTick) })
+    expect(logLines.filter(line => line.type === 'error')).toEqual([])
+  })
+
+  it('logs nothing for a row disposed before the composition has loaded', async () => {
+    const ctx = context = new Context()
+    const errors: string[] = []
+    ctx.logger.exporter({ export: (message) => { if (message.type === 'error') errors.push(message.name) } })
+    let settle = (): void => {}
+    const loaded = new Promise<void>((resolveLoaded) => { settle = resolveLoaded })
+    // A Loader whose tree has not settled yet; the check reads nothing else of it.
+    ctx.provide('loader', { await: () => loaded } as never)
+    // Both rows set perMember with no directory running, which is a mismatch the
+    // live one reports once the tree settles.
+    const gone = ctx.plugin({ name: 'disposed-row', apply: (scope: Context) => { reportDirectoryMismatch(scope, true) } })
+    const live = ctx.plugin({ name: 'live-row', apply: (scope: Context) => { reportDirectoryMismatch(scope, true) } })
+    await Promise.all([gone.await(), live.await()])
+    await gone.dispose()
+    settle()
+    await new Promise((resolveTick) => { setImmediate(resolveTick) })
+    expect(errors).toEqual(['live-row'])
+  })
+
+  it('reports nothing where no Loader composed the row', () => {
+    const ctx = context = new Context()
+    expect(() => { reportDirectoryMismatch(ctx, true) }).not.toThrow()
   })
 })

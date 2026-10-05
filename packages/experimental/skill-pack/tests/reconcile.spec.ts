@@ -67,6 +67,7 @@ describe('pack reconciliation', () => {
     expect(status).toEqual({
       skill: 'space-data-page',
       version: '1.0.0',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [{ kind: 'part-absent', part: 'toy.data-page' }],
     })
@@ -117,6 +118,7 @@ describe('pack reconciliation', () => {
     )
     expect(status).toEqual({
       skill: 'broken',
+      origin: 'pack-root',
       state: 'inactive',
       missing: [{ kind: 'manifest-invalid', field: 'metadata.pack', reason: 'is required' }],
     })
@@ -316,14 +318,16 @@ describe('one view id claimed by two packs', () => {
       {
         skill: 'a-pack',
         version: '1.0.0',
+        origin: 'pack-root',
         state: 'inactive',
-        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'b-pack' }],
+        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'b-pack', origin: 'pack-root' }],
       },
       {
         skill: 'b-pack',
         version: '1.0.0',
+        origin: 'pack-root',
         state: 'inactive',
-        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'a-pack' }],
+        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'a-pack', origin: 'pack-root' }],
       },
     ])
   })
@@ -353,9 +357,9 @@ describe('one view id claimed by two packs', () => {
       PLATFORM,
     )
     expect(statuses[0]?.missing).toEqual([
-      { kind: 'view-id-conflict', id: 'layers', pack: 'b-pack' },
-      { kind: 'view-id-conflict', id: 'layers', pack: 'd-pack' },
-      { kind: 'view-id-conflict', id: 'sites', pack: 'c-pack' },
+      { kind: 'view-id-conflict', id: 'layers', pack: 'b-pack', origin: 'pack-root' },
+      { kind: 'view-id-conflict', id: 'layers', pack: 'd-pack', origin: 'pack-root' },
+      { kind: 'view-id-conflict', id: 'sites', pack: 'c-pack', origin: 'pack-root' },
     ])
     expect(statuses.map(status => status.state)).toEqual(['inactive', 'inactive', 'inactive', 'inactive'])
   })
@@ -372,6 +376,59 @@ describe('one view id claimed by two packs', () => {
     expect(statuses.map(status => [status.skill, status.state]))
       .toEqual([['a-pack', 'inactive'], ['b-pack', 'active']])
     expect(statuses[0]?.missing).toEqual([{ kind: 'part-absent', part: 'toy.data-page' }])
+  })
+})
+
+describe('a view id an organization pack holds', () => {
+  const held = new Map([['layers', 'org-pack']])
+
+  it('withholds a pack of this root that declares it, naming the organization pack holding it', () => {
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml', 'views/b.yml'] }, [view('views/a.yml', 'layers'), view('views/b.yml', 'sites')]),
+        pack('b-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'alerts')]),
+      ],
+      [],
+      PLATFORM,
+      undefined,
+      held,
+    )
+    expect(statuses).toEqual([
+      {
+        skill: 'a-pack',
+        version: '1.0.0',
+        origin: 'pack-root',
+        state: 'inactive',
+        missing: [{ kind: 'view-id-conflict', id: 'layers', pack: 'org-pack', origin: 'organization' }],
+      },
+      { skill: 'b-pack', version: '1.0.0', origin: 'pack-root', state: 'active', missing: [] },
+    ])
+  })
+
+  it('leaves a pack it withholds holding no other id, so a second pack of this root keeps one they share', () => {
+    const statuses = reconcilePacks(
+      [
+        pack('a-pack', { views: ['views/a.yml', 'views/b.yml'] }, [view('views/a.yml', 'layers'), view('views/b.yml', 'sites')]),
+        pack('b-pack', { views: ['views/c.yml'] }, [view('views/c.yml', 'sites')]),
+      ],
+      [],
+      PLATFORM,
+      undefined,
+      held,
+    )
+    expect(statuses.map(status => [status.skill, status.state])).toEqual([['a-pack', 'inactive'], ['b-pack', 'active']])
+    expect(statuses[0]?.missing).toEqual([{ kind: 'view-id-conflict', id: 'layers', pack: 'org-pack', origin: 'organization' }])
+  })
+
+  it('leaves a pack withheld for another reason judged on that reason alone', () => {
+    const [status] = reconcilePacks(
+      [pack('a-pack', { parts: ['toy.data-page'], views: ['views/a.yml'] }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+      undefined,
+      held,
+    )
+    expect(status?.missing).toEqual([{ kind: 'part-absent', part: 'toy.data-page' }])
   })
 })
 
@@ -401,8 +458,12 @@ describe('missing-requirement sentences', () => {
         'view views/b.yml cannot be drawn: names no component of this deployment',
       ],
       [
-        { kind: 'view-id-conflict', id: 'layers', pack: 'other-pack' },
+        { kind: 'view-id-conflict', id: 'layers', pack: 'other-pack', origin: 'pack-root' },
         'the view id layers is declared by other-pack as well',
+      ],
+      [
+        { kind: 'view-id-conflict', id: 'layers', pack: 'org-pack', origin: 'organization' },
+        'the view id layers is held by the organization pack org-pack',
       ],
     ]
     expect(cases.map(([missing]) => describeMissing(missing))).toEqual(cases.map(([, sentence]) => sentence))
