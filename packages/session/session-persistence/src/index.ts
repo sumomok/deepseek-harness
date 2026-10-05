@@ -125,15 +125,16 @@ declare module '@deepseek-ai/cordis' {
      * failed after the new location was published. No recovery emits it:
      * neither the recovery a backend runs at its first operation nor a later
      * relocate of the same session that settles a move a dead process left.
-     * Listeners run synchronously in registration order, must not throw, and
-     * must catch their own asynchronous failures. Cordis `emit` does not
-     * isolate listeners: one that throws stops the dispatch, and every
-     * listener after it misses the event; `relocate` still resolves (see
-     * there). A consumer that tracks sessions by cwd therefore reconciles from
-     * the stored headers when it starts; the workspace registry then detaches
-     * a session that a workspace whose stored path resolves lists at its old
-     * path.
-     * @mode emit
+     * Every listener starts in the same tick, in registration order, and
+     * `relocate` resolves after every listener and the promise it returns
+     * have settled. A listener that throws or rejects does not stop the
+     * others: the backend logs a warning for each failure and `relocate`
+     * still resolves. A process that is not running when a move happens
+     * misses the event, so a consumer that tracks sessions by cwd reconciles
+     * from the stored headers when it starts; the workspace registry then
+     * detaches a session that a workspace whose stored path resolves lists at
+     * its old path.
+     * @mode parallel
      * @param id - the relocated session.
      * @param previous - the stored header before the move.
      * @param current - the snapshot after the move (new cwd, new revision).
@@ -257,13 +258,14 @@ export abstract class SessionPersistence extends Service {
    * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
    * 'function'` first. A write handle held by this or another process, or a
    * pending create in this process, refuses the move; read handles may stay
-   * open. Success emits `session-persistence/relocated` after write ownership
-   * is released. A listener that throws does not fail the move: `relocate`
-   * resolves and the backend logs a warning; the event's documentation states
-   * which listeners miss it. Once the new location is published the move
-   * stands: a later cleanup failure is logged, and so is a failed read of the
-   * moved session's snapshot, which then returns the moved header with a
-   * revision no `stat` returns.
+   * open. Success dispatches `session-persistence/relocated` after write
+   * ownership is released and resolves after every listener settles. A
+   * listener that throws or rejects does not fail the move or stop the other
+   * listeners: `relocate` resolves and the backend logs a warning for each
+   * failure. Once the new location is published the move stands: a later
+   * cleanup failure is logged, and so is a failed read of the moved
+   * session's snapshot, which then returns the moved header with a revision
+   * no `stat` returns.
    * @param id - the stored session to move.
    * @param cwd - the absolute working directory the session moves to.
    * @param options - optional cancellation, observed until the target

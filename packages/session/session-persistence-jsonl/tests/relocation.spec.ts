@@ -657,14 +657,22 @@ describe('JsonlSessionPersistence.relocate refusals', () => {
     const f = await seed('none')
     const warn = vi.spyOn(f.ctx.logger, 'warn').mockImplementation(() => undefined)
     f.ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') })
+    // oxlint-disable-next-line typescript/no-misused-promises -- exercises rejected-listener containment
+    f.ctx.on('session-persistence/relocated', () => Promise.reject(new Error('async listener failed')))
+    const later = vi.fn()
+    f.ctx.on('session-persistence/relocated', later)
     fault('unlink', path => path === join(f.sourceDir, LEASE_FILENAME), 'EACCES', -1)
     failNextRelease()
 
     const snapshot = await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
 
     expect(snapshot.header.cwd).toBe(TARGET_CWD)
+    expect(later).toHaveBeenCalledOnce()
     const messages = warn.mock.calls.map(call => String(call[0]))
-    expect(messages.some(message => message.includes('listener'))).toBe(true)
+    expect(messages.filter(message => message.includes('session-persistence/relocated listener'))).toEqual([
+      expect.stringContaining('Error: listener failed'),
+      expect.stringContaining('Error: async listener failed'),
+    ])
     expect(messages.some(message => message.includes('later relocation step failed'))).toBe(true)
     expect(messages.some(message => message.includes('releasing its write locks failed'))).toBe(true)
     expect(await exists(relocationIntentPath(f.root, f.header.id))).toBe(true)

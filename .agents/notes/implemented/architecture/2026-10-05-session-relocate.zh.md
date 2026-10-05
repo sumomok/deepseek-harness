@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`SessionPersistence` 增加可选方法 `relocate(id, cwd, options)` 与 `@mode emit` 事件 `session-persistence/relocated(id, previous, current)`。调用方先判断 `typeof ctx.sessionPersistence.relocate === 'function'`。该方法把会话移到 `cwd` 对应的存储位置并替换 header cwd；id、`createdAt`、谱系、`isSeeded`、inherited cut、事件与 seq 都不变。已存 cwd 已等于 `cwd`（逐字比较）时不做任何改动、不发事件，因此崩溃过的调用方可以重调。任何进程的写句柄或本进程的 pending create 都会让它以 `SessionAlreadyOwnedError` 拒绝。读句柄可以保持打开：会话在两个位置之间不存在时，`open` 与访问存储的句柄读取以 `SessionPersistenceNotFoundError` 拒绝；在源被隐藏前一刻已定位到源的 `open` 或读取会重新定位会话，读取新位置或报告会话不存在，而不是抛文件系统的 `ENOENT`。每次成功搬迁在后端释放所有权后发出一次事件，emit 放在 `try` 里，因为 Cordis 的 `emit` 同步调用监听器且不捕获异常：一个监听器抛错会中止分发，排在它之后的监听器收不到事件，搬迁仍然成功并记一条警告。任何恢复都不发事件。目标一经发布搬迁即生效：之后清理失败或读取搬迁后快照失败都只记警告，此时快照带搬迁后的 header 与一个任何 `stat` 都不会返回的 revision。
+`SessionPersistence` 增加可选方法 `relocate(id, cwd, options)` 与 `@mode parallel` 事件 `session-persistence/relocated(id, previous, current)`。调用方先判断 `typeof ctx.sessionPersistence.relocate === 'function'`。该方法把会话移到 `cwd` 对应的存储位置并替换 header cwd；id、`createdAt`、谱系、`isSeeded`、inherited cut、事件与 seq 都不变。已存 cwd 已等于 `cwd`（逐字比较）时不做任何改动、不发事件，因此崩溃过的调用方可以重调。任何进程的写句柄或本进程的 pending create 都会让它以 `SessionAlreadyOwnedError` 拒绝。读句柄可以保持打开：会话在两个位置之间不存在时，`open` 与访问存储的句柄读取以 `SessionPersistenceNotFoundError` 拒绝；在源被隐藏前一刻已定位到源的 `open` 或读取会重新定位会话，读取新位置或报告会话不存在，而不是抛文件系统的 `ENOENT`。每次成功搬迁在后端释放所有权后经 `ctx.parallel` 发出一次事件，因为 Cordis 的 `emit` 同步调用监听器且不捕获异常，一个监听器抛错就会中止分发，排在它之后的监听器收不到事件。`ctx.parallel` 在同一个 tick 里启动所有监听器并等它们全部结束；后端为每个失败的监听器记一条警告，其他监听器照样收到事件，`relocate` 在所有监听器结束后返回。任何恢复都不发事件。目标一经发布搬迁即生效：之后清理失败或读取搬迁后快照失败都只记警告，此时快照带搬迁后的 header 与一个任何 `stat` 都不会返回的 revision。
 
 JSONL 后端只改写当前 generation 的 header 记录。最高一代是历史格式时，先走与写 open 相同的路径发布当前格式后继（[已发布格式迁移](2026-08-31-released-session-format-migrations.zh.md)允许新增以版本命名的后继），再改写这个后继。前几代原样搬走：同一文件系统内的 rename 保留其字节与 inode。唯一被删除的字节是源目录里当前 generation 的副本；它的事件记录在目标中逐字节保留，唯一例外是从撕裂尾部恢复出的完整记录，搬迁按写路径首次追加的方式重新编码它们。
 
@@ -36,7 +36,7 @@ POSIX 锁指向 inode 而非路径，因此删除活会话的锁文件就失去�
 
 ## 消费方
 
-工作区注册表在运行期跟随该事件。监听器在任何 await 之前替换该会话已索引的 header 并删除其已索引的路径，因此旧工作区不再列出该会话，`relocate` 之后紧接着的 `attachSession` 按新 cwd 校验。排队的搬迁运行之前，索引跳过该会话的其他每个 header：事件之前读到、事件之后才索引的列表会恢复旧路径，并让事件之前排队的 attach 按旧路径校验。随后它的变更队列从每个在另一路径下列有该会话的工作区记录中持久 detach 该会话：`workspace/follow` 的基线按已索引路径过滤，但增量帧发送未过滤的已存 `sessionIds`，而注册表只在启动时引导一次索引，所以只改内存会让旧工作区继续列出该会话。新的规范 cwd 上已有工作区时，队列把会话 attach 到它，因此搬迁不需要重启。事件仍可能到不了注册表：注册表没有运行、恢复补完了搬迁，或排在它之前的监听器抛错。因此注册表在下次启动时，对存储路径在这次启动时解析成功的工作区记录，把规范 cwd 是另一个已存在目录（不同于该记录路径）的每个会话持久 detach；`attachSession` 也会先把通过校验的会话从列出它的其他每个工作区里 detach。只做过滤的话，调用方的 attach 会让同一会话记在两个工作区里。detach 的判断读的是表，所以凡是把会话加进记录的操作（含 attach）都跑在注册表的变更队列上，那里不会有尚在领域写链上排队的加入；attach 的 cwd 检查期间若 header 被搬迁替换，这次检查作废，因为记下它的路径会让会话在旧路径上被列出。早先构建留下的、同一会话在一个工作区里列两次或列在多个工作区里的存储在下次启动时修复：工作区保留重复 id 的第一次出现；多个工作区之间，由路径等于该会话规范 cwd 的工作区保留它，没有这样的工作区时由其中注册表顺序最靠前的保留并记一条警告，该 cwd 是一个已存在的目录时，启动时随后的移出会把它也从这个工作区移出，除非这个工作区的路径按原样保留。恢复不发事件，所以调用方仍要幂等地 attach。
+工作区注册表在运行期跟随该事件。监听器在任何 await 之前替换该会话已索引的 header 并删除其已索引的路径，因此旧工作区不再列出该会话，`relocate` 之后紧接着的 `attachSession` 按新 cwd 校验。排队的搬迁运行之前，索引跳过该会话的其他每个 header：事件之前读到、事件之后才索引的列表会恢复旧路径，并让事件之前排队的 attach 按旧路径校验。随后它的变更队列从每个在另一路径下列有该会话的工作区记录中持久 detach 该会话：`workspace/follow` 的基线按已索引路径过滤，但增量帧发送未过滤的已存 `sessionIds`，而注册表只在启动时引导一次索引，所以只改内存会让旧工作区继续列出该会话。新的规范 cwd 上已有工作区时，队列把会话 attach 到它，因此搬迁不需要重启。事件仍可能到不了注册表：注册表没有运行，或恢复补完了搬迁。因此注册表在下次启动时，对存储路径在这次启动时解析成功的工作区记录，把规范 cwd 是另一个已存在目录（不同于该记录路径）的每个会话持久 detach；`attachSession` 也会先把通过校验的会话从列出它的其他每个工作区里 detach。只做过滤的话，调用方的 attach 会让同一会话记在两个工作区里。detach 的判断读的是表，所以凡是把会话加进记录的操作（含 attach）都跑在注册表的变更队列上，那里不会有尚在领域写链上排队的加入；attach 的 cwd 检查期间若 header 被搬迁替换，这次检查作废，因为记下它的路径会让会话在旧路径上被列出。早先构建留下的、同一会话在一个工作区里列两次或列在多个工作区里的存储在下次启动时修复：工作区保留重复 id 的第一次出现；多个工作区之间，由路径等于该会话规范 cwd 的工作区保留它，没有这样的工作区时由其中注册表顺序最靠前的保留并记一条警告，该 cwd 是一个已存在的目录时，启动时随后的移出会把它也从这个工作区移出，除非这个工作区的路径按原样保留。恢复不发事件，所以调用方仍要幂等地 attach。
 
 投影缓存按会话的生命周期身份为每条记录定键，其中包含 cwd。不改键时，每个搬过的会话都无法命中缓存，而会话列表冷行的标题来自该缓存，于是在各会话被打开一次之前都没有标题。因此缓存的监听器对 `createdAt`、`cwd` 与 `isSeeded` 都与搬迁前 header 一致的记录（当前格式代或前代）改写其 cwd，并保留其行，因为搬迁不改变任何事件。
 
@@ -60,7 +60,7 @@ POSIX 锁指向 inode 而非路径，因此删除活会话的锁文件就失去�
 
 取锁后重新解析只在具备它的构建之间排他。不含本补丁的构建在搬迁进行时写 open 该会话，可能解析到源、在搬迁删除源之后经租约的 `mkdir` 重建它、锁住新的锁文件，再在打了补丁的写入方持有目标锁时向目标处的会话追加；两者随后追加相同的 seq。因此在发生 relocate 的根目录上，写入该根目录的每个进程都必须运行含本补丁的构建。
 
-Session Controller 从不释放已 resume 的 Agent，而已 resume 的 Agent 会一直持有写句柄直到宿主退出，因此宿主跟随过或发过 prompt 的会话会以 `SessionAlreadyOwnedError` 拒绝 relocate，错误信息说明要重启宿主并在任何东西恢复该会话之前搬迁；调用方要在任何客户端打开会话之前搬迁。恢复不发事件，所以提交点之后的崩溃会丢失 `session-persistence/relocated`；按 cwd 跟踪会话的消费方必须在 `relocate` 返回后幂等地 attach，工作区注册表则在下次启动时修好成员关系。排在注册表之前的监听器抛错后、下次启动之前，旧工作区仍列出该会话，在新路径上 attach 会被拒绝，因为注册表的索引仍是搬迁前的 header。
+Session Controller 从不释放已 resume 的 Agent，而已 resume 的 Agent 会一直持有写句柄直到宿主退出，因此宿主跟随过或发过 prompt 的会话会以 `SessionAlreadyOwnedError` 拒绝 relocate，错误信息说明要重启宿主并在任何东西恢复该会话之前搬迁；调用方要在任何客户端打开会话之前搬迁。恢复不发事件，所以提交点之后的崩溃会丢失 `session-persistence/relocated`；按 cwd 跟踪会话的消费方必须在 `relocate` 返回后幂等地 attach，工作区注册表则在下次启动时修好成员关系。
 
 恢复分不清没有事件的被搬会话与在目标处存下、header 只有 cwd 不同（`createdAt` 精确到毫秒也相同）的同 id 会话：`T` 不在之后，它只能比较 header 与已提交字节，而没有事件的会话没有可比较的字节，所以恢复把搬迁补完到新会话上并删除 `H(C)`。
 

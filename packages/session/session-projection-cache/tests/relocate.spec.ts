@@ -100,12 +100,11 @@ async function boot(identity?: CheckpointRecord['identity']) {
   ctx.on('domain/changed', (change) => {
     if (change.domain === projectionCacheDomainSpec.name && change.operation === 'put') puts.push(change.key)
   })
-  const relocate = (previous: SessionHeader): void => {
-    ctx.emit('session-persistence/relocated', ID, previous, {
+  const relocate = (previous: SessionHeader): Promise<void> =>
+    ctx.parallel('session-persistence/relocated', ID, previous, {
       header: { ...previous, cwd: TO },
       revision: SessionPersistenceRevision('moved'),
     })
-  }
   return { ctx, root, cache: ctx.sessionProjectionCache, puts, relocate }
 }
 
@@ -114,7 +113,7 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
     const { root, cache, puts, relocate } = await boot(identityAt(FROM))
     expect(cache.cachedSnapshot(headerAt(FROM))).toEqual({ asOfSeq: 4, values: { title: 'kept title' } })
 
-    relocate(headerAt(FROM))
+    await relocate(headerAt(FROM))
     await vi.waitFor(() => { expect(puts).toEqual([ID]) })
 
     expect(cache.cachedSnapshot(headerAt(TO))).toEqual({ asOfSeq: 4, values: { title: 'kept title' } })
@@ -125,7 +124,7 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
   it('rebinds a predecessor record so its title hint survives the move', async () => {
     const { root, cache, puts, relocate } = await boot(identityAt(FROM, SESSION_FORMAT_VERSION - 1))
 
-    relocate(headerAt(FROM))
+    await relocate(headerAt(FROM))
     await vi.waitFor(() => { expect(puts).toEqual([ID]) })
 
     expect(cache.cachedPredecessorTitle(headerAt(TO))).toEqual({ asOfSeq: 4, values: { title: 'kept title' } })
@@ -134,9 +133,9 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
 
   it('leaves a record of another lifecycle and an absent record unwritten', async () => {
     const unrelated = await boot(identityAt(FROM))
-    unrelated.relocate(headerAt(FROM, 99))
+    await unrelated.relocate(headerAt(FROM, 99))
     const absent = await boot()
-    absent.relocate(headerAt(FROM))
+    await absent.relocate(headerAt(FROM))
     // A later put on the same write chain proves the relocation queued nothing before it.
     const probe = { ...headerAt(TO), id: SessionId('probe') }
     unrelated.cache.coldSnapshot(probe, SessionLogOffset(0), [])
@@ -157,7 +156,7 @@ describe('SessionProjectionCache on session-persistence/relocated', () => {
     await rm(recordPath(root))
     await mkdir(recordPath(root))
 
-    relocate(headerAt(FROM))
+    await relocate(headerAt(FROM))
     await vi.waitFor(() => {
       expect(warn).toHaveBeenCalledWith(expect.stringContaining(`re-keying relocated "${ID}" failed (cache stays stale)`))
     }, { timeout: 5_000 })

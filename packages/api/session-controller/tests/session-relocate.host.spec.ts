@@ -2,8 +2,9 @@
  * Host-level relocation of a stored Session over real JSONL persistence, the
  * Workspace registry, and the Workspace controller: a Session no Agent owns
  * moves to another Workspace and continues there; a Session whose history
- * was followed owns a live Agent and refuses the move; a move whose event the
- * registry never received is repaired at the next start.
+ * was followed owns a live Agent and refuses the move; a listener that throws
+ * ahead of the registry does not keep the move from it; a move whose event
+ * the registry never received is repaired at the next start.
  */
 
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
@@ -178,6 +179,28 @@ describe('Session relocation in a composed Host', () => {
     await tail
     expect((await ctx.sessionPersistence.stat(SESSION))?.header.cwd).toBe(origin)
   })
+
+  it('moves a Session into its new Workspace when a listener ahead of the registry throws', async () => {
+    const { root, sessions, origin, destination } = await layout()
+    const first = await startHost(root, sessions, (ctx) => {
+      ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') })
+    })
+    const { workspace: target } = await first.workspaces.create({ path: destination })
+    const warn = vi.spyOn(first.ctx.logger, 'warn').mockImplementation(() => undefined)
+
+    await expect(first.ctx.sessionPersistence.relocate!(SESSION, target.path))
+      .resolves.toMatchObject({ header: { cwd: target.path } })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error: listener failed'))
+    // Resolves after every registry operation queued so far settles.
+    await first.ctx.workspaceRegistry.unarchiveSession(SessionId('drain'))
+    expect(first.ctx.workspaceRegistry.list().map(workspace => [workspace.path, workspace.sessionIds]))
+      .toEqual([[destination, [SESSION]], [origin, []]])
+    await stop(first.ctx)
+
+    const second = await startHost(root, sessions)
+    expect(second.ctx.workspaceRegistry.list().map(workspace => [workspace.path, workspace.sessionIds]))
+      .toEqual([[destination, [SESSION]], [origin, []]])
+  })
 })
 
 /** Move the Session in another process whose composition has no Workspace registry. */
@@ -231,19 +254,11 @@ describe('Session relocation whose event the Workspace registry missed', () => {
   it.each([
     ['the moving process composed no Workspace registry', 'absent'],
     ['the moving process died after the commit point and the next start recovered the move', 'crashed'],
-    ['a listener ahead of the registry threw', 'listener'],
   ] as const)('repairs membership at the next start when %s, and the Session joins its new Workspace', async (_case, missed) => {
     const { root, sessions, origin, destination } = await layout()
-    const first = await startHost(root, sessions, missed === 'listener'
-      ? (ctx) => { ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') }) }
-      : undefined)
+    const first = await startHost(root, sessions)
     expect(first.ctx.workspaceRegistry.list()).toEqual([expect.objectContaining({ path: origin, sessionIds: [SESSION] })])
     const { workspace: target } = await first.workspaces.create({ path: destination })
-    if (missed === 'listener') {
-      vi.spyOn(first.ctx.logger, 'warn').mockImplementation(() => undefined)
-      await expect(first.ctx.sessionPersistence.relocate!(SESSION, target.path))
-        .resolves.toMatchObject({ header: { cwd: target.path } })
-    }
     await stop(first.ctx)
     if (missed === 'absent') await moveWithoutRegistry(sessions, target.path)
     if (missed === 'crashed') await moveAndDieAfterCommit(sessions, origin, target.path)

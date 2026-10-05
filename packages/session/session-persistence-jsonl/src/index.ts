@@ -590,9 +590,14 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     if (moved.previous !== undefined) {
       try {
-        this.ctx.emit('session-persistence/relocated', id, moved.previous, moved.current)
+        await this.ctx.parallel('session-persistence/relocated', id, moved.previous, moved.current)
       } catch (error: unknown) {
-        this.ctx.logger.warn(`${this.name}: a session-persistence/relocated listener for session "${id}" threw: ${String(error)}`)
+        // ctx.parallel settles every listener and rejects with one AggregateError.
+        /* v8 ignore next -- the plain arm guards a rethrowing dispatcher. */
+        const failures = error instanceof AggregateError ? error.errors : [error]
+        for (const failure of failures) {
+          this.ctx.logger.warn(`${this.name}: a session-persistence/relocated listener for session "${id}" failed: ${String(failure)}`)
+        }
       }
     }
     return moved.current

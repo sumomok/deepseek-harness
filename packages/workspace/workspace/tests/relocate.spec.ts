@@ -91,12 +91,13 @@ async function boot(origin: (root: string) => Promise<string>) {
   expect(origins.map(workspace => [workspace.path, workspace.sessionIds])).toEqual([[from, [SESSION]]])
   changes.length = 0
 
-  /** Emit the event a backend sends after moving the session to `cwd`; record writes are counted from here. */
+  /** Dispatch the event a backend sends after moving the session to `cwd`; record writes are counted from here. */
   const relocate = (cwd: string): void => {
     changes.length = 0
     const previous = stored
     stored = headerAt(cwd)
-    ctx.emit('session-persistence/relocated', SESSION, previous, {
+    // Listeners start before `parallel` returns; none of this harness's listeners fails.
+    void ctx.parallel('session-persistence/relocated', SESSION, previous, {
       header: stored,
       revision: SessionPersistenceRevision('moved'),
     })
@@ -257,16 +258,22 @@ async function start(w: World, before?: (ctx: Context) => void) {
   await ctx.plugin(WorkspaceRegistry)
   const registry = ctx.workspaceRegistry
   const view = (): Array<[string, readonly SessionId[]]> => registry.list().map(workspace => [workspace.path, workspace.sessionIds])
-  /** Emit the event a backend sends after moving the session to `cwd`. */
-  const relocate = (cwd: string): void => {
+  /**
+   * Dispatch the event a backend sends after moving the session to `cwd`;
+   * every listener starts before this returns, and the promise settles when
+   * all of them have.
+   */
+  const dispatch = (cwd: string): Promise<void> => {
     const previous = w.stored
     w.stored = headerAt(cwd)
-    ctx.emit('session-persistence/relocated', SESSION, previous, { header: w.stored, revision: SessionPersistenceRevision('moved') })
+    return ctx.parallel('session-persistence/relocated', SESSION, previous, { header: w.stored, revision: SessionPersistenceRevision('moved') })
   }
+  /** {@link dispatch} for listeners that do not fail. */
+  const relocate = (cwd: string): void => { void dispatch(cwd) }
   /** Resolve after every registry operation queued so far settles. */
   const drain = (): Promise<void> => registry.unarchiveSession(SessionId('drain'))
   const stop = (): Promise<void> => ctx.fiber.dispose()
-  return { ctx, registry, written, warnings, infos, view, relocate, drain, stop }
+  return { ctx, registry, written, warnings, infos, view, dispatch, relocate, drain, stop }
 }
 
 function storedIn(w: World, workspace: Workspace): readonly SessionId[] {
@@ -301,25 +308,22 @@ describe('WorkspaceRegistry after a relocation event it missed', () => {
     await restartsWith(w, target)
   })
 
-  it('detaches at the next start when a listener ahead of the registry threw', async () => {
+  it('moves the session in the same dispatch when a listener ahead of the registry throws', async () => {
     const w = await world()
     const first = await start(w, (ctx) => {
       ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') })
     })
     const origin = first.registry.list()[0]!
     const target = await first.registry.create(w.to)
-    expect(() => { first.relocate(w.to) }).toThrow('listener failed')
-    await first.registry.unarchiveSession(SessionId('drain'))
-    expect(storedIn(w, origin)).toEqual([SESSION])
-    expect(storedIn(w, target)).toEqual([])
-    // Until the next start the index keeps the header from before the move.
-    await expect(target.attachSession(SESSION)).rejects.toThrow(`its cwd resolves to '${w.from}'`)
-    await first.stop()
-
-    const second = await start(w)
+    const dispatched = first.dispatch(w.to)
+    // The registry's listener swapped the indexed header before the dispatch settled.
+    expect(first.view()).toEqual([[w.to, []], [w.from, []]])
+    await expect(dispatched).rejects.toMatchObject({ errors: [new Error('listener failed')] })
+    await first.drain()
     expect(storedIn(w, origin)).toEqual([])
-    await second.registry.get(target.id)!.attachSession(SESSION)
-    await second.stop()
+    expect(storedIn(w, target)).toEqual([SESSION])
+    expect(first.view()).toEqual([[w.to, [SESSION]], [w.from, []]])
+    await first.stop()
     await restartsWith(w, target)
   })
 
