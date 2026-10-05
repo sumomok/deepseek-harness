@@ -14,11 +14,11 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, lstat, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
@@ -32,9 +32,9 @@ import {
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
-import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
+import { JsonlBackendTracker, JsonlSessionHandle, VANISHED_LOG_ATTEMPTS, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
-import { createJsonlRelocationRuntime } from './relocation.ts'
+import { createJsonlRelocationRuntime, type JsonlSessionDirectory } from './relocation.ts'
 import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
@@ -74,6 +74,11 @@ const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
  * remains an indivisible synchronous decode.
  */
 const ZSTD_DECODE_YIELD_INTERVAL_MS = 500
+
+/** Why a write claim in this process refuses a relocation, and how the relocation can succeed. */
+const RELOCATE_WHILE_OWNED = 'a relocation needs every handle that writes the session closed, and a live Agent keeps '
+  + 'its session open for writing until its host stops; restart the host, then relocate the session before anything '
+  + 'resumes it or opens it for writing'
 
 /** Assert that the independently decodable first frame contains only the header record. */
 function assertZstdHeaderFrame(plaintext: Buffer): void {
@@ -355,10 +360,10 @@ class JsonlSessionPersistence extends SessionPersistence {
       }
       let stored: StoredLog
       try {
-        stored = await this.requireStoredLog(id, options?.signal)
+        stored = await this.requireMovableLog(id, options?.signal)
       } catch (error: unknown) {
         if (!(error instanceof JsonlGenerationSourceChangedError)) throw error
-        stored = await this.requireStoredLog(id, options?.signal)
+        stored = await this.requireMovableLog(id, options?.signal)
       }
       let state: StorageHandleState
       if (stored.status === 'prepared') {
@@ -425,8 +430,9 @@ class JsonlSessionPersistence extends SessionPersistence {
    * Lock the directory holding the session's selected generation. A relocation
    * removes its source directory together with the lock file it holds, so a
    * writer that resolved that directory may recreate it and lock a fresh file
-   * there; resolving again after locking detects the move, and the writer
-   * discards what it recreated and retries once.
+   * there, or find it removed while creating the lock; resolving again after
+   * locking detects the move, and the writer discards what it recreated and
+   * retries once.
    */
   private async lockStoredDirectory(
     id: SessionId,
@@ -436,19 +442,23 @@ class JsonlSessionPersistence extends SessionPersistence {
       const resolved = await this.findLog(id, signal)
       if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
       const dir = dirname(resolved.currentPath)
-      const lease = await this.acquireLease(id, undefined, dir)
-      let current: ResolvedJsonlGeneration | undefined
-      try {
-        current = await this.findLog(id, signal)
-        if (current !== undefined && dirname(current.currentPath) === dir) return { lease, dir }
-        await this.relocation.discardDirectory(dir)
-      } catch (error: unknown) {
-        await lease.release()
+      const lease = await this.acquireLease(id, undefined, dir).catch((error: unknown) => {
+        if (isENOENT(error)) return undefined
         throw error
+      })
+      if (lease !== undefined) {
+        try {
+          const current = await this.findLog(id, signal)
+          if (current !== undefined && dirname(current.currentPath) === dir) return { lease, dir }
+          await this.relocation.discardDirectory(dir)
+        } catch (error: unknown) {
+          await lease.release()
+          throw error
+        }
+        await lease.release()
       }
-      await lease.release()
       if (attempt > 0) {
-        if (current === undefined) throw new SessionPersistenceNotFoundError(id)
+        if (await this.findLog(id, signal) === undefined) throw new SessionPersistenceNotFoundError(id)
         throw new SessionAlreadyOwnedError(id)
       }
     }
@@ -550,6 +560,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     if (!isAbsolute(cwd)) throw new TypeError(`relocate cwd must be an absolute path, got ${JSON.stringify(cwd)}`)
     await this.ensureRootEncoding()
     signal?.throwIfAborted()
+    if (this.tracker.isClaimed(id)) throw new SessionAlreadyOwnedError(id, RELOCATE_WHILE_OWNED)
     this.tracker.claimWrite(id)
     const leases: SessionWriteLease[] = []
     let moved: { readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }
@@ -602,6 +613,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     const header: SessionHeader = { ...stored.meta, cwd }
     const recoveredBatch = stored.recoveredTail.length > 0 ? await this.encodeEventBatch(stored.recoveredTail) : ''
     if (!sameDirectory) {
+      await this.assertListedTarget(id, targetDir)
       await this.ensureTargetDirectory(targetDir)
       leases.push(await this.acquireLease(id, undefined, targetDir))
     }
@@ -625,7 +637,46 @@ class JsonlSessionPersistence extends SessionPersistence {
     if (outcome.sourceRetained) {
       this.ctx.logger.warn(`${this.name}: session "${id}" relocated; its source directory "${source.dir}" holds other files and stays`)
     }
-    return { previous: stored.meta, current: await this.snapshotOf(id) }
+    return { previous: stored.meta, current: await this.movedSnapshot(id, header) }
+  }
+
+  /**
+   * Refuse a target that discovery would not list. Discovery lists project
+   * and session directories, not symbolic links to them, so a session moved
+   * under a link would vanish for this and every other build; resolving the
+   * link instead would store the session in a directory its header cwd does
+   * not name.
+   */
+  private async assertListedTarget(id: SessionId, targetDir: string): Promise<void> {
+    for (const dir of [dirname(targetDir), targetDir]) {
+      let isDirectory: boolean
+      try {
+        isDirectory = (await lstat(dir)).isDirectory()
+      } catch (error: unknown) {
+        if (isENOENT(error)) return
+        throw error
+      }
+      if (!isDirectory) {
+        throw new Error(`cannot relocate session "${id}": "${dir}" is a symbolic link or another non-directory, which session discovery does not list`)
+      }
+    }
+  }
+
+  /**
+   * Stat a session this relocation moved past its commit point. The move
+   * stands even when the stat fails, so the snapshot then carries the moved
+   * header and a revision no stat returns, which a cache treats as a change.
+   */
+  private async movedSnapshot(id: SessionId, header: SessionHeader): Promise<SessionPersistenceSnapshot> {
+    let failure: unknown = 'no stored log found'
+    try {
+      const snapshot = await this.stat(id)
+      if (snapshot !== undefined) return snapshot
+    } catch (error: unknown) {
+      failure = error
+    }
+    this.ctx.logger.warn(`${this.name}: session "${id}" relocated, but its new location could not be read: ${String(failure)}`)
+    return { header, revision: SessionPersistenceRevision(`relocated:${this.name}:${randomUUID()}`) }
   }
 
   /**
@@ -688,6 +739,22 @@ class JsonlSessionPersistence extends SessionPersistence {
   }
 
   // --- handle-facing storage internals (package-private via the handle class below) ---
+
+  /**
+   * Resolve and read one stored log without holding its lease. A relocation
+   * can move the log between its resolution and its read, so a file that
+   * vanishes resolves the session again: at its new location, or as absent
+   * while the move is between its two locations.
+   */
+  private async requireMovableLog(id: SessionId, signal?: AbortSignal): Promise<StoredLog> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.requireStoredLog(id, signal)
+      } catch (error: unknown) {
+        if (!isENOENT(error) || attempt === VANISHED_LOG_ATTEMPTS) throw error
+      }
+    }
+  }
 
   /** Resolve and read one stored log, refusing loudly when the artifact is absent. */
   private async requireStoredLog(id: SessionId, signal?: AbortSignal): Promise<StoredLog> {
@@ -1793,19 +1860,25 @@ class JsonlSessionPersistence extends SessionPersistence {
   }
 
   private async initializeRoot(): Promise<void> {
-    await this.relocation.sweep(this.root, this.compression, (message) => {
+    const warn = (message: string): void => {
       this.ctx.logger.warn(`${this.name}: ${message}`)
-    })
-    await this.checkRootEncoding()
+    }
+    await this.relocation.sweep(this.root, this.compression, warn)
+    await this.relocation.discardRemainders(this.root, await this.checkRootEncoding(), warn)
   }
 
-  private async checkRootEncoding(): Promise<void> {
+  /** Reject a root holding the other encoding's generations, and return every session directory with its entry names. */
+  private async checkRootEncoding(): Promise<JsonlSessionDirectory[]> {
+    const directories: JsonlSessionDirectory[] = []
     for (const project of await this.listProjectDirs()) {
       for (const dir of await this.listSessionDirs(project)) {
-        const incompatible = await this.findOppositeGenerationInDirectory(dir)
+        const names = await this.entryNames(dir)
+        const incompatible = this.oppositeGeneration(dir, names)
         if (incompatible !== undefined) throw this.encodingMismatch(incompatible)
+        directories.push({ dir, names })
       }
     }
+    return directories
   }
 
   private async rejectLegacyFlatArtifact(
@@ -1830,17 +1903,25 @@ class JsonlSessionPersistence extends SessionPersistence {
 
   /** Return the highest canonical generation encoded with the other configured suffix. */
   private async findOppositeGenerationInDirectory(dir: string): Promise<string | undefined> {
-    let entries: Dirent[]
+    return this.oppositeGeneration(dir, await this.entryNames(dir))
+  }
+
+  /** Entry names of one directory; an absent directory has none. */
+  private async entryNames(dir: string): Promise<string[]> {
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      return await readdir(dir)
     } catch (error: unknown) {
-      if (isENOENT(error)) return undefined
+      if (isENOENT(error)) return []
       throw error
     }
+  }
+
+  /** The highest generation among `names` encoded with the other configured suffix, as a path in `dir`. */
+  private oppositeGeneration(dir: string, names: readonly string[]): string | undefined {
     const generations: Array<{ readonly name: string; readonly version: number }> = []
-    for (const entry of entries) {
-      const version = parseGenerationLogFilename(entry.name, this.oppositeCompression())
-      if (version !== undefined) generations.push({ name: entry.name, version })
+    for (const name of names) {
+      const version = parseGenerationLogFilename(name, this.oppositeCompression())
+      if (version !== undefined) generations.push({ name, version })
     }
     const latest = generations.sort((left, right) => right.version - left.version)[0]
     return latest === undefined ? undefined : join(dir, latest.name)

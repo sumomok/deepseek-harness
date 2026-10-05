@@ -170,8 +170,10 @@ describe('Session relocation in a composed Host', () => {
     const tail = history.next()
     await vi.waitFor(() => { expect(ctx.agents.get(SESSION)).toBeDefined() })
 
-    await expect(ctx.sessionPersistence.relocate?.(SESSION, destination))
-      .rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+    const refusal = await ctx.sessionPersistence.relocate?.(SESSION, destination).catch((caught: unknown) => caught)
+    expect(refusal).toBeInstanceOf(SessionAlreadyOwnedError)
+    expect((refusal as Error).message).toContain('a live Agent keeps its session open for writing until its host stops')
+    expect((refusal as Error).message).toContain('restart the host, then relocate the session before anything resumes it')
     follow.abort()
     await tail
     expect((await ctx.sessionPersistence.stat(SESSION))?.header.cwd).toBe(origin)

@@ -114,6 +114,17 @@ describe('WorkspaceRegistry on session-persistence/relocated', () => {
     expect(run.warnings).toEqual([])
   })
 
+  it('stops listing the session in the old workspace as soon as the event returns', async () => {
+    const run = await boot(root => directory(root, 'old'))
+    const target = await run.registry.create(await directory(run.root, 'new'))
+    run.relocate(target.path)
+
+    // No await after the event: only the synchronous path invalidation hides the session.
+    expect(run.origin.sessionIds).toEqual([])
+    await run.drain()
+    expect(target.sessionIds).toEqual([SESSION])
+  })
+
   it('attaches the session to the workspace at its new path without a caller', async () => {
     const run = await boot(root => directory(root, 'old'))
     const target = await run.registry.create(await directory(run.root, 'new'))

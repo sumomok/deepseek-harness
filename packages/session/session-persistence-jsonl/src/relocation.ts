@@ -18,7 +18,9 @@
  * target current generation with the moved log, and restoring a hidden file
  * never replaces a different one, so a new Session in another project
  * directory, at the target, or in the source directory stops the move with the
- * intent and every hidden file left in place.
+ * intent and every hidden file left in place. A relocation that dies before
+ * publishing its intent leaves an intent temporary and lock-only Session
+ * directories, which the backend's first operation removes.
  * @module dsh-session-persistence-jsonl/relocation
  */
 
@@ -45,7 +47,7 @@ import {
 } from './format.ts'
 import { readStableJsonlFile, type JsonlExpectedPrefix, type JsonlVerifiedGeneration } from './generation.ts'
 import { LEASE_FILENAME, SessionWriteLease } from './lease.ts'
-import { verifyCurrentGenerationInWorker } from './migration-verifier.ts'
+import { JsonlVerificationRejectedError, verifyCurrentGenerationInWorker } from './migration-verifier.ts'
 import { publishNewFileWin32, replaceFileWin32 } from './win32.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
 
@@ -207,6 +209,13 @@ export type JsonlRelocationRuntimeOverrides = Partial<Omit<RelocationInternals, 
   readonly fs?: Partial<RelocationFileSystem>
 }
 
+/** One Session directory as the backend's root walk lists it. */
+export interface JsonlSessionDirectory {
+  readonly dir: string
+  /** Entry names inside the directory. */
+  readonly names: readonly string[]
+}
+
 /** Bound relocation operations used by the backend and by deterministic tests. */
 export interface JsonlRelocationRuntime {
   /**
@@ -249,15 +258,33 @@ export interface JsonlRelocationRuntime {
    */
   settle(root: string, compression: JsonlCompression, id: SessionId, held?: string): Promise<boolean>
   /**
-   * Recover every intent under the root. Intent temporaries stay: one may
-   * belong to a relocation still running in another process, and the next
-   * relocation of its Session removes it. Never rejects: each failure is
-   * reported and its intent stays.
+   * Recover every intent under the root. Intent temporaries stay for
+   * {@link JsonlRelocationRuntime.discardRemainders}, which removes one only
+   * when no relocation of its Session is running. Never rejects: each failure
+   * is reported and its intent stays.
    * @param root - resolved backend root.
    * @param compression - configured encoding.
    * @param warn - receives one message per intent left in place.
    */
   sweep(root: string, compression: JsonlCompression, warn: (message: string) => void): Promise<void>
+  /**
+   * Remove what a relocation that died before publishing its intent left: its
+   * intent temporaries and the Session directories it created, which hold
+   * nothing but a lock file, and the lock-only source directory a locker
+   * recreated while a relocation retired it. A lock-only directory counts only
+   * when the same Session is stored in another directory or an intent
+   * temporary names the Session, so a create that has not stored its first
+   * event keeps its directory. The removal holds the leases of the lock-only
+   * directories and, when it removes an intent temporary, of every directory
+   * of that Session, since only a holder of the directory the Session occupies
+   * writes one. A Session whose intent stands or whose directory another
+   * holder keeps is skipped. Never rejects: each failure is reported and the
+   * Session's remainders stay.
+   * @param root - resolved backend root.
+   * @param directories - every Session directory under the root with its entry names.
+   * @param warn - receives one message per Session whose remainders stay after a failure.
+   */
+  discardRemainders(root: string, directories: readonly JsonlSessionDirectory[], warn: (message: string) => void): Promise<void>
   /**
    * Whether two directory spellings name one physical directory; an absent
    * directory names none.
@@ -268,7 +295,8 @@ export interface JsonlRelocationRuntime {
   isSameDirectory(target: string, source: string): Promise<boolean>
   /**
    * Remove a Session directory that holds nothing but its lock file. The
-   * caller still holds that lock and releases it afterwards.
+   * caller still holds that lock and releases it afterwards. A directory that
+   * another process removes or refills meanwhile stays as it is.
    * @param dir - the Session directory to discard.
    */
   discardDirectory(dir: string): Promise<void>
@@ -308,6 +336,16 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
 
 function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex')
+}
+
+/** Invert {@link encodeSegment}; a name it did not produce keeps every character outside a `~XXXX` escape. */
+function decodeSegment(segment: string): string {
+  return segment.replace(/~([0-9A-F]{4})/g, (_escape, code: string) => String.fromCharCode(Number.parseInt(code, 16)))
+}
+
+/** Whether a file name is a canonical generation of either encoding. */
+function isCanonicalName(name: string): boolean {
+  return parseGenerationLogFilename(name, 'none') !== undefined || parseGenerationLogFilename(name, 'zstd') !== undefined
 }
 
 /**
@@ -422,8 +460,7 @@ async function canonicalNames(dir: string, x: RelocationInternals): Promise<stri
     if (hasCode(error, 'ENOENT')) return []
     throw error
   }
-  return names.filter(name => parseGenerationLogFilename(name, 'none') !== undefined
-    || parseGenerationLogFilename(name, 'zstd') !== undefined).sort()
+  return names.filter(isCanonicalName).sort()
 }
 
 /**
@@ -709,9 +746,15 @@ async function stage(
   try {
     verified = await x.verify(paths.stagePath, plan.compression, plan.id, plan.eventCount, undefined, signal)
   } catch (error: unknown) {
+    if (error instanceof JsonlVerificationRejectedError) {
+      throw new SessionPersistenceCorruptionError(
+        `session "${plan.id}": the relocated log failed verification: ${error.message} (raw log: ${paths.sourceCurrent})`,
+        { cause: error },
+      )
+    }
     if (isErrnoException(error) || signal?.aborted === true) throw error
-    throw new SessionPersistenceCorruptionError(
-      `session "${plan.id}": the relocated log failed verification: ${String(error)} (raw log: ${paths.sourceCurrent})`,
+    throw new Error(
+      `session "${plan.id}": the verification Worker failed before judging the staged relocated log "${paths.stagePath}": ${String(error)}`,
       { cause: error },
     )
   }
@@ -743,31 +786,55 @@ async function publishCurrent(paths: RelocationPaths, x: RelocationInternals): P
   await syncDirectory(paths.targetDir, x)
 }
 
-/** Remove the source lock file and directory; a directory holding unrecognized files stays. */
-async function retireSource(sourceDir: string, x: RelocationInternals): Promise<boolean> {
-  await removeIfPresent(join(sourceDir, LEASE_FILENAME), x)
+/** Entry names of one directory; an absent directory has none. */
+async function entryNames(dir: string, x: RelocationInternals): Promise<string[]> {
   try {
-    await x.fs.rmdir(sourceDir)
+    return await x.fs.readdir(dir)
   } catch (error: unknown) {
-    if (hasCode(error, 'ENOENT')) return false
-    if (!hasCode(error, 'ENOTEMPTY')) throw error
-    return true
+    if (hasCode(error, 'ENOENT')) return []
+    throw error
+  }
+}
+
+/** Removals of a source directory whose lock file another locker keeps recreating before the source counts as retired. */
+const RETIRE_ATTEMPTS = 3
+
+/**
+ * Remove the source lock file and directory. Locking the source directory
+ * recreates its lock file, as another backend's recovery or a write open that
+ * resolved the source does, so a directory that holds nothing but that file
+ * again is removed again; one whose lock file returns on every attempt stays
+ * for the next startup's remainder cleanup.
+ * @returns whether unrecognized files keep the directory.
+ */
+async function retireSource(sourceDir: string, x: RelocationInternals): Promise<boolean> {
+  for (let attempt = 1; ; attempt += 1) {
+    await removeIfPresent(join(sourceDir, LEASE_FILENAME), x)
+    try {
+      await x.fs.rmdir(sourceDir)
+      break
+    } catch (error: unknown) {
+      if (hasCode(error, 'ENOENT')) return false
+      if (!hasCode(error, 'ENOTEMPTY')) throw error
+    }
+    if ((await entryNames(sourceDir, x)).some(name => name !== LEASE_FILENAME)) return true
+    if (attempt === RETIRE_ATTEMPTS) return false
   }
   await syncDirectory(dirname(sourceDir), x)
   return false
 }
 
+/** Remove a Session directory that holds nothing but its lock file; one removed or refilled meanwhile stays as it is. */
 async function discardDirectory(dir: string, x: RelocationInternals): Promise<void> {
-  let names: string[]
+  if ((await entryNames(dir, x)).some(name => name !== LEASE_FILENAME)) return
+  await removeIfPresent(join(dir, LEASE_FILENAME), x)
   try {
-    names = await x.fs.readdir(dir)
+    await x.fs.rmdir(dir)
   } catch (error: unknown) {
-    if (hasCode(error, 'ENOENT')) return
+    // Another remover took the directory first, or a locker recreated its lock file.
+    if (hasCode(error, 'ENOENT') || hasCode(error, 'ENOTEMPTY')) return
     throw error
   }
-  if (names.some(name => name !== LEASE_FILENAME)) return
-  await removeIfPresent(join(dir, LEASE_FILENAME), x)
-  await x.fs.rmdir(dir)
   await syncDirectory(dirname(dir), x)
 }
 
@@ -893,24 +960,29 @@ async function recoverFile(
     const intent = await readIntentIfPresent(root, compression, path, x)
     if (intent === undefined) return { kind: 'gone' }
     const paths = pathsOf(root, compression, intent)
-    const leases: SessionWriteLease[] = []
+    const locked: Array<{ readonly dir: string; readonly lease: SessionWriteLease }> = []
     try {
+      let busy = false
       for (const dir of intent.sameDirectory ? [paths.sourceDir] : [paths.sourceDir, paths.targetDir]) {
         if (held !== undefined && await relateDirectories(dir, held, x) === 'same') continue
         // Locking an absent directory would recreate it through the lease's mkdir.
         if (!await pathExists(dir, x)) continue
         try {
-          leases.push(await SessionWriteLease.acquire(dir, makeSessionId(intent.id)))
+          locked.push({ dir, lease: await SessionWriteLease.acquire(dir, makeSessionId(intent.id)) })
         } catch (error: unknown) {
-          if (error instanceof SessionAlreadyOwnedError) return { kind: 'busy' }
-          throw error
+          if (!(error instanceof SessionAlreadyOwnedError)) throw error
+          busy = true
+          break
         }
       }
-      const locked = await readIntentIfPresent(root, compression, path, x)
-      if (locked === undefined) return { kind: 'gone' }
-      if (isDeepStrictEqual(locked, intent)) return await recoverHeld(paths, x)
+      const current = busy ? undefined : await readIntentIfPresent(root, compression, path, x)
+      if (current !== undefined && isDeepStrictEqual(current, intent)) return await recoverHeld(paths, x)
+      // Locking recreates the lock file of a directory a relocation was retiring, which holds nothing else.
+      for (const { dir } of locked) await discardDirectory(dir, x)
+      if (busy) return { kind: 'busy' }
+      if (current === undefined) return { kind: 'gone' }
     } finally {
-      for (const lease of leases.reverse()) await lease.release()
+      for (const { lease } of locked.reverse()) await lease.release()
     }
   }
   return { kind: 'busy' }
@@ -1034,6 +1106,90 @@ async function recoverInCall(
   return { failure, intentRetained: false, sourceRetained: settled.sourceRetained }
 }
 
+/** The remainders of one Session that a dead relocation left, found by the root walk. */
+interface SessionRemainders {
+  /** Names the remainders in a warning. */
+  readonly label: string
+  readonly id: SessionId
+  readonly intentPath: string
+  /** Directories whose leases the removal holds; each one holding nothing but a lock file is removed. */
+  readonly lock: readonly string[]
+  readonly temporaries: readonly string[]
+}
+
+/** Remove one Session's remainders under the leases they depend on; a held lease or a standing intent keeps them. */
+async function discardSessionRemainders(remainders: SessionRemainders, x: RelocationInternals): Promise<void> {
+  // Locking would leave a lock file in every directory of a Session whose intent keeps them.
+  if (await pathExists(remainders.intentPath, x)) return
+  const leases: SessionWriteLease[] = []
+  try {
+    for (const dir of remainders.lock) {
+      // Locking a directory removed since the walk would recreate it through the lease's mkdir.
+      if (!await pathExists(dir, x)) continue
+      try {
+        leases.push(await SessionWriteLease.acquire(dir, remainders.id))
+      } catch (error: unknown) {
+        if (error instanceof SessionAlreadyOwnedError) return
+        throw error
+      }
+    }
+    // A relocation that published its intent before these leases owns these files until it settles.
+    if (await pathExists(remainders.intentPath, x)) return
+    for (const path of remainders.temporaries) await removeIfPresent(path, x)
+    if (remainders.temporaries.length > 0) await syncDirectory(dirname(remainders.intentPath), x)
+    for (const dir of remainders.lock) await discardDirectory(dir, x)
+  } finally {
+    for (const lease of leases.reverse()) await lease.release()
+  }
+}
+
+async function discardRemainders(
+  root: string,
+  directories: readonly JsonlSessionDirectory[],
+  warn: (message: string) => void,
+  x: RelocationInternals,
+): Promise<void> {
+  let rootNames: string[]
+  try {
+    rootNames = await x.fs.readdir(root)
+  } catch (error: unknown) {
+    if (!hasCode(error, 'ENOENT')) warn(`relocation remainders under "${root}" cannot be listed: ${String(error)}`)
+    return
+  }
+  const temporaries = new Map<string, string[]>()
+  for (const name of rootNames.filter(entry => INTENT_TEMPORARY.test(entry))) {
+    const intent = name.slice(0, name.indexOf('.json.') + '.json'.length)
+    temporaries.set(intent, [...temporaries.get(intent) ?? [], join(root, name)])
+  }
+  const sessions = new Map<string, JsonlSessionDirectory[]>()
+  for (const entry of directories) sessions.set(basename(entry.dir), [...sessions.get(basename(entry.dir)) ?? [], entry])
+  const found: SessionRemainders[] = []
+  for (const [segment, dirs] of sessions) {
+    const id = makeSessionId(decodeSegment(segment))
+    const intentPath = relocationIntentPath(root, id)
+    const temps = temporaries.get(basename(intentPath)) ?? []
+    temporaries.delete(basename(intentPath))
+    const empty = dirs.filter(entry => entry.names.every(name => name === LEASE_FILENAME)).map(entry => entry.dir)
+    const stored = dirs.some(entry => entry.names.some(isCanonicalName))
+    if (temps.length === 0 && (empty.length === 0 || !stored)) continue
+    found.push({
+      label: `session "${id}"`, id, intentPath, lock: temps.length > 0 ? dirs.map(entry => entry.dir) : empty, temporaries: temps,
+    })
+  }
+  // No relocation is in flight for a Session without a directory, so nothing writes these intent temporaries.
+  for (const [intent, temps] of temporaries) {
+    const intentPath = join(root, intent)
+    found.push({ label: `intent "${intentPath}"`, id: makeSessionId(intent), intentPath, lock: [], temporaries: temps })
+  }
+  for (const remainders of found) {
+    try {
+      await discardSessionRemainders(remainders, x)
+    } catch (error: unknown) {
+      warn(`relocation remainders of ${remainders.label} stay: ${String(error)}`)
+    }
+  }
+}
+
 function withOverrides(overrides: JsonlRelocationRuntimeOverrides): RelocationInternals {
   return {
     ...defaultInternals,
@@ -1107,6 +1263,7 @@ export function createJsonlRelocationRuntime(
         }
       }
     },
+    discardRemainders: (root, directories, warn) => discardRemainders(root, directories, warn, x),
     isSameDirectory: async (target, source) => await relateDirectories(target, source, x) === 'same',
     discardDirectory: dir => discardDirectory(dir, x),
   }

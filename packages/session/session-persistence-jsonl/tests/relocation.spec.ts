@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto'
 import {
-  appendFile, link, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile,
+  appendFile, link, mkdir, mkdtemp, readFile, readdir, rename, rm, rmdir, stat, symlink, unlink, writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
@@ -22,7 +22,7 @@ import {
 } from '@deepseek-ai/dsh-session'
 import {
   SessionAlreadyOwnedError, SessionFormatUnsupportedError, SessionPersistenceCorruptionError,
-  SessionPersistenceNotFoundError, type SessionPersistence, type SessionPersistenceSnapshot,
+  SessionPersistenceNotFoundError, type SessionHandle, type SessionPersistence, type SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
@@ -34,6 +34,7 @@ import {
   relocationHiddenName, relocationIntentPath, relocationStageName,
   type JsonlRelocationPhase, type JsonlRelocationPlan, type JsonlRelocationRuntimeOverrides,
 } from '../src/relocation.ts'
+import { JsonlVerificationRejectedError, verifyCurrentGenerationInWorker } from '../src/migration-verifier.ts'
 import { createJsonlGenerationTestRuntime } from '../src/testing/generation.ts'
 import { createJsonlRelocationTestRuntime } from '../src/testing/relocation.ts'
 import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
@@ -65,6 +66,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     link: guard('link', actual.link),
+    lstat: guard('lstat', actual.lstat),
+    stat: guard('stat', actual.stat),
     unlink: guard('unlink', actual.unlink),
     readdir: guard('readdir', actual.readdir),
     readFile: guard('readFile', actual.readFile),
@@ -551,10 +554,13 @@ describe.each(['none', 'zstd'] as const)('JsonlSessionPersistence.relocate (%s)'
 })
 
 describe('JsonlSessionPersistence.relocate refusals', () => {
-  it('refuses while this process holds a write handle or a pending create', async () => {
+  it('refuses while this process holds a write handle or a pending create, and says when a move can succeed', async () => {
     const f = await seed('none')
     const writer = await f.ctx.sessionPersistence.open(f.header.id, 'write')
-    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+    const error = await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(SessionAlreadyOwnedError)
+    expect((error as Error).message).toContain('a live Agent keeps its session open for writing until its host stops')
+    expect((error as Error).message).toContain('restart the host, then relocate the session')
     await writer.close()
     const pending = await f.ctx.sessionPersistence.create(meta('pending', SOURCE_CWD))
     await expect(f.ctx.sessionPersistence.relocate!(SessionId('pending'), TARGET_CWD)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
@@ -637,6 +643,25 @@ describe('JsonlSessionPersistence.relocate refusals', () => {
     await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('holds other files'))
     expect(await readdir(f.sourceDir)).toEqual(['notes.txt'])
+  })
+
+  it.each(['project', 'session'] as const)('refuses a target %s directory that is a symbolic link, which discovery does not list', async (level) => {
+    const f = await seed('none')
+    const elsewhere = await freshRoot()
+    if (level === 'session') await mkdir(dirname(f.targetDir), { recursive: true })
+    await symlink(elsewhere, level === 'project' ? dirname(f.targetDir) : f.targetDir, 'dir')
+    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).rejects.toThrow('is a symbolic link')
+    expect(await readdir(elsewhere)).toEqual([])
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+    expect((await f.ctx.sessionPersistence.list()).map(row => row.header.cwd)).toEqual([SOURCE_CWD])
+    await assertNoResidue(f.root)
+  })
+
+  it('passes on a failure to inspect the target directory', async () => {
+    const f = await seed('none')
+    fault('lstat', path => path === dirname(f.targetDir), 'EACCES')
+    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).rejects.toMatchObject({ code: 'EACCES' })
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
   })
 })
 
@@ -897,10 +922,14 @@ describe('in-call relocation failures', () => {
     }
   })
 
-  it('classifies a staged log that fails verification as corruption', async () => {
+  it('classifies a staged log the verifier rejects as corruption and a failed verifier as its own failure', async () => {
     const f = await seed('zstd')
-    await expect(relocateWith(f, { verify: async () => { throw new Error('bad stage') } }))
+    await expect(relocateWith(f, { verify: async () => { throw new JsonlVerificationRejectedError('bad stage') } }))
       .rejects.toBeInstanceOf(SessionPersistenceCorruptionError)
+    const failed = await relocateWith(f, { verify: async () => { throw new Error('worker died') } }).catch((caught: unknown) => caught)
+    expect(failed).not.toBeInstanceOf(SessionPersistenceCorruptionError)
+    expect((failed as Error).message).toContain('verification Worker failed')
+    expect((failed as Error).message).not.toContain(join(f.sourceDir, f.current))
     await expect(relocateWith(f, { verify: async () => { throw errno('EACCES') } })).rejects.toMatchObject({ code: 'EACCES' })
     const controller = new AbortController()
     const aborted = new Error('verification aborted')
@@ -1088,6 +1117,42 @@ describe('in-call relocation failures', () => {
     await expect(relocateWith(occupied, {})).rejects.toBeInstanceOf(SessionPersistenceCorruptionError)
     expect((await readdir(occupied.targetDir)).sort()).toEqual([LEASE_FILENAME, generationLogFilename(2, 'zstd')].sort())
   })
+
+  it('publishes the target with a link that refuses a different log planted just before it', async () => {
+    const f = await seed('none')
+    const target = join(f.targetDir, f.current)
+    const foreign = `${JSON.stringify(toHeaderLine({ ...meta('relocated', TARGET_CWD), createdAt: 2000 }))}\n`
+    const plant = async (to: string): Promise<void> => {
+      if (to === target && !await exists(to)) await writeFile(to, foreign)
+    }
+    const error = await relocateWith(f, { fs: {
+      link: async (from: string, to: string) => {
+        await plant(to)
+        await link(from, to)
+      },
+      rename: async (from: string, to: string) => {
+        await plant(to)
+        await rename(from, to)
+      },
+    } }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(SessionPersistenceCorruptionError)
+    expect(await readFile(target, 'utf8')).toBe(foreign)
+    expect(await exists(relocationIntentPath(f.root, f.header.id))).toBe(true)
+  })
+
+  it('reports a verification Worker that exits before judging the stage as a Worker failure and moves nothing', async () => {
+    const f = await seed('none')
+    const error = await relocateWith(f, {
+      // A malformed request makes the Worker throw before it reads the stage.
+      verify: (path, compression, id, _count, prefix, signal) => verifyCurrentGenerationInWorker(path, compression, id, -1, prefix, signal),
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(SessionPersistenceCorruptionError)
+    expect((error as Error).message).toContain('verification Worker failed')
+    expect((error as Error).message).toContain('request is malformed')
+    expect((error as Error).message).not.toContain(join(f.sourceDir, f.current))
+    await assertRolledBack(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
 })
 
 /** Crash a seeded move at one phase and return the seed for manual disk edits before recovery. */
@@ -1260,7 +1325,7 @@ describe('startup recovery', () => {
     await assertNoResidue(f.root)
   })
 
-  it('keeps intent temporaries and reports intents it cannot read', async () => {
+  it('removes the intent temporary of a session without a directory and reports intents it cannot read', async () => {
     const f = await crashed('intent-written')
     const temporary = `${relocationIntentPath(f.root, SessionId('other'))}.0123456789ab.tmp`
     await writeFile(temporary, '{}')
@@ -1274,7 +1339,7 @@ describe('startup recovery', () => {
     for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
     expect(await exists(f.targetDir)).toBe(false)
     expect(await exists(relocationIntentPath(f.root, f.header.id))).toBe(false)
-    expect(await exists(temporary)).toBe(true)
+    expect(await exists(temporary)).toBe(false)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(unreadable))
   })
 
@@ -1772,6 +1837,35 @@ describe('write open after a concurrent relocation', () => {
     const lease = await SessionWriteLease.acquire(f.sourceDir, f.header.id)
     await lease.release()
   })
+
+  it('resolves again when a relocation removes the directory while its lock is created', async () => {
+    const f = await seed('none')
+    const other = await mount(f.root, 'none')
+    vi.spyOn(SessionWriteLease, 'acquire').mockImplementationOnce(async () => {
+      await other.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+      throw errno('ENOENT')
+    })
+    const writer = await f.ctx.sessionPersistence.open(f.header.id, 'write')
+    expect(writer.header.cwd).toBe(TARGET_CWD)
+    await writer.close()
+    expect(await exists(f.sourceDir)).toBe(false)
+  })
+
+  it('refuses a directory that vanishes on both attempts and passes on other lock failures', async () => {
+    const f = await seed('none')
+    vi.spyOn(SessionWriteLease, 'acquire').mockRejectedValueOnce(errno('ENOENT')).mockRejectedValueOnce(errno('ENOENT'))
+    await expect(f.ctx.sessionPersistence.open(f.header.id, 'write')).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+    vi.restoreAllMocks()
+    vi.spyOn(SessionWriteLease, 'acquire').mockRejectedValueOnce(errno('ENOENT')).mockImplementationOnce(async () => {
+      await rm(f.sourceDir, { recursive: true })
+      throw errno('ENOENT')
+    })
+    await expect(f.ctx.sessionPersistence.open(f.header.id, 'write')).rejects.toBeInstanceOf(SessionPersistenceNotFoundError)
+    vi.restoreAllMocks()
+    const g = await seed('none')
+    vi.spyOn(SessionWriteLease, 'acquire').mockRejectedValueOnce(errno('EACCES'))
+    await expect(g.ctx.sessionPersistence.open(g.header.id, 'write')).rejects.toMatchObject({ code: 'EACCES' })
+  })
 })
 
 describe('relocation runtime directory probes', () => {
@@ -1797,11 +1891,327 @@ describe('relocation runtime directory probes', () => {
       .discardDirectory(join(root, 'a'))).rejects.toMatchObject({ code: 'EACCES' })
   })
 
+  it('leaves a lock-only directory another process removed or refilled, and passes on other removal failures', async () => {
+    const root = await freshRoot()
+    const dir = join(root, 'lock-only')
+    for (const [code, settles] of [['ENOENT', true], ['ENOTEMPTY', true], ['EACCES', false]] as const) {
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, LEASE_FILENAME), '')
+      const discarded = createJsonlRelocationTestRuntime({ fs: { rmdir: async () => { throw errno(code) } } }).discardDirectory(dir)
+      if (settles) await discarded
+      else await expect(discarded).rejects.toMatchObject({ code })
+    }
+  })
+
   it('tells directories on different devices apart even when their inode numbers match', async () => {
     const runtime = createJsonlRelocationTestRuntime({
       fs: { stat: async (path: string) => ({ dev: path.startsWith('/a') ? 1n : 2n, ino: 7n }) },
     })
     expect(await runtime.isSameDirectory('/a', '/a-alias')).toBe(true)
     expect(await runtime.isSameDirectory('/a', '/b')).toBe(false)
+  })
+})
+
+describe('reads that race a relocation', () => {
+  /** Move the seeded session to TARGET_CWD through another backend just before the next stat of its source current generation. */
+  async function moveBeforeStat(f: Seeded): Promise<void> {
+    const other = await mount(f.root, 'none')
+    interleave('stat', path => path === join(f.sourceDir, f.current), async () => {
+      await other.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+    })
+  }
+
+  /** Remove the seeded session just before the next stat of its source current generation. */
+  function removeBeforeStat(f: Seeded): void {
+    interleave('stat', path => path === join(f.sourceDir, f.current), async () => {
+      await rm(f.sourceDir, { recursive: true })
+    })
+  }
+
+  it('opens a session at its new location when a relocation moves it between its resolution and its read', async () => {
+    const f = await seed('none')
+    await moveBeforeStat(f)
+    const read = await readEvents(f.ctx.sessionPersistence, f.header.id)
+    expect(read.header.cwd).toBe(TARGET_CWD)
+    expect(read.events).toEqual(f.events)
+  })
+
+  it('reads a handle at the new location when a relocation moves the log between its resolution and its read', async () => {
+    const f = await seed('none')
+    const reader = await f.ctx.sessionPersistence.open(f.header.id, 'read')
+    await moveBeforeStat(f)
+    expect((await reader.read()).events).toEqual(f.events)
+    await reader.close()
+  })
+
+  it('reports an open and a handle read whose log vanished and resolves nowhere as not found', async () => {
+    const f = await seed('none')
+    const reader = await f.ctx.sessionPersistence.open(f.header.id, 'read')
+    removeBeforeStat(f)
+    await expect(reader.read()).rejects.toBeInstanceOf(SessionPersistenceNotFoundError)
+    await reader.close()
+    const g = await seed('none')
+    removeBeforeStat(g)
+    await expect(g.ctx.sessionPersistence.open(g.header.id, 'read')).rejects.toBeInstanceOf(SessionPersistenceNotFoundError)
+  })
+
+  it('passes the error on when the resolved log vanishes on every attempt', async () => {
+    const f = await seed('none')
+    const reader = await f.ctx.sessionPersistence.open(f.header.id, 'read')
+    fault('stat', path => path === join(f.sourceDir, f.current), 'ENOENT', 3)
+    await expect(f.ctx.sessionPersistence.open(f.header.id, 'read')).rejects.toMatchObject({ code: 'ENOENT' })
+    fault('stat', path => path === join(f.sourceDir, f.current), 'ENOENT', 3)
+    await expect(reader.read()).rejects.toMatchObject({ code: 'ENOENT' })
+    await reader.close()
+  })
+
+  it('keeps read handles opened before a relocation reading at the new location', async () => {
+    const f = await seed('none')
+    const other = await mount(f.root, 'none')
+    const readers = [await other.sessionPersistence.open(f.header.id, 'read'), await f.ctx.sessionPersistence.open(f.header.id, 'read')]
+    for (const reader of readers) expect((await reader.read()).events).toEqual(f.events)
+    await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+    for (const reader of readers) {
+      expect((await reader.read()).events).toEqual(f.events)
+      expect(reader.header.cwd).toBe(SOURCE_CWD)
+      await reader.close()
+    }
+  })
+})
+
+describe('a relocation past its commit point', () => {
+  it('emits its event after releasing write ownership, so a listener can open the session for writing', async () => {
+    const f = await seed('none')
+    let opened: Promise<SessionHandle> | undefined
+    f.ctx.on('session-persistence/relocated', (id) => {
+      opened = f.ctx.sessionPersistence.open(id, 'write')
+    })
+    await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+    const writer = await opened!
+    expect(writer.header.cwd).toBe(TARGET_CWD)
+    await writer.close()
+  })
+
+  it.each([
+    ['cannot be listed', (f: Seeded) => { fault('readdir', path => path === f.root, 'EACCES') }, 'Error: EACCES'],
+    ['is removed', (f: Seeded) => rm(f.targetDir, { recursive: true }), 'no stored log found'],
+  ] as const)('resolves and emits a move whose new location %s right after it settles', async (_case, disturb, reason) => {
+    const f = await seed('none')
+    const warn = vi.spyOn(f.ctx.logger, 'warn').mockImplementation(() => undefined)
+    const seen: SessionPersistenceSnapshot[] = []
+    f.ctx.on('session-persistence/relocated', (_id, _previous, current) => { seen.push(current) })
+    const before = (await f.ctx.sessionPersistence.stat(f.header.id))!
+    // Removing the intent is the move's last step; the snapshot read follows it.
+    interleave('unlink', path => path === relocationIntentPath(f.root, f.header.id), async () => { await disturb(f) })
+
+    const snapshot = await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+
+    expect(snapshot.header).toEqual({ ...before.header, cwd: TARGET_CWD })
+    expect(snapshot.revision).not.toBe(before.revision)
+    expect(snapshot.revision).toMatch(/^relocated:/)
+    expect(seen).toEqual([snapshot])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`its new location could not be read: ${reason}`))
+  })
+})
+
+describe('remainders of relocations that died before recording their intent', () => {
+  /**
+   * Leave what a relocation of the seeded session to TARGET_CWD leaves when it
+   * dies after creating the target directory: the target directory, with or
+   * without its lock file, and optionally an intent temporary with `content`.
+   */
+  async function diedBeforeIntent(f: Seeded, lockFile: boolean, content?: string): Promise<string | undefined> {
+    await mkdir(f.targetDir, { recursive: true })
+    if (lockFile) await (await SessionWriteLease.acquire(f.targetDir, f.header.id)).release()
+    if (content === undefined) return undefined
+    const temporary = `${relocationIntentPath(f.root, f.header.id)}.0123456789ab.tmp`
+    await writeFile(temporary, content)
+    return temporary
+  }
+
+  async function restart(root: string) {
+    const ctx = new Context()
+    contexts.push(ctx)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+    return { persistence: ctx.sessionPersistence, warn }
+  }
+
+  it.each([
+    ['a lock-only target directory', true, undefined],
+    ['an empty target directory', false, undefined],
+    ['an empty target directory and an intent temporary cut short', false, ''],
+    ['a lock-only target directory and a complete intent temporary', true, '{"kind":"dsh-session-relocation"}\n'],
+  ] as const)('removes %s at the next start', async (_case, lockFile, content) => {
+    const f = await seed('none')
+    const temporary = await diedBeforeIntent(f, lockFile, content)
+    const { persistence, warn } = await restart(f.root)
+    expect((await persistence.list()).map(row => row.header.cwd)).toEqual([SOURCE_CWD])
+    expect(await exists(f.targetDir)).toBe(false)
+    if (temporary !== undefined) expect(await exists(temporary)).toBe(false)
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('finds the remainders of a session whose directory name escapes its id', async () => {
+    const root = await freshRoot()
+    const header = meta('moved session', SOURCE_CWD)
+    await writeLog((await mount(root, 'none')).sessionPersistence, header, oneTurnLog())
+    const targetDir = sessionDir(root, TARGET_CWD, header.id)
+    expect(basename(targetDir)).not.toBe(header.id)
+    await mkdir(targetDir, { recursive: true })
+    const temporary = `${relocationIntentPath(root, header.id)}.0123456789ab.tmp`
+    await writeFile(temporary, '')
+    await (await restart(root)).persistence.list()
+    expect(await exists(targetDir)).toBe(false)
+    expect(await exists(temporary)).toBe(false)
+  })
+
+  it('keeps the remainders of a session whose directory another holder keeps until a later start', async () => {
+    const f = await seed('none')
+    const temporary = (await diedBeforeIntent(f, true, ''))!
+    const lease = await SessionWriteLease.acquire(f.sourceDir, f.header.id)
+    await (await restart(f.root)).persistence.list()
+    expect(await exists(f.targetDir)).toBe(true)
+    expect(await exists(temporary)).toBe(true)
+    await lease.release()
+    await (await restart(f.root)).persistence.list()
+    expect(await exists(f.targetDir)).toBe(false)
+    expect(await exists(temporary)).toBe(false)
+  })
+
+  it('keeps the directory of a create that has not stored its first event', async () => {
+    const root = await freshRoot()
+    const dir = sessionDir(root, SOURCE_CWD, SessionId('creating'))
+    await mkdir(dir, { recursive: true })
+    await (await SessionWriteLease.acquire(dir, SessionId('creating'))).release()
+    await (await restart(root)).persistence.list()
+    expect(await readdir(dir)).toEqual([LEASE_FILENAME])
+  })
+
+  it('leaves the lock-only directories of a session whose earlier relocation stays unsettled', async () => {
+    const f = await crashed('published')
+    await link(join(f.targetDir, f.current), join(f.sourceDir, 'copy'))
+    await rename(join(f.sourceDir, 'copy'), join(f.sourceDir, f.current))
+    const third = sessionDir(f.root, THIRD_CWD, f.header.id)
+    await mkdir(third, { recursive: true })
+    const { persistence, warn } = await restart(f.root)
+    await expect(persistence.stat(f.header.id)).rejects.toThrow('duplicate JSONL session id')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('both the source and the target hold a stored log'))
+    expect(await readdir(third)).toEqual([])
+  })
+
+  it('leaves the remainders of a session whose relocation publishes its intent before they are locked', async () => {
+    const f = await seed('none')
+    const temporary = (await diedBeforeIntent(f, true, ''))!
+    const intentPath = relocationIntentPath(f.root, f.header.id)
+    const acquire = SessionWriteLease.acquire.bind(SessionWriteLease)
+    vi.spyOn(SessionWriteLease, 'acquire').mockImplementationOnce(async (dir, id) => {
+      await writeFile(intentPath, '{}')
+      return acquire(dir, id)
+    })
+    const warn = vi.fn()
+    await createJsonlRelocationTestRuntime().discardRemainders(f.root, [
+      { dir: f.sourceDir, names: (await readdir(f.sourceDir)).sort() },
+      { dir: f.targetDir, names: [LEASE_FILENAME] },
+    ], warn)
+    expect(warn).not.toHaveBeenCalled()
+    expect(await exists(temporary)).toBe(true)
+    expect(await readdir(f.targetDir)).toEqual([LEASE_FILENAME])
+  })
+
+  it.each([
+    ['removing a temporary', (temporary: string) => { fault('unlink', path => path === temporary, 'EACCES') }],
+    ['locking a directory', (_temporary: string) => { vi.spyOn(SessionWriteLease, 'acquire').mockRejectedValueOnce(errno('EACCES')) }],
+  ] as const)('reports remainders it cannot remove after a failure %s and still starts', async (_case, disturb) => {
+    const f = await seed('none')
+    const temporary = (await diedBeforeIntent(f, true, ''))!
+    disturb(temporary)
+    const { persistence, warn } = await restart(f.root)
+    expect((await persistence.list()).map(row => row.header.cwd)).toEqual([SOURCE_CWD])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`relocation remainders of session "${f.header.id}" stay: Error: EACCES`))
+    expect(await exists(temporary)).toBe(true)
+  })
+
+  it('reports an unlistable root, ignores an absent one, and never recreates a directory removed since the walk', async () => {
+    const warn = vi.fn()
+    await createJsonlRelocationTestRuntime({ fs: { readdir: async () => { throw errno('EACCES') } } }).discardRemainders('/root', [], warn)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cannot be listed'))
+    const quiet = vi.fn()
+    await createJsonlRelocationTestRuntime().discardRemainders(join(await freshRoot(), 'absent'), [], quiet)
+    const f = await seed('none')
+    const temporary = `${relocationIntentPath(f.root, f.header.id)}.0123456789ab.tmp`
+    await writeFile(temporary, '')
+    await createJsonlRelocationTestRuntime().discardRemainders(f.root, [
+      { dir: f.sourceDir, names: (await readdir(f.sourceDir)).sort() },
+      { dir: f.targetDir, names: [LEASE_FILENAME] },
+    ], quiet)
+    expect(quiet).not.toHaveBeenCalled()
+    expect(await exists(f.targetDir)).toBe(false)
+    expect(await exists(temporary)).toBe(false)
+  })
+
+  it('removes a source directory whose recovery recreated its lock file while another holder keeps the target', async () => {
+    const f = await crashed('published')
+    const intentPath = relocationIntentPath(f.root, f.header.id)
+    const { token } = JSON.parse(await readFile(intentPath, 'utf8')) as { token: string }
+    // The completion died after removing the hidden source current generation and the source lock file.
+    await unlink(join(f.sourceDir, relocationHiddenName(f.current, token)))
+    await unlink(join(f.sourceDir, LEASE_FILENAME))
+    const lease = await SessionWriteLease.acquire(f.targetDir, f.header.id)
+    const warn = vi.fn()
+    await createJsonlRelocationTestRuntime().sweep(f.root, 'none', warn)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('another holder'))
+    expect(await exists(f.sourceDir)).toBe(false)
+    expect(await exists(intentPath)).toBe(true)
+    await lease.release()
+    await assertMoved(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
+
+  it('removes a source directory again after another locker recreates its lock file', async () => {
+    const f = await seed('none')
+    let recreated = false
+    const outcome = await relocateWith(f, { fs: { rmdir: async (path: string) => {
+      if (path === f.sourceDir && !recreated) {
+        recreated = true
+        await writeFile(join(path, LEASE_FILENAME), '')
+      }
+      await rmdir(path)
+    } } })
+    expect(recreated).toBe(true)
+    expect(outcome).toEqual({ intentRetained: false, sourceRetained: false })
+    expect(await exists(f.sourceDir)).toBe(false)
+  })
+
+  it('leaves a source directory whose lock file returns on every attempt to the next start without reporting other files', async () => {
+    const f = await seed('none')
+    const outcome = await relocateWith(f, { fs: { rmdir: async (path: string) => {
+      if (path === f.sourceDir) await writeFile(join(path, LEASE_FILENAME), '')
+      await rmdir(path)
+    } } })
+    expect(outcome).toEqual({ intentRetained: false, sourceRetained: false })
+    expect(await readdir(f.sourceDir)).toEqual([LEASE_FILENAME])
+    const { persistence, warn } = await restart(f.root)
+    expect((await persistence.list()).map(row => row.header.cwd)).toEqual([TARGET_CWD])
+    expect(await exists(f.sourceDir)).toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('retires its source without a warning when another backend\'s recovery locks it between its lock file and its removal', async () => {
+    const f = await seed('none')
+    const sweeper = createJsonlRelocationTestRuntime({ verify: inProcessVerifier() })
+    const swept = vi.fn()
+    let raced = false
+    const outcome = await relocateWith(f, { fs: { rmdir: async (path: string) => {
+      if (path === f.sourceDir && !raced) {
+        raced = true
+        await sweeper.sweep(f.root, 'none', swept)
+      }
+      await rmdir(path)
+    } } }).catch((caught: unknown) => caught)
+    expect(raced).toBe(true)
+    expect(swept).toHaveBeenCalledWith(expect.stringContaining('another holder'))
+    expect(outcome).toEqual({ intentRetained: false, sourceRetained: false })
+    expect(await exists(f.sourceDir)).toBe(false)
   })
 })

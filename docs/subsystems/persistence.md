@@ -350,7 +350,7 @@ Visibility: a created session is observable through `stat`/`list`/`open` in this
 
 Freshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.
 
-Relocation: a backend may implement the optional `relocate`, which moves a stored session to the storage location of another cwd. Other processes see the session at its old location, then at neither while the move is between the two, then at its new one; a move interrupted between the two leaves the session absent until the backend recovers that move. While the session is absent, `stat` returns `undefined`, `list` omits it, and an `open` or a handle read that consults storage rejects with `SessionPersistenceNotFoundError`. An `open` or a handle read that located the old storage just before the move rejects with the backend's own error for vanished storage, as when any stored file vanishes (`ENOENT` for the JSONL backend). A read handle may stay open across the move: later reads observe the new location, and its `header` keeps the value it had at open.
+Relocation: a backend may implement the optional `relocate`, which moves a stored session to the storage location of another cwd. Other processes see the session at its old location, then at neither while the move is between the two, then at its new one; a move interrupted between the two leaves the session absent until the backend recovers that move. While the session is absent, `stat` returns `undefined`, `list` omits it, and an `open` or a handle read that consults storage rejects with `SessionPersistenceNotFoundError`. An `open` or a handle read that located the old storage just before the move locates the session again: it reads the new location, or rejects with `SessionPersistenceNotFoundError` while the session is absent. A read handle may stay open across the move: later reads observe the new location, and its `header` keeps the value it had at open.
 
 ```ts cordis-catalog
 /**
@@ -427,18 +427,26 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  * 'function'` first. A write handle held by this or another process, or a
  * pending create in this process, refuses the move; read handles may stay
  * open. Success emits `session-persistence/relocated` after write ownership
- * is released. A listener that throws does not fail the move: the backend
- * logs a warning, and the listeners after it miss the event.
+ * is released. A listener that throws does not fail the move: `relocate`
+ * resolves and the backend logs a warning; the event's documentation states
+ * which listeners miss it. Once the new location is published the move
+ * stands: a later cleanup failure is logged, and so is a failed read of the
+ * moved session's snapshot, which then returns the moved header with a
+ * revision no `stat` returns.
  * @param id - the stored session to move.
  * @param cwd - the absolute working directory the session moves to.
  * @param options - optional cancellation, observed until the target
  *   generation is published; a cancelled move rolls back.
  * @returns the snapshot after the move.
  * @throws {TypeError} when `cwd` is not absolute.
+ * @throws the signal reason when `options.signal` aborts before the target
+ *   generation is published.
  * @throws {SessionPersistenceNotFoundError} when the session does not exist.
  * @throws {SessionAlreadyOwnedError} while a write handle or pending create
  *   holds the session, or another holder keeps the source or target
- *   location, including an unfinished earlier move of the same session.
+ *   location, including an unfinished earlier move of the same session; for
+ *   a write handle in this process the message says when a move can
+ *   succeed.
  * @throws {SessionFormatUnsupportedError} when the stored log is newer than
  *   this build.
  * @throws {SessionPersistenceCorruptionError} when the stored log cannot be
@@ -448,7 +456,9 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  *   contradicts the storage; when a move stays unfinished, the message
  *   names the backend's record of it.
  * @throws {Error} when the source and target locations are on different
- *   filesystems.
+ *   filesystems, when the target location is one the backend's discovery
+ *   does not list (for the JSONL backend, a symbolic link), or when the
+ *   verification of the rewritten log fails without judging it.
  */
 relocate?(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot>
 ```
@@ -465,20 +475,23 @@ Source: [`packages/session/session-persistence/src/index.ts`](../../packages/ses
 
 #### `session-persistence/relocated` — emit
 
-A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership; recovery of an interrupted move emits nothing. Listeners run synchronously in registration order, must not throw, and must catch their own asynchronous failures. Cordis `emit` does not isolate listeners: one that throws stops the dispatch, and every listener after it misses the event. The relocation still succeeds and the backend logs a warning. A consumer that tracks sessions by cwd therefore reconciles from the stored headers when it starts; the workspace registry detaches a session listed at its old path then.
+A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Listeners run synchronously in registration order, must not throw, and must catch their own asynchronous failures. Cordis `emit` does not isolate listeners: one that throws stops the dispatch, and every listener after it misses the event; `relocate` still resolves (see there). A consumer that tracks sessions by cwd therefore reconciles from the stored headers when it starts; the workspace registry detaches a session listed at its old path then.
 
 ```ts cordis-catalog
 /**
  * A stored session moved to another storage location and its header cwd
  * changed. Emitted once per successful relocate, after the backend released
- * its write ownership; recovery of an interrupted move emits nothing.
+ * its write ownership, including a move whose cleanup or snapshot read
+ * failed after the new location was published. No recovery emits it:
+ * neither the recovery a backend runs at its first operation nor a later
+ * relocate of the same session that settles a move a dead process left.
  * Listeners run synchronously in registration order, must not throw, and
  * must catch their own asynchronous failures. Cordis `emit` does not
  * isolate listeners: one that throws stops the dispatch, and every
- * listener after it misses the event. The relocation still succeeds and
- * the backend logs a warning. A consumer that tracks sessions by cwd
- * therefore reconciles from the stored headers when it starts; the
- * workspace registry detaches a session listed at its old path then.
+ * listener after it misses the event; `relocate` still resolves (see
+ * there). A consumer that tracks sessions by cwd therefore reconciles from
+ * the stored headers when it starts; the workspace registry detaches a
+ * session listed at its old path then.
  * @mode emit
  * @param id - the relocated session.
  * @param previous - the stored header before the move.

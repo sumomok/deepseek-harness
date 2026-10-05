@@ -9,17 +9,17 @@
   en: e70aef82c298096c
   zh: fe6b42f587718844
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/decision:
-  en: f35b5c742212d132
-  zh: 653ebd63692c50e9
+  en: 72c067cf03cd35b4
+  zh: f83e8369e586a858
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/disk-protocol:
-  en: 1441ed03e7495e75
-  zh: 8295aaffc5f24a59
+  en: de1d4e315e8f1349
+  zh: 9edd234156c3038b
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/recovery:
-  en: f5210d9b56006390
-  zh: 600a40e2ef18f896
+  en: ab0587c8e78c70fc
+  zh: 7dcaf30ed946141e
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/lock-re-resolution:
-  en: 86b1018917c14c85
-  zh: d492e54eb75c87f6
+  en: 2b83b78d71e05dad
+  zh: 29450009feafb216
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/consumers:
   en: ab1461f8a489acaa
   zh: 144a42760f809422
@@ -27,5 +27,5 @@
   en: 06481f0040edb28f
   zh: f83b9e8c5ba2f306
 /agent-note-a-stored-session-moves-to-another-cwd-by-rewriting-its-current-header-record/consequences:
-  en: 0480b13ad8e1b3b3
-  zh: d2e4aa0ab4d79507
+  en: bab7446e038a5547
+  zh: 0128290d801d6771
