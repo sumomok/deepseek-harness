@@ -8,9 +8,11 @@
  * service places the request with nobody. Both are answered before a body is
  * read. A placed request reads and writes `memberStore(<member>, 'server-sidebar')`
  * and nothing else: no settings write, and no profile patch. A save that names
- * a conversation the directory gives to another member is refused; one the
- * directory places with nobody, or does not know, is saved, because a menu
- * holds weak references to conversations. One member's saves are applied one
+ * a conversation the directory gives to another member is refused 400 by the
+ * field paths that name one, such as `workflows[2].homeSessionId`, and the
+ * refusal carries neither the member nor the conversation; one the directory
+ * places with nobody, or does not know, is saved, because a menu holds weak
+ * references to conversations. One member's saves are applied one
  * at a time, each reading the menu the one before it wrote; different members'
  * saves do not wait on each other.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/src/members
@@ -39,8 +41,18 @@ export const MEMBER_STORE_UNIT = 'server-sidebar'
 /** The menu of a member who has saved nothing. */
 const EMPTY_MENU: ServerMenuSettings = { workflows: [], groups: [] }
 
-/** The refusal of a save that names a conversation of another member; it names neither the member nor the conversation. */
-const FOREIGN_CONVERSATION_ERROR = 'server-sidebar: the menu names a conversation that belongs to another member'
+/**
+ * The refusal of a save that names a conversation of another member, after
+ * the one field path that names it, such as `workflows[2].homeSessionId`. It
+ * names the field and neither the member nor the conversation.
+ */
+const FOREIGN_CONVERSATION_ERROR = 'names a conversation that belongs to another member'
+
+/**
+ * {@link FOREIGN_CONVERSATION_ERROR} after two or more field paths, joined by
+ * `, `, such as `workflows[0].homeSessionId, workbenchSessionId`.
+ */
+const FOREIGN_CONVERSATIONS_ERROR = 'name conversations that belong to another member'
 
 /** The refusal of a request whose member's saved menu does not read as a menu. */
 const UNREADABLE_ERROR = 'server-sidebar: the saved server-menu could not be read'
@@ -126,24 +138,28 @@ async function readOrRefuse(store: MemberStore, res: ServerResponse, logger: Log
 }
 
 /**
- * Whether the fields a save writes name a conversation of another member.
+ * The fields of a save that name a conversation of another member.
  * @param members - the member directory.
  * @param principal - the member saving.
- * @param fields - the fields the save writes.
- * @returns true when the directory gives a workflow's conversation or the
- * workbench conversation to a member other than `principal`.
+ * @param fields - the fields the save writes, as `resolvePatch` resolved them.
+ * @returns the path of each field whose conversation the directory gives to a
+ * member other than `principal`: `workflows[<index>].homeSessionId` by index in
+ * `fields.workflows`, which keeps the request body's order, in ascending order,
+ * then `workbenchSessionId`; empty when there is none.
  */
-function namesAnotherMembersConversation(
+function foreignConversationPaths(
   members: ConsoleMemberDirectory, principal: PrincipalKey, fields: ServerMenuPatchBody,
-): boolean {
+): string[] {
   const named = [
-    ...(fields.workflows ?? []).map(workflow => workflow.homeSessionId),
-    ...fields.workbenchSessionId === undefined ? [] : [fields.workbenchSessionId],
+    ...(fields.workflows ?? []).map((workflow, index) => ({
+      path: `workflows[${String(index)}].homeSessionId`, id: workflow.homeSessionId,
+    })),
+    ...fields.workbenchSessionId === undefined ? [] : [{ path: 'workbenchSessionId', id: fields.workbenchSessionId }],
   ]
-  return named.some((id) => {
+  return named.filter(({ id }) => {
     const owner = members.principalOfSession(id as SessionId)
     return owner !== undefined && owner !== principal
-  })
+  }).map(({ path }) => path)
 }
 
 /** What one save acts on. */
@@ -170,8 +186,10 @@ async function applySave(save: Save, res: ServerResponse, logger: Logger): Promi
     answerJson(res, 400, { error: `server-sidebar: ${renderThrown(error)}` })
     return
   }
-  if (namesAnotherMembersConversation(save.members, save.principal, fields)) {
-    answerJson(res, 400, { error: FOREIGN_CONVERSATION_ERROR })
+  const foreign = foreignConversationPaths(save.members, save.principal, fields)
+  if (foreign.length > 0) {
+    const refusal = foreign.length === 1 ? FOREIGN_CONVERSATION_ERROR : FOREIGN_CONVERSATIONS_ERROR
+    answerJson(res, 400, { error: `server-sidebar: ${foreign.join(', ')} ${refusal}` })
     return
   }
   const next: ServerMenuSettings = { ...current, ...fields }

@@ -56,7 +56,18 @@ const SECRETS = [MEMBER_A, MEMBER_B, ASSERTION_A, ASSERTION_B, ASSERTION_NOBODY,
 /** The fixed refusals and log lines of the per-member route. */
 const NOT_RUNNING = { error: 'server-sidebar: the server-menu route needs the consoleMembers service, which is not running' }
 const UNPLACED = { error: 'server-sidebar: the server-menu route could not tell which member sent this request' }
-const FOREIGN = { error: 'server-sidebar: the menu names a conversation that belongs to another member' }
+/**
+ * The refusal of a save whose fields name another member's conversations.
+ * @param paths - the field paths that name them, in the order the route lists them.
+ * @returns the refusal's body.
+ */
+function foreign(...paths: string[]): { error: string } {
+  return {
+    error: paths.length === 1
+      ? `server-sidebar: ${paths[0]!} names a conversation that belongs to another member`
+      : `server-sidebar: ${paths.join(', ')} name conversations that belong to another member`,
+  }
+}
 const UNREADABLE = { error: 'server-sidebar: the saved server-menu could not be read' }
 const NOT_SAVED = { error: 'server-sidebar: the server-menu could not be saved' }
 const UNREADABLE_LINE = 'a member\'s saved server-menu could not be read; the server-menu route answers 500 to that member until the saved copy is repaired'
@@ -329,18 +340,18 @@ describe('per-member server-menu route', () => {
     expect(outcome(await readMenu(ctx, ASSERTION_A))).toEqual({ status: 200, body: document({ workflows: [extended], groups: [GROUP] }) })
   })
 
-  it('refuses a save naming another member\'s conversation, naming neither, and saves one the directory places with nobody', async () => {
+  it('refuses a save naming another member\'s conversation by the field that holds it, naming neither, and saves one the directory places with nobody', async () => {
     const { ctx, logs } = await bootMembers()
     const answers: Answer[] = []
-    for (const patch of [
-      { workflows: [{ ...WORKFLOW, homeSessionId: 'session-b' }] },
-      { workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', homeSessionId: 'session-b-child' }] },
-      { workbenchSessionId: 'session-b' },
-      { workbenchSessionId: 'session-b-child', groups: [GROUP] },
-    ]) {
+    for (const [patch, path] of [
+      [{ workflows: [{ ...WORKFLOW, homeSessionId: 'session-b' }] }, 'workflows[0].homeSessionId'],
+      [{ workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', homeSessionId: 'session-b-child' }] }, 'workflows[1].homeSessionId'],
+      [{ workbenchSessionId: 'session-b' }, 'workbenchSessionId'],
+      [{ workbenchSessionId: 'session-b-child', groups: [GROUP] }, 'workbenchSessionId'],
+    ] as const) {
       const answer = await postPatch(ctx, ASSERTION_A, patch)
       answers.push(answer)
-      expect({ patch, ...outcome(answer) }).toEqual({ patch, status: 400, body: FOREIGN })
+      expect({ patch, ...outcome(answer) }).toEqual({ patch, status: 400, body: foreign(path) })
       expect(answer.body).not.toContain('session-b')
     }
     expect(directoryOf(ctx).value(MEMBER_A, UNIT)).toBeUndefined()
@@ -354,6 +365,54 @@ describe('per-member server-menu route', () => {
     // B's own conversation is B's to save.
     expect((await postPatch(ctx, ASSERTION_B, { workbenchSessionId: 'session-b' })).status).toBe(200)
     expectNothingQuoted(answers, logs)
+  })
+
+  it('refuses a save that resends an old reference now another member\'s, by its index in the list, naming neither', async () => {
+    const { ctx, logs } = await bootMembers()
+    const directory = directoryOf(ctx)
+    // The third workflow was saved while its conversation was nobody's; the
+    // directory now gives that conversation to B.
+    const saved = [
+      WORKFLOW,
+      { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1, homeSessionId: 'session-a-child' },
+      { ...WORKFLOW, id: 'w3', name: 'Gamma', order: 2, homeSessionId: 'session-b' },
+    ]
+    directory.seed(MEMBER_A, UNIT, document({ workflows: saved }))
+    const renamed = await postPatch(ctx, ASSERTION_A, { workflows: [{ ...saved[0]!, name: 'Alpha 2' }, saved[1]!, saved[2]!] })
+    expect(outcome(renamed)).toEqual({ status: 400, body: foreign('workflows[2].homeSessionId') })
+    expect(renamed.body).not.toContain(MEMBER_B)
+    expect(renamed.body).not.toContain('session-b')
+    expect(directory.value(MEMBER_A, UNIT)).toEqual(document({ workflows: saved }))
+    expectNothingQuoted([renamed], logs)
+  })
+
+  it('names the workbench field when the workbench is another member\'s', async () => {
+    const { ctx, logs } = await bootMembers()
+    const answer = await postPatch(ctx, ASSERTION_A, { workflows: [WORKFLOW], workbenchSessionId: 'session-b-child' })
+    expect(outcome(answer)).toEqual({ status: 400, body: foreign('workbenchSessionId') })
+    expect(answer.body).not.toContain(MEMBER_B)
+    expect(answer.body).not.toContain('session-b')
+    expect(directoryOf(ctx).value(MEMBER_A, UNIT)).toBeUndefined()
+    expectNothingQuoted([answer], logs)
+  })
+
+  it('lists every field naming another member\'s conversation, workflows in list order and then the workbench', async () => {
+    const { ctx, logs } = await bootMembers()
+    const answer = await postPatch(ctx, ASSERTION_A, {
+      workflows: [
+        { ...WORKFLOW, homeSessionId: 'session-b-child' },
+        { ...WORKFLOW, id: 'w2', homeSessionId: 'session-a' },
+        { ...WORKFLOW, id: 'w3', homeSessionId: 'session-b' },
+      ],
+      workbenchSessionId: 'session-b',
+    })
+    expect(outcome(answer)).toEqual({
+      status: 400, body: foreign('workflows[0].homeSessionId', 'workflows[2].homeSessionId', 'workbenchSessionId'),
+    })
+    expect(answer.body).not.toContain(MEMBER_B)
+    expect(answer.body).not.toContain('session-b')
+    expect(directoryOf(ctx).value(MEMBER_A, UNIT)).toBeUndefined()
+    expectNothingQuoted([answer], logs)
   })
 
   it('refuses a merged menu that breaks a cross-element constraint before asking whose conversations it names', async () => {
