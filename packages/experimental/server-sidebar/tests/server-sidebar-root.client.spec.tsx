@@ -375,7 +375,7 @@ describe('ServerSidebarRoot', () => {
       expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
     })
 
-    it('withholds the attempt while the menu could not be read, firing once a save answers it', () => {
+    it('withholds the attempt while the menu could not be read, firing once the store holds a document', () => {
       const b = mount({ phase: 'ready', current: undefined, unreadable: true })
       expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
       b.rerender({ unreadable: false, workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home' } } })

@@ -51,8 +51,9 @@ export interface ServerMenuStoreState {
   /**
    * Whether the page could not read the menu when it loaded: the three
    * fields above are then the empty menu standing in for one the page does
-   * not know, not the member's menu. Cleared by the first save the route
-   * answers, whose document is authoritative.
+   * not know, not the member's menu. The browser half saves nothing while it
+   * is set (see `client/index.ts`), so it holds until the page is reloaded;
+   * `setServerMenu` clears it, since the document it takes is authoritative.
    */
   unreadable: boolean
   /**

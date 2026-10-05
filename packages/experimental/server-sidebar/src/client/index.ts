@@ -161,6 +161,19 @@ async function persistServerMenu(
 }
 
 /**
+ * Refuse an entry that would save the menu, or open, create, or archive a
+ * conversation, while the menu the page loaded is unread, and report it to the
+ * browser console. The 我的工作流 section already says the menu could not be
+ * read (`workflows.unreadable`), so nothing new is drawn.
+ * @returns an already-resolved promise, matching the asynchronous face of the
+ * entry the refusal stands in for.
+ */
+function refuseUnread(): Promise<void> {
+  console.warn('server-sidebar: the menu could not be read when the page loaded, so nothing is saved and no workbench is opened or created until the page is reloaded')
+  return Promise.resolve()
+}
+
+/**
  * Land the console on the workbench, recording the id of a conversation this
  * had to create. Shared by the load-time auto-open and by a dismissal that
  * archives the conversation on screen: both have to leave the console resting
@@ -227,8 +240,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // automatic homes is a deployment mistake nothing downstream can resolve
   // (see `mergeNavCatalogs`).
   const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
-  // An unread menu seeds the store marked unreadable, which keeps the
-  // load-time landing from creating a workbench the menu may already have.
+  // An unread menu seeds the store marked unreadable, and stays unread for
+  // the page's life: every entry below that would save the menu, open or
+  // create the workbench, create a workflow's conversation, or archive a
+  // conversation refuses while it is (`refuseUnread`), so no save answers it.
+  // Unknown, the menu cannot say which conversations are the member's
+  // workbench and workflows, and the temporary list then shows those too.
+  const menuUnread = initialMenu === undefined
   const workflowStore = createWorkflowStore(initialMenu)
   const workbench = createWorkbenchSource(initialMenu?.workbenchSessionId)
   const displayName = createDisplayNameSource(identity?.displayNameClaim)
@@ -258,10 +276,11 @@ export async function apply(ctx: ClientContext): Promise<void> {
           navItems,
           ...home === undefined ? {} : { home },
           onOpenNavItem: target => openNavItem(ctx, target),
-          onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (
-            landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench, t)
-          ),
+          onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (menuUnread
+            ? refuseUnread()
+            : landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench, t)),
           onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
+            if (menuUnread) return refuseUnread()
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
             if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
@@ -278,6 +297,8 @@ export async function apply(ctx: ClientContext): Promise<void> {
             }
           },
           onOpenWorkflow: async (workflow, isLive) => {
+            // Opening a live conversation writes nothing; the degrade creates one.
+            if (menuUnread && !isLive) return refuseUnread()
             const outcome = await openWorkflow(ctx, workflow, isLive)
             if (outcome?.created !== true) return
             // The degrade repoints one workflow's homeSessionId; the array
@@ -299,9 +320,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
           // clear its members' `groupId` in the same write, and the route
           // refuses the intermediate document either half would leave behind
           // (see `src/index.ts` and `validateServerMenu`).
-          onSaveMenu: patch => persistServerMenu(patch, actions, workbench, t),
+          onSaveMenu: patch => (menuUnread ? refuseUnread() : persistServerMenu(patch, actions, workbench, t)),
           onOpenTemporary: sessionId => openTemporarySession(ctx, sessionId),
           onDismissTemporary: async (sessionId, workbenchSessionId, workbenchIsLive) => {
+            if (menuUnread) return refuseUnread()
             // Read the selection before the archive, not after: the workspace
             // domain sweeps an archived selection into the no-conversation
             // state as part of the same call, so afterwards there is nothing
@@ -353,6 +375,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       inject: (): SaveWorkflowInjected => ({
         navItems,
         onSave: async (sessionId, name, navSnapshot) => {
+          if (menuUnread) return refuseUnread()
           const current = await readServerMenu()
           // The new workflow joins the list as read; a list that could not
           // be read is not replaced by one holding the new workflow alone.

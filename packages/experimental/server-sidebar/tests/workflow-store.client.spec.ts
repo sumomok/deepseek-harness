@@ -72,7 +72,7 @@ describe('createWorkflowStore', () => {
     })
   })
 
-  it('seeds a menu the page could not read as the empty menu marked unreadable, until a save answers the document', () => {
+  it('seeds a menu the page could not read as the empty menu marked unreadable, which only an authoritative document clears', () => {
     stubStorage(JSON.stringify({ collapsed: { g1: true }, temporaryExpanded: true }))
     const instance = createWorkflowStore(undefined).create()
     // The remembered folds are kept: no document says which groups are gone.

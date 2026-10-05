@@ -918,6 +918,103 @@ describe('server-sidebar browser half: a menu the page could not read', () => {
     expect(warn).toHaveBeenLastCalledWith('server-sidebar: did not save the workflow (sidebar not mounted): the menu could not be read')
     warn.mockRestore()
   })
+
+  /** The line every refusal below reports to the browser console. */
+  const UNREAD_REFUSAL = 'server-sidebar: the menu could not be read when the page loaded, so nothing is saved and no workbench is opened or created until the page is reloaded'
+
+  /**
+   * Boot over a menu read the route refused, with somewhere to create a
+   * conversation, a conversation on screen, and a configured home page, then
+   * record every request the browser half makes from there on.
+   * @returns the bench, the recorded requests, and the console spy.
+   */
+  async function unreadBench() {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await bench({
+      menuRead: { ok: false, status: 503, body: { error: 'not running' } },
+      recentWorkspaceId: 'workspace-1', currentSessionId: 'session-loose', liveSessionIds: ['home-1'], homePage: 'home',
+      echoLocale: true,
+    })
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
+      requests.push(`${init?.method ?? 'GET'} ${input.pathname}`)
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ workflows: [WORKFLOW] }) })
+    }))
+    return { ...result, requests, warn }
+  }
+
+  /**
+   * Assert that a refused entry reached nothing: no request, no conversation
+   * opened, created, or archived, no command run, and no store action.
+   * @param result - the bench {@link unreadBench} booted.
+   * @param actions - the sidebar's mocked store actions, when it is mounted.
+   */
+  function expectRefused(result: Awaited<ReturnType<typeof unreadBench>>, actions: MockActions | undefined): void {
+    expect(result.requests).toEqual([])
+    expect(result.uiWorkspace.connectWorkspace).not.toHaveBeenCalled()
+    expect(result.uiWorkspace.openSession).not.toHaveBeenCalled()
+    expect(result.workspaces.archiveSession).not.toHaveBeenCalled()
+    expect(result.remote.commands.execute).not.toHaveBeenCalled()
+    if (actions !== undefined) {
+      expect(actions.setServerMenu).not.toHaveBeenCalled()
+      expect(actions.setError).not.toHaveBeenCalled()
+      expect(actions.setTemporaryFailed).not.toHaveBeenCalled()
+    }
+    expect(result.warn).toHaveBeenLastCalledWith(UNREAD_REFUSAL)
+    result.warn.mockRestore()
+  }
+
+  it('opens and creates no workbench on a click, whatever the click reports about the recorded one', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkbench(undefined, false, false, false)
+    await injected.onOpenWorkbench('home-1', true, true, false)
+    expectRefused(result, actions)
+  })
+
+  it('lands on no workbench on load', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkbenchOnLoad(undefined, false)
+    await injected.onOpenWorkbenchOnLoad('home-1', true)
+    expectRefused(result, actions)
+  })
+
+  it('creates no conversation for a workflow whose own is gone, and still opens one that is live', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkflow(WORKFLOW, false)
+    expectRefused(result, actions)
+    await injected.onOpenWorkflow(WORKFLOW, true)
+    expect(result.uiWorkspace.openSession).toHaveBeenCalledWith('session-a')
+    expect(result.requests).toEqual([])
+  })
+
+  it('saves no patch from the section: a new group, a rename, a pin, a deletion, a removal, a move, or a drag', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onSaveMenu({ groups: [{ id: 'g1', name: 'Reports', pinned: false, order: 0 }] })
+    await injected.onSaveMenu({ workflows: [] })
+    await injected.onSaveMenu({ workflows: [WORKFLOW], groups: [] })
+    expectRefused(result, actions)
+  })
+
+  it('takes nothing off the temporary list: archives nothing and lands nowhere', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onDismissTemporary('session-loose', undefined, false)
+    await injected.onDismissTemporary('session-loose', 'home-1', true)
+    expectRefused(result, actions)
+  })
+
+  it('saves no new workflow from the header, and reads nothing for one, with the sidebar mounted or not', async () => {
+    for (const mounted of [true, false]) {
+      const result = await unreadBench()
+      const actions = mounted ? injectSidebar(result.ctx).actions : undefined
+      await injectHeaderAction(result.ctx, 'session-loose').onSave('session-loose', 'New Flow', NAV_SNAPSHOT)
+      expectRefused(result, actions)
+    }
+  })
 })
 
 describe('server-sidebar browser half: the deployment\'s automatic home', () => {
