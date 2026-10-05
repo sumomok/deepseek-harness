@@ -15,24 +15,23 @@
  * (`shadowed-overlay.ts`), so `ui-workspace`'s dialog never mounts.
  *
  * The console's dialog asks 停止并移出列表？ about the conversation on screen,
- * the only one the shortcut acts on, without naming it, and lists the work it
- * would stop in this package's dictionary. A refusal shows fixed copy, and the
+ * the only one the shortcut acts on, without naming it, and says how many
+ * items of work it would stop, naming neither their families nor their items:
+ * those are the Host's terms and data. A refusal shows fixed copy, and the
  * Host's reason goes to the browser console. The answer stays
  * `ui-workspace`'s: confirming calls the shadowed face's
  * `stopAndArchiveSession` and, once that resolves, `settleSessionArchive`;
  * cancelling or closing calls `settleSessionArchive`. The notice the stop
  * raises is this package's (`WorkspaceNotice.tsx`), with its undo.
  *
- * The activity's `kind`, `items`, `id`, and `label` fields are checked against
- * the exported `SessionActivity` types at compile time ({@link FieldsOf}). The
- * entry id, the face's members (`hooks.archiveRequest`,
- * `settleSessionArchive`, `stopAndArchiveSession`), the request's `sessionId`
- * and `activity` fields, and the four families `ui-workspace` words (`turn`,
- * `subagent`, `job`, `schedule`) are literal copies: `ui-workspace`'s
- * `/client` entry exports no constant for the id and neither the face's type
- * nor the request's, and each family is a key its provider merges into
- * `SessionActivityKindMap`. `tests/stop-and-remove-dialog.client.spec.tsx`
- * checks each copy against the owning source. A renamed entry id un-shadows
+ * The activity's `kind` and `items` fields are checked against the exported
+ * `SessionActivity` type at compile time ({@link FieldsOf}). The entry id, the
+ * face's members (`hooks.archiveRequest`, `settleSessionArchive`,
+ * `stopAndArchiveSession`), and the request's `sessionId` and `activity`
+ * fields are literal copies: `ui-workspace`'s `/client` entry exports no
+ * constant for the id and neither the face's type nor the request's.
+ * `tests/stop-and-remove-dialog.client.spec.tsx` checks each copy against the
+ * owning source. A renamed entry id un-shadows
  * `ui-workspace`'s dialog; a face or a request this module does not recognise
  * shows no dialog, and nothing is stopped. An unreadable request is reported
  * once to the browser console.
@@ -40,7 +39,7 @@
  */
 import { useState } from 'react'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { SessionActivity, SessionActivityItem } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionActivity } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -69,20 +68,16 @@ const NS = 'serverSidebar'
  */
 type FieldsOf<T> = { readonly [K in keyof T]?: unknown }
 
-/** One family of work the dialog lists. */
-export interface StopActivity {
-  /** The family's key, as its provider merged it into `SessionActivityKindMap`. */
-  kind: string
-  /** Each running item's label, or its id when it carries none; empty for a family without items. */
-  names: readonly string[]
-}
-
 /** A confirmation `ui-workspace` asked for, as this dialog draws it. */
 export interface StopRequest {
   /** The conversation the shortcut tried to archive. */
   sessionId: SessionId
-  /** What the Host reported running there, in the Host's order. */
-  activity: readonly StopActivity[]
+  /**
+   * How many items of work the Host reported running there: each item of a
+   * family that lists its items, and one for a family without items (a reply
+   * in progress).
+   */
+  running: number
 }
 
 /** `ui-workspace`'s confirmation, as {@link shadowedStopRequest} hands it on. */
@@ -141,34 +136,16 @@ function shadowedFaceOf(face: Record<string, unknown>): ShadowedFace | undefined
 }
 
 /**
- * One running item's name.
- * @param value - one entry of a family's `items`.
- * @returns its label, or its id when it carries no label; undefined when it carries no id.
- */
-function itemName(value: unknown): string | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const { id, label }: FieldsOf<SessionActivityItem> = value
-  if (typeof id !== 'string') return undefined
-  return typeof label === 'string' ? label : id
-}
-
-/**
- * One family of the request's work.
+ * How many items of work one family of the request counts.
  * @param value - one entry of the request's `activity`.
- * @returns the family, or undefined when it or one of its items is unreadable.
+ * @returns its item count, one for a family without items, or undefined when the entry is unreadable.
  */
-function activityOf(value: unknown): StopActivity | undefined {
+function runningIn(value: unknown): number | undefined {
   if (typeof value !== 'object' || value === null) return undefined
-  const { kind, items = [] }: FieldsOf<SessionActivity> = value
-  if (typeof kind !== 'string' || !Array.isArray(items)) return undefined
-  const entries: readonly unknown[] = items
-  const names: string[] = []
-  for (const entry of entries) {
-    const name = itemName(entry)
-    if (name === undefined) return undefined
-    names.push(name)
-  }
-  return { kind, names }
+  const { kind, items }: FieldsOf<SessionActivity> = value
+  if (typeof kind !== 'string') return undefined
+  if (items === undefined) return 1
+  return Array.isArray(items) ? items.length : undefined
 }
 
 /**
@@ -181,13 +158,13 @@ function readStopRequest(value: unknown): StopRequest | null {
   const { sessionId, activity } = value
   if (typeof sessionId !== 'string' || !Array.isArray(activity)) return null
   const entries: readonly unknown[] = activity
-  const families: StopActivity[] = []
+  let running = 0
   for (const entry of entries) {
-    const family = activityOf(entry)
-    if (family === undefined) return null
-    families.push(family)
+    const count = runningIn(entry)
+    if (count === undefined) return null
+    running += count
   }
-  return { sessionId: sessionId as SessionId, activity: families }
+  return { sessionId: sessionId as SessionId, running }
 }
 
 /**
@@ -217,27 +194,6 @@ export function shadowedStopRequest(ledger: OverlayLedger): ShadowedStopRequest 
     request: followShadowed(ledger, face, current => current.archiveRequest, stopRequestOf),
     settle: () => { face()?.settleSessionArchive() },
     stopAndRemove: async (sessionId) => { await face()?.stopAndArchiveSession(sessionId) },
-  }
-}
-
-/**
- * One family's line: its count and its items' names. A family this
- * dictionary does not word takes the generic line, without its key.
- * @param activity - the family.
- * @param t - the dialog's lookup.
- * @returns the line.
- */
-function activityLine(activity: StopActivity, t: StopAndRemoveDialogProps['t']): string {
-  const n = activity.names.length
-  const names = activity.names.join(t('stopRemove.listSeparator'))
-  const plural = n === 1 ? 'one' : 'other'
-  switch (activity.kind) {
-    case 'turn': return t('stopRemove.turn')
-    case 'subagent': return t(`stopRemove.subagents.${plural}`, { n, names })
-    case 'job': return t(`stopRemove.jobs.${plural}`, { n, names })
-    case 'schedule': return t(`stopRemove.schedules.${plural}`, { n, names })
-    // `SessionActivityKindMap` is each provider's to extend.
-    default: return t(`stopRemove.other.${plural}`, { n })
   }
 }
 
@@ -295,11 +251,11 @@ function StopAndRemoveForm({ request, stopAndRemove, onSettle, t }: StopAndRemov
         </>
       )}
     >
-      <ul className={css.activity} aria-label={t('stopRemove.activity')}>
-        {request.activity.map((entry, index) => (
-          <li key={`${entry.kind}-${String(index)}`}>{activityLine(entry, t)}</li>
-        ))}
-      </ul>
+      {request.running > 0 && (
+        <p className={css.running}>
+          {t(`stopRemove.running.${request.running === 1 ? 'one' : 'other'}`, { n: request.running })}
+        </p>
+      )}
       {stopping && <div className={css.status} role="status">{t('stopRemove.pending')}</div>}
       {failed && <div className={css.error} role="alert">{t('stopRemove.error')}</div>}
     </Modal>

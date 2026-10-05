@@ -2,12 +2,12 @@
 /**
  * `StopAndRemoveDialog`: the console's copy for `dsh-client-ui-workspace`'s
  * stop-and-archive confirmation, in both languages and free of the vocabulary
- * the console keeps off the screen; the work it lists, by family; confirming
- * and cancelling handed back to `ui-workspace`; a refusal in fixed copy; the
- * source that reads `ui-workspace`'s pending confirmation through the entry
- * this package shadows, and nothing for a request it cannot read; and the
- * entry id, the face's members, the request's fields, and the activity
- * families, checked against their owners' source.
+ * the console keeps off the screen; the work it would stop, counted and never
+ * named; confirming and cancelling handed back to `ui-workspace`; a refusal in
+ * fixed copy; the source that reads `ui-workspace`'s pending confirmation
+ * through the entry this package shadows, and nothing for a request it cannot
+ * read; and the entry id, the face's members, and the request's fields,
+ * checked against their owners' source.
  */
 import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
@@ -36,16 +36,8 @@ const BUSY = 'conversation-1' as SessionId
 const tZh: StopAndRemoveDialogProps['t'] = makeTranslate(zh)
 const tEn: StopAndRemoveDialogProps['t'] = makeTranslate(en)
 
-/** One request per family `ui-workspace` words. */
-const EVERY_FAMILY: StopRequest = {
-  sessionId: BUSY,
-  activity: [
-    { kind: 'turn', names: [] },
-    { kind: 'subagent', names: ['reviewer', 'child-2'] },
-    { kind: 'job', names: ['pnpm run build'] },
-    { kind: 'schedule', names: ['check the build'] },
-  ],
-}
+/** A reply in progress, two subagents, a job, and a schedule: five items of work. */
+const BUSY_REQUEST: StopRequest = { sessionId: BUSY, running: 5 }
 
 afterEach(() => {
   cleanup()
@@ -73,15 +65,6 @@ function dialog(stopAndRemove: StopAndRemoveInjected['stopAndRemove'], t = tZh) 
     act(() => { request.set(next) })
   }
   return { settleStopRequest, ask }
-}
-
-/**
- * The lines of the open dialog's list of work.
- * @param name - the list's accessible name.
- * @returns each line's text.
- */
-function lines(name: string): (string | null)[] {
-  return [...screen.getByRole('list', { name }).querySelectorAll('li')].map(li => li.textContent)
 }
 
 /** `ui-workspace`'s confirmation store and the face its entry injects, as that package builds them. */
@@ -133,65 +116,40 @@ describe('StopAndRemoveDialog', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('asks to stop the work and remove the conversation from the list, listing each family, in Chinese', () => {
+  it('asks to stop the work and remove the conversation from the list, saying how much work runs, in Chinese', () => {
     dialog(vi.fn(async () => {}))
-      .ask(EVERY_FAMILY)
+      .ask(BUSY_REQUEST)
     const open = screen.getByRole('dialog', { name: '停止并移出列表？' })
     expect(open.textContent).toContain('这个对话仍有正在进行的工作。移出列表会先停止这些工作，被停止的工作不会自动继续。')
-    expect(lines('将被停止的工作')).toEqual([
-      '正在进行的回复',
-      '2 个运行中的子智能体：reviewer、child-2',
-      '1 个后台任务：pnpm run build',
-      '1 条定时提醒：check the build',
-    ])
+    expect(open.textContent).toContain('还有 5 项工作在运行')
+    expect(screen.queryByRole('list')).toBeNull()
     expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label') ?? button.textContent))
       .toEqual(['关闭', '取消', '停止并移出'])
     expect(open.textContent).not.toMatch(BANNED)
   })
 
-  it('reads in English under the English dictionary, singular or plural by item count', () => {
-    dialog(vi.fn(async () => {}), tEn)
-      .ask({
-        sessionId: BUSY,
-        activity: [
-          { kind: 'turn', names: [] },
-          { kind: 'subagent', names: ['reviewer'] },
-          { kind: 'job', names: ['bash-1', 'bash-2'] },
-          { kind: 'schedule', names: ['check the build', 'stand-up'] },
-          { kind: 'subagent', names: ['a', 'b'] },
-          { kind: 'job', names: ['bash-3'] },
-          { kind: 'schedule', names: ['nightly'] },
-        ],
-      })
-    const open = screen.getByRole('dialog', { name: 'Stop and remove from the list?' })
-    expect(lines('Work that will be stopped')).toEqual([
-      'The reply in progress',
-      '1 running subagent: reviewer',
-      '2 background jobs: bash-1, bash-2',
-      '2 scheduled reminders: check the build, stand-up',
-      '2 running subagents: a, b',
-      '1 background job: bash-3',
-      '1 scheduled reminder: nightly',
-    ])
-    expect(open.textContent).not.toMatch(BANNED)
-  })
-
-  it('words a family another provider merged with the generic line, without its key', () => {
-    for (const [t, one, other] of [[tZh, '1 项其他工作', '2 项其他工作'], [tEn, '1 other item of work', '2 other items of work']] as const) {
-      dialog(vi.fn(async () => {}), t)
-        .ask({ sessionId: BUSY, activity: [{ kind: 'probe', names: ['probe-1'] }, { kind: 'probe', names: ['probe-2', 'probe-3'] }] })
-      const list = screen.getByRole('list')
-      expect([...list.querySelectorAll('li')].map(li => li.textContent)).toEqual([one, other])
-      expect(list.textContent).not.toContain('probe')
+  it('reads in English under the English dictionary, singular or plural by count', () => {
+    for (const [running, line] of [[1, '1 item of work is still running'], [3, '3 items of work are still running']] as const) {
+      dialog(vi.fn(async () => {}), tEn)
+        .ask({ sessionId: BUSY, running })
+      const open = screen.getByRole('dialog', { name: 'Stop and remove from the list?' })
+      expect(open.textContent).toContain(line)
+      expect(open.textContent).not.toMatch(BANNED)
       cleanup()
     }
+  })
+
+  it('leaves the count out when the request counts no work', () => {
+    dialog(vi.fn(async () => {}))
+      .ask({ sessionId: BUSY, running: 0 })
+    expect(screen.getByRole('dialog').textContent).not.toContain('项工作在运行')
   })
 
   it('stops and removes on confirm, holds the dialog while that runs, and settles once it lands', async () => {
     const pending = Promise.withResolvers<undefined>()
     const stopAndRemove = vi.fn(() => pending.promise)
     const { settleStopRequest, ask } = dialog(stopAndRemove)
-    ask(EVERY_FAMILY)
+    ask(BUSY_REQUEST)
     fireEvent.click(screen.getByRole('button', { name: '停止并移出' }))
     expect(stopAndRemove).toHaveBeenCalledExactlyOnceWith(BUSY)
     expect(screen.getByRole('status').textContent).toBe('正在停止并移出列表…')
@@ -210,7 +168,7 @@ describe('StopAndRemoveDialog', () => {
     const refusal = new Error('session archive failed: workspace/session-active')
     const stopAndRemove = vi.fn<StopAndRemoveInjected['stopAndRemove']>().mockRejectedValueOnce(refusal)
     const { settleStopRequest, ask } = dialog(stopAndRemove)
-    ask({ sessionId: BUSY, activity: [{ kind: 'turn', names: [] }] })
+    ask({ sessionId: BUSY, running: 1 })
     fireEvent.click(screen.getByRole('button', { name: '停止并移出' }))
     await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('停止或移出失败，请稍后重试') })
     expect(screen.getByRole('dialog').textContent).not.toMatch(BANNED)
@@ -226,7 +184,7 @@ describe('StopAndRemoveDialog', () => {
   it('reads the English refusal under the English dictionary, and every copy key is free of the banned words', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { ask } = dialog(vi.fn<StopAndRemoveInjected['stopAndRemove']>().mockRejectedValueOnce('plain failure'), tEn)
-    ask({ sessionId: BUSY, activity: [{ kind: 'turn', names: [] }] })
+    ask({ sessionId: BUSY, running: 1 })
     fireEvent.click(screen.getByRole('button', { name: 'Stop and remove' }))
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('Couldn’t stop the work and remove it from the list. Try again shortly.')
@@ -241,7 +199,7 @@ describe('StopAndRemoveDialog', () => {
     for (const close of [() => { fireEvent.click(screen.getByRole('button', { name: '关闭' })) }, () => { fireEvent.keyDown(document, { key: 'Escape' }) }]) {
       const stopAndRemove = vi.fn(async () => {})
       const { settleStopRequest, ask } = dialog(stopAndRemove)
-      ask(EVERY_FAMILY)
+      ask(BUSY_REQUEST)
       close()
       expect(settleStopRequest).toHaveBeenCalledOnce()
       expect(stopAndRemove).not.toHaveBeenCalled()
@@ -259,7 +217,7 @@ describe('shadowedStopRequest', () => {
     await expect(source.stopAndRemove(BUSY)).resolves.toBeUndefined()
   })
 
-  it('hands on `ui-workspace`\'s request with each item\'s label or id, and routes the answer back to that package', async () => {
+  it('hands on `ui-workspace`\'s request as a count of its work, without the families or the items, and routes the answer back to that package', async () => {
     const owner = ownerFace()
     const source = shadowedStopRequest({
       entries: () => [{ component: null, options: { id: 'workspace.session-archive' }, inject: owner.inject }],
@@ -268,12 +226,9 @@ describe('shadowedStopRequest', () => {
     owner.archiveRequest.set({
       sessionId: BUSY,
       displayTitle: '/projects/alpha',
-      activity: [{ kind: 'turn' }, { kind: 'subagent', items: [{ id: 'child-1', label: 'reviewer' }, { id: 'child-2' }] }],
+      activity: [{ kind: 'turn' }, { kind: 'subagent', items: [{ id: 'child-1', label: 'reviewer' }, { id: 'child-2' }] }, { kind: 'job', items: [] }],
     })
-    expect(source.request.getSnapshot()).toEqual({
-      sessionId: BUSY,
-      activity: [{ kind: 'turn', names: [] }, { kind: 'subagent', names: ['reviewer', 'child-2'] }],
-    })
+    expect(source.request.getSnapshot()).toEqual({ sessionId: BUSY, running: 3 })
     await source.stopAndRemove(BUSY)
     expect(owner.stopAndArchiveSession).toHaveBeenCalledExactlyOnceWith(BUSY)
     source.settle()
@@ -325,25 +280,24 @@ describe('shadowedStopRequest', () => {
       { sessionId: BUSY, activity: ['turn'] },
       { sessionId: BUSY, activity: [null] },
       { sessionId: BUSY, activity: [{}] },
+      { sessionId: BUSY, activity: [{ kind: 7 }] },
       { sessionId: BUSY, activity: [{ kind: 'job', items: 'bash-1' }] },
-      { sessionId: BUSY, activity: [{ kind: 'job', items: ['bash-1'] }] },
-      { sessionId: BUSY, activity: [{ kind: 'job', items: [null] }] },
-      { sessionId: BUSY, activity: [{ kind: 'job', items: [{ label: 'build' }] }] },
-      { sessionId: BUSY, activity: [{ kind: 'turn' }, { kind: 'job', items: [{ id: 3 }] }] },
+      { sessionId: BUSY, activity: [{ kind: 'turn' }, { kind: 'job', items: {} }] },
     ]) {
       owner.archiveRequest.set(request)
       expect({ request, read: source.request.getSnapshot() }).toEqual({ request, read: null })
       expect(source.request.getSnapshot()).toBeNull()
     }
-    expect(warn).toHaveBeenCalledTimes(13)
+    expect(warn).toHaveBeenCalledTimes(11)
     expect(warn.mock.calls.every(call => call.length === 1 && !JSON.stringify(call).includes(BUSY))).toBe(true)
     warn.mockClear()
     owner.archiveRequest.set(null)
     expect(source.request.getSnapshot()).toBeNull()
     expect(warn).not.toHaveBeenCalled()
-    // An item whose label is not text is named by its id.
-    owner.archiveRequest.set({ sessionId: BUSY, activity: [{ kind: 'job', items: [{ id: 'bash-1', label: 7 }] }] })
-    expect(source.request.getSnapshot()).toEqual({ sessionId: BUSY, activity: [{ kind: 'job', names: ['bash-1'] }] })
+    // The items are counted, never read.
+    owner.archiveRequest.set({ sessionId: BUSY, activity: [{ kind: 'job', items: [{ id: 'bash-1', label: 'pnpm run build' }, null] }] })
+    expect(source.request.getSnapshot()).toEqual({ sessionId: BUSY, running: 2 })
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 
@@ -382,7 +336,7 @@ describe('replaceArchiveConfirm', () => {
     render(<Seat />)
     expect(screen.queryByRole('dialog')).toBeNull()
     act(() => { owner.archiveRequest.set({ sessionId: BUSY, displayTitle: 'busy', activity: [{ kind: 'turn' }] }) })
-    expect(lines('将被停止的工作')).toEqual(['正在进行的回复'])
+    expect(screen.getByRole('dialog').textContent).toContain('还有 1 项工作在运行')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '停止并移出' })) })
     expect(owner.stopAndArchiveSession).toHaveBeenCalledExactlyOnceWith(BUSY)
     expect(owner.settleSessionArchive).toHaveBeenCalledOnce()
@@ -415,16 +369,6 @@ describe('the shadowed entry', () => {
     expect(request).toMatch(/^ {2}activity: readonly SessionActivity\[\]$/mu)
   })
 
-  it('words the activity families `ui-workspace` words, in its order', () => {
-    // Literal copies: each family is a key its provider merges into
-    // `SessionActivityKindMap`; one `ui-workspace` words and this dialog does
-    // not would take the generic line here.
-    const families = (source: string) => [...source.matchAll(/^ {4}case '(\w+)': return t\(/gmu)].map(match => match[1])
-    const theirs = families(readFileSync(resolvePath(owner, 'session-actions/ArchiveSession.tsx'), 'utf8'))
-    expect(theirs).toEqual(['turn', 'subagent', 'job', 'schedule'])
-    expect(families(readFileSync(resolvePath(import.meta.dirname, '../src/client/StopAndRemoveDialog.tsx'), 'utf8'))).toEqual(theirs)
-  })
-
   it('reads the activity fields the Workspace registry declares', () => {
     // The compiler checks these through the exported `SessionActivity` types;
     // the check here names them where a reader looks.
@@ -432,8 +376,5 @@ describe('the shadowed entry', () => {
     const activity = /^export interface SessionActivity \{\n([\s\S]*?)^\}$/mu.exec(types)?.[1]
     expect(activity).toMatch(/^ {2}readonly kind: SessionActivityKind$/mu)
     expect(activity).toMatch(/^ {2}readonly items\?: readonly SessionActivityItem\[\]$/mu)
-    const item = /^export interface SessionActivityItem \{\n([\s\S]*?)^\}$/mu.exec(types)?.[1]
-    expect(item).toMatch(/^ {2}readonly id: string$/mu)
-    expect(item).toMatch(/^ {2}readonly label\?: string$/mu)
   })
 })
