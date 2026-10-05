@@ -1172,8 +1172,11 @@ function upgradeCarriesBody(framing) {
  * upstream's write side is ended and its answer is relayed until it closes.
  * An upstream that cannot be reached, fails, or closes before its response
  * head is complete, or whose head runs past UPGRADE_RESPONSE_HEAD_LIMIT_BYTES,
- * is answered 502, as a request is; one that fails after its head was relayed
- * closes the client socket. The caller handles the client socket's errors;
+ * is answered 502, as a request is. After its head was relayed, an upstream
+ * that fails has the client socket destroyed at once, and one that ends its
+ * connection has the client socket ended and then destroyed once everything
+ * relayed is flushed, whether or not the client has ended its own side;
+ * neither is answered further. The caller handles the client socket's errors;
  * its close destroys the upstream connection.
  * @param {import('node:stream').Duplex} socket - the client socket.
  * @param {Buffer} head - client bytes that followed the handshake.
@@ -1223,7 +1226,10 @@ function spliceUpgrade(socket, head, handshake, target, logFailure) {
     } else {
       upstream.end()
     }
-    upstream.pipe(socket)
+    // The pipe's own end would only half-close the client socket, which then
+    // stays open for as long as the client keeps its side open.
+    upstream.pipe(socket, { end: false })
+    upstream.once('end', () => { socket.end(() => socket.destroy()) })
   }
   upstream.on('data', readResponseHead)
 }
@@ -1252,9 +1258,13 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
  * response has not ended, has its upstream request destroyed, which closes
  * that upstream connection, and nothing is logged or answered for it; a
  * response still queued behind an earlier one on the client's connection
- * counts as not completely written. An upgrade that arrives on a connection
- * whose earlier response has not ended is logged and closed with nothing
- * written.
+ * counts as not completely written. An upstream response that stops before it
+ * is complete, after its head was relayed, has the client response destroyed,
+ * which closes the client connection with no terminating chunk, and logs one
+ * line naming the upstream, the method, and the path without its query;
+ * nothing is logged when the client had already left. An upgrade that arrives
+ * on a connection whose earlier response has not ended is logged and closed
+ * with nothing written.
  * @param {Settings} settings - validated settings with `mode` set to `proxy`.
  * @param {Runtime} runtime - the log sink and clock.
  * @returns {{ server: import('node:http').Server, gate: Gate }} the server and the gate whose sockets `gate.close()` releases.
@@ -1345,10 +1355,21 @@ export function createProxyServer(settings, runtime) {
         }
         if (status >= 400) runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> ${String(status)}`)
         res.writeHead(status, headers)
+        // An upstream connection that closes, resets, or sends a malformed
+        // body before the response is complete closes `response` with
+        // `complete` unset. Ending `res` then would send the terminating chunk
+        // of a response the upstream never finished, so the client connection
+        // is destroyed instead; an event-stream client reconnects on it.
+        response.once('close', () => {
+          if (response.complete || abandoned) return
+          runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> upstream disconnected mid-response`)
+          res.destroy()
+        })
         response.pipe(res)
       })
       upstream.on('error', (error) => {
-        if (abandoned) return
+        // Once the response head has arrived, the response's own 'close' decides.
+        if (abandoned || upstreamRes !== undefined) return
         runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad gateway')

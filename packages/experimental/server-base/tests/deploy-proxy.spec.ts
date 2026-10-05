@@ -397,14 +397,22 @@ async function rawStub(reply: string | undefined): Promise<RawStub> {
   return { port: await listen(server), ended: ended.promise, until }
 }
 
+/** A proxy-mode gate between stand-ins. */
+interface GateBetween {
+  port: number
+  logs: string[]
+  /** Resolves with the gate's side of the first client connection it accepts. */
+  accepted: Promise<Socket>
+}
+
 /**
  * A proxy-mode gate in front of the given dsh and remote-application ports,
  * with a separate stand-in answering the renewal check.
  * @param dshPort - the stand-in dsh's port.
  * @param remotePort - the stand-in remote application's port.
- * @returns the gate's port and the lines it logged.
+ * @returns the gate.
  */
-async function gateBetween(dshPort: number, remotePort: number): Promise<{ port: number; logs: string[] }> {
+async function gateBetween(dshPort: number, remotePort: number): Promise<GateBetween> {
   const renewal = await stub((req, res) => {
     res.end(JSON.stringify({ renewal: '3600000', token: req.headers.authorization }))
     return true
@@ -419,7 +427,9 @@ async function gateBetween(dshPort: number, remotePort: number): Promise<{ port:
   }, readKeyFile)
   const logs: string[] = []
   const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
-  return { port: await listen(server, gate), logs }
+  const accepted = Promise.withResolvers<Socket>()
+  server.on('connection', (socket: Socket) => { accepted.resolve(socket) })
+  return { port: await listen(server, gate), logs, accepted: accepted.promise }
 }
 
 /**
@@ -455,10 +465,15 @@ interface StreamingStub {
   /** The target of every upgrade handshake received. */
   upgrades: string[]
   /**
-   * @param index - the request's position in arrival order, from 0.
-   * @returns a promise that resolves once that request has arrived.
+   * @param index - the upgrade's position in arrival order, from 0.
+   * @returns a promise that resolves with the stand-in's side of that upgrade's connection once its 101 is written.
    */
-  arrived: (index: number) => Promise<true>
+  upgraded: (index: number) => Promise<Socket>
+  /**
+   * @param index - the request's position in arrival order, from 0.
+   * @returns a promise that resolves with the stand-in's side of the connection that carried that request once the request has arrived.
+   */
+  arrived: (index: number) => Promise<Socket>
   /**
    * @param index - the request's position in arrival order, from 0.
    * @returns a promise that resolves once the connection that carried that request closes.
@@ -473,10 +488,10 @@ interface StreamingStub {
  * @param index - the position.
  * @returns the resolvers at `index`.
  */
-function slot(slots: Map<number, PromiseWithResolvers<true>>, index: number): PromiseWithResolvers<true> {
+function slot<T>(slots: Map<number, PromiseWithResolvers<T>>, index: number): PromiseWithResolvers<T> {
   let entry = slots.get(index)
   if (entry === undefined) {
-    entry = Promise.withResolvers<true>()
+    entry = Promise.withResolvers<T>()
     slots.set(index, entry)
   }
   return entry
@@ -489,8 +504,9 @@ function slot(slots: Map<number, PromiseWithResolvers<true>>, index: number): Pr
  * @returns the stub.
  */
 async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
-  const arrivals = new Map<number, PromiseWithResolvers<true>>()
+  const arrivals = new Map<number, PromiseWithResolvers<Socket>>()
   const closes = new Map<number, PromiseWithResolvers<true>>()
+  const switched = new Map<number, PromiseWithResolvers<Socket>>()
   let count = 0
   const server = http.createServer((req, res) => {
     const index = count
@@ -498,7 +514,7 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
     req.resume()
     req.socket.once('close', () => { slot(closes, index).resolve(true) })
     res.on('error', () => { res.destroy() })
-    slot(arrivals, index).resolve(true)
+    slot(arrivals, index).resolve(req.socket)
     if (answer === 'silent') return
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     res.write(FIRST_CHUNK)
@@ -513,12 +529,15 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
   })
   const upgrades: string[] = []
   server.on('upgrade', (req: http.IncomingMessage, socket: Socket) => {
+    const index = upgrades.length
     upgrades.push(req.url ?? '')
-    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
+    socket.on('error', () => { socket.destroy() })
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n', () => { slot(switched, index).resolve(socket) })
   })
   return {
     port: await listen(server),
     upgrades,
+    upgraded: index => slot(switched, index).promise,
     arrived: index => slot(arrivals, index).promise,
     closed: index => slot(closes, index).promise,
   }
@@ -527,9 +546,9 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
 /**
  * A proxy-mode gate whose dsh and remote application are streaming stand-ins.
  * @param answer - how both stand-ins answer each request.
- * @returns the gate's port, the lines it logged, and the two stand-ins.
+ * @returns the gate and the two stand-ins.
  */
-async function streamingWorld(answer: StreamingAnswer = 'chunk'): Promise<{ port: number; logs: string[]; dsh: StreamingStub; remote: StreamingStub }> {
+async function streamingWorld(answer: StreamingAnswer = 'chunk'): Promise<GateBetween & { dsh: StreamingStub; remote: StreamingStub }> {
   const dsh = await streamingStub(answer)
   const remote = await streamingStub(answer)
   return { ...(await gateBetween(dsh.port, remote.port)), dsh, remote }
@@ -1162,6 +1181,63 @@ describe('a client that leaves while its response streams', () => {
     await w[target].arrived(1)
     client.destroy()
     await Promise.all([w[target].closed(0), w[target].closed(1)])
+    expect(w.logs).toEqual([])
+  })
+})
+
+/**
+ * A promise that resolves with false after `ms`, to race against an outcome
+ * that must arrive within that time.
+ * @param ms - the bound in milliseconds.
+ * @returns the promise.
+ */
+function after(ms: number): Promise<false> {
+  return new Promise((resolve) => { setTimeout(() => { resolve(false) }, ms).unref() })
+}
+
+describe('an upstream that disconnects mid-response', () => {
+  it.each([
+    ['a verified dsh path', 'destroyed', '/api/events', 'dsh'],
+    ['a verified dsh path', 'reset', '/api/events', 'dsh'],
+    ['a remote-application path', 'destroyed', '/ini-web2/events', 'remote'],
+    ['a remote-application path', 'reset', '/ini-web2/events', 'remote'],
+  ] as const)('closes the client connection on %s when the upstream connection is %s, with no terminating chunk and one log line', async (_label, leave, path, target) => {
+    const w = await streamingWorld('chunk')
+    const { received, closed } = await readUntil(w.port, `GET ${path}?since=42 HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
+    const upstream = await w[target].arrived(0)
+    if (leave === 'destroyed') upstream.destroy()
+    else upstream.resetAndDestroy()
+    expect(await Promise.race([closed, after(2_000)])).toBe(true)
+    const answer = received()
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(answer.slice(answer.indexOf('\r\n\r\n') + 4)).toBe(`${FIRST_CHUNK.length.toString(16)}\r\n${FIRST_CHUNK}\r\n`)
+    expect(w.logs).toEqual([`proxy: ${target} GET ${path} -> upstream disconnected mid-response`])
+  })
+
+  it.each([
+    ['a verified dsh path', '/api/remote.mux', 'dsh'],
+    ['a remote-application path', '/toy-proxy/socket', 'remote'],
+  ] as const)('closes the gate\'s side of a switched connection on %s once the upstream connection is destroyed, though the client keeps its side open, and logs nothing', async (_label, path, target) => {
+    const w = await streamingWorld()
+    const client = net.connect({ port: w.port, host: '127.0.0.1', allowHalfOpen: true }, () => { client.write(handshake(path)) })
+    closers.push(async () => { client.destroy() })
+    client.on('error', () => { client.destroy() })
+    const ended = new Promise<true>((resolve) => { client.once('end', () => { resolve(true) }) })
+    let received = ''
+    const switched = new Promise<true>((resolve) => {
+      client.on('data', (chunk: Buffer) => {
+        received += chunk.toString('latin1')
+        if (received.includes('\r\n\r\n')) resolve(true)
+      })
+    })
+    const gateSide = await w.accepted
+    const gateClosed = new Promise<true>((resolve) => { gateSide.once('close', () => { resolve(true) }) })
+    await switched
+    expect(received.split('\r\n')[0]).toBe('HTTP/1.1 101 Switching Protocols')
+    const upstream = await w[target].upgraded(0)
+    upstream.destroy()
+    await ended
+    expect(await Promise.race([gateClosed, after(2_000)])).toBe(true)
     expect(w.logs).toEqual([])
   })
 })
