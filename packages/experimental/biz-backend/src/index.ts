@@ -616,6 +616,18 @@ interface ModelCall extends SpentCredential {
 }
 
 /**
+ * Give up the token the backend refused, and nothing posted after it.
+ *
+ * The slot is dropped only while it still holds the token the refused request
+ * presented. A browser that renewed while the request was in flight has
+ * already replaced it, and the replacement keeps its place in the slot.
+ * @param spent - the token the refused request carried, and the slot it came out of.
+ */
+function dropRefused(spent: SpentCredential): void {
+  if (spent.slot.read() === spent.token) spent.slot.drop('refused-by-backend')
+}
+
+/**
  * Join one relative path onto the configured base the way the deployment's own
  * HTTP client does.
  *
@@ -1182,7 +1194,7 @@ function readAttributes(data: unknown): readonly BizMetaAttribute[] | undefined 
 }
 
 /**
- * `ctx.bizBackend`: the three reads this deployment's data backend serves,
+ * `ctx.bizBackend`: the reads this deployment's data backend serves,
  * performed with the access token its caller holds for the signed-in person
  * each read is performed for.
  *
@@ -1471,7 +1483,9 @@ export class BizBackendService extends Service {
    * and keeps its stored token — so a 403 is classified from its envelope like
    * any other failing status, which is also what makes a 403 carrying one of
    * those codes a refused credential. Either one drops the slot the call's
-   * subject resolved to, and no other.
+   * subject resolved to, and no other, and only while that slot still holds
+   * the token this request carried: a token posted into it while the request
+   * was in flight was never presented, so the refusal leaves it held.
    * @param url - the absolute address.
    * @param init - method, headers, body, and abort signal.
    * @param held - the credential this request carried, so a message repeating
@@ -1487,7 +1501,7 @@ export class BizBackendService extends Service {
       return { kind: 'unreachable', detail: reportable(String(error), presented, MAX_DETAIL_CHARS) }
     }
     if (response.status === 401) {
-      held.slot.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: 401 }
     }
     let body: string
@@ -1505,7 +1519,7 @@ export class BizBackendService extends Service {
       }
     }
     if (!response.ok && CREDENTIAL_REFUSAL_CODES.includes(code)) {
-      held.slot.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: response.status }
     }
     if (code !== 0) {

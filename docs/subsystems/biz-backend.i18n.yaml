@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/biz-backend.md
 /deployment-data-backend:
-  en: 7f61660515ec6ce8
-  zh: bed839bf8ddc178e
+  en: 6b46fb0b752e674f
+  zh: fb515da3e4ae48f8
 /deployment-data-backend/the-service-is-constructed-not-composed:
   en: 909d040e86c64070
   zh: fa8da37e744e323b
 /deployment-data-backend/the-answer-s-own-code-decides-not-the-status:
-  en: 91ffda293b24205d
-  zh: 8ec39d3c91c900ce
+  en: f2fb954975dc2111
+  zh: d06a2e5df2fa0246
 /deployment-data-backend/nothing-a-failure-carries-reaches-a-log:
   en: 039b14e949713111
   zh: 5481289936df614d

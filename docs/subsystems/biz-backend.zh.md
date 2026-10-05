@@ -2,7 +2,7 @@
 
 [English](biz-backend.md) | 中文
 
-`ctx.bizBackend` 读的是一套部署自己供给的数据——某个资源模型的一页行、某个模型的属性名，以及它自己的资源清单打开这个模型时用的那几列——用的是正在使用这套部署的那个人的访问令牌。它是为本 fork 的服务控制台线而存在的：harness 跑在与部署自己的 Web 控制台相同的单点登录后面，而面板画的是那个控制台展示的同一批行。[包 README](../../packages/experimental/biz-backend/README.zh.md) 拥有可调用的 API、请求与结果的声明，以及各项限制；本页记录这个服务从哪里来，以及消费方从签名里读不出来的那两条规则。
+`ctx.bizBackend` 读的是一套部署自己供给的数据——某个资源模型的一页行、某个模型的属性名、它自己的页面打开这个模型时用的那几列和存储的方案、资源模型目录，以及登录的那个人在这套部署里能做什么——用的是正在使用这套部署的那个人的访问令牌。它是为本 fork 的服务控制台线而存在的：harness 跑在与部署自己的 Web 控制台相同的单点登录后面，而面板画的是那个控制台展示的同一批行。[包 README](../../packages/experimental/biz-backend/README.zh.md) 拥有可调用的 API、请求与结果的声明，以及各项限制；本页记录这个服务从哪里来，以及消费方从签名里读不出来的那两条规则。
 
 来源：[`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)。
 
@@ -16,7 +16,7 @@
 
 这个后端拒绝一次请求时给的是 HTTP 200 加一个非零码，所以只看状态会把一次拒绝读成数据。因此每次调用都要归类信封，答的要么是结果，要么是闭合失败联合里的一个成员——`unauthenticated`、`refused`、`rejected`、`unreachable`——消费方按它 `switch` 并以 `assertNever` 收口。什么都不抛。
 
-另有两种答复会让持有方交出令牌，走的是这次读取的主体解析到的那个槽的 `drop`：HTTP 401，以及任何带结果码 2 或 3 的失败状态——403 带上这两个码也算，但单独一个 403 是一次请求被拒，令牌保留。那个槽随之抵达与一次登出相同的终态：之后主体解析到它的每次读取都答 `unauthenticated`，直到有新令牌提交进这个槽；别的槽一个都不丢。
+另有两种答复会让持有方交出令牌，走的是这次读取的主体解析到的那个槽的 `drop`：HTTP 401，以及任何带结果码 2 或 3 的失败状态——403 带上这两个码也算，但单独一个 403 是一次请求被拒，令牌保留。只有那个槽里仍是被拒的那次读取出示的令牌时才丢：读取在途时新提交进这个槽的令牌没有出示过，留在槽里。被丢的槽抵达与一次登出相同的终态：之后主体解析到它的每次读取都答 `unauthenticated`，直到有新令牌提交进这个槽；别的槽一个都不丢。
 
 ## 失败携带的任何东西都不该进日志
 
@@ -34,7 +34,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.bizBackend` — `BizBackendService`
 
-`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.
+`ctx.bizBackend`: the reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.
 
 Nothing here registers the service: it is constructed by the row that holds the visitor's token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer's `ctx.inject(['bizBackend'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.
 

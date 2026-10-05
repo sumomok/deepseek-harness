@@ -550,8 +550,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bizBackend',
-    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
-    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    summary: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
+    description: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
         signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
