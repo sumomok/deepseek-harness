@@ -1044,24 +1044,52 @@ const CLIENT_ERROR_STATUS = new Map([
 const CLIENT_LEFT = new Set(['ECONNRESET', 'HPE_INVALID_EOF_STATE'])
 
 /**
- * The `clientError` listener both modes install. A client that left is sent
- * nothing and logged nothing. Any other error is a request Node's parser or
- * its request deadlines refused, never an upstream failure: a header section
- * over Node's size limit is answered 431, a request that did not arrive within
- * the server's headers or request timeout 408, and anything else 400.
+ * Install the `clientError` listener both modes use. A client that left is
+ * sent nothing and logged nothing. Any other error is a request Node's parser
+ * or its request deadlines refused, never an upstream failure, and is logged:
+ * a header section over Node's size limit is answered 431, a request that did
+ * not arrive within the server's headers or request timeout 408, and anything
+ * else 400. A connection that is no longer writable, or on which a response
+ * that has not closed has already sent its header, gets no status and is
+ * destroyed: a status line written there would land inside that response's
+ * body. Node's own listener, `socketOnError` in lib/_http_server.js, writes
+ * its status under the same condition, read from the internal
+ * `socket._httpMessage._headerSent`; this one reads the public `headersSent`
+ * of the responses it records from the server's `request` events. That flag
+ * is set by `writeHead`, before the header is flushed, so the status is
+ * withheld wherever Node withholds it and also between `writeHead` and the
+ * first flush.
+ * @param {import('node:http').Server} server - the server to install it on.
  * @param {Runtime} runtime - the log sink.
- * @returns {(error: NodeJS.ErrnoException, socket: import('node:stream').Duplex) => void} the listener.
+ * @returns {void}
  */
-function answerClientError(runtime) {
-  return (error, socket) => {
+function answerClientErrors(server, runtime) {
+  /** @type {WeakMap<import('node:stream').Duplex, Set<import('node:http').ServerResponse>>} the responses on each connection that have not closed. */
+  const responses = new WeakMap()
+  server.prependListener('request', (req, res) => {
+    let open = responses.get(req.socket)
+    if (open === undefined) {
+      open = new Set()
+      responses.set(req.socket, open)
+    }
+    open.add(res)
+    res.on('close', () => {
+      open.delete(res)
+    })
+  })
+  server.on('clientError', (error, socket) => {
     const code = String(error.code)
     if (CLIENT_LEFT.has(code)) {
       socket.destroy()
       return
     }
     runtime.log(`proxy: client error: ${String(error)}`)
+    if ([...(responses.get(socket) ?? [])].some(res => res.headersSent)) {
+      socket.destroy()
+      return
+    }
     closeWithStatus(socket, CLIENT_ERROR_STATUS.get(code) ?? '400 Bad Request')
-  }
+  })
 }
 
 /**
@@ -1355,7 +1383,7 @@ export function createProxyServer(settings, runtime) {
     }
   })
 
-  server.on('clientError', answerClientError(runtime))
+  answerClientErrors(server, runtime)
   server.on('close', () => {
     remoteAgent.destroy()
     dshAgent.destroy()
@@ -1402,7 +1430,7 @@ export function createVerifierServer(settings, runtime) {
       res.end()
     }
   })
-  server.on('clientError', answerClientError(runtime))
+  answerClientErrors(server, runtime)
   return { server, gate }
 }
 

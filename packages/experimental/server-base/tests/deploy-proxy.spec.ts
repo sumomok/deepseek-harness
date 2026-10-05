@@ -1128,6 +1128,31 @@ describe('upgrades', () => {
 
 describe('malformed requests', () => {
   const modes = [['proxy', {}], ['verify', { PROXY_MODE: 'verify' }]] as const
+  /** A request Node's parser refuses: a space before a header name's colon. */
+  const spacedName = 'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nx-dsh-member : spaced\r\n\r\n'
+
+  it('close the connection without a status when an earlier response on it has started, in proxy mode', async () => {
+    const w = await streamingWorld()
+    const { client, received, closed } = await readUntil(w.port, `GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
+    client.write(spacedName)
+    await closed
+    const answer = received()
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(answer.slice(answer.indexOf('\r\n\r\n'))).not.toMatch(/HTTP\/1\.[01] \d{3}/)
+  })
+
+  it.each([
+    ['proxy', {}, 'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n', '\r\n\r\nok'],
+    ['verify', { PROXY_MODE: 'verify' }, `GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${TOKEN}\r\n\r\n`, '\r\n\r\n'],
+  ] as const)('are answered 400 after an earlier response on the same connection has completed in %s mode', async (_mode, env, first, end) => {
+    const w = await world(env)
+    const { client, received, closed } = await readUntil(w.port, first, end)
+    client.write(spacedName)
+    await closed
+    const answer = received()
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(answer.slice(answer.indexOf(end) + end.length).split('\r\n')[0]).toBe('HTTP/1.1 400 Bad Request')
+  })
 
   it.each(modes)('are answered 431 when the header section is over Node\'s limit in %s mode', async (_mode, env) => {
     const w = await world(env)
@@ -1156,7 +1181,7 @@ describe('malformed requests', () => {
     const w = await world(env)
     for (const text of [
       'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Other: a\r\n x-dsh-member: folded\r\n\r\n',
-      'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nx-dsh-member : spaced\r\n\r\n',
+      spacedName,
       'POST /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello',
     ]) {
       expect((await exchange(w.port, text)).split('\r\n')[0]).toBe('HTTP/1.1 400 Bad Request')
