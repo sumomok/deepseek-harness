@@ -217,6 +217,16 @@ function abortError(signal: AbortSignal): Error {
     : new Error('session migration preparation aborted', { cause: signal.reason })
 }
 
+/**
+ * The failure a cancelled call reports: the signal's reason itself, as
+ * `throwIfAborted` throws it, when `error` carries that reason as its cause —
+ * Node's file-system `AbortError`, {@link abortError}, and the migration
+ * verifier's wrapper all do. Every other failure stays as it is.
+ */
+function cancellationOf(error: unknown, signal: AbortSignal | undefined): unknown {
+  return signal?.aborted === true && error instanceof Error && error.cause === signal.reason ? signal.reason : error
+}
+
 /** Let one caller stop waiting without transferring cancellation ownership to shared work. */
 function waitWithAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return operation
@@ -567,11 +577,12 @@ class JsonlSessionPersistence extends SessionPersistence {
     try {
       moved = await this.relocateOwned(id, cwd, leases, signal)
     } catch (error: unknown) {
+      const failure = cancellationOf(error, signal)
       const releaseFailure = await this.releaseRelocation(id, leases)
       if (releaseFailure !== undefined) {
-        throw new AggregateError([error, releaseFailure], `session "${id}": relocation failed and its lock release failed`)
+        throw new AggregateError([failure, releaseFailure], `session "${id}": relocation failed and its lock release failed`)
       }
-      throw error
+      throw failure
     }
     const releaseFailure = await this.releaseRelocation(id, leases)
     if (releaseFailure !== undefined) {
@@ -614,8 +625,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     const recoveredBatch = stored.recoveredTail.length > 0 ? await this.encodeEventBatch(stored.recoveredTail) : ''
     if (!sameDirectory) {
       await this.assertListedTarget(id, targetDir)
+      leases.push(await this.lockRelocationTarget(id, targetDir))
       await this.ensureTargetDirectory(targetDir)
-      leases.push(await this.acquireLease(id, undefined, targetDir))
     }
     const outcome = await this.relocation.relocate({
       root: this.root,
@@ -724,7 +735,32 @@ class JsonlSessionPersistence extends SessionPersistence {
     return failures.length > 0 ? new AggregateError(failures, `session "${id}": relocation could not release its write locks`) : undefined
   }
 
-  /** Create the target session directory durably before its lock file appears. */
+  /**
+   * Lock the target session directory, creating it through the lease. Another
+   * backend's first operation removes a session directory that holds nothing
+   * but its lock file, as a relocation that died before recording its intent
+   * leaves one, so it can remove this directory between the lease's `mkdir`
+   * and its lock-file creation. Like a write open, the relocation then
+   * creates and locks the directory once more, and refuses with
+   * `SessionAlreadyOwnedError` when it vanishes again. As for a created
+   * session's first write, the directory is made durable after it is locked.
+   */
+  private async lockRelocationTarget(id: SessionId, targetDir: string): Promise<SessionWriteLease> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.acquireLease(id, undefined, targetDir)
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+        if (attempt > 0) throw new SessionAlreadyOwnedError(id)
+      }
+    }
+  }
+
+  /**
+   * Make the locked target session directory and its project directory
+   * durable. The caller holds the directory's lock, so no remainder cleanup
+   * removes it between its creation and this sync.
+   */
   private async ensureTargetDirectory(dir: string): Promise<void> {
     /* v8 ignore start -- native Windows coverage exercises this platform branch; POSIX covers the peer */
     if (process.platform === 'win32') {

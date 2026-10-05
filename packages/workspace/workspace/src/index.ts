@@ -121,7 +121,9 @@ declare module '@deepseek-ai/cordis' {
      * archived. A listener prepends its own {@link SessionActivity} entries to
      * the result of `next()`; the registry's innermost callback returns an
      * empty list, so a composition without providers archives freely. Any
-     * non-empty result refuses the archive without a write.
+     * non-empty result refuses the archive without a write. The archive holds
+     * the registry's mutation queue while it asks, so a listener that awaits
+     * another registry mutation, an attach included, never settles.
      * @param request - the session about to be archived.
      * @param next - delegate to the remaining providers.
      * @mode waterfall
@@ -139,8 +141,9 @@ declare module '@deepseek-ai/cordis' {
      * open turn regularly and a later unarchive can continue the
      * conversation. Listeners issue their stop requests without waiting for
      * running work to settle; a listener may await its own durability
-     * barrier. A rejection is logged by the registry and does not undo the
-     * archive.
+     * barrier, but not another registry mutation, an attach included: the
+     * archive holds the registry's mutation queue until the dispatch settles.
+     * A rejection is logged by the registry and does not undo the archive.
      * @param request - the session being archived.
      * @mode parallel
      */
@@ -163,10 +166,10 @@ const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
 /**
  * Durable workspace registry. Startup waits for `sessionPersistence`,
  * re-resolves every stored workspace path, builds one canonical-cwd header
- * index, and completes the one-time history bootstrap before the service
- * becomes active. The persistence dependency is
- * mandatory so an unavailable peer can never be mistaken for an empty
- * history and commit the initialized marker.
+ * index, completes the one-time history bootstrap, and leaves each session
+ * in at most one workspace record before the service becomes active. The
+ * persistence dependency is mandatory so an unavailable peer can never be
+ * mistaken for an empty history and commit the initialized marker.
  */
 export class WorkspaceRegistry extends Service {
   static inject = ['storageDomain', 'sessionPersistence']
@@ -178,17 +181,21 @@ export class WorkspaceRegistry extends Service {
   private readonly headers = new Map<SessionId, SessionHeader>()
   private readonly sessionPaths = new Map<SessionId, string>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
+  /** The header of each session's latest relocation event whose queued move has not run yet. */
+  private readonly relocations = new Map<SessionId, SessionHeader>()
   private operationTail: Promise<void> = Promise.resolve()
 
   private readonly host: WorkspaceEntityHost = {
     table: () => this.requireTable(),
     sessionPath: id => this.sessionPaths.get(id),
     readSessionHeader: id => this.readSessionHeader(id),
+    indexesHeader: header => this.headers.get(header.id) === header,
     rememberSessionPath: (id, path) => {
       this.sessionPaths.set(id, path)
       this.invalidSessionPaths.delete(id)
     },
     detachElsewhere: (id, keep) => this.detachElsewhere(id, keep),
+    enqueue: operation => this.enqueueOperation(operation),
   }
 
   constructor(ctx: Context) {
@@ -215,6 +222,7 @@ export class WorkspaceRegistry extends Service {
     }
 
     await this.indexLiveSessions()
+    await this.repairSharedSessions()
     await this.detachMovedSessions(canonicalRecords)
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
@@ -719,15 +727,64 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Leave every session in at most one workspace record. The registry
+   * attaches through its mutation queue, but a store written by an earlier
+   * build can list one session in several records. For each such session the
+   * record whose path is the session's indexed canonical cwd keeps it, and an
+   * info line names the records it left. When no listing record has that
+   * path — the header is missing, its cwd does not identify a directory, or
+   * the directory is no listing record's path — the listing record first in
+   * registry order keeps it, and a warning names the session, the records it
+   * left, and the reason. Every record is in the registry order here: an
+   * initialized registry was validated, and bootstrap orders the rest. Each
+   * changed record is one write that only removes ids, so an interrupted pass
+   * leaves a registry the next start completes; a write failure rejects
+   * startup.
+   */
+  private async repairSharedSessions(): Promise<void> {
+    const table = this.requireTable()
+    const holders = new Map<SessionId, WorkspaceId[]>()
+    for (const id of this.requireState().workspaceIds) {
+      for (const sessionId of (table.get(id) as WorkspaceRecord).sessionIds) {
+        holders.set(sessionId, [...holders.get(sessionId) ?? [], id])
+      }
+    }
+    const dropped = new Map<WorkspaceId, Set<SessionId>>()
+    for (const [sessionId, ids] of holders) {
+      if (ids.length === 1) continue
+      const path = this.sessionPaths.get(sessionId)
+      const owner = ids.find(id => (table.get(id) as WorkspaceRecord).path === path)
+      const keep = owner ?? ids[0]
+      const left = ids.filter(id => id !== keep)
+      for (const id of left) dropped.set(id, (dropped.get(id) ?? new Set<SessionId>()).add(sessionId))
+      const listed = `workspace: session '${sessionId}' was accounted by workspaces ${ids.map(id => `'${id}'`).join(', ')}; `
+      if (owner === undefined) {
+        const reason = this.invalidSessionPaths.get(sessionId)
+          ?? (path === undefined ? 'session header is missing' : `canonical cwd '${path}' is no listing workspace's path`)
+        this.ctx.logger.warn(`${listed}kept in '${keep}', first in registry order (${reason}), and detached from ${left.map(id => `'${id}'`).join(', ')}`)
+      } else {
+        this.ctx.logger.info(`${listed}kept in '${keep}', whose path is its canonical cwd, and detached from ${left.map(id => `'${id}'`).join(', ')}`)
+      }
+    }
+    for (const [id, sessionIds] of dropped) {
+      await table.update(id, current => ({
+        ...current,
+        sessionIds: current.sessionIds.filter(sessionId => !sessionIds.has(sessionId)),
+        updatedAt: new Date().toISOString(),
+      }))
+    }
+  }
+
+  /**
    * Durably detach every session whose indexed canonical cwd is an existing
    * directory other than the path of the workspace record listing it. A
    * relocation whose `session-persistence/relocated` event never reached this
    * registry (it was not running, recovery finished the move, or an earlier
-   * listener threw) leaves the session listed at its old path; detaching it
-   * here keeps an `attachSession` at the new path from accounting one session
-   * in two workspaces. Only records whose stored path is canonical this start
-   * are checked, and an id whose cwd does not resolve stays for the read
-   * filter. Each record is one write; a write failure rejects startup.
+   * listener threw) leaves the session listed at its old path; the read
+   * filter hides it there, but `workspace/follow` deltas send the stored ids
+   * unfiltered. Only records whose stored path is canonical this start are
+   * checked, and an id whose cwd does not resolve stays for the read filter.
+   * Each record is one write; a write failure rejects startup.
    * @param canonicalRecords - records whose stored path is canonical after re-resolution.
    */
   private async detachMovedSessions(canonicalRecords: ReadonlySet<WorkspaceId>): Promise<void> {
@@ -847,6 +904,12 @@ export class WorkspaceRegistry extends Service {
     })
   }
 
+  /**
+   * Fail loud on a registry order that repeats a workspace or names a missing
+   * record, on an initialized order that omits a record, and on two records
+   * that store one path. A session listed by several records is repaired
+   * instead, by {@link repairSharedSessions}.
+   */
   private validateStoredState(state: WorkspaceDomainState): void {
     const table = this.requireTable()
     const order = new Set<WorkspaceId>()
@@ -867,7 +930,6 @@ export class WorkspaceRegistry extends Service {
     }
 
     const paths = new Map<string, WorkspaceId>()
-    const accounted = new Map<SessionId, WorkspaceId>()
     for (const [id, record] of table.entries()) {
       const pathHolder = paths.get(record.path)
       if (pathHolder !== undefined) {
@@ -877,16 +939,6 @@ export class WorkspaceRegistry extends Service {
         )
       }
       paths.set(record.path, id)
-      for (const sessionId of record.sessionIds) {
-        const holder = accounted.get(sessionId)
-        if (holder !== undefined) {
-          throw new Error(
-            `workspace domain is inconsistent: session '${sessionId}' is accounted `
-            + `by both workspace '${holder}' and workspace '${id}'`,
-          )
-        }
-        accounted.set(sessionId, id)
-      }
     }
   }
 
@@ -909,6 +961,11 @@ export class WorkspaceRegistry extends Service {
     for (const header of headers) await this.indexHeader(header)
   }
 
+  /**
+   * Index one header and resolve its cwd. The path outcome is recorded only
+   * while the index still holds this header: a relocation that replaces it
+   * during the file-system reads keeps its own entry.
+   */
   private async indexHeader(header: SessionHeader): Promise<void> {
     this.headers.set(header.id, header)
     this.sessionPaths.delete(header.id)
@@ -916,16 +973,20 @@ export class WorkspaceRegistry extends Service {
       this.invalidSessionPaths.set(header.id, 'header has no cwd')
       return
     }
+    let path: string | undefined
+    let invalid: string | undefined
     try {
-      const path = await realpathNormalize(header.cwd)
-      if (!(await stat(path)).isDirectory()) {
-        this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' is not a directory`)
-        return
-      }
-      this.sessionPaths.set(header.id, path)
-      this.invalidSessionPaths.delete(header.id)
+      path = await realpathNormalize(header.cwd)
+      if (!(await stat(path)).isDirectory()) invalid = `cwd '${header.cwd}' is not a directory`
     } catch {
-      this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' does not resolve`)
+      invalid = `cwd '${header.cwd}' does not resolve`
+    }
+    if (this.headers.get(header.id) !== header) return
+    if (invalid === undefined) {
+      this.sessionPaths.set(header.id, path as string)
+      this.invalidSessionPaths.delete(header.id)
+    } else {
+      this.invalidSessionPaths.set(header.id, invalid)
     }
   }
 
@@ -936,18 +997,24 @@ export class WorkspaceRegistry extends Service {
    * stops listing the session at once. The queued part resolves the new cwd,
    * durably detaches the session from every workspace at another path, and
    * attaches it to the workspace at the new path when one exists; a failure
-   * there is logged and leaves the registry usable.
+   * there is logged and leaves the registry usable. A later event for the
+   * same session supersedes a queued part that has not finished resolving.
    */
   private relocated(id: SessionId, header: SessionHeader): void {
     this.headers.set(id, header)
     this.sessionPaths.delete(id)
+    this.relocations.set(id, header)
     void this.enqueueOperation(() => this.moveRelocatedSession(header)).catch((error: unknown) => {
       this.ctx.logger.warn(`workspace: re-indexing relocated session '${id}' failed: ${String(error)}`)
     })
   }
 
   private async moveRelocatedSession(header: SessionHeader): Promise<void> {
+    // The superseding event's own queued move runs after this one.
+    if (this.relocations.get(header.id) !== header) return
     await this.indexHeader(header)
+    if (this.relocations.get(header.id) !== header) return
+    this.relocations.delete(header.id)
     const path = this.sessionPaths.get(header.id)
     if (path === undefined) {
       this.ctx.logger.warn(
@@ -956,15 +1023,22 @@ export class WorkspaceRegistry extends Service {
     }
     const target = [...this.entities.values()].find(entity => entity.path === path)
     await this.detachElsewhere(header.id, target?.id)
-    await target?.attachSession(header.id)
+    await target?.attachQueued(header.id)
   }
 
-  /** Durably detach a session from every workspace record that lists it, except `keep`. */
+  /**
+   * Durably detach a session from every workspace record that lists it,
+   * except `keep`. Runs inside a mutation-queue slot: only queued operations
+   * add a session to a record, and the entity writes still pending on the
+   * domain write chain only remove or reorder ids, so the table at the slot
+   * names every record that can hold the session. Every record in the table
+   * has an entity at the slot, because the slot first settles a marked
+   * interrupted create or delete.
+   */
   private async detachElsewhere(sessionId: SessionId, keep?: WorkspaceId): Promise<void> {
-    for (const entity of this.entities.values()) {
-      if (entity.id === keep) continue
-      const record = this.requireTable().get(entity.id) as WorkspaceRecord
-      if (record.sessionIds.includes(sessionId)) await entity.detachSession(sessionId)
+    for (const [id, record] of this.requireTable().entries()) {
+      if (id === keep || !record.sessionIds.includes(sessionId)) continue
+      await (this.entities.get(id) as WorkspaceEntity).detachSession(sessionId)
     }
   }
 

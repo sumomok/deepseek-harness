@@ -62,6 +62,27 @@ function isLockContention(error: unknown): boolean {
 }
 
 /**
+ * Open the lock file, creating it. On macOS APFS an `open(O_CREAT)` that
+ * races the removal of its directory fails with EINVAL far more often than
+ * with ENOENT (three runs of 20 000 races: 1526, 854, and 1307 EINVAL against
+ * 11, 9, and 8 ENOENT), so an EINVAL while the directory no longer exists
+ * rejects with that directory's ENOENT, the error callers handle as a
+ * removed directory. An EINVAL while the directory exists, or a failure to
+ * inspect it, rejects with the EINVAL.
+ */
+async function openLockFile(path: string, dir: string): Promise<FileHandle> {
+  try {
+    return await open(path, 'w')
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== 'EINVAL') throw error
+    await stat(dir).catch((inspection: unknown) => {
+      throw (inspection as NodeJS.ErrnoException | null)?.code === 'ENOENT' ? inspection : error
+    })
+    throw error
+  }
+}
+
+/**
  * One held write lock. Constructed only by {@link SessionWriteLease.acquire};
  * `release` closes the descriptor or handle, which is what releases the lock.
  */
@@ -76,6 +97,8 @@ export class SessionWriteLease {
    * @param id - the session the lock guards, for error identities.
    * @returns the held lock.
    * @throws {SessionAlreadyOwnedError} while another holder keeps the lock.
+   * @throws an ENOENT error when the directory is removed while the lock file
+   *   is created.
    */
   static async acquire(dir: string, id: SessionId): Promise<SessionWriteLease> {
     const path = join(dir, LEASE_FILENAME)
@@ -98,7 +121,7 @@ export class SessionWriteLease {
     // Bounded retry: locking an inode a releasing creator just unlinked (or a
     // recreated path) re-opens the fresh file; steady state needs one pass.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const handle = await open(path, 'w')
+      const handle = await openLockFile(path, dir)
       try {
         try {
           await tryLockExclusive(handle.fd)

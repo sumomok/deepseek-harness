@@ -89,8 +89,8 @@ export interface Workspace {
    * account is filtered synchronously: missing headers, invalid cwd values,
    * and canonical cwd mismatches are never returned. Registry startup
    * durably removes an id whose cwd resolves to an existing directory other
-   * than {@link path}; a subsequent workspace mutation prunes the other
-   * filtered candidates durably.
+   * than {@link path} when {@link path} resolved at that start; a subsequent
+   * workspace mutation prunes the other filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -102,14 +102,18 @@ export interface Workspace {
   setTitle(title: string): Promise<void>
 
   /**
-   * Prepend a session to this workspace's candidate account. An already
-   * accounted id resolves without writing, aside from the durable
-   * filtered-candidate prune every accepted mutation performs. A new id's
-   * live or persisted
-   * header cwd must resolve to an existing directory equal to {@link path};
-   * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing. A validated new id is first durably detached from every other
-   * workspace that lists it, so no two workspaces account one session.
+   * Prepend a session to this workspace's candidate account. Runs on the
+   * registry's mutation queue, after every registry operation issued before
+   * it. An already accounted id resolves without writing, aside from the
+   * durable filtered-candidate prune every accepted mutation performs. A new
+   * id's live or persisted header cwd must resolve to an existing directory
+   * equal to {@link path}; a header that a relocation replaces during the
+   * check is checked in its place. Unknown ids, missing or invalid cwd
+   * values, and mismatches reject without writing. A validated new id is
+   * first durably detached from every other workspace that lists it, and
+   * every operation that adds a session runs on that one queue, so no two
+   * workspaces account one session; registry startup repairs a store that an
+   * earlier build left with one session in several workspaces.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */

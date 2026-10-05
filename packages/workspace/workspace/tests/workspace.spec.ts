@@ -753,6 +753,21 @@ describe('Workspace session ordering', () => {
     expect(workspace.sessionIds).toEqual([])
   })
 
+  it('writes no other workspace when no other workspace lists the attached session', async () => {
+    const dir = await makeDir('attach-alone')
+    const other = await makeDir('attach-other')
+    const [ownId, otherId] = [WorkspaceId('00000000-0000-4000-8000-000000000021'), WorkspaceId('00000000-0000-4000-8000-000000000022')]
+    const pool = storedPool(
+      [[ownId, record(dir, [])], [otherId, record(other, ['headerless'])]],
+      { initialized: true, workspaceIds: [ownId, otherId] },
+    )
+    const result = await harness({ pool, sessions: [header('s1', dir)] })
+    await result.registry.get(ownId)!.attachSession(SessionId('s1'))
+    // A write to the other record would also prune its filtered candidate.
+    expect(result.changes.map(change => change.key)).toEqual([ownId])
+    expect(storedRecord(pool, otherId).sessionIds).toEqual(['headerless'])
+  })
+
   it('decides detach/attach membership at domain write-chain slots', async () => {
     const dir = await makeDir('race')
     const result = await harness({ sessions: [header('s1', dir)] })
@@ -795,17 +810,11 @@ describe('header-validated membership projection', () => {
     expect(workspace.sessionIds).not.toContain('cwd-only')
   })
 
-  it('rejects duplicate candidate ownership, duplicate paths, and initialized order drift', async () => {
+  it('rejects duplicate paths and initialized order drift', async () => {
     const first = await makeDir('corrupt-first')
     const second = await makeDir('corrupt-second')
     const firstId = '00000000-0000-4000-8000-000000000002'
     const secondId = '00000000-0000-4000-8000-000000000003'
-    const duplicateSession = storedPool(
-      [[firstId, record(first, ['dup'])], [secondId, record(second, ['dup'])]],
-      { initialized: true, workspaceIds: [WorkspaceId(firstId), WorkspaceId(secondId)] },
-    )
-    await expect(harness({ pool: duplicateSession })).rejects.toThrow(/accounted/)
-
     const duplicatePath = storedPool(
       [[firstId, record(first, [])], [secondId, record(first, [])]],
       { initialized: true, workspaceIds: [WorkspaceId(firstId), WorkspaceId(secondId)] },
@@ -881,6 +890,81 @@ describe('header-validated membership projection', () => {
       },
     )
     await expect(harness({ pool: corruptPending })).rejects.toThrow(/still present in registry order/)
+  })
+})
+
+describe('startup repair of a session listed by several workspaces', () => {
+  const ids = ['00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013']
+    .map(WorkspaceId)
+
+  /** Boot over stored records and capture the registry's info and warning lines. */
+  async function repaired(pool: MemoryMediaPool, sessions: SessionHeader[]) {
+    const infos: string[] = []
+    const warnings: string[] = []
+    const result = await harness({
+      pool,
+      sessions,
+      beforeRegistry: (ctx) => {
+        vi.spyOn(ctx.logger, 'info').mockImplementation((message: unknown) => { infos.push(String(message)) })
+        vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warnings.push(String(message)) })
+      },
+    })
+    const written = result.initChanges.filter(change => change.table === 'workspaces').map(change => change.key)
+    return { ...result, infos, warnings, written }
+  }
+
+  it('keeps the session in the workspace at its canonical cwd and writes each other listing workspace once', async () => {
+    const [a, b, c] = [await makeDir('shared-a'), await makeDir('shared-b'), await makeDir('shared-c')]
+    const [aId, bId, cId] = ids as [WorkspaceId, WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only'])], [bId, record(b, ['dup'])], [cId, record(c, ['c-only', 'dup'])]],
+      { initialized: true, workspaceIds: [aId, bId, cId] },
+    )
+    const sessions = [header('dup', b), header('a-only', a), header('c-only', c)]
+    const result = await repaired(pool, sessions)
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['a-only'])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+    expect(storedRecord(pool, cId).sessionIds).toEqual(['c-only'])
+    expect(result.written).toEqual([aId, cId])
+    expect(result.infos).toEqual([
+      `workspace: session 'dup' was accounted by workspaces '${aId}', '${bId}', '${cId}'; kept in '${bId}', `
+      + `whose path is its canonical cwd, and detached from '${aId}', '${cId}'`,
+    ])
+    expect(result.warnings).toEqual([])
+    await result.ctx.fiber.dispose()
+
+    const again = await repaired(pool, sessions)
+    expect(again.written).toEqual([])
+    expect(again.infos).toEqual([])
+    expect(again.registry.list().map(workspace => workspace.sessionIds)).toEqual([['a-only'], ['dup'], ['c-only']])
+  })
+
+  it.each([
+    ['session header is missing', () => Promise.resolve([] as SessionHeader[])],
+    ['cwd does not resolve', async () => [header('dup', join(await makeDir('shared-root'), 'gone'))]],
+    ['cwd is elsewhere', async () => [header('dup', await makeDir('shared-elsewhere'))]],
+  ])('keeps the session in the listing workspace first in registry order when its %s', async (situation, sessions) => {
+    const [a, b] = [await makeDir('first-a'), await makeDir('first-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [bId, aId] },
+    )
+    const listed = await sessions()
+    const result = await repaired(pool, listed)
+    const cwd = listed[0]?.cwd
+    const reason = {
+      'session header is missing': 'session header is missing',
+      'cwd does not resolve': `cwd '${cwd}' does not resolve`,
+      'cwd is elsewhere': `canonical cwd '${cwd}' is no listing workspace's path`,
+    }[situation]
+    expect(result.warnings).toContain(
+      `workspace: session 'dup' was accounted by workspaces '${bId}', '${aId}'; kept in '${bId}', `
+      + `first in registry order (${reason}), and detached from '${aId}'`,
+    )
+    expect(storedRecord(pool, aId).sessionIds).toEqual([])
+    // A cwd that resolves elsewhere then leaves the workspace that kept it as well.
+    expect(storedRecord(pool, bId).sessionIds).toEqual(situation === 'cwd is elsewhere' ? [] : ['dup'])
   })
 })
 

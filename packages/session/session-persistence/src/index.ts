@@ -130,8 +130,9 @@ declare module '@deepseek-ai/cordis' {
      * isolate listeners: one that throws stops the dispatch, and every
      * listener after it misses the event; `relocate` still resolves (see
      * there). A consumer that tracks sessions by cwd therefore reconciles from
-     * the stored headers when it starts; the workspace registry detaches a
-     * session listed at its old path then.
+     * the stored headers when it starts; the workspace registry then detaches
+     * a session that a workspace whose stored path resolves lists at its old
+     * path.
      * @mode emit
      * @param id - the relocated session.
      * @param previous - the stored header before the move.

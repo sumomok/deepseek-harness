@@ -4,6 +4,8 @@
  * workspaces at other paths to the workspace at the new cwd. A move whose
  * event the registry missed is detached at the next start, and an attach at
  * the new path detaches the session from any workspace still listing it.
+ * Attaches share the registry's mutation queue with that work; the module
+ * mock below lands a relocation in the middle of a cwd check.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +24,20 @@ import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-
 import WorkspaceRegistry from '../src/index.ts'
 import type { Workspace, WorkspaceRecord } from '../src/index.ts'
 
+const hooks = vi.hoisted(() => ({
+  /** Runs before each `stat` of the registry and its entities proceeds. */
+  onStat: undefined as undefined | ((path: string) => void),
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const stat = (async (...args: Parameters<typeof actual.stat>) => {
+    hooks.onStat?.(String(args[0]))
+    return actual.stat(...args)
+  }) as typeof actual.stat
+  return { ...actual, stat }
+})
+
 const SESSION = SessionId('relocated')
 
 const headerAt = (cwd: string): SessionHeader => ({
@@ -36,6 +52,7 @@ const roots: string[] = []
 const contexts: Context[] = []
 
 afterEach(async () => {
+  hooks.onStat = undefined
   vi.restoreAllMocks()
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
@@ -190,6 +207,10 @@ interface World {
   readonly pool: MemoryMediaPool
   /** The header session persistence lists. */
   stored: SessionHeader
+  /** Other sessions session persistence lists after it. */
+  others?: readonly SessionHeader[] | undefined
+  /** Runs inside each record write before it reaches the medium. */
+  onPut?: ((table: string, key: string, value: unknown) => Promise<void> | void) | undefined
 }
 
 async function world(): Promise<World & { readonly from: string; readonly to: string }> {
@@ -204,13 +225,28 @@ async function start(w: World, before?: (ctx: Context) => void) {
   const ctx = new Context()
   contexts.push(ctx)
   await ctx.plugin(Storage)
-  ctx.storage.backend.register('memory', new MemoryStorageBackend(w.pool))
+  const backend = new MemoryStorageBackend(w.pool)
+  const open = backend.kv.open.bind(backend.kv)
+  backend.kv.open = async (descriptor) => {
+    const unit = await open(descriptor)
+    const put = unit.putRecord.bind(unit)
+    unit.putRecord = async (table, key, value) => {
+      await w.onPut?.(table, key, value)
+      await put(table, key, value)
+    }
+    return unit
+  }
+  ctx.storage.backend.register('memory', backend)
   const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const list = vi.fn(async (): Promise<SessionPersistenceSnapshot[]> =>
-    [{ header: w.stored, revision: SessionPersistenceRevision('stored') }])
+    [w.stored, ...w.others ?? []].map(header => ({ header, revision: SessionPersistenceRevision('stored') })))
   ctx.provide('sessionPersistence', { list } as never)
+  const written: string[] = []
+  ctx.on('domain/changed', (change) => {
+    if (change.table === 'workspaces') written.push(change.key)
+  })
   const warnings: string[] = []
   const infos: string[] = []
   vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warnings.push(String(message)) })
@@ -225,8 +261,10 @@ async function start(w: World, before?: (ctx: Context) => void) {
     w.stored = headerAt(cwd)
     ctx.emit('session-persistence/relocated', SESSION, previous, { header: w.stored, revision: SessionPersistenceRevision('moved') })
   }
+  /** Resolve after every registry operation queued so far settles. */
+  const drain = (): Promise<void> => registry.unarchiveSession(SessionId('drain'))
   const stop = (): Promise<void> => ctx.fiber.dispose()
-  return { ctx, registry, warnings, infos, view, relocate, stop }
+  return { ctx, registry, written, warnings, infos, view, relocate, drain, stop }
 }
 
 function storedIn(w: World, workspace: Workspace): readonly SessionId[] {
@@ -313,5 +351,137 @@ describe('WorkspaceRegistry after a relocation event it missed', () => {
     expect(storedIn(w, origin)).toEqual([SESSION])
     expect(second.infos).toEqual([])
     expect(second.warnings).toContainEqual(expect.stringContaining(`workspace '${origin.id}' path '${w.from}' kept as stored`))
+  })
+})
+
+describe('WorkspaceRegistry attaches on its mutation queue', () => {
+  it('validates the replacing header when a relocation lands during an attach\'s cwd check', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    await origin.detachSession(SESSION)
+    first.written.length = 0
+    hooks.onStat = (path) => {
+      if (path !== w.from) return
+      hooks.onStat = undefined
+      first.relocate(w.to)
+    }
+
+    // The check of the old header passed, but the index holds the moved header by then.
+    await expect(origin.attachSession(SESSION)).rejects.toThrow(`its cwd resolves to '${w.to}'`)
+    await first.drain()
+    expect(storedIn(w, origin)).toEqual([])
+    expect(storedIn(w, target)).toEqual([SESSION])
+    expect(first.written).toEqual([target.id])
+    await first.stop()
+    await restartsWith(w, target)
+  })
+
+  it('moves a session whose relocation lands while an attach writes it, after that write', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    await origin.detachSession(SESSION)
+    w.onPut = async (table, key, value) => {
+      if (table !== 'workspaces' || key !== origin.id || !(value as WorkspaceRecord).sessionIds.includes(SESSION)) return
+      w.onPut = undefined
+      first.relocate(w.to)
+      // A slow durable write: the queued move must wait for it rather than read the table without it.
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    await origin.attachSession(SESSION)
+    await first.drain()
+    expect(storedIn(w, origin)).toEqual([])
+    expect(storedIn(w, target)).toEqual([SESSION])
+    await first.stop()
+    await restartsWith(w, target)
+  })
+
+  it('runs an attach after the create of another workspace that is still writing its record', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    await origin.detachSession(SESSION)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let holding!: () => void
+    const held = new Promise<void>((resolve) => { holding = resolve })
+    w.onPut = async (table, key) => {
+      if (table !== 'workspaces' || key === origin.id) return
+      w.onPut = undefined
+      holding()
+      await gate
+    }
+    const created = first.registry.create(w.to)
+    await held
+
+    let settled = false
+    const attached = origin.attachSession(SESSION).finally(() => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(settled).toBe(false)
+    release()
+    const target = await created
+    await attached
+    expect(storedIn(w, origin)).toEqual([SESSION])
+    expect(storedIn(w, target)).toEqual([])
+  })
+
+  it('keeps a moved session out of its old workspace while a listing read before the move resolves the old header', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    const other = SessionId('other')
+    w.others = [{ ...headerAt(w.from), id: other }]
+    let checks = 0
+    let listedMeanwhile: readonly SessionId[] | undefined
+    hooks.onStat = (path) => {
+      if (path !== w.from) return
+      checks += 1
+      // The attach of an unindexed session lists every header; the move lands while the moved one resolves.
+      if (checks === 1) first.relocate(w.to)
+      if (checks === 2) listedMeanwhile = origin.sessionIds
+    }
+
+    await origin.attachSession(other)
+    expect(listedMeanwhile).toEqual([])
+    await first.drain()
+    expect(storedIn(w, origin)).toEqual([other])
+    expect(storedIn(w, target)).toEqual([SESSION])
+  })
+
+  it('skips a queued move that a later relocation of the session superseded', async () => {
+    const w = await world()
+    const third = await directory(w.root, 'third')
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    const last = await first.registry.create(third)
+    first.written.length = 0
+
+    first.relocate(w.to)
+    first.relocate(third)
+    await first.drain()
+    expect(first.written).toEqual([origin.id, last.id])
+    expect(storedIn(w, target)).toEqual([])
+    expect(storedIn(w, last)).toEqual([SESSION])
+
+    first.written.length = 0
+    hooks.onStat = (path) => {
+      if (path !== w.to) return
+      hooks.onStat = undefined
+      first.relocate(third)
+    }
+    first.relocate(w.to)
+    // The superseding event queues its move behind the first drain.
+    await first.drain()
+    await first.drain()
+    // The move to `to` was superseded while it resolved that directory.
+    expect(first.written).toEqual([])
+    expect(first.view()).toEqual([[third, [SESSION]], [w.to, []], [w.from, []]])
+    expect(first.warnings).toEqual([])
   })
 })

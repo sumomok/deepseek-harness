@@ -67,6 +67,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     ...actual,
     link: guard('link', actual.link),
     lstat: guard('lstat', actual.lstat),
+    open: guard('open', actual.open),
     stat: guard('stat', actual.stat),
     unlink: guard('unlink', actual.unlink),
     readdir: guard('readdir', actual.readdir),
@@ -600,6 +601,56 @@ describe('JsonlSessionPersistence.relocate refusals', () => {
       `${JSON.stringify(toHeaderLine(meta('corrupt', SOURCE_CWD)))}\n{"type":"turn/start","seq":3,"time":1,"data":{"turn":1}}\n{"type":"turn/end","seq":4,"time":2,"data":{"turn":1,"reason":{"kind":"completed"}}}\n`)
     await expect(relocate(SessionId('corrupt'), TARGET_CWD)).rejects.toBeInstanceOf(SessionPersistenceCorruptionError)
     for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+  })
+
+  it.each([
+    ['an Error', new Error('cancel now')],
+    ['a value that is not an Error', 'cancel now'],
+  ])('throws the reason itself, %s, when cancelled while it reads the stored log', async (_kind, reason) => {
+    const f = await seed('none')
+    const controller = new AbortController()
+    // The read itself observes the abort, so Node rejects it with an AbortError whose cause is the reason.
+    interleave('readFile', path => path === join(f.sourceDir, f.current), async () => { controller.abort(reason) })
+    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD, { signal: controller.signal })).rejects.toBe(reason)
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+    expect(await exists(f.targetDir)).toBe(false)
+    await assertNoResidue(f.root)
+  })
+
+  it('locks its target again when another backend\'s first operation removes the target directory before its lock file exists', async () => {
+    const f = await seed('none')
+    interleave('open', path => path === join(f.targetDir, LEASE_FILENAME), async () => {
+      const other = await mount(f.root, 'none')
+      await other.sessionPersistence.list()
+      expect(await exists(f.targetDir)).toBe(false)
+    })
+    const moved = await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+    expect(moved.header.cwd).toBe(TARGET_CWD)
+    expect(await exists(f.sourceDir)).toBe(false)
+    expect((await readEvents(f.ctx.sessionPersistence, f.header.id)).events).toHaveLength(f.events.length)
+    await assertNoResidue(f.root)
+  })
+
+  it.skipIf(process.platform === 'win32')('makes its target directory durable only once it holds the target lock', async () => {
+    const f = await seed('none')
+    let locked: boolean | undefined
+    interleave('open', path => path === dirname(f.targetDir), async () => {
+      locked = await exists(join(f.targetDir, LEASE_FILENAME))
+    })
+    await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
+    expect(locked).toBe(true)
+  })
+
+  it('refuses as owned when its target directory vanishes before both lock attempts, and passes on other lock failures', async () => {
+    const f = await seed('none')
+    const lock = (path: string): boolean => path === join(f.targetDir, LEASE_FILENAME)
+    fault('open', lock, 'ENOENT', 2)
+    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+    fault('open', lock, 'ENOENT')
+    fault('open', lock, 'EACCES')
+    await expect(f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).rejects.toMatchObject({ code: 'EACCES' })
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+    expect((await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).header.cwd).toBe(TARGET_CWD)
   })
 
   it('reports a throwing listener, a later cleanup failure, and a failed lock release without failing the move', async () => {

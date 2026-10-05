@@ -475,7 +475,7 @@ Source: [`packages/session/session-persistence/src/index.ts`](../../packages/ses
 
 #### `session-persistence/relocated` — emit
 
-A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Listeners run synchronously in registration order, must not throw, and must catch their own asynchronous failures. Cordis `emit` does not isolate listeners: one that throws stops the dispatch, and every listener after it misses the event; `relocate` still resolves (see there). A consumer that tracks sessions by cwd therefore reconciles from the stored headers when it starts; the workspace registry detaches a session listed at its old path then.
+A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Listeners run synchronously in registration order, must not throw, and must catch their own asynchronous failures. Cordis `emit` does not isolate listeners: one that throws stops the dispatch, and every listener after it misses the event; `relocate` still resolves (see there). A consumer that tracks sessions by cwd therefore reconciles from the stored headers when it starts; the workspace registry then detaches a session that a workspace whose stored path resolves lists at its old path.
 
 ```ts cordis-catalog
 /**
@@ -490,8 +490,9 @@ A stored session moved to another storage location and its header cwd changed. E
  * isolate listeners: one that throws stops the dispatch, and every
  * listener after it misses the event; `relocate` still resolves (see
  * there). A consumer that tracks sessions by cwd therefore reconciles from
- * the stored headers when it starts; the workspace registry detaches a
- * session listed at its old path then.
+ * the stored headers when it starts; the workspace registry then detaches
+ * a session that a workspace whose stored path resolves lists at its old
+ * path.
  * @mode emit
  * @param id - the relocated session.
  * @param previous - the stored header before the move.
