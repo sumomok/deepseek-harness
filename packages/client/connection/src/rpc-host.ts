@@ -208,14 +208,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
    * caller receives that Response or its body: once the waterfall ends when the caller's Response has
-   * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
-   * it failed. Once the waterfall has ended, a `next()` that reaches the route or channel dispatches
+   * no body or a locked one, or when a listener returned no Response, otherwise once the caller has read
+   * that body to its end, cancelled it, or it failed. Once the waterfall has ended, a `next()` that reaches the route or channel dispatches
    * nothing and rejects.
    * @param call - the request as listeners see it.
    * @param dispatch - hand the request to the route or channel.
-   * @returns the waterfall's Response itself when the caller receives every such Response or its body,
-   * or when its body is absent or locked; otherwise a Response with its status, status text, and headers
-   * over a body that relays its body. Rejects with the waterfall's failure.
+   * @returns the waterfall's result itself when every such `next()` has resolved to a Response the caller
+   * receives or whose body it receives, when the result's body is absent or locked, or when the result is
+   * not a Response; otherwise a Response with its status, status text, and headers over a body that
+   * relays its body. Rejects with the waterfall's failure.
    */
   private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
     // A listener may call next() more than once, so each call's Response is recorded.
@@ -240,17 +241,19 @@ export class HostConnectionService extends Service implements HostConnectionHand
       throw error
     }
     ended = true
-    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, result) === undefined)) {
+    // A listener that returns no Response, against its declared result, hands the caller no route body.
+    const handed = result instanceof Response ? result : undefined
+    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, handed) === undefined)) {
       return result
     }
     // The caller's body may read an unreturned body lazily, as a listener's relay stream does, so cancelling
     // waits until the caller is done with its body.
-    const body = result.body
-    if (body === null || body.locked) {
-      discardDispatched(dispatched, result)
+    const body = handed?.body ?? null
+    if (handed === undefined || body === null || body.locked) {
+      discardDispatched(dispatched, handed)
       return result
     }
-    return observeBody(result, body, () => { discardDispatched(dispatched, result) })
+    return observeBody(handed, body, () => { discardDispatched(dispatched, handed) })
   }
 
   private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {

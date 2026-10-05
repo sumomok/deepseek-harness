@@ -442,6 +442,28 @@ describe('connection/fetch', () => {
       await response.body!.cancel()
       expect(tracked.cancelled()).toBe(true)
     })
+
+    it('and cancels the route body when the caller cancels the relay after reading part of it', async () => {
+      // A stream that takes the reader in pull() and declares no cancel() keeps the route body locked, so only the
+      // relays whose cancel ends the generator release it.
+      for (const [writing, relayed] of relays.slice(0, 2)) {
+        let cancelled = false
+        let sent = 0
+        const route = await bareRoute(async () => new Response(new ReadableStream<Uint8Array>({
+          pull(controller) {
+            sent += 1
+            controller.enqueue(new TextEncoder().encode(`chunk ${String(sent)}`))
+          },
+          cancel() { cancelled = true },
+        }, { highWaterMark: 0 })))
+        route.ctx.on('connection/fetch', async (_call, next) => relayed((await next()).body!))
+
+        const reader = (await route.fetch()).body!.getReader()
+        expect(new TextDecoder().decode((await reader.read()).value), writing).toBe('chunk 1')
+        await reader.cancel()
+        await vi.waitFor(() => { expect(cancelled, writing).toBe(true) })
+      }
+    })
   })
 
   it('hands the caller the route Response a listener returns, or rewraps, as the listener returned it, body intact', async () => {
@@ -491,6 +513,26 @@ describe('connection/fetch', () => {
     })
     await expect(syncRoute.fetch()).rejects.toThrow('guard threw synchronously')
     await vi.waitFor(() => { expect(syncTracked.cancelled()).toBe(true) })
+  })
+
+  it('cancels the route body when a listener returns no Response after next(), which the carrier answers with 400', async () => {
+    const mounted = await mount()
+    const tracked = trackedResponse()
+    mounted.ctx.connection.fetch.register({
+      path: `${API_PATH}/guard.tracked`,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      fetch: async () => tracked.response,
+    })
+    mounted.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      // A listener in untyped code can break its declared result.
+      return undefined as never
+    })
+
+    expect(await send(mounted, `${API_PATH}/guard.tracked`, 'GET')).toEqual({ status: 400, body: '' })
+    expect(mounted.warnings).toHaveLength(1)
+    expect(tracked.cancelled()).toBe(true)
   })
 
   it('cancels a route body that arrives after the listener answered, without making the caller wait for it', async () => {
