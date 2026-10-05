@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zipSync } from 'fflate'
@@ -222,6 +222,33 @@ describe('replacing a pack root', () => {
       packs: [{ name: 'a', files: [{ path: 'notes.md', content: 'x' }, { path: 'notes.md/inner.md', content: 'y' }] }],
     })).rejects.toThrow()
     expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  // Mode 000 denies a directory read only to a non-root owner on POSIX:
+  // Windows has no directory permission bits for readdir, and root bypasses
+  // them, so there the root stays readable and the delivery installs.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses to replace a root it cannot read, and leaves the root as it was', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    const before = await digests(root)
+    await chmod(root, 0o000)
+    try {
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [pack('b', 'B.')] })).rejects.toMatchObject({ code: 'EACCES' })
+    } finally {
+      await chmod(root, 0o755)
+    }
+    expect(await digests(root)).toEqual(before)
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
+  it('refuses to replace a root that is a file, and leaves the file as it was', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await writeFile(root, 'not a pack root\n')
+    await expect(syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })).rejects.toMatchObject({ code: 'ENOTDIR' })
+    expect(await readFile(root, 'utf8')).toBe('not a pack root\n')
     expect(await readdir(base)).toEqual(['packs'])
   })
 })

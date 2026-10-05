@@ -98,6 +98,7 @@ export interface PackArchiveSyncResult extends SyncPackRootResult {
  * @returns what the root now holds, what was retired, and which set the archive delivered.
  * @throws {PackInstallError} when the archive is over a limit, is unreadable, disagrees with its own
  *   manifest, or carries a pack file a pack may not carry.
+ * @throws the error reading the pack root failed with, for every failure other than the root not existing; nothing is written.
  */
 export function syncPackRoot(targetRoot: string, delivery: PackArchiveDelivery, verify?: VerifyStagedPacks): Promise<PackArchiveSyncResult>
 /**
@@ -109,6 +110,7 @@ export function syncPackRoot(targetRoot: string, delivery: PackArchiveDelivery, 
  * @throws {PackInstallError} when a delivered entry is a symbolic link, leaves its pack directory,
  *   is not a pack directory, carries an extension a pack may not carry, or is delivered twice, and when
  *   a delivered pack's manifest, view format or view file is one this deployment will not read.
+ * @throws the error reading the pack root failed with, for every failure other than the root not existing; nothing is written.
  */
 export function syncPackRoot(targetRoot: string, delivery: PackDelivery, verify?: VerifyStagedPacks): Promise<SyncPackRootResult>
 /**
@@ -174,17 +176,20 @@ export interface InstalledRoot {
 /**
  * Read a pack root as it stands, without judging it. A symbolic link is never
  * followed, and a loose file at the top of the root is no pack.
- * @param root - absolute path of the root; an absent root holds nothing.
+ * @param root - absolute path of the root; a root that does not exist holds nothing.
  * @returns every directory's files, and whether the root holds anything a delivery would not have written.
+ * @throws the error reading the root failed with, for every failure other than the root not existing.
  */
 export async function readInstalledPacks(root: string): Promise<InstalledRoot> {
   let entries
   try {
     entries = await readdir(root, { withFileTypes: true, encoding: 'utf8' })
-  } catch {
-    // Swallowed here and nowhere else: a pack root that does not exist yet is
-    // the first install, which this function reports as an empty root.
-    return { packs: new Map(), drift: false }
+  } catch (error) {
+    // A pack root that does not exist yet is the first install, reported as
+    // an empty root. Any other failure leaves what the root holds unknown,
+    // and reporting it as empty would retire every pack in it.
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return { packs: new Map(), drift: false }
+    throw error
   }
   const packs = new Map<string, Map<string, Buffer>>()
   let drift = false

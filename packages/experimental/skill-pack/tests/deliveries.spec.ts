@@ -1,11 +1,12 @@
 /**
  * The delivery directory: which archive it names, what installing that archive
  * reports, and what it leaves the pack root as when it names none, names two,
- * or names one this deployment will not read.
+ * names one this deployment will not read, or names one while the pack root
+ * cannot be read.
  */
 
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zipSync } from 'fflate'
@@ -137,6 +138,30 @@ describe('reading the delivery directory', () => {
     expect(await one.read()).toBe(false)
     expect(one.reported[0]).toContain('error skill-pack: v2.dshpack was not installed: PackInstallError')
     expect(await readdir(one.root)).toEqual(['a'])
+  })
+
+  // Mode 000 denies a directory read only to a non-root owner on POSIX:
+  // Windows has no directory permission bits for readdir, and root bypasses
+  // them, so there the pack root stays readable and the archive installs.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('names the archive it could not install into a pack root it cannot read, and leaves the root as it was', async () => {
+    const one = await deployment()
+    await drop(one.delivery, 'v1.dshpack', [pack('a', 'A.')])
+    expect(await one.read()).toBe(true)
+    await rm(join(one.delivery.directory, 'v1.dshpack'))
+    await drop(one.delivery, 'v2.dshpack', [pack('b', 'B.')])
+    one.reported.length = 0
+
+    await chmod(one.root, 0o000)
+    let installed: boolean
+    try {
+      installed = await one.read()
+    } finally {
+      await chmod(one.root, 0o755)
+    }
+    expect(installed).toBe(false)
+    expect(one.reported).toEqual([expect.stringContaining('error skill-pack: v2.dshpack was not installed: Error: EACCES')])
+    expect(await readdir(one.root)).toEqual(['a'])
+    expect(await readFile(join(one.root, 'a', 'SKILL.md'), 'utf8')).toContain('A.')
   })
 
   it('reads only the archives, so a note, a hidden file and a directory beside them say nothing', async () => {

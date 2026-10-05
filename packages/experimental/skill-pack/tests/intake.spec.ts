@@ -11,10 +11,10 @@
  * ids the root holds the real `readInstalledPacks`. A case that needs a call
  * to stop part-way holds the write behind a gate and waits for the write to
  * start, and the failure cases make the write or the read throw, through
- * `rootControl`.
+ * `rootControl`, or make the organization root unreadable on disk.
  */
 
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -655,6 +655,39 @@ describe('view ids an organization set declares', () => {
     expect((await ctx.skillPacks.activeViews()).map(view => view.title)).toEqual(['图层'])
     expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
   })
+
+  // Mode 000 denies a directory read only to a non-root owner on POSIX:
+  // Windows has no directory permission bits for readdir, and root bypasses
+  // them, so there the organization root stays readable and nothing fails.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'answers failed after a restart, changing nothing, while the organization root cannot be read, and judges the same set by that root once it can',
+    async () => {
+      const paths = await newWorld()
+      const { stable, set } = stableAndTrial()
+      const before = await boot(paths)
+      await (await organization(before)).intake.replace([stable])
+      await before.fiber.dispose()
+
+      const ctx = await boot(paths)
+      const { intake } = await organization(ctx)
+      await chmod(paths.organizationRoot, 0o000)
+      let unread: IntakeResult
+      try {
+        unread = await intake.replace(set)
+      } finally {
+        await chmod(paths.organizationRoot, 0o755)
+      }
+      expect(unread).toEqual({ kind: 'failed', detail: expect.stringContaining('skill-pack: the organization root was not read: Error: EACCES') })
+      expect(intake.isActive('layer-guide', '3')).toBe(false)
+      expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
+
+      const result = await intake.replace(set)
+      expect(result.kind === 'ok' ? result.refused : result).toEqual([HELD_ON_DISK])
+      expect(intake.isActive('layer-guide', '3')).toBe(true)
+      expect(intake.isActive('layer-guide', '4')).toBe(false)
+      expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
+    },
+  )
 
   it('reads the organization root the way the pack root is read while no set is offered: a directory that is no pack, and a view that does not read, hold no id', async () => {
     const paths = await newWorld()
