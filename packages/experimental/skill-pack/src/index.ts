@@ -284,7 +284,9 @@ export class SkillPackRegistry extends Service {
         // offered only after the next unrelated change to the root.
         watcher.on('ready', () => { this.moved() })
         watcher.on('all', () => { this.moved() })
-        /* v8 ignore start -- chokidar reports a watch failure only from the platform watcher, which no in-process test can make fail. */
+        /* v8 ignore start -- chokidar reports a watch failure from the platform watcher, for example on a
+           directory this process cannot read when the watch starts; whether it reports one there differs by
+           platform, so no test drives it. */
         watcher.on('error', (error: unknown) => {
           this.ctx.logger.warn(`skill-pack: pack root watch failed: ${String(error)}`)
         })
@@ -307,7 +309,9 @@ export class SkillPackRegistry extends Service {
         // watcher's own first listing and the events starting to arrive.
         watcher.on('ready', () => { this.queueInstall(deliveries) })
         watcher.on('all', () => { this.queueInstall(deliveries) })
-        /* v8 ignore start -- chokidar reports a watch failure only from the platform watcher, which no in-process test can make fail. */
+        /* v8 ignore start -- chokidar reports a watch failure from the platform watcher, for example on a
+           directory this process cannot read when the watch starts; whether it reports one there differs by
+           platform, so no test drives it. */
         watcher.on('error', (error: unknown) => {
           this.ctx.logger.warn(`skill-pack: delivery watch failed: ${String(error)}`)
         })
