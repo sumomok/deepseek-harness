@@ -1781,14 +1781,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-server-sidebar`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/experimental/server-sidebar/src/index.ts:61`](../packages/experimental/server-sidebar/src/index.ts)
+- `source`: [`packages/experimental/server-sidebar/src/index.ts:73`](../packages/experimental/server-sidebar/src/index.ts)
 
 ```ts config-catalog
 /**
  * Plugin config: the one browser-facing value this shell cannot work out for
- * itself, and the three user-edited menu fields. The menu fields are volatile:
- * the server-menu route writes them through the settings service without
- * remounting this plugin, and every read takes the current value.
+ * itself, where the menu is kept, and the three user-edited menu fields of a
+ * process serving one person. The menu fields are volatile: the server-menu
+ * route writes them through the settings service without remounting this
+ * plugin, and every read takes the current value.
  */
 export interface Config {
   /**
@@ -1805,6 +1806,20 @@ export interface Config {
   groups: Volatile<ServerMenuGroup[]>
   /** The workbench conversation's id; see {@link ServerMenuSettings.workbenchSessionId}. */
   workbenchSessionId: Volatile<string | undefined>
+  /**
+   * Keep one menu per console member instead of one for the whole process,
+   * the meaning `dsh-experimental-auth-gate`'s field of the same name has.
+   * Which member a request belongs to is the `consoleMembers` service's
+   * answer, and each member's menu is kept in that member's store under the
+   * unit `server-sidebar`; nothing is written through the settings service.
+   * While that service is not running, the server-menu route answers 503.
+   *
+   * Requires {@link Config.workflows} and {@link Config.groups} empty and no
+   * {@link Config.workbenchSessionId}: a menu written into this row would be
+   * one every member shares. The default is false, which keeps one menu in
+   * this row's fields.
+   */
+  perMember: boolean
 }
 
 /**

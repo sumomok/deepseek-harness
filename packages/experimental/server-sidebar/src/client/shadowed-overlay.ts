@@ -13,7 +13,19 @@
 import type { HostObservable, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** Shadowing rank of this package's `shell.overlay` entries: below the owners' default 0. */
+/**
+ * Shadowing rank of every entry this package registers in place of another
+ * package's, below the owners' default 0: the `shell.overlay` ids
+ * `workspace.row-toast` (`WorkspaceNotice.tsx`), `workspace.session-archive`
+ * (`StopAndRemoveDialog.tsx`), `workspace.session-rename`
+ * (`withheld-rename.ts`), and `shortcuts` (`console-shortcuts.ts`, which also
+ * tells its own `shortcuts` entry from the owner's by this rank); the
+ * `conversation.chat.node` keys `compaction` and `compaction-failure`
+ * (`CompactionRows.tsx`); the withheld `settings.general.item` and
+ * `settings.action` ids (`settings-entries.ts`); and the
+ * `conversation.hero.brand.mark` and `conversation.session.header.corner`
+ * entries (`index.ts`).
+ */
 export const REPLACING_PRIORITY = -1
 
 /** The share of the slot ledger a shadowed entry is read from. */

@@ -7,11 +7,14 @@
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
  * title beside it with the workbench id it reads, the withheld Settings
- * entries, the replaced compaction rows and workspace notice, the
+ * entries, the replaced compaction rows and workspace notice, the withheld
+ * expand button in the conversation header's corner, the
  * workbench/workflow/page business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
  */
+import { readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -26,6 +29,7 @@ import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
 import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
 import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
+import { WithheldRenameDialog } from '../src/client/withheld-rename.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -120,13 +124,13 @@ const WORKFLOW = {
  * exactly what it uses. The browser half asks for URLs resolved against the
  * deployment base, so the path is read off them.
  */
-function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown }>>): void {
+function stubFetch(routes: Partial<Record<string, { ok?: boolean; status?: number; body: unknown }>>): void {
   vi.stubGlobal('fetch', vi.fn((input: URL) => {
     const route = routes[input.pathname]
     if (route === undefined) throw new Error(`unexpected fetch: ${input.href}`)
     return Promise.resolve({
       ok: route.ok ?? true,
-      status: route.ok === false ? 503 : 200,
+      status: route.status ?? (route.ok === false ? 503 : 200),
       json: () => Promise.resolve(route.body),
     })
   }))
@@ -158,6 +162,7 @@ function declareSlots(ctx: Context): void {
       name: 'conversation',
       children: {
         'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+        'conversation.session.header.corner': { kind: 'single', scope: 'session' },
         'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
         // Declared by ui-chat's Chat view in the real page.
         'conversation.chat.node': { kind: 'keyed', scope: 'session' },
@@ -182,6 +187,12 @@ async function bench(
     withoutIdentity?: boolean
     /** Extra ids the session directory lists alongside the current one. */
     liveSessionIds?: readonly string[]
+    /** Answer every dictionary lookup with its key, rather than with nothing. */
+    echoLocale?: boolean
+    /** Answer every dictionary lookup from this dictionary, its `{name}` slots filled from the lookup's values. */
+    dictionary?: Readonly<Record<string, string>>
+    /** What this package's own menu route answers the first read, in place of one saved workflow. */
+    menuRead?: { ok?: boolean; status?: number; body: unknown }
   } = {},
 ): Promise<BenchResult> {
   stubFetch({
@@ -195,7 +206,7 @@ async function bench(
     [COMPONENT_SURFACE_VIEWS_ROUTE]: options.withoutComponentSurface === true
       ? { ok: false, body: {} }
       : { body: { views: COMPONENT_SURFACE_VIEWS, ...options.homeView === undefined ? {} : { homeView: options.homeView } } },
-    [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } },
+    [SERVER_MENU_ROUTE]: options.menuRead ?? { body: { workflows: [WORKFLOW] } },
     [SERVER_IDENTITY_ROUTE]: options.withoutIdentity === true
       ? { ok: false, body: {} }
       : { body: { displayNameClaim: 'login_uname' } },
@@ -247,7 +258,12 @@ async function bench(
   ctx.provide('sessions', sessions as never)
   ctx.provide('remote', remote as never)
   ctx.provide('remote.commands', remote.commands as never)
-  ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+  const { dictionary } = options
+  const lookup = dictionary !== undefined
+    ? (key: string, values: Record<string, string> = {}) => (dictionary[key] ?? key)
+      .replace(/\{(\w+)\}/gu, (_slot, name: string) => values[name] ?? '')
+    : options.echoLocale === true ? (key: string) => key : () => ''
+  ctx.provide('locale', { register: () => () => {}, bind: () => lookup } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber, workspaces, uiWorkspace, sessions, remote, cancel }
@@ -338,6 +354,31 @@ describe('server-sidebar browser half: sidebar registration', () => {
     disposeCompetitor()
   })
 
+  it('takes over the conversation header\'s corner at priority -1 with an entry that renders nothing, shadowing the right column\'s expand button', async () => {
+    const { ctx } = await bench()
+    // `ui-sidebar-right` seats its expand button there at the default priority 0.
+    function ExpandButton(): null {
+      return null
+    }
+    const disposeOwner = ctx.slots.register({ name: 'conversation.session.header.corner' } as never, ExpandButton as never)
+    const [winner] = ctx.slots.entriesOfSlot('conversation.session.header.corner')
+    expect(winner?.options.priority).toBe(-1)
+    expect(winner?.component).not.toBe(ExpandButton)
+    expect((winner?.component as (() => null) | undefined)?.()).toBeNull()
+    disposeOwner()
+  })
+
+  it('shadows the entry `ui-sidebar-right` seats in the header\'s corner, which registers at the default priority', () => {
+    // The console's entry shadows the expand button only while
+    // `ui-sidebar-right` seats it in this slot at the default priority 0.
+    const source = readFileSync(resolvePath(import.meta.dirname, '../../../client/ui-sidebar-right/src/client/index.ts'), 'utf8')
+    const end = source.indexOf('}, ExpandButton)')
+    expect(end).toBeGreaterThan(0)
+    const registration = source.slice(source.lastIndexOf('ctx.slots.register({', end), end)
+    expect(registration).toMatch(/^ctx\.slots\.register\(\{\s+name: 'conversation\.session\.header\.corner',/u)
+    expect(registration).not.toMatch(/\bpriority\b/u)
+  })
+
   it('shadows each withheld settings entry at priority -1 with an entry that renders nothing', async () => {
     const { ctx } = await bench()
     const withheld = [
@@ -371,19 +412,18 @@ describe('server-sidebar browser half: sidebar registration', () => {
     for (const dispose of [...disposeOwners, ...disposeKept]) dispose()
   })
 
-  it('replaces ui-workspace\'s notice and stop-and-archive confirmation by their `shell.overlay` ids at priority -1, in this package\'s locale', async () => {
+  it('replaces ui-workspace\'s notice, stop-and-archive confirmation, and rename dialog by their `shell.overlay` ids at priority -1', async () => {
     const { ctx } = await bench()
     const replaced = [
-      { id: 'workspace.row-toast', component: WorkspaceNotice },
-      { id: 'workspace.session-archive', component: StopAndRemoveDialog },
+      { id: 'workspace.row-toast', component: WorkspaceNotice, locale: 'serverSidebar' },
+      { id: 'workspace.session-archive', component: StopAndRemoveDialog, locale: 'serverSidebar' },
+      // Draws nothing, so it reads no dictionary.
+      { id: 'workspace.session-rename', component: WithheldRenameDialog, locale: undefined },
     ] as const
-    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component })))
+    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component, locale: entry.locale })))
       .toEqual(replaced)
-    for (const entry of ctx.slots.entries('shell.overlay')) {
-      expect(entry.options.priority).toBe(-1)
-      expect(entry.locale).toBe('serverSidebar')
-    }
-    // ui-workspace registers both at the default priority 0; each cell's
+    for (const entry of ctx.slots.entries('shell.overlay')) expect(entry.options.priority).toBe(-1)
+    // ui-workspace registers all three at the default priority 0; each cell's
     // winner stays this package's entry.
     const disposeOwners = replaced.map(({ id }) => ctx.slots.register({ name: 'shell.overlay', id }, () => null))
     expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual(replaced.map(({ component }) => component))
@@ -581,22 +621,120 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: next, groups: [], workbenchSessionId: undefined })
   })
 
-  it('surfaces a failed save through setError rather than throwing', async () => {
-    const { ctx } = await bench()
+  it('reports a save the route failed or never reached in the fixed try-later copy, and sends the failure to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
     const { injected, actions } = injectSidebar(ctx)
-    stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, body: {} } })
-    await injected.onSaveMenu({ workflows: [] })
-    expect(actions.setError).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'))
+    for (const status of [500, 502]) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body: { error: 'server-sidebar: the server-menu could not be saved' } } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect(actions.setError).toHaveBeenLastCalledWith('workflows.later')
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({
+        message: 'server-sidebar: the server-menu could not be saved', status,
+      }))
+    }
+    // A 200 with no usable document.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new Error('not json')) })))
+    await injected.onSaveMenu({ workflows: [WORKFLOW] })
+    expect(actions.setError).toHaveBeenLastCalledWith('workflows.later')
+    expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({
+      message: 'server-menu save answered no usable document',
+    }))
     expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
-  it('stringifies a non-Error transport rejection rather than losing it', async () => {
-    const { ctx } = await bench()
+  it('reports a save the route refused 4xx in the fixed not-accepted copy, and sends the refusal to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
     const { injected, actions } = injectSidebar(ctx)
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject('transport exploded')))
+    for (const [status, body] of [
+      [400, { error: 'server-sidebar: duplicate workflow id "w1"' }],
+      [403, { error: 'server-sidebar: the server-menu route refuses a cross-site request' }],
+      [413, { error: 'server-sidebar: the server-menu route body is too large' }],
+      // A list of field paths the page cannot name.
+      [400, { error: 'server-sidebar: groups names a conversation that belongs to another member', fields: ['groups'] }],
+    ] as const) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect({ status, shown: actions.setError.mock.lastCall }).toEqual({ status, shown: ['workflows.refused'] })
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: body.error, status }))
+    }
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('names the workflows and the workbench a save was refused for, by the names it sent, in fixed copy that quotes nothing of the refusal', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = 'server-sidebar: workflows[1].homeSessionId, workbenchSessionId name conversations that belong to another member'
+    const workflows = [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1, homeSessionId: 'session-b' }]
+    for (const [dictionary, expected] of [
+      [zh, '保存失败：「Beta」、「工作台」指向别人的对话，这次修改没有保存'],
+      [en, 'Failed to save: the chats behind “Beta”, “Workbench” are someone else’s; the change was not saved'],
+    ] as const) {
+      const { ctx } = await bench({ dictionary })
+      const { injected, actions } = injectSidebar(ctx)
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status: 400, body: { error, fields: ['workflows[1].homeSessionId', 'workbenchSessionId'] } } })
+      await injected.onSaveMenu({ workflows, workbenchSessionId: 'session-b' })
+      const shown = dictionary['workflows.error'].replace('{message}', String(actions.setError.mock.lastCall?.[0]))
+      expect(shown).toBe(expected)
+      expect(shown).not.toMatch(/server-sidebar:|homeSessionId|workbenchSessionId|session/iu)
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: error, status: 400 }))
+      expect(actions.setServerMenu).not.toHaveBeenCalled()
+    }
+    warn.mockRestore()
+  })
+
+  it('reports in fixed copy a save that reached no member\'s menu, and sends the refusal to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    for (const [status, error] of [
+      [401, 'server-sidebar: the server-menu route could not tell which member sent this request'],
+      [503, 'server-sidebar: the server-menu route needs the consoleMembers service, which is not running'],
+    ] as const) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body: { error } } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect(actions.setError).toHaveBeenLastCalledWith('workflows.retry')
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: error, status }))
+    }
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('renders the fixed copy free of the vocabulary the console keeps off the screen, in both languages', () => {
+    for (const dictionary of [zh, en]) {
+      const line = dictionary['workflows.error'].replace('{message}', dictionary['workflows.retry'])
+      expect(line).not.toMatch(/工作区|会话|归档|workspace|session|archive|member|server/iu)
+    }
+    expect(zh['workflows.error'].replace('{message}', zh['workflows.retry'])).toBe('保存失败：请刷新页面后重试')
+  })
+
+  it('renders the copy for a refused or failed save free of the vocabulary the console keeps off the screen, in both languages', () => {
+    for (const dictionary of [zh, en]) {
+      const item = dictionary['workflows.foreignItem'].replace('{name}', dictionary['workbench.label'])
+      const items = `${item}${dictionary['workflows.foreignSeparator']}${item}`
+      const foreign = (['workflows.foreign.one', 'workflows.foreign.other', 'workflows.foreignWorkbench.one', 'workflows.foreignWorkbench.other'] as const)
+        .map(key => dictionary[key].replace('{items}', items))
+      for (const message of [...foreign, dictionary['workflows.refused'], dictionary['workflows.later']]) {
+        const line = dictionary['workflows.error'].replace('{message}', message)
+        expect(line).not.toMatch(/工作区|会话|归档|workspace|session|archive|member|server|\{/iu)
+      }
+    }
+    expect((['workflows.refused', 'workflows.later'] as const).map(key => zh['workflows.error'].replace('{message}', zh[key])))
+      .toEqual(['保存失败：这次修改没有被接受，请刷新页面后再改', '保存失败：请稍后再试'])
+  })
+
+  it('reports a save that never reached the route in the fixed try-later copy, and sends the rejection to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    const rejection = new TypeError('Failed to fetch')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(rejection)))
     await injected.onSaveMenu({ workflows: [] })
-    expect(actions.setError).toHaveBeenCalledWith('transport exploded')
+    expect(actions.setError).toHaveBeenCalledWith('workflows.later')
+    expect(warn).toHaveBeenCalledWith('server-sidebar: the menu could not be saved:', rejection)
+    warn.mockRestore()
   })
 
   it('sends a groups-only patch without resending the workflow list', async () => {
@@ -741,6 +879,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.spec('sidebar.brand.mark')).toBeUndefined()
     expect(ctx.slots.spec('sidebar.footer.action')).toBeUndefined()
     expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.session.header.corner')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
     expect(ctx.slots.entries('settings.action')).toHaveLength(0)
@@ -831,6 +970,169 @@ describe('server-sidebar browser half: save-workflow header action', () => {
       expect.stringContaining('failed to save workflow (sidebar not mounted)'), expect.any(Error),
     )
     warn.mockRestore()
+  })
+})
+
+describe('server-sidebar browser half: a menu the page could not read', () => {
+  /** The store instance the sidebar entry renders from. */
+  function sidebarStore(ctx: Context) {
+    const [entry] = ctx.slots.entries('sidebar')
+    return (entry?.store as ReturnType<typeof createWorkflowStore>).create()
+  }
+
+  it('seeds the sidebar with the empty menu marked unreadable, and the title with no workbench', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ menuRead: { ok: false, status: 503, body: { error: 'not running' } } })
+    expect(sidebarStore(ctx).getSnapshot()).toMatchObject({ workflows: [], groups: [], workbenchSessionId: undefined, unreadable: true })
+    expect(workbenchSourceOf(ctx).getSnapshot()).toBeUndefined()
+    warn.mockRestore()
+  })
+
+  it('seeds the empty menu, readable, where nothing serves the route', async () => {
+    const { ctx } = await bench({ menuRead: { ok: false, status: 404, body: {} } })
+    expect(sidebarStore(ctx).getSnapshot()).toMatchObject({ workflows: [], unreadable: false })
+  })
+
+  it('does not write back a workflow list it could not read when it repoints a degraded workflow', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1', echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    const methods: (string | undefined)[] = []
+    vi.stubGlobal('fetch', vi.fn((_input: URL, init?: RequestInit) => {
+      methods.push(init?.method)
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'unreadable' }) })
+    }))
+    await injected.onOpenWorkflow(WORKFLOW, false)
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
+    expect(methods).toEqual([undefined])
+    expect(actions.setError).toHaveBeenCalledWith('workflows.retry')
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not save a new workflow over a list it could not read, with the sidebar mounted or not', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const mounted of [true, false]) {
+      const { ctx } = await bench({ echoLocale: true })
+      const actions = mounted ? injectSidebar(ctx).actions : undefined
+      const methods: (string | undefined)[] = []
+      vi.stubGlobal('fetch', vi.fn((_input: URL, init?: RequestInit) => {
+        methods.push(init?.method)
+        return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ error: 'nobody' }) })
+      }))
+      await injectHeaderAction(ctx, 'session-b').onSave('session-b', 'New Flow', NAV_SNAPSHOT)
+      expect({ mounted, methods }).toEqual({ mounted, methods: [undefined] })
+      if (actions !== undefined) expect(actions.setError).toHaveBeenCalledWith('workflows.retry')
+    }
+    expect(warn).toHaveBeenLastCalledWith('server-sidebar: did not save the workflow (sidebar not mounted): the menu could not be read')
+    warn.mockRestore()
+  })
+
+  /** The line every refusal below reports to the browser console. */
+  const UNREAD_REFUSAL = 'server-sidebar: the menu could not be read when the page loaded, so nothing is saved and no workbench is opened or created until the page is reloaded'
+
+  /**
+   * Boot over a menu read the route refused, with somewhere to create a
+   * conversation, a conversation on screen, and a configured home page, then
+   * record every request the browser half makes from there on.
+   * @param onScreen - whether a conversation is on screen; without one, an
+   * entry that shows something has to create one first.
+   * @returns the bench, the recorded requests, and the console spy.
+   */
+  async function unreadBench(onScreen = true) {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await bench({
+      menuRead: { ok: false, status: 503, body: { error: 'not running' } },
+      recentWorkspaceId: 'workspace-1', liveSessionIds: ['home-1'], homePage: 'home', echoLocale: true,
+      ...onScreen ? { currentSessionId: 'session-loose' } : {},
+    })
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
+      requests.push(`${init?.method ?? 'GET'} ${input.pathname}`)
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ workflows: [WORKFLOW] }) })
+    }))
+    return { ...result, requests, warn }
+  }
+
+  /**
+   * Assert that a refused entry reached nothing: no request, no conversation
+   * opened, created, or archived, no command run, and no store action.
+   * @param result - the bench {@link unreadBench} booted.
+   * @param actions - the sidebar's mocked store actions, when it is mounted.
+   */
+  function expectRefused(result: Awaited<ReturnType<typeof unreadBench>>, actions: MockActions | undefined): void {
+    expect(result.requests).toEqual([])
+    expect(result.uiWorkspace.connectWorkspace).not.toHaveBeenCalled()
+    expect(result.uiWorkspace.openSession).not.toHaveBeenCalled()
+    expect(result.workspaces.archiveSession).not.toHaveBeenCalled()
+    expect(result.remote.commands.execute).not.toHaveBeenCalled()
+    if (actions !== undefined) {
+      expect(actions.setServerMenu).not.toHaveBeenCalled()
+      expect(actions.setError).not.toHaveBeenCalled()
+      expect(actions.setTemporaryFailed).not.toHaveBeenCalled()
+    }
+    expect(result.warn).toHaveBeenLastCalledWith(UNREAD_REFUSAL)
+    result.warn.mockRestore()
+  }
+
+  it('opens and creates no workbench on a click, whatever the click reports about the recorded one', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkbench(undefined, false, false, false)
+    await injected.onOpenWorkbench('home-1', true, true, false)
+    expectRefused(result, actions)
+  })
+
+  it('lands on no workbench on load', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkbenchOnLoad(undefined, false)
+    await injected.onOpenWorkbenchOnLoad('home-1', true)
+    expectRefused(result, actions)
+  })
+
+  it('creates no conversation for a workflow whose own is gone, and still opens one that is live', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenWorkflow(WORKFLOW, false)
+    expectRefused(result, actions)
+    await injected.onOpenWorkflow(WORKFLOW, true)
+    expect(result.uiWorkspace.openSession).toHaveBeenCalledWith('session-a')
+    expect(result.requests).toEqual([])
+  })
+
+  it('creates no conversation for a navigation row when none is on screen, and shows nothing', async () => {
+    const result = await unreadBench(false)
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenNavItem({ kind: 'page', entryId: 'home' })
+    await injected.onOpenNavItem({ kind: 'view', entryId: 'sales' })
+    expectRefused(result, actions)
+  })
+
+  it('saves no patch from the section: a new group, a rename, a pin, a deletion, a removal, a move, or a drag', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onSaveMenu({ groups: [{ id: 'g1', name: 'Reports', pinned: false, order: 0 }] })
+    await injected.onSaveMenu({ workflows: [] })
+    await injected.onSaveMenu({ workflows: [WORKFLOW], groups: [] })
+    expectRefused(result, actions)
+  })
+
+  it('takes nothing off the temporary list: archives nothing and lands nowhere', async () => {
+    const result = await unreadBench()
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onDismissTemporary('session-loose', undefined, false)
+    await injected.onDismissTemporary('session-loose', 'home-1', true)
+    expectRefused(result, actions)
+  })
+
+  it('saves no new workflow from the header, and reads nothing for one, with the sidebar mounted or not', async () => {
+    for (const mounted of [true, false]) {
+      const result = await unreadBench()
+      const actions = mounted ? injectSidebar(result.ctx).actions : undefined
+      await injectHeaderAction(result.ctx, 'session-loose').onSave('session-loose', 'New Flow', NAV_SNAPSHOT)
+      expectRefused(result, actions)
+    }
   })
 })
 

@@ -231,6 +231,7 @@ export function ServerSidebarRoot({
   const groups = useStore(state => state.groups)
   const workbenchSessionId = useStore(state => state.workbenchSessionId)
   const workflowsError = useStore(state => state.error)
+  const menuUnreadable = useStore(state => state.unreadable)
   const temporaryFailed = useStore(state => state.temporaryFailed)
   const view = useStore(state => state.view)
 
@@ -304,7 +305,10 @@ export function ServerSidebarRoot({
   // session or a settled non-empty Workspace list before spending its one
   // shot (never spending it at all is the correct outcome for a deployment
   // that never gets a Workspace — see the package README's Known
-  // Limitations for that already-accepted edge case).
+  // Limitations for that already-accepted edge case). It is withheld too
+  // while the page could not read the menu: the recorded workbench is then
+  // unknown, and creating one would add a conversation the member's menu may
+  // already have, on every load.
   const hasWorkspace = useWorkspaces(state => state.phase === 'ready' && state.items.length > 0)
   const attemptedAutoOpen = useRef(false)
   useEffect(() => {
@@ -314,9 +318,10 @@ export function ServerSidebarRoot({
       return
     }
     if (!workbenchIsLive && !hasWorkspace) return
+    if (menuUnreadable) return
     attemptedAutoOpen.current = true
     void onOpenWorkbenchOnLoad(workbenchSessionId, workbenchIsLive)
-  }, [current, phase, workbenchSessionId, workbenchIsLive, hasWorkspace, onOpenWorkbenchOnLoad])
+  }, [current, phase, workbenchSessionId, workbenchIsLive, hasWorkspace, menuUnreadable, onOpenWorkbenchOnLoad])
 
   /* jscpd:ignore-start -- pointer-driven scrollbar behavior ported verbatim
    * from dsh-client-ui-sidebar's SidebarRoot (this file's module doc explains
@@ -404,6 +409,7 @@ export function ServerSidebarRoot({
           onSaveMenu={onSaveMenu}
           newGroupId={() => randomUUID()}
           error={workflowsError}
+          unreadable={menuUnreadable}
           t={t}
         />
         <TemporaryGroup

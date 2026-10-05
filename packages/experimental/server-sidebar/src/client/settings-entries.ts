@@ -5,12 +5,12 @@
  * entry's cell is its `id`: entries sharing one id coexist at distinct
  * priorities, and only the cell's lowest-priority entry renders
  * (`SlotCore.register`'s shadowing rule). This module registers
- * {@link WithheldSettingsEntry}, which renders nothing, at priority -1 under
- * each id below, so the owning package's own entry at the default priority 0
- * never mounts. The owning packages stay composed and keep their Config and
- * its values; only the control a person would use is gone. The
- * `dsh-experimental-console-profile` README states which of those values a
- * settings write can still change.
+ * {@link WithheldSettingsEntry}, which renders nothing, at
+ * {@link REPLACING_PRIORITY} under each id below, so the owning package's own
+ * entry at the default priority 0 never mounts. The owning packages stay
+ * composed and keep their Config and its values; only the control a person
+ * would use is gone. The `dsh-experimental-console-profile` README states
+ * which of those values a settings write can still change.
  *
  * - `busy-compaction` in Settings → General — `dsh-client-ui-chat`'s
  *   "Compaction while busy" row, which picks when a `/compact` typed during a
@@ -53,9 +53,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls ui-settings' declarations of `settings.general.item` and `settings.action`.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-
-/** Shadowing rank of the withholding entries: below the owning entries' default 0. */
-const WITHHOLDING_PRIORITY = -1
+import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 
 /**
  * The occupant of every withheld cell.
@@ -73,47 +71,47 @@ export function WithheldSettingsEntry(): null {
  */
 export function withholdSettingsEntries(ctx: ClientContext): void {
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'busy-compaction', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'busy-compaction', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the busy-compaction settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'auto-compact', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'auto-compact', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the auto-compact settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'language', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'language', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the language settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'appearance', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'appearance', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the appearance settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'font-size', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'font-size', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the font-size settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'transcript-view', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'transcript-view', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the transcript-view settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'performance-usage', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'performance-usage', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the performance-usage settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'link-opening', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'link-opening', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the link-opening settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'composer-enter', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'composer-enter', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the composer-enter settings row')
   ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
-    { name: 'settings.general.item', id: 'developer-tools', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.general.item', id: 'developer-tools', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the developer-tools settings row')
   ctx.effect(() => ctx.slots.inject('settings.action', () => ctx.slots.register(
-    { name: 'settings.action', id: 'open-document', priority: WITHHOLDING_PRIORITY },
+    { name: 'settings.action', id: 'open-document', priority: REPLACING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the open-document settings action')
 }

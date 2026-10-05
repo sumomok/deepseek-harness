@@ -6,7 +6,7 @@
  * client-side failure and filtering paths those never exercise.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readServerMenu, saveServerMenu } from '../src/client/workflow-api.ts'
+import { readServerMenu, saveServerMenu, ServerMenuRefusedError, ServerMenuUnplacedError } from '../src/client/workflow-api.ts'
 import type { ServerMenuGroup, ServerMenuWorkflow } from '../src/workflows.ts'
 
 const ROUTE = '/server-menu/workflows'
@@ -85,19 +85,35 @@ describe('readServerMenu', () => {
     expect(await readServerMenu()).toEqual(EMPTY)
   })
 
-  it('answers the empty document when the route responds non-200', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, json: () => Promise.resolve({}) })))
+  it('answers the empty document where nothing serves the route', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) })))
     expect(await readServerMenu()).toEqual(EMPTY)
   })
 
-  it('answers the empty document when the body has no workflows array', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })))
-    expect(await readServerMenu()).toEqual(EMPTY)
+  it('answers no document for a route that refuses, and reports the status to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const status of [401, 500, 503]) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status, json: () => Promise.resolve({ error: 'refused' }) })))
+      expect(await readServerMenu()).toBeUndefined()
+      expect(warn).toHaveBeenLastCalledWith(`server-sidebar: the menu could not be read: HTTP ${String(status)}`)
+    }
+    warn.mockRestore()
   })
 
-  it('contains a transport failure to the empty document rather than throwing', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network down'))))
-    expect(await readServerMenu()).toEqual(EMPTY)
+  it('answers the empty document when the body has no workflows array, or is no JSON object', async () => {
+    for (const json of [() => Promise.resolve({}), () => Promise.resolve(null), () => Promise.resolve(7), () => Promise.reject(new SyntaxError('not JSON'))]) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json })))
+      expect(await readServerMenu()).toEqual(EMPTY)
+    }
+  })
+
+  it('answers no document for a request that never reached the route, and reports it to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const failure = new Error('network down')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(failure)))
+    expect(await readServerMenu()).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith('server-sidebar: the menu could not be read:', failure)
+    warn.mockRestore()
   })
 })
 
@@ -147,11 +163,28 @@ describe('saveServerMenu', () => {
       .toEqual({ workflows: [], groups: [], workbenchSessionId: 'home-1' })
   })
 
-  it('throws the server\'s own error text on refusal', async () => {
+  it('throws a refusal the route answered as its own error, carrying the status and the server\'s own text', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: false, status: 400, json: () => Promise.resolve({ error: 'server-sidebar: duplicate workflow id "w1"' }),
     })))
-    await expect(saveServerMenu({ workflows: [] })).rejects.toThrow('server-sidebar: duplicate workflow id "w1"')
+    const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+    expect(refusal).toBeInstanceOf(ServerMenuRefusedError)
+    expect(refusal).toMatchObject({
+      name: 'ServerMenuRefusedError', status: 400, message: 'server-sidebar: duplicate workflow id "w1"', fields: undefined,
+    })
+  })
+
+  it('carries the field paths a refusal lists, and reads a list that is not one of strings as none', async () => {
+    const error = 'server-sidebar: workflows[0].homeSessionId, workbenchSessionId name conversations that belong to another member'
+    for (const [fields, carried] of [
+      [['workflows[0].homeSessionId', 'workbenchSessionId'], ['workflows[0].homeSessionId', 'workbenchSessionId']],
+      ['workbenchSessionId', undefined],
+      [['workbenchSessionId', 2], undefined],
+    ] as const) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error, fields }) })))
+      const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((thrown: unknown) => thrown)
+      expect({ fields, refusal }).toMatchObject({ fields, refusal: { status: 400, message: error, fields: carried } })
+    }
   })
 
   it('falls back to the HTTP status when the refusal body carries no usable error text', async () => {
@@ -159,6 +192,23 @@ describe('saveServerMenu', () => {
       ok: false, status: 503, json: () => Promise.reject(new Error('not json')),
     })))
     await expect(saveServerMenu({ workflows: [] })).rejects.toThrow('server-menu save failed: HTTP 503')
+  })
+
+  it('throws a refusal that reached no member\'s menu as its own error, carrying the status and the text', async () => {
+    for (const [status, body, message] of [
+      [401, { error: 'server-sidebar: the server-menu route could not tell which member sent this request' }, 'server-sidebar: the server-menu route could not tell which member sent this request'],
+      [503, {}, 'server-menu save failed: HTTP 503'],
+    ] as const) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) })))
+      const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+      expect(refusal).toBeInstanceOf(ServerMenuUnplacedError)
+      expect(refusal).toMatchObject({ name: 'ServerMenuUnplacedError', status, message })
+    }
+    // Any other refusal is one the route answered.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })))
+    const other: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+    expect(other).not.toBeInstanceOf(ServerMenuUnplacedError)
+    expect(other).toMatchObject({ name: 'ServerMenuRefusedError', status: 400, message: 'server-menu save failed: HTTP 400' })
   })
 
   it('throws when a 200 answers a body that cannot be parsed as JSON', async () => {

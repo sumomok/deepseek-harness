@@ -17,7 +17,10 @@
  * the Settings entries the console withholds (`ui-chat`'s busy-compaction row,
  * the vendored `@haoran/dsh-auto-compact` row, and the Settings header's
  * configuration-file action) while both console presets reach the compaction
- * engine the plugin drives,
+ * engine the plugin drives, the keyboard shortcuts the shortcut reference
+ * leaves out and whose keys do nothing in a real browser, the right column
+ * with no expand button in the conversation header and opened by a file a
+ * visitor clicks,
  * the Host administration Remote methods the console bundle disables, which
  * answer 404 to a request the login cookie admits while the console's own
  * Remote calls answer,
@@ -48,10 +51,11 @@
  * `rail-search-expand.e2e.ts` uses for a pure client-layout scenario: every
  * session those describes open is created live through the UI with no message
  * ever typed into the composer.
- * The one exception is the "Save as workflow" and de-terminology scenario,
+ * The exceptions are the "Save as workflow" and de-terminology scenario,
  * which needs a real user-authored message on the log to satisfy decision
  * ③'s visibility gate and a real closed step to satisfy the turns/steps row's
- * render condition — both seeded directly onto the live agent's session
+ * render condition, and the file-link scenario, which needs a reply that
+ * links a file — each seeded directly onto the live agent's session
  * (`agent.session.append(..., { surfaceOp: 'append' })`, the same technique
  * `seeded-history.e2e.ts` uses to inject a durable message without a model
  * call) rather than driven through the composer.
@@ -131,6 +135,14 @@ const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
  * scenario below pins it as the one leak this package cannot close.
  */
 const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
+
+/** A file in the working directory a visitor references with `@`, and its one line. */
+const REPORT_FILE = 'orders-q3.txt'
+const REPORT_TEXT = 'Orders shipped in Q3: 42\n'
+/** A file in the working directory a seeded reply links, its one line, and the link's text. */
+const SUMMARY_FILE = 'returns-q3.txt'
+const SUMMARY_TEXT = 'Returns in Q3: 3\n'
+const SUMMARY_LINK = 'Q3 returns'
 
 /**
  * The customer-facing name of the preset the console bundle pins as
@@ -485,6 +497,34 @@ function seedUntitledTurn(scaffold: WebScaffold, sessionId: string): void {
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
 
+/**
+ * Close one more turn on a session whose reply links a file of its working
+ * directory by a relative Markdown link, with no model call.
+ * @param scaffold - the running scaffold.
+ * @param sessionId - the session to append to; must have a live agent.
+ * @param turn - the turn's number, one past the session's last.
+ * @param label - the link's text.
+ * @param file - the linked file, relative to the working directory.
+ */
+function seedFileLinkReply(scaffold: WebScaffold, sessionId: string, turn: number, label: string, file: string): void {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
+  agent.session.append('turn/start', { turn })
+  agent.session.append('step/start', { turn, step: 1 })
+  agent.session.append('assistant/message', {
+    turn,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: `See [${label}](${file}).` }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+    stream: [],
+  }, { surfaceOp: 'append' })
+  agent.session.append('step/end', { turn, step: 1 })
+  agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+}
+
 /** The release version the client build embeds, which Settings → General shows. */
 const { version: CLIENT_VERSION } = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }
 
@@ -496,6 +536,34 @@ const WITHHELD_GENERAL_TITLES = [
   'Compaction while busy', 'Automatic compaction', 'Language', 'Appearance', 'Font size', 'Work details',
   'Performance & usage', 'Open chat links in', 'Send behavior while busy', 'Show coding view',
 ] as const
+
+/**
+ * The English labels `dsh-client-ui-workspace`, `dsh-client-ui-sidebar-files`,
+ * and `dsh-client-ui-sidebar-right` give the eight keyboard shortcuts
+ * `server-sidebar` withholds (`console-shortcuts.ts`). The console profile also
+ * disables `ui-sidebar-files`, so its shortcut is never registered there.
+ */
+const WITHHELD_SHORTCUT_LABELS = [
+  'New Session', 'Search sessions', 'Add workspace', 'Rename session', 'Fork session', 'Archive session', 'Workspace files',
+  'Toggle right sidebar',
+] as const
+
+/**
+ * Each withheld command's Web default on this device, the right column's
+ * toggle among them, and the shortcut reference's, as Playwright names the
+ * keys: `primary` is Meta on macOS and Control on Windows. A Linux browser
+ * has no Web default for any of them, so it has no key to press.
+ */
+const WITHHELD_SHORTCUT_KEYS = process.platform === 'darwin' || process.platform === 'win32'
+  ? (() => {
+    const primary = process.platform === 'darwin' ? 'Meta' : 'Control'
+    return {
+      new: `${primary}+Alt+KeyN`, search: `${primary}+Alt+KeyK`, add: `${primary}+Alt+KeyO`, rename: `${primary}+Alt+KeyG`,
+      fork: `${primary}+Shift+KeyF`, archive: `${primary}+Alt+KeyA`, files: `${primary}+Alt+KeyP`, reference: `${primary}+Slash`,
+      rightColumn: `${primary}+Shift+KeyB`,
+    }
+  })()
+  : undefined
 
 /**
  * One settings write per namespace the console's lock holds, each to a valid
@@ -555,6 +623,10 @@ describe('web e2e: the product-console sidebar', () => {
     // Renaming this directory to something innocuous weakens that scan.
     const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
     await mkdir(workspaceDir, { recursive: true })
+    // The files the right column's document tab opens, written before the
+    // Workspace connects so the Host's file index never races their creation.
+    await writeFile(join(workspaceDir, REPORT_FILE), REPORT_TEXT)
+    await writeFile(join(workspaceDir, SUMMARY_FILE), SUMMARY_TEXT)
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)
 
     browser = await chromium.launch()
@@ -1038,6 +1110,193 @@ describe('web e2e: the product-console sidebar', () => {
     expect(forms.find(form => form.ns === 'ui-conversation')?.value).toMatchObject({ busyEnter: 'queue' })
     expect(forms.find(form => form.ns === 'ui-settings')?.value).toMatchObject({ enabled: false })
   }, 30_000)
+
+  it('lists in the shortcut reference none of the shortcuts the console withholds, and no row in its vocabulary', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-shortcut-reference'))
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    const reference = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    // A failed check below would otherwise leave both dialogs over the next test.
+    onTestFinished(async () => {
+      if (await reference.count() > 0) await page.keyboard.press('Escape')
+      if (await settings.count() > 0) await page.keyboard.press('Escape')
+    })
+    await settings.waitFor({ timeout: 10_000 })
+    await settings.getByRole('button', { name: 'Edit shortcuts', exact: true }).click()
+    await reference.waitFor({ timeout: 10_000 })
+    // Both halves: the reference lists its rows — the shell's own among them —
+    // and none of the withheld ones. Absence alone would pass on a reference
+    // that drew no rows at all.
+    const labels = reference.locator('[class*="commandLabel"]')
+    await expect.poll(() => labels.allInnerTexts(), { timeout: 10_000 }).toContain('Open keyboard shortcuts')
+    const listed = await labels.allInnerTexts()
+    for (const label of [...WITHHELD_SHORTCUT_LABELS, 'Remove from list']) {
+      expect({ label, listed: listed.includes(label) }).toEqual({ label, listed: false })
+    }
+    for (const label of listed) {
+      for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /\barchive\b/i, /会话/, /工作区/, /归档/]) {
+        expect(label, `banned text matched ${String(banned)}`).not.toMatch(banned)
+      }
+    }
+    await page.keyboard.press('Escape')
+    await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
+  }, 30_000)
+
+  it.skipIf(WITHHELD_SHORTCUT_KEYS === undefined)(
+    'runs none of the withheld commands for its key in a real browser, while the shell\'s own keys still run',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-withheld-keys'))
+      const keys = WITHHELD_SHORTCUT_KEYS!
+      // The page rests on "My Workflow"'s own conversation, which has run a
+      // turn: every withheld command has a target here, so a key that reached
+      // the registry would act on it.
+      const workflowRow = workflowsSection(page).getByRole('button', { name: /My Workflow/ })
+      await expect(workflowRow.getAttribute('data-active')).resolves.toBe('true')
+      await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      const temporaryRows = sidebar(page).locator('[data-server-sidebar-section="temporary"] li')
+      const temporaryBefore = await temporaryRows.count()
+      const archivedBefore = [...scaffold.ctx.workspaceRegistry.archivedSessionIds]
+      const menuBefore = readServerMenu(scaffold)
+
+      for (const key of [keys.new, keys.search, keys.add, keys.rename, keys.fork, keys.archive, keys.files, keys.rightColumn]) {
+        await page.keyboard.press(key)
+      }
+      // The registry runs a command synchronously on the press; a fork or an
+      // archive it started would land within this wait.
+      await page.waitForTimeout(1_000)
+      expect(await page.getByRole('dialog').count()).toBe(0)
+      expect(await page.locator('[data-sidebar-right-open]').count()).toBe(0)
+      expect(await page.getByText(/removed from the list/).count()).toBe(0)
+      expect(await page.getByRole('tab', { name: 'Files' }).count()).toBe(0)
+      expect(await page.getByText(LEAKED_PLACEHOLDER).count()).toBe(0)
+      await expect(workflowRow.getAttribute('data-active')).resolves.toBe('true')
+      await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 5_000 })
+      expect(await temporaryRows.count()).toBe(temporaryBefore)
+      expect([...scaffold.ctx.workspaceRegistry.archivedSessionIds]).toEqual(archivedBefore)
+      expect(readServerMenu(scaffold)).toEqual(menuBefore)
+
+      // The shell's own key still reaches the registry: the presses above were
+      // delivered, and consumed only where a withheld command held them.
+      await page.keyboard.press(keys.reference)
+      const reference = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+      await reference.waitFor({ timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
+    },
+    30_000,
+  )
+
+  it('draws no expand button in the conversation header, whose corner holds nothing', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-no-expand-button'))
+    // The corner is drawn with the header of the conversation on screen, and
+    // holds the slot's own anchor, which every slot outlet draws.
+    const corners = page.locator('[data-conversation-header-corner]')
+    const anchors = corners.locator('> [data-slot="conversation.session.header.corner"]')
+    await anchors.first().waitFor({ state: 'attached', timeout: 15_000 })
+    expect(await page.locator('[data-sidebar-right-open]').count()).toBe(0)
+    expect(await page.locator('[data-sidebar-right-expand]').count()).toBe(0)
+    const nothing = Array.from({ length: await corners.count() }, () => [0, 0])
+    const drawn = anchors.evaluateAll(nodes => nodes.map(node => [
+      node.childNodes.length, node.parentElement?.getBoundingClientRect().width,
+    ]))
+    await expect(drawn).resolves.toEqual(nothing)
+  }, 30_000)
+
+  it('opens the right column on the document tab of a file referenced with @ when its chip is clicked, and only a file reopens it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-chip-document'))
+    const input = composer(page, ESTABLISHED_PLACEHOLDER)
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+    const column = page.locator('[data-sidebar-right-open]')
+    // A failed check below would otherwise leave the draft and the open column over the next test.
+    onTestFinished(async () => {
+      if (await column.count() > 0) await column.locator('[data-sidebar-right-toggle]').click()
+      await writeComposerDraft(page, input, '')
+    })
+    expect(await column.count()).toBe(0)
+    await writeComposerDraft(page, input, `@${REPORT_FILE}`)
+    // The menu keeps an earlier query's rows while the next loads, so the
+    // click waits for the settled list.
+    await expect.poll(() => menu.getByRole('option').allTextContents(), { timeout: 15_000 }).toEqual([REPORT_FILE])
+    await menu.getByRole('option', { name: REPORT_FILE, exact: true }).click()
+    const chip = input.locator('[data-composer-chip]')
+    await expect.poll(() => chip.textContent(), { timeout: 10_000 }).toBe(REPORT_FILE)
+    await chip.click()
+    await column.waitFor({ timeout: 10_000 })
+    await expect.poll(() => column.locator('[data-dockkit-tab-title]').allTextContents(), { timeout: 10_000 }).toEqual([REPORT_FILE])
+    await expect.poll(() => column.locator('[data-textpreview-line="1"]').textContent(), { timeout: 10_000 }).toBe(REPORT_TEXT)
+    expect(await page.getByRole('tab', { name: 'Files' }).count()).toBe(0)
+    await evidence(page, 'web-e2e-server-sidebar-chip-document')
+
+    // Collapsed from its own control, the column leaves no button behind to
+    // reopen it: the expand button would be drawn exactly now.
+    await column.locator('[data-sidebar-right-toggle]').click()
+    await expect.poll(() => column.count(), { timeout: 10_000 }).toBe(0)
+    expect(await page.locator('[data-sidebar-right-expand]').count()).toBe(0)
+    await chip.click()
+    await column.waitFor({ timeout: 10_000 })
+    await expect.poll(() => column.locator('[data-textpreview-line="1"]').textContent(), { timeout: 10_000 }).toBe(REPORT_TEXT)
+  }, 30_000)
+
+  it('opens the right column on the document tab of a file the conversation links when the link is clicked', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-link-document'))
+    const column = page.locator('[data-sidebar-right-open]')
+    onTestFinished(async () => {
+      if (await column.count() > 0) await column.locator('[data-sidebar-right-toggle]').click()
+    })
+    // The page rests on "My Workflow"'s own conversation, which has closed one turn.
+    const sessionId = readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow')!.homeSessionId
+    seedFileLinkReply(scaffold, sessionId, 2, SUMMARY_LINK, SUMMARY_FILE)
+    const link = page.getByRole('button', { name: SUMMARY_LINK, exact: true })
+    await link.waitFor({ timeout: 15_000 })
+    expect(await column.count()).toBe(0)
+    await link.click()
+    await column.waitFor({ timeout: 10_000 })
+    await expect.poll(() => column.locator('[data-dockkit-tab-title]').allTextContents(), { timeout: 10_000 }).toContain(SUMMARY_FILE)
+    await expect.poll(() => column.locator('[data-textpreview-line="1"]').textContent(), { timeout: 10_000 }).toBe(SUMMARY_TEXT)
+    expect(await page.getByRole('tab', { name: 'Files' }).count()).toBe(0)
+  }, 30_000)
+
+  it('restores a Files tab a browser kept from before the upgrade under its saved title, with the line for a kind nothing views and no directory path of the Host', async () => {
+    // What `ui-sidebar-right` keeps under `dsh.sidebar-right.v1.<session>` for
+    // a conversation whose column showed the Files tab: one docked pane holding
+    // that page, titled with the Files type's label in the language of the
+    // page that opened it. A page loaded with no conversation open lands on
+    // the workbench, so the layout is kept for the workbench's conversation.
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+    const sessionId = readServerMenu(scaffold).workbenchSessionId!
+    const kept = {
+      bySession: {
+        [sessionId]: {
+          layout: {
+            nodes: { pane1: { kind: 'pane', id: 'pane1', host: 'dock', tabs: ['tab1'], activeTabId: 'tab1' } },
+            tabs: { tab1: { id: 'tab1', kind: 'files', contentId: 'sidebar://files', title: '文件' } },
+            rootId: 'pane1', floats: [], activePaneId: 'pane1', expanded: true, mode: 'push',
+          },
+          minted: 1,
+        },
+      },
+    }
+    const zhPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+    onTestFinished(() => zhPage.close())
+    onTestFailed(() => saveFailureShot(zhPage, 'web-e2e-server-sidebar-restored-files-tab'))
+    await zhPage.addInitScript(({ key, value }) => {
+      if (window === window.top) localStorage.setItem(key, value)
+    }, { key: `dsh.sidebar-right.v1.${sessionId}`, value: JSON.stringify(kept) })
+    await zhPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(zhPage).waitFor({ timeout: 30_000 })
+    const column = zhPage.locator('[data-sidebar-right-open]')
+    await column.waitFor({ timeout: 15_000 })
+    const unavailable = column.locator('[data-sidebar-right-unavailable]')
+    await unavailable.waitFor({ state: 'visible', timeout: 10_000 })
+    await expect(unavailable.innerText()).resolves.toBe('这类内容还没有可用的查看方式。')
+    await expect(column.locator('[data-dockkit-tab]').allInnerTexts()).resolves.toEqual(['文件'])
+    const text = await zhPage.locator('body').innerText()
+    expect(text).not.toContain(scaffold.workspaceCwd)
+    expect(text).not.toContain('server-sidebar-workspace')
+    await evidence(zhPage, 'web-e2e-server-sidebar-restored-files-tab')
+  }, 60_000)
 
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
     // `remote.settings` answers any browser the deployment admits, so the

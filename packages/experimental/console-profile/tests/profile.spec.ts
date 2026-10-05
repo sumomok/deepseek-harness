@@ -149,6 +149,19 @@ const TERMINAL_ROWS = [
   ['terminal-controller', '@deepseek-ai/dsh-api-terminal-controller'],
   ['ui-sidebar-terminal', '@deepseek-ai/dsh-client-ui-sidebar-terminal'],
 ] as const
+/** The right sidebar's Files tab, a file tree labelled with the working directory's path on the Host. */
+const FILES_TAB_ROWS = [
+  ['ui-sidebar-files', '@deepseek-ai/dsh-client-ui-sidebar-files'],
+] as const
+/**
+ * The right sidebar itself, its document tab, and the Remote the document tab
+ * reads files through, which the console keeps beside the Files tab's removal.
+ */
+const KEPT_RIGHT_SIDEBAR_ROWS = [
+  ['ui-sidebar-right', '@deepseek-ai/dsh-client-ui-sidebar-right'],
+  ['ui-sidebar-documentpreview', '@deepseek-ai/dsh-client-ui-sidebar-documentpreview'],
+  ['workspace-files', '@deepseek-ai/dsh-api-workspace-files'],
+] as const
 /** The only model-discovery registrant, whose volatile `providers` field adds routes with their own endpoint and credential reference. */
 const PROVIDER_DISCOVERY_ROWS = [
   ['llm-pi-ai', '@deepseek-ai/dsh-llm-pi-ai'],
@@ -494,6 +507,15 @@ describe('the console layer over the shipped Web bundles', () => {
 
   it('turns interactive terminals off by id, both halves, while the shipped Web bundle still composes them', () => {
     expectDisabledHereComposedThere(TERMINAL_ROWS)
+  })
+
+  it('turns the right sidebar\'s Files tab off by id, and keeps the column, its document tab, and the file reads that tab makes', () => {
+    expectDisabledHereComposedThere(FILES_TAB_ROWS)
+    for (const [id, name] of KEPT_RIGHT_SIDEBAR_ROWS) {
+      expect(rowOf(CONSOLE_PATCH, id)).toBeUndefined()
+      expect(byId.get(id)).toMatchObject({ name })
+      expect(byId.get(id)?.disabled).not.toBe(true)
+    }
   })
 
   it('turns provider discovery off by id, while the shipped base bundle still composes it', () => {

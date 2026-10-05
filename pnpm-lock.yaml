@@ -8914,9 +8914,15 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:*
         version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../../client/locale
+      '@deepseek-ai/dsh-client-shortcuts':
+        specifier: workspace:*
+        version: link:../../client/shortcuts
       '@deepseek-ai/dsh-client-store':
         specifier: workspace:*
         version: link:../../client/store
@@ -8941,6 +8947,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-settings':
         specifier: workspace:*
         version: link:../../client/ui-settings
+      '@deepseek-ai/dsh-client-ui-shortcuts':
+        specifier: workspace:*
+        version: link:../../client/ui-shortcuts
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: workspace:*
         version: link:../../client/ui-sidebar
@@ -8959,6 +8968,9 @@ importers:
       '@deepseek-ai/dsh-experimental-component-surface':
         specifier: workspace:*
         version: link:../component-surface
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-content-frame':
         specifier: workspace:*
         version: link:../content-frame
@@ -8980,6 +8992,9 @@ importers:
       '@deepseek-ai/dsh-util-crypto':
         specifier: workspace:*
         version: link:../../util/crypto
+      '@deepseek-ai/dsh-util-values':
+        specifier: workspace:*
+        version: link:../../util/values
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31

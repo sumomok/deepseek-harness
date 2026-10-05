@@ -63,6 +63,7 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
         groups: never[]
         workbenchSessionId: undefined
         error: undefined
+        unreadable: false
         temporaryFailed: false
         view: { collapsed: Record<string, boolean>; temporaryExpanded: boolean }
       }) => S): S => sel({
@@ -70,6 +71,7 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
         groups: [],
         workbenchSessionId: undefined,
         error: undefined,
+        unreadable: false,
         temporaryFailed: false,
         view: { collapsed: {}, temporaryExpanded: false },
       }))}

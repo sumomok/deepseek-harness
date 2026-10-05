@@ -1653,6 +1653,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'an entry in \'conversation.session.header\' (client-ui-conversation), so it exists while that entry is mounted',
     occupants: [
       'client-ui-sidebar-right ExpandButton',
+      'experimental-server-sidebar () => null',
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.session.header.corner\', () => ctx.slots.register(\n      { name: \'conversation.session.header.corner\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -3209,6 +3210,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'experimental-page-refresh PageRefreshBanner id \'page-refresh.banner\'',
       'experimental-server-sidebar StopAndRemoveDialog id \'workspace.session-archive\'',
       'experimental-server-sidebar WorkspaceNotice id \'workspace.row-toast\'',
+      'experimental-server-sidebar WithheldReference id \'shortcuts\'',
+      'experimental-server-sidebar ShortcutReference id \'shortcuts\'',
+      'experimental-server-sidebar WithheldRenameDialog id \'workspace.session-rename\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'shell.overlay\', () => ctx.slots.register(\n      { name: \'shell.overlay\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',

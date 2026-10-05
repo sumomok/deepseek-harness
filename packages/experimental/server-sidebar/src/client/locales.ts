@@ -20,7 +20,13 @@
  * carries no interpolation slot for the same reason: a refused archive rejects
  * with the host runtime's own wording (`session archive failed: …`), so the
  * refusal goes to the browser console and the section says only that the
- * removal did not go through.
+ * removal did not go through. A refused save of the menu is worded the same
+ * way: `workflows.error` frames one of `workflows.retry`, the
+ * `workflows.foreign` and `workflows.foreignWorkbench` pairs, which quote
+ * entries with `workflows.foreignItem` and join them with
+ * `workflows.foreignSeparator`, `workflows.refused`, or `workflows.later`
+ * (`save-refusal.ts`), never the server's refusal, whose text names fields
+ * such as `workbenchSessionId`.
  */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
@@ -34,6 +40,16 @@ export const zh = {
   'workflows.remove': '移除',
   'workflows.namePlaceholder': '工作流名称',
   'workflows.error': '保存失败：{message}',
+  'workflows.retry': '请刷新页面后重试',
+  'workflows.foreign.one': '{items}指向别人的对话，请先把它移除再保存',
+  'workflows.foreign.other': '{items}指向别人的对话，请先把它们移除再保存',
+  'workflows.foreignWorkbench.one': '{items}指向别人的对话，这次修改没有保存',
+  'workflows.foreignWorkbench.other': '{items}指向别人的对话，这次修改没有保存',
+  'workflows.foreignItem': '「{name}」',
+  'workflows.foreignSeparator': '、',
+  'workflows.refused': '这次修改没有被接受，请刷新页面后再改',
+  'workflows.later': '请稍后再试',
+  'workflows.unreadable': '菜单没有读出来，请刷新页面后重试',
   'groups.new': '新建分组',
   'groups.namePlaceholder': '分组名称',
   'groups.rename': '重命名分组',
@@ -84,6 +100,9 @@ export const zh = {
 /** The serverSidebar namespace key union. */
 export type ServerSidebarKey = keyof typeof zh
 
+/** This package's dictionary lookup, as `ctx.locale.bind` returns it: a key, and the values of its `{name}` slots. */
+export type ServerSidebarTranslate = (key: ServerSidebarKey, values?: Record<string, string>) => string
+
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'workbench.label': 'Workbench',
@@ -95,6 +114,16 @@ export const en = {
   'workflows.remove': 'Remove',
   'workflows.namePlaceholder': 'Workflow name',
   'workflows.error': 'Failed to save: {message}',
+  'workflows.retry': 'refresh the page and try again',
+  'workflows.foreign.one': 'the chat behind {items} is someone else’s; remove it, then save again',
+  'workflows.foreign.other': 'the chats behind {items} are someone else’s; remove them, then save again',
+  'workflows.foreignWorkbench.one': 'the chat behind {items} is someone else’s; the change was not saved',
+  'workflows.foreignWorkbench.other': 'the chats behind {items} are someone else’s; the change was not saved',
+  'workflows.foreignItem': '“{name}”',
+  'workflows.foreignSeparator': ', ',
+  'workflows.refused': 'the change was not accepted; refresh the page and make it again',
+  'workflows.later': 'try again in a moment',
+  'workflows.unreadable': 'The menu could not be loaded; refresh the page and try again',
   'groups.new': 'New group',
   'groups.namePlaceholder': 'Group name',
   'groups.rename': 'Rename group',

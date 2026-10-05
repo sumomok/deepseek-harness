@@ -76,6 +76,18 @@
     },
     {
       "path": "../content-surface"
+    },
+    {
+      "path": "../console-members"
+    },
+    {
+      "path": "../../util/values"
+    },
+    {
+      "path": "../../client/shortcuts/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-shortcuts"
     }
   ]
 }

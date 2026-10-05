@@ -9,6 +9,10 @@
  * A decoded workflow is passed through as it arrived rather than rebuilt field
  * by field, so a field a given release of this browser half makes no use of
  * survives a read, an edit of some other field, and the write back.
+ *
+ * Which menu a request reads and writes is the node half's to decide: the one
+ * this process keeps, or, in a process serving several console members, the
+ * menu of the member the request was admitted as. Nothing here names a member.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-api
  */
 import { SERVER_MENU_ROUTE } from '../route.ts'
@@ -42,8 +46,55 @@ export interface ServerMenuPatch {
   workbenchSessionId?: string
 }
 
-/** The empty document a failed or absent read answers. */
+/** The empty document a read answers where no route serves the menu. */
 const EMPTY_STATE: ServerMenuState = { workflows: [], groups: [], workbenchSessionId: undefined }
+
+/**
+ * A save refused 401 or 503: the request reached no member's menu, because it
+ * could not be placed with a member or nothing was running to place it. The
+ * message is the refusal as the server or whatever sits in front of it gave
+ * it, which is not text for the console's screen.
+ */
+export class ServerMenuUnplacedError extends Error {
+  override readonly name = 'ServerMenuUnplacedError'
+
+  /**
+   * @param message - the refusal's own text.
+   * @param status - the refusal's HTTP status.
+   */
+  constructor(message: string, readonly status: 401 | 503) {
+    super(message)
+  }
+}
+
+/**
+ * A save the route refused with any status but 401 and 503: the request
+ * reached the route, which did not save the patch. The message is the refusal
+ * as the server gave it, which is not text for the console's screen.
+ */
+export class ServerMenuRefusedError extends Error {
+  override readonly name = 'ServerMenuRefusedError'
+
+  /**
+   * @param message - the refusal's own text.
+   * @param status - the refusal's HTTP status.
+   * @param fields - the field paths the refusal lists, such as
+   * `workflows[2].homeSessionId`, which the per-member route answers for a
+   * save naming another member's conversations; undefined when it lists none.
+   */
+  constructor(message: string, readonly status: number, readonly fields: readonly string[] | undefined) {
+    super(message)
+  }
+}
+
+/**
+ * Narrow a refusal's decoded `fields` to a list of field paths.
+ * @param value - the decoded member.
+ * @returns the list when it is an array of strings; undefined otherwise.
+ */
+function readFields(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every(field => typeof field === 'string') ? value : undefined
+}
 
 /**
  * Narrow one decoded `navSnapshot` entry to a usable {@link NavSnapshotItem}.
@@ -104,18 +155,39 @@ function readState(body: { workflows?: unknown; groups?: unknown; workbenchSessi
  * `nav-catalog.ts#readCatalog` contains its own: a deployment without the
  * settings capability composed (so this package's own node half never claims
  * the route) is an ordinary, expected composition, and the menu renders
- * empty rather than taking the sidebar down with it.
- * @returns the current document; the empty document when the route is
- * unreachable, answers non-200, or answers an unusable body.
+ * empty rather than taking the sidebar down with it. A route that is there
+ * and refuses — a request it places with no member, a member directory that
+ * is not running, a member's menu it cannot read — and a request that never
+ * reached it answer no document at all, reported to the browser console: a
+ * caller that read such a failure as the empty menu would create a workbench
+ * the menu already has, or write back a workflow list without the workflows
+ * it could not read.
+ * @returns the current document; the empty document when nothing serves the
+ * route (404) or the answer is no JSON object; undefined when the route
+ * answers any other non-200 or cannot be reached.
  */
-export async function readServerMenu(): Promise<ServerMenuState> {
+export async function readServerMenu(): Promise<ServerMenuState | undefined> {
+  let response: Response
   try {
-    const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
-    if (!response.ok) return EMPTY_STATE
-    return readState(await response.json() as { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown })
-  } catch {
+    response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
+  } catch (error) {
+    console.warn('server-sidebar: the menu could not be read:', error)
+    return undefined
+  }
+  if (response.status === 404) return EMPTY_STATE
+  if (!response.ok) {
+    console.warn(`server-sidebar: the menu could not be read: HTTP ${String(response.status)}`)
+    return undefined
+  }
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch (_notJson) {
+    // An answer that is no JSON document is a page served in place of a
+    // route nothing registered, which is the menu's absence.
     return EMPTY_STATE
   }
+  return typeof body === 'object' && body !== null ? readState(body) : EMPTY_STATE
 }
 
 /**
@@ -125,9 +197,11 @@ export async function readServerMenu(): Promise<ServerMenuState> {
  * `src/index.ts`).
  * @param patch - the fields to change (see {@link ServerMenuPatch}).
  * @returns the server's authoritative resulting document.
- * @throws {Error} when the request fails transport-level, answers non-200,
- * or answers a document with no usable shape; the message names the
- * server's own refusal text when one was given.
+ * @throws {ServerMenuUnplacedError} when the route answers 401 or 503.
+ * @throws {ServerMenuRefusedError} when the route answers any other non-2xx;
+ * the message is the server's own refusal text when one was given.
+ * @throws {Error} when the request fails transport-level, or a 2xx answers a
+ * document with no usable shape.
  */
 export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenuState> {
   const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), {
@@ -136,9 +210,11 @@ export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenu
     body: JSON.stringify(patch),
   })
   const body = await response.json().catch(() => undefined) as
-    { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown } | undefined
+    { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown; fields?: unknown } | undefined
   if (!response.ok) {
-    throw new Error(typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`)
+    const refusal = typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`
+    if (response.status === 401 || response.status === 503) throw new ServerMenuUnplacedError(refusal, response.status)
+    throw new ServerMenuRefusedError(refusal, response.status, readFields(body?.fields))
   }
   if (body === undefined) {
     throw new Error('server-menu save answered no usable document')

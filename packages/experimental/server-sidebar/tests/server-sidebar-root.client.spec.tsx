@@ -60,6 +60,8 @@ interface Bench {
   groups: ServerMenuGroup[]
   workbenchSessionId: string | undefined
   workflowsError: string | undefined
+  /** Whether the page could not read the menu when it loaded. */
+  unreadable: boolean
   /** Whether the last 移出列表 was refused, which the temporary section reports itself. */
   temporaryFailed: boolean
   view: { collapsed: Record<string, boolean>; temporaryExpanded: boolean }
@@ -101,6 +103,7 @@ function mount(overrides: Partial<Bench> = {}) {
     groups: [],
     workbenchSessionId: undefined,
     workflowsError: undefined,
+    unreadable: false,
     temporaryFailed: false,
     view: { collapsed: {}, temporaryExpanded: false },
     current: undefined,
@@ -128,6 +131,7 @@ function mount(overrides: Partial<Bench> = {}) {
         groups: ServerMenuGroup[]
         workbenchSessionId: string | undefined
         error: string | undefined
+        unreadable: boolean
         temporaryFailed: boolean
         view: Bench['view']
       }) => S): S => sel({
@@ -135,6 +139,7 @@ function mount(overrides: Partial<Bench> = {}) {
         groups: current.groups,
         workbenchSessionId: current.workbenchSessionId,
         error: current.workflowsError,
+        unreadable: current.unreadable,
         temporaryFailed: current.temporaryFailed,
         view: current.view,
       }))}
@@ -368,6 +373,27 @@ describe('ServerSidebarRoot', () => {
       b.rerender({ current: 'elsewhere' })
       b.rerender({ hasWorkspace: true })
       expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+    })
+
+    it('withholds the attempt while the menu could not be read, firing once the store holds a document', () => {
+      const b = mount({ phase: 'ready', current: undefined, unreadable: true })
+      expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+      b.rerender({ unreadable: false, workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home' } } })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith('home-1', true)
+    })
+  })
+
+  describe('a menu the page could not read', () => {
+    it('says so in the workflows section, in fixed copy and apart from a failed save', () => {
+      mount({ unreadable: true, workflowsError: 'refresh the page and try again' })
+      const alerts = screen.getAllByRole('alert').map(alert => alert.textContent)
+      expect(alerts).toEqual([en['workflows.unreadable'], 'Failed to save: refresh the page and try again'])
+    })
+
+    it('says nothing of the kind once the menu reads', () => {
+      mount({ unreadable: false })
+      expect(screen.queryByText(en['workflows.unreadable'])).toBeNull()
     })
   })
 

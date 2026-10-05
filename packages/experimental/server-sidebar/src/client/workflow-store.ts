@@ -1,7 +1,8 @@
 /**
  * The sidebar entry's server-menu store: the workflow list, the group list,
- * the workbench session id, the last save error and whether the last 移出列表
- * was refused (each shown inline in the section its click was in), and the browser-local
+ * the workbench session id, whether the page could read the menu at all, the
+ * last save error and whether the last 移出列表 was refused (each shown inline
+ * in the section its click was in), and the browser-local
  * view preferences (which groups are collapsed, and whether the temporary
  * group shows every row). Module level exports the factory
  * only; a module-level handle would pin the store's identity in the module
@@ -47,6 +48,14 @@ export interface ServerMenuStoreState {
   workbenchSessionId: string | undefined
   /** The last save's failure message, cleared by the next successful save. */
   error: string | undefined
+  /**
+   * Whether the page could not read the menu when it loaded: the three
+   * fields above are then the empty menu standing in for one the page does
+   * not know, not the member's menu. The browser half saves nothing while it
+   * is set (see `client/index.ts`), so it holds until the page is reloaded;
+   * `setServerMenu` clears it, since the document it takes is authoritative.
+   */
+  unreadable: boolean
   /**
    * Whether the last 移出列表 was refused, cleared by the next one that is
    * not. A flag rather than a message: the refusal's own text is the host
@@ -181,18 +190,24 @@ function initialView(groups: readonly ServerMenuGroup[]): SidebarViewState {
  * `dsh-experimental-content-frame`'s own client half awaits its settings
  * route before claiming its slot, rather than rendering a loading state — and
  * with the view preferences this browser last remembered.
- * @param initial - the document read before registration.
+ * @param initial - the document read before registration, or `undefined`
+ * when the page could not read one: the store then starts from the empty
+ * menu marked {@link ServerMenuStoreState.unreadable}, and keeps every
+ * remembered fold, since no document says which groups are gone.
  * @returns the store handle (spec + type + identity + factory in one).
  */
-export function createWorkflowStore(initial: ServerMenuState): EngineStoreHandle<ServerMenuStoreState, ServerMenuStoreActions> {
+export function createWorkflowStore(
+  initial: ServerMenuState | undefined,
+): EngineStoreHandle<ServerMenuStoreState, ServerMenuStoreActions> {
   return defineStore({
     init: (): ServerMenuStoreState => ({
-      workflows: [...initial.workflows],
-      groups: [...initial.groups],
-      workbenchSessionId: initial.workbenchSessionId,
+      workflows: [...initial?.workflows ?? []],
+      groups: [...initial?.groups ?? []],
+      workbenchSessionId: initial?.workbenchSessionId,
       error: undefined,
+      unreadable: initial === undefined,
       temporaryFailed: false,
-      view: initialView(initial.groups),
+      view: initial === undefined ? readStoredView() : initialView(initial.groups),
     }),
     actions: {
       setServerMenu: (draft, next) => {
@@ -200,6 +215,7 @@ export function createWorkflowStore(initial: ServerMenuState): EngineStoreHandle
         draft.groups = next.groups
         draft.workbenchSessionId = next.workbenchSessionId
         draft.error = undefined
+        draft.unreadable = false
         const view = pruneView(draft.view, next.groups)
         if (view === undefined) return
         draft.view = view

@@ -15,7 +15,7 @@
 import type { IncomingMessage } from 'node:http'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /**

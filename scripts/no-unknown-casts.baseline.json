@@ -1435,9 +1435,6 @@
   "packages/experimental/server-sidebar/src/client/workflow-store.ts": {
     "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
   },
-  "packages/experimental/server-sidebar/src/index.ts": {
-    "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1
-  },
   "packages/experimental/server-sidebar/src/nav-snapshot-migration.ts": {
     "466c40b3c9b6e54e35994005aba29481d569859cfe4168f6f184dd693e2cce45": 1,
     "b121cee14635b00f7891217013e4682493cf96f676710be60722fdf8b862aea3": 1

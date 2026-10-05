@@ -35,8 +35,8 @@
  * `dsh-client-ui-conversation`'s `conversation.hero.brand.mark` seat with
  * nothing at all (decision ②'s brand takeover, matching the sidebar's own
  * fallback-less `sidebar.brand.mark` — see `ServerSidebarRoot.tsx`'s module
- * doc): registered at priority -1 so it wins the slot's shadowing rank
- * (ascending, lowest renders) even under an official build, where
+ * doc): registered at {@link REPLACING_PRIORITY} so it wins the slot's
+ * shadowing rank (ascending, lowest renders) even under an official build, where
  * `@deepseek-ai/dsh-client-ui-brand-official` fills the same seat at the
  * default priority 0 — customer overlays also disable that package outright
  * (see the package README), so this is belt-and-suspenders for a deployment
@@ -55,7 +55,15 @@
  * failed by shadowing their node keys (`CompactionRows.tsx`), and a seventh
  * and an eighth replace `dsh-client-ui-workspace`'s notice and its
  * stop-and-archive confirmation by shadowing their `shell.overlay` ids
- * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`).
+ * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). A ninth withholds the
+ * keyboard shortcuts the console has no place for, their keys and their rows
+ * in the shortcut reference (`console-shortcuts.ts`), and a tenth shadows
+ * `ui-workspace`'s rename dialog with nothing (`withheld-rename.ts`). An
+ * eleventh takes `dsh-client-ui-sidebar-right`'s expand button out of the
+ * conversation header's corner (`conversation.session.header.corner`, a
+ * single slot) with an entry that renders nothing, at
+ * {@link REPLACING_PRIORITY}; with its toggle shortcut withheld as well, the
+ * right column opens only for a file a visitor clicks.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -77,6 +85,7 @@ import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.
 import { openHome, openNavItem } from './open-nav.ts'
 import { mainViewSessionId } from './session-resolution.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuPatch, type ServerMenuWorkflow } from './workflow-api.ts'
+import { saveRefusalCopy } from './save-refusal.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
   dismissTemporarySession, nextOrder, openTemporarySession,
@@ -88,10 +97,13 @@ import { withholdSettingsEntries } from './settings-entries.ts'
 import { replaceCompactionRows } from './CompactionRows.tsx'
 import { replaceWorkspaceNotice } from './WorkspaceNotice.tsx'
 import { replaceArchiveConfirm } from './StopAndRemoveDialog.tsx'
+import { withholdShortcuts } from './console-shortcuts.ts'
+import { withholdRenameDialog } from './withheld-rename.ts'
+import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
-import { en, zh, type ServerSidebarKey } from './locales.ts'
+import { en, zh, type ServerSidebarKey, type ServerSidebarTranslate } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
 export type { ServerSidebarKey } from './locales.ts'
@@ -125,21 +137,38 @@ export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale
 /**
  * Persist a server-menu patch and commit the server's authoritative answer
  * into the given bound actions and the header's workbench source, or surface
- * the failure inline.
+ * the failure inline. A failed save is reported in the fixed copy
+ * `save-refusal.ts` picks for it, and the failure itself goes to the browser
+ * console: a refusal's text is the server's, not the console's.
  * @param patch - the fields to change (see `workflow-api.ts#saveServerMenu`).
  * @param actions - the bound actions to commit the result (or the failure) into.
  * @param workbench - the header's copy of the workbench id, published from the same answer.
+ * @param t - this package's dictionary lookup.
  */
 async function persistServerMenu(
-  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource,
+  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource, t: ServerSidebarTranslate,
 ): Promise<void> {
   try {
     const saved = await saveServerMenu(patch)
     actions.setServerMenu(saved)
     workbench.publish(saved.workbenchSessionId)
   } catch (error) {
-    actions.setError(error instanceof Error ? error.message : String(error))
+    console.warn('server-sidebar: the menu could not be saved:', error)
+    actions.setError(saveRefusalCopy(error, patch, t))
   }
+}
+
+/**
+ * Refuse an entry that would save the menu, show a navigation target, or open,
+ * create, or archive a conversation, while the menu the page loaded is unread,
+ * and report it to the browser console. The 我的工作流 section already says
+ * the menu could not be read (`workflows.unreadable`), so nothing new is drawn.
+ * @returns an already-resolved promise, matching the asynchronous face of the
+ * entry the refusal stands in for.
+ */
+function refuseUnread(): Promise<void> {
+  console.warn('server-sidebar: the menu could not be read when the page loaded, so nothing is saved and no workbench is opened or created until the page is reloaded')
+  return Promise.resolve()
 }
 
 /**
@@ -153,19 +182,22 @@ async function persistServerMenu(
  * @param isLive - whether that id names a session the workspace domain still lists.
  * @param actions - the bound actions a created id is committed through.
  * @param workbench - the header's copy of the workbench id, published with it.
+ * @param t - this package's dictionary lookup.
  */
 async function landOnWorkbench(
   ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean,
-  actions: BoundWorkflowActions, workbench: WorkbenchSource,
+  actions: BoundWorkflowActions, workbench: WorkbenchSource, t: ServerSidebarTranslate,
 ): Promise<void> {
   const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
-  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
+  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
 }
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, the withheld Settings entries, the compaction rows, the
- * workspace notice, and the stop-and-remove confirmation, then the
+ * brand-mark takeover, the withheld expand button in the conversation
+ * header's corner, the withheld Settings entries, the compaction rows, the
+ * workspace notice, the stop-and-remove confirmation, the withheld keyboard
+ * shortcuts, and the withheld rename dialog, then the
  * read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
  * sidebar and the two session-header entries.
@@ -173,18 +205,28 @@ async function landOnWorkbench(
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'server-sidebar: dictionaries')
+  const t: ServerSidebarTranslate = ctx.locale.bind(NS)
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
   ctx.effect(
     () => ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
-      { name: 'conversation.hero.brand.mark', priority: -1 },
+      { name: 'conversation.hero.brand.mark', priority: REPLACING_PRIORITY },
       () => null,
     )),
     'server-sidebar: hero brand-mark takeover',
+  )
+  ctx.effect(
+    () => ctx.slots.inject('conversation.session.header.corner', () => ctx.slots.register(
+      { name: 'conversation.session.header.corner', priority: REPLACING_PRIORITY },
+      () => null,
+    )),
+    'server-sidebar: withheld right-column expand button',
   )
   withholdSettingsEntries(ctx)
   replaceCompactionRows(ctx)
   replaceWorkspaceNotice(ctx)
   replaceArchiveConfirm(ctx)
+  withholdShortcuts(ctx)
+  withholdRenameDialog(ctx)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),
@@ -204,8 +246,17 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // automatic homes is a deployment mistake nothing downstream can resolve
   // (see `mergeNavCatalogs`).
   const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
+  // An unread menu seeds the store marked unreadable, and stays unread for
+  // the page's life: every entry below that would save the menu, open or
+  // create the workbench, show a navigation target (which creates a
+  // conversation when none is on screen), create a workflow's conversation,
+  // or archive a conversation refuses while it is (`refuseUnread`), so no
+  // save answers it.
+  // Unknown, the menu cannot say which conversations are the member's
+  // workbench and workflows, and the temporary list then shows those too.
+  const menuUnread = initialMenu === undefined
   const workflowStore = createWorkflowStore(initialMenu)
-  const workbench = createWorkbenchSource(initialMenu.workbenchSessionId)
+  const workbench = createWorkbenchSource(initialMenu?.workbenchSessionId)
   const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
@@ -232,14 +283,15 @@ export async function apply(ctx: ClientContext): Promise<void> {
         return {
           navItems,
           ...home === undefined ? {} : { home },
-          onOpenNavItem: target => openNavItem(ctx, target),
-          onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (
-            landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench)
-          ),
+          onOpenNavItem: target => (menuUnread ? refuseUnread() : openNavItem(ctx, target)),
+          onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (menuUnread
+            ? refuseUnread()
+            : landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench, t)),
           onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
+            if (menuUnread) return refuseUnread()
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
-            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
+            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
             // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
             // configured automatic home always belongs on it; a reused draft
@@ -253,25 +305,33 @@ export async function apply(ctx: ClientContext): Promise<void> {
             }
           },
           onOpenWorkflow: async (workflow, isLive) => {
+            // Opening a live conversation writes nothing; the degrade creates one.
+            if (menuUnread && !isLive) return refuseUnread()
             const outcome = await openWorkflow(ctx, workflow, isLive)
             if (outcome?.created !== true) return
             // The degrade repoints one workflow's homeSessionId; the array
             // field is a whole-value replace within the patch (see
             // `src/index.ts`), so the current list is read fresh rather than
-            // trusted from this closure's own stale capture.
+            // trusted from this closure's own stale capture. A list that
+            // could not be read is not written back as an empty one.
             const current = await readServerMenu()
+            if (current === undefined) {
+              actions.setError(t('workflows.retry'))
+              return
+            }
             const next = current.workflows.map(candidate => (
               candidate.id === workflow.id ? { ...candidate, homeSessionId: outcome.sessionId } : candidate
             ))
-            await persistServerMenu({ workflows: next }, actions, workbench)
+            await persistServerMenu({ workflows: next }, actions, workbench, t)
           },
           // One patch rather than a call per list: deleting a group has to
           // clear its members' `groupId` in the same write, and the route
           // refuses the intermediate document either half would leave behind
           // (see `src/index.ts` and `validateServerMenu`).
-          onSaveMenu: patch => persistServerMenu(patch, actions, workbench),
+          onSaveMenu: patch => (menuUnread ? refuseUnread() : persistServerMenu(patch, actions, workbench, t)),
           onOpenTemporary: sessionId => openTemporarySession(ctx, sessionId),
           onDismissTemporary: async (sessionId, workbenchSessionId, workbenchIsLive) => {
+            if (menuUnread) return refuseUnread()
             // Read the selection before the archive, not after: the workspace
             // domain sweeps an archived selection into the no-conversation
             // state as part of the same call, so afterwards there is nothing
@@ -293,7 +353,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // The console always rests on a conversation: archiving the one on
             // screen leaves none selected, and the shell's own load-time
             // landing is a one-shot that never fires a second time.
-            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions, workbench)
+            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions, workbench, t)
           },
           onSignOut: () => {
             if (authGate === undefined) {
@@ -323,7 +383,15 @@ export async function apply(ctx: ClientContext): Promise<void> {
       inject: (): SaveWorkflowInjected => ({
         navItems,
         onSave: async (sessionId, name, navSnapshot) => {
+          if (menuUnread) return refuseUnread()
           const current = await readServerMenu()
+          // The new workflow joins the list as read; a list that could not
+          // be read is not replaced by one holding the new workflow alone.
+          if (current === undefined) {
+            if (sidebarActions !== undefined) sidebarActions.setError(t('workflows.retry'))
+            else console.warn('server-sidebar: did not save the workflow (sidebar not mounted): the menu could not be read')
+            return
+          }
           const workflow: ServerMenuWorkflow = {
             id: randomUUID(),
             name,
@@ -334,7 +402,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
           }
           const next = [...current.workflows, workflow]
           if (sidebarActions !== undefined) {
-            await persistServerMenu({ workflows: next }, sidebarActions, workbench)
+            await persistServerMenu({ workflows: next }, sidebarActions, workbench, t)
             return
           }
           // Defensive: the sidebar is always resident in the shipped
