@@ -34,7 +34,7 @@ Status: implemented
 - `session.create` 接受任何绝对路径的 `cwd`，而 `fs-sandbox` 不限制读取，并把 `workspace-write` 的写入限制在那个目录与平台临时目录里。对 profile 补丁或 home 补丁的写入，需要被放行的访客给出那一次超出工作区的审批；`hmr` 被禁用后，它只在下次 Host 重启时才生效。
 - `session.*`、`workspace.*`、`job.*` 与 `subagents.*` 作用于每个会话；控制台是单租户的，所以每个访客都是同一个操作者。
 - `fileReferences.list` 为输入框的 `@` 提及列出一个会话目录下的名字；`account.*` 让 Host 登录一个 DeepSeek 账号，`deepseek-account-platform` 只把该账号的 token 发往它的推理源。
-- 对任何 volatile 字段的设置写入都会被重新序列化进 profile 补丁并当场生效，而值若是 `{ __jsExpr: "…" }` 对象，就会被写成 `!!js` 表达式，并在 Loader 校验这一行时在 Host 里被求值（`config-editor/src/index.ts` 把它重新打标；`loader` 的 `internal/config` 钩子插值它）。锁关掉了 `llm-deepseek`、`llm-deepseek-account`、`agent-default-model`、`session-log-deepseek` 与权限预设，但控制台必须保持可写的每个 volatile 字段——其中就有 `server-sidebar` 的菜单——仍是一个求值点。只有在 `settings` 里拒绝 `__jsExpr` 值，或让 config-editor 不再把设置写入重新打成 `!!js`（两者都归上游拥有），才能关掉它。
+- 对任何 volatile 字段的设置写入都会被重新序列化进 profile 补丁并当场生效。新增或改动 `{ __jsExpr: … }` 节点的写入在校验之前就被拒绝：`config-editor` 的 `edit()` 抛出 `ConfigExpressionRejectedError`，设置 RPC 回应 `settings/rejected`，补丁文件不变（核心补丁 `settings-expression-write-guard`）。行里已有的表达式（例如锁层的 `!!js` 值）原样写回。锁关掉了 `llm-deepseek`、`llm-deepseek-account`、`agent-default-model`、`session-log-deepseek` 与权限预设；控制台保持可写的 volatile 字段（其中就有 `server-sidebar` 的菜单）只接受普通值。
 - `agent-loop`、`subagent`、`subagent-model-selection-settings`、`auto-compact` 的 volatile 字段与 `ui-chat.busyCompaction` 接受设置写入；没有控制台预设会委派。
 
 ## Testing

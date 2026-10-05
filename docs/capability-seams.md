@@ -175,6 +175,8 @@ flowchart LR
   pkg_skill_pack_components["skill-pack-components"]
   svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
   svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
+  pkg_console_members["console-members"]
+  svc_consoleMembers["ctx.consoleMembers<br/>Console member directory"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   svc_agentDefaultModel["ctx.agentDefaultModel<br/>Default Agent model selection"]
@@ -258,6 +260,7 @@ flowchart LR
   pkg_vue2_echarts_tool_poc["vue2-echarts-tool-poc"]
   pkg_biz_backend["biz-backend"]
   svc_bizBackend["ctx.bizBackend<br/>Deployment data-backend reads"]
+  pkg_system_map["system-map"]
   pkg_jobs["jobs"]
   svc_jobs["ctx.jobs<br/>Background job registry"]
   pkg_jobs_local["jobs-local"]
@@ -333,6 +336,7 @@ flowchart LR
   pkg_component_surface --> svc_componentViews
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
+  pkg_console_members --> svc_consoleMembers
   pkg_content_surface --> svc_contentSurface
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -470,7 +474,9 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
   svc_authorization --> pkg_llm_pi_ai
+  svc_bizBackend --> pkg_component_kit
   svc_bizBackend --> pkg_component_surface
+  svc_bizBackend --> pkg_system_map
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
@@ -673,6 +679,7 @@ flowchart LR
 | `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | Holds the views the sidebar lists and /show-content-view shows, from the deployment's own configuration and from any package that registers a source; every view is judged by the pass a show_component call is judged by, and a contributed view the catalog refuses is dropped with one error line rather than failing the console. |
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | Owns one pack root: it judges every pack against the registered component parts, contributes only the active ones to ctx.skills, and publishes each pack's state and unmet requirements on its own route. |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | Declares what a pack's requirements are judged against — each registered part's id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive. |
+| `ctx.consoleMembers` | `service` | `console-members` | - | - | - | Declares which signed-in member a browser request, a Remote caller, or a Session belongs to, each member's registered roots, and per-member non-secret storage; the package registers no plugin, so the key has no Provider in this repository and an inject of it stays pending. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
@@ -698,7 +705,7 @@ flowchart LR
 | `ctx.inspector` | `core` | `inspector` | - | - | - | Owns the Worker-hosted CDP target and the transport-independent Host and Client observation and Cordis-tree query API. |
 | `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | Owns which components a `show_component` call may place; a component plugin registers its host definitions here and its renderers into the browser half's matching registry, so a deployment composing none offers no component and is offered no tool. |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | Owns the extractor table and the single `contentSurface` projection folded from it; each content kind registers what it recognizes in the log and content-column draws the selected entry through a keyed slot. |
-| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | Owns three named reads of a deployment's own data backend, spent with the visitor's access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package's closure. |
+| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface`, `system-map`, `component-kit` | - | Owns the named reads of a deployment's own data backend, each spent with the access token of the person it is read for; auth-gate constructs the service with the base it validated and a resolver over the token(s) it holds, so the credential stays in that package's closure. |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | Producers (background bash/pwsh, PTY sends, and subagent delegations) register running work; record-declaring jobs additionally stream raw output for non-consuming observers; tool-jobs is the model-facing controller that reads, lists, and kills it; jobs-local is the process-local registry. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill. |

@@ -3,14 +3,20 @@
  * data backend with the access token of the person using it.
  *
  * Host-only, and it holds no credential of its own: whoever installs the
- * service passes the token in by reference, which in this fork is the sign-on
- * gate that took it from the visitor's browser. The three reads below are the
- * same three requests the deployment's own web page makes when a person opens
- * a resource list, minus three things that page adds for itself: no cache-busting
- * query parameter (nothing here caches), no expansion of the browser's stored
- * profile into request headers, and no activity record posted afterwards —
- * writing one would put an operation into the deployment's audit trail that its
- * user never performed.
+ * service passes in, by reference, a resolver that hands back the slot holding
+ * one signed-in person's token, which in this fork is the sign-on gate that took
+ * that token from the person's browser. Every read names the subject it is
+ * performed for — the session a tool call runs in, or the person a browser
+ * request was admitted as — and spends that subject's token or none: a subject
+ * the resolver cannot place answers `unauthenticated`, and no other slot's token
+ * is presented in its stead.
+ *
+ * The three reads below are the same three requests the deployment's own web
+ * page makes when a person opens a resource list, minus three things that page
+ * adds for itself: no cache-busting query parameter (nothing here caches), no
+ * expansion of the browser's stored profile into request headers, and no
+ * activity record posted afterwards — writing one would put an operation into
+ * the deployment's audit trail that its user never performed.
  *
  * A capability, not a pipe. The same URL prefix also carries
  * `PUT /api/resources/{model}/{id}`, `DELETE /api/resources/{model}/{id}`, and
@@ -30,7 +36,10 @@
  * @module @deepseek-ai/dsh-experimental-biz-backend
  */
 
+import type { IncomingMessage } from 'node:http'
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import z from '@deepseek-ai/schemastery'
 
 declare module '@deepseek-ai/cordis' {
@@ -126,20 +135,21 @@ const MODEL_NAME = /^[A-Za-z_]\w*$/
  */
 const CREDENTIAL_REFUSAL_CODES: readonly number[] = [2, 3]
 
-/** The two events that make the process give up the token it holds. */
+/** The two events that make the process give up a token it holds. */
 export type CredentialDropReason = 'sign-out' | 'refused-by-backend'
 
 /**
- * The process's whole memory of the visitor's access token, as the three
- * operations anything is allowed to perform on it.
+ * One signed-in person's access token as the process holds it — one slot — as
+ * the three operations anything is allowed to perform on it.
  *
  * A closure passed by reference rather than a service, and the reason is the
  * cost of the alternative: a service named on the context is a credential every
  * plugin sharing this process can read, and this fork's own audit found that
  * third-party plugins declare no approval gates by default. Two holders are the
  * whole list — whoever takes the token in and gives it up, and
- * {@link BizBackendService}, which spends it and drops it when the backend
- * refuses it — and a seam this narrow is worth one hand-written indirection.
+ * {@link BizBackendService}, which reaches the slot through a
+ * {@link CredentialResolver}, spends it, and drops it when the backend refuses
+ * it — and a seam this narrow is worth one hand-written indirection.
  */
 export interface HeldCredential {
   /**
@@ -154,11 +164,64 @@ export interface HeldCredential {
   set(token: string): void
   /**
    * Give the held token up. Both reasons reach the same terminal state: every
-   * MCP forwarding route answers 503 and every read answers `unauthenticated`
-   * until a browser posts a new token.
+   * read resolved to this slot answers `unauthenticated`, and the holder's own
+   * uses of the slot stop, until a browser posts a new token into it.
    * @param reason - which of the two events dropped it.
    */
   drop(reason: CredentialDropReason): void
+}
+
+/**
+ * The key one signed-in person is known by inside this process, re-exported
+ * from its owner, the console member directory
+ * `@deepseek-ai/dsh-experimental-console-members`, which declares it as
+ * `Branded<'PrincipalKey'>` with the person's `login_uid` as its value.
+ * Opaque: no part of it is read here, and it reaches no model, log line or
+ * upload.
+ */
+export type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+
+/**
+ * Whom one read is performed for: the person whose token it spends.
+ *
+ * `session` is a tool call, named by the session it runs in — the call's
+ * `exec.agent.id`. `principal` is a browser request, named by the person the
+ * request was admitted as. Which slot either one names is the
+ * {@link CredentialResolver}'s answer and nobody else's.
+ */
+export type BizSubject =
+  /** A tool call, read for the person the session belongs to. */
+  | { readonly kind: 'session'; readonly sessionId: SessionId }
+  /** A browser request, read for the person it was admitted as. */
+  | { readonly kind: 'principal'; readonly principal: PrincipalKey }
+
+/**
+ * How the holder of the signed-in people's tokens hands {@link BizBackendService}
+ * the one slot a read may spend.
+ *
+ * Passed by reference rather than published, for the reason
+ * {@link HeldCredential} is. The resolver answers for the subject it is asked
+ * about and for no other: a subject it cannot place answers `undefined`, and
+ * the read then answers `unauthenticated` rather than spending some other
+ * person's token.
+ */
+export interface CredentialResolver {
+  /**
+   * The slot one subject's reads spend, and the one a refusal by the backend
+   * drops.
+   * @param subject - whom the read is for.
+   * @returns that subject's slot, or `undefined` when this resolver holds none for it.
+   */
+  resolve(subject: BizSubject): HeldCredential | undefined
+  /**
+   * The signed-in person one browser request was admitted as. A resolver
+   * holding one slot per console member answers by delegating to
+   * `consoleMembers.principalOfRequest(req)`; it reads no identity header and
+   * calls no `connection.admit` of its own.
+   * @param req - the request a webserver route is answering.
+   * @returns that person's key, or `undefined` when the request names nobody this resolver admits.
+   */
+  principalOfRequest(req: IncomingMessage): PrincipalKey | undefined
 }
 
 /** One filter on a read. `op` is carried into the request body as it stands. */
@@ -500,9 +563,9 @@ function judgeRights(rights: BizUserRights | BizBackendFailure, rules: BizOperat
  * session log, and none of the three belongs in either.
  */
 export type BizBackendFailure =
-  /** No browser has posted a token, so nothing was requested. */
+  /** No token is held for the read's subject — none was posted, or the resolver holds no slot for it — so nothing was requested. */
   | { readonly kind: 'unauthenticated' }
-  /** The backend refused the credential itself; the process has given it up. */
+  /** The backend refused the credential itself; the process has given up the slot it came out of. */
   | { readonly kind: 'refused'; readonly status: number }
   /** The backend answered, and its answer was a refusal of this request. */
   | { readonly kind: 'rejected'; readonly status: number; readonly code?: number; readonly message?: string }
@@ -531,12 +594,30 @@ interface BizSearchBody {
 /** One exchange that reached the backend's envelope, or the failure that stopped it. */
 type BizExchange = { readonly kind: 'answered'; readonly data: unknown } | BizBackendFailure
 
-/** What one call needs before it may spend the credential. */
-interface BizCallSubject {
+/** The token one call spends, and the slot it came out of. */
+interface SpentCredential {
+  /** The slot the subject resolved to; a refusal by the backend drops this one and no other. */
+  readonly slot: HeldCredential
   /** The token to spend. */
   readonly token: string
+}
+
+/** What one model read needs before it may spend the credential. */
+interface ModelCall extends SpentCredential {
   /** The model name, checked to be one path segment. */
   readonly meta: string
+}
+
+/**
+ * Give up the token the backend refused, and nothing posted after it.
+ *
+ * The slot is dropped only while it still holds the token the refused request
+ * presented. A browser that renewed while the request was in flight has
+ * already replaced it, and the replacement keeps its place in the slot.
+ * @param spent - the token the refused request carried, and the slot it came out of.
+ */
+function dropRefused(spent: SpentCredential): void {
+  if (spent.slot.read() === spent.token) spent.slot.drop('refused-by-backend')
 }
 
 /**
@@ -1106,8 +1187,9 @@ function readAttributes(data: unknown): readonly BizMetaAttribute[] | undefined 
 }
 
 /**
- * `ctx.bizBackend`: the three reads this deployment's data backend serves,
- * performed with the access token its caller holds for the signed-in visitor.
+ * `ctx.bizBackend`: the reads this deployment's data backend serves,
+ * performed with the access token its caller holds for the signed-in person
+ * each read is performed for.
  *
  * Nothing here registers the service: it is constructed by the row that holds
  * the visitor's token, and only when that row was configured with a backend to
@@ -1119,8 +1201,8 @@ export class BizBackendService extends Service {
   /** Base every request is built onto; validated by the caller and always ending in `/`. */
   private readonly upstream: string
 
-  /** The credential these reads spend, and give up when the backend refuses it. */
-  private readonly credential: HeldCredential
+  /** Where each read finds the slot it spends, and gives up when the backend refuses it. */
+  private readonly credentials: CredentialResolver
 
   /** How rights become permissions in this deployment. */
   private readonly rules: BizOperationRules
@@ -1133,14 +1215,15 @@ export class BizBackendService extends Service {
    * its own, and a path ending in `/`; the caller validates it at load, because
    * an address rejected here would be rejected once per read instead of once
    * per composition.
-   * @param credential - the access token these reads spend.
+   * @param credentials - where each read finds the slot of the subject it
+   * names.
    * @param rules - how {@link BizBackendService.judge} turns rights into
    * permissions, as the {@link BizOperationRules} schema validated them.
    */
-  constructor(ctx: Context, upstream: string, credential: HeldCredential, rules: BizOperationRules) {
+  constructor(ctx: Context, upstream: string, credentials: CredentialResolver, rules: BizOperationRules) {
     super(ctx, 'bizBackend')
     this.upstream = upstream
-    this.credential = credential
+    this.credentials = credentials
     this.rules = rules
   }
 
@@ -1158,39 +1241,55 @@ export class BizBackendService extends Service {
   }
 
   /**
-   * Whether a token is held for the signed-in visitor at all.
+   * Whether a token is held for one subject at all.
    *
    * Reading the slot spends nothing and reaches no network, so a consumer that
    * asks a person for permission before reading can find out beforehand that
    * the answer could not be honoured. It promises nothing about the next call:
    * the backend can refuse the token in between, and every call answers
    * `unauthenticated` on its own whether or not anyone asked here.
-   * @returns true while a token is held.
+   * @param subject - whom the reads would be for.
+   * @returns true while a token is held in the slot that subject resolves to.
    */
-  holdsCredential(): boolean {
-    return this.credential.read() !== undefined
+  holdsCredential(subject: BizSubject): boolean {
+    return this.credentials.resolve(subject)?.read() !== undefined
+  }
+
+  /**
+   * Whom one browser request reads for: the person the request was admitted
+   * as, by the same resolver every read finds its slot through.
+   *
+   * Reaches no network and spends nothing. A route answering a request for
+   * which this is `undefined` reads nothing and answers 401.
+   * @param req - the request a webserver route is answering.
+   * @returns the request's subject, or `undefined` when it names nobody the resolver admits.
+   */
+  subjectOfRequest(req: IncomingMessage): BizSubject | undefined {
+    const principal = this.credentials.principalOfRequest(req)
+    return principal === undefined ? undefined : { kind: 'principal', principal }
   }
 
   /**
    * Read one page of one resource model's rows.
+   * @param subject - whom the read is for; its slot's token is the one spent.
    * @param request - the model to read and how to narrow it.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the rows, or why there are none.
    */
-  async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure> {
-    const subject = this.subjectFor(request.meta)
-    if ('kind' in subject) return subject
+  async search(subject: BizSubject, request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure> {
+    const call = this.modelCall(subject, request.meta)
+    if ('kind' in call) return call
     const spec = resolveSearch(
       request,
-      subject.meta,
-      combineUrls(this.upstream, `${SEARCH_SERVICE_PATH}/${subject.meta}/_search`),
+      call.meta,
+      combineUrls(this.upstream, `${SEARCH_SERVICE_PATH}/${call.meta}/_search`),
     )
     const answered = await this.exchange(spec.url, {
       method: 'POST',
-      headers: { ...credentialHeaders(subject.token), 'content-type': 'application/json' },
+      headers: { ...credentialHeaders(call.token), 'content-type': 'application/json' },
       body: JSON.stringify(spec.body),
       signal,
-    }, subject.token)
+    }, call)
     if (answered.kind !== 'answered') return answered
     const result = readSearchData(answered.data)
     if (result === undefined) return { kind: 'unreachable', detail: 'the answer carried no rows to read' }
@@ -1200,17 +1299,18 @@ export class BizBackendService extends Service {
   /**
    * Read one resource model's attribute names, under both of the names the
    * deployment keeps for each.
+   * @param subject - whom the read is for; its slot's token is the one spent.
    * @param meta - the resource model, by its English name.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the model's attributes, or why they could not be read.
    */
-  async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure> {
-    const subject = this.subjectFor(meta)
-    if ('kind' in subject) return subject
+  async describe(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure> {
+    const call = this.modelCall(subject, meta)
+    if ('kind' in call) return call
     const answered = await this.exchange(
-      combineUrls(this.upstream, `${META_SERVICE_PATH}/${subject.meta}`),
-      { method: 'GET', headers: credentialHeaders(subject.token), signal },
-      subject.token,
+      combineUrls(this.upstream, `${META_SERVICE_PATH}/${call.meta}`),
+      { method: 'GET', headers: credentialHeaders(call.token), signal },
+      call,
     )
     if (answered.kind !== 'answered') return answered
     const attributes = readAttributes(answered.data)
@@ -1227,19 +1327,20 @@ export class BizBackendService extends Service {
    * the one marked default. A caller that has no column list of its own gets
    * the deployment's own choice of columns and their headers, rather than
    * guessing attribute names.
+   * @param subject - whom the read is for; its slot's token is the one spent.
    * @param meta - the resource model, by its English name.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the scheme's columns in its own order, or why they could not be read.
    */
-  async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure> {
-    const subject = this.subjectFor(meta)
-    if ('kind' in subject) return subject
-    const query = `?schemaType=${String(QUERY_SCHEME_TYPE)}&metaEnName=${subject.meta}`
+  async describeScheme(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure> {
+    const call = this.modelCall(subject, meta)
+    if ('kind' in call) return call
+    const query = `?schemaType=${String(QUERY_SCHEME_TYPE)}&metaEnName=${call.meta}`
       + `&schemaName=&isDefault=${String(DEFAULT_SCHEME_FLAG)}`
     const answered = await this.exchange(
       `${combineUrls(this.upstream, SCHEME_SERVICE_PATH)}${query}`,
-      { method: 'GET', headers: credentialHeaders(subject.token), signal },
-      subject.token,
+      { method: 'GET', headers: credentialHeaders(call.token), signal },
+      call,
     )
     if (answered.kind !== 'answered') return answered
     const columns = readSchemeColumns(answered.data)
@@ -1255,16 +1356,17 @@ export class BizBackendService extends Service {
    * believing it has all of it. Every model's description arrives attached and
    * none of it is kept — {@link BizModelSummary} is the whole of what a caller
    * receives.
+   * @param subject - whom the read is for; its slot's token is the one spent.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the catalog, or why it could not be read.
    */
-  async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure> {
-    const held = this.credentialFor()
-    if (typeof held !== 'string') return held
+  async listModels(subject: BizSubject, signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure> {
+    const held = this.credentialFor(subject)
+    if ('kind' in held) return held
     const query = `?resClassCnName=&resClassType=${String(STORED_RESOURCE_CLASS_TYPE)}`
     const answered = await this.exchange(
       `${combineUrls(this.upstream, MODEL_LIST_SERVICE_PATH)}${query}`,
-      { method: 'GET', headers: credentialHeaders(held), signal },
+      { method: 'GET', headers: credentialHeaders(held.token), signal },
       held,
     )
     if (answered.kind !== 'answered') return answered
@@ -1280,18 +1382,19 @@ export class BizBackendService extends Service {
    * The request always names the model. The same endpoint answers with every
    * scheme this deployment stores when it is asked without one, which is tens
    * of megabytes and no caller's question.
+   * @param subject - whom the read is for; its slot's token is the one spent.
    * @param meta - the resource model, by its English name.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the model's default schemes, or why they could not be read.
    */
-  async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure> {
-    const subject = this.subjectFor(meta)
-    if ('kind' in subject) return subject
-    const query = `?schemaType=&metaEnName=${subject.meta}&schemaName=&isDefault=${String(DEFAULT_SCHEME_FLAG)}`
+  async describeSchemes(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure> {
+    const call = this.modelCall(subject, meta)
+    if ('kind' in call) return call
+    const query = `?schemaType=&metaEnName=${call.meta}&schemaName=&isDefault=${String(DEFAULT_SCHEME_FLAG)}`
     const answered = await this.exchange(
       `${combineUrls(this.upstream, SCHEME_SERVICE_PATH)}${query}`,
-      { method: 'GET', headers: credentialHeaders(subject.token), signal },
-      subject.token,
+      { method: 'GET', headers: credentialHeaders(call.token), signal },
+      call,
     )
     if (answered.kind !== 'answered') return answered
     const schemes = readSchemes(answered.data)
@@ -1306,15 +1409,16 @@ export class BizBackendService extends Service {
    * copies it: {@link BizUserRights} is built out of the rights subtree alone,
    * so no account name, employee number, telephone or mail address leaves this
    * seam for a caller to put in front of a model or into a session log.
+   * @param subject - whom the read is for, and so whose rights are read; its slot's token is the one spent.
    * @param signal - aborts the request in flight; an abort answers `unreachable`.
    * @returns the rights, or why they could not be read.
    */
-  async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure> {
-    const held = this.credentialFor()
-    if (typeof held !== 'string') return held
+  async userRights(subject: BizSubject, signal: AbortSignal): Promise<BizUserRights | BizBackendFailure> {
+    const held = this.credentialFor(subject)
+    if ('kind' in held) return held
     const answered = await this.exchange(
       combineUrls(this.upstream, RIGHTS_SERVICE_PATH),
-      { method: 'GET', headers: credentialHeaders(held), signal },
+      { method: 'GET', headers: credentialHeaders(held.token), signal },
       held,
     )
     if (answered.kind !== 'answered') return answered
@@ -1325,27 +1429,36 @@ export class BizBackendService extends Service {
 
   /**
    * The credential a call spends, or why it spends none.
-   * @returns the token, or the failure a call with no token answers.
+   *
+   * The subject is resolved once, here, and the slot it resolved to is the one
+   * the call both spends and — on a refusal — drops, so one call never reads
+   * one person's slot and drops another's.
+   * @param subject - whom the call is for.
+   * @returns the token and its slot, or the failure a call with no token answers.
    */
-  private credentialFor(): string | BizBackendFailure {
-    return this.credential.read() ?? { kind: 'unauthenticated' }
+  private credentialFor(subject: BizSubject): SpentCredential | BizBackendFailure {
+    const slot = this.credentials.resolve(subject)
+    const token = slot?.read()
+    if (slot === undefined || token === undefined) return { kind: 'unauthenticated' }
+    return { slot, token }
   }
 
   /**
-   * Everything a call needs before it may spend the credential.
+   * Everything a model read needs before it may spend the credential.
+   * @param subject - whom the call is for.
    * @param meta - the model name the call names.
-   * @returns the token and the checked name, or why the call stops here.
+   * @returns the token, its slot and the checked name, or why the call stops here.
    */
-  private subjectFor(meta: string): BizCallSubject | BizBackendFailure {
-    const token = this.credentialFor()
-    if (typeof token !== 'string') return token
+  private modelCall(subject: BizSubject, meta: string): ModelCall | BizBackendFailure {
+    const held = this.credentialFor(subject)
+    if ('kind' in held) return held
     if (!MODEL_NAME.test(meta)) {
       return {
         kind: 'unreachable',
-        detail: `"${reportable(meta, token, MAX_DETAIL_CHARS)}" is not a resource model name, so nothing was requested`,
+        detail: `"${reportable(meta, held.token, MAX_DETAIL_CHARS)}" is not a resource model name, so nothing was requested`,
       }
     }
-    return { token, meta }
+    return { ...held, meta }
   }
 
   /**
@@ -1362,14 +1475,18 @@ export class BizBackendService extends Service {
    * the deployment's own client reads it as this request being refused access
    * and keeps its stored token — so a 403 is classified from its envelope like
    * any other failing status, which is also what makes a 403 carrying one of
-   * those codes a refused credential.
+   * those codes a refused credential. Either one drops the slot the call's
+   * subject resolved to, and no other, and only while that slot still holds
+   * the token this request carried: a token posted into it while the request
+   * was in flight was never presented, so the refusal leaves it held.
    * @param url - the absolute address.
    * @param init - method, headers, body, and abort signal.
-   * @param presented - the credential this request carried, so a message
-   * repeating it can have it taken back out.
+   * @param held - the credential this request carried, so a message repeating
+   * it can have it taken back out, and the slot a refusal drops.
    * @returns the envelope's payload, or the failure it classified as.
    */
-  private async exchange(url: string, init: RequestInit, presented: string): Promise<BizExchange> {
+  private async exchange(url: string, init: RequestInit, held: SpentCredential): Promise<BizExchange> {
+    const presented = held.token
     let response: Response
     try {
       response = await fetch(url, init)
@@ -1377,7 +1494,7 @@ export class BizBackendService extends Service {
       return { kind: 'unreachable', detail: reportable(String(error), presented, MAX_DETAIL_CHARS) }
     }
     if (response.status === 401) {
-      this.credential.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: 401 }
     }
     let body: string
@@ -1395,7 +1512,7 @@ export class BizBackendService extends Service {
       }
     }
     if (!response.ok && CREDENTIAL_REFUSAL_CODES.includes(code)) {
-      this.credential.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: response.status }
     }
     if (code !== 0) {

@@ -605,6 +605,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Declares what a pack\'s requirements are judged against — each registered part\'s id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive.',
   },
   {
+    key: 'consoleMembers',
+    pkg: 'console-members',
+    title: 'Console member directory',
+    mode: 'service',
+    note: 'Declares which signed-in member a browser request, a Remote caller, or a Session belongs to, each member\'s registered roots, and per-member non-secret storage; the package registers no plugin, so the key has no Provider in this repository and an inject of it stays pending.',
+  },
+  {
     key: 'agents',
     pkg: 'agent',
     title: 'Agent service',
@@ -818,8 +825,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'biz-backend',
     title: 'Deployment data-backend reads',
     mode: 'core',
-    consumers: ['component-surface'],
-    note: 'Owns three named reads of a deployment\'s own data backend, spent with the visitor\'s access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package\'s closure.',
+    consumers: ['component-surface', 'system-map', 'component-kit'],
+    note: 'Owns the named reads of a deployment\'s own data backend, each spent with the access token of the person it is read for; auth-gate constructs the service with the base it validated and a resolver over the token(s) it holds, so the credential stays in that package\'s closure.',
   },
   {
     key: 'jobs',

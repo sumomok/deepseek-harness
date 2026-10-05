@@ -17,7 +17,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import {
   BizBackendService,
@@ -54,7 +56,7 @@ class StubBizBackend extends BizBackendService {
    * @param ctx - Cordis context that owns the service.
    */
   constructor(ctx: Context) {
-    super(ctx, 'https://biz.invalid/', { read: () => undefined, set: () => {}, drop: () => {} }, BizOperationRules({}))
+    super(ctx, 'https://biz.invalid/', { resolve: () => undefined, principalOfRequest: () => undefined }, BizOperationRules({}))
   }
 
   /**
@@ -178,6 +180,8 @@ describe('the composed row', () => {
       callId: ToolCallId('call-1'),
       name,
       arguments: args,
+      // A tool call reads for the session it runs in; only that identity is read.
+      agent: { id: SessionId('session-1') } as NonNullable<ToolExecutionInput['agent']>,
       signal: new AbortController().signal,
     })
     expect((await call(DOMAINS_TOOL_NAME, {})).value).toMatchObject({ domains: [{ domain: 'TRANSO', models: 1 }] })

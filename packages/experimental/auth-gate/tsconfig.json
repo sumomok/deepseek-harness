@@ -24,6 +24,9 @@
       "path": "../../host/webserver"
     },
     {
+      "path": "../../util/brand"
+    },
+    {
       "path": "../biz-backend"
     }
   ]

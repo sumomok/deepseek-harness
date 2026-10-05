@@ -550,8 +550,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bizBackend',
-    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.',
-    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    summary: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
+    description: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
         signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
@@ -560,45 +560,51 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the permissions that read grants.',
       },
       {
-        signature: 'holdsCredential(): boolean',
-        description: 'Whether a token is held for the signed-in visitor at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
-        parameters: [],
-        returns: 'true while a token is held.',
+        signature: 'holdsCredential(subject: BizSubject): boolean',
+        description: 'Whether a token is held for one subject at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
+        parameters: [{ name: 'subject', description: 'whom the reads would be for.' }],
+        returns: 'true while a token is held in the slot that subject resolves to.',
       },
       {
-        signature: 'async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>',
+        signature: 'subjectOfRequest(req: IncomingMessage): BizSubject | undefined',
+        description: 'Whom one browser request reads for: the person the request was admitted as, by the same resolver every read finds its slot through.\n\nReaches no network and spends nothing. A route answering a request for which this is `undefined` reads nothing and answers 401.',
+        parameters: [{ name: 'req', description: 'the request a webserver route is answering.' }],
+        returns: 'the request\'s subject, or `undefined` when it names nobody the resolver admits.',
+      },
+      {
+        signature: 'async search(subject: BizSubject, request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>',
         description: 'Read one page of one resource model\'s rows.',
-        parameters: [{ name: 'request', description: 'the model to read and how to narrow it.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'request', description: 'the model to read and how to narrow it.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the rows, or why there are none.',
       },
       {
-        signature: 'async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>',
+        signature: 'async describe(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>',
         description: 'Read one resource model\'s attribute names, under both of the names the deployment keeps for each.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the model\'s attributes, or why they could not be read.',
       },
       {
-        signature: 'async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>',
+        signature: 'async describeScheme(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>',
         description: 'Read one resource model\'s default query scheme — the columns this deployment\'s own resource list opens that model with.\n\nThe same request the deployment\'s frontend makes before it draws a resource list: the model\'s stored schemes, narrowed to the resource-list kind and to the one marked default. A caller that has no column list of its own gets the deployment\'s own choice of columns and their headers, rather than guessing attribute names.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the scheme\'s columns in its own order, or why they could not be read.',
       },
       {
-        signature: 'async listModels(signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
+        signature: 'async listModels(subject: BizSubject, signal: AbortSignal): Promise<BizModelListResult | BizBackendFailure>',
         description: 'Read this deployment\'s own catalog of resource models.\n\nOne request and one answer: this endpoint lists the whole catalog rather than a page of it, so a caller is never left holding part of it and believing it has all of it. Every model\'s description arrives attached and none of it is kept — BizModelSummary is the whole of what a caller receives.',
-        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the catalog, or why it could not be read.',
       },
       {
-        signature: 'async describeSchemes(meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
+        signature: 'async describeSchemes(subject: BizSubject, meta: string, signal: AbortSignal): Promise<BizModelSchemes | BizBackendFailure>',
         description: 'Read one resource model\'s stored default schemes — the forms and the table this deployment\'s own pages open that model with.\n\nThe request always names the model. The same endpoint answers with every scheme this deployment stores when it is asked without one, which is tens of megabytes and no caller\'s question.',
-        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for; its slot\'s token is the one spent.' }, { name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the model\'s default schemes, or why they could not be read.',
       },
       {
-        signature: 'async userRights(signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
+        signature: 'async userRights(subject: BizSubject, signal: AbortSignal): Promise<BizUserRights | BizBackendFailure>',
         description: 'Read what the signed-in person may do in this deployment.\n\nThe endpoint also answers with that person\'s profile. This read never copies it: BizUserRights is built out of the rights subtree alone, so no account name, employee number, telephone or mail address leaves this seam for a caller to put in front of a model or into a session log.',
-        parameters: [{ name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        parameters: [{ name: 'subject', description: 'whom the read is for, and so whose rights are read; its slot\'s token is the one spent.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the rights, or why they could not be read.',
       },
     ],
@@ -851,9 +857,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async edit( entry: Entry, change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>, ): Promise<void>',
-        description: 'Validate, persist, and reconcile a plugin\'s next config; ordinary fields keep normal lifecycle rules.',
+        description: 'Validate, persist, and reconcile a plugin\'s next config; ordinary fields keep normal lifecycle rules. The next config may carry a Loader expression only where the current or inherited config holds an identical one at the same path; the check precedes validation, so a refused expression is never evaluated.',
         parameters: [{ name: 'entry', description: 'Current Loader entry, also used to detect replacement during the write.' }, { name: 'change', description: 'Derive a raw config from the current entry and its inherited layer.' }],
         returns: 'Fulfillment after Loader reconciliation completes.',
+        throws: ['ConfigExpressionRejectedError when the next config adds or changes an expression; nothing is written or reconciled.'],
       },
     ],
   },
@@ -906,6 +913,68 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Add the fresh process token to an ordinary Web application URL.',
         parameters: [{ name: 'baseUrl', description: 'clean application URL whose authority and mount are preserved.' }],
         returns: 'tokenized URL for initial login; a mount proxy strips its prefix before {@link authorizeIndex}.',
+      },
+    ],
+  },
+  {
+    key: 'consoleMembers',
+    summary: 'The console member directory, `ctx.consoleMembers`.',
+    description: 'The console member directory, `ctx.consoleMembers`.\n\nEvery method is synchronous; a MemberStore it returns reads and writes asynchronously. No method returns, enumerates, or exposes a customer token or the attached CustomerCredentialReader.',
+    methods: [
+      {
+        signature: 'principalOfRequest(req: IncomingMessage): PrincipalKey | undefined',
+        description: 'The member one browser request was admitted as, for a webServer route.\n\nAdmits the request through `connection.admit(req)`, the check the `/api` route applies, and looks up the member of the admitted Peer. This is the only way a fork webServer route obtains the member of a request: such a route reads no identity header and calls no `connection.admit` of its own.',
+        parameters: [{ name: 'req', description: 'the request the route is answering.' }],
+        returns: 'that member\'s key, or `undefined` when admission refuses the request or the admitted Peer belongs to no member.',
+      },
+      {
+        signature: 'principalOfCaller(peer: PeerScope): PrincipalKey | undefined',
+        description: 'The member a Remote method\'s caller acts for.',
+        parameters: [{ name: 'peer', description: 'the caller\'s Peer, `this.ctx.invocation.peer` inside a Remote method.' }],
+        returns: 'that member\'s key, or `undefined` for the operator Peer and for a Peer this directory did not open for a member.',
+      },
+      {
+        signature: 'principalOfSession(sessionId: SessionId): PrincipalKey | undefined',
+        description: 'The member one Session belongs to.\n\nA Session without `parentSession` belongs to the member whose registered root contains its `header.cwd`; a cwd under a root registered to no one, or under no registered root, belongs to no member. A Session with `parentSession` belongs to whoever its parent belongs to, followed up to the topmost Session; when any Session on that chain is unknown or belongs to no member, the answer is `undefined`. A child Session whose own `header.cwd` lies under a root registered to another member or to no one answers `undefined` and logs one warning that carries no principal key; a child cwd under no registered root is not a conflict and leaves the parent-chain answer in force. A child Session takes its parent\'s member synchronously on `session/created`, and a Session not loaded since startup is resolved through its parent chain. The Host alone writes `parentSession`, at fork and at subagent creation; no RPC caller can set it.',
+        parameters: [{ name: 'sessionId', description: 'the Session to look up.' }],
+        returns: 'that member\'s key, or `undefined` when the Session is unknown or belongs to no member.',
+      },
+      {
+        signature: 'memberRoot(principal: PrincipalKey): string',
+        description: 'The member\'s default root, `<membersRoot>/<directory id>`. The member\'s default workspace is its `workspace` subdirectory. The directory id does not contain the principal key.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'the absolute path of that member\'s default root.',
+      },
+      {
+        signature: 'rootsOf(principal: PrincipalKey): readonly string[]',
+        description: 'Every root registered to the member: the default root plus each root a migration seed registers to them.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'those roots\' absolute paths.',
+      },
+      {
+        signature: 'principals(): readonly PrincipalKey[]',
+        description: 'The members that currently have an open Peer.',
+        parameters: [],
+        returns: 'their keys.',
+      },
+      {
+        signature: 'onChange(listener: (event: { principal: PrincipalKey; kind: \'opened\' | \'closed\' }) => void): () => void',
+        description: 'Observe members opening and closing Peers: `opened` when a member\'s Peer opens and `closed` when it closes, the changes ConsoleMemberDirectory.principals reports.',
+        parameters: [{ name: 'listener', description: 'called with the member and the kind of change.' }],
+        returns: 'the disposer that stops the notifications.',
+      },
+      {
+        signature: 'memberStore(principal: PrincipalKey, unit: string): MemberStore',
+        description: 'Per-member storage for one caller-named unit, kept at `dshHomePath(\'console-members\', <directory id>, \'<unit>.json\')`. It holds non-secret data only.',
+        parameters: [{ name: 'principal', description: 'the member the data belongs to.' }, { name: 'unit', description: 'the caller\'s own name for its data, for example `\'server-sidebar\'`.' }],
+        returns: 'the store for that member and unit.',
+      },
+      {
+        signature: 'attachCustomerCredentials(reader: CustomerCredentialReader): () => void',
+        description: 'Attach the reader of members\' customer tokens. The directory holds one reader at a time: attaching while a reader is attached throws, and once the returned disposer has run a new reader may be attached, as the token holder\'s plugin does when it restarts. Running the disposer counts as every member\'s token being dropped: the directory stops reading the reader, and whatever was derived from those tokens is discarded; the reader emits no `dropped` for it.',
+        parameters: [{ name: 'reader', description: 'the read-only customer-token reader.' }],
+        returns: 'the disposer that detaches the reader.',
+        throws: ['Error when a reader is already attached.'],
       },
     ],
   },
@@ -5011,6 +5080,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
   },
   {
+    name: 'BizSubject',
+    declaration: 'export type BizSubject = {\n    readonly kind: \'session\';\n    readonly sessionId: SessionId;\n} | {\n    readonly kind: \'principal\';\n    readonly principal: PrincipalKey;\n};',
+  },
+  {
     name: 'BizUserRights',
     declaration: 'export interface BizUserRights {\n    readonly resclass: readonly BizModelRights[];\n    readonly rows: readonly BizRowRight[];\n}',
   },
@@ -5421,6 +5494,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CronScheduleRecord',
     declaration: 'export interface CronScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'cron\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly expression: string;\n    readonly timeZone: string;\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'CustomerCredentialReader',
+    declaration: 'export interface CustomerCredentialReader {\n    read(principal: PrincipalKey): string | undefined;\n    onChange(listener: (principal: PrincipalKey, kind: \'set\' | \'dropped\') => void): () => void;\n}',
   },
   {
     name: 'DailyInput',
@@ -6183,6 +6260,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
   },
   {
+    name: 'MemberStore',
+    declaration: 'export interface MemberStore {\n    read(): Promise<JsonValue | undefined>;\n    write(value: JsonValue): Promise<void>;\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export type Message = MessageRoleMap[keyof MessageRoleMap];',
   },
@@ -6577,6 +6658,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreToolDecision',
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n    info?: ToolErrorInfo;\n} | {\n    kind: \'cancel\';\n} | {\n    kind: \'ask\';\n    reason?: string;\n    displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n};',
+  },
+  {
+    name: 'PrincipalKey',
+    declaration: 'export type PrincipalKey = Branded<\'PrincipalKey\'>;',
   },
   {
     name: 'ProbeResult',

@@ -17,9 +17,9 @@
  * not the face under test.
  */
 
-import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, IncomingMessage, request as httpRequest, type Server, type ServerResponse } from 'node:http'
 import { request as httpsRequest } from 'node:https'
-import type { AddressInfo } from 'node:net'
+import { Socket, type AddressInfo } from 'node:net'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,8 +28,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
-import { BizBackendService, BizOperationRules } from '@deepseek-ai/dsh-experimental-biz-backend'
+import { BizBackendService, BizOperationRules, type BizSubject } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as AuthGate from '../src/index.ts'
 import { requesterFor, resolveUpstreams, upstreamUrlFor } from '../src/proxy.ts'
 import {
@@ -39,6 +40,9 @@ import {
   isJwtShaped,
   parseTokenPost,
 } from '../src/route.ts'
+
+/** The subject a tool call's reads name. */
+type SessionSubject = Extract<BizSubject, { kind: 'session' }>
 
 /** A JWT-shaped token; nothing in the node half reads its claims. */
 const TOKEN = 'aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
@@ -133,11 +137,13 @@ async function startUpstream(): Promise<FixtureUpstream> {
  * @param upstreams - the MCP servers this composition forwards to.
  * @param renewal - the renewal endpoint this deployment offers, where it offers
  * one.
+ * @param bizUpstream - the data backend this deployment reads, where it reads one.
  * @returns the booted context.
  */
 async function loadComposition(
   upstreams: Record<string, string> = {},
   renewal?: { path: string; intervalSeconds: number },
+  bizUpstream?: string,
 ): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-auth-gate-'))
   const configPath = join(world, 'cordis.yml')
@@ -155,6 +161,7 @@ async function loadComposition(
     ...renewal === undefined
       ? []
       : [`    renewalPath: '${renewal.path}'`, `    renewalIntervalSeconds: ${String(renewal.intervalSeconds)}`],
+    ...bizUpstream === undefined ? [] : [`    bizUpstream: '${bizUpstream}'`],
     '    mcpUpstreams:',
     ...Object.entries(upstreams).map(([name, url]) => `      ${name}: '${url}'`),
     ...Object.keys(upstreams).length === 0 ? ['      {}'] : [],
@@ -379,6 +386,23 @@ describe('auth-gate sign-out route', () => {
     })
     // The forward the token was still held for is the only one that reached it.
     expect(upstream?.seen.length).toBe(1)
+  })
+
+  it('resolves every data-backend subject to the one token the token route took, and to none after sign-out', async () => {
+    const ctx = await loadComposition({}, undefined, 'https://biz.example/ini-server/')
+    const backend = ctx.get('bizBackend') as BizBackendService
+    const session: BizSubject = { kind: 'session', sessionId: brandString<SessionSubject['sessionId']>('any-session') }
+    // One person per process: any request names that person, before and after a token arrives.
+    const visitor = backend.subjectOfRequest(new IncomingMessage(new Socket()))
+    if (visitor === undefined) throw new Error('the gate admitted nobody for a request')
+    expect(visitor.kind).toBe('principal')
+    expect([backend.holdsCredential(session), backend.holdsCredential(visitor)]).toEqual([false, false])
+
+    expect((await postToken(ctx, { token: TOKEN })).status).toBe(204)
+    expect([backend.holdsCredential(session), backend.holdsCredential(visitor)]).toEqual([true, true])
+
+    expect((await postLogout(ctx)).status).toBe(204)
+    expect([backend.holdsCredential(session), backend.holdsCredential(visitor)]).toEqual([false, false])
   })
 })
 

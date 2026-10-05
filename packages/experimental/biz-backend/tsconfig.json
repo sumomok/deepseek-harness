@@ -13,6 +13,15 @@
     },
     {
       "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../console-members"
     }
   ]
 }

@@ -127,6 +127,13 @@ export const UNAUTHENTICATED_REFUSAL = 'Nobody is signed in to this deployment, 
   + 'so nothing about its business system could be read.'
 
 /**
+ * Refuse a call made outside any session. The session is what names the person
+ * a read spends the credential of, so a call with none reads for nobody.
+ */
+export const NO_SESSION_REFUSAL = 'This call is not running in a session, '
+  + 'so nothing about this deployment\'s business system could be read.'
+
+/**
  * Refuse a read whose credential this deployment would not take.
  * @param status - the status the deployment answered with.
  * @returns the sentence the model reads.

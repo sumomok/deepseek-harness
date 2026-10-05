@@ -28,6 +28,7 @@ import {
   type BizSchemeResult,
   type BizSearchRequest,
   type BizSearchResult,
+  type BizSubject,
   type BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { MAX_SPEC_BYTES, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
@@ -125,7 +126,7 @@ const RIGHTS: BizUserRights = {
 const JUDGE = new BizBackendService(
   new Context(),
   'https://biz.invalid/',
-  { read: () => undefined, set: () => {}, drop: () => {} },
+  { resolve: () => undefined, principalOfRequest: () => undefined },
   BizOperationRules({}),
 )
 
@@ -166,6 +167,8 @@ interface Bench {
   rightsReads: () => number
   /** The question and every request, in the order they happened. */
   steps: ('ask' | 'describe' | 'scheme' | 'search')[]
+  /** Whom every call into the backend was for, in the order the calls were made. */
+  subjects: BizSubject[]
 }
 
 let calls = 0
@@ -194,6 +197,7 @@ async function bench(
   const schemed: string[] = []
   const searched: BizSearchRequest[] = []
   const steps: Bench['steps'] = []
+  const subjects: BizSubject[] = []
   let rightsReads = 0
   ctx.provide('approval', {
     request: (request: ApprovalRequest): Promise<ApprovalOutcome> => {
@@ -203,23 +207,30 @@ async function bench(
     },
   } as never)
   ctx.provide('bizBackend', {
-    holdsCredential: (): boolean => script.credential ?? true,
-    userRights: (): Promise<BizUserRights | BizBackendFailure> => {
+    holdsCredential: (subject: BizSubject): boolean => {
+      subjects.push(subject)
+      return script.credential ?? true
+    },
+    userRights: (subject: BizSubject): Promise<BizUserRights | BizBackendFailure> => {
+      subjects.push(subject)
       rightsReads += 1
       return Promise.resolve(script.rights ?? RIGHTS)
     },
     judge: (rights: BizUserRights | BizBackendFailure) => JUDGE.judge(rights),
-    describe: (meta: string): Promise<BizMetaResult | BizBackendFailure> => {
+    describe: (subject: BizSubject, meta: string): Promise<BizMetaResult | BizBackendFailure> => {
+      subjects.push(subject)
       described.push(meta)
       steps.push('describe')
       return Promise.resolve(script.describe?.(meta) ?? { attributes: ATTRIBUTES })
     },
-    describeScheme: (meta: string): Promise<BizSchemeResult | BizBackendFailure> => {
+    describeScheme: (subject: BizSubject, meta: string): Promise<BizSchemeResult | BizBackendFailure> => {
+      subjects.push(subject)
       schemed.push(meta)
       steps.push('scheme')
       return Promise.resolve(script.describeScheme?.(meta) ?? { columns: SCHEME })
     },
-    search: (request: BizSearchRequest): Promise<BizSearchResult | BizBackendFailure> => {
+    search: (subject: BizSubject, request: BizSearchRequest): Promise<BizSearchResult | BizBackendFailure> => {
+      subjects.push(subject)
       searched.push(request)
       steps.push('search')
       return Promise.resolve(script.search?.(request) ?? { rawValue: RAW, displayValue: DISPLAY, total: 89 })
@@ -235,6 +246,7 @@ async function bench(
     schemed,
     searched,
     steps,
+    subjects,
     rightsReads: () => rightsReads,
     run: args => ctx.tools.execute({
       callId: ToolCallId(`call-${++calls}`),
@@ -1020,6 +1032,15 @@ describe('a read that came back with nothing to draw', () => {
 })
 
 describe('a read that drew', () => {
+  it('reads for the session the call runs in, on every call into the backend', async () => {
+    // The default-columns path reads the scheme too, so every one of the five calls is made.
+    const { run, session, subjects } = await bench('allowed-once', {}, READING)
+    const result = await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(result.isError).toBeFalsy()
+    expect(subjects).toHaveLength(5)
+    for (const subject of subjects) expect(subject).toEqual({ kind: 'session', sessionId: session.id })
+  })
+
   it('puts the rows in, takes the headers it was not given, and says only how many arrived', async () => {
     const spec = { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }, { relatedMetaAttr: 'layer_id', alias: '本次调用写的表头' }] } } }] }
     const { run, session } = await bench()

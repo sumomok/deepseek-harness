@@ -920,7 +920,7 @@ export interface Config {
 
 - `inject`: `webServer`
 - `refs`: [`BizOperationRules`](../packages/experimental/biz-backend/src/index.ts)
-- `source`: [`packages/experimental/auth-gate/src/index.ts:68`](../packages/experimental/auth-gate/src/index.ts)
+- `source`: [`packages/experimental/auth-gate/src/index.ts:71`](../packages/experimental/auth-gate/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
@@ -1117,7 +1117,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-experimental-component-kit`
 
-- `source`: [`packages/experimental/component-kit/src/index.ts:66`](../packages/experimental/component-kit/src/index.ts)
+- `source`: [`packages/experimental/component-kit/src/index.ts:68`](../packages/experimental/component-kit/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: where the data page's requests go. */
@@ -5337,6 +5337,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-experimental-agent-team-profile` | — | [`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-biz-backend` | — | [`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-browser-use-runtime` | — | [`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-console-members` | — | [`packages/experimental/console-members/src/index.ts`](../packages/experimental/console-members/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-console-profile` | — | [`packages/experimental/console-profile/src/index.ts`](../packages/experimental/console-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-inspector-profile` | — | [`packages/experimental/inspector-profile/src/index.ts`](../packages/experimental/inspector-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-library-skills` | — | [`packages/experimental/library-skills/src/index.ts`](../packages/experimental/library-skills/src/index.ts) |

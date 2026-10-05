@@ -177,6 +177,8 @@ flowchart LR
   pkg_skill_pack_components["skill-pack-components"]
   svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
   svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
+  pkg_console_members["console-members"]
+  svc_consoleMembers["ctx.consoleMembers<br/>Console member directory"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
   svc_agentDefaultModel["ctx.agentDefaultModel<br/>Default Agent model selection"]
@@ -260,6 +262,7 @@ flowchart LR
   pkg_vue2_echarts_tool_poc["vue2-echarts-tool-poc"]
   pkg_biz_backend["biz-backend"]
   svc_bizBackend["ctx.bizBackend<br/>Deployment data-backend reads"]
+  pkg_system_map["system-map"]
   pkg_jobs["jobs"]
   svc_jobs["ctx.jobs<br/>Background job registry"]
   pkg_jobs_local["jobs-local"]
@@ -335,6 +338,7 @@ flowchart LR
   pkg_component_surface --> svc_componentViews
   pkg_computer_use --> svc_computerUse
   pkg_config_editor --> svc_configEditor
+  pkg_console_members --> svc_consoleMembers
   pkg_content_surface --> svc_contentSurface
   pkg_cordis_host_runner --> svc_cordisInspect
   pkg_cordis_host_runner --> svc_dynamicCordisRunner
@@ -472,7 +476,9 @@ flowchart LR
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
   svc_authorization --> pkg_llm_pi_ai
+  svc_bizBackend --> pkg_component_kit
   svc_bizBackend --> pkg_component_surface
+  svc_bizBackend --> pkg_system_map
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
   svc_browserUse --> pkg_experimental_browser_use_stagehand_native
@@ -675,6 +681,7 @@ flowchart LR
 | `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | 装着侧栏列出、`/show-content-view` 打开的那些视图，来源是这套部署自己的配置和任何注册了来源的包；每个视图都由一次 show_component 调用所走的同一道判定来判，而组件目录拒绝的那些被贡献视图会被丢掉并留下一行 error，而不是让控制台起不来。 |
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | 拥有一个技能包根目录：它拿每个技能包去对已注册的组件部件做判定，只把其中激活的那些贡献给 ctx.skills，并在它自己的路由上公布每个技能包的状态与未满足的要求。 |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | 声明技能包的要求拿什么来判——每个已注册部件的 id、拥有它的插件包名和版本——外加一条变更通知；没挂上 Provider 时部件表为空，于是每个点名了部件的技能包都被摁在未激活。 |
+| `ctx.consoleMembers` | `service` | `console-members` | - | - | - | 声明一个浏览器请求、一个 Remote 调用方或一个会话属于哪位已登录成员、每位成员已登记的根目录，以及按成员保存的非秘密数据；这个包不注册插件，所以本仓库里没有这个键的 Provider，注入它会一直挂起。 |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | 拥有实时 Agent 句柄、创建／恢复工厂 seam，以及进程本地的发起方传播。 |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`base`](../packages/bundle/base), [`sdk-minimal`](../packages/bundle/sdk-minimal) | - | 唯一的具体循环插件；扩展包依赖 dsh-agent 的事件和服务，而不依赖此包。 |
@@ -700,7 +707,7 @@ flowchart LR
 | `ctx.inspector` | `core` | `inspector` | - | - | - | 负责 Worker 托管的 CDP target，以及独立于传输的 Host 和 Client observation 与 Cordis tree query API。 |
 | `ctx.componentCatalog` | `core` | `component-surface` | - | `component-kit` | - | 负责一次 `show_component` 调用可以落位哪些组件；组件插件把宿主侧定义注册到这里，把渲染器注册到浏览器半边同名的注册表，所以一个组件插件都不组合的部署既没有组件，也拿不到这个工具。 |
 | `ctx.contentSurface` | `core` | `content-surface` | - | `content-frame`, `vue2-echarts-tool-poc`, `component-surface` | - | 负责 extractor 表与由它折叠出的那一条 `contentSurface` projection；每种内容 kind 注册自己在日志里认得什么，content-column 再通过按 key 索引的槽把选中的 entry 画出来。 |
-| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface` | - | 负责对本部署自有数据后端的三次具名读取，花的是访客的访问令牌；auth-gate 用它校验过的基址和它持有的令牌构造这个服务，于是凭据留在那个包的闭包里。 |
+| `ctx.bizBackend` | `core` | `biz-backend` | - | `component-surface`, `system-map`, `component-kit` | - | 负责对本部署自有数据后端的各项具名读取，每次读取花的是它所替的那个人的访问令牌；auth-gate 用它校验过的基址和架在它持有的令牌之上的解析器构造这个服务，于是凭据留在那个包的闭包里。 |
 | `ctx.jobs` | `seam` | [`jobs`](../packages/jobs/jobs) | [`jobs-local`](../packages/jobs/jobs-local) | [`tool-bash`](../packages/shell/tool-bash), [`tool-pwsh`](../packages/shell/tool-pwsh), [`tool-terminal`](../packages/terminal/tool-terminal), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-jobs`](../packages/jobs/tool-jobs), [`api-job-controller`](../packages/api/job-controller) | - | 生产方（后台 bash/pwsh、PTY 发送和 subagent 委派）登记正在运行的工作；声明 record 的 job 还为非消费观察者流式提供原始输出；tool-jobs 是面向模型的控制器，用于读取、列出和终止这些工作；jobs-local 是进程本地注册表。 |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-http`](../packages/web/web-fetch-http) | [`tool-web`](../packages/web/tool-web) | - | 搜索和抓取提供方注册到同一个 ctx.web seam；tool-web 负责稳定的面向模型名称。 |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | 后端保存过大的工具文本，并返回面向模型的定位信息和取回提示；spill-policy 是 tools/post-execute 消费方，负责决定何时 spill。 |

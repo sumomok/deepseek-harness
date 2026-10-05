@@ -14,12 +14,19 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type GenericCallView, type GenericResultView, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type GenericCallView,
+  type GenericResultView,
+  type ToolDefinition,
+  type ToolRunContext,
+} from '@deepseek-ai/dsh-tools'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type {
   BizBackendFailure,
   BizModelSummary,
   BizPermissions,
+  BizSubject,
   BizUserRights,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import {
@@ -53,6 +60,7 @@ import {
   MODEL_PARAMETER_DESCRIPTION,
   MODEL_TOOL_NAME,
   modelLine,
+  NO_SESSION_REFUSAL,
   refusedRefusal,
   rejectedRefusal,
   renderDomainModels,
@@ -118,6 +126,21 @@ function cursorOf(after: string | undefined, parameter: string): string | undefi
 }
 
 /**
+ * Whom one call reads for: the person whose session it runs in.
+ *
+ * Settled before anything is read, and never guessed: a call running in no
+ * session names nobody, so it spends no credential at all.
+ * @param exec - the call's execution.
+ * @returns the session subject every read of the call names.
+ * @throws {Error} the sentence the model reads, when the call runs in no session.
+ */
+function subjectOf(exec: ToolRunContext): BizSubject {
+  const { agent } = exec
+  if (agent === undefined) throw new Error(NO_SESSION_REFUSAL)
+  return { kind: 'session', sessionId: agent.id }
+}
+
+/**
  * The subject or model one request names.
  * @param named - the argument as the model wrote it.
  * @param parameter - the parameter's name, for the refusal.
@@ -145,14 +168,15 @@ interface VisibleCatalog {
  * Both reads run together and either failing ends the call with its refusal, so
  * a person whose rights cannot be read is shown nothing rather than everything.
  * @param ctx - the injected context carrying the backend seam.
+ * @param subject - whom both reads are for.
  * @param signal - aborts both reads.
  * @returns the visible models, what the rights read permits, and the rights read itself.
  * @throws {Error} the sentence the model reads, when either read failed.
  */
-async function visibleCatalog(ctx: Context, signal: AbortSignal): Promise<VisibleCatalog> {
+async function visibleCatalog(ctx: Context, subject: BizSubject, signal: AbortSignal): Promise<VisibleCatalog> {
   const [catalog, rights] = await Promise.all([
-    ctx.bizBackend.listModels(signal),
-    ctx.bizBackend.userRights(signal),
+    ctx.bizBackend.listModels(subject, signal),
+    ctx.bizBackend.userRights(subject, signal),
   ])
   const models = read(catalog).models
   const granted = read(rights)
@@ -211,7 +235,7 @@ export function domainsTool(ctx: Context, bounds: MapBounds): ToolDefinition {
     isConcurrencySafe: () => true,
     async execute(args, exec): Promise<DomainsValue> {
       const after = cursorOf(args.after, 'after')
-      const { models } = await visibleCatalog(ctx, exec.signal)
+      const { models } = await visibleCatalog(ctx, subjectOf(exec), exec.signal)
       const domains = groupDomains(models)
       const page = pageWithin(domains, after, entry => entry.domain, domainLine, bounds.listingChars)
       return {
@@ -288,7 +312,7 @@ export function domainModelsTool(ctx: Context, bounds: MapBounds): ToolDefinitio
     async execute(args, exec): Promise<DomainModelsValue> {
       const wanted = namedOf(args.domain, 'domain')
       const after = cursorOf(args.after, 'after')
-      const { models, permissions } = await visibleCatalog(ctx, exec.signal)
+      const { models, permissions } = await visibleCatalog(ctx, subjectOf(exec), exec.signal)
       const domains = groupDomains(models)
       const area = resolveDomain(domains, wanted)
       if (area === undefined) throw new Error(unknownDomainRefusal(wanted, domains))
@@ -409,12 +433,13 @@ export function modelTool(ctx: Context, bounds: MapBounds): ToolDefinition {
     async execute(args, exec): Promise<ModelValue> {
       const wanted = namedOf(args.model, 'model')
       const after = cursorOf(args.after, 'after')
-      const { models, permissions, rights } = await visibleCatalog(ctx, exec.signal)
+      const subject = subjectOf(exec)
+      const { models, permissions, rights } = await visibleCatalog(ctx, subject, exec.signal)
       const summary = resolveModel(models, wanted)
       if (summary === undefined) throw new Error(unknownModelRefusal(wanted))
       const [described, schemes] = await Promise.all([
-        ctx.bizBackend.describe(summary.resClassEnName, exec.signal),
-        ctx.bizBackend.describeSchemes(summary.resClassEnName, exec.signal),
+        ctx.bizBackend.describe(subject, summary.resClassEnName, exec.signal),
+        ctx.bizBackend.describeSchemes(subject, summary.resClassEnName, exec.signal),
       ])
       const entries = attributeEntries(read(described).attributes, read(schemes).schemes, bounds)
       const row = rightsByModel(rights).get(summary.resClassEnName)
