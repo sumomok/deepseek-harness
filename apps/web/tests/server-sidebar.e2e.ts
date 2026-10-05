@@ -65,7 +65,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -73,7 +73,7 @@ import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
 import { FiberState } from '@deepseek-ai/cordis'
-import { createMessage, createUserMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createMessage, createUserMessage, type StreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -427,15 +427,16 @@ function viewCommandTripleTypes(scaffold: WebScaffold, sessionId: string): strin
  * Seed a full, closed turn (`turn/start` → `user/message` → `step/start` →
  * `assistant/message` → `step/end` → `turn/end`) directly onto a live
  * session's log, with no model call. `user/message` satisfies decision ③'s
- * visibility gate; the closed step satisfies the turns/steps row's own
- * `stats.steps > 0` render condition, which a bare `user/message` alone
- * would not (`StatsLine.tsx` renders nothing at zero steps) — needed here so
- * the de-terminology assertion proves the CSS guard actually hides a row
- * that would otherwise render, not merely that nothing rendered anyway.
+ * visibility gate. With `usage`, the step reports token accounting, so the
+ * composer's statistics row draws its cache-hit reading even under Compact
+ * (`StatsPills.tsx`'s `UsagePill`) — needed where the de-terminology
+ * assertion proves the CSS guard hides a row that would otherwise render, not
+ * merely that nothing rendered anyway.
  * @param scaffold - the live scaffold.
  * @param sessionId - the session to seed onto; must have a live agent.
+ * @param usage - the step's token accounting; omitted, the step reports none.
  */
-function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
+function seedClosedTurn(scaffold: WebScaffold, sessionId: string, usage?: TokenUsage): void {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
   agent.session.append('turn/start', { turn: 1 })
@@ -453,6 +454,7 @@ function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
       source: { kind: 'model', provider: 'fixture', model: 'fixture' },
     }),
     stream: [],
+    ...usage === undefined ? {} : { usage },
   }, { surfaceOp: 'append' })
   agent.session.append('step/end', { turn: 1, step: 1 })
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -482,6 +484,35 @@ function seedUntitledTurn(scaffold: WebScaffold, sessionId: string): void {
   agent.session.append('step/end', { turn: 1, step: 1 })
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
+
+/** The release version the client build embeds, which Settings → General shows. */
+const { version: CLIENT_VERSION } = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }
+
+/**
+ * The English titles of the Settings → General rows `server-sidebar` withholds
+ * on the console (`settings-entries.ts`), in that module's order.
+ */
+const WITHHELD_GENERAL_TITLES = [
+  'Compaction while busy', 'Automatic compaction', 'Language', 'Appearance', 'Font size', 'Work details',
+  'Performance & usage', 'Open chat links in', 'Send behavior while busy', 'Show coding view',
+] as const
+
+/**
+ * One settings write per namespace the console's lock holds, each to a valid
+ * value other than the lock's.
+ */
+const LOCKED_WRITES = [
+  ['bash-sandbox', { timeoutMs: 30_000 }],
+  ['agent-loop', { maxParallelToolCalls: 11 }],
+  ['subagent', { maxDepth: 2 }],
+  ['subagent-model-selection-settings', { enabled: true }],
+  ['auto-compact', { thresholdPercent: 61 }],
+  ['locale', { preference: 'en' }],
+  ['ui-theme', { preference: 'dark' }],
+  ['ui-chat', { performanceUsage: 'detailed' }],
+  ['ui-conversation', { busyEnter: 'steer' }],
+  ['ui-settings', { enabled: true }],
+] as const
 
 describe('web e2e: the product-console sidebar', () => {
   let scaffold: WebScaffold
@@ -668,31 +699,22 @@ describe('web e2e: the product-console sidebar', () => {
 
       expect(await page.getByRole('button', { name: 'Save as workflow' }).count()).toBe(0)
 
-      // The console bundle starts Performance & usage at Compact, whose stats
-      // row never draws the turns/steps counts. The visitor switches to
-      // Detailed in Settings, the write is saved, and the row below then
-      // renders counts for the guard to hide.
-      await page.getByRole('button', { name: 'Settings', exact: true }).click()
-      const settings = page.getByRole('dialog', { name: 'Settings' })
-      await settings.waitFor({ timeout: 10_000 })
-      const usageRow = settings.getByText('Performance & usage', { exact: true }).locator('../..')
-      await usageRow.getByRole('button', { name: 'Compact', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Detailed', exact: true }).click()
-      await expect.poll(() => scaffold.ctx.settings.describe().find(form => form.ns === 'ui-chat')?.value)
-        .toMatchObject({ performanceUsage: 'detailed' })
-      await page.keyboard.press('Escape')
-      await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
-
-      seedClosedTurn(scaffold, workbenchSessionId)
+      seedClosedTurn(scaffold, workbenchSessionId, { inputTokens: 100, outputTokens: 20, cacheReadTokens: 900 })
       await page.getByRole('button', { name: 'Save as workflow' }).waitFor({ timeout: 15_000 })
 
-      // De-terminology: the turns/steps row would show "1 turns 1 steps"
-      // (StatsLine.tsx) now that a closed step is on the log — pin the CSS
-      // guard by confirming the row is present in the DOM but not visible,
-      // not merely absent for an unrelated reason.
-      const statsRow = page.getByText('1 turns 1 steps')
-      expect(await statsRow.count()).toBeGreaterThan(0)
-      await expect(statsRow.first().isVisible()).resolves.toBe(false)
+      // De-terminology, twice over. The lock holds Performance & usage at
+      // Compact, under which the composer's statistics row never draws the
+      // turns/steps counts ("1 turns 1 steps", `StatsPills.tsx`), even now
+      // that a closed step is on the log. The row Compact still draws, the
+      // cache-hit reading the seeded usage produces, is in the DOM and not
+      // visible: the CSS guard hides that row itself, and a node inserted
+      // between the composer card and the row would leave it visible.
+      // `textContent` reads the hidden row, which `innerText` does not.
+      expect(await page.getByText('1 turns 1 steps').count()).toBe(0)
+      const usageReading = page.locator('[data-composer-stat="usage"]')
+      await expect.poll(() => usageReading.count(), { timeout: 15_000 }).toBe(1)
+      expect(await usageReading.textContent()).toContain('Cache hit')
+      await expect(usageReading.isVisible()).resolves.toBe(false)
 
       // The show-content-page command's chat echo is hidden
       // (`dsh-experimental-content-frame`'s empty `conversation.chat.commandview`
@@ -916,7 +938,7 @@ describe('web e2e: the product-console sidebar', () => {
     // Both halves: the General panel is rendered — one of its shipped rows is
     // on screen — and it carries no permission default row. Absence alone
     // would pass on a panel that failed to render at all.
-    await expect.poll(() => dialog.getByText('Appearance', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => dialog.getByText('Keyboard shortcuts', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     expect(await dialog.getByText('Permission', { exact: true }).count()).toBe(0)
     await page.keyboard.press('Escape')
     await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
@@ -937,7 +959,7 @@ describe('web e2e: the product-console sidebar', () => {
       .toBe('Settings\nGeneral\nGeneral settings')
     // The General panel is drawn, and the disabled `ui-settings-session-log`
     // row leaves no upload switch in it.
-    await expect.poll(() => dialog.getByText('Appearance', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => dialog.getByText('Keyboard shortcuts', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     expect(await dialog.getByText(/Session Log/).count()).toBe(0)
     const header = await dialog.evaluate((panel) => {
       const row = panel.querySelector('[class$="_header"]')
@@ -966,7 +988,7 @@ describe('web e2e: the product-console sidebar', () => {
     await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
   }, 30_000)
 
-  it('withholds the busy-compaction and automatic-compaction rows from Settings → General, while both keep their composed values', async () => {
+  it('withholds every Settings → General row but the keyboard shortcuts and the version, while each locked row keeps its config', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-withheld-rows'))
     // The vendored plugin's browser half ran: it installs its stylesheet
     // before it registers its row, so a missing row below is the shadow, not
@@ -974,18 +996,33 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await page.locator('style[data-dsh-auto-compact]').count()).toBe(1)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
+    // A failed check below would otherwise leave the dialog over the next test.
+    onTestFinished(async () => {
+      if (await dialog.count() > 0) await page.keyboard.press('Escape')
+    })
     await dialog.waitFor({ timeout: 10_000 })
-    // Both halves: the General panel is drawn — the row ordered right after
-    // the two withheld ones is on screen — and neither withheld row is.
-    await expect.poll(() => dialog.getByText('Performance & usage', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    expect(await dialog.getByText('Compaction while busy', { exact: true }).count()).toBe(0)
-    expect(await dialog.getByText('Automatic compaction', { exact: true }).count()).toBe(0)
+    // Both halves: the General panel is drawn — the one row it keeps with a
+    // control is on screen — and no withheld row is. The panel draws exactly
+    // two rows, the keyboard shortcuts and the current version, so a row a
+    // later release adds to Settings → General turns this red as well: the
+    // list's `display: contents` wrapper holds one element per drawn row, and
+    // a withheld cell draws none. The row count and the withheld titles are
+    // checked before the version row is awaited, so a row that leaks fails on
+    // its own check.
+    await expect.poll(() => dialog.getByText('Keyboard shortcuts', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => dialog.locator('[data-slot="settings.general.item"] > *').count(), { timeout: 10_000 }).toBe(2)
+    for (const title of WITHHELD_GENERAL_TITLES) {
+      expect({ title, count: await dialog.getByText(title, { exact: true }).count() }).toEqual({ title, count: 0 })
+    }
+    await dialog.getByText(`Current version: ${CLIENT_VERSION}`, { exact: true }).waitFor({ timeout: 10_000 })
     expect(await dialog.locator('input[type="range"]').count()).toBe(0)
+    expect(await dialog.getByRole('switch').count()).toBe(0)
     await page.keyboard.press('Escape')
     await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
 
     // The rows are withheld, not their packages: the vendored plugin is
-    // mounted at the bundle layer's 60%, and `ui-chat` keeps `turn-end`.
+    // mounted at the lock's 60%, and every locked namespace answers the
+    // lock's config.
     const row = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'auto-compact')
     expect(row?.options).toMatchObject({
       name: '@haoran/dsh-auto-compact',
@@ -995,7 +1032,11 @@ describe('web e2e: the product-console sidebar', () => {
     await row?.fiber?.await()
     const forms = scaffold.ctx.settings.describe()
     expect(forms.find(form => form.ns === 'auto-compact')?.value).toEqual({ enabled: true, thresholdPercent: 60 })
-    expect(forms.find(form => form.ns === 'ui-chat')?.value).toMatchObject({ busyCompaction: 'turn-end' })
+    expect(forms.find(form => form.ns === 'ui-chat')?.value)
+      .toMatchObject({ performanceUsage: 'compact', linkOpening: 'sidebar', busyCompaction: 'turn-end' })
+    expect(forms.find(form => form.ns === 'ui-theme')?.value).toMatchObject({ preference: 'system', fontSize: 14 })
+    expect(forms.find(form => form.ns === 'ui-conversation')?.value).toMatchObject({ busyEnter: 'queue' })
+    expect(forms.find(form => form.ns === 'ui-settings')?.value).toMatchObject({ enabled: false })
   }, 30_000)
 
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
@@ -1013,6 +1054,20 @@ describe('web e2e: the product-console sidebar', () => {
     // and the lock holds `enabled: false` against the same RPC write.
     await expect(scaffold.ctx.settings.update('session-log-deepseek', { enabled: true }))
       .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+  })
+
+  it('refuses a settings write to every preference and tunable the lock holds', async () => {
+    // Each of these saves into the profile patch every visitor shares; the
+    // lock composes above it, so config-editor refuses a write that differs
+    // from the lock's value, and the page offers no control for any of them.
+    const describedBefore = new Map<string, unknown>(scaffold.ctx.settings.describe().map(form => [form.ns, form.value]))
+    for (const [ns, patch] of LOCKED_WRITES) {
+      expect(describedBefore.has(ns)).toBe(true)
+      await expect(scaffold.ctx.settings.update(ns, patch), ns)
+        .rejects.toThrow(/overridden by a home patch or command-line overlay/)
+    }
+    const describedAfter = new Map<string, unknown>(scaffold.ctx.settings.describe().map(form => [form.ns, form.value]))
+    for (const [ns] of LOCKED_WRITES) expect(describedAfter.get(ns)).toEqual(describedBefore.get(ns))
   })
 
   it('serves an admitted visitor no Host administration method, while the console\'s own calls still answer', async () => {
@@ -1240,8 +1295,8 @@ describe('web e2e: the product-console sidebar', () => {
 
     await row.hover()
     await row.getByRole('button', { name: 'Remove from list' }).click()
-    // One click arms, a second commits: archiving is one-way from inside this
-    // console (see the package README's Known Limitations).
+    // One click arms, a second commits: a conversation this control takes off
+    // the list does not come back (see the package README's Known Limitations).
     await expect(row.getByRole('button', { name: 'Confirm removal' }).isVisible()).resolves.toBe(true)
     await evidence(page, 'web-e2e-server-sidebar-temporary-confirm')
     await row.getByRole('button', { name: 'Confirm removal' }).click()
@@ -1522,10 +1577,10 @@ describe('web e2e: the product-console sidebar over both content catalogs', () =
         { timeout: 20_000 },
       ).toEqual(['Home', 'Weekly reports', 'Site overview'])
       // Each row carries which catalog it came from, because the two are
-      // opened by different commands.
+      // opened by different commands, and that catalog's own entry id.
       expect(await navSection(page).locator('[data-server-sidebar-nav-kind]').evaluateAll(
-        rows => rows.map(row => row.getAttribute('data-server-sidebar-nav-kind')),
-      )).toEqual(['page', 'page', 'view'])
+        rows => rows.map(row => [row.getAttribute('data-server-sidebar-nav-kind'), row.getAttribute('data-server-sidebar-nav-entry')]),
+      )).toEqual([['page', 'home'], ['page', 'reports'], ['view', 'site-overview']])
     },
     60_000,
   )

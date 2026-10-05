@@ -3,8 +3,10 @@
  * 导航 / 我的工作流), the 临时工作流 section under it, the two session-header
  * entries this package registers alongside them (the "存为工作流" action, and
  * the title of an untitled conversation, which reads `workbench.label` or
- * `temporary.untitled` in `UntitledTitle.tsx`), and the conversation's rows
- * for a compaction that landed or failed (`CompactionRows.tsx`). No
+ * `temporary.untitled` in `UntitledTitle.tsx`), the conversation's rows for a
+ * compaction that landed or failed (`CompactionRows.tsx`), and the notice and
+ * the stop-and-remove confirmation in place of `dsh-client-ui-workspace`'s
+ * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -63,6 +65,20 @@ export const zh = {
   'brand.name.fallback': '工作台小助手',
   'compaction.completed': '已压缩较早的对话',
   'compaction.failed': '较早的对话压缩失败',
+  'notice.startFailed': '暂时无法开始对话，请刷新页面后重试',
+  'notice.newFailed': '暂时无法新建对话，请稍后重试',
+  'notice.removed': '对话已移出列表，可',
+  'notice.stoppedAndRemoved': '已停止并移出列表，可',
+  'notice.undo': '撤销',
+  'stopRemove.title': '停止并移出列表？',
+  'stopRemove.desc': '这个对话仍有正在进行的工作。移出列表会先停止这些工作，被停止的工作不会自动继续。',
+  'stopRemove.running.one': '还有 {n} 项工作在运行',
+  'stopRemove.running.other': '还有 {n} 项工作在运行',
+  'stopRemove.action': '停止并移出',
+  'stopRemove.cancel': '取消',
+  'stopRemove.close': '关闭',
+  'stopRemove.pending': '正在停止并移出列表…',
+  'stopRemove.error': '停止或移出失败，请稍后重试',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -110,4 +126,18 @@ export const en = {
   'brand.name.fallback': 'Workbench Assistant',
   'compaction.completed': 'Earlier conversation compacted',
   'compaction.failed': 'Couldn’t compact the earlier conversation',
+  'notice.startFailed': 'Couldn’t start a conversation. Refresh the page to try again.',
+  'notice.newFailed': 'Couldn’t start a new conversation. Try again shortly.',
+  'notice.removed': 'Conversation removed from the list. You can ',
+  'notice.stoppedAndRemoved': 'Stopped and removed from the list. You can ',
+  'notice.undo': 'undo',
+  'stopRemove.title': 'Stop and remove from the list?',
+  'stopRemove.desc': 'This conversation still has work in progress. Removing it from the list stops that work first, and the stopped work will not resume on its own.',
+  'stopRemove.running.one': '{n} item of work is still running',
+  'stopRemove.running.other': '{n} items of work are still running',
+  'stopRemove.action': 'Stop and remove',
+  'stopRemove.cancel': 'Cancel',
+  'stopRemove.close': 'Close',
+  'stopRemove.pending': 'Stopping and removing from the list…',
+  'stopRemove.error': 'Couldn’t stop the work and remove it from the list. Try again shortly.',
 } satisfies Record<ServerSidebarKey, string>

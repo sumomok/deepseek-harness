@@ -1,17 +1,24 @@
 # The console's lock: the rows a deployment applies above the profile patch,
 # with `dsh --profile <name> --patch <this file>` (or as the home patch,
 # `$DSH_HOME/cordis.patch.yml`). They are not part of this package's bundle
-# layer on purpose. `permission.defaultPreset`,
-# `agent-preset-registry.selectedDefault`, `session-log-deepseek.enabled`, and
-# the fields of `llm-deepseek`, `llm-deepseek-account`, and `agent-default-model`
-# are volatile Config,
-# so the settings service writes them into the profile patch on request, and
-# the `remote.settings` method answers any browser the deployment admits.
-# Composed in a layer above the profile patch, these rows outrank any such
-# write: config-editor refuses it, and a value an earlier release stored in
-# `settings.yaml` stays in `settings.yaml.imported` instead of being imported.
-# The bundle layer below carries the rows the settings service must be able to
-# save; this file carries the rows no caller may change.
+# layer on purpose. Every row here has volatile Config fields, so the settings
+# service writes them into the profile patch on request, and the
+# `remote.settings` method answers any browser the deployment admits; on a
+# console every such write lands in the one profile patch every visitor shares,
+# the browser-side preferences included (`dsh-experimental-server-base`'s
+# `ownsHost` makes the Settings page persist to the Host). Composed in a layer
+# above the profile patch, these rows outrank any such write: config-editor
+# refuses it whenever the row carries a `config` key, and a value an earlier
+# release or an earlier visitor stored, in the profile patch or in
+# `settings.yaml`, no longer takes effect. The bundle layer below carries the
+# rows the settings service must be able to save; this file carries the rows no
+# caller may change.
+#
+# A row here replaces the row's whole `config`, so each one restates every
+# field the layers below set. Each row also names its package: a `name` that
+# no longer matches the composed row makes the loader skip the row with a
+# warning and leaves the field writable, which `tests/profile.spec.ts` checks
+# by composing this file with no warning.
 #
 # Decision ②: the shipped preset table names its rows in vendor vocabulary —
 # "workspace-write" renders as "Workspace Write" on the composer's access chip
@@ -131,3 +138,115 @@
   config:
     provider: deepseek-official
     model: deepseek-flash
+
+# The shell Executor's limits. `cwd`, `timeoutMs`, `maxTimeoutMs`,
+# `maxOutputBytes`, `maxSpillBytes`, and `graceMs` are volatile
+# (`packages/shell/bash-local/src/index.ts`, whose Config `bash-sandbox`
+# inherits). Neither console preset offers a shell tool, so no console session
+# runs a command through it today; below the lock, a settings write would still
+# change the limits for any later caller. This row restates the base bundle's
+# `timeoutMs` (`packages/bundle/base/cordis.patch.yml`); every other field keeps
+# its schema default, and `cwd` stays unset. The row's `disabled` expression,
+# which mounts it on every platform but Windows, is the base bundle's and is
+# not restated.
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
+  config:
+    timeoutMs: 60000
+
+# How many tool calls of one step run at once, for every session.
+# `maxParallelToolCalls` is volatile; `agents` is the base bundle's empty list
+# (`packages/bundle/base/cordis.patch.yml`), restated because this row replaces
+# the whole config. 10 is the schema default
+# (`DEFAULT_MAX_PARALLEL_TOOL_CALLS`, `packages/core/agent-loop/src/constants.ts`),
+# and the console bundle disables the page that edits it
+# (`ui-settings-agent-loop`).
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []
+    maxParallelToolCalls: 10
+
+# Delegation depth and the number of live subagents. Both fields are volatile
+# and no shipped layer configures the row, so these are the schema defaults
+# (`packages/subagent/subagent/src/index.ts`). Neither console preset delegates.
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+  config:
+    maxDepth: 1
+    maxActiveSubagents: 8
+
+# Whether a delegation may pick its own model, and from which routes. Both
+# fields are volatile and no shipped layer configures the row, so these are the
+# schema defaults (`packages/subagent/tool-subagent/src/model-selection-settings.ts`);
+# the console bundle disables the page that edits them (`ui-settings-subagent`).
+- id: subagent-model-selection-settings
+  name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+  config:
+    enabled: false
+    allowedModels: []
+
+# Automatic compaction at 60% of the context window, for every session. The
+# console bundle inserts the row without a config; both fields are volatile, so
+# below the lock a settings write would move the share for every session. The
+# page offers no control for them: `server-sidebar` withholds the plugin's
+# Settings → General row.
+- id: auto-compact
+  name: '@haoran/dsh-auto-compact'
+  config:
+    enabled: true
+    thresholdPercent: 60
+
+# The page's language. `preference` is volatile; restating the Web bundle's
+# empty config leaves it unset, so each browser shows its own language rather
+# than the last language any visitor picked. `server-sidebar` withholds the
+# Language row.
+- id: locale
+  name: '@deepseek-ai/dsh-client-locale'
+  config: {}
+
+# Appearance and font size. Both are volatile; these are the schema defaults
+# (`DEFAULT_PREFERENCE` and `DEFAULT_FONT_SIZE`,
+# `packages/client/ui-theme/src/theme-settings.ts`), and with `system` each
+# browser follows its own system's light or dark mode. `server-sidebar`
+# withholds the Appearance and Font size rows.
+- id: ui-theme
+  name: '@deepseek-ai/dsh-client-ui-theme'
+  config:
+    preference: system
+    fontSize: 14
+
+# The Chat column's preferences. `performanceUsage: compact` is the console's
+# own choice (no per-Turn token usage under a completed answer; the schema
+# default is `detailed`); `linkOpening: sidebar` and `busyCompaction: turn-end`
+# are the schema defaults (`packages/client/ui-chat/src/chat-settings.ts`).
+# `transcriptView` is not stated: the browser then uses its own default,
+# `detailed`, and a write to it is refused with the rest of the row.
+# `server-sidebar` withholds the Performance & usage, Open chat links in, Work
+# details, and Compaction while busy rows.
+- id: ui-chat
+  name: '@deepseek-ai/dsh-client-ui-chat'
+  config:
+    performanceUsage: compact
+    linkOpening: sidebar
+    busyCompaction: turn-end
+
+# What Enter does while a turn runs. `busyEnter` is volatile; `queue` is the
+# schema default (`DEFAULT_BUSY_ENTER_BEHAVIOR`,
+# `packages/client/ui-conversation/src/submission-settings.ts`).
+# `server-sidebar` withholds the row.
+- id: ui-conversation
+  name: '@deepseek-ai/dsh-client-ui-conversation'
+  config:
+    busyEnter: queue
+
+# The developer-tools preference (Settings → General "Show coding view"). The
+# schema default is on (`packages/client/ui-settings/src/developer-tools-settings.ts`);
+# the console holds it off. Of what it gates, the console composes only the
+# right sidebar's HTML preview, which with it off draws a sanitized static copy
+# of the page: no script runs and no related file is read. `server-sidebar`
+# withholds the switch.
+- id: ui-settings
+  name: '@deepseek-ai/dsh-client-ui-settings'
+  config:
+    enabled: false

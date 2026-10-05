@@ -22,8 +22,20 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { isVolatile } from '@deepseek-ai/cosmokit'
+import type z from '@deepseek-ai/schemastery'
 import { bundlePatchPaths, composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import type { DshBundleManifest } from '@deepseek-ai/dsh-package-manifest'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import SandboxBashExecutor from '@deepseek-ai/dsh-bash-sandbox'
+import { Config as LocaleConfig } from '@deepseek-ai/dsh-client-locale'
+import { Config as UiChatConfig } from '@deepseek-ai/dsh-client-ui-chat'
+import { Config as UiConversationConfig } from '@deepseek-ai/dsh-client-ui-conversation'
+import { Config as UiSettingsConfig } from '@deepseek-ai/dsh-client-ui-settings'
+import { Config as UiThemeConfig } from '@deepseek-ai/dsh-client-ui-theme'
+import { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import SubagentModelSelectionConfig from '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+import { Config as AutoCompactConfig } from '@haoran/dsh-auto-compact'
 
 /** This package's directory. */
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -167,6 +179,73 @@ const LIVE_CONFIG_ROWS = [
 /** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
 const PINNED_PRESET = 'workspace-write'
 
+/**
+ * The lock's rows that hold every visitor's preferences and the Host's
+ * tunables at one value, each with the package it patches and the whole config
+ * it composes to. A settings page on the console saves into the one profile
+ * patch every visitor shares, so each of these would otherwise be one write
+ * away from changing every visitor's page or every session. Each value is what
+ * the console ran before the row moved above the profile patch (the layers
+ * below, then the schema default; the lock file names each source), except
+ * `ui-settings.enabled`, which the console holds off.
+ */
+const FIXED_ROWS = [
+  ['bash-sandbox', '@deepseek-ai/dsh-bash-sandbox', { timeoutMs: 60000 }],
+  ['agent-loop', '@deepseek-ai/dsh-agent-loop', { agents: [], maxParallelToolCalls: 10 }],
+  ['subagent', '@deepseek-ai/dsh-subagent', { maxDepth: 1, maxActiveSubagents: 8 }],
+  ['subagent-model-selection-settings', '@deepseek-ai/dsh-tool-subagent/model-selection-settings', { enabled: false, allowedModels: [] }],
+  ['auto-compact', '@haoran/dsh-auto-compact', { enabled: true, thresholdPercent: 60 }],
+  ['locale', '@deepseek-ai/dsh-client-locale', {}],
+  ['ui-theme', '@deepseek-ai/dsh-client-ui-theme', { preference: 'system', fontSize: 14 }],
+  ['ui-chat', '@deepseek-ai/dsh-client-ui-chat', { performanceUsage: 'compact', linkOpening: 'sidebar', busyCompaction: 'turn-end' }],
+  ['ui-conversation', '@deepseek-ai/dsh-client-ui-conversation', { busyEnter: 'queue' }],
+  ['ui-settings', '@deepseek-ai/dsh-client-ui-settings', { enabled: false }],
+] as const
+
+/**
+ * Each fixed row's own Config schema, which fills the fields a config leaves
+ * out with the plugin's defaults: what the row runs with is the schema's
+ * reading of its composed config, not the config as written.
+ */
+const FIXED_ROW_SCHEMAS: Record<typeof FIXED_ROWS[number][0], z> = {
+  'bash-sandbox': SandboxBashExecutor.Config,
+  'agent-loop': AgentLoop.Config,
+  'subagent': SubagentRuntime.Config,
+  'subagent-model-selection-settings': SubagentModelSelectionConfig.Config,
+  'auto-compact': AutoCompactConfig,
+  'locale': LocaleConfig,
+  'ui-theme': UiThemeConfig,
+  'ui-chat': UiChatConfig,
+  'ui-conversation': UiConversationConfig,
+  'ui-settings': UiSettingsConfig,
+}
+
+/**
+ * A parsed config as plain data: a volatile field's reference becomes the
+ * value it holds, so two readings compare by value.
+ * @param value - a Config schema's output, or any part of it.
+ * @returns the same data without references.
+ */
+function plain(value: unknown): unknown {
+  if (isVolatile(value)) return plain(value.get())
+  if (Array.isArray(value)) return value.map(plain)
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, plain(child)]))
+  return value
+}
+
+/**
+ * The config two fixed rows carried in this package's bundle layer before the
+ * lock took them over (`cordis.patch.yml` no longer states them): what the
+ * console ran is the layers below with these fields over them.
+ */
+const MOVED_FROM_BUNDLE: Partial<Record<typeof FIXED_ROWS[number][0], Record<string, unknown>>> = {
+  'auto-compact': { enabled: true, thresholdPercent: 60 },
+  'ui-chat': { performanceUsage: 'compact' },
+}
+
+/** The one fixed row whose locked value differs from what the console ran before the lock. */
+const CHANGED_ROW = 'ui-settings'
+
 interface Row {
   id?: string
   name?: string
@@ -268,11 +347,22 @@ describe('the console bundle manifest', () => {
 
   it('ships the lock overlay beside the bundle layer, outside `dsh.bundle.patch`', () => {
     expect(manifest.files).toContain('permission-lock.patch.yml')
-    expect(idsOf(LOCK_PATCH)).toEqual(['permission', 'agent-preset-registry', 'session-log-deepseek', 'llm-deepseek', 'llm-deepseek-account', 'agent-default-model'])
-    // In the bundle layer each row would sit below the profile patch, where a
-    // settings write to `defaultPreset`, `selectedDefault`, `enabled`, the
-    // model route, or the default model outranks it.
-    for (const id of idsOf(LOCK_PATCH)) expect(idsOf(CONSOLE_PATCH)).not.toContain(id)
+    expect(idsOf(LOCK_PATCH)).toEqual([
+      'permission', 'agent-preset-registry', 'session-log-deepseek', 'llm-deepseek', 'llm-deepseek-account', 'agent-default-model',
+      ...FIXED_ROWS.map(([id]) => id),
+    ])
+  })
+
+  it('configures no row the lock configures, and inserts one only with no config', () => {
+    // In the bundle layer a row's config sits below the profile patch, where a
+    // settings write to any of its volatile fields outranks it.
+    const bundle = entriesOf(CONSOLE_PATCH)
+    for (const id of idsOf(LOCK_PATCH)) {
+      expect(bundle.filter(entry => entry.id === id)).toEqual([])
+      for (const row of bundle.flatMap(entry => entry.insert ?? []).filter(row => row.id === id)) {
+        expect(row).not.toHaveProperty('config')
+      }
+    }
   })
 })
 
@@ -354,13 +444,6 @@ describe('the console layer over the shipped Web bundles', () => {
     // withheld by `server-sidebar`'s `settings-entries.ts` instead.
     expect(idsOf(CONSOLE_PATCH)).not.toContain('ui-settings-general')
     expect(byId.get('ui-settings-general')?.disabled).not.toBe(true)
-  })
-
-  it('starts Performance & usage at compact in the bundle layer, where a user\'s Settings choice still outranks it', () => {
-    expect(rowOf(CONSOLE_PATCH, 'ui-chat')).toEqual({ id: 'ui-chat', config: { performanceUsage: 'compact' } })
-    expect(byId.get('ui-chat')).toMatchObject({ name: '@deepseek-ai/dsh-client-ui-chat', config: { performanceUsage: 'compact' } })
-    // Above the profile patch, config-editor would refuse the user's write.
-    expect(idsOf(LOCK_PATCH)).not.toContain('ui-chat')
   })
 
   it('turns live client plugin replacement off by id, while the shipped Web bundle still composes it', () => {
@@ -501,18 +584,11 @@ describe('the console layer over the shipped Web bundles', () => {
     expect(idsOf(LOCK_PATCH)).not.toContain('page-refresh')
   })
 
-  it('mounts automatic compaction on the host plane at 60%, as the inherited value a settings write may outrank', () => {
+  it('mounts automatic compaction on the host plane, leaving its config to the lock', () => {
     // This layer inserts the row; no shipped layer composes the plugin.
     expect(entriesOf(CONSOLE_PATCH).flatMap(entry => entry.insert ?? []).map(row => row.id)).toContain('auto-compact')
     expect(composeEntries(web, () => {}).some(entry => entry.id === 'auto-compact')).toBe(false)
-    expect(byId.get('auto-compact')).toMatchObject({
-      name: '@haoran/dsh-auto-compact',
-      config: { enabled: true, thresholdPercent: 60 },
-    })
-    expect(byId.get('auto-compact')?.disabled).not.toBe(true)
-    // Both fields are volatile: above the profile patch, config-editor would
-    // refuse every write to them.
-    expect(idsOf(LOCK_PATCH)).not.toContain('auto-compact')
+    expect(byId.get('auto-compact')).toEqual({ id: 'auto-compact', name: '@haoran/dsh-auto-compact' })
     // The engine it compacts with lives in each preset's `compaction` group,
     // which both the `console` preset and its `standard` twin carry.
     for (const id of ['preset-console', 'preset-standard-as-console']) {
@@ -632,6 +708,59 @@ describe('the lock overlay\'s model rows', () => {
     expect(rowOf(LOCK_PATCH, 'agent-default-model')).toEqual({
       id: 'agent-default-model', name: '@deepseek-ai/dsh-agent-default-model', config: shippedConfig,
     })
+  })
+})
+
+describe('the lock over the console layer', () => {
+  const layers = [
+    resolve(REPO_ROOT, 'packages/bundle/base'), resolve(REPO_ROOT, 'packages/bundle/web-app'), PACKAGE_ROOT,
+  ].map(dir => bundlePatches(dir))
+  const below = new Map(composeEntries(layers, () => {}).map(entry => [entry.id, entry]))
+  const warnings: string[] = []
+  const composed = new Map(
+    composeEntries([...layers, loadOverlayPatches('test', LOCK_PATCH)], message => warnings.push(message))
+      .map(entry => [entry.id, entry]),
+  )
+
+  it('patches only rows the layers below compose, under the package each one names', () => {
+    // A `name` that no longer matches is a warning, and the loader skips that
+    // row: its fields would stay writable with no other signal.
+    expect(warnings).toEqual([])
+    for (const id of idsOf(LOCK_PATCH)) {
+      expect(below.has(id)).toBe(true)
+      expect(rowOf(LOCK_PATCH, id)?.name).toBe(below.get(id)?.name)
+    }
+  })
+
+  it.each(FIXED_ROWS)('holds `%s` (%s) at one config', (id, name, config) => {
+    // Any `config` key in a layer above the profile patch makes config-editor
+    // refuse a settings write to the row; the value is what every visitor gets.
+    expect(rowOf(LOCK_PATCH, id)).toEqual({ id, name, config })
+    expect(composed.get(id)?.config).toEqual(config)
+  })
+
+  it.each(FIXED_ROWS.filter(([id]) => id !== CHANGED_ROW))('runs `%s` at the value the layers below ran it with, defaults included', (id) => {
+    // Compared with the composition below the lock, not with a copy of the
+    // lock file: editing a locked value fails here whatever FIXED_ROWS says.
+    // A field the plugin's schema defaults reads the same whether a layer
+    // states it or not.
+    const read = (config: unknown) => plain(FIXED_ROW_SCHEMAS[id](config))
+    const before = { ...(below.get(id)?.config ?? {}) as Record<string, unknown>, ...MOVED_FROM_BUNDLE[id] }
+    expect(read(composed.get(id)?.config ?? {})).toEqual(read(before))
+  })
+
+  it('turns the code working view off, the one value the lock changes', () => {
+    const read = (config: unknown) => plain(FIXED_ROW_SCHEMAS[CHANGED_ROW](config))
+    expect(read(below.get(CHANGED_ROW)?.config ?? {})).toEqual({ enabled: true })
+    expect(read(composed.get(CHANGED_ROW)?.config ?? {})).toEqual({ enabled: false })
+  })
+
+  it.each(FIXED_ROWS)('restates every field the layers below set on `%s`, at the value they set', (id) => {
+    // The lock replaces a row's whole config, so a field the layers below set
+    // and the lock left out would fall to its schema default.
+    const lower = (below.get(id)?.config ?? {}) as Record<string, unknown>
+    const fixed = (composed.get(id)?.config ?? {}) as Record<string, unknown>
+    for (const [field, value] of Object.entries(lower)) expect({ field, value: fixed[field] }).toEqual({ field, value })
   })
 })
 

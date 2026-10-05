@@ -22,6 +22,8 @@ Status: implemented
 
 **锁钉住模型路由与默认模型。** `permission-lock.patch.yml` 加上带 `config: {}` 的 `llm-deepseek`、带 `config: {}` 的 `llm-deepseek-account`，以及带 `provider: deepseek-official` 与 `model: deepseek-flash` 的 `agent-default-model`。组合后的配置与写入的值不同时，config-editor 拒绝这次设置写入，所以锁里的一行只有带着 `config` 键时才锁得住；`{}` 写明的正是 base bundle 的配置——base bundle 组合每一行时都不带任何配置。锁组合进来后，`session.selectModel` 只切换那一个会话，并记一条默认值未保存的日志，账号路由的 `baseURL` 与模型目录也不再能被改指。在自己的层里配置了这几行之一的部署，要把那份配置移进锁里的这一行，因为它替换整份配置。
 
+**锁钉住设置写入会替每位访客改掉的每一项偏好与可调参数。** `dsh-experimental-server-base` 的 `ownsHost` 让设置页持久化到 Host，所以在控制台上，浏览器侧的偏好和 Host 的可调参数一样，保存进所有访客共用的那一份 profile 补丁。因此 `permission-lock.patch.yml` 还重述 `bash-sandbox`、`agent-loop`、`subagent`、`subagent-model-selection-settings`、`auto-compact`、`locale`、`ui-theme`、`ui-chat`、`ui-conversation` 与 `ui-settings`，每一行都写成控制台原本就在用的值（先取下层的值，再取 schema 默认值），只有 `ui-settings.enabled` 被钉在关闭。`auto-compact` 的配置移出了 bundle 层，bundle 层现在插入这一行时不带配置。`locale` 是 `{}`，所以每个浏览器显示它自己的语言。这些命名空间画出的每一个 Settings → General 行都由 `server-sidebar` 隐去，只留每个浏览器各自保存的快捷键与当前版本：每次写入都会被锁拒绝的控件什么也改不了。
+
 **`hmr` 被禁用。** 它没有 Remote 方法，但它在不重启的情况下让磁盘上的 profile 改动生效，于是把一次对 profile 补丁或 home 补丁的写入变成下一次 profile 重载就运行的实时代码。`tool-fs` 在 `workspace-write` 下，靠被放行的访客给出的那一次超出工作区的审批，就准许了这次写入。禁用这一行后，这类改动只在下次 Host 重启时才生效；没有 `hmr`，`config-editor` 仍自行保存并对账每次设置写入（`config-editor/src/index.ts` 在 `hmr` 缺席时直接运行它的写入）。这收窄了磁盘写入这条链，但收窄不了写入本身——只有在上游包里约束 `tool-fs` 或会话 `cwd` 才能关掉它。
 
 ## What stays reachable
@@ -34,12 +36,11 @@ Status: implemented
 - `session.create` 接受任何绝对路径的 `cwd`，而 `fs-sandbox` 不限制读取，并把 `workspace-write` 的写入限制在那个目录与平台临时目录里。对 profile 补丁或 home 补丁的写入，需要被放行的访客给出那一次超出工作区的审批；`hmr` 被禁用后，它只在下次 Host 重启时才生效。
 - `session.*`、`workspace.*`、`job.*` 与 `subagents.*` 作用于每个会话；控制台是单租户的，所以每个访客都是同一个操作者。
 - `fileReferences.list` 为输入框的 `@` 提及列出一个会话目录下的名字；`account.*` 让 Host 登录一个 DeepSeek 账号，`deepseek-account-platform` 只把该账号的 token 发往它的推理源。
-- 对任何 volatile 字段的设置写入都会被重新序列化进 profile 补丁并当场生效。新增或改动 `{ __jsExpr: … }` 节点的写入在校验之前就被拒绝：`config-editor` 的 `edit()` 抛出 `ConfigExpressionRejectedError`，设置 RPC 回应 `settings/rejected`，补丁文件不变（核心补丁 `settings-expression-write-guard`）。行里已有的表达式（例如锁层的 `!!js` 值）原样写回。锁关掉了 `llm-deepseek`、`llm-deepseek-account`、`agent-default-model`、`session-log-deepseek` 与权限预设；控制台保持可写的 volatile 字段（其中就有 `server-sidebar` 的菜单）只接受普通值。
-- `agent-loop`、`subagent`、`subagent-model-selection-settings`、`auto-compact` 的 volatile 字段与 `ui-chat.busyCompaction` 接受设置写入；没有控制台预设会委派。
+- 对任何 volatile 字段的设置写入都会被重新序列化进 profile 补丁并当场生效。新增或改动 `{ __jsExpr: … }` 节点的写入在校验之前就被拒绝：`config-editor` 的 `edit()` 抛出 `ConfigExpressionRejectedError`，设置 RPC 回应 `settings/rejected`，补丁文件不变（核心补丁 `settings-expression-write-guard`）。行里已有的表达式（例如锁层的 `!!js` 值）原样写回。锁关掉了 `llm-deepseek`、`llm-deepseek-account`、`agent-default-model`、`session-log-deepseek`、权限预设，以及上面那些偏好与可调参数的行；控制台保持可写的 volatile 字段（`server-sidebar` 的菜单、`ui-settings-general.welcomeNoticeVersion` 与 `ui-settings-account` 的引导字段）只接受普通值。
 
 ## Testing
 
-`packages/experimental/console-profile/tests/profile.spec.ts` 钉住每一组在控制台层里都是一条只有 id 的禁用行，而出厂 bundle 组合并启用它们；并对照 base bundle 的配置钉住锁里的三行（`llm-deepseek`、`llm-deepseek-account`、`agent-default-model`）。`apps/web/tests/server-sidebar.e2e.ts` 里的 server-sidebar 场景以锁作 home 补丁启动控制台，像页面自己的客户端那样带着登录 cookie 发送 `client-request` 信封。它要求 `pluginManager.listBundles`、`setBundleEnabled`、`installBundle`、`pluginInventory.list`、`pluginRegistryProbe.fastest`、`dynamicCordisRunner.runHostHalf`、`terminal.create`、`officeToPdf.render`、`goals.create` 与 `goals.resume` 都回 404；`llm.discoverModels` 报告没有注册任何发现；对 `agent-default-model` 的一次 `settings.update` 被拒绝；每个被组合的 Loader 条目都处于激活状态；`session.list` 与 `settings.describe` 正常应答。去掉 `plugin-manager` 那一行后，这个用例在 `pluginManager.listBundles` 上失败。脚手架自己禁用 `directory-picker` 与 `open-in-app` 并插入 browse 选择器，所以这个场景覆盖不到这两行。另有几行只由 `tests/profile.spec.ts` 钉住：`llm-deepseek` 锁行（replay 脚手架禁用了 `llm-deepseek`，所以没有 e2e 设置写入会到达它）、`ui-open-in-app`，以及只在客户端的禁用行 `ui-sidebar-terminal`、`cordis-client-runner`、`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent` 与 `ui-settings-web-search`——它们的 Host Loader 条目无论如何都会激活，所以激活检查看不到它们。
+`packages/experimental/console-profile/tests/profile.spec.ts` 钉住每一组在控制台层里都是一条只有 id 的禁用行，而出厂 bundle 组合并启用它们；并对照 base bundle 的配置钉住锁里的三行（`llm-deepseek`、`llm-deepseek-account`、`agent-default-model`）。它还把锁组合到控制台层之上并要求没有任何警告，于是锁里每一行的 `name` 都与它修补的那一行一致；并钉住每一个偏好与可调参数行的配置，要求它重述下层设置过的每个字段。`apps/web/tests/server-sidebar.e2e.ts` 里的 server-sidebar 场景以锁作 home 补丁启动控制台，像页面自己的客户端那样带着登录 cookie 发送 `client-request` 信封。它要求 `pluginManager.listBundles`、`setBundleEnabled`、`installBundle`、`pluginInventory.list`、`pluginRegistryProbe.fastest`、`dynamicCordisRunner.runHostHalf`、`terminal.create`、`officeToPdf.render`、`goals.create` 与 `goals.resume` 都回 404；`llm.discoverModels` 报告没有注册任何发现；对 `agent-default-model` 的一次 `settings.update` 被拒绝；每个被组合的 Loader 条目都处于激活状态；`session.list` 与 `settings.describe` 正常应答。同一个场景还要求对这十个偏好与可调参数命名空间的每一次设置写入都被拒绝，并要求打开的 Settings → General 页面正好画出两行：快捷键与当前版本。去掉 `plugin-manager` 那一行后，这个用例在 `pluginManager.listBundles` 上失败。脚手架自己禁用 `directory-picker` 与 `open-in-app` 并插入 browse 选择器，所以这个场景覆盖不到这两行。另有几行只由 `tests/profile.spec.ts` 钉住：`llm-deepseek` 锁行（replay 脚手架禁用了 `llm-deepseek`，所以没有 e2e 设置写入会到达它）、`ui-open-in-app`，以及只在客户端的禁用行 `ui-sidebar-terminal`、`cordis-client-runner`、`ui-settings-shell`、`ui-settings-agent-loop`、`ui-settings-subagent` 与 `ui-settings-web-search`——它们的 Host Loader 条目无论如何都会激活，所以激活检查看不到它们。
 
 ## Alternatives considered
 
@@ -51,8 +52,10 @@ Status: implemented
 
 **只禁用页面。** 去掉 `ui-plugin-manager` 或右侧栏的终端标签页，去掉的是控制台里本来就够不着的控件，而 `pluginManager.*` 与 `terminal.*` 照样回应每个访客。
 
+**只隐去偏好行而不锁，或只锁而不隐去这些行。** 不锁的话，`remote.settings` 仍替每位访客写下其中每一项，早先某位访客存进 profile 补丁的值也继续生效。不隐去的话，这些行留在页面上，而它们发出的每一次写入都被拒绝。
+
 **让四个配置页保持组合。** 它们只往 `ui-plugin-manager` 的 `plugins.item` slot 里注册，而那一行被禁用后，没有任何东西声明这个 slot；「设置 → 插件」的清单行出于同样的理由被禁用。
 
 ## Consequences
 
-被放行的访客都不能再安装或开关插件、运行动态 Cordis 包、打开终端、运行模型发现或添加 provider 路由、在会话工具之外浏览或创建目录、启动 Host 的应用、渲染 Office 文件、设上一个用 Host 的 key 跑模型轮次的目标，或改指模型路由、账号路由与默认模型；磁盘上的 profile 改动不再不重启就生效。控制台页面失去右侧栏的终端标签页与 Office 预览——文档标签页里会报错；`session.selectModel` 不把任何选择保存为默认值。想要回其中某个面的部署，要在自己的层里重新启用对应的行，并接受每个访客都够得着它；在自己的层里配置了 `llm-deepseek`、`llm-deepseek-account` 或 `agent-default-model` 的部署，要把那份配置移进锁里。上面的可达清单，就是 connection 里按调用方的把关或多租户控制台需要去关掉的东西。
+被放行的访客都不能再安装或开关插件、运行动态 Cordis 包、打开终端、运行模型发现或添加 provider 路由、在会话工具之外浏览或创建目录、启动 Host 的应用、渲染 Office 文件、设上一个用 Host 的 key 跑模型轮次的目标，或改指模型路由、账号路由与默认模型；磁盘上的 profile 改动不再不重启就生效。控制台页面失去右侧栏的终端标签页与 Office 预览——文档标签页里会报错；`session.selectModel` 不把任何选择保存为默认值。没有访客能选语言、主题、字号或 Settings → General 里任何其他会保存进共用 profile 补丁的偏好：每个浏览器显示它自己的语言、跟随它所在系统的浅色或深色模式；开发者工具保持关闭，文档标签页的 HTML 预览是一份净化过、不运行脚本的静态副本。快捷键编辑器仍在，访客在那里改的按键只存在该浏览器自己的存储里。想要回其中某个面的部署，要在自己的层里重新启用对应的行，并接受每个访客都够得着它；在自己的层里配置了 `llm-deepseek`、`llm-deepseek-account`、`agent-default-model` 或这十个偏好与可调参数行中任何一行的部署，要把那份配置移进锁里。部署在自己的层里组合的、带 volatile 字段的行，在部署把它重述进锁之前，每位访客都能写。上面的可达清单，就是 connection 里按调用方的把关或多租户控制台需要去关掉的东西。

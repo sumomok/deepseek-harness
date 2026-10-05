@@ -1,7 +1,7 @@
 /**
  * Signing out: the five steps in their fixed order, the sweep that stops work
- * in progress, the enumerated storage removal (and everything it leaves
- * alone), the cookie line that must stay byte-for-byte auth-gate's, the
+ * in progress, the enumerated storage removal (the login page's keys and the
+ * conversation on screen, and everything it leaves alone), the cookie line that must stay byte-for-byte auth-gate's, the
  * return address, and the settings read that decides whether the button can
  * do anything at all.
  *
@@ -11,6 +11,8 @@
  * including when the sign-out route never answers at all and when the stop
  * the sequence opens with never answers either.
  */
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCookieLine as authGateClearCookieLine } from '@deepseek-ai/dsh-experimental-auth-gate/src/client/browser.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -30,6 +32,12 @@ const OWNED_KEYS = [
   'userInfo', 'loginUserInfo', 'AP', 'token4a',
   'accessTokenAuth', 'accessTokenTimeAuth', 'accessTokenEncryptAuth', 'accessTokenRenewalTimeAuth',
 ]
+
+/** The key `dsh-client-ui-workspace` keeps the conversation on screen under, removed after the login page's. */
+const CURRENT_CONVERSATION_KEY = 'dsh.sessions.current'
+
+/** Every key step 3 removes, in order. */
+const REMOVED_KEYS = [...OWNED_KEYS, CURRENT_CONVERSATION_KEY]
 
 /** A recording {@link SignOutBrowser}: every step lands in one ordered log. */
 function benchBrowser(options: { href?: string; stopTurns?: () => Promise<void> } = {}): {
@@ -89,21 +97,41 @@ describe('signOut', () => {
     })
     expect(log).toEqual([
       'stop',
-      ...OWNED_KEYS.map(key => `remove:${key}`),
+      ...REMOVED_KEYS.map(key => `remove:${key}`),
       'clearCookie:accessToken',
       'navigate:/toy-login/#/?redirect=https%3A%2F%2Fconsole.example%2Fapp%2F%23%2Fboard',
     ])
   })
 
-  it('removes the login page\'s own keys by name and touches nothing else', async () => {
+  it('removes the login page\'s own keys and the conversation on screen by name, and touches nothing else', async () => {
     stubFetch()
     const { browser, log } = benchBrowser()
     await signOut(browser, SETTINGS)
     const removed = log.filter(entry => entry.startsWith('remove:')).map(entry => entry.slice('remove:'.length))
-    expect(removed).toEqual(OWNED_KEYS)
+    expect(removed).toEqual(REMOVED_KEYS)
     for (const untouched of ['dsh-theme', 'dsh-locale', 'someOtherApp.session']) {
       expect(removed).not.toContain(untouched)
     }
+  })
+
+  it('removes the key `dsh-client-ui-workspace` persists the conversation on screen under', () => {
+    // That package exports no constant for it, so its source is what the copy
+    // is checked against.
+    const navigation = fileURLToPath(new URL('../../../client/ui-workspace/src/client/navigation.ts', import.meta.url))
+    expect(readFileSync(navigation, 'utf8')).toContain(`{ persist: { name: '${CURRENT_CONVERSATION_KEY}' } }`)
+  })
+
+  it('leaves no conversation on screen behind in the page\'s own storage', async () => {
+    stubFetch()
+    const stored = new Map([
+      [CURRENT_CONVERSATION_KEY, JSON.stringify({ sessionId: 'session-a' })],
+      ['accessToken', 'Bearer token'],
+      ['dsh-theme', 'dark'],
+    ])
+    const { browser } = benchBrowser()
+    await signOut({ ...browser, removeStoredKey: (key) => { stored.delete(key) } }, SETTINGS)
+    expect(stored.has(CURRENT_CONVERSATION_KEY)).toBe(false)
+    expect([...stored.keys()]).toEqual(['dsh-theme'])
   })
 
   it('takes the login page\'s credential parameters out of the return address, from the query and the fragment alike', async () => {
@@ -146,7 +174,7 @@ describe('signOut', () => {
       expect.objectContaining({ message: 'server-sidebar: the work in progress did not stop within 3000ms' }),
     )
     expect(log).toEqual([
-      ...OWNED_KEYS.map(key => `remove:${key}`),
+      ...REMOVED_KEYS.map(key => `remove:${key}`),
       'clearCookie:accessToken',
       'navigate:/toy-login/#/?redirect=https%3A%2F%2Fconsole.example%2Fapp%2F%23%2Fboard',
     ])
@@ -159,7 +187,7 @@ describe('signOut', () => {
     await signOut(browser, SETTINGS)
     expect(warn).toHaveBeenCalledWith('server-sidebar: could not stop the work in progress', expect.any(Error))
     expect(log.at(-1)).toContain('navigate:')
-    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(OWNED_KEYS.length)
+    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(REMOVED_KEYS.length)
   })
 
   it('goes on after a sign-out route that refused', async () => {
@@ -190,7 +218,7 @@ describe('signOut', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise<never>(() => {})))
     const { browser, log } = benchBrowser()
     await signOut(browser, SETTINGS)
-    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(OWNED_KEYS.length)
+    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(REMOVED_KEYS.length)
     expect(log.at(-1)).toContain('navigate:')
   })
 
@@ -209,7 +237,7 @@ describe('signOut', () => {
     expect(warn).toHaveBeenCalledWith(
       'server-sidebar: could not remove the stored key "accessTokenTime"', expect.any(Error),
     )
-    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(OWNED_KEYS.length - 1)
+    expect(log.filter(entry => entry.startsWith('remove:'))).toHaveLength(REMOVED_KEYS.length - 1)
     expect(log.at(-1)).toContain('navigate:')
   })
 

@@ -12,11 +12,11 @@
  *    sends this request rather than waiting on it: a route that never answers
  *    would otherwise hold the visitor on a page whose work is already stopped
  *    and whose token is one step from being dropped.
- * 3. **Remove the login page's stored keys, by name.** Never
- *    `localStorage.clear()`: this origin also carries the shell's own private
- *    keys and, in a deployment that serves other applications from it, theirs
- *    — a blanket clear would sign the visitor out of things this button never
- *    promised to touch.
+ * 3. **Remove the login page's stored keys and the shell's record of the
+ *    conversation on screen, by name.** Never `localStorage.clear()`: this
+ *    origin also carries the shell's other private keys and, in a deployment
+ *    that serves other applications from it, theirs — a blanket clear would
+ *    sign the visitor out of things this button never promised to touch.
  * 4. **Clear the mirror cookie**, so the reverse proxy in front of this
  *    process stops being handed a token the visitor has given up.
  * 5. **Leave for the login page**, carrying the address to come back to: the
@@ -91,6 +91,17 @@ const SIGNED_OUT_STORAGE_KEYS = [
   'accessTokenEncryptAuth',
   'accessTokenRenewalTimeAuth',
 ] as const
+
+/**
+ * The key `@deepseek-ai/dsh-client-ui-workspace` keeps the conversation on
+ * screen under (the `persist` name of its selection store,
+ * `packages/client/ui-workspace/src/client/navigation.ts:137`), removed in
+ * step 3. Left in place, the next person to sign in on the same browser would
+ * open on the conversation the last one had on screen. A literal copy, as the
+ * routes are: that package exports no such constant, and a renamed key there
+ * is a key this step no longer removes.
+ */
+const CURRENT_CONVERSATION_STORAGE_KEY = 'dsh.sessions.current'
 
 /** The two configured values signing out needs, as auth-gate's settings route answers them. */
 export interface AuthGateBrowserSettings {
@@ -371,7 +382,7 @@ async function stopTurnsWithinBound(browser: SignOutBrowser): Promise<void> {
 export async function signOut(browser: SignOutBrowser, settings: AuthGateBrowserSettings): Promise<void> {
   await stopTurnsWithinBound(browser)
   void postLogout()
-  for (const key of SIGNED_OUT_STORAGE_KEYS) {
+  for (const key of [...SIGNED_OUT_STORAGE_KEYS, CURRENT_CONVERSATION_STORAGE_KEY]) {
     attempt(`remove the stored key "${key}"`, () => { browser.removeStoredKey(key) })
   }
   attempt('clear the mirror cookie', () => { browser.clearCookie(settings.cookieName) })

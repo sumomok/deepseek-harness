@@ -38,6 +38,12 @@ describe('NavGroup', () => {
     expect(rows.map(row => row.dataset.serverSidebarNavKind)).toEqual(['page', 'page', 'view'])
   })
 
+  it('marks each row with its catalog entry id', () => {
+    render(<NavGroup items={ITEMS} onOpenNavItem={vi.fn(() => Promise.resolve())} t={t} />)
+    const rows = screen.getAllByRole('button', { name: /Home|Docs|Sales/ })
+    expect(rows.map(row => row.getAttribute('data-server-sidebar-nav-entry'))).toEqual(['home', 'docs', 'sales'])
+  })
+
   it('hands a page click the page target', () => {
     const onOpenNavItem = vi.fn(() => Promise.resolve())
     render(<NavGroup items={ITEMS} onOpenNavItem={onOpenNavItem} t={t} />)
@@ -58,7 +64,9 @@ describe('NavGroup', () => {
       onOpenNavItem={vi.fn(() => Promise.resolve())}
       t={t}
     />)
-    expect(screen.getAllByRole('button', { name: /Sales/ }).map(row => row.textContent))
-      .toEqual(['Sales page', 'Sales view'])
+    const rows = screen.getAllByRole('button', { name: /Sales/ })
+    expect(rows.map(row => row.textContent)).toEqual(['Sales page', 'Sales view'])
+    expect(rows.map(row => [row.dataset.serverSidebarNavKind, row.dataset.serverSidebarNavEntry]))
+      .toEqual([['page', 'sales'], ['view', 'sales']])
   })
 })

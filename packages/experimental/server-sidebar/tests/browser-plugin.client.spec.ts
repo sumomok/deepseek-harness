@@ -7,8 +7,8 @@
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
  * title beside it with the workbench id it reads, the withheld Settings
- * entries, the replaced compaction rows, the workbench/workflow/page
- * business logic each injected callback wires, the footer's identity source
+ * entries, the replaced compaction rows and workspace notice, the
+ * workbench/workflow/page business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
  */
@@ -24,6 +24,8 @@ import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
+import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
+import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -75,6 +77,19 @@ interface BenchResult {
   /** The one cancel face every session scope in this bench resolves to. */
   cancel: ReturnType<typeof vi.fn>
 }
+
+/**
+ * Every Settings → General row the console withholds: the two compaction rows,
+ * and the rows whose namespace the console's lock composes above the profile
+ * patch, in the order this package registers them.
+ */
+const WITHHELD_GENERAL_ROWS = [
+  'busy-compaction', 'auto-compact', 'language', 'appearance', 'font-size', 'transcript-view',
+  'performance-usage', 'link-opening', 'composer-enter', 'developer-tools',
+] as const
+
+/** The Settings → General rows the console keeps: the per-browser shortcuts and the read-only version. */
+const KEPT_GENERAL_ROWS = ['shortcuts', 'current-version'] as const
 
 const CONTENT_FRAME_SETTINGS_ROUTE = '/content-frame/settings'
 const COMPONENT_SURFACE_VIEWS_ROUTE = '/component-surface/views'
@@ -132,6 +147,8 @@ function declareSlots(ctx: Context): void {
         // Declared by ui-settings-general's General section and settings panel in the real page.
         'settings.general.item': { kind: 'list', scope: 'root' },
         'settings.action': { kind: 'list', scope: 'root' },
+        // Declared by the shell frame in the real page.
+        'shell.overlay': { kind: 'list', scope: 'root' },
       },
     } as never,
     () => null,
@@ -324,12 +341,11 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('shadows each withheld settings entry at priority -1 with an entry that renders nothing', async () => {
     const { ctx } = await bench()
     const withheld = [
-      { slot: 'settings.general.item', id: 'busy-compaction' },
-      { slot: 'settings.general.item', id: 'auto-compact' },
+      ...WITHHELD_GENERAL_ROWS.map(id => ({ slot: 'settings.general.item', id }) as const),
       { slot: 'settings.action', id: 'open-document' },
     ] as const
     expect(WithheldSettingsEntry()).toBeNull()
-    expect(ctx.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['busy-compaction', 'auto-compact'])
+    expect(ctx.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual([...WITHHELD_GENERAL_ROWS])
     expect(ctx.slots.entries('settings.action').map(entry => entry.options.id)).toEqual(['open-document'])
     for (const { slot, id } of withheld) {
       const ours = ctx.slots.entries(slot).find(entry => entry.options.id === id)
@@ -338,20 +354,40 @@ describe('server-sidebar browser half: sidebar registration', () => {
     }
     // The owning packages register their entries at the default priority 0
     // (`ui-chat`'s busy-compaction row, `@haoran/dsh-auto-compact`'s row,
-    // `ui-settings-general`'s configuration-file action), in either order
-    // relative to this one; the cell's winner stays the empty entry, and an
-    // unrelated entry keeps its own cell.
+    // `ui-settings-general`'s configuration-file action, and the rest), in
+    // either order relative to this one; the cell's winner stays the empty
+    // entry, and the two rows the console keeps hold their own cells.
     const disposeOwners = withheld.map(({ slot, id }) => ctx.slots.register(
       { name: slot, id, order: 0 },
       () => null,
     ))
-    const disposeOther = ctx.slots.register({ name: 'settings.general.item', id: 'performance-usage', order: 30 }, () => null)
+    const disposeKept = KEPT_GENERAL_ROWS.map(id => ctx.slots.register({ name: 'settings.general.item', id, order: 16 }, () => null))
     for (const { slot, id } of withheld) {
       const winners = ctx.slots.entriesOfSlot(slot)
       expect(winners.filter(entry => entry.options.id === id).map(entry => entry.options.priority)).toEqual([-1])
     }
-    expect(ctx.slots.entriesOfSlot('settings.general.item').map(entry => entry.options.id)).toContain('performance-usage')
-    for (const dispose of [...disposeOwners, disposeOther]) dispose()
+    const kept = ctx.slots.entriesOfSlot('settings.general.item').filter(entry => entry.component !== WithheldSettingsEntry)
+    expect(kept.map(entry => entry.options.id)).toEqual([...KEPT_GENERAL_ROWS])
+    for (const dispose of [...disposeOwners, ...disposeKept]) dispose()
+  })
+
+  it('replaces ui-workspace\'s notice and stop-and-archive confirmation by their `shell.overlay` ids at priority -1, in this package\'s locale', async () => {
+    const { ctx } = await bench()
+    const replaced = [
+      { id: 'workspace.row-toast', component: WorkspaceNotice },
+      { id: 'workspace.session-archive', component: StopAndRemoveDialog },
+    ] as const
+    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component })))
+      .toEqual(replaced)
+    for (const entry of ctx.slots.entries('shell.overlay')) {
+      expect(entry.options.priority).toBe(-1)
+      expect(entry.locale).toBe('serverSidebar')
+    }
+    // ui-workspace registers both at the default priority 0; each cell's
+    // winner stays this package's entry.
+    const disposeOwners = replaced.map(({ id }) => ctx.slots.register({ name: 'shell.overlay', id }, () => null))
+    expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual(replaced.map(({ component }) => component))
+    for (const dispose of disposeOwners) dispose()
   })
 
   it('replaces ui-chat\'s landed and failed compaction rows by node key at priority -1, in this package\'s locale', async () => {
@@ -709,6 +745,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
     expect(ctx.slots.entries('settings.action')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.chat.node')).toHaveLength(0)
+    expect(ctx.slots.entries('shell.overlay')).toHaveLength(0)
   })
 })
 

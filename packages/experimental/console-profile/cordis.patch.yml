@@ -12,9 +12,11 @@
 # Install it with `dsh plugin --profile <name> add <this directory>` so it
 # stacks after `dsh-base` and `dsh-web-app` in `dsh.profile.bundles`.
 #
-# The console's `permission` row is the opposite case: no caller may change it,
-# so it lives in this package's `permission-lock.patch.yml`, which the
-# deployment applies above the profile patch (`--patch` or the home patch).
+# The console's `permission` row and every other row with volatile fields that
+# no visitor may change are the opposite case: they live in this package's
+# `permission-lock.patch.yml`, which the deployment applies above the profile
+# patch (`--patch` or the home patch). A row the lock configures may appear here
+# only as an insert with no `config`.
 #
 # Rows that disable a shipped entry address it by id alone: a bundle's rows
 # resolve through the bundle's own dependencies, and a disable row loads
@@ -390,23 +392,6 @@
 - id: ui-settings-session-log
   disabled: true
 
-# Settings → General → Performance & usage starts at compact for a console user:
-# no per-Turn token usage under a completed answer. The composer statistics row
-# is hidden in either mode by `terminology-guard.ts`. `performanceUsage` is
-# volatile Config, and this row sits below the profile patch, so it is the
-# inherited value: a user's choice in Settings is saved into the profile patch
-# and outranks it, and resetting the choice returns to compact. The same row in
-# `permission-lock.patch.yml` would make config-editor refuse that write.
-#
-# The same package's "Compaction while busy" row, which picks when a `/compact`
-# typed during a running turn runs, a command the console's presets do not
-# compose, is withheld by `server-sidebar`
-# (`settings-entries.ts`); `busyCompaction` keeps its default, `turn-end`, and is
-# not restated here.
-- id: ui-chat
-  config:
-    performanceUsage: compact
-
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
@@ -533,19 +518,19 @@
 # between-steps pressure check, which this row's check before each request
 # replaces; the backend's overflow recovery is unaffected.
 #
-# Both fields are volatile, so these are the inherited values: a settings write
-# saves a different value into the profile patch, which outranks this layer.
-# The page offers no control for either: `server-sidebar` withholds the plugin's
-# Settings → General row. The rows a compaction draws in the conversation are
-# not this plugin's: the running row is `ui-chat`'s, and `server-sidebar`
-# replaces the landed and failed ones with one fixed sentence each; the package
-# README's Known Limitations states what they show.
+# The row's config, `enabled: true` and `thresholdPercent: 60`, is in
+# `permission-lock.patch.yml`: both fields are volatile, and in this layer a
+# settings write would save a different share into the profile patch, which
+# outranks it, for every session. Without the lock the plugin's own defaults
+# apply, which are the same two values. The page offers no control for either:
+# `server-sidebar` withholds the plugin's Settings → General row. The rows a
+# compaction draws in the conversation are not this plugin's: the running row is
+# `ui-chat`'s, and `server-sidebar` replaces the landed and failed ones with one
+# fixed sentence each; the package README's Known Limitations states what they
+# show.
 - insert:
     - id: auto-compact
       name: '@haoran/dsh-auto-compact'
-      config:
-        enabled: true
-        thresholdPercent: 60
 
 # The `console` Agent preset: the customer assistant's own tool set. It keeps
 # the shipped `standard` preset's realm rules and drops every developer row —

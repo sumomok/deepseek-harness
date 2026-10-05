@@ -15,13 +15,24 @@
  * - `busy-compaction` in Settings → General — `dsh-client-ui-chat`'s
  *   "Compaction while busy" row, which picks when a `/compact` typed during a
  *   running turn runs. `ui-chat` draws the Chat column and cannot be disabled;
- *   its `busyCompaction` field stays at its default, `turn-end`.
+ *   the console's lock fixes its `busyCompaction` field at `turn-end`.
  * - `auto-compact` in Settings → General — `@haoran/dsh-auto-compact`'s
- *   switch-and-slider row. The console bundle composes that plugin with the
- *   share it compacts at (`dsh-experimental-console-profile`'s
- *   `cordis.patch.yml`), and a customer has no reason to move it. The
- *   conversation's rows for a landed or failed compaction are replaced in
+ *   switch-and-slider row. The console's lock fixes the share that plugin
+ *   compacts at, and a customer has no reason to move it. The conversation's
+ *   rows for a landed or failed compaction are replaced in
  *   `CompactionRows.tsx`.
+ * - The other Settings → General rows whose namespace the console's lock
+ *   (`dsh-experimental-console-profile`'s `permission-lock.patch.yml`)
+ *   composes above the profile patch: `language` (`dsh-client-locale`),
+ *   `appearance` and `font-size` (`dsh-client-ui-theme`), `transcript-view`,
+ *   `performance-usage`, and `link-opening` (`dsh-client-ui-chat`),
+ *   `composer-enter` (`dsh-client-ui-conversation`), and `developer-tools`
+ *   (`dsh-client-ui-settings-general`'s switch for `ui-settings.enabled`).
+ *   Each saves into the deployment's shared profile patch, so one visitor's
+ *   choice would apply to every visitor; the lock refuses that write, and a
+ *   control whose every write is refused changes nothing. With these
+ *   withheld, Settings → General draws only the keyboard-shortcut row, which
+ *   this browser alone stores, and the current version.
  * - `open-document` in the Settings header — `dsh-client-ui-settings-general`'s
  *   **Open configuration file** action. That package is the settings shell
  *   itself, so its row cannot be disabled, and no Config field gates the
@@ -69,6 +80,38 @@ export function withholdSettingsEntries(ctx: ClientContext): void {
     { name: 'settings.general.item', id: 'auto-compact', priority: WITHHOLDING_PRIORITY },
     WithheldSettingsEntry,
   )), 'server-sidebar: withhold the auto-compact settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'language', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the language settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'appearance', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the appearance settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'font-size', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the font-size settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'transcript-view', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the transcript-view settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'performance-usage', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the performance-usage settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'link-opening', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the link-opening settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'composer-enter', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the composer-enter settings row')
+  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    { name: 'settings.general.item', id: 'developer-tools', priority: WITHHOLDING_PRIORITY },
+    WithheldSettingsEntry,
+  )), 'server-sidebar: withhold the developer-tools settings row')
   ctx.effect(() => ctx.slots.inject('settings.action', () => ctx.slots.register(
     { name: 'settings.action', id: 'open-document', priority: WITHHOLDING_PRIORITY },
     WithheldSettingsEntry,

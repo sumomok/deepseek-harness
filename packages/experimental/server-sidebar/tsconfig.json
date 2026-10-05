@@ -57,6 +57,9 @@
       "path": "../../client/ui-slots"
     },
     {
+      "path": "../../client/ui-workspace"
+    },
+    {
       "path": "../../core/session"
     },
     {

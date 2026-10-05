@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/server-base/README.md
 /:
-  en: 8f3b6187c937c51b
-  zh: 266bdfb33facabc5
+  en: 94d19c7c58322c90
+  zh: b2f51e1120cb4362
 /deepseek-ai-dsh-experimental-server-base:
   en: 5af8931ea64b0d15
   zh: d56465acb10ad6ed
@@ -12,8 +12,8 @@
   en: 2e2c5d1beb27e442
   zh: 2c84961b122e0852
 /deepseek-ai-dsh-experimental-server-base/table-of-contents:
-  en: 434eb6e8ec44a8c0
-  zh: ff6001b9f14d416c
+  en: 735a4218bca55985
+  zh: 746df608d7dec537
 /deepseek-ai-dsh-experimental-server-base/what-it-injects:
   en: c4a49b26a1f97872
   zh: eafc6b0b73967716
@@ -27,8 +27,11 @@
   en: 61681a024015b84f
   zh: 954c4604bb685ce5
 /deepseek-ai-dsh-experimental-server-base/the-proxy-half:
-  en: 49a29a4ca1bc36c7
-  zh: 589edd36580f003b
+  en: e147287361293a3d
+  zh: 03d5c4a87d2b12aa
+/deepseek-ai-dsh-experimental-server-base/the-deploy-proxy-and-verifier:
+  en: 1ccfd3c5ea5b5b0e
+  zh: 361cb5b0304a639f
 /deepseek-ai-dsh-experimental-server-base/model-experience:
   en: 86184d50340294a4
   zh: 86184d50340294a4
@@ -36,8 +39,8 @@
   en: e921a9b9b9eb6c92
   zh: e921a9b9b9eb6c92
 /deepseek-ai-dsh-experimental-server-base/known-limitations-and-deferred-work:
-  en: 05a065c8e1adc8e5
-  zh: 5f43af88468d4e54
+  en: c2a631de810a60da
+  zh: d7b322c780f0283d
 /deepseek-ai-dsh-experimental-server-base/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

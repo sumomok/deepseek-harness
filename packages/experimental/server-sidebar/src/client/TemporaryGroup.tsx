@@ -14,8 +14,8 @@
  * fixed copy instead.
  *
  * 移出列表 (remove from the list) archives the conversation rather than
- * deleting it: the log survives on the host. This console offers no way back
- * to an archived conversation, so the control asks for a second click before
+ * deleting it: the log survives on the host. A conversation it takes off the
+ * list does not come back, so the control asks for a second click before
  * it commits, and the armed row is drawn so that a second click cannot commit
  * by accident: 确定移出 opens to the LEFT, and the row's right edge — where
  * the 移出列表 icon just was, and where a double click's second press lands —
