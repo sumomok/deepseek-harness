@@ -98,7 +98,7 @@ kind: "package-reference"
 
 **它们是为 `content_read` 叫不出名字的那一行而存在的。** 组件库画出来的命令没有 role、没有名字、没有 title、也没有指针光标；在表格格子或重复条目里，清单把每一个打成一行 `icon`，在别处——工具栏、卡片、页头——清单不为它们打任何东西，而用户在那里看见一个图标。`content_read` 仍是一页从那里起手的读法——它是页面按 HTML 与 ARIA 所描述的样子，比其下的原文小一个数量级，并且是 ref 的唯一来源——但没有任何一段描述这么说，因为[这里每段描述只描述自己那件工具](#the-copy-rule)。挡住「整页原文」的是 `content_read_dom` 必填的 `scope`：它让「先读一次」成为调用它的唯一途径。
 
-**任何时候都不解读。** 标签名、id、class 词元与属性值，按文档的拼写、按文档持有的顺序原样打印。`op-a` 或 `el-icon-edit` 是什么意思，该由一份关于那个应用的技能来说；本包只打印，绝不猜。树形行打印的 class 词元是 `elementMark`，与清单为无名行打印的标记是同一串词元，因此一次 `content_act` 步骤点名树里找到的行时，带的就是树给它看的那串字符，座位会逐字符比对两者。两者唯一不同的地方是 `use` 指向某个符号的 `svg`：清单的标记在 class 词元之后再加上这个符号 id，树形行只打印 `class` 属性里写的东西。
+**任何时候都不解读。** 标签名、id、class 词元与属性值，按文档的拼写、按文档持有的顺序原样打印。`op-a` 或 `el-icon-edit` 是什么意思，该由一份关于那个应用的技能来说；本包只打印，绝不猜。树形行打印的 class 词元是 `elementMark`，与清单为无名行打印的标记是同一串词元，因此一次 `content_act` 步骤点名树里找到的行时，带的就是树给它看的那串字符，座位会逐字符比对两者。两者唯一不同的地方是 `use` 指向某个符号的 `svg`：清单的标记在 class 词元之后再加上这个符号 id，树形行只打印 `class` 属性里写的东西。座位把两串都当作这幅画的标记，所以从树里抄来的步骤和从清单里抄来的步骤都点得到它，别的字符串一律当成「页面变了」拒绝。
 
 **各自的天花板与做法。** 树与清单一样按 `outlineChars` 渲染，并为其余部分给出游标——把它连同同一个 `scope` 一起作为 `after` 传回。另外两件从不裁断：一个元素的属性与一个元素的文字，要么整份答出、要么不答；超出回报路由所能承载的答案会被拒绝，并报出它的字符数与它越过的那个预算。树打印的每个元素都保留一个 ref，因此对某一行做一次 `content_read_dom`，也是模型够到某个清单从未给过它把手的元素的方式。
 
@@ -191,7 +191,7 @@ kind: "package-reference"
 - **为某个控件命名的 `label` 里装的东西，归那个控件。** 组件库在 `label` 里画在勾选框旁边的那个方块，在格子里、在条目里都不是自己的图标；页面已经命名了的树节点里的画也不是，可点目标在那里同样不打行。座位也不给这样的 `label` 里的图标名字，正如清单不为它打行，所以经 `content_read_dom` 找到它的步骤传 `label: ""` 和它的标记，不管它的 `aria-label` 写了什么；`label` 里的分组（group）重新开始自己的名字。
 - **格子里的一幅画，先交出画在它里面的东西。** 装着一个链接的图表交出的是那个链接，不论图表带着什么 class；只有里面不装控件的画才是图标。
 - **装着一个字段的元素里的无名图标，是打开那个字段的那一半。** 它印在字段那一行上作为 `[e4 opens]`，与那里的无名可点目标一样。
-- **精灵图（sprite）用它的 class 词元、再加上它指向的符号作标记。** 符号 id 是 `svg` 里第一个 `use` 的 `href`——没有 `href` 时用 `xlink:href`——在 `#` 之后的部分，前面写着什么路径或域名都不管；标记是这个 `svg` 自己的 class 词元，后面跟上这个 id，中间隔一个空格。精灵图集用同一个 class 画每一个命令，所以同一个格子里的 `<svg class="svg-icon"><use href="#icon-edit"></use></svg>` 和 `<svg class="svg-icon"><use href="#icon-delete"></use></svg>` 打成 `icon {class: svg-icon icon-edit}` 和 `icon {class: svg-icon icon-delete}`，`<use href="/static/sprite.svg#icon-delete">` 只加上 `icon-delete`。class 里已经有同一个词元时不再重复加；不带 class 的 `svg` 只用这个 id 作标记：`<svg><use href="#icon-edit"></use></svg>` 打成 `icon {class: icon-edit}`。不带 `#` 的引用什么都不加，于是这样指向的、不带 class 的画不是图标。这时花括号里装的比 `class` 属性里写的多，步骤照样把整串作为 `mark` 传。
+- **精灵图（sprite）用它的 class 词元、再加上它指向的符号作标记。** 符号 id 是 `svg` 里第一个 `use` 的 `href`——没有 `href` 时用 `xlink:href`——在 `#` 之后的部分，前面写着什么路径或域名都不管；标记是这个 `svg` 自己的 class 词元，后面跟上这个 id，中间隔一个空格。精灵图集用同一个 class 画每一个命令，所以同一个格子里的 `<svg class="svg-icon"><use href="#icon-edit"></use></svg>` 和 `<svg class="svg-icon"><use href="#icon-delete"></use></svg>` 打成 `icon {class: svg-icon icon-edit}` 和 `icon {class: svg-icon icon-delete}`，`<use href="/static/sprite.svg#icon-delete">` 只加上 `icon-delete`。class 里已经有同一个词元时不再重复加；不带 class 的 `svg` 只用这个 id 作标记：`<svg><use href="#icon-edit"></use></svg>` 打成 `icon {class: icon-edit}`。不带 `#` 的引用什么都不加，于是这样指向的、不带 class 的画不是图标。这时花括号里装的比 `class` 属性里写的多；步骤把整串作为 `mark` 传，在 `content_read_dom` 的树里找到这幅画时也可以只传 class 词元，座位两串都认。
 
 ### 页面没给名字的控件读出来是什么
 
@@ -623,7 +623,6 @@ The console claimed this call but did not report within 60s; the steps may have 
 - **样式表还没加载完的图标读不到** —— 叶子元素画了什么，是读取运行那一刻从它算出来的样式里读的；给叶子元素字形或图片的样式表还没生效时读取，这个叶子元素读出来什么都没画。样式表生效之后再读，就打出这个图标。
 - **图标的标记就是页面此刻写在它上面的东西** —— 按记录换状态图标 class 的页面（这一行 `el-icon-success`、下一行 `el-icon-error`），每一行打出不同的标记；按一个标记去点的步骤，在页面画着另一个标记的行上会被拒绝。图标上的 `title` 不命名，和可点目标一样。
 - **页面对辅助技术藏起来的精灵图读不到** —— `<svg class="icon" aria-hidden="true"><use xlink:href="#icon-edit"></use></svg>` 和任何 `aria-hidden` 子树一样被藏起来，而装着它的包装元素里装着一个元素，所以也不是图标。
-- **树形行不打精灵图的标记** —— `content_read_dom` 打的是 `class` 属性里写的东西，所以 `<svg class="svg-icon"><use href="#icon-edit"></use></svg>` 打成 `{class: svg-icon}`，而座位拿 `svg-icon icon-edit` 核对步骤。带着树形行词元去点这样一幅画的步骤会被当成「页面变了」拒绝，拒绝里打出座位核对用的那个标记。
 - **组件库分片画出来的表，到模型那儿就是这些片** —— 冻结表头是一张表，它下面的表体是另一张，固定列是第三张；把列表画了六遍的页面读出来就是六张表，各列分散在它们之间。不做任何合并：用户眼里的那一张表由哪几片拼成，交给技能去懂。
 - **录制归语料库，重放归浏览器车道** —— 四个 content 场景位于 `snapshots/web/` 下并各带清单，清单声明的组合是 `web-content`，因此 `pnpm run test:snapshot` 会遍历到它们并守住它们的存储不变量；重放本身归 Web 浏览器车道，因为这些场景启动的是一份打过补丁的组合，而出厂组合不会组合实验性行。除此之外，模型可见文本仍由单测逐字钉住。
 - **两条读取路由不带 Host 栅栏** —— 与外壳自己的 `/api` 一样，它们拒绝浏览器标记为 `sec-fetch-site: cross-site` 的请求并要求 `application/json`，但这两道检查都挡不住 DNS rebinding，而 webserver 自身没有 Host 白名单（`trustedHosts` 只守 `/api`）。顶替它位置的是 callId：能打到路由的攻击者，若不知道宿主铸出、且只发布进该会话自己 projection 流里的那个 id，既认领不了读取也回报不了；针对未知 id 的认领与回报什么都不改变。这个 id 猜不出来是 LLM 供应商的性质，不是本包的：DeepSeek 铸出的是 `call_00_` 加 24 位字母数字（末四位为数字），code-mode 子调用是同一个 id 再加 `:code:<n>`；本包既不校验这个格式也不为它补强，所以换一家把调用编成 `call_1`、`call_2` 的供应商，这两条路由就等于对任何能打到本机的页面开放。把 harness 暴露在不可信网络上的部署需要在自己的反向代理上设栅栏——这一栏与其他每一条路由并无不同。设了 `perMember` 时，一次投递先过 `consoleMembers.principalOfRequest`，它做的就是 `/api` 路由做的那道准入，之后再拿投递者自己的会话核对 callId。

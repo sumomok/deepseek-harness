@@ -78,10 +78,17 @@ export interface ActPage {
   /**
    * Injected marking, the reader's own: what a listing prints in place of a
    * name for a row the page named nothing. One row has one identity, so a row
-   * with a name is checked by {@link ActPage.name} and one without by this,
-   * against the same computation that printed it.
+   * with a name is checked by {@link ActPage.name} and one without by this or
+   * by {@link ActPage.treeMark}, against the same computation that printed it.
    */
   readonly mark: (el: Element) => string
+  /**
+   * Injected marking, the reader's own: the class tokens a markup tree prints
+   * for an element. A step naming a row it found in that tree carries these,
+   * and they differ from {@link ActPage.mark} only for a drawing whose `use`
+   * points at a symbol, which the listing marks with that symbol as well.
+   */
+  readonly treeMark: (el: Element) => string
 }
 
 /** How long the steps may wait, as the deployment configured it. */
@@ -351,12 +358,13 @@ async function runStep(
   // place.
   const name = page.name(el)
   if (name !== step.label) return labelChangedReason(step.ref, name, step.label)
-  // A row the listing named nothing is held to the mark it printed instead: the
-  // page redrawing that position leaves the ref resolving to something else,
-  // and the mark is all either side has to tell the two apart.
+  // A row the listing named nothing is held to the mark it printed instead, or
+  // to the class tokens a markup tree printed for it: the page redrawing that
+  // position leaves the ref resolving to something else, and the mark is all
+  // either side has to tell the two apart.
   if (step.mark !== undefined) {
     const mark = page.mark(el)
-    if (mark !== step.mark) return markChangedReason(step.ref, mark, step.mark)
+    if (mark !== step.mark && page.treeMark(el) !== step.mark) return markChangedReason(step.ref, mark, step.mark)
   }
   const dialog = occluder(page, el)
   if (dialog !== undefined) {

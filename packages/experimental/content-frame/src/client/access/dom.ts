@@ -178,9 +178,9 @@ export const ICON_ROLE = 'icon'
  * markup tree prints as `{class: …}`; the mark a listing row prints is
  * {@link rowMark}, which starts from it.
  *
- * Whole and uncut, because a row's mark is that row's identity: the listing
- * prints it, a step naming that row carries it back, and the seat recomputes it
- * and compares the two character for character. A cut would leave the seat
+ * Whole and uncut, because a row's mark is that row's identity: a read prints
+ * it, a step naming that row carries it back, and the seat recomputes it and
+ * compares the two character for character. A cut would leave the seat
  * comparing a mark against a shortened copy of itself.
  *
  * Nothing is read out of the tokens. They are the page's own spelling, printed
@@ -218,8 +218,9 @@ function spriteSymbol(el: Element): string {
  * `icon-edit`. A symbol id the class already holds as a whole token is not
  * added again.
  *
- * The listing prints this and the seat checks a step's `mark` against it, so
- * the two compare one string computed one way.
+ * The listing prints this and the seat checks a step's `mark` against it, or
+ * against the {@link elementMark} a markup tree prints for the same element,
+ * so each comparison is of one string computed one way.
  * @param el - the element to mark.
  * @returns the mark, or the empty string for an element carrying neither.
  */

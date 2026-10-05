@@ -21,6 +21,7 @@ import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/
 import { looksClickable } from '../src/client/access/dom.ts'
 import { itemName } from '../src/client/access/collect.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
+import { markup } from '../src/client/access/markup.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ActOutcome, type ClaimAck } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
@@ -282,6 +283,40 @@ describe('what each step dispatches at the page', () => {
     const outcome = await run(icons.slice(1))
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
     expect({ edited, dropped }).toEqual({ edited: [], dropped: ['click'] })
+  })
+
+  it('takes a sprite drawing\'s mark as the listing printed it or as a markup tree printed it, and no other', async () => {
+    // The listing marks a sprite drawing by its class tokens and the symbol it
+    // points at, and a markup tree prints the `class` attribute alone. A step
+    // copied out of either read names the same drawing; a mark neither read
+    // printed is a page that changed.
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td class="ops">'
+      + '<svg class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const tree = markup(doc(), { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('.ops')) } }, options).text
+    const drawing = refs.ref(at('svg'))
+    expect(listed).toContain(`${drawing} icon {class: svg-icon icon-edit}`)
+    expect(tree).toContain(`${drawing} svg {class: svg-icon}`)
+    const clicked = listen(at('svg'), ['click'])
+    const outcome = await run([
+      { action: 'click', ref: drawing, label: '', mark: 'svg-icon' },
+      { action: 'click', ref: drawing, label: '', mark: 'svg-icon icon-edit' },
+      { action: 'click', ref: drawing, label: '', mark: 'icon-edit' },
+    ])
+    expect(clicked).toEqual(['click', 'click'])
+    expect(outcome.steps).toEqual([
+      { index: 1, status: 'ok' },
+      { index: 2, status: 'ok' },
+      {
+        index: 3,
+        status: 'failed',
+        message: `${drawing} is now marked {class: svg-icon icon-edit}, not {class: icon-edit} — the page changed.`,
+      },
+    ])
   })
 
   it('clicks an icon a toolbar draws by the ref and the class tokens a markup read printed for it', async () => {

@@ -26,7 +26,7 @@ Status: implemented
 
 ### 精灵图的标记
 
-`rowMark` 就是 `elementMark`，只有一处不同：第一个 `use` 指向某个符号的 `svg`，用它的 class 词元、后面跟上这个符号 id 作标记，中间隔一个空格——id 是这个 `use` 的 `href` 里 `#` 之后的部分，没有 `href` 时取 `xlink:href`，前面写着什么路径或域名都不管。class 里已经有同一个完整词元时不再重复加，所以不带 class 的 `svg` 只用这个 id 作标记。精灵图标集用同一个 class 画每一个命令，只在引用里写它是哪个命令：`<svg class="svg-icon"><use href="#icon-edit">` 的标记是 `svg-icon icon-edit`，它旁边指向 `#icon-delete` 的那个是 `svg-icon icon-delete`。清单打印 `rowMark`，座位拿步骤的 `mark` 与它核对；原文读取仍打印 `elementMark`，因为一行原文说的是 `class` 属性里写着什么。
+`rowMark` 就是 `elementMark`，只有一处不同：第一个 `use` 指向某个符号的 `svg`，用它的 class 词元、后面跟上这个符号 id 作标记，中间隔一个空格——id 是这个 `use` 的 `href` 里 `#` 之后的部分，没有 `href` 时取 `xlink:href`，前面写着什么路径或域名都不管。class 里已经有同一个完整词元时不再重复加，所以不带 class 的 `svg` 只用这个 id 作标记。精灵图标集用同一个 class 画每一个命令，只在引用里写它是哪个命令：`<svg class="svg-icon"><use href="#icon-edit">` 的标记是 `svg-icon icon-edit`，它旁边指向 `#icon-delete` 的那个是 `svg-icon icon-delete`。清单打印 `rowMark`；原文读取仍打印 `elementMark`，因为一行原文说的是 `class` 属性里写着什么。步骤的 `mark` 等于两者之一，座位就认，所以从树形行抄来的步骤和从清单抄来的一样点得到这幅画，别的标记一律当成「页面变了」拒绝。
 
 ### 为什么这不是把退役的规则请回来
 
@@ -54,10 +54,10 @@ Status: implemented
 
 操作列读出来就是它的命令：三个图标打出三行、带三个标记，样本行写 `[icon icon icon]`，骨架把它们算在按钮里，一个步骤可以凭 ref 和标记点名其中每一个。
 
-这条规则看渲染结果，所以只涂了颜色的叶子元素不是图标：组件库画成 `<div class="cell">` 的空值在每条记录上都读成什么都不是，`tests/snapshot.client.spec.ts` 里的 ini-web2 夹具在勾选框列上就是这样；树形表格的缩进 span、占位 span，以及画成色块、既没有字形也没有图片的命令，也一样。有两种图标读不到：页面把字形写进叶子元素外面那个元素的伪元素里的，那个元素装着元素，而叶子元素什么都没画；以及读取运行时样式表还没生效的。页面按记录换 class 的状态图标，每一行带的标记都不同。`title` 不命名图标，正如它不命名可点目标；标了 `aria-hidden="true"` 的精灵 `svg` 与其他被藏起来的子树一样被藏起来。`content_read_dom` 的一行打的是精灵图的 class，不带符号 id，所以带着这一行的词元去点这幅画的步骤会被当成「页面变了」拒绝。
+这条规则看渲染结果，所以只涂了颜色的叶子元素不是图标：组件库画成 `<div class="cell">` 的空值在每条记录上都读成什么都不是，`tests/snapshot.client.spec.ts` 里的 ini-web2 夹具在勾选框列上就是这样；树形表格的缩进 span、占位 span，以及画成色块、既没有字形也没有图片的命令，也一样。有两种图标读不到：页面把字形写进叶子元素外面那个元素的伪元素里的，那个元素装着元素，而叶子元素什么都没画；以及读取运行时样式表还没生效的。页面按记录换 class 的状态图标，每一行带的标记都不同。`title` 不命名图标，正如它不命名可点目标；标了 `aria-hidden="true"` 的精灵 `svg` 与其他被藏起来的子树一样被藏起来。
 
 这套遍历的每一份副本都得跟着改，算出来的样式的注入也在内，因为副本要像读取器一样称呼元素。
 
 ## Testing
 
-`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、带与不带 class 的精灵图标记、每一种重复条目（包括布局表格的行和限定在 option 里面的读取）、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取、格子和条目以外、为控件命名的 `label` 里以及跨 frame 时步骤要核对的名字，以及叶子元素读出来画了什么：`::before` 或 `::after` 里的字形、背景图片或遮罩、只有颜色、为 `none`、`normal` 或空串的生成内容、图标旁边的空值格和树形表格的缩进、不读样式的 `svg` 和 `img`，以及读取不注入时用窗口自己算出来的样式。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，凭带着符号的标记点两个共用一个 class 的精灵图标之一，凭空 label 和 class 词元点工具栏里的图标、凭名字点跨 frame 的条目里的图标，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。`apps/web/tests/content-read.e2e.ts` 重放一段录制的会话，它的夹具页在操作列里画了一个图标，列出的那一行带着它。
+`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、带与不带 class 的精灵图标记、每一种重复条目（包括布局表格的行和限定在 option 里面的读取）、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取、格子和条目以外、为控件命名的 `label` 里以及跨 frame 时步骤要核对的名字，以及叶子元素读出来画了什么：`::before` 或 `::after` 里的字形、背景图片或遮罩、只有颜色、为 `none`、`normal` 或空串的生成内容、图标旁边的空值格和树形表格的缩进、不读样式的 `svg` 和 `img`，以及读取不注入时用窗口自己算出来的样式。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，凭带着符号的标记点两个共用一个 class 的精灵图标之一，按清单或原文树打出的标记都能点精灵图标、第三种标记被拒，凭空 label 和 class 词元点工具栏里的图标、凭名字点跨 frame 的条目里的图标，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。`apps/web/tests/content-read.e2e.ts` 重放一段录制的会话，它的夹具页在操作列里画了一个图标，列出的那一行带着它。
