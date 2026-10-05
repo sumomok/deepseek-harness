@@ -220,8 +220,9 @@ function readDisclosure(value: unknown): DisclosureText {
 }
 
 /**
- * The longest delay `setTimeout` waits. Browsers hold the delay as a signed
- * 32-bit integer and run a timer with a longer one at once.
+ * The longest delay `setTimeout` waits. Browsers hold the delay in 32 bits,
+ * so a longer one is truncated, wraps around, and fires at a moment unrelated
+ * to the one asked for.
  */
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
