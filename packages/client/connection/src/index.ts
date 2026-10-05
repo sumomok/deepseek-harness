@@ -90,7 +90,7 @@ declare module '@deepseek-ai/cordis' {
      * the route or channel dispatches nothing and rejects. Connection
      * cancels the body of each Response the route or channel produced for
      * an earlier `next()` unless the caller receives that Response or its
-     * body: when the waterfall ends if the caller's Response has no body
+     * body: when the waterfall ends if the waterfall's result has no body
      * or a locked one, otherwise once the caller has read its body to the
      * end, cancelled it, or reading it failed. In that last case the
      * caller receives a new Response that relays the listener's. A

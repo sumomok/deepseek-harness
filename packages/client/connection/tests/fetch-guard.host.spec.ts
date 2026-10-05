@@ -126,6 +126,35 @@ function trackedResponse(text = 'route body'): { readonly response: Response; re
   return { response: new Response(body), cancelled: () => cancelled }
 }
 
+/** A Response whose body produces `chunk 1`, `chunk 2`, … one per read without end, and records whether it was cancelled. */
+function endlessResponse(): { readonly response: Response; readonly cancelled: () => boolean } {
+  let cancelled = false
+  let sent = 0
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      sent += 1
+      controller.enqueue(new TextEncoder().encode(`chunk ${String(sent)}`))
+    },
+    cancel() { cancelled = true },
+  }, { highWaterMark: 0 })
+  return { response: new Response(body), cancelled: () => cancelled }
+}
+
+/**
+ * Stand in for a Response that another copy of undici built: it carries a Response's status, status text, headers,
+ * and body, but `instanceof Response` is false for it in this realm.
+ */
+function foreignResponse(body: ReadableStream<Uint8Array<ArrayBuffer>>, init: ResponseInit = {}): Response {
+  const local = new Response(null, init)
+  const foreign: Pick<Response, 'status' | 'statusText' | 'headers' | 'body'> = {
+    status: local.status,
+    statusText: local.statusText,
+    headers: local.headers,
+    body,
+  }
+  return foreign as Response
+}
+
 /** Run `body`, then wait 20ms, and return the reasons of the unhandled rejections Node reported meanwhile. */
 async function unhandledRejectionsDuring(body: () => Promise<void>): Promise<unknown[]> {
   const reasons: unknown[] = []
@@ -311,6 +340,18 @@ describe('connection/fetch', () => {
     expect(tracked.cancelled()).toBe(false)
   })
 
+  it('returns a route Response that another undici copy built as it is, body untouched, when no listener is registered', async () => {
+    const tracked = trackedResponse()
+    const foreign = foreignResponse(tracked.response.body!)
+    expect(foreign instanceof Response).toBe(false)
+    const route = await bareRoute(async () => foreign)
+
+    const response = await route.fetch()
+    expect(response).toBe(foreign)
+    expect(await new Response(response.body).text()).toBe('route body')
+    expect(tracked.cancelled()).toBe(false)
+  })
+
   it('cancels the body of a route Response the listener did not return: at once when its answer has no body', async () => {
     const tracked = trackedResponse()
     const route = await bareRoute(async () => tracked.response)
@@ -447,22 +488,31 @@ describe('connection/fetch', () => {
       // A stream that takes the reader in pull() and declares no cancel() keeps the route body locked, so only the
       // relays whose cancel ends the generator release it.
       for (const [writing, relayed] of relays.slice(0, 2)) {
-        let cancelled = false
-        let sent = 0
-        const route = await bareRoute(async () => new Response(new ReadableStream<Uint8Array>({
-          pull(controller) {
-            sent += 1
-            controller.enqueue(new TextEncoder().encode(`chunk ${String(sent)}`))
-          },
-          cancel() { cancelled = true },
-        }, { highWaterMark: 0 })))
+        const endless = endlessResponse()
+        const route = await bareRoute(async () => endless.response)
         route.ctx.on('connection/fetch', async (_call, next) => relayed((await next()).body!))
 
         const reader = (await route.fetch()).body!.getReader()
         expect(new TextDecoder().decode((await reader.read()).value), writing).toBe('chunk 1')
         await reader.cancel()
-        await vi.waitFor(() => { expect(cancelled, writing).toBe(true) })
+        await vi.waitFor(() => { expect(endless.cancelled(), writing).toBe(true) })
       }
+    })
+
+    it('and waits for the caller in the same way when the listener returns a Response that another undici copy built', async () => {
+      const endless = endlessResponse()
+      const route = await bareRoute(async () => endless.response)
+      route.ctx.on('connection/fetch', async (_call, next) => foreignResponse(streamFrom((await next()).body!), { status: 203 }))
+
+      const response = await route.fetch()
+      expect(response.status).toBe(203)
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(endless.cancelled()).toBe(false)
+      const reader = response.body!.getReader()
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe('chunk 1')
+      expect(endless.cancelled()).toBe(false)
+      await reader.cancel()
+      await vi.waitFor(() => { expect(endless.cancelled()).toBe(true) })
     })
   })
 
@@ -515,7 +565,7 @@ describe('connection/fetch', () => {
     await vi.waitFor(() => { expect(syncTracked.cancelled()).toBe(true) })
   })
 
-  it('cancels the route body when a listener returns no Response after next(), which the carrier answers with 400', async () => {
+  it('cancels the route body when a listener returns undefined after next(), which the carrier answers with 400', async () => {
     const mounted = await mount()
     const tracked = trackedResponse()
     mounted.ctx.connection.fetch.register({

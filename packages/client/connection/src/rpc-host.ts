@@ -207,16 +207,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /**
    * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
-   * caller receives that Response or its body: once the waterfall ends when the caller's Response has
-   * no body or a locked one, or when a listener returned no Response, otherwise once the caller has read
-   * that body to its end, cancelled it, or it failed. Once the waterfall has ended, a `next()` that reaches the route or channel dispatches
-   * nothing and rejects.
+   * caller receives that Response or its body: once the waterfall ends when the waterfall's result has
+   * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
+   * it failed. Responses and bodies are compared by identity, so a Response that another copy of undici
+   * built is handled as one built in this realm. Once the waterfall has ended, a `next()` that reaches
+   * the route or channel dispatches nothing and rejects.
    * @param call - the request as listeners see it.
    * @param dispatch - hand the request to the route or channel.
    * @returns the waterfall's result itself when every such `next()` has resolved to a Response the caller
-   * receives or whose body it receives, when the result's body is absent or locked, or when the result is
-   * not a Response; otherwise a Response with its status, status text, and headers over a body that
-   * relays its body. Rejects with the waterfall's failure.
+   * receives or whose body it receives, or when the result has no body or a locked one; otherwise a
+   * Response with the result's status, status text, and headers over a body that relays the result's
+   * body. Rejects with the waterfall's failure.
    */
   private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
     // A listener may call next() more than once, so each call's Response is recorded.
@@ -241,19 +242,18 @@ export class HostConnectionService extends Service implements HostConnectionHand
       throw error
     }
     ended = true
-    // A listener that returns no Response, against its declared result, hands the caller no route body.
-    const handed = result instanceof Response ? result : undefined
-    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, handed) === undefined)) {
+    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, result) === undefined)) {
       return result
     }
     // The caller's body may read an unreturned body lazily, as a listener's relay stream does, so cancelling
-    // waits until the caller is done with its body.
-    const body = handed?.body ?? null
-    if (handed === undefined || body === null || body.locked) {
-      discardDispatched(dispatched, handed)
+    // waits until the caller is done with its body. A result without a body, such as the `undefined` a listener
+    // returns against its declared result, leaves no body to wait for, so every unreturned body is cancelled now.
+    const body = (result as Response | undefined)?.body ?? null
+    if (body === null || body.locked) {
+      discardDispatched(dispatched, result)
       return result
     }
-    return observeBody(handed, body, () => { discardDispatched(dispatched, handed) })
+    return observeBody(result, body, () => { discardDispatched(dispatched, result) })
   }
 
   private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
@@ -387,7 +387,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
  * Cancel the body of each Response a `next()` of one `connection/fetch` dispatch produced that the
  * caller does not receive: at once for one that has resolved, once it resolves for one still pending.
  * @param dispatched - the Responses the dispatch's `next()` calls produced.
- * @param result - the Response the caller receives, or `undefined` when the waterfall failed.
+ * @param result - the waterfall's result the caller receives, which may be a value without a body that a listener
+ * returned against its declared result; `undefined` when the waterfall failed or a listener returned `undefined`.
  */
 function discardDispatched(dispatched: readonly DispatchedResponse[], result: Response | undefined): void {
   for (const entry of dispatched) {
