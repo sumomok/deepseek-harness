@@ -1,24 +1,27 @@
 /**
  * `save-refusal.ts`: the fixed copy for each way a save of the menu fails —
  * reaching no member's menu, a refusal that lists the fields naming someone
- * else's conversations, any other 4xx, and everything else — and how the
- * listed fields are named from the patch the page sent.
+ * else's conversations, any other 4xx, and everything else — how the listed
+ * fields are named from the patch the page sent, and the line the screen shows
+ * for one workflow, more than one, and the workbench, in both languages.
  */
 import { describe, expect, it } from 'vitest'
 import { saveRefusalCopy } from '../src/client/save-refusal.ts'
 import { ServerMenuRefusedError, ServerMenuUnplacedError, type ServerMenuPatch } from '../src/client/workflow-api.ts'
-import { en, type ServerSidebarKey } from '../src/client/locales.ts'
+import { en, type ServerSidebarKey, type ServerSidebarTranslate, zh } from '../src/client/locales.ts'
 import type { ServerMenuWorkflow } from '../src/workflows.ts'
 
 /**
- * The English dictionary's lookup, its `{name}` slots filled from the values.
- * @param key - the dictionary key.
- * @param values - the slot values.
- * @returns the filled copy.
+ * A dictionary's lookup, its `{name}` slots filled from the values.
+ * @param dictionary - the dictionary looked up.
+ * @returns the lookup.
  */
-function t(key: ServerSidebarKey, values: Record<string, string> = {}): string {
-  return en[key].replace(/\{(\w+)\}/gu, (_slot, name: string) => values[name] ?? '')
+function lookup(dictionary: Readonly<Record<ServerSidebarKey, string>>): ServerSidebarTranslate {
+  return (key, values = {}) => dictionary[key].replace(/\{(\w+)\}/gu, (_slot, name: string) => values[name] ?? '')
 }
+
+/** The English dictionary's lookup. */
+const t = lookup(en)
 
 /**
  * A workflow of the sent list.
@@ -52,12 +55,12 @@ describe('saveRefusalCopy', () => {
     expect(saveRefusalCopy(refused(400, ['workflows[1].homeSessionId']), SENT, t))
       .toBe('the chat behind “Beta” is someone else’s; remove it from the list, then save again')
     expect(saveRefusalCopy(refused(400, ['workflows[0].homeSessionId', 'workflows[1].homeSessionId', 'workbenchSessionId']), SENT, t))
-      .toBe('the chat behind “Alpha”, “Beta”, “Workbench” is someone else’s; remove it from the list, then save again')
+      .toBe('the chats behind “Alpha”, “Beta”, “Workbench” are someone else’s; the change was not saved')
   })
 
   it('leaves out a path it cannot name, and falls back to the not-accepted copy when none is left', () => {
     expect(saveRefusalCopy(refused(400, ['workflows[2].homeSessionId', 'groups', 'workbenchSessionId']), SENT, t))
-      .toBe('the chat behind “Workbench” is someone else’s; remove it from the list, then save again')
+      .toBe('the chat behind “Workbench” is someone else’s; the change was not saved')
     for (const [fields, sent] of [
       [['workflows[2].homeSessionId', 'workflows[0].name', 'groups'], SENT],
       [['workflows[0].homeSessionId'], { workbenchSessionId: 'session-x' }],
@@ -77,5 +80,47 @@ describe('saveRefusalCopy', () => {
     for (const error of [refused(500), refused(503, ['workbenchSessionId']), refused(302), new TypeError('Failed to fetch'), 'transport exploded']) {
       expect({ error, copy: saveRefusalCopy(error, SENT, t) }).toEqual({ error, copy: en['workflows.later'] })
     }
+  })
+})
+
+describe('the line the screen shows for a refusal that names entries', () => {
+  it.each([
+    {
+      entries: 'one workflow', language: 'zh', fields: ['workflows[0].homeSessionId'],
+      line: '保存失败：「Alpha」指向别人的对话，请先把它移出列表再保存',
+    },
+    {
+      entries: 'one workflow', language: 'en', fields: ['workflows[0].homeSessionId'],
+      line: 'Failed to save: the chat behind “Alpha” is someone else’s; remove it from the list, then save again',
+    },
+    {
+      entries: 'two workflows', language: 'zh', fields: ['workflows[0].homeSessionId', 'workflows[1].homeSessionId'],
+      line: '保存失败：「Alpha」、「Beta」指向别人的对话，请先把它们移出列表再保存',
+    },
+    {
+      entries: 'two workflows', language: 'en', fields: ['workflows[0].homeSessionId', 'workflows[1].homeSessionId'],
+      line: 'Failed to save: the chats behind “Alpha”, “Beta” are someone else’s; remove them from the list, then save again',
+    },
+    {
+      entries: 'a workflow and the workbench', language: 'zh', fields: ['workflows[1].homeSessionId', 'workbenchSessionId'],
+      line: '保存失败：「Beta」、「工作台」指向别人的对话，这次修改没有保存',
+    },
+    {
+      entries: 'a workflow and the workbench', language: 'en', fields: ['workflows[1].homeSessionId', 'workbenchSessionId'],
+      line: 'Failed to save: the chats behind “Beta”, “Workbench” are someone else’s; the change was not saved',
+    },
+    {
+      entries: 'the workbench alone', language: 'zh', fields: ['workbenchSessionId'],
+      line: '保存失败：「工作台」指向别人的对话，这次修改没有保存',
+    },
+    {
+      entries: 'the workbench alone', language: 'en', fields: ['workbenchSessionId'],
+      line: 'Failed to save: the chat behind “Workbench” is someone else’s; the change was not saved',
+    },
+  ] as const)('names $entries in $language', ({ language, fields, line }) => {
+    const dictionary = { zh, en }[language]
+    const shown = dictionary['workflows.error'].replace('{message}', saveRefusalCopy(refused(400, fields), SENT, lookup(dictionary)))
+    expect(shown).toBe(line)
+    expect(shown).not.toMatch(/homeSessionId|workbenchSessionId|server-sidebar:|session|会话/iu)
   })
 })

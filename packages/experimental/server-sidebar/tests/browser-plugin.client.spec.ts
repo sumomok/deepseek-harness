@@ -669,8 +669,8 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const error = 'server-sidebar: workflows[1].homeSessionId, workbenchSessionId name conversations that belong to another member'
     const workflows = [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1, homeSessionId: 'session-b' }]
     for (const [dictionary, expected] of [
-      [zh, '保存失败：「Beta」、「工作台」指向别人的对话，请先把它移出列表再保存'],
-      [en, 'Failed to save: the chat behind “Beta”, “Workbench” is someone else’s; remove it from the list, then save again'],
+      [zh, '保存失败：「Beta」、「工作台」指向别人的对话，这次修改没有保存'],
+      [en, 'Failed to save: the chats behind “Beta”, “Workbench” are someone else’s; the change was not saved'],
     ] as const) {
       const { ctx } = await bench({ dictionary })
       const { injected, actions } = injectSidebar(ctx)
@@ -713,8 +713,10 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('renders the copy for a refused or failed save free of the vocabulary the console keeps off the screen, in both languages', () => {
     for (const dictionary of [zh, en]) {
       const item = dictionary['workflows.foreignItem'].replace('{name}', dictionary['workbench.label'])
-      const foreign = dictionary['workflows.foreign'].replace('{items}', `${item}${dictionary['workflows.foreignSeparator']}${item}`)
-      for (const message of [foreign, dictionary['workflows.refused'], dictionary['workflows.later']]) {
+      const items = `${item}${dictionary['workflows.foreignSeparator']}${item}`
+      const foreign = (['workflows.foreign.one', 'workflows.foreign.other', 'workflows.foreignWorkbench.one', 'workflows.foreignWorkbench.other'] as const)
+        .map(key => dictionary[key].replace('{items}', items))
+      for (const message of [...foreign, dictionary['workflows.refused'], dictionary['workflows.later']]) {
         const line = dictionary['workflows.error'].replace('{message}', message)
         expect(line).not.toMatch(/工作区|会话|归档|workspace|session|archive|member|server|\{/iu)
       }

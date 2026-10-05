@@ -21,9 +21,12 @@
  * with the host runtime's own wording (`session archive failed: …`), so the
  * refusal goes to the browser console and the section says only that the
  * removal did not go through. A refused save of the menu is worded the same
- * way: `workflows.error` frames one of `workflows.retry`, `workflows.foreign`,
- * `workflows.refused`, or `workflows.later` (`save-refusal.ts`), never the
- * server's refusal, whose text names fields such as `workbenchSessionId`.
+ * way: `workflows.error` frames one of `workflows.retry`, the
+ * `workflows.foreign` and `workflows.foreignWorkbench` pairs, which quote
+ * entries with `workflows.foreignItem` and join them with
+ * `workflows.foreignSeparator`, `workflows.refused`, or `workflows.later`
+ * (`save-refusal.ts`), never the server's refusal, whose text names fields
+ * such as `workbenchSessionId`.
  */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
@@ -38,7 +41,10 @@ export const zh = {
   'workflows.namePlaceholder': '工作流名称',
   'workflows.error': '保存失败：{message}',
   'workflows.retry': '请刷新页面后重试',
-  'workflows.foreign': '{items}指向别人的对话，请先把它移出列表再保存',
+  'workflows.foreign.one': '{items}指向别人的对话，请先把它移出列表再保存',
+  'workflows.foreign.other': '{items}指向别人的对话，请先把它们移出列表再保存',
+  'workflows.foreignWorkbench.one': '{items}指向别人的对话，这次修改没有保存',
+  'workflows.foreignWorkbench.other': '{items}指向别人的对话，这次修改没有保存',
   'workflows.foreignItem': '「{name}」',
   'workflows.foreignSeparator': '、',
   'workflows.refused': '这次修改没有被接受，请刷新页面后再改',
@@ -109,7 +115,10 @@ export const en = {
   'workflows.namePlaceholder': 'Workflow name',
   'workflows.error': 'Failed to save: {message}',
   'workflows.retry': 'refresh the page and try again',
-  'workflows.foreign': 'the chat behind {items} is someone else’s; remove it from the list, then save again',
+  'workflows.foreign.one': 'the chat behind {items} is someone else’s; remove it from the list, then save again',
+  'workflows.foreign.other': 'the chats behind {items} are someone else’s; remove them from the list, then save again',
+  'workflows.foreignWorkbench.one': 'the chat behind {items} is someone else’s; the change was not saved',
+  'workflows.foreignWorkbench.other': 'the chats behind {items} are someone else’s; the change was not saved',
   'workflows.foreignItem': '“{name}”',
   'workflows.foreignSeparator': ', ',
   'workflows.refused': 'the change was not accepted; refresh the page and make it again',
