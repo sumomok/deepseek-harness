@@ -1143,31 +1143,50 @@ describe('web e2e: the product-console sidebar', () => {
     30_000,
   )
 
+  /**
+   * Open the right column, check that it shows the guide page with no Files
+   * tab and that no directory path of the Host is on the page, and close it.
+   * @param opening - what opens the column; the label each assertion carries.
+   * @param open - the gesture that opens it.
+   * @param close - the gesture that closes it.
+   */
+  async function expectRightColumnWithoutFiles(
+    opening: string, open: () => Promise<void>, close: () => Promise<void>,
+  ): Promise<void> {
+    const column = page.locator('[data-sidebar-right-open]')
+    // The header's corner button is drawn once a conversation is on screen,
+    // which is also when the column has a conversation to open for.
+    await page.locator('[data-sidebar-right-expand]').waitFor({ timeout: 15_000 })
+    await open()
+    await column.waitFor({ timeout: 10_000 })
+    // A column that opens empty seeds its default page: the Files tab where
+    // it is the only tab type the guide offers, the guide otherwise.
+    await column.locator('[data-sidebar-right-guide]').waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await column.locator('[data-sidebar-right-guide-entry]').count(), opening).toBe(0)
+    expect(await page.getByRole('tab', { name: 'Files' }).count(), opening).toBe(0)
+    const text = await page.locator('body').innerText()
+    expect(text, opening).not.toContain(scaffold.workspaceCwd)
+    expect(text, opening).not.toContain('server-sidebar-workspace')
+    await close()
+    await expect.poll(() => column.count(), { timeout: 10_000 }).toBe(0)
+  }
+
+  it('opens the right column on the conversation header\'s expand button with no Files tab, and puts no directory path of the Host on the page', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-right-column-button'))
+    await expectRightColumnWithoutFiles(
+      'button',
+      () => page.locator('[data-sidebar-right-expand]').click(),
+      () => page.locator('[data-sidebar-right-open] [data-sidebar-right-toggle]').click(),
+    )
+  }, 30_000)
+
   it.skipIf(WITHHELD_SHORTCUT_KEYS === undefined)(
-    'opens the right column on its key and on its header button with no Files tab, and puts no directory path of the Host on the page',
+    'opens and closes the right column on its key with no Files tab, and puts no directory path of the Host on the page',
     async () => {
-      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-right-column'))
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-right-column-key'))
       const keys = WITHHELD_SHORTCUT_KEYS!
-      const open = page.locator('[data-sidebar-right-open]')
-      const expand = page.locator('[data-sidebar-right-expand]')
-      // The header's corner button is drawn once a conversation is on screen,
-      // which is also when the key has a column to open.
-      await expand.waitFor({ timeout: 15_000 })
-      for (const opening of ['key', 'button'] as const) {
-        if (opening === 'key') await page.keyboard.press(keys.rightColumn)
-        else await expand.click()
-        await open.waitFor({ timeout: 10_000 })
-        // A column that opens empty seeds its default page: the Files tab
-        // where it is the only tab type the guide offers, the guide otherwise.
-        await open.locator('[data-sidebar-right-guide]').waitFor({ state: 'visible', timeout: 10_000 })
-        expect(await open.locator('[data-sidebar-right-guide-entry]').count(), opening).toBe(0)
-        expect(await page.getByRole('tab', { name: 'Files' }).count(), opening).toBe(0)
-        const text = await page.locator('body').innerText()
-        expect(text, opening).not.toContain(scaffold.workspaceCwd)
-        expect(text, opening).not.toContain('server-sidebar-workspace')
-        await page.keyboard.press(keys.rightColumn)
-        await expect.poll(() => open.count(), { timeout: 10_000 }).toBe(0)
-      }
+      const press = (): Promise<void> => page.keyboard.press(keys.rightColumn)
+      await expectRightColumnWithoutFiles('key', press, press)
     },
     30_000,
   )
