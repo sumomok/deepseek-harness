@@ -38,7 +38,7 @@ export function shownDue(kind: ShownDue['kind'], version: number, extra: Partial
 
 /** A refusal one call settles with. */
 export interface Refused {
-  reject: unknown
+  reject: Error
 }
 
 /** How one queued `due()` call settles. */

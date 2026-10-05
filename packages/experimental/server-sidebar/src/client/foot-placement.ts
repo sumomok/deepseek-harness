@@ -34,7 +34,7 @@ export interface FootPlacementSource extends HostObservable<FootPlacement | unde
    * Record a measurement, notifying subscribers when any of its numbers moved.
    * @param placement - the measurement, or `undefined` once the sidebar unmounts.
    */
-  publish(placement: FootPlacement | undefined): void
+  publish: (placement: FootPlacement | undefined) => void
 }
 
 /**

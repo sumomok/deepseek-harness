@@ -32,7 +32,7 @@ export interface SettingsOpenerSource extends HostObservable<SettingsOpener | un
    * different function from the one recorded.
    * @param opener - the shell's opener, or `undefined` once the seat unmounts.
    */
-  publish(opener: SettingsOpener | undefined): void
+  publish: (opener: SettingsOpener | undefined) => void
 }
 
 /**

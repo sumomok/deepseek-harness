@@ -314,21 +314,21 @@ export interface OrgNoticeStore extends HostObservable<OrgNoticeView> {
    * later one's is dropped. A `pending` answer leaves the card as it is and
    * asks again after the delay it names; any ask cancels that scheduled one.
    */
-  refresh(): Promise<void>
+  refresh: () => Promise<void>
   /** 知道了: put the notice away and tell the plugin it was read; a `stale` answer asks again. */
-  acknowledge(): void
+  acknowledge: () => void
   /**
    * 稍后: put the disclosure away for this page without answering it; does
    * nothing while an agreement is on its way.
    */
-  later(): void
+  later: () => void
   /**
    * 同意: send the member's agreement. The card stays until the plugin takes
    * it, shows a refusal on the card, and asks again on a `stale` answer.
    */
-  consent(): Promise<void>
+  consent: () => Promise<void>
   /** Stop asking: cancel a scheduled ask, and drop every answer still on its way. */
-  dispose(): void
+  dispose: () => void
 }
 
 /**
@@ -356,6 +356,8 @@ export function createOrgNoticeStore(port: OrgNoticePort, report: OrgNoticeRepor
   let asked = 0
   let disposed = false
   let retry: ReturnType<typeof setTimeout> | undefined
+  // Whether an ask's answer still counts: it is the latest ask, and the store is not disposed.
+  const latest = (ask: number): boolean => ask === asked && !disposed
   const set = (next: OrgNoticeView): void => {
     view = next
     for (const listener of [...listeners]) listener()
@@ -399,14 +401,14 @@ export function createOrgNoticeStore(port: OrgNoticePort, report: OrgNoticeRepor
       try {
         due = await port.due()
       } catch (error) {
-        if (ask !== asked || disposed) return
+        if (!latest(ask)) return
         report('due', 'server-sidebar: the organization notice could not be read:', error)
         // An agreement on its way keeps its card until it settles.
         if (view.shown !== undefined && view.confirming) return
         hide()
         return
       }
-      if (ask !== asked || disposed) return
+      if (!latest(ask)) return
       switch (due.kind) {
         case 'none':
           hide()
