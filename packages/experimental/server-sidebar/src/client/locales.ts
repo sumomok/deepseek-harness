@@ -4,8 +4,9 @@
  * entries this package registers alongside them (the "存为工作流" action, and
  * the title of an untitled conversation, which reads `workbench.label` or
  * `temporary.untitled` in `UntitledTitle.tsx`), the conversation's rows for a
- * compaction that landed or failed (`CompactionRows.tsx`), and the notice in
- * place of `dsh-client-ui-workspace`'s (`WorkspaceNotice.tsx`). No
+ * compaction that landed or failed (`CompactionRows.tsx`), and the notice and
+ * the stop-and-remove confirmation in place of `dsh-client-ui-workspace`'s
+ * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -69,6 +70,24 @@ export const zh = {
   'notice.removed': '对话已移出列表，可',
   'notice.stoppedAndRemoved': '已停止并移出列表，可',
   'notice.undo': '撤销',
+  'stopRemove.title': '停止并移出列表？',
+  'stopRemove.desc': '这个对话仍有正在进行的工作。移出列表会先停止这些工作，被停止的工作不会自动继续。',
+  'stopRemove.activity': '将被停止的工作',
+  'stopRemove.turn': '正在进行的回复',
+  'stopRemove.subagents.one': '{n} 个运行中的子智能体：{names}',
+  'stopRemove.subagents.other': '{n} 个运行中的子智能体：{names}',
+  'stopRemove.jobs.one': '{n} 个后台任务：{names}',
+  'stopRemove.jobs.other': '{n} 个后台任务：{names}',
+  'stopRemove.schedules.one': '{n} 条定时提醒：{names}',
+  'stopRemove.schedules.other': '{n} 条定时提醒：{names}',
+  'stopRemove.other.one': '{n} 项其他工作',
+  'stopRemove.other.other': '{n} 项其他工作',
+  'stopRemove.listSeparator': '、',
+  'stopRemove.action': '停止并移出',
+  'stopRemove.cancel': '取消',
+  'stopRemove.close': '关闭',
+  'stopRemove.pending': '正在停止并移出列表…',
+  'stopRemove.error': '停止或移出失败，请稍后重试',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -121,4 +140,22 @@ export const en = {
   'notice.removed': 'Conversation removed from the list. You can ',
   'notice.stoppedAndRemoved': 'Stopped and removed from the list. You can ',
   'notice.undo': 'undo',
+  'stopRemove.title': 'Stop and remove from the list?',
+  'stopRemove.desc': 'This conversation still has work in progress. Removing it from the list stops that work first, and the stopped work will not resume on its own.',
+  'stopRemove.activity': 'Work that will be stopped',
+  'stopRemove.turn': 'The reply in progress',
+  'stopRemove.subagents.one': '{n} running subagent: {names}',
+  'stopRemove.subagents.other': '{n} running subagents: {names}',
+  'stopRemove.jobs.one': '{n} background job: {names}',
+  'stopRemove.jobs.other': '{n} background jobs: {names}',
+  'stopRemove.schedules.one': '{n} scheduled reminder: {names}',
+  'stopRemove.schedules.other': '{n} scheduled reminders: {names}',
+  'stopRemove.other.one': '{n} other item of work',
+  'stopRemove.other.other': '{n} other items of work',
+  'stopRemove.listSeparator': ', ',
+  'stopRemove.action': 'Stop and remove',
+  'stopRemove.cancel': 'Cancel',
+  'stopRemove.close': 'Close',
+  'stopRemove.pending': 'Stopping and removing from the list…',
+  'stopRemove.error': 'Couldn’t stop the work and remove it from the list. Try again shortly.',
 } satisfies Record<ServerSidebarKey, string>

@@ -3207,6 +3207,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-workspace SessionArchiveConfirmDialog id \'workspace.session-archive\'',
       'client-ui-workspace RowActionToast id \'workspace.row-toast\'',
       'experimental-page-refresh PageRefreshBanner id \'page-refresh.banner\'',
+      'experimental-server-sidebar StopAndRemoveDialog id \'workspace.session-archive\'',
       'experimental-server-sidebar WorkspaceNotice id \'workspace.row-toast\'',
     ],
     replaceRisk: 'none',

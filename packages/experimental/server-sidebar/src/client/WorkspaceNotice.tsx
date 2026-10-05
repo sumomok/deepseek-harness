@@ -10,24 +10,25 @@
  * `session.archive` keyboard shortcut archives the conversation on screen, and
  * its two outcomes, archived and stopped-and-archived, show 会话已归档 or
  * 已停止并归档 with an undo and a filter for archived rows this shell does not
- * have. `shell.overlay` is a list slot whose cell is the entry id, and only a
- * cell's lowest-priority entry renders (`SlotCore.register`'s shadowing rule),
- * so {@link replaceWorkspaceNotice} registers {@link WorkspaceNotice} at
- * priority -1 under that id, and `ui-workspace`'s own toast never mounts. The
- * two archive notices keep their undo, which un-archives through
- * `ui-workspace`, on the same 6 s hold `ui-workspace` gives them.
+ * have. {@link replaceWorkspaceNotice} registers {@link WorkspaceNotice} under
+ * that id below `ui-workspace`'s priority (`shadowed-overlay.ts`), so
+ * `ui-workspace`'s own toast never mounts. The two archive notices keep their
+ * undo, which un-archives through `ui-workspace`, on the same 6 s hold
+ * `ui-workspace` gives them.
  *
  * Which notice is up is still `ui-workspace`'s to say: the shadowed entry's
  * inject face carries it (`hooks.toast`, `dismissToast`, `undoArchive`), and
  * nothing else does. {@link shadowedNoticeSource} reads that face off the slot
- * ledger, follows the ledger so an entry registered after this one is still
- * found, and checks the face's members before using them, since the ledger
- * erases their types. The kind names are checked against `ui-workspace`'s
- * exported `RowToast` type at compile time ({@link NOTICE_COPY}); the entry
- * id, the face's member names, and the notice's `seq` and `sessionId` fields
- * are literal copies, since `ui-workspace` exports neither a constant for them
- * nor its face type. A renamed entry id un-shadows `ui-workspace`'s toast; a
- * face this module no longer recognises shows no notice at all.
+ * ledger through `shadowed-overlay.ts`. The kind names and the archive
+ * notices' `sessionId` field are checked against `ui-workspace`'s exported
+ * `RowToast` type at compile time ({@link NOTICE_COPY}, {@link SESSION_FIELD}).
+ * The entry id, the face's member names, and the notice's `seq` field are
+ * literal copies: `ui-workspace`'s `/client` entry exports no constant for the
+ * id, and neither the face's type nor the published notice's
+ * (`RowToastInjected`, `RowToastState`). `tests/workspace-notice.client.spec.tsx`
+ * checks each copy against `ui-workspace`'s source. A renamed entry id
+ * un-shadows `ui-workspace`'s toast; a face this module no longer recognises
+ * shows no notice at all.
  *
  * The other kinds `ui-workspace` raises belong to its `sidebar.workspaces`
  * browser's row actions (pin, unpin, opening an archived row); this shell does
@@ -37,7 +38,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { IconWarningOutlineRegular, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { HostObservable, InjectFace, PropsLocale, PropsRuntime, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { RowToast } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
@@ -45,6 +46,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls ui-layout's declaration of `shell.overlay`.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ServerSidebarKey } from './locales.ts'
+import {
+  followShadowed, hookOf, isAction, isSessionAction, type OverlayLedger, REPLACING_PRIORITY, shadowedFace,
+} from './shadowed-overlay.ts'
 
 /**
  * The id of `ui-workspace`'s notice entry in `shell.overlay`, which this
@@ -52,9 +56,6 @@ import type { ServerSidebarKey } from './locales.ts'
  * well, so the client slot catalog names the cell.
  */
 const NOTICE_ENTRY_ID = 'workspace.row-toast'
-
-/** Shadowing rank of the console's entry: below `ui-workspace`'s default 0. */
-const REPLACING_PRIORITY = -1
 
 /** Hold of the two archive notices, which carry an action to react to; `ui-workspace` holds its own for the same 6 s. */
 const ARCHIVE_NOTICE_HOLD_MS = 6000
@@ -78,6 +79,13 @@ const NOTICE_COPY = {
 type ArchiveKind = Extract<keyof typeof NOTICE_COPY, 'archived' | 'stoppedAndArchived'>
 
 /**
+ * The field an archive notice names its conversation in. It must be one of
+ * the archive kinds' `RowToast` fields, so a field `ui-workspace` renames
+ * fails this package's typecheck.
+ */
+const SESSION_FIELD = 'sessionId' satisfies keyof Extract<RowToast, { kind: ArchiveKind }>
+
+/**
  * One notice this shell draws, as `ui-workspace` publishes it: what happened,
  * the archived conversation for the two archive notices, and a number that
  * restarts a repeated notice's hold.
@@ -98,23 +106,6 @@ export type WorkspaceNoticeState =
     seq: number
   }
 
-/** The share of the slot ledger {@link shadowedNoticeSource} reads. */
-export interface NoticeLedger {
-  /**
-   * Every entry registered into the slot, shadowed ones included.
-   * @param key - the slot key.
-   * @returns the entries.
-   */
-  entries(key: 'shell.overlay'): readonly StoredEntry[]
-  /**
-   * Follow the slot's registrations.
-   * @param key - the slot key.
-   * @param fn - called after each change.
-   * @returns the unsubscribe.
-   */
-  subscribe(key: 'shell.overlay', fn: () => void): () => void
-}
-
 /** `ui-workspace`'s notice, as {@link shadowedNoticeSource} hands it on. */
 export interface ShadowedNotice {
   /** The notice up now, or none. */
@@ -131,8 +122,8 @@ export interface ShadowedNotice {
 /** The members of the shadowed entry's face this module reads. */
 interface ShadowedFace {
   toast: HostObservable<unknown>
-  dismissToast: () => void
-  undoArchive: (sessionId: SessionId) => void
+  dismissToast: () => unknown
+  undoArchive: (sessionId: SessionId) => unknown
 }
 
 /** Business face of the console's entry. */
@@ -157,45 +148,14 @@ export type WorkspaceNoticeProps =
   & InjectFace<WorkspaceNoticeInjected>
 
 /**
- * Whether a value is an observable snapshot source.
- * @param value - the candidate.
- * @returns true when it carries `getSnapshot` and `subscribe` functions.
- */
-function isObservable(value: unknown): value is HostObservable<unknown> {
-  return typeof value === 'object' && value !== null
-    && 'getSnapshot' in value && typeof value.getSnapshot === 'function'
-    && 'subscribe' in value && typeof value.subscribe === 'function'
-}
-
-/**
- * Whether a value is a function the face's caller invokes with no argument.
- * @param value - the candidate.
- * @returns true for any function.
- */
-function isAction(value: unknown): value is () => void {
-  return typeof value === 'function'
-}
-
-/**
- * Whether a value is a function the face's caller invokes with a conversation id.
- * @param value - the candidate.
- * @returns true for any function.
- */
-function isSessionAction(value: unknown): value is (sessionId: SessionId) => void {
-  return typeof value === 'function'
-}
-
-/**
  * The members this module reads from the shadowed entry's face.
  * @param face - what the entry's inject factory returned.
  * @returns the toast source, its dismissal, and the archive undo, or undefined when the face lacks any of them.
  */
 function shadowedFaceOf(face: Record<string, unknown>): ShadowedFace | undefined {
-  const { hooks, dismissToast, undoArchive } = face
-  if (!isAction(dismissToast) || !isSessionAction(undoArchive)) return undefined
-  if (typeof hooks !== 'object' || hooks === null || !('toast' in hooks)) return undefined
-  const { toast } = hooks
-  if (!isObservable(toast)) return undefined
+  const toast = hookOf(face, 'toast')
+  const { dismissToast, undoArchive } = face
+  if (toast === undefined || !isAction(dismissToast) || !isSessionAction(undoArchive)) return undefined
   return { toast, dismissToast, undoArchive }
 }
 
@@ -214,7 +174,7 @@ function noticeOf(value: unknown): WorkspaceNoticeState | null {
       return { kind, seq }
     case 'archived':
     case 'stoppedAndArchived': {
-      const sessionId = 'sessionId' in value ? value.sessionId : undefined
+      const sessionId = SESSION_FIELD in value ? value[SESSION_FIELD] : undefined
       return typeof sessionId === 'string' ? { kind, sessionId: sessionId as SessionId, seq } : null
     }
     // `RowToast` is `ui-workspace`'s to extend; the other kinds come from row
@@ -230,53 +190,12 @@ function noticeOf(value: unknown): WorkspaceNoticeState | null {
  * @returns the notice source, its dismissal, and the archive undo; all three
  * are inert while no `ui-workspace` entry is registered.
  */
-export function shadowedNoticeSource(ledger: NoticeLedger): ShadowedNotice {
-  const faces = new WeakMap<StoredEntry, ShadowedFace | null>()
-  const shadowed = (): ShadowedFace | undefined => {
-    const entry = ledger.entries('shell.overlay')
-      .find(candidate => candidate.options.id === NOTICE_ENTRY_ID && candidate.component !== WorkspaceNotice)
-    if (entry?.inject === undefined) return undefined
-    let face = faces.get(entry)
-    if (face === undefined) {
-      face = shadowedFaceOf(entry.inject()) ?? null
-      faces.set(entry, face)
-    }
-    return face ?? undefined
-  }
-  // A snapshot must keep its identity while nothing changed, so the parsed
-  // notice is reused for as long as the shadowed source returns the same value.
-  let lastRaw: unknown = null
-  let last: WorkspaceNoticeState | null = null
-  const notice: HostObservable<WorkspaceNoticeState | null> = {
-    getSnapshot: () => {
-      const raw = shadowed()?.toast.getSnapshot() ?? null
-      if (raw !== lastRaw) {
-        lastRaw = raw
-        last = noticeOf(raw)
-      }
-      return last
-    },
-    subscribe: (listener) => {
-      let current = shadowed()
-      let release = current?.toast.subscribe(listener) ?? (() => {})
-      const stopLedger = ledger.subscribe('shell.overlay', () => {
-        const next = shadowed()
-        if (next === current) return
-        release()
-        current = next
-        release = current?.toast.subscribe(listener) ?? (() => {})
-        listener()
-      })
-      return () => {
-        stopLedger()
-        release()
-      }
-    },
-  }
+export function shadowedNoticeSource(ledger: OverlayLedger): ShadowedNotice {
+  const face = shadowedFace(ledger, NOTICE_ENTRY_ID, WorkspaceNotice, shadowedFaceOf)
   return {
-    notice,
-    dismiss: () => { shadowed()?.dismissToast() },
-    undoArchive: (sessionId) => { shadowed()?.undoArchive(sessionId) },
+    notice: followShadowed(ledger, face, current => current.toast, noticeOf),
+    dismiss: () => { face()?.dismissToast() },
+    undoArchive: (sessionId) => { face()?.undoArchive(sessionId) },
   }
 }
 

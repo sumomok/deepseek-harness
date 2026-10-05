@@ -5,8 +5,9 @@
  * vocabulary the console keeps off the screen, with the archive notices'
  * undo; nothing for the kinds only the session list's row actions raise; the
  * source that reads `ui-workspace`'s notice through the entry this package
- * shadows, whichever of the two registers first; and the entry id, checked
- * against `ui-workspace`'s own registration.
+ * shadows, whichever of the two registers first, until that entry leaves;
+ * and the entry id, the face's members, and the notice's fields, checked
+ * against `ui-workspace`'s own source.
  */
 import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
@@ -239,6 +240,27 @@ describe('replaceWorkspaceNotice', () => {
       stop()
     }
   })
+
+  it('stops showing `ui-workspace`\'s notice once its entry leaves the ledger', async () => {
+    const ctx = await overlayBench()
+    const owner = ownerFace()
+    const disposeOwner = ctx.slots.register({ name: 'shell.overlay', id: 'workspace.row-toast', inject: owner.inject } as never, () => null)
+    replaceWorkspaceNotice(ctx)
+    const { hooks: { notice } } = consoleFace(ctx)
+    const listener = vi.fn()
+    const stop = notice.subscribe(listener)
+    owner.toast.set({ kind: 'createFailed', seq: 1 })
+    expect(listener).toHaveBeenCalledOnce()
+    expect(notice.getSnapshot()).toEqual({ kind: 'createFailed', seq: 1 })
+    disposeOwner()
+    // The ledger reports the removal on a microtask.
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(notice.getSnapshot()).toBeNull()
+    owner.toast.set({ kind: 'createFailed', seq: 2 })
+    expect(listener).toHaveBeenCalledTimes(2)
+    stop()
+  })
 })
 
 describe('shadowedNoticeSource', () => {
@@ -319,10 +341,30 @@ describe('shadowedNoticeSource', () => {
 })
 
 describe('the shadowed entry', () => {
+  /** `ui-workspace`'s client source directory. */
+  const owner = resolvePath(import.meta.dirname, '../../../client/ui-workspace/src/client')
+
   it('is the id `ui-workspace` registers its notice under in `shell.overlay`', () => {
     // A literal copy: `ui-workspace` exports no constant for the id, and a
     // renamed id there would bring its own toast back beside this one.
-    const owner = resolvePath(import.meta.dirname, '../../../client/ui-workspace/src/client/index.ts')
-    expect(readFileSync(owner, 'utf8')).toMatch(/name: 'shell\.overlay', id: 'workspace\.row-toast',[^}]*\}, RowActionToast\)/u)
+    expect(readFileSync(resolvePath(owner, 'index.ts'), 'utf8'))
+      .toMatch(/name: 'shell\.overlay', id: 'workspace\.row-toast',[^}]*\}, RowActionToast\)/u)
+  })
+
+  it('carries the face members and notice fields `ui-workspace` declares for its toast', () => {
+    // Literal copies: the `/client` entry exports neither `RowToastInjected`
+    // nor `RowToastState`, and a renamed member there leaves this entry with
+    // no notice to show.
+    const contract = readFileSync(resolvePath(owner, 'contract/slots.ts'), 'utf8')
+    const face = /^export interface RowToastInjected \{\n([\s\S]*?)^\}$/mu.exec(contract)?.[1]
+    expect(face).toMatch(/^ {2}hooks: \{\n(?: {4}.*\n)* {4}toast: HostObservable<RowToastState \| null>\n {2}\}$/mu)
+    expect(face).toMatch(/^ {2}dismissToast: \(\) => void$/mu)
+    expect(face).toMatch(/^ {2}undoArchive: \(sessionId: SessionId\) => void$/mu)
+    expect(contract).toMatch(/^export type RowToastState = RowToast & \{ seq: number \}$/mu)
+    // The kinds this entry draws, and the archive kinds' conversation field,
+    // which the compiler checks as well.
+    const kinds = /^export type RowToast =\n([\s\S]*?)\n\n/mu.exec(contract)?.[1]
+    for (const kind of ['defaultWorkspaceFailed', 'createFailed']) expect(kinds).toContain(`| { kind: '${kind}'`)
+    for (const kind of ['archived', 'stoppedAndArchived']) expect(kinds).toContain(`| { kind: '${kind}'; sessionId: SessionId }`)
   })
 })

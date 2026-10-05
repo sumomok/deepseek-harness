@@ -25,6 +25,7 @@ import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/Sav
 import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
 import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
+import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -370,18 +371,23 @@ describe('server-sidebar browser half: sidebar registration', () => {
     for (const dispose of [...disposeOwners, ...disposeKept]) dispose()
   })
 
-  it('replaces ui-workspace\'s notice by its `shell.overlay` id at priority -1, in this package\'s locale', async () => {
+  it('replaces ui-workspace\'s notice and stop-and-archive confirmation by their `shell.overlay` ids at priority -1, in this package\'s locale', async () => {
     const { ctx } = await bench()
-    const [ours, ...others] = ctx.slots.entries('shell.overlay')
-    expect(others).toEqual([])
-    expect(ours?.component).toBe(WorkspaceNotice)
-    expect(ours?.options).toMatchObject({ id: 'workspace.row-toast', priority: -1 })
-    expect(ours?.locale).toBe('serverSidebar')
-    // ui-workspace registers its toast at the default priority 0; the cell's
+    const replaced = [
+      { id: 'workspace.row-toast', component: WorkspaceNotice },
+      { id: 'workspace.session-archive', component: StopAndRemoveDialog },
+    ] as const
+    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component })))
+      .toEqual(replaced)
+    for (const entry of ctx.slots.entries('shell.overlay')) {
+      expect(entry.options.priority).toBe(-1)
+      expect(entry.locale).toBe('serverSidebar')
+    }
+    // ui-workspace registers both at the default priority 0; each cell's
     // winner stays this package's entry.
-    const disposeOwner = ctx.slots.register({ name: 'shell.overlay', id: 'workspace.row-toast' }, () => null)
-    expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual([WorkspaceNotice])
-    disposeOwner()
+    const disposeOwners = replaced.map(({ id }) => ctx.slots.register({ name: 'shell.overlay', id }, () => null))
+    expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual(replaced.map(({ component }) => component))
+    for (const dispose of disposeOwners) dispose()
   })
 
   it('replaces ui-chat\'s landed and failed compaction rows by node key at priority -1, in this package\'s locale', async () => {

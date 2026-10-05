@@ -53,8 +53,9 @@
  * action, by shadowing their list ids (`settings-entries.ts`),
  * a sixth replaces the conversation's rows for a compaction that landed or
  * failed by shadowing their node keys (`CompactionRows.tsx`), and a seventh
- * replaces `dsh-client-ui-workspace`'s notice by shadowing its `shell.overlay`
- * id (`WorkspaceNotice.tsx`).
+ * and an eighth replace `dsh-client-ui-workspace`'s notice and its
+ * stop-and-archive confirmation by shadowing their `shell.overlay` ids
+ * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -86,6 +87,7 @@ import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAct
 import { withholdSettingsEntries } from './settings-entries.ts'
 import { replaceCompactionRows } from './CompactionRows.tsx'
 import { replaceWorkspaceNotice } from './WorkspaceNotice.tsx'
+import { replaceArchiveConfirm } from './StopAndRemoveDialog.tsx'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
@@ -162,8 +164,9 @@ async function landOnWorkbench(
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, the withheld Settings entries, the compaction rows, and
- * the workspace notice, then the read-before-register fetches (this package's own
+ * brand-mark takeover, the withheld Settings entries, the compaction rows, the
+ * workspace notice, and the stop-and-remove confirmation, then the
+ * read-before-register fetches (this package's own
  * settings-read pattern, matching `dsh-experimental-content-frame`'s), then the
  * sidebar and the two session-header entries.
  * @param ctx - client root context.
@@ -181,6 +184,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   withholdSettingsEntries(ctx)
   replaceCompactionRows(ctx)
   replaceWorkspaceNotice(ctx)
+  replaceArchiveConfirm(ctx)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),

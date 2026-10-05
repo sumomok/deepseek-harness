@@ -1,0 +1,33 @@
+/* The console's stop-and-remove dialog. The metrics follow ui-workspace's
+   dialog it replaces (`.archiveActivity`, `.deleteAction`, `.deleteStatus`,
+   and `.renameError` in WorkspaceBrowser.module.css). */
+
+.stopAction:not(:disabled) {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* The work that will be stopped. */
+.activity {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.activity li {
+  overflow-wrap: anywhere;
+}
+
+.status {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
