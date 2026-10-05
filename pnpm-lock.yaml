@@ -9370,6 +9370,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:*
         version: link:../../attachment/attachment
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:*
         version: link:../../client/connection
@@ -9394,6 +9397,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-tool':
         specifier: workspace:*
         version: link:../../client/ui-tool
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-content-column':
         specifier: workspace:*
         version: link:../content-column

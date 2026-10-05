@@ -2044,7 +2044,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:63`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
+- `source`: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:64`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the bounds one deployment puts on a model-supplied chart. */
@@ -2075,6 +2075,18 @@ export interface Config {
    * image tokens on every call.
    */
   screenshot?: boolean
+  /**
+   * Take each render report only for the console member whose session the
+   * call runs in. Which member sent a request and which member a session
+   * belongs to are the `consoleMembers` service's answers, and this row reads
+   * no identity header of its own: before reading a body, the report route
+   * answers 503 while that service is not running and 401 when it places the
+   * request with nobody, and a report naming another member's call, a call of
+   * a session that belongs to nobody, or a call made outside any agent is
+   * answered as one naming a call nothing is waiting on. The default is false,
+   * which takes every report for every call, for a process serving one person.
+   */
+  perMember?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc -->
