@@ -550,8 +550,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bizBackend',
-    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
-    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    summary: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.',
+    description: '`ctx.bizBackend`: the reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
         signature: 'judge(rights: BizUserRights | BizBackendFailure): BizPermissions',
@@ -913,6 +913,68 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Add the fresh process token to an ordinary Web application URL.',
         parameters: [{ name: 'baseUrl', description: 'clean application URL whose authority and mount are preserved.' }],
         returns: 'tokenized URL for initial login; a mount proxy strips its prefix before {@link authorizeIndex}.',
+      },
+    ],
+  },
+  {
+    key: 'consoleMembers',
+    summary: 'The console member directory, `ctx.consoleMembers`.',
+    description: 'The console member directory, `ctx.consoleMembers`.\n\nEvery method is synchronous; a MemberStore it returns reads and writes asynchronously. No method returns, enumerates, or exposes a customer token or the attached CustomerCredentialReader.',
+    methods: [
+      {
+        signature: 'principalOfRequest(req: IncomingMessage): PrincipalKey | undefined',
+        description: 'The member one browser request was admitted as, for a webServer route.\n\nAdmits the request through `connection.admit(req)`, the check the `/api` route applies, and looks up the member of the admitted Peer. This is the only way a fork webServer route obtains the member of a request: such a route reads no identity header and calls no `connection.admit` of its own.',
+        parameters: [{ name: 'req', description: 'the request the route is answering.' }],
+        returns: 'that member\'s key, or `undefined` when admission refuses the request or the admitted Peer belongs to no member.',
+      },
+      {
+        signature: 'principalOfCaller(peer: PeerScope): PrincipalKey | undefined',
+        description: 'The member a Remote method\'s caller acts for.',
+        parameters: [{ name: 'peer', description: 'the caller\'s Peer, `this.ctx.invocation.peer` inside a Remote method.' }],
+        returns: 'that member\'s key, or `undefined` for the operator Peer and for a Peer this directory did not open for a member.',
+      },
+      {
+        signature: 'principalOfSession(sessionId: SessionId): PrincipalKey | undefined',
+        description: 'The member one Session belongs to.\n\nA Session without `parentSession` belongs to the member whose registered root contains its `header.cwd`; a cwd under a root registered to no one, or under no registered root, belongs to no member. A Session with `parentSession` belongs to whoever its parent belongs to, followed up to the topmost Session; when any Session on that chain is unknown or belongs to no member, the answer is `undefined`. A child Session whose own `header.cwd` lies under a root registered to another member or to no one answers `undefined` and logs one warning that carries no principal key; a child cwd under no registered root is not a conflict and leaves the parent-chain answer in force. A child Session takes its parent\'s member synchronously on `session/created`, and a Session not loaded since startup is resolved through its parent chain. The Host alone writes `parentSession`, at fork and at subagent creation; no RPC caller can set it.',
+        parameters: [{ name: 'sessionId', description: 'the Session to look up.' }],
+        returns: 'that member\'s key, or `undefined` when the Session is unknown or belongs to no member.',
+      },
+      {
+        signature: 'memberRoot(principal: PrincipalKey): string',
+        description: 'The member\'s default root, `<membersRoot>/<directory id>`. The member\'s default workspace is its `workspace` subdirectory. The directory id does not contain the principal key.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'the absolute path of that member\'s default root.',
+      },
+      {
+        signature: 'rootsOf(principal: PrincipalKey): readonly string[]',
+        description: 'Every root registered to the member: the default root plus each root a migration seed registers to them.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'those roots\' absolute paths.',
+      },
+      {
+        signature: 'principals(): readonly PrincipalKey[]',
+        description: 'The members that currently have an open Peer.',
+        parameters: [],
+        returns: 'their keys.',
+      },
+      {
+        signature: 'onChange(listener: (event: { principal: PrincipalKey; kind: \'opened\' | \'closed\' }) => void): () => void',
+        description: 'Observe members opening and closing Peers: `opened` when a member\'s Peer opens and `closed` when it closes, the changes ConsoleMemberDirectory.principals reports.',
+        parameters: [{ name: 'listener', description: 'called with the member and the kind of change.' }],
+        returns: 'the disposer that stops the notifications.',
+      },
+      {
+        signature: 'memberStore(principal: PrincipalKey, unit: string): MemberStore',
+        description: 'Per-member storage for one caller-named unit, kept at `dshHomePath(\'console-members\', <directory id>, \'<unit>.json\')`. It holds non-secret data only.',
+        parameters: [{ name: 'principal', description: 'the member the data belongs to.' }, { name: 'unit', description: 'the caller\'s own name for its data, for example `\'server-sidebar\'`.' }],
+        returns: 'the store for that member and unit.',
+      },
+      {
+        signature: 'attachCustomerCredentials(reader: CustomerCredentialReader): () => void',
+        description: 'Accept the reader of members\' customer tokens. The directory accepts one reader for its lifetime.',
+        parameters: [{ name: 'reader', description: 'the read-only customer-token reader.' }],
+        returns: 'the disposer that detaches the reader.',
+        throws: ['Error when a reader has already been attached.'],
       },
     ],
   },
@@ -5434,6 +5496,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CronScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'cron\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly expression: string;\n    readonly timeZone: string;\n    readonly scheduledAt: string;\n}',
   },
   {
+    name: 'CustomerCredentialReader',
+    declaration: 'export interface CustomerCredentialReader {\n    read(principal: PrincipalKey): string | undefined;\n    onChange(listener: (principal: PrincipalKey, kind: \'set\' | \'dropped\') => void): () => void;\n}',
+  },
+  {
     name: 'DailyInput',
     declaration: 'export interface DailyInput {\n    readonly time: string;\n    readonly time_zone: string;\n}',
   },
@@ -6192,6 +6258,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'MemberStore',
+    declaration: 'export interface MemberStore {\n    read(): Promise<JsonValue | undefined>;\n    write(value: JsonValue): Promise<void>;\n}',
   },
   {
     name: 'Message',

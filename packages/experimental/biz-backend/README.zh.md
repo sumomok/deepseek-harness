@@ -64,9 +64,9 @@ const forToolCall: BizSubject = { kind: 'session', sessionId }
 const forRequest: BizSubject | undefined = backend.subjectOfRequest(req)
 ```
 
-`PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`：一个不透明的键，不进模型、不进日志、不上传。它归控制台成员目录 `@deepseek-ai/dsh-experimental-console-members` 所有，那边把它声明成这个品牌，值是这个人的 `login_uid`（那个包还没进这条线）；这里导出的是同一个类型，因为 `dsh-brand` 给每个键打品牌都用同一个符号，于是成员目录发出的键这个服务直接收，不必转换。
+`PrincipalKey`（主体键）是一个不透明的键，不进模型、不进日志、不上传。这个包从它的所有者——控制台成员目录 `@deepseek-ai/dsh-experimental-console-members`——再导出它；那边把它声明成 `Branded<'PrincipalKey'>`，值是这个人的 `login_uid`。
 
-一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器缺省每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人；开了它的 `perMember` 字段时，它按控制台成员各握一个槽，见[它的 README](../auth-gate/README.zh.md#holding-one-token-per-console-member)。按控制台成员各握一个槽的解析器，必须把 `principalOfRequest` 委托给 `consoleMembers.principalOfRequest(req)` 来答，这样「一个请求点名的是谁」就只有成员目录这一个来源：路由不自己读身份头，也不自己调 `connection.admit`，只经由 `subjectOfRequest` 拿到成员。
+一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，而且只在那个槽里仍是被拒的那次读取出示的令牌时才丢；别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器缺省每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人；开了它的 `perMember` 字段时，它按控制台成员各握一个槽，见[它的 README](../auth-gate/README.zh.md#holding-one-token-per-console-member)。按控制台成员各握一个槽的解析器，必须把 `principalOfRequest` 委托给 `consoleMembers.principalOfRequest(req)` 来答，这样「一个请求点名的是谁」就只有成员目录这一个来源：路由不自己读身份头，也不自己调 `connection.admit`，只经由 `subjectOfRequest` 拿到成员。
 
 <a id="the-six-reads"></a>
 ## 这六次读取
@@ -110,7 +110,7 @@ const forRequest: BizSubject | undefined = backend.subjectOfRequest(req)
 
 每次调用要么给出结果，要么给出一个闭合失败联合里的成员：`unauthenticated`（没有替这次调用的主体持有令牌，请求根本没发）、`refused`（后端拒的是这枚凭据本身）、`rejected`（后端答了，答的是不行）、`unreachable`（这条缝读不到答复——请求没发出去、没到达，或回来的是别的东西）。消费方按标签 `switch` 并以 `assertNever` 收口，于是日后新增的成员会让它的构建失败，而不是从缺口漏过去。
 
-拿主意的是答复里的结果码，不是单看状态：这个后端会用 HTTP 200 加一个非零码来拒绝一次请求，所以只信状态的消费方会把一次拒绝读成数据。另有两种答复会让调用方交出令牌，走的是这次调用的主体解析到的那个槽的 `drop`：HTTP 401，以及任何带结果码 2 或 3 的失败状态。后一种沿用本部署自己的客户端：它只在错误路径上因这两个码交出存储的令牌——它的成功路径在 HTTP 200 上报告非零码并保留令牌——所以同一个码在 200 上意味着一次请求被拒，在失败状态上意味着这枚凭据被拒。HTTP 403 不在其中：那个客户端把它读成这次请求被拒绝访问，并保留存储的令牌，所以 403 和别的失败状态一样按信封分类，只有在带着码 2 或 3 时才交出凭据。
+拿主意的是答复里的结果码，不是单看状态：这个后端会用 HTTP 200 加一个非零码来拒绝一次请求，所以只信状态的消费方会把一次拒绝读成数据。另有两种答复会让调用方交出令牌，走的是这次调用的主体解析到的那个槽的 `drop`：HTTP 401，以及任何带结果码 2 或 3 的失败状态。后一种沿用本部署自己的客户端：它只在错误路径上因这两个码交出存储的令牌——它的成功路径在 HTTP 200 上报告非零码并保留令牌——所以同一个码在 200 上意味着一次请求被拒，在失败状态上意味着这枚凭据被拒。HTTP 403 不在其中：那个客户端把它读成这次请求被拒绝访问，并保留存储的令牌，所以 403 和别的失败状态一样按信封分类，只有在带着码 2 或 3 时才交出凭据。槽里已经不是被拒的那次调用出示的令牌时，这两种答复都不丢它：调用在途时浏览器已经续期换上了新令牌，新令牌没有出示过。
 
 没有任何一个失败带上凭据、完整请求 URL 或后端的排障标识——失败会被报告给模型并写进会话日志，这三样哪一处都不该去。后端说的话在转述给调用方之前，会先按名字把出示过的凭据抠掉，再截到 120 个字符；只截长度守不住这个承诺，因为一个在前一百个字符里就把令牌说回来的后端能照样通过。
 

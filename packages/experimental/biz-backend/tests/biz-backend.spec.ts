@@ -119,7 +119,6 @@ function testCredential(initial: string | undefined): TestCredential {
   const dropped: CredentialDropReason[] = []
   return {
     read: () => held,
-    /* v8 ignore next -- the token route is what sets one; these specs start from a held token */
     set: (token: string) => { held = token },
     drop: (reason: CredentialDropReason) => {
       dropped.push(reason)
@@ -610,6 +609,35 @@ describe('the subject a read is performed for', () => {
     expect(await backend.userRights(SESSION, idleSignal())).toEqual({ kind: 'refused', status: 401 })
     expect(spent.dropped).toEqual(['refused-by-backend'])
     expect(later.dropped).toEqual([])
+  })
+
+  it('keeps a token posted into the slot while the refused read was in flight, on either refusal', async () => {
+    /** The token a renewal posts while the refused read is waiting for its answer. */
+    const RENEWED = 'cmVuZXdlZA.eyJzdWIiOiJ1LTEifQ.c2ln'
+    for (const refusal of [answer({ code: 1 }, 401), answer({ code: 3 }, 500)]) {
+      seen = []
+      const slot = testCredential(TOKEN)
+      serve(() => {
+        slot.set(RENEWED)
+        return refusal()
+      })
+      const backend = backendThrough(bySubject({ session: slot }))
+      expect(await backend.search(SESSION, READ, idleSignal())).toMatchObject({ kind: 'refused' })
+      expect(seen.map(presented)).toEqual([`Bearer ${TOKEN}`])
+      expect(slot.dropped).toEqual([])
+      expect(slot.read()).toBe(RENEWED)
+      expect(backend.holdsCredential(SESSION)).toBe(true)
+    }
+  })
+
+  it('presents nobody\'s token for an unplaced subject even after another subject\'s read spent its own', async () => {
+    // Guards against a service that, when the resolver places no slot for a
+    // subject, falls back to the slot the previous read spent.
+    serve(answer({ code: 0, data: { rawValue: RAW_ROWS, displayValue: DISPLAY_ROWS } }))
+    const backend = backendThrough(bySubject({ session: testCredential(TOKEN) }))
+    await backend.search(SESSION, READ, idleSignal())
+    expect(await backend.search(PERSON, READ, idleSignal())).toEqual({ kind: 'unauthenticated' })
+    expect(seen.map(presented)).toEqual([`Bearer ${TOKEN}`])
   })
 
   it('names a browser request\'s subject by the person the resolver admits it as, and names none it admits nobody for', () => {

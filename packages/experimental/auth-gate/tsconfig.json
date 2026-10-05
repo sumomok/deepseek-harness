@@ -33,6 +33,9 @@
       "path": "../biz-backend"
     },
     {
+      "path": "../console-members"
+    },
+    {
       "path": "../../core/session"
     },
     {

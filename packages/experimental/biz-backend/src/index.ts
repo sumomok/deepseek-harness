@@ -38,7 +38,7 @@
 
 import type { IncomingMessage } from 'node:http'
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import z from '@deepseek-ai/schemastery'
 
@@ -172,21 +172,14 @@ export interface HeldCredential {
 }
 
 /**
- * The key one signed-in person is known by inside this process.
- *
- * Opaque: no part of it is read here, and it reaches no model, log line or
- * upload. The type is owned by the console member directory,
+ * The key one signed-in person is known by inside this process, re-exported
+ * from its owner, the console member directory
  * `@deepseek-ai/dsh-experimental-console-members`, which declares it as
- * `Branded<'PrincipalKey'>` with the person's `login_uid` as its value; that
- * package is not on this line yet. This alias is that same type, because `dsh-brand`
- * brands every key through its one `BRAND` symbol, so a key the directory
- * hands out is one this seam takes with no conversion.
- *
- * TODO: replace this alias with an import from
- * `@deepseek-ai/dsh-experimental-console-members` once that package lands on
- * `product/server-console`.
+ * `Branded<'PrincipalKey'>` with the person's `login_uid` as its value.
+ * Opaque: no part of it is read here, and it reaches no model, log line or
+ * upload.
  */
-export type PrincipalKey = Branded<'PrincipalKey'>
+export type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
 
 /**
  * Whom one read is performed for: the person whose token it spends.
@@ -613,6 +606,18 @@ interface SpentCredential {
 interface ModelCall extends SpentCredential {
   /** The model name, checked to be one path segment. */
   readonly meta: string
+}
+
+/**
+ * Give up the token the backend refused, and nothing posted after it.
+ *
+ * The slot is dropped only while it still holds the token the refused request
+ * presented. A browser that renewed while the request was in flight has
+ * already replaced it, and the replacement keeps its place in the slot.
+ * @param spent - the token the refused request carried, and the slot it came out of.
+ */
+function dropRefused(spent: SpentCredential): void {
+  if (spent.slot.read() === spent.token) spent.slot.drop('refused-by-backend')
 }
 
 /**
@@ -1182,7 +1187,7 @@ function readAttributes(data: unknown): readonly BizMetaAttribute[] | undefined 
 }
 
 /**
- * `ctx.bizBackend`: the three reads this deployment's data backend serves,
+ * `ctx.bizBackend`: the reads this deployment's data backend serves,
  * performed with the access token its caller holds for the signed-in person
  * each read is performed for.
  *
@@ -1471,7 +1476,9 @@ export class BizBackendService extends Service {
    * and keeps its stored token — so a 403 is classified from its envelope like
    * any other failing status, which is also what makes a 403 carrying one of
    * those codes a refused credential. Either one drops the slot the call's
-   * subject resolved to, and no other.
+   * subject resolved to, and no other, and only while that slot still holds
+   * the token this request carried: a token posted into it while the request
+   * was in flight was never presented, so the refusal leaves it held.
    * @param url - the absolute address.
    * @param init - method, headers, body, and abort signal.
    * @param held - the credential this request carried, so a message repeating
@@ -1487,7 +1494,7 @@ export class BizBackendService extends Service {
       return { kind: 'unreachable', detail: reportable(String(error), presented, MAX_DETAIL_CHARS) }
     }
     if (response.status === 401) {
-      held.slot.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: 401 }
     }
     let body: string
@@ -1505,7 +1512,7 @@ export class BizBackendService extends Service {
       }
     }
     if (!response.ok && CREDENTIAL_REFUSAL_CODES.includes(code)) {
-      held.slot.drop('refused-by-backend')
+      dropRefused(held)
       return { kind: 'refused', status: response.status }
     }
     if (code !== 0) {

@@ -2,7 +2,7 @@
 
 English | [中文](biz-backend.zh.md)
 
-`ctx.bizBackend` reads the data a deployment serves for itself — one page of one resource model's rows, one model's attribute names, and the columns its own resource list opens that model with — with the access token of the person using that deployment. It exists for the fork's service-console line, where the harness runs behind the same sign-on as the deployment's own web console and a panel is drawn from the same rows that console shows. The [package README](../../packages/experimental/biz-backend/README.md) owns the callable API, the request and result declarations, and the limits; this page records where the service comes from and the two rules a consumer cannot get from a signature.
+`ctx.bizBackend` reads the data a deployment serves for itself — a page of one resource model's rows, a model's attribute names and the columns and stored schemes its own pages open it with, the catalog of resource models, and what the signed-in person may do there — with the access token of the person using that deployment. It exists for the fork's service-console line, where the harness runs behind the same sign-on as the deployment's own web console and a panel is drawn from the same rows that console shows. The [package README](../../packages/experimental/biz-backend/README.md) owns the callable API, the request and result declarations, and the limits; this page records where the service comes from and the two rules a consumer cannot get from a signature.
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts).
 
@@ -16,7 +16,7 @@ A deployment that configures no base for the backend constructs nothing, so a co
 
 This backend refuses a request with HTTP 200 and a non-zero code in its envelope, so status alone reads a refusal as data. Every call therefore classifies the envelope, and answers with its result or with one member of a closed failure union — `unauthenticated`, `refused`, `rejected`, `unreachable` — which a consumer switches on and ends in `assertNever`. Nothing throws.
 
-Two answers additionally make the holder give a token up, through the `drop` of the slot the read's subject resolved to: HTTP 401, and any failing status carrying result code 2 or 3 — a 403 among them, though a 403 on its own is a refused request and keeps the token. That slot then reaches the same terminal state a sign-out reaches: every later read whose subject resolves to it answers `unauthenticated` until a new token is posted into it, and no other slot is dropped.
+Two answers additionally make the holder give a token up, through the `drop` of the slot the read's subject resolved to: HTTP 401, and any failing status carrying result code 2 or 3 — a 403 among them, though a 403 on its own is a refused request and keeps the token. The slot is dropped only while it still holds the token the refused read presented: a token posted into it while that read was in flight was never presented, and stays held. A dropped slot reaches the same terminal state a sign-out reaches: every later read whose subject resolves to it answers `unauthenticated` until a new token is posted into it, and no other slot is dropped.
 
 ## Nothing a failure carries reaches a log
 
@@ -34,7 +34,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.bizBackend` — `BizBackendService`
 
-`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.
+`ctx.bizBackend`: the reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in person each read is performed for.
 
 Nothing here registers the service: it is constructed by the row that holds the visitor's token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer's `ctx.inject(['bizBackend'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.
 

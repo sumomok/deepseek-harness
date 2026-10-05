@@ -15,7 +15,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { BizSubject, PrincipalKey } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { holdMemberCredentials, memberSlotResolver, tokenClaim } from '../src/members.ts'
-import type { ConsoleMemberDirectory } from '../src/member-directory.ts'
+import type { ConsoleMemberDirectory } from '@deepseek-ai/dsh-experimental-console-members'
+import { UNCALLED_MEMBERS } from './fixtures/console-members.client.ts'
 
 /** The subject a tool call's reads name. */
 type SessionSubject = Extract<BizSubject, { kind: 'session' }>
@@ -155,6 +156,7 @@ describe('per-member resolver', () => {
   function withDirectory(sessions: Record<string, PrincipalKey>): { ctx: Context; asked: IncomingMessage[] } {
     const asked: IncomingMessage[] = []
     const directory: ConsoleMemberDirectory = {
+      ...UNCALLED_MEMBERS,
       principalOfRequest: (req) => {
         asked.push(req)
         return MEMBER_B

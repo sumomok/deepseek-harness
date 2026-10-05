@@ -237,7 +237,6 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **转发只走 HTTP。** 没有 upgrade 路由，因此以 WebSocket 抵达的 MCP 服务器无法经它转发；这条路由服务的是 streamable-HTTP 及其事件流。
 - **默认整个进程只有一枚 token。** 不设 `perMember` 时，node 半边持有任何浏览器投递过的最新一枚。这与一位登录用户一个进程的部署形态相符，而对于多人共用一个进程的场景则是错的：那时最后加载页面的那个浏览器会决定每一次读取和 MCP 调用花谁的凭据；`perMember` 就是那种部署该用的模式。
 - **按成员持有时没有 MCP 转发。** `perMember` 在加载时拒绝 `mcpUpstreams`，因为 `dsh-mcp-client` 在它那一行加载时就把请求头定死了，它发出的请求点不出是哪位成员。按成员持有的控制台经 `dsh-experimental-console-mcp` 连它的 MCP 服务器，用的是那一行配置的服务凭据，所以 MCP 工具做的写入——iot 写入也在其中——记在那个服务账号名下，而不是提出请求的那位成员名下。
-- **`Context.consoleMembers` 暂时在这里声明。** `src/member-directory.ts` 声明了这个服务，以及本包调用的它的三个成员，签名照抄 `@deepseek-ai/dsh-experimental-console-members`，而那个包还没进这条线。它进来之后，这段声明删掉，类型改从那个包导入；在那之前，成员目录的签名一改，本包的构建发现不了。
 - **缺成员目录的那条 error 要等 Loader。** Cordis 没有宿主就绪事件，所以那一行 error 在加载这一行的 Loader 树安定下来时才写。没有 Loader、手工应用的行一行也不写；成员目录事后停掉，只表现为路由答 503。
 - **只有闸门自己那三处登录决定会登出。** `POST /auth-gate/logout` 会丢掉持有的 token，而调用它的只有 browser 半边的启动、storage 变化与过期这三条路径——没有登出控件，也不会打断此刻正在跑的 agent loop。访客若是直接关掉标签页，进程就会继续持有那枚 token，直到进程结束，或另一个浏览器投递了更新的一枚。
 - **不带 token 的访客也会登出一次。** 启动决定无论存过东西与否都走这个出口——这是有意的，因为 node 半边可能仍持着上一位加载过页面的访客的 token——而在反向代理后面，这次请求不带镜像 cookie、被答以 401，只在控制台留下一条无害的 warn。

@@ -18,7 +18,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-biz-backend'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import z from '@deepseek-ai/schemastery'
-import type { ConsoleMemberDirectory, CustomerCredentialReader } from '../../src/member-directory.ts'
+import type { ConsoleMemberDirectory, CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members'
 
 /** The header this fixture places a request by. */
 export const MEMBER_HEADER = 'x-test-member'
@@ -48,8 +48,34 @@ export const Config: z<Config> = z.object({
   throwOnRelease: z.boolean().default(false),
 })
 
+/**
+ * Refuse a directory member auth-gate never calls, so a spec that reaches one fails.
+ * @param member - the member that was called.
+ * @returns nothing; it always throws.
+ * @throws {Error} always.
+ */
+function uncalled(member: string): never {
+  throw new Error(`console-members fixture: auth-gate does not call ${member}`)
+}
+
+/** The directory members auth-gate never calls, each refusing with {@link uncalled}. */
+export const UNCALLED_MEMBERS: Pick<ConsoleMemberDirectory, 'principalOfCaller' | 'memberRoot' | 'rootsOf' | 'principals' | 'onChange' | 'memberStore'> = {
+  principalOfCaller: () => uncalled('principalOfCaller'),
+  memberRoot: () => uncalled('memberRoot'),
+  rootsOf: () => uncalled('rootsOf'),
+  principals: () => uncalled('principals'),
+  onChange: () => uncalled('onChange'),
+  memberStore: () => uncalled('memberStore'),
+}
+
 /** The directory this row provides, with what it was lent kept for the test to read. */
 export class ConsoleMembersFixture implements ConsoleMemberDirectory {
+  readonly principalOfCaller = UNCALLED_MEMBERS.principalOfCaller
+  readonly memberRoot = UNCALLED_MEMBERS.memberRoot
+  readonly rootsOf = UNCALLED_MEMBERS.rootsOf
+  readonly principals = UNCALLED_MEMBERS.principals
+  readonly onChange = UNCALLED_MEMBERS.onChange
+  readonly memberStore = UNCALLED_MEMBERS.memberStore
   /** The reader currently lent, if any. */
   reader: CustomerCredentialReader | undefined
   /** How many readers were accepted. */

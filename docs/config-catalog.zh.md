@@ -5373,6 +5373,7 @@ export interface Config {
 | `@deepseek-ai/dsh-experimental-agent-team-profile` | — | [`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-biz-backend` | — | [`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-browser-use-runtime` | — | [`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-console-members` | — | [`packages/experimental/console-members/src/index.ts`](../packages/experimental/console-members/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-console-profile` | — | [`packages/experimental/console-profile/src/index.ts`](../packages/experimental/console-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-inspector-profile` | — | [`packages/experimental/inspector-profile/src/index.ts`](../packages/experimental/inspector-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-library-skills` | — | [`packages/experimental/library-skills/src/index.ts`](../packages/experimental/library-skills/src/index.ts) |

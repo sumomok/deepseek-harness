@@ -30,10 +30,12 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-experimental-console-members": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-experimental-console-members": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*"
   },
   "files": [
