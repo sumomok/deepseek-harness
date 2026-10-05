@@ -29,7 +29,7 @@ Status: implemented
 ### 退役了什么
 
 1. **固定列整套子系统。** 每一个 `<table>`、`grid`、`treegrid` 都按页面写下的样子打出来。既不合并成文档里不存在的那张表，也不把任何一张当作另一张的副本丢掉，更不因为「画在另一个东西上面」而丢掉任何元素：`splitPartner`、`neighbourTable`、`repeatsTable`、`tablePieces`、`mergeCells`、`pickCells`、`duplicate`、`rectsMeet`、`rectsOverlap` 与注入的几何（`rectOf`）全部删除。
-2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 在表格格子和重复条目里取代了这一条：在那里具有图标结构的元素是一行 `icon`，只按结构读；不带 class 的精灵图用它 `<use href>` 的符号 id 作标记。从 class 词元里读出一个词、再拿它给一行命名，这两件事仍然删除着。
+2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 在表格格子和重复条目里取代了这一条：在那里具有图标结构的元素是一行 `icon`，只按结构读；精灵图用它的 class 词元、后面跟上它 `<use href>` 的符号 id 作标记。从 class 词元里读出一个词、再拿它给一行命名，这两件事仍然删除着。
 3. **分页条与面包屑。** `PAGINATION_MARKER`、`BREADCRUMB_MARKER`、分隔符正则、`pagination:` 行、`rows on this page` 的措辞，以及读取头部的 `breadcrumb` 字段，全部删除。这两样部件按页面把它们画成的那段文字打出来。`role="navigation"` 与别的容器无异。
 4. **画出来的必填星。** `(required)` 只跟随 `required` 与 `aria-required`，别的一概不跟；`REQUIRED_MARKS` 与注入的 `drawnAround`（读 `::before`/`::after`）删除。
 5. **消息观察器。** 盯着「文字变得能读到」的 `MutationObserver`，连同 `message` 这一事件种类一起删除。一次动手上报的是浏览器替页面做的事——对话框、跳转、想开的窗口——这些是任何读取都找不回来的；页面画出来的东西在收尾那次读取里。
