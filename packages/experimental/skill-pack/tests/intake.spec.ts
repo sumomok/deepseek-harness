@@ -677,7 +677,8 @@ describe('view ids an organization set declares', () => {
       } finally {
         await chmod(paths.organizationRoot, 0o755)
       }
-      expect(unread).toEqual({ kind: 'failed', detail: expect.stringContaining('skill-pack: the organization root was not read: Error: EACCES') })
+      expect(unread.kind).toBe('failed')
+      expect(unread.kind === 'failed' ? unread.detail : '').toContain('skill-pack: the organization root was not read: Error: EACCES')
       expect(intake.isActive('layer-guide', '3')).toBe(false)
       expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
 
