@@ -161,9 +161,9 @@ export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenu
   const body = await response.json().catch(() => undefined) as
     { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown } | undefined
   if (!response.ok) {
-    const message = typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`
-    if (response.status === 401 || response.status === 503) throw new ServerMenuUnplacedError(message, response.status)
-    throw new Error(message)
+    const refusal = typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`
+    if (response.status === 401 || response.status === 503) throw new ServerMenuUnplacedError(refusal, response.status)
+    throw new Error(refusal)
   }
   if (body === undefined) {
     throw new Error('server-menu save answered no usable document')
