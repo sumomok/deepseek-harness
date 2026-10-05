@@ -242,6 +242,8 @@ export interface ConnectionFetchCall {
   /**
    * The Fetch request the route or channel receives. A listener must not
    * consume its body, which the route still reads; it reads `request.clone()`.
+   * A body a listener consumed can no longer be read: a route that reads it
+   * throws or answers its own error, and a channel answers 400 `body is not JSON`.
    */
   readonly request: Request
   /** The Peer the request was admitted as; the operator when the carrier names none. */

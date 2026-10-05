@@ -1,5 +1,6 @@
 /** `connection/fetch`: the waterfall in front of exact Fetch routes and dedicated RPC channels, and their listings. */
 import { request as httpRequest } from 'node:http'
+import { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { Context } from '@deepseek-ai/cordis'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -188,6 +189,48 @@ describe('connection/fetch', () => {
     expect(mounted.reached).toEqual([])
   })
 
+  it('answers next() with 404 when the route the request matched is no longer registered, without running a route', async () => {
+    const ctx = new Context()
+    roots.push(ctx)
+    provideBrowserCredentials(ctx)
+    await ctx.plugin({ inject: [...inject], apply })
+    const unloaded = vi.fn(async () => new Response('unloaded route'))
+    const owner = ctx.plugin({
+      inject: ['connection'],
+      apply: (pluginCtx: Context) => {
+        pluginCtx.connection.fetch.register({ path: EXACT, methods: ['GET'], requestBody: 'buffered', fetch: unloaded })
+      },
+    })
+    await owner
+    let whileListenerWaits: () => Promise<unknown> = () => owner.dispose()
+    ctx.on('connection/fetch', async (_call, next) => {
+      await whileListenerWaits()
+      return next()
+    })
+    const shared = ctx.connection.createSharedFetchHandler(API_PATH)
+    const get = async (): Promise<readonly [number, string]> => {
+      const response = await shared.fetch(new Request(`http://127.0.0.1${EXACT}`))
+      return [response.status, await response.text()]
+    }
+
+    expect(await get()).toEqual([404, 'not found'])
+    expect(unloaded).not.toHaveBeenCalled()
+
+    // A route registered again at the same path while the listener waits is not the one the request matched.
+    const removed = vi.fn(async () => new Response('removed route'))
+    const replacement = vi.fn(async () => new Response('replacement route'))
+    const remove = ctx.connection.fetch.register({ path: EXACT, methods: ['GET'], requestBody: 'buffered', fetch: removed })
+    whileListenerWaits = async () => {
+      await remove()
+      ctx.connection.fetch.register({ path: EXACT, methods: ['GET'], requestBody: 'buffered', fetch: replacement })
+    }
+    expect(await get()).toEqual([404, 'not found'])
+    expect(removed).not.toHaveBeenCalled()
+    expect(replacement).not.toHaveBeenCalled()
+    whileListenerWaits = async () => undefined
+    expect(await get()).toEqual([200, 'replacement route'])
+  })
+
   it('hands the listener the Peer each request was admitted as, per path', async () => {
     const mounted = await mount()
     const { connection } = mounted.ctx
@@ -243,6 +286,21 @@ describe('connection/fetch', () => {
     expect(streamed).toEqual(['streamed payload'])
   })
 
+  it('leaves a route or channel an unusable body when a listener consumes the request body itself', async () => {
+    const mounted = await mount()
+    mounted.ctx.on('connection/fetch', async (call, next) => {
+      await call.request.text()
+      return next()
+    })
+
+    // The exact route's read throws, so the carrier answers as for any throwing route.
+    expect(await send(mounted, EXACT, 'POST', { 'content-type': 'text/plain' }, 'exact payload')).toEqual({ status: 400, body: '' })
+    expect(mounted.warnings).toEqual(['TypeError: Body is unusable: Body has already been read'])
+    expect(await callChannel(mounted)).toEqual({ status: 400, body: 'body is not JSON' })
+    expect(mounted.reached).toEqual([])
+    expect(mounted.warnings).toHaveLength(1)
+  })
+
   it('returns the route Response itself, body untouched, when no listener is registered', async () => {
     const tracked = trackedResponse()
     const route = await bareRoute(async () => tracked.response)
@@ -253,7 +311,36 @@ describe('connection/fetch', () => {
     expect(tracked.cancelled()).toBe(false)
   })
 
-  it('cancels the body of a route Response the listener did not return', async () => {
+  it('cancels the body of a route Response the listener did not return: at once when its answer has no body', async () => {
+    const tracked = trackedResponse()
+    const route = await bareRoute(async () => tracked.response)
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      return new Response(null, { status: 403 })
+    })
+
+    const response = await route.fetch()
+    expect(response.status).toBe(403)
+    expect(tracked.cancelled()).toBe(true)
+  })
+
+  it('cancels the body of a route Response the listener did not return once the caller has read its answer', async () => {
+    const tracked = trackedResponse()
+    const route = await bareRoute(async () => tracked.response)
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      return new Response('refused after inspection', { status: 403, statusText: 'Refused', headers: { 'x-guard': 'refused' } })
+    })
+
+    const response = await route.fetch()
+    expect([response.status, response.statusText, response.headers.get('x-guard')]).toEqual([403, 'Refused', 'refused'])
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(tracked.cancelled()).toBe(false)
+    expect(await response.text()).toBe('refused after inspection')
+    expect(tracked.cancelled()).toBe(true)
+  })
+
+  it('cancels the body of a route Response the listener did not return when the caller cancels its answer', async () => {
     const tracked = trackedResponse()
     const route = await bareRoute(async () => tracked.response)
     route.ctx.on('connection/fetch', async (_call, next) => {
@@ -262,27 +349,123 @@ describe('connection/fetch', () => {
     })
 
     const response = await route.fetch()
-    expect(response.status).toBe(403)
+    expect(tracked.cancelled()).toBe(false)
+    await response.body!.cancel()
     expect(tracked.cancelled()).toBe(true)
   })
 
-  it('leaves the body of the route Response a listener returns, or rewraps, to the caller', async () => {
+  it('cancels the body of a route Response the listener did not return when its answer fails while the caller reads it', async () => {
+    const tracked = trackedResponse()
+    const route = await bareRoute(async () => tracked.response)
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      return new Response(new ReadableStream<Uint8Array>({ pull(controller) { controller.error(new Error('answer failed')) } }))
+    })
+
+    const response = await route.fetch()
+    expect(tracked.cancelled()).toBe(false)
+    await expect(response.text()).rejects.toThrow('answer failed')
+    expect(tracked.cancelled()).toBe(true)
+  })
+
+  it('returns a listener answer whose body is already locked as it is, and cancels the route body at once', async () => {
+    const tracked = trackedResponse()
+    const route = await bareRoute(async () => tracked.response)
+    const answer = new Response('locked answer', { status: 403 })
+    answer.body!.getReader()
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      return answer
+    })
+
+    expect(await route.fetch()).toBe(answer)
+    expect(tracked.cancelled()).toBe(true)
+  })
+
+  describe('hands the caller the whole route body through a listener that relays it lazily', () => {
+    async function* relay(body: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<Uint8Array<ArrayBuffer>> {
+      for await (const chunk of body) yield chunk
+    }
+    // The DOM typings that `Response` takes omit `ReadableStream.from`, and Node's web-stream typings differ from them.
+    const streamFrom = (body: ReadableStream<Uint8Array<ArrayBuffer>>): ReadableStream<Uint8Array<ArrayBuffer>> =>
+      NodeReadableStream.from(relay(body)) as ReadableStream<Uint8Array<ArrayBuffer>>
+    const relays: ReadonlyArray<readonly [string, (body: ReadableStream<Uint8Array<ArrayBuffer>>) => Response]> = [
+      ['ReadableStream.from(asyncGenerator)', body => new Response(streamFrom(body))],
+      // Node's Response accepts an async iterable body, which the DOM typings omit.
+      ['new Response(asyncGenerator)', body => new Response(relay(body) as AsyncIterable<Uint8Array> as BodyInit)],
+      ['a stream that takes the reader in pull()', (body) => {
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+        return new Response(new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            reader ??= body.getReader()
+            const chunk = await reader.read()
+            if (chunk.done) controller.close()
+            else controller.enqueue(chunk.value)
+          },
+        }, { highWaterMark: 0 }))
+      }],
+    ]
+    for (const [writing, relayed] of relays) {
+      it(writing, async () => {
+        const route = await bareRoute(async () => new Response('route body over the relay'))
+        route.ctx.on('connection/fetch', async (_call, next) => relayed((await next()).body!))
+
+        const response = await route.fetch()
+        expect([response.status, await response.text()]).toEqual([200, 'route body over the relay'])
+      })
+    }
+
+    it('and reads the route body no earlier than the caller reads', async () => {
+      let pulled = false
+      const route = await bareRoute(async () => new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled = true
+          controller.enqueue(new TextEncoder().encode('read on demand'))
+          controller.close()
+        },
+      }, { highWaterMark: 0 })))
+      route.ctx.on('connection/fetch', async (_call, next) => new Response(streamFrom((await next()).body!)))
+
+      const response = await route.fetch()
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(pulled).toBe(false)
+      expect(await response.text()).toBe('read on demand')
+      expect(pulled).toBe(true)
+    })
+
+    it('and cancels the route body when the caller cancels the relay before reading it', async () => {
+      const tracked = trackedResponse()
+      const route = await bareRoute(async () => tracked.response)
+      route.ctx.on('connection/fetch', async (_call, next) => new Response(streamFrom((await next()).body!)))
+
+      const response = await route.fetch()
+      await response.body!.cancel()
+      expect(tracked.cancelled()).toBe(true)
+    })
+  })
+
+  it('hands the caller the route Response a listener returns, or rewraps, as the listener returned it, body intact', async () => {
     const returned = trackedResponse('returned')
     const wrapped = trackedResponse('wrapped')
     let next: Response = returned.response
     const route = await bareRoute(async () => next)
     const remove = route.ctx.on('connection/fetch', (_call, delegate) => delegate())
 
-    expect(await (await route.fetch()).text()).toBe('returned')
+    const received = await route.fetch()
+    expect(received).toBe(returned.response)
+    expect(await received.text()).toBe('returned')
     expect(returned.cancelled()).toBe(false)
     remove()
 
     next = wrapped.response
+    let rewrap: Response | undefined
     route.ctx.on('connection/fetch', async (_call, delegate) => {
       const response = await delegate()
-      return new Response(response.body, { status: 202, headers: { 'x-guard': 'seen' } })
+      rewrap = new Response(response.body, { status: 202, headers: { 'x-guard': 'seen' } })
+      return rewrap
     })
     const rewrapped = await route.fetch()
+    expect(rewrapped).toBe(rewrap)
     expect(rewrapped.status).toBe(202)
     expect(rewrapped.headers.get('x-guard')).toBe('seen')
     expect(await rewrapped.text()).toBe('wrapped')
@@ -310,25 +493,28 @@ describe('connection/fetch', () => {
     await vi.waitFor(() => { expect(syncTracked.cancelled()).toBe(true) })
   })
 
-  it('cancels a route body that arrives after the listener answered, without waiting for it', async () => {
-    const tracked = trackedResponse()
-    let release!: () => void
-    const routeStarted = vi.fn()
-    const route = await bareRoute(async () => {
-      routeStarted()
-      await new Promise<void>((resolve) => { release = resolve })
-      return tracked.response
-    })
-    route.ctx.on('connection/fetch', async (_call, next) => {
-      void next()
-      return new Response('answered first', { status: 409 })
-    })
+  it('cancels a route body that arrives after the listener answered, without making the caller wait for it', async () => {
+    for (const answer of [null, 'answered first']) {
+      const tracked = trackedResponse()
+      let release!: () => void
+      const routeStarted = vi.fn()
+      const route = await bareRoute(async () => {
+        routeStarted()
+        await new Promise<void>((resolve) => { release = resolve })
+        return tracked.response
+      })
+      route.ctx.on('connection/fetch', async (_call, next) => {
+        void next()
+        return new Response(answer, { status: 409 })
+      })
 
-    expect((await route.fetch()).status).toBe(409)
-    expect(routeStarted).toHaveBeenCalledOnce()
-    expect(tracked.cancelled()).toBe(false)
-    release()
-    await vi.waitFor(() => { expect(tracked.cancelled()).toBe(true) })
+      const response = await route.fetch()
+      expect([response.status, await response.text()]).toEqual([409, answer ?? ''])
+      expect(routeStarted).toHaveBeenCalledOnce()
+      expect(tracked.cancelled()).toBe(false)
+      release()
+      await vi.waitFor(() => { expect(tracked.cancelled()).toBe(true) })
+    }
   })
 
   it('swallows the failure of a route whose Response the caller does not receive', async () => {
@@ -352,7 +538,8 @@ describe('connection/fetch', () => {
       return new Response('refused after locking', { status: 403 })
     })
     expect(await unhandledRejectionsDuring(async () => {
-      expect((await route.fetch()).status).toBe(403)
+      const response = await route.fetch()
+      expect([response.status, await response.text()]).toEqual([403, 'refused after locking'])
     })).toEqual([])
     expect(tracked.cancelled()).toBe(false)
   })

@@ -189,7 +189,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const route = this.fetchRoutes.get(pathname)
         if (route?.methods.has(request.method) === true) {
           const call: ConnectionFetchCall = { kind: 'exact-route', path: pathname, method: request.method, request, peer }
-          return this.guardFetch(call, () => route.fetch(request, peer))
+          // A listener may await before next(), and the route's plugin may unload meanwhile.
+          return this.guardFetch(call, () => this.fetchRoutes.get(pathname) === route
+            ? route.fetch(request, peer)
+            : Promise.resolve(new Response('not found', { status: 404 })))
         }
         const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
@@ -204,11 +207,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
   /**
    * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
-   * caller receives that Response or its body. Once the waterfall has ended, a `next()` that reaches
-   * the route or channel dispatches nothing and rejects.
+   * caller receives that Response or its body: once the waterfall ends when the caller's Response has
+   * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
+   * it failed. Once the waterfall has ended, a `next()` that reaches the route or channel dispatches
+   * nothing and rejects.
    * @param call - the request as listeners see it.
    * @param dispatch - hand the request to the route or channel.
-   * @returns the waterfall's Response; rejects with the waterfall's failure.
+   * @returns the waterfall's Response itself when the caller receives every such Response or its body,
+   * or when its body is absent or locked; otherwise a Response with its status, status text, and headers
+   * over a body that relays its body. Rejects with the waterfall's failure.
    */
   private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
     // A listener may call next() more than once, so each call's Response is recorded.
@@ -233,8 +240,17 @@ export class HostConnectionService extends Service implements HostConnectionHand
       throw error
     }
     ended = true
-    discardDispatched(dispatched, result)
-    return result
+    if (dispatched.every(entry => entry.settled !== undefined && unreturnedBody(entry.settled, result) === undefined)) {
+      return result
+    }
+    // The caller's body may read an unreturned body lazily, as a listener's relay stream does, so cancelling
+    // waits until the caller is done with its body.
+    const body = result.body
+    if (body === null || body.locked) {
+      discardDispatched(dispatched, result)
+      return result
+    }
+    return observeBody(result, body, () => { discardDispatched(dispatched, result) })
   }
 
   private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
@@ -378,21 +394,66 @@ function discardDispatched(dispatched: readonly DispatchedResponse[], result: Re
 }
 
 /**
+ * Select the body of one route Response that the caller does not receive.
+ * @param response - a Response one `next()` produced.
+ * @param result - the Response the caller receives, if any.
+ * @returns the body of `response`, or `undefined` when it has none or the caller receives `response` or its body.
+ */
+function unreturnedBody(response: Response, result: Response | undefined): ReadableStream<Uint8Array> | undefined {
+  const body = response.body
+  // A Response built over the same body, such as one that adds headers, hands that body to the caller.
+  return body === null || response === result || body === result?.body ? undefined : body
+}
+
+/**
  * Cancel one route Response's body unless the caller receives it.
  * @param response - a Response one `next()` produced.
  * @param result - the Response the caller receives, if any.
  * @returns once the body is cancelled or left alone; never rejects.
  */
 async function cancelUnreturnedBody(response: Response, result: Response | undefined): Promise<void> {
-  const body = response.body
-  // A Response built over the same body, such as one that adds headers, hands that body to the caller.
-  if (body === null || response === result || body === result?.body) return
+  const body = unreturnedBody(response, result)
+  if (body === undefined) return
   try {
     await body.cancel()
   } catch (_cancelFailure) {
     // A body a listener has locked belongs to the holder of its reader, and a failed cancel must not replace the
     // caller's result.
   }
+}
+
+/**
+ * Hand the caller one Response over a body that reports when the caller is done with it.
+ * @param result - the waterfall's Response.
+ * @param body - the unlocked body of `result`, which the returned body reads only as the caller reads.
+ * @param done - called when the caller has read the body to its end, cancelled it, or reading it failed.
+ * @returns a Response with the status, status text, and headers of `result` over a body that relays `body`.
+ */
+function observeBody(result: Response, body: ReadableStream<Uint8Array>, done: () => void): Response {
+  const reader = body.getReader()
+  const relay = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch (error) {
+        done()
+        throw error
+      }
+      if (chunk.done) {
+        controller.close()
+        done()
+      } else {
+        controller.enqueue(chunk.value)
+      }
+    },
+    cancel(reason) {
+      // An unreturned body that `body` holds locked ignores the cancel `done` makes; `body` receives this cancel instead.
+      done()
+      return reader.cancel(reason)
+    },
+  }, { highWaterMark: 0 })
+  return new Response(relay, { status: result.status, statusText: result.statusText, headers: result.headers })
 }
 
 /**

@@ -76,13 +76,13 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 
 这个 waterfall 在准入之后、在桥接器缓存或开始流式传输请求体之后运行，因为监听器拿到的是桥接器构造的 Fetch `Request`；超过缓存上限的请求体在任何监听器运行之前就答 413。监听器只经 `request.clone()` 读请求体，路由照样收到它。
 
-这里的监听器同样共用一个 `next()`（[Connection README](../../../../packages/client/connection/README.zh.md#browser-authentication-and-request-trust)），所以控制台只注册一个 `connection/fetch` 监听器。调用了 `next()` 之后又拒绝或抛错的监听器会留下一个没人读的路由 Response，而没人读的流式 body 会让它的生产者以及它正在读的文件一直开着：没人读的 `/api/session.export` ZIP 会一直占着它正在读的已存附件，直到 body 被取消。因此 Connection 对路由或通道为 waterfall 结束前调用的 `next()` 产生、调用方收不到的每个 Response 取消其 body，除非调用方收到的 Response 带着那个 body。waterfall 结束之后才到达路由或通道的 `next()` 会在这次取消之后才产生 Response，所以它不再分发、直接 reject。监听器抛错与路由抛错一样让分发 reject，HTTP 载体答 400。
+这里的监听器同样共用一个 `next()`（[Connection README](../../../../packages/client/connection/README.zh.md#browser-authentication-and-request-trust)），所以控制台只注册一个 `connection/fetch` 监听器。调用了 `next()` 之后又拒绝或抛错的监听器会留下一个没人读的路由 Response，而没人读的流式 body 会让它的生产者以及它正在读的文件一直开着：没人读的 `/api/session.export` ZIP 会一直占着它正在读的已存附件，直到 body 被取消。因此 Connection 对路由或通道为 waterfall 结束前调用的 `next()` 产生、调用方收不到的每个 Response 取消其 body，除非调用方收到的 Response 带着那个 body。调用方的 Response 带 body 时，取消要等调用方把那个 body 读完、取消了它或读取失败，因为监听器返回的 body 可能在调用方读它时才去读路由的 body；Connection 交给调用方一个转交监听器 body 的新 Response，借此观察到这一点。waterfall 结束之后才到达路由或通道的 `next()` 产生的 Response 不在任何取消的范围内，所以它不再分发、直接 reject。`next()` 分发时再查一次精确路由，所以监听器等待期间所在插件已卸载的路由不会运行，`next()` resolve 为 404。监听器抛错与路由抛错一样让分发 reject，HTTP 载体答 400。
 
 `webServer.routes()` 列出当前生效的具名路由、upgrade 路由与已被占用的回退座位。直接登记在 webserver 上的路由不经过 Connection 的任何钩子；列表里也有 Connection 自己登记的 `/api` 前缀与各通道前缀，它们经过 Connection 的钩子。控制台的门禁测试读这份列表，所以上游同步带来的新路由在被分类之前会让门禁失败。
 
 ### 没有准入器时
 
-默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。没有 `remote/invoke` 监听器时，`remote-invoke.host.spec.ts` 经 `invoke()`、`stream()`、`wireStream.open()`、`/api` 与 WebSocket 断言结果与故障不变，用 `for await` 读流的两个载体（WebSocket mux 与 webworker tunnel）分辨不出 Gateway 的流与上游的流。仍有三处差异。在没有 Connection 的 Host 上，`invoke()`、`stream()` 与不指明 Peer 的 `wireStream.open()` 调用在参数校验之前（而不是之后）就创建 Gateway 自有的操作者 Peer。自己驱动 `stream()` 或 `wireStream.open()` 返回值的 iterator 的调用方会看到，第一次 `next()` 之前的 `return()` 会释放上行并打开、return 方法的 iterator（上游两者都不做），iterator 工厂或 iterator 的 `return()` 抛错时这次 `return()` 以该错误 reject，返回的 iterable 也不是 `AsyncGenerator`：没有 `throw()` 与 `Symbol.asyncDispose`，`Symbol.toStringTag` 也不同。Cordis 的 `internal/dispatch` 监听器能看到每次 `remote/invoke` 分发，连同调用方 Peer 与尚未校验的参数。没有 `connection/fetch` 监听器时，每个请求都到达它的路由或通道，调用方收到的是路由自己的 Response，现有 Connection spec 不改照样通过；同步抛错的路由让共享处理函数的 `fetch` 返回一个 reject 的 promise，而不是同步抛出，`internal/dispatch` 监听器也能看到每次 `connection/fetch` 分发，连同请求与 Peer。
+默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。没有 `remote/invoke` 监听器时，`remote-invoke.host.spec.ts` 经 `invoke()`、`stream()`、`wireStream.open()`、`/api` 与 WebSocket 断言结果与故障不变，用 `for await` 读流的两个载体（WebSocket mux 与 webworker tunnel）分辨不出 Gateway 的流与上游的流。仍有三处差异。在没有 Connection 的 Host 上，`invoke()`、`stream()` 与不指明 Peer 的 `wireStream.open()` 调用在参数校验之前（而不是之后）就创建 Gateway 自有的操作者 Peer。自己驱动 `stream()` 或 `wireStream.open()` 返回值的 iterator 的调用方会看到，第一次 `next()` 之前的 `return()` 会释放上行并打开、return 方法的 iterator（上游两者都不做），iterator 工厂或 iterator 的 `return()` 抛错时这次 `return()` 以该错误 reject，返回的 iterable 也不是 `AsyncGenerator`：没有 `throw()` 与 `Symbol.asyncDispose`，`Symbol.toStringTag` 也不同。Cordis 的 `internal/dispatch` 监听器能看到每次 `remote/invoke` 分发，连同调用方 Peer 与尚未校验的参数。没有 `connection/fetch` 监听器时，每个请求都到达它的路由或通道，调用方收到的是路由自己的 Response，现有 Connection spec 不改照样通过；同步抛错的路由让共享处理函数的 `fetch` 返回一个 reject 的 promise，而不是同步抛出，`internal/dispatch` 监听器能拿到每次 `connection/fetch` 分发的参数，包括内部的 `next`，同步调用它可以跳过全部 `connection/fetch` 监听器（只有进程内代码能做到）。
 
 ### 退役
 
@@ -115,6 +115,10 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 **在桥接器之前跑 `connection/fetch`。** 监听器看到的会是 node:http 请求，而不是路由收到的 Fetch `Request`；要检查请求体的监听器得在请求大小上限生效之前自己读它。
 
 **让被丢弃的路由 Response 留着不读。** 桥接器只写出它收到的那个 Response，监听器丢弃的 body 会让它的生产者与打开的文件一直留到垃圾回收。
+
+**waterfall 结束时就取消被丢弃的路由 body。** 监听器经 `ReadableStream.from()`、异步生成器或在 `pull()` 里才取 reader 的流转交路由 body 时，要等调用方读才去读路由的 body；waterfall 结束时路由 body 还没被锁住，这时取消它，调用方就拿到一个空的 200。
+
+**等 HTTP 桥接器写完 body 再取消。** 进程内的载体直接调用共享处理函数，从不经过桥接器，它们收不到的路由 body 会一直开着。
 
 **按 result codec 校验改写后的结果。** Gateway 不校验任何方法结果；只校验改写过的结果，会让同一个值在改写过与未改写的调用里得到不同答复。
 
