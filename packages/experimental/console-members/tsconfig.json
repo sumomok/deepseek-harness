@@ -12,7 +12,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
+      "path": "../../client/connection/tsconfig.host.json"
     },
     {
       "path": "../../core/session"
@@ -21,7 +21,7 @@
       "path": "../../util/brand"
     },
     {
-      "path": "../console-members"
+      "path": "../../util/values"
     }
   ]
 }

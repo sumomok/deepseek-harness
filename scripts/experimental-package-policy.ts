@@ -8,6 +8,7 @@ export const PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES: readonly string[] = [
   'packages/experimental/component-kit',
   'packages/experimental/component-surface',
   'packages/experimental/console-mcp',
+  'packages/experimental/console-members',
   'packages/experimental/console-profile',
   'packages/experimental/content-column',
   'packages/experimental/content-frame',

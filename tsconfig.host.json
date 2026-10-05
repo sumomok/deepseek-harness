@@ -481,6 +481,7 @@
     { "path": "./packages/experimental/tool-agent-team" },
     { "path": "./packages/experimental/biz-backend" },
     { "path": "./packages/experimental/console-mcp" },
+    { "path": "./packages/experimental/console-members" },
     { "path": "./packages/experimental/system-map" },
     { "path": "./packages/experimental/content-surface" },
     { "path": "./packages/experimental/component-surface/tsconfig.host.json" },
