@@ -2339,6 +2339,41 @@ describe('an icon a table cell or a repeated item draws', () => {
       .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
       .toEqual(['', '', '勾', '勾'])
   })
+
+  it('names an icon nothing inside a named node, an option or a control the walk reads no row inside', () => {
+    // The label area of a named node holding a group is that node's name, and
+    // a named single-row node, an option and a button in a cell are one row
+    // each, read no further. A step reaching an icon in any of them through a
+    // markup read is held to the nothing the listing prints for it; the icon
+    // in a node the page named nothing is the row the listing prints.
+    const refs = page('<ul role="tree" aria-label="区域">'
+      + `<li role="treeitem" aria-label="节点甲"><i id="t1" class="x" aria-label="勾" ${GLYPH}></i>甲`
+      + '<ul role="group"><li role="treeitem">乙</li></ul></li>'
+      + `<li role="treeitem" aria-label="节点丙"><i id="t2" class="x" aria-label="勾" ${GLYPH}></i></li>`
+      + `<li role="treeitem"><i id="t3" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`
+      + '<ul role="listbox" aria-label="选项">'
+      + `<li role="option" aria-label="选项一"><i id="o1" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`
+      + tableOf(`<button aria-label="删除"><i id="b1" class="x" aria-label="勾" ${GLYPH}></i></button>`
+        + `<i id="c1" class="y" aria-label="编辑" ${GLYPH}></i>`))
+    expect(read(refs).text).toBe([
+      'e1 tree "区域"',
+      '  e2 treeitem "节点甲"',
+      '    e3 treeitem "乙" (in treeitem "节点甲")',
+      '  e4 treeitem "节点丙" (in tree "区域")',
+      '  e5 treeitem',
+      '    e6 icon "勾" (treeitem)',
+      'e7 listbox "选项"',
+      '  e8 option "选项一" (in listbox "选项")',
+      'e9 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [删除 编辑]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#t1', '#t2', '#t3', '#o1', '#b1', '#c1']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['', '', '勾', '', '', '编辑'])
+  })
 })
 
 describe('whether an icon draws a picture', () => {

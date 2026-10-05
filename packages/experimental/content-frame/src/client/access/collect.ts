@@ -22,12 +22,13 @@ import {
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, computedStyleOf, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, heldByItem, insideOpaque, isChecked, isDisabled, isIconShape, isInline, isNameable,
   isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
-  quantityValue, queryInOrder, roleOf, treeParent, visibleText, type ComputedStyleOf,
+  quantityValue, queryInOrder, roleOf, visibleText, type ComputedStyleOf,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
   Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
+import { RefTable } from './refs.ts'
 
 /** How much of its own text names a click target the page has not labelled. */
 const CLICK_NAME_LIMIT = 40
@@ -1267,32 +1268,25 @@ function marksIcon(el: Element, walk: Walk, place: Place): boolean {
 }
 
 /**
- * True for an element a `label` naming a control holds with no group between
- * the two, inside one document: where the walk stands when it reaches the
- * element, as {@link labelPlace} turns that on at the label and off again at
- * a group.
- * @param el - the element.
- * @param walk - the walk in progress.
- * @returns whether the text and the icons there are part of a control's name.
+ * The name a walk of the whole page from `walk.root` prints for one element: the
+ * name of the row it prints for the element, or of the control a table cell
+ * holds it as, and the empty string where it prints neither. The walk numbers
+ * what it collects in a ref table of its own, so the read's numbering is left
+ * as it was. Of a table, the header and the one row holding the element are
+ * read, and no other row.
+ * @param el - the element to name.
+ * @param walk - the walk in progress, for the read's injections and its root.
+ * @returns the printed name, or the empty string.
  */
-function insideNamingLabel(el: Element, walk: Walk): boolean {
-  for (let at = treeParent(el); at !== undefined; at = treeParent(at)) {
-    if (namesControl(at, walk)) return true
-    if (isGroup(at)) return false
+function listedName(el: Element, walk: Walk): string {
+  for (const item of collect(walk.root, { ...walk.options, refs: new RefTable() }, undefined)) {
+    if (item.kind === 'element' && item.el === el) return item.name
+    if (item.kind !== 'table' || !item.el.contains(el)) continue
+    const cells = [item.header, ...item.rows.filter(row => row.el.contains(el)).map(row => row.cells)].flat()
+    const control = cells.flatMap(cell => cell.controls).find(held => held.el === el)
+    if (control !== undefined) return control.name
   }
-  return false
-}
-
-/**
- * True where a single-element caller names an element as an icon: a
- * {@link heldIcon} no `label` naming a control holds, which is where the walk
- * prints it a row; see {@link marksIcon}.
- * @param el - the element to classify.
- * @param walk - the walk in progress.
- * @returns whether the element is named as an icon.
- */
-function namesIcon(el: Element, walk: Walk): boolean {
-  return heldIcon(el, walk) && !insideNamingLabel(el, walk)
+  return ''
 }
 
 /**
@@ -1457,13 +1451,21 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
  * position decides whether a row is printed rather than what it says: an
  * element inside a `label` that names a control, one that wraps a single
  * control and nothing else, or one the pass never reaches prints no row and
- * carries no ref, so no step can name it and no answer here is asked for. An
- * element with the structure of an icon is the exception, because a markup
- * read gives every element a ref: it is named as an icon only where a cell or
- * an item holds it, which is where a listing prints it a row, and anywhere else
- * it is named nothing, as a listing that prints no row for it would call it.
- * The item is looked for up to `root`, as the pass that printed the element
- * looked for it.
+ * carries no ref, so no step can name it and no answer here is asked for.
+ *
+ * An icon a repeated item holds — an element {@link isIconShape} accepts that
+ * {@link heldByItem} finds an item around, up to `root` — is the exception,
+ * because a markup read gives every element a ref. It is named by what a walk
+ * of the whole page from `root` prints for it, as a row of its own or as a
+ * control of a table cell, and nothing where that walk prints neither: inside
+ * a `label` naming a control, in the label area of a tree node or menu item
+ * the page named, and inside an element the walk prints as one row without
+ * reading into it — a named single-row tree node, an option, a button in a
+ * cell. A step naming such an icon costs that one walk. An icon outside every
+ * item is named nothing, as a listing that prints no row for it would call it.
+ * A read scoped inside an element the walk does not read into prints the icons
+ * there, and a step naming one is held to the nothing the whole-page walk
+ * prints for it.
  * @param el - the element to name.
  * @param options - the read's own options, for the injections it is computed under.
  * @param root - the document the read that printed the element started from.
@@ -1472,21 +1474,21 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
 export function itemName(el: Element, options: SnapshotOptions, root: Document): string {
   const walk = newWalk(options, undefined, root)
   if (isSkipped(el, walk.isVisible)) return ''
+  if (heldIcon(el, walk)) return listedName(el, walk)
   if (isOpaque(el)) {
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) return namedAs(el, drawn, walk).name
     // A drawing the page made clickable is a row like any other click target:
     // a chart a click drills into is reachable, and named by what the page
     // wrote on it, because what is inside a drawing labels the picture.
-    if (topClickable(el, walk)) return namedAs(el, CLICKABLE_ROLE, walk).name
-    return namesIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+    return topClickable(el, walk) ? namedAs(el, CLICKABLE_ROLE, walk).name : ''
   }
   const role = roleOf(el)
   if (isTableRole(role)) return nameOf(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
-  if (!topClickable(el, walk)) return namesIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+  if (!topClickable(el, walk)) return ''
   const items = topItems(childHost(el), walk)
   if (wrapsOnly(el, items, walk)) return ''
   return items.length > 0 ? clickableName(el, walk) : namedAs(el, CLICKABLE_ROLE, walk).name

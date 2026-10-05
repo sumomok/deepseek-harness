@@ -266,7 +266,7 @@ export function isRepeatedItem(el: Element): boolean {
  * @param el - the element.
  * @returns the element around it, or undefined at the top of its document.
  */
-export function treeParent(el: Element): Element | undefined {
+function treeParent(el: Element): Element | undefined {
   if (el.parentElement !== null) return el.parentElement
   const tree = el.getRootNode()
   return tree.nodeType === tree.DOCUMENT_FRAGMENT_NODE && 'host' in tree ? (tree as ShadowRoot).host : undefined
