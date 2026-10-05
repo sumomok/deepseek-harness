@@ -65,7 +65,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -73,7 +73,7 @@ import type { Browser, Locator, Page, WebSocketRoute } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFailed, onTestFinished } from 'vitest'
 import { FiberState } from '@deepseek-ai/cordis'
-import { createMessage, createUserMessage, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createMessage, createUserMessage, type StreamChunk, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -427,15 +427,16 @@ function viewCommandTripleTypes(scaffold: WebScaffold, sessionId: string): strin
  * Seed a full, closed turn (`turn/start` → `user/message` → `step/start` →
  * `assistant/message` → `step/end` → `turn/end`) directly onto a live
  * session's log, with no model call. `user/message` satisfies decision ③'s
- * visibility gate; the closed step satisfies the turns/steps row's own
- * `stats.steps > 0` render condition, which a bare `user/message` alone
- * would not (`StatsLine.tsx` renders nothing at zero steps) — needed here so
- * the de-terminology assertion proves the CSS guard actually hides a row
- * that would otherwise render, not merely that nothing rendered anyway.
+ * visibility gate. With `usage`, the step reports token accounting, so the
+ * composer's statistics row draws its cache-hit reading even under Compact
+ * (`StatsPills.tsx`'s `UsagePill`) — needed where the de-terminology
+ * assertion proves the CSS guard hides a row that would otherwise render, not
+ * merely that nothing rendered anyway.
  * @param scaffold - the live scaffold.
  * @param sessionId - the session to seed onto; must have a live agent.
+ * @param usage - the step's token accounting; omitted, the step reports none.
  */
-function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
+function seedClosedTurn(scaffold: WebScaffold, sessionId: string, usage?: TokenUsage): void {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
   agent.session.append('turn/start', { turn: 1 })
@@ -453,6 +454,7 @@ function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
       source: { kind: 'model', provider: 'fixture', model: 'fixture' },
     }),
     stream: [],
+    ...usage === undefined ? {} : { usage },
   }, { surfaceOp: 'append' })
   agent.session.append('step/end', { turn: 1, step: 1 })
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -482,6 +484,9 @@ function seedUntitledTurn(scaffold: WebScaffold, sessionId: string): void {
   agent.session.append('step/end', { turn: 1, step: 1 })
   agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
+
+/** The release version the client build embeds, which Settings → General shows. */
+const { version: CLIENT_VERSION } = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }
 
 /**
  * The English titles of the Settings → General rows `server-sidebar` withholds
@@ -694,19 +699,22 @@ describe('web e2e: the product-console sidebar', () => {
 
       expect(await page.getByRole('button', { name: 'Save as workflow' }).count()).toBe(0)
 
-      seedClosedTurn(scaffold, workbenchSessionId)
+      seedClosedTurn(scaffold, workbenchSessionId, { inputTokens: 100, outputTokens: 20, cacheReadTokens: 900 })
       await page.getByRole('button', { name: 'Save as workflow' }).waitFor({ timeout: 15_000 })
 
       // De-terminology, twice over. The lock holds Performance & usage at
       // Compact, under which the composer's statistics row never draws the
       // turns/steps counts ("1 turns 1 steps", `StatsPills.tsx`), even now
-      // that a closed step is on the log. The CSS guard still hides the row
-      // itself: it is present in the DOM and not visible, not merely absent
-      // for an unrelated reason.
+      // that a closed step is on the log. The row Compact still draws, the
+      // cache-hit reading the seeded usage produces, is in the DOM and not
+      // visible: the CSS guard hides that row itself, and a node inserted
+      // between the composer card and the row would leave it visible.
+      // `textContent` reads the hidden row, which `innerText` does not.
       expect(await page.getByText('1 turns 1 steps').count()).toBe(0)
-      const statsRow = page.locator('[data-composer-card] + *')
-      expect(await statsRow.count()).toBeGreaterThan(0)
-      await expect(statsRow.first().isVisible()).resolves.toBe(false)
+      const usageReading = page.locator('[data-composer-stat="usage"]')
+      await expect.poll(() => usageReading.count(), { timeout: 15_000 }).toBe(1)
+      expect(await usageReading.textContent()).toContain('Cache hit')
+      await expect(usageReading.isVisible()).resolves.toBe(false)
 
       // The show-content-page command's chat echo is hidden
       // (`dsh-experimental-content-frame`'s empty `conversation.chat.commandview`
@@ -990,8 +998,14 @@ describe('web e2e: the product-console sidebar', () => {
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await dialog.waitFor({ timeout: 10_000 })
     // Both halves: the General panel is drawn — the one row it keeps with a
-    // control is on screen — and no withheld row is.
+    // control is on screen — and no withheld row is. The panel draws exactly
+    // two rows, the keyboard shortcuts and the current version, so a row a
+    // later release adds to Settings → General turns this red as well: the
+    // list's `display: contents` wrapper holds one element per drawn row, and
+    // a withheld cell draws none.
     await expect.poll(() => dialog.getByText('Keyboard shortcuts', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await dialog.getByText(`Current version: ${CLIENT_VERSION}`, { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.locator('[data-slot="settings.general.item"] > *').count()).toBe(2)
     for (const title of WITHHELD_GENERAL_TITLES) {
       expect({ title, count: await dialog.getByText(title, { exact: true }).count() }).toEqual({ title, count: 0 })
     }
@@ -1275,8 +1289,8 @@ describe('web e2e: the product-console sidebar', () => {
 
     await row.hover()
     await row.getByRole('button', { name: 'Remove from list' }).click()
-    // One click arms, a second commits: archiving is one-way from inside this
-    // console (see the package README's Known Limitations).
+    // One click arms, a second commits: a conversation this control takes off
+    // the list does not come back (see the package README's Known Limitations).
     await expect(row.getByRole('button', { name: 'Confirm removal' }).isVisible()).resolves.toBe(true)
     await evidence(page, 'web-e2e-server-sidebar-temporary-confirm')
     await row.getByRole('button', { name: 'Confirm removal' }).click()

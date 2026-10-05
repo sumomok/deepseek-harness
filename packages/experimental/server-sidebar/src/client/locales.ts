@@ -66,6 +66,9 @@ export const zh = {
   'compaction.failed': '较早的对话压缩失败',
   'notice.startFailed': '暂时无法开始对话，请刷新页面后重试',
   'notice.newFailed': '暂时无法新建对话，请稍后重试',
+  'notice.removed': '对话已移出列表，可',
+  'notice.stoppedAndRemoved': '已停止并移出列表，可',
+  'notice.undo': '撤销',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -115,4 +118,7 @@ export const en = {
   'compaction.failed': 'Couldn’t compact the earlier conversation',
   'notice.startFailed': 'Couldn’t start a conversation. Refresh the page to try again.',
   'notice.newFailed': 'Couldn’t start a new conversation. Try again shortly.',
+  'notice.removed': 'Conversation removed from the list. You can ',
+  'notice.stoppedAndRemoved': 'Stopped and removed from the list. You can ',
+  'notice.undo': 'undo',
 } satisfies Record<ServerSidebarKey, string>

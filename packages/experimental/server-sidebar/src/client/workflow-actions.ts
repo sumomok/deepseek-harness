@@ -496,9 +496,9 @@ export function openTemporarySession(ctx: ClientContext, sessionId: string): Pro
  * Take one conversation out of the temporary group. Archives it, which hides
  * it from every view derived from the session directory while leaving its log
  * and its accounting slot in place — nothing here deletes a conversation.
- * This shell offers no way back: no interface in it unarchives, so the caller
- * confirms the click before spending it (see the package README's Known
- * Limitations).
+ * Nothing brings the conversation back: this call raises no notice with an
+ * undo, so the caller confirms the click before spending it (see the package
+ * README's Known Limitations).
  * @param ctx - client root context.
  * @param sessionId - the conversation to take out of the list.
  * @returns a promise settling when the archive round trip finishes.
