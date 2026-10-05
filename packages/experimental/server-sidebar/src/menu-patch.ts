@@ -53,7 +53,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 export function decodeJson(text: string): unknown {
   try {
-    return JSON.parse(text) as unknown
+    const decoded: unknown = JSON.parse(text)
+    return decoded
   } catch (_bodyIsNotJson) {
     return undefined
   }
