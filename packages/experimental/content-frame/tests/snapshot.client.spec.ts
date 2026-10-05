@@ -2033,6 +2033,11 @@ describe('an icon a table cell or a repeated item draws', () => {
       + 'e5 icon {class: el-icon-delete operation-delete}')
   })
 
+  it('reads an icon an icon font draws on a span the way it reads one drawn on an i', () => {
+    const refs = page(tableOf('<span class="iconfont icon-edit"></span>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: iconfont icon-edit}')
+  })
+
   it('reads the same elements outside a cell or an item as nothing', () => {
     const refs = page(`<div class="ops">${OPERATIONS}</div><p>说明</p>`)
     expect(read(refs).text).toBe('text "说明"')
