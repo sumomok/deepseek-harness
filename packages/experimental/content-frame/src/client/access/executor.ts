@@ -836,7 +836,7 @@ async function actOnPage(
       isVisible,
       // The reader's own naming, under this read's own injections: what the
       // listing printed for an element is what a step naming it is held to.
-      name: el => itemName(el, options),
+      name: el => itemName(el, options, ready.view.document),
       // And the reader's own marking, for the rows it printed no name for.
       mark: rowMark,
     }, {

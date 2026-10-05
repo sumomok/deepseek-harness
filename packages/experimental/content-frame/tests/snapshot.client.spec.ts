@@ -2252,8 +2252,36 @@ describe('an icon a table cell or a repeated item draws', () => {
     // held to the nothing it is called.
     const options = { refs, budgetChars: 4000, isVisible }
     expect(['#named', '#drawn', '#bare', '#worded']
-      .map(selector => itemName(document.querySelector(selector) as Element, options)))
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
       .toEqual(['编辑', '查看', '', ''])
+  })
+
+  it('names the same element outside a cell or an item as nothing, as the listing that prints no row for it', () => {
+    // A step can reach a toolbar's icon through a markup read, and is held to
+    // the nothing a listing would call it rather than to its `aria-label`.
+    const refs = page('<div class="toolbar"><i id="loose" class="el-icon-refresh" aria-label="刷新"></i>'
+      + '<svg id="drawn" aria-label="查看"><use href="#icon-view"></use></svg></div>'
+      + tableOf('<i id="held" class="el-icon-refresh" aria-label="刷新"></i>'))
+    expect(read(refs).text).toBe([
+      'e1 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [刷新]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible }
+    expect(['#loose', '#drawn', '#held']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['', '', '刷新'])
+  })
+
+  it('names an icon an item holds across a frame by looking for the item up to the document the read started from', () => {
+    const refs = page('<ul><li><iframe title="明细"></iframe></li></ul>')
+    const inner = document.querySelector('iframe')?.contentDocument
+    if (inner === null || inner === undefined) throw new Error('jsdom gave the frame no document')
+    inner.body.innerHTML = '<i id="edit" class="el-icon-edit" aria-label="编辑"></i>'
+    expect(read(refs).text).toBe(['e1 list', '  e2 frame "明细"', '    e3 icon "编辑" (in frame "明细")'].join('\n'))
+    const options = { refs, budgetChars: 4000, isVisible }
+    expect(itemName(inner.querySelector('#edit') as Element, options, document)).toBe('编辑')
   })
 
   it('reads a click target holding words in a cell as the click target it is', () => {
@@ -2308,7 +2336,7 @@ describe('what a row says where the page named nothing', () => {
     read(refs, { isClickable: pointer })
     const el = document.querySelector('#edit')
     if (el === null) throw new Error('fixture has no icon')
-    expect(itemName(el, { refs, budgetChars: 4000, isVisible, isClickable: pointer })).toBe('')
+    expect(itemName(el, { refs, budgetChars: 4000, isVisible, isClickable: pointer }, document)).toBe('')
   })
 })
 

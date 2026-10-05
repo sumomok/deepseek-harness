@@ -283,6 +283,31 @@ describe('what each step dispatches at the page', () => {
     expect({ edited, dropped }).toEqual({ edited: [], dropped: ['click'] })
   })
 
+  it('clicks an icon a toolbar draws by the ref and the class tokens a markup read printed for it', async () => {
+    // A listing prints no row for an icon outside a cell or an item, so the
+    // model finds it in the markup and names it by the nothing a listing would
+    // call it, whatever the page wrote in its `aria-label`.
+    mount('<main><div class="toolbar"><i id="refresh" class="el-icon-refresh" aria-label="刷新"></i></div></main>')
+    const seen = listen(at('#refresh'), ['click'])
+    const outcome = await run([{ action: 'click', ref: ref('#refresh'), label: '', mark: 'el-icon-refresh' }])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(seen).toEqual(['click'])
+  })
+
+  it('clicks an icon an item draws across a frame, by the name the read printed for it', async () => {
+    // The item is in the page the read started from and the icon in the
+    // application framed inside it; a step is held to the name that read printed.
+    const nested = nest('<ul><li><iframe id="inner" title="明细"></iframe></li></ul>',
+      '<i id="edit" class="el-icon-edit" aria-label="编辑"></i>')
+    const listed = snapshot(doc(), { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }).text
+    const icon = /(e\d+) icon "编辑"/.exec(listed)
+    expect(icon?.[1]).toBe(refIn(nested.doc, '#edit'))
+    const seen = listen(atIn(nested.doc, '#edit'), ['click'])
+    const outcome = await run([{ action: 'click', ref: icon?.[1] ?? '', label: '编辑' }])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(seen).toEqual(['click'])
+  })
+
   it('fills a box the listing named by the word written in it', async () => {
     // The console's own query field, and the loop it used to cause: the
     // listing printed `textbox = ""`, the model had no name to copy, and every
@@ -908,7 +933,7 @@ describe('one name, printed and checked', () => {
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)
-      expect({ ref: row.ref, name: el === undefined ? undefined : itemName(el, options()) })
+      expect({ ref: row.ref, name: el === undefined ? undefined : itemName(el, options(), doc()) })
         .toEqual({ ref: row.ref, name: row.name })
     }
 
@@ -943,18 +968,18 @@ describe('one name, printed and checked', () => {
       + '<i id="loose" class="el-icon-star"></i>')
     expect({
       // Hidden: the walk turns back at it.
-      hidden: itemName(at('button'), options()),
+      hidden: itemName(at('button'), options(), doc()),
       // A drawing the page names nowhere is decoration.
-      blank: itemName(at('#blank'), options()),
+      blank: itemName(at('#blank'), options(), doc()),
       // So is an element a page marks with nothing but a class of its own.
-      loose: itemName(at('#loose'), options()),
+      loose: itemName(at('#loose'), options(), doc()),
       // The two rooms with names of their own.
-      table: itemName(at('table'), options()),
-      form: itemName(at('form'), options()),
+      table: itemName(at('table'), options(), doc()),
+      form: itemName(at('form'), options(), doc()),
       // A click target wrapping one control is that control, and prints no row.
-      wrap: itemName(at('#wrap'), options()),
+      wrap: itemName(at('#wrap'), options(), doc()),
       // One holding rows of its own is named by what it is titled.
-      card: itemName(at('#card'), options()),
+      card: itemName(at('#card'), options(), doc()),
     }).toEqual({
       hidden: '',
       blank: '',

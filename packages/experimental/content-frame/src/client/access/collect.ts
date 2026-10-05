@@ -1235,17 +1235,29 @@ function offersClick(el: Element, walk: Walk, place: Place): boolean {
 }
 
 /**
- * True where the walk reads this element as an icon: one with the structure of
- * an icon, held by a repeated item, and drawn outside any text a control's own
- * row already prints. It is asked before the cursor is, for the reason a cell
- * asks it first; see {@link cellControlRole}.
+ * True for an element with the structure of an icon that a repeated item
+ * holds, looked for up to the document the walk started from. Every cell a
+ * table lists stands in a `tr` or a `row`, which are repeated items, so this
+ * holds for every icon a read prints.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the element is an icon of the item around it.
+ */
+function heldIcon(el: Element, walk: Walk): boolean {
+  return isIconShape(el, walk.isVisible) && heldByItem(el, walk.root)
+}
+
+/**
+ * True where the walk reads this element as an icon: a {@link heldIcon} drawn
+ * outside any text a control's own row already prints. It is asked before the
+ * cursor is, for the reason a cell asks it first; see {@link cellControlRole}.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @param place - the element's position.
  * @returns whether the element is an icon of the item around it.
  */
 function marksIcon(el: Element, walk: Walk, place: Place): boolean {
-  return !place.labelled && isIconShape(el, walk.isVisible) && heldByItem(el, walk.root)
+  return !place.labelled && heldIcon(el, walk)
 }
 
 /**
@@ -1374,10 +1386,11 @@ function walkNodes(host: ParentNode, walk: Walk, place: Place): void {
  * The state a pass over the page carries: the read's own injections, defaulted
  * once, and the items collected so far.
  *
- * A single-element caller builds one too. Nothing a name is made of comes out
- * of what the walk carries — the items collected so far, or the document the
- * walk started from — so a fresh one names an element exactly as the pass that
- * printed it did.
+ * A single-element caller builds one too, from the document the read that
+ * printed the element started from. Nothing a name is made of comes out of the
+ * items collected so far, and the item around an icon is looked for up to that
+ * document, so a fresh one names an element exactly as the pass that printed it
+ * did.
  * @param options - the read's options.
  * @param scope - the element the read asked for, when it asked for one.
  * @param root - the document the read starts from.
@@ -1409,15 +1422,19 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
  * element inside a `label` that names a control, one that wraps a single
  * control and nothing else, or one the pass never reaches prints no row and
  * carries no ref, so no step can name it and no answer here is asked for. An
- * element with the structure of an icon is named here wherever it stands,
- * because a cell or an item around it decides whether it prints a row, and
- * what that row calls it is the same either way.
+ * element with the structure of an icon is the exception, because a markup
+ * read gives every element a ref: it is named as an icon only where a cell or
+ * an item holds it, which is where a listing prints it a row, and anywhere else
+ * it is named nothing, as a listing that prints no row for it would call it.
+ * The item is looked for up to `root`, as the pass that printed the element
+ * looked for it.
  * @param el - the element to name.
  * @param options - the read's own options, for the injections it is computed under.
+ * @param root - the document the read that printed the element started from.
  * @returns the name, empty for an element a listing would print without one.
  */
-export function itemName(el: Element, options: SnapshotOptions): string {
-  const walk = newWalk(options, undefined, el.ownerDocument)
+export function itemName(el: Element, options: SnapshotOptions, root: Document): string {
+  const walk = newWalk(options, undefined, root)
   if (isSkipped(el, walk.isVisible)) return ''
   if (isOpaque(el)) {
     const drawn = roleOf(el)
@@ -1426,14 +1443,14 @@ export function itemName(el: Element, options: SnapshotOptions): string {
     // a chart a click drills into is reachable, and named by what the page
     // wrote on it, because what is inside a drawing labels the picture.
     if (topClickable(el, walk)) return namedAs(el, CLICKABLE_ROLE, walk).name
-    return isIconShape(el, walk.isVisible) ? namedAs(el, ICON_ROLE, walk).name : ''
+    return heldIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
   }
   const role = roleOf(el)
   if (isTableRole(role)) return nameOf(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
-  if (!topClickable(el, walk)) return isIconShape(el, walk.isVisible) ? namedAs(el, ICON_ROLE, walk).name : ''
+  if (!topClickable(el, walk)) return heldIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
   const items = topItems(childHost(el), walk)
   if (wrapsOnly(el, items, walk)) return ''
   return items.length > 0 ? clickableName(el, walk) : namedAs(el, CLICKABLE_ROLE, walk).name

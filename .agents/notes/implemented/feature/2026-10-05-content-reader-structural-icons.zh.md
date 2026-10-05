@@ -14,7 +14,7 @@ Status: implemented
 
 ### 在哪里算
 
-表格格子在 `cellControlRole` 里问这个判定；遍历则通过 `marksIcon` 在 `heldByItem` 找到元素外面有重复条目的地方问它：不论 role 的 `<tr>`，role 为 `listitem`、`row`、`treeitem`、`option` 的元素，以及 `feed` 里的 `article`（`isRepeatedItem`）。这个查找穿过 shadow root 和同源 frame，一直到这次读取起步的那份文档，因此限定在一个条目里面的读取与整页读取一致。别处什么都不变：工具栏里的图标不打行，除非页面把它做成可点的。
+表格格子在 `cellControlRole` 里问这个判定；遍历则通过 `marksIcon` 在 `heldByItem` 找到元素外面有重复条目的地方问它：不论 role 的 `<tr>`，role 为 `listitem`、`row`、`treeitem`、`option` 的元素，以及 `feed` 里的 `article`（`isRepeatedItem`）。这个查找穿过 shadow root 和同源 frame，一直到这次读取起步的那份文档，因此限定在一个条目里面的读取与整页读取一致。别处什么都不变：工具栏里的图标不打行，除非页面把它做成可点的；步骤要核对的那一个名字 `itemName` 也不给它名字，所以经原文读取找到它的步骤传空的 label。`itemName` 为同一个查找接收这次读取起步的那份文档，只算一个元素的调用方必须把它传进来。
 
 这个判定在问光标之前跑，所以指针光标下的图标是 `icon` 而不是 `clickable`，同一列不会为同一种命令打出两种行。三个例外让它不挡在页面已经说过的东西前面：为某个控件命名的 `label` 里装的东西、已命名树节点的标签区里装的东西，都是那个名字的一部分；格子里装着控件的画交出那个控件；装着字段的元素里的无名图标印在字段那一行上作为 `[eN opens]`。
 
@@ -52,4 +52,4 @@ Status: implemented
 
 ## Testing
 
-`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、带与不带 class 的精灵图标记、每一种重复条目（包括布局表格的行和限定在 option 里面的读取）、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取，以及空的包装元素。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，凭带着符号的标记点两个共用一个 class 的精灵图标之一，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。`apps/web/tests/content-read.e2e.ts` 重放一段录制的会话，它的夹具页在操作列里画了一个图标，列出的那一行带着它。
+`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、带与不带 class 的精灵图标记、每一种重复条目（包括布局表格的行和限定在 option 里面的读取）、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取、格子和条目以外以及跨 frame 时步骤要核对的名字，以及空的包装元素。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，凭带着符号的标记点两个共用一个 class 的精灵图标之一，凭空 label 和 class 词元点工具栏里的图标、凭名字点跨 frame 的条目里的图标，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。`apps/web/tests/content-read.e2e.ts` 重放一段录制的会话，它的夹具页在操作列里画了一个图标，列出的那一行带着它。
