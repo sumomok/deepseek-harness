@@ -25,6 +25,8 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
+import { reportDirectoryMismatch } from '../src/access/members.ts'
+import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, MIN_OUTLINE_CHARS, type ImageCapture, type ReadOutcome,
 } from '../src/access/wire.ts'
@@ -123,11 +125,14 @@ interface Composition {
 
 /**
  * Write a test-only cordis.yml and boot it through the real Loader.
- * @param options - the row's `perMember` (absent leaves the field out), and the
- * directory row's tables (absent leaves the row out).
+ * @param options - the row's `perMember` (absent leaves the field out), the
+ * directory row's tables (absent leaves the row out), and whether the row
+ * configures `pageAccess` (absent configures it).
  * @returns the booted context and its log.
  */
-async function loadComposition(options: { perMember?: boolean; members?: FixtureConfig }): Promise<Composition> {
+async function loadComposition(
+  options: { perMember?: boolean; members?: FixtureConfig; pageAccess?: boolean },
+): Promise<Composition> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-read-members-'))
   const configPath = join(world, 'cordis.yml')
   const rows: unknown[] = [
@@ -143,7 +148,9 @@ async function loadComposition(options: { perMember?: boolean; members?: Fixture
       config: {
         root: APP_ROOT,
         pages: [{ id: 'home', title: 'Home', description: "The hosted application's entry page.", url: '/content-app/' }],
-        pageAccess: { claimTimeoutMs: 5000, readTimeoutMs: 5000, pinMs: 60000, outlineChars: MIN_OUTLINE_CHARS },
+        ...options.pageAccess === false
+          ? {}
+          : { pageAccess: { claimTimeoutMs: 5000, readTimeoutMs: 5000, pinMs: 60000, outlineChars: MIN_OUTLINE_CHARS } },
         ...options.perMember === undefined ? {} : { perMember: options.perMember },
       },
     },
@@ -493,6 +500,11 @@ describe('per-member read routes', () => {
   it('releases every read route when the fiber disposes (HMR safety)', async () => {
     const { ctx } = await loadComposition({ perMember: true, members: MEMBERS })
     const base = origin(ctx)
+    // Served by this row before it goes: a post nobody is placed for is refused by the row itself.
+    for (const route of ROUTES) {
+      const live = await post(ctx, route.path, undefined, route.body)
+      expect({ path: route.path, status: live.status }).toEqual({ path: route.path, status: 401 })
+    }
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'content-frame')
     await row?.fiber?.dispose()
     for (const route of ROUTES) {
@@ -538,6 +550,51 @@ describe('read routes without perMember', () => {
     // A settings write reaches only fields declared `.volatile()`, so this one
     // changes only with the row's own configuration.
     expect(ContentFrame.Config.dict?.perMember?.meta.volatile ?? false).toBe(false)
+  })
+})
+
+describe('per-member configuration', () => {
+  it('refuses at load a row that sets perMember without pageAccess', async () => {
+    // Only the page read routes answer per member, and without pageAccess the
+    // row registers none of them, so the setting would have nothing to act on.
+    await expect(loadComposition({ perMember: true, members: MEMBERS, pageAccess: false })).rejects.toThrow(
+      'content-frame: perMember needs pageAccess, because only the page read routes answer per member',
+    )
+  })
+
+  it('takes a row without perMember and without pageAccess', async () => {
+    const { ctx } = await loadComposition({ perMember: false, pageAccess: false })
+    const settings = await fetch(`${origin(ctx)}${CONTENT_SETTINGS_ROUTE}`)
+    expect(settings.status).toBe(200)
+    await settings.arrayBuffer()
+  })
+})
+
+describe('member directory check', () => {
+  it('logs nothing for a row disposed before the composition has loaded', async () => {
+    const ctx = context = new Context()
+    const errors: string[] = []
+    ctx.logger.exporter({ export: (message) => { if (message.type === 'error') errors.push(message.name) } })
+    let settle = (): void => {}
+    const loaded = new Promise<void>((resolveLoaded) => { settle = resolveLoaded })
+    // A Loader whose tree has not settled yet; the check reads nothing else of it.
+    ctx.provide('loader', { await: () => loaded } as never)
+    // Both rows set perMember with no directory running, which is a mismatch the
+    // live one reports once the tree settles.
+    const gone = ctx.plugin({
+      name: 'disposed-row',
+      apply: (scope: Context) => { reportDirectoryMismatch(scope, true, scope.logger('disposed-row')) },
+    })
+    const live = ctx.plugin({
+      name: 'live-row',
+      apply: (scope: Context) => { reportDirectoryMismatch(scope, true, scope.logger('live-row')) },
+    })
+    // Both rows have started, and so registered their check, before one goes.
+    await Promise.all([gone.await(), live.await()])
+    await gone.dispose()
+    settle()
+    await new Promise((resolveTick) => { setImmediate(resolveTick) })
+    expect(errors).toEqual(['live-row'])
   })
 })
 

@@ -733,9 +733,9 @@ describe('what the reader reports', () => {
   })
 
   it('posts the read a second time when the first report never landed, and no third', async () => {
-    // A server failure and a rate limiter's answer alike: neither has read the
-    // document, so neither is the route deciding about it.
-    for (const fate of [SERVER_FAILURE, 'unreachable', RATE_LIMITED] as const) {
+    // A server failure, a token refresh, and a rate limiter's answer alike: none
+    // has read the document, so none is the route deciding about it.
+    for (const fate of [SERVER_FAILURE, 'unreachable', TOKEN_REFRESH, RATE_LIMITED] as const) {
       posted = []
       fates.set(CONTENT_REPORT_ROUTE, [fate])
       const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])

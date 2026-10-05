@@ -304,15 +304,18 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
 export const MIN_OUTLINE_CHARS = 1000
 
 /**
- * Every status the two read routes answer a document they will not take with:
- * the shape refusal, the same-site and content-type fences, the method gate,
- * and the byte bound.
+ * Every status the read routes answer a document they will not take with: the
+ * shape refusal, the same-site and content-type fences, the method gate, and
+ * the byte bound.
  *
  * A seat that collects one of these has been told about the document it sent,
  * and posting that same document again would reach the same check. Every other
- * non-2xx answer came from something between the seat and the route — a proxy
- * refreshing a token, a rate limiter, a gateway — and says nothing about the
- * document, so it is worth another try.
+ * non-2xx answer says nothing about the document, so it is worth another try:
+ * one from something between the seat and the route — a proxy refreshing a
+ * token, a rate limiter, a gateway — and, from a row with `perMember`, the
+ * route's own 503 while no member directory is running and 401 for a request
+ * the directory places with nobody, both answered about the sender before the
+ * body is read.
  */
 export const ROUTE_REFUSAL_STATUSES: readonly number[] = [400, 403, 405, 413, 415]
 

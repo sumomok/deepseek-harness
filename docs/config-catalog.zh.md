@@ -1436,9 +1436,9 @@ export interface Config {
    * when it places the request with nobody, and a post naming another member's
    * call, or a call of a session that belongs to nobody, is answered as one
    * naming a call this host does not know. Only those three routes read it, so
-   * without {@link Config.pageAccess} it changes nothing. The default is
-   * false, which answers every post for every session, for a process serving
-   * one person.
+   * a row setting it without {@link Config.pageAccess} is refused at load. The
+   * default is false, which answers every post for every session, for a
+   * process serving one person.
    */
   perMember?: boolean
 }
