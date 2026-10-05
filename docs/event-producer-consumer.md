@@ -64,7 +64,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `plugin-manager/install-state` | `emit` | [`packages/boot/plugin-manager/src/types.ts:272`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:107`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
 | `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:97`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
-| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:135`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
+| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:136`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
 | `schedule/changed` | `emit` | [`packages/schedule/schedule/src/types.ts:478`](../packages/schedule/schedule/src/types.ts) | [`schedule`](../packages/schedule/schedule) (`emit`) | `remotes` |
 | `session-persistence/relocated` | `emit` | [`packages/session/session-persistence/src/index.ts:131`](../packages/session/session-persistence/src/index.ts) | [`session-persistence-jsonl`](../packages/session/session-persistence-jsonl) (`emit`) | [`session-projection-cache`](../packages/session/session-projection-cache), [`workspace`](../packages/workspace/workspace) |
 | `session-telemetry/record` | `waterfall` | [`packages/session/session-telemetry/src/index.ts:44`](../packages/session/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/session/session-telemetry) (`waterfall`) | - |

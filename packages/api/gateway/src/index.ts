@@ -121,13 +121,14 @@ declare module '@deepseek-ai/cordis' {
      * that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the
      * call's uplink and opens and returns the method's iterator, or returns the one already open when items
      * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
-     * outcome is a value, a `next()` still pending on a stream that a `next()` called during the waterfall
-     * opened stops waiting for the method and rejects with the caller's failure once the method's iterator
-     * has returned, which an async generator method suspended in that `next()` may never do; the Gateway
-     * handles that rejection. It returns each such stream without a pending `next()` before the caller
-     * receives the failure, and each one with a pending `next()` or still opening without delaying the
-     * caller. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the
-     * listeners own every stream the call opened, and a listener that discards one returns it.
+     * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
+     * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
+     * or is opening. A `next()` pending on such a stream settles with a failure, which the Gateway handles,
+     * once the method's iterator has returned, so a stream method must end when its `signal` aborts: an
+     * async generator suspended on a promise that ignores the signal never returns. When the outcome is a
+     * stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call
+     * opened, and a listener that discards one returns it. A `next()` called after the waterfall has ended
+     * rejects without running the method.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -460,10 +461,19 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private async invokeUnary(pending: PendingInvocation): Promise<unknown> {
-    const outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => ({
-      kind: 'value',
-      value: await this.invokePrepared(await this.prepareInvocation(pending, new AbortController())),
-    }))
+    let ended = false
+    let outcome: RemoteInvokeOutcome
+    try {
+      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+        if (ended) throw nextAfterWaterfall(pending.call.endpoint)
+        return {
+          kind: 'value',
+          value: await this.invokePrepared(await this.prepareInvocation(pending, new AbortController(), undefined)),
+        }
+      })
+    } finally {
+      ended = true
+    }
     if (outcome.kind === 'value') return outcome.value
     throw new TypertGatewayError(
       'gateway/result-invalid',
@@ -508,15 +518,18 @@ export class TypertGatewayService extends Service implements TypertGateway {
    */
   private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
     const pending = this.pendingInvocation(request, 'stream')
+    const { endpoint } = pending.call
     // Each `next()` that reaches the method opens one stream; a listener that calls `next()` again opens another.
     const streams: OpeningStream[] = []
-    // Ends a `next()` still pending on those streams when the call fails. Aborting `control` instead would cancel the
-    // carrier's stream, and an in-process call without an uplink does not observe `control` at all.
+    // Aborted when the call fails, which aborts the signal of each method those streams run. Aborting `control` instead
+    // would cancel the carrier's stream, so the WebSocket mux would send no error frame.
     const release = new AbortController()
+    let ended = false
     let outcome: RemoteInvokeOutcome
     try {
       // A listener that throws synchronously makes `waterfall()` throw rather than reject.
       outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+        if (ended) throw nextAfterWaterfall(endpoint)
         const stream: OpeningStream = { opening: this.openPreparedStream(pending, control, release.signal), opened: undefined }
         streams.push(stream)
         const source = await stream.opening
@@ -524,18 +537,21 @@ export class TypertGatewayService extends Service implements TypertGateway {
         return { kind: 'stream', source }
       })
     } catch (error) {
-      await releaseStreams(streams, release, error)
+      // Set before the release, whose abort runs the methods' abort listeners synchronously.
+      ended = true
+      releaseStreams(streams, release, releaseReason(endpoint, error))
       throw error
     }
+    ended = true
     // A stream outcome may wrap the opened streams, so the call's listeners own their release.
     if (outcome.kind === 'stream') return outcome.source
     const failure = new TypertGatewayError(
       'gateway/result-invalid',
-      pending.call.endpoint,
+      endpoint,
       'a remote/invoke listener returned a value for a stream call',
       { field: 'result' },
     )
-    await releaseStreams(streams, release, failure)
+    releaseStreams(streams, release, failure)
     throw failure
   }
 
@@ -544,7 +560,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     control: AbortController,
     release: AbortSignal,
   ): Promise<CancellableStream> {
-    const prepared = await this.prepareInvocation(pending, control)
+    const prepared = await this.prepareInvocation(pending, control, release)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()
       throw new TypertGatewayError(
@@ -846,11 +862,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
   /**
    * Validate the call's current `args` against the descriptor `remote/invoke` listeners saw and bind the method.
-   * `control` fails the logical stream when an uplink item is rejected; unary calls hand over an inert one.
+   * `control` fails the logical stream when an uplink item is rejected; unary calls hand over an inert one. A stream
+   * call's `release` aborts when the call fails; unary calls have none.
    */
   private async prepareInvocation(
     pending: PendingInvocation,
     control: AbortController,
+    release: AbortSignal | undefined,
   ): Promise<PreparedInvocation> {
     const { request, descriptor, call } = pending
     const { endpoint, args: wire } = call
@@ -867,7 +885,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint)
     const args = await Promise.all(descriptor.parameters.map(parameter =>
       this.resolveParameter(parameter, wire, endpoint)))
-    const signal = methodSignal(request, control)
+    const signal = methodSignal(request, control, release)
     const invocation = new GatewayInvocation(
       { namespace: request.namespace, method: request.method, args: wire },
       descriptor.service,
@@ -1314,15 +1332,20 @@ function remoteRequest(
 
 /**
  * The signal a method observes. A carrier that supplies an uplink fails the
- * stream through `control` when an item is rejected, so that invocation joins
- * `control` with the carrier signal; every other invocation keeps the carrier
- * signal's identity.
+ * stream through `control` when an item is rejected, and a stream call's
+ * `release` aborts when `remote/invoke` fails the call, so the invocation joins
+ * each of them with the carrier signal; a unary invocation without an uplink
+ * keeps the carrier signal's identity.
  */
-function methodSignal(request: InvokeRemoteRequest, control: AbortController): AbortSignal {
-  const carrier = request.signal
-  if (request.uplink === undefined) return carrier ?? NEVER_ABORTED_SIGNAL
-  if (carrier === undefined || carrier === control.signal) return control.signal
-  return AbortSignal.any([carrier, control.signal])
+function methodSignal(
+  request: InvokeRemoteRequest,
+  control: AbortController,
+  release: AbortSignal | undefined,
+): AbortSignal {
+  const signals = [...new Set([request.signal, request.uplink === undefined ? undefined : control.signal, release])]
+    .filter(signal => signal !== undefined)
+  if (signals.length > 1) return AbortSignal.any(signals)
+  return signals[0] ?? NEVER_ABORTED_SIGNAL
 }
 
 function isIterable(value: unknown): value is Iterable<unknown> | AsyncIterable<unknown> {
@@ -1350,10 +1373,11 @@ function methodIterator(source: Iterable<unknown> | AsyncIterable<unknown>): Asy
  * already open when items were pulled. After a `return()` before the first
  * `next()`, later `return()` and `next()` calls settle as done once that
  * release has finished, without repeating its failure, as calls queued on an
- * async generator do. When the call that opened it fails, each `next()` still
- * pending stops waiting for the method and rejects with that call's failure
- * once the uplink is released and the method's iterator has returned; an async
- * generator method returns only after it settles its own pending `next()`.
+ * async generator do. When the call that opened it fails, a `next()` pending on
+ * it, or one that reaches it before the Gateway's `return()`, stops waiting for
+ * the method's `next()` and settles with a failure once the uplink is released
+ * and the method's iterator has returned, which an async generator method that
+ * ignores its signal never does; a `next()` after that `return()` settles as done.
  */
 class CancellableStream implements AsyncIterableIterator<unknown> {
   private readonly pump: AsyncGenerator
@@ -1366,16 +1390,16 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
   /**
    * @param source - the iterable the stream method returned.
    * @param endpoint - canonical endpoint named by cancellation failures.
-   * @param invocation - the call whose uplink the stream releases.
-   * @param release - aborted with the call's failure when the call that opened the stream fails.
+   * @param invocation - the call whose uplink the stream releases; its signal aborts whenever `abandoned` does.
+   * @param abandoned - aborted with the call's failure when the call that opened the stream fails.
    */
   constructor(
     private readonly source: Iterable<unknown> | AsyncIterable<unknown>,
     endpoint: string,
     private readonly invocation: GatewayInvocation,
-    release: AbortSignal,
+    private readonly abandoned: AbortSignal,
   ) {
-    this.pump = pumpStream(source, endpoint, invocation, release)
+    this.pump = pumpStream(source, endpoint, invocation, abandoned)
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {
@@ -1385,20 +1409,21 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
   next(): Promise<IteratorResult<unknown>> {
     this.started = true
     const pull = this.released === undefined ? this.pump.next() : this.released.then(() => this.pump.next())
-    // The caller gets a derived promise, so a rejection it discards stays unhandled unless `abandonPulls()` handles it.
+    // The caller gets a derived promise, so a rejection it discards stays unhandled unless this stream handles it.
     const pending = pull.finally(() => { this.pulls.delete(pending) })
     this.pulls.add(pending)
+    // A pull after the call failed stays on the pump's queue, so it settles after every earlier pull; the listener that
+    // made it may discard it.
+    if (this.abandoned.aborted) void pending.catch(ignoreReleasedRejection)
     return pending
   }
 
   /**
    * Handle the rejection of each `next()` result still pending: the failure of the call that opened this stream ends
    * it, and the listener that pulled it may have discarded it. A caller that awaits it still receives the rejection.
-   * @returns whether a `next()` result was pending.
    */
-  abandonPulls(): boolean {
-    for (const pull of this.pulls) void pull.catch(() => undefined)
-    return this.pulls.size > 0
+  abandonPulls(): void {
+    for (const pull of this.pulls) void pull.catch(ignoreReleasedRejection)
   }
 
   async return(value?: unknown): Promise<IteratorResult<unknown>> {
@@ -1433,42 +1458,60 @@ interface OpeningStream {
 }
 
 /**
- * Return every stream a failed or value-answered stream call's `next()` opened or is still opening, after ending each
- * `next()` still pending on them with `failure`.
+ * Return, without waiting, every stream a failed or value-answered stream call's `next()` opened or is still opening.
+ * `return()` reaches each opened stream before anything can pull from it again, so a later `next()` queues behind it.
  * @param streams - the streams that call's `next()` calls opened or are opening.
- * @param release - the controller whose signal those streams race each pending `next()` against.
- * @param failure - the failure the caller receives.
- * @returns once each opened stream without a pending `next()` has been returned. A stream with one, or still opening, is
- * returned later: the method's iterator may never settle that `next()`.
+ * @param release - the controller whose signal those streams and their methods observe.
+ * @param reason - the call's failure, as `releaseReason()` normalizes it.
  */
-async function releaseStreams(
-  streams: readonly OpeningStream[],
-  release: AbortController,
-  failure: unknown,
-): Promise<void> {
-  // Every pending `next()` is handled before the abort rejects it and before any await lets it settle.
-  const releases = streams.map(stream => ({ stream, awaited: stream.opened?.abandonPulls() === false }))
-  release.abort(failure)
-  for (const { stream, awaited } of releases) {
-    const released = returnWhenOpened(stream.opening)
-    if (awaited) await released
+function releaseStreams(streams: readonly OpeningStream[], release: AbortController, reason: unknown): void {
+  // Every pending `next()` is handled before the abort can reject it.
+  for (const { opened } of streams) opened?.abandonPulls()
+  release.abort(reason)
+  for (const { opening, opened } of streams) {
+    // A stream still opening is returned once it opens, before the `next()` that opened it hands it to a listener.
+    const returned = opened === undefined ? opening.then(stream => stream.return()) : opened.return()
+    void returned.catch(ignoreReleasedRejection)
   }
 }
 
 /**
- * Return one stream of a failed or value-answered stream call once it has opened.
- * @param opening - the stream that call's `next()` opened or is opening.
- * @returns once the stream has opened and been returned, or has failed to; never rejects.
+ * The reason a failed stream call's release aborts with: the waterfall's failure, unless that is `undefined`, which
+ * `abort()` would replace with an `AbortError` that no listener threw. The caller receives the failure unchanged.
+ * @param endpoint - canonical endpoint of the call.
+ * @param failure - what the waterfall threw or rejected with.
+ * @returns the abort reason.
  */
-async function returnWhenOpened(opening: Promise<CancellableStream>): Promise<void> {
-  try {
-    await (await opening).return()
-  } catch (_releaseFailure) {
-    // The caller receives the waterfall's own failure, or gateway/result-invalid; failing to open or return this stream
-    // must not replace it.
-  }
+function releaseReason(endpoint: string, failure: unknown): unknown {
+  return failure === undefined
+    ? new Error(`typert gateway: ${endpoint}: a remote/invoke listener failed the call with undefined`)
+    : failure
 }
 
+/**
+ * The rejection of a `remote/invoke` `next()` called after the waterfall ended. The caller already has the call's
+ * outcome, so nothing would receive or release what the method returned; the rejection belongs to the listener that
+ * called `next()`.
+ * @param endpoint - canonical endpoint of the call.
+ * @returns the failure.
+ */
+function nextAfterWaterfall(endpoint: string): Error {
+  return new Error(`remote/invoke: next() for ${endpoint} was called after the waterfall ended`)
+}
+
+/**
+ * Absorb a rejection that settles after the Gateway released the streams of a failed stream call: a `next()` a
+ * listener may have discarded, or the failure to open or return one of those streams.
+ * @param _releasedFailure - the call's failure, or the open or `return()` failure of one of its streams.
+ */
+function ignoreReleasedRejection(_releasedFailure: unknown): void {
+  // The caller has already received the call's failure; this one must not become an unhandled rejection.
+}
+
+/**
+ * Pull the method's iterator for one stream, then release the uplink and return that iterator. `invocation.signal`
+ * aborts whenever `release` does, and the call's failure, not a cancellation, then ends a pending `next()`.
+ */
 async function *pumpStream(
   source: Iterable<unknown> | AsyncIterable<unknown>,
   endpoint: string,
@@ -1476,33 +1519,30 @@ async function *pumpStream(
   release: AbortSignal,
 ): AsyncGenerator {
   const { signal } = invocation
+  const failure = (): unknown => release.aborted ? release.reason : streamAbortFailure(endpoint, signal.reason)
   const iterator = methodIterator(source)
   let rejectAbort: ((error: unknown) => void) | undefined
   const onAbort = (): void => {
-    rejectAbort?.(streamAbortFailure(endpoint, signal.reason))
-  }
-  // The call that opened the stream failed: its failure, not a cancellation, ends the pending `next()`.
-  const onRelease = (): void => {
-    rejectAbort?.(release.reason)
+    rejectAbort?.(failure())
   }
   signal.addEventListener('abort', onAbort, { once: true })
-  release.addEventListener('abort', onRelease, { once: true })
   try {
     while (true) {
-      if (signal.aborted) throw streamAbortFailure(endpoint, signal.reason)
+      if (signal.aborted) throw failure()
       // Reusing a pending cancellation promise retains every completed race.
       const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject })
       // next() can abort and throw synchronously before the race subscribes.
       void aborted.catch(() => undefined)
       const next = await Promise.race([Promise.resolve(iterator.next()), aborted])
       rejectAbort = undefined
+      // An item the method delivered as the call failed is dropped, so the pending `next()` settles with a failure.
+      if (release.aborted) throw release.reason
       if (next.done === true) return
       yield next.value
     }
   } finally {
     rejectAbort = undefined
     signal.removeEventListener('abort', onAbort)
-    release.removeEventListener('abort', onRelease)
     // The uplink closes first so a method blocked on `uplink.next()` unwinds
     // before its iterator is asked to return.
     await invocation.close()
