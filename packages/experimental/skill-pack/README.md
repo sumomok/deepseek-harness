@@ -84,6 +84,8 @@ metadata:
 
 `pack.viewFormat` is the version of the view-file format those files are written in, stated once for the whole pack. A pack that declares views states it, and a pack that declares none has nothing for it to govern and may leave it out. This build reads format `1`; a pack stating anything else, or a pack declaring views and stating nothing, is withheld with `view-format` naming both numbers, and a delivery carrying one is refused. The version is per pack rather than per file because every view file of a pack ships together and a pack is offered whole.
 
+`pack.anchorFormat` is the version of the anchor-file format a pack exported with element anchors is written in. A pack that states none carries no anchors and is read by every build. This build reads format `1`, which is what `PACK_ANCHOR_FORMATS` holds; a pack stating anything else is withheld with `anchor-format` naming both numbers, and a delivery carrying one is refused. Nothing here reads the anchor file — the pack's own instructions tell the model how to read it — so the stated number is the whole check, and no part, plugin or row arriving later changes the answer. The list is a constant rather than a configuration field because it states which anchor lines the point-anchor package built alongside this build writes, not a choice that varies between deployments. A format number is only ever added to it; dropping one is a breaking change for every pack that states it.
+
 The `metadata` object is read strictly: a key this manifest does not know refuses the pack. A misspelled `requires` is a requirement nobody stated, and a pack would then be offered without the parts it was written against.
 
 Prereleases are compared by their release numbers. Every package in this workspace carries one, and a plain semver range excludes a prerelease whose numbers it otherwise covers, so a pack asking for `>=0.3.0` would be refused the `0.4.0-rc.1` plugin it was written against.
@@ -158,7 +160,7 @@ A composition with no provider of that key sees an empty part list, which is the
 | `statuses()` | Every pack in the root, active and inactive alike, in skill-name order, each with its version and every unmet requirement. |
 | `activeViews()` | Each active pack's declared views, carrying the pack that declared them. An inactive pack contributes none, including views that read cleanly. |
 
-An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `view-format` with the version the pack stated and the versions this build reads, `view-unreadable` with the file, `view-refused` with the file, the value inside it and the component surface's own sentence about that value, and `view-id-conflict` with the id and the other pack claiming it. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
+An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `anchor-format` and `view-format` with the version the pack stated and the versions this build reads, `view-unreadable` with the file, `view-refused` with the file, the value inside it and the component surface's own sentence about that value, and `view-id-conflict` with the id and the other pack claiming it. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
 
 Two packs this root would otherwise offer that declare one view id are **both** withheld, each naming the id and the other pack. One menu row cannot have two owners, and keeping the id for the first of them would make what a deployment offers depend on the order its packs happened to be read in. A pack that is inactive for another reason claims nothing, so a pack nobody is offered cannot withhold one that would be; an id the deployment's own configuration claims is refused earlier, by the component surface, because the deployment's views own their ids.
 
@@ -187,6 +189,7 @@ The staged tree is read as a pack root before it becomes one, and a delivery fai
 | Refusal | What it refused |
 |---|---|
 | `pack-manifest` | a delivered pack whose `metadata` object is not a manifest |
+| `pack-anchor-format` | a delivered pack stating an anchor format this build does not read |
 | `pack-view-format` | a delivered pack declaring views in a view format this build does not read, or stating none |
 | `pack-view` | a view file a delivered pack declares and does not carry, or carries and is not a view |
 | `pack-view-refused` | a view the component surface this deployment composes will not draw |
@@ -227,7 +230,7 @@ All of it is verified before a single byte is staged, and an archive that fails 
 | `archive-oversize` | the archive, one file, or the entry count, over the limit it is read under |
 | `duplicate-entry` | a pack, a path inside a pack, or an entry name, delivered twice |
 
-The pack rules apply to an archive exactly as they do to a directory: `code-file`, `path-escape`, `symlink` and `not-a-pack` refuse the same things by the same names, and so do the four [checks a delivery's own packs pass](#what-a-delivery-is-checked-for).
+The pack rules apply to an archive exactly as they do to a directory: `code-file`, `path-escape`, `symlink` and `not-a-pack` refuse the same things by the same names, and so do the five [checks a delivery's own packs pass](#what-a-delivery-is-checked-for).
 
 The manifest decides what is installed, and an entry's own container metadata decides nothing. Every declared file is written as an ordinary file, so an entry another tool marked as a symbolic link, a hard link or a device either is not declared, and is refused as an entry the manifest does not declare, or is written as a file holding those bytes.
 
@@ -280,6 +283,8 @@ The skill registry's consumer owns the durable catalog message and its append-on
 - **One pack declaring one view id twice keeps the first of them.** The whole-root rule is about two packs. Inside one pack the order is the `views` list the pack's own author wrote, so the second is dropped where any second claim on an id is — by `ctx.componentViews`, with one error line naming the source twice.
 - **A delivery the root already holds is installed by doing nothing, and checked by nothing.** `syncPackRoot` compares first, so a set that matches the root byte for byte returns unchanged without reading a manifest or a view. A root that holds a pack this build would refuse therefore keeps it until a different set arrives.
 - **A delivery console cannot pre-check what a deployment will make of its views.** `buildPackArchive` holds a set to the rules about its files and reads none of them; the manifest, the view format and each view file are judged where the surface that draws them is. The trigger for revisiting is a delivery console that composes a catalog of its own.
+- **The anchor formats this build reads are tied to the point-anchor package by a comment.** `PACK_ANCHOR_FORMATS` follows the `ANCHOR_FORMATS_READ` list of the point-anchor package, and no test holds the two together until that package is vendored into the console composition. The trigger is that vendoring, which brings the equivalence test with it.
+- **No test installs an archive the point-anchor package wrote.** The archive cases here build their archives with `buildPackArchive`; an archive exported by point-anchor's own writer becomes a fixture once that package's anchor work is merged and pushed, generated from the pushed commit.
 - **Every read re-reads the root.** `statuses()`, `activeViews()` and each provider call scan the pack root and re-parse every manifest. That keeps the answer current with no cache to go stale, and it is why the status route is not for polling at interactive rates.
 - **A pack root with no parts provider offers nothing with a view.** Until a provider of `ctx.skillPackParts` is mounted, every pack naming a part is inactive. That is the correct fail-closed state and an easy one to mistake for a bug, which is what the status route is for. [`skill-pack-components`](../skill-pack-components/README.md) is the provider a deployment composes.
 - **Not covered by an assembled snapshot** — the package is exercised by its own specs, including a real Loader composition over a real pack root; the snapshot lanes replay the shipped composition, which composes no experimental row.

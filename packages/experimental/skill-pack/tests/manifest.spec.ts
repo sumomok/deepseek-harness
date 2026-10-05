@@ -4,7 +4,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { PACK_VIEW_FORMATS, parsePackManifest, readsDeclaredViews, viewFormatMissing } from '../src/manifest.ts'
+import {
+  anchorFormatMissing, PACK_ANCHOR_FORMATS, PACK_VIEW_FORMATS, parsePackManifest, readsDeclaredViews, viewFormatMissing,
+} from '../src/manifest.ts'
+import { describeMissing } from '../src/reconcile.ts'
 import type { PackManifest } from '../src/types.ts'
 
 /** One parsed manifest, for the two reads that answer from a manifest rather than from an object. */
@@ -100,5 +103,46 @@ describe('the view-file format a manifest states', () => {
       .toEqual({ kind: 'view-format', stated: 7, reads: [1] })
     expect(viewFormatMissing(manifest({ version: '1.0.0' }, ['views/a.yml'])))
       .toEqual({ kind: 'view-format', reads: [1] })
+  })
+})
+
+describe('the anchor format a manifest states', () => {
+  it('reads the anchor format written beside the view format', () => {
+    expect(parsePackManifest({ pack: { version: '1.0.0', viewFormat: 1, anchorFormat: 1 }, views: ['views/a.yml'] })).toEqual({
+      ok: true,
+      manifest: {
+        pack: { version: '1.0.0', viewFormat: 1, anchorFormat: 1 },
+        requires: { components: {}, parts: [] },
+        views: ['views/a.yml'],
+      },
+    })
+  })
+
+  it('judges a pack stating an anchor format this build reads, and a pack stating none, as usual', () => {
+    expect(PACK_ANCHOR_FORMATS).toEqual([1])
+    expect(anchorFormatMissing(manifest({ version: '1.0.0', anchorFormat: 1 }))).toBeUndefined()
+    expect(anchorFormatMissing(manifest({ version: '1.0.0' }))).toBeUndefined()
+  })
+
+  it('names the format a pack states and the formats this build reads when it is 2, 0 or -1', () => {
+    for (const stated of [2, 0, -1]) {
+      const missing = anchorFormatMissing(manifest({ version: '1.0.0', anchorFormat: stated }))
+      expect(missing).toEqual({ kind: 'anchor-format', stated, reads: [1] })
+      expect(missing === undefined ? undefined : describeMissing(missing))
+        .toBe(`states anchor format ${String(stated)}; this build reads 1`)
+    }
+  })
+
+  it('refuses an anchor format that is not an integer, naming its field and the type it must be', () => {
+    expect(parsePackManifest({ pack: { version: '1.0.0', anchorFormat: 1.5 } })).toEqual({
+      ok: false,
+      field: 'metadata.pack.anchorFormat',
+      reason: 'Invalid input: expected int, received number',
+    })
+    expect(parsePackManifest({ pack: { version: '1.0.0', anchorFormat: '1' } })).toEqual({
+      ok: false,
+      field: 'metadata.pack.anchorFormat',
+      reason: 'Invalid input: expected number, received string',
+    })
   })
 })

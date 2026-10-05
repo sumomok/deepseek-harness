@@ -15,7 +15,7 @@
 
 import semver from 'semver'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
-import { readsDeclaredViews, viewFormatMissing } from './manifest.ts'
+import { anchorFormatMissing, readsDeclaredViews, viewFormatMissing } from './manifest.ts'
 import { compareCodeUnits } from './order.ts'
 import type {
   PackManifestResult,
@@ -126,7 +126,7 @@ function withContestedIds(judged: readonly JudgedPack[]): PackStatus[] {
 
 /**
  * Judge one pack; `missing` comes back in the fixed order manifest, platform,
- * plugins, parts, view format, unreadable views, refused views. `viewIds` is
+ * plugins, parts, anchor format, view format, unreadable views, refused views. `viewIds` is
  * what the pack claims once it is offered, read off the same walk that reports
  * an unreadable view.
  */
@@ -162,6 +162,8 @@ function judgePack(
   for (const part of manifest.requires.parts) {
     if (!partIds.has(part)) missing.push({ kind: 'part-absent', part })
   }
+  const anchorFormat = anchorFormatMissing(manifest)
+  if (anchorFormat !== undefined) missing.push(anchorFormat)
   const viewIds: string[] = []
   // A format this build does not read is the pack's only view reason: what
   // each of those files parsed into was read under rules written for another
@@ -213,6 +215,8 @@ export function describeMissing(missing: PackMissing): string {
       return `${missing.plugin} is installed at ${missing.present}, outside ${missing.range}`
     case 'part-absent':
       return `no component plugin registers the part ${missing.part}`
+    case 'anchor-format':
+      return `states anchor format ${String(missing.stated)}; this build reads ${missing.reads.join(', ')}`
     case 'view-format':
       return `declares views ${missing.stated === undefined ? 'without metadata.pack.viewFormat' : `in view format ${String(missing.stated)}`}`
         + `; this build reads ${missing.reads.join(', ')}`

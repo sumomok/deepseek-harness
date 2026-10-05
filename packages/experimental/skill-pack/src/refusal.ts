@@ -34,6 +34,8 @@ export type PackInstallRefusal =
   | 'archive-oversize'
   /** A delivered pack's `metadata` object is not a manifest. */
   | 'pack-manifest'
+  /** A delivered pack states an anchor-file format this build does not read. */
+  | 'pack-anchor-format'
   /** A delivered pack declares views in a view-file format this build does not read, or states none. */
   | 'pack-view-format'
   /** A view file a delivered pack declares is absent, leaves its pack, or is not a view. */

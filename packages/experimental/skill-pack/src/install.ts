@@ -18,9 +18,9 @@
  * never observes a half-written root.
  *
  * The staged tree is verified as a pack root and not only as a set of files:
- * every pack's manifest parses, every pack declaring views states a view
- * format this build reads, and every declared view file is there and is a
- * view. A delivery failing any of it is refused whole, because a pack root
+ * every pack's manifest parses, every pack stating an anchor format states one
+ * this build reads, every pack declaring views states a view format this build
+ * reads, and every declared view file is there and is a view. A delivery failing any of it is refused whole, because a pack root
  * that installs a broken view only says so on the status route, long after the
  * operator who copied the file has gone. A requirement this deployment does
  * not meet yet is the opposite case and installs: a pack naming a plugin, a
@@ -35,7 +35,7 @@ import { basename, dirname, join } from 'node:path'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { readPackArchive } from './archive.ts'
 import { readSourceDirectory, validatePacks } from './delivery.ts'
-import { readsDeclaredViews, viewFormatMissing } from './manifest.ts'
+import { anchorFormatMissing, readsDeclaredViews, viewFormatMissing } from './manifest.ts'
 import { describeMissing, type PackObservation } from './reconcile.ts'
 import { PackInstallError } from './refusal.ts'
 import { PACK_ENTRY_FILE, readPackRoot } from './scan.ts'
@@ -248,8 +248,8 @@ async function stage(staging: string, delivered: readonly DeliveredPack[]): Prom
  * Read the way the live root is read, so what passes here is what the provider
  * will make of it. A directory carrying no readable `SKILL.md` frontmatter is
  * not a pack and is not judged as one; a directory that is a pack has its
- * manifest, its view format and each of its declared view files held to the
- * rules a pack is offered under.
+ * manifest, its anchor format, its view format and each of its declared view
+ * files held to the rules a pack is offered under.
  * @param staging - absolute path of the staged tree.
  * @param verify - the caller's own surface, where it composes one.
  * @throws {PackInstallError} naming the pack, the file and what is wrong with it.
@@ -268,6 +268,8 @@ async function verifyStaged(staging: string, verify: VerifyStagedPacks | undefin
       const { field, reason } = pack.manifest
       throw new PackInstallError('pack-manifest', entry, describeMissing({ kind: 'manifest-invalid', field, reason }))
     }
+    const anchorFormat = anchorFormatMissing(pack.manifest.manifest)
+    if (anchorFormat !== undefined) throw new PackInstallError('pack-anchor-format', entry, describeMissing(anchorFormat))
     if (!readsDeclaredViews(pack.manifest.manifest)) {
       throw new PackInstallError('pack-view-format', entry, describeMissing(viewFormatMissing(pack.manifest.manifest)))
     }

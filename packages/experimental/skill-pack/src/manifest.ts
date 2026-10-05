@@ -30,6 +30,20 @@ const MANIFEST_FIELD = 'metadata'
  */
 export const PACK_VIEW_FORMATS: readonly number[] = [1]
 
+/**
+ * The anchor-file format versions this build reads.
+ *
+ * A pack exported with element anchors states one of them in
+ * `metadata.pack.anchorFormat`; a pack that states none carries no anchors and
+ * is read whatever this list holds. `ANCHOR_FORMATS_READ` of the point-anchor
+ * package, which writes those anchor lines, is the authority this list copies;
+ * until that package is vendored into the console composition nothing but
+ * this comment ties the two, and its vendoring brings an equivalence test. A
+ * number is only ever added: dropping one is a breaking change for every pack
+ * that states it.
+ */
+export const PACK_ANCHOR_FORMATS: readonly number[] = [1]
+
 const exactVersion = z.string().refine(value => semver.valid(value) !== null, {
   message: 'must be an exact semantic version',
 })
@@ -43,6 +57,7 @@ const manifestSchema = z.strictObject({
     version: exactVersion,
     platform: versionRange.optional(),
     viewFormat: z.int().optional(),
+    anchorFormat: z.int().optional(),
   }),
   requires: z.strictObject({
     components: z.record(z.string().min(1), versionRange).optional(),
@@ -89,6 +104,7 @@ export function parsePackManifest(metadata: unknown): PackManifestResult {
         version: pack.version,
         ...pack.platform !== undefined ? { platform: pack.platform } : {},
         ...pack.viewFormat !== undefined ? { viewFormat: pack.viewFormat } : {},
+        ...pack.anchorFormat !== undefined ? { anchorFormat: pack.anchorFormat } : {},
       },
       requires: {
         components: requires?.components ?? {},
@@ -129,4 +145,23 @@ export function viewFormatMissing(manifest: PackManifest): PackMissing {
     ...stated !== undefined ? { stated } : {},
     reads: PACK_VIEW_FORMATS,
   }
+}
+
+/**
+ * The unmet requirement a manifest earns when this build cannot read the
+ * anchor format it states.
+ *
+ * One home for the member and for the sentence `describeMissing` states it in,
+ * so the status route and an install refusal name the same two numbers.
+ * Nothing that arrives later changes the answer: which anchor formats can be
+ * read is fixed by this build, so a pack refused here stays refused until it is
+ * exported again.
+ * @param manifest - the parsed manifest.
+ * @returns the `anchor-format` member carrying the stated format and the ones this build reads, or
+ *   `undefined` when the pack states no anchor format or states one in {@link PACK_ANCHOR_FORMATS}.
+ */
+export function anchorFormatMissing(manifest: PackManifest): PackMissing | undefined {
+  const stated = manifest.pack.anchorFormat
+  if (stated === undefined || PACK_ANCHOR_FORMATS.includes(stated)) return undefined
+  return { kind: 'anchor-format', stated, reads: PACK_ANCHOR_FORMATS }
 }

@@ -86,6 +86,12 @@ export interface PackIdentity {
    * views, and meaningless on one that declares none.
    */
   readonly viewFormat?: number
+  /**
+   * Which version of the anchor-file format the pack's element anchors are
+   * written in. Stated by a pack exported with anchors; a pack that states
+   * none carries no anchors, and nothing here reads an anchor file itself.
+   */
+  readonly anchorFormat?: number
 }
 
 /** What a pack's `metadata.requires` block states it needs before it may be offered. */
@@ -143,6 +149,8 @@ export type PackMissing =
   | { readonly kind: 'plugin-version'; readonly plugin: string; readonly range: string; readonly present: string }
   /** No component plugin has registered this part id. */
   | { readonly kind: 'part-absent'; readonly part: string }
+  /** The pack states an anchor-file format this build does not read. */
+  | { readonly kind: 'anchor-format'; readonly stated: number; readonly reads: readonly number[] }
   /** The pack declares views in a view-file format this build does not read, or states none at all. */
   | { readonly kind: 'view-format'; readonly stated?: number; readonly reads: readonly number[] }
   /** A declared view file could not be read or parsed. */
@@ -162,7 +170,7 @@ export interface PackStatus {
   readonly state: 'active' | 'inactive'
   /**
    * Every unmet requirement, in a fixed order: manifest, platform, plugins,
-   * parts, view format, unreadable views, refused views. A pack withheld for a
+   * parts, anchor format, view format, unreadable views, refused views. A pack withheld for a
    * contested view id carries that one reason and no other, because it had no
    * other.
    */

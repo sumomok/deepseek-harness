@@ -21,6 +21,7 @@ function pack(skill: string, metadata: {
   parts?: string[]
   views?: string[]
   viewFormat?: number | null
+  anchorFormat?: number
 } = {}, views: PackObservation['views'] = []): PackObservation {
   // `null` is a pack that declares views and states no format at all; a number
   // is the format it states; absence is the format a pack declaring views has
@@ -35,6 +36,7 @@ function pack(skill: string, metadata: {
           version: '1.0.0',
           ...metadata.platform !== undefined ? { platform: metadata.platform } : {},
           ...viewFormat === null ? {} : { viewFormat },
+          ...metadata.anchorFormat === undefined ? {} : { anchorFormat: metadata.anchorFormat },
         },
         requires: { components: metadata.components ?? {}, parts: metadata.parts ?? [] },
         views: metadata.views ?? [],
@@ -156,6 +158,27 @@ describe('pack reconciliation', () => {
       PLATFORM,
     )
     expect(statuses.map(status => status.skill)).toEqual(['Asset-page', 'asset-page', 'asset-page', '图层', '资产'])
+  })
+})
+
+describe('the anchor format a pack states', () => {
+  it('offers a pack stating an anchor format this build reads', () => {
+    const [status] = reconcilePacks([pack('space-data-page', { anchorFormat: 1 })], [], PLATFORM)
+    expect(status?.state).toBe('active')
+  })
+
+  it('withholds the whole pack when this build does not read its anchor format, before naming its view format', () => {
+    const [status] = reconcilePacks(
+      [pack('space-data-page', { parts: ['toy.data-page'], anchorFormat: 2, views: ['views/a.yml'], viewFormat: 7 }, [view('views/a.yml', 'layers')])],
+      [],
+      PLATFORM,
+    )
+    expect(status?.state).toBe('inactive')
+    expect(status?.missing).toEqual([
+      { kind: 'part-absent', part: 'toy.data-page' },
+      { kind: 'anchor-format', stated: 2, reads: [1] },
+      { kind: 'view-format', stated: 7, reads: [1] },
+    ])
   })
 })
 
@@ -364,6 +387,7 @@ describe('missing-requirement sentences', () => {
       ],
       [{ kind: 'part-absent', part: 'toy.data-page' }, 'no component plugin registers the part toy.data-page'],
       [{ kind: 'view-format', stated: 7, reads: [1, 2] }, 'declares views in view format 7; this build reads 1, 2'],
+      [{ kind: 'anchor-format', stated: 2, reads: [1] }, 'states anchor format 2; this build reads 1'],
       [
         { kind: 'view-format', reads: [1] },
         'declares views without metadata.pack.viewFormat; this build reads 1',

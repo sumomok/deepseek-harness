@@ -416,6 +416,24 @@ describe('the views a delivery carries, checked before the root is replaced', ()
     await expect(stat(root)).rejects.toThrow()
   })
 
+  it('refuses a delivery carrying a pack whose anchor format this build does not read, and leaves the root byte-identical', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    const before = await digests(root)
+
+    const attempt = syncPackRoot(root, {
+      kind: 'packs',
+      packs: [pack('a', 'A.'), packWith('b', ['    version: 1.0.0', '    anchorFormat: 2', '    viewFormat: 1', '  views: [views/v.yml]'], {
+        'v.yml': 'id: layers\ntitle: 图层\nspec: []\n',
+      })],
+    })
+    await expect(attempt).rejects.toMatchObject({ refusal: 'pack-anchor-format', entry: 'b/SKILL.md' })
+    await expect(attempt).rejects.toThrow('states anchor format 2; this build reads 1')
+    expect(await digests(root)).toEqual(before)
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
   it('installs a pack whose required part nothing here registers, because that pack is waiting rather than wrong', async () => {
     const base = await workspace()
     const root = join(base, 'packs')
