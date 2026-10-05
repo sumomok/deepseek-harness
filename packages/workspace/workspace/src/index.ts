@@ -217,6 +217,9 @@ export class WorkspaceRegistry extends Service {
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
+    this.ctx.on('session-persistence/relocated', (id, _previous, current) => {
+      this.relocated(id, current.header)
+    })
   }
 
   /**
@@ -880,6 +883,43 @@ export class WorkspaceRegistry extends Service {
     } catch {
       this.invalidSessionPaths.set(header.id, `cwd '${header.cwd}' does not resolve`)
     }
+  }
+
+  /**
+   * Re-index one relocated session. The header swap and path invalidation
+   * happen before any await, so an `attachSession` issued right after
+   * `relocate` resolves validates against the new cwd and the old workspace
+   * stops listing the session at once. The queued part resolves the new cwd,
+   * durably detaches the session from every workspace at another path, and
+   * attaches it to the workspace at the new path when one exists; a failure
+   * there is logged and leaves the registry usable.
+   */
+  private relocated(id: SessionId, header: SessionHeader): void {
+    this.headers.set(id, header)
+    this.sessionPaths.delete(id)
+    void this.enqueueOperation(() => this.moveRelocatedSession(header)).catch((error: unknown) => {
+      this.ctx.logger.warn(`workspace: re-indexing relocated session '${id}' failed: ${String(error)}`)
+    })
+  }
+
+  private async moveRelocatedSession(header: SessionHeader): Promise<void> {
+    await this.indexHeader(header)
+    const path = this.sessionPaths.get(header.id)
+    if (path === undefined) {
+      this.ctx.logger.warn(
+        `workspace: relocated session '${header.id}' joins no workspace: ${this.invalidSessionPaths.get(header.id) as string}`,
+      )
+    }
+    let target: WorkspaceEntity | undefined
+    for (const entity of this.entities.values()) {
+      if (entity.path === path) {
+        target = entity
+        continue
+      }
+      const record = this.requireTable().get(entity.id) as WorkspaceRecord
+      if (record.sessionIds.includes(header.id)) await entity.detachSession(header.id)
+    }
+    await target?.attachSession(header.id)
   }
 
   /** Every stored session's header, projected from the persistence snapshot listing. */

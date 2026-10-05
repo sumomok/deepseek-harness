@@ -15,14 +15,24 @@
  * verifies the locked inode is still the file at the lock path and retries
  * otherwise: an unlinked-and-recreated lock file carries a fresh inode, and
  * a lock on the orphaned one proves nothing. Removing a live session's lock
- * file therefore forfeits exclusion on POSIX (nothing in the harness does
- * so); Windows has no lock file at all. Readers never touch the lock.
+ * file therefore forfeits exclusion on POSIX; Windows has no lock file at
+ * all. Readers never touch the lock.
  * The lock is acquired at write-open of an existing artifact and, for a
  * created session, only right before its first materializing write — an
  * unmaterialized session has no filesystem footprint. Release never removes
  * the POSIX lock file: every acquired lock belongs to a materialized or
  * materializing session, and the surviving file keeps the stable inode later
- * lockers verify against. The browser worker stubs the native flock entry to
+ * lockers verify against. Relocation alone removes one: after publishing the
+ * session at its target it unlinks the source directory's lock file while
+ * still holding that lock, then removes the directory. A writer that resolved
+ * the old directory may then recreate it and lock a fresh file there, so a
+ * write open resolves the session again after locking; when the session no
+ * longer lives in the locked directory it unlinks the lock file it created
+ * there while still holding it, releases, and retries once. Precondition:
+ * every process that writes the root runs a build with this re-resolution. A
+ * write open in a build without it locks the recreated directory, then
+ * appends to the session at its new location while a writer there holds that
+ * location's lock. The browser worker stubs the native flock entry to
  * immediate success: it is single-process, so the in-process write claim
  * already excludes every writer.
  * @module @deepseek-ai/dsh-session-persistence-jsonl/lease

@@ -142,7 +142,9 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
 
 ```ts type-equiv
 /**
- * Immutable validated storage metadata, kept outside the conversation event log.
+ * Validated storage metadata, kept outside the conversation event log. It is
+ * fixed for the life of every handle; only SessionPersistence.relocate
+ * replaces the cwd of a stored session.
  */
 interface SessionHeader {
   /**
@@ -154,7 +156,7 @@ interface SessionHeader {
   readonly id: SessionId
   /** Non-negative safe-integer Unix epoch milliseconds when the session was created. */
   readonly createdAt: number
-  /** Absolute working directory the session was created in (if any). */
+  /** Absolute working directory of the session: where it was created, or the target of its latest relocate (if any). */
   readonly cwd?: string
   /** The session this one was forked from (seed lineage), if any. */
   readonly parentSession?: SessionId
@@ -186,7 +188,7 @@ interface SessionHeader {
 
 ## Format refusal — logs a build cannot faithfully read
 
-A backend refuses a log it cannot faithfully interpret with `SessionFormatUnsupportedError`, distinct from `SessionPersistenceCorruptionError` because nothing is damaged. `stat` and `list` classify the highest canonical generation and translate a supported historical header without reading or mutating its body. Historical `open` calls share one per-session migration preparation before returning current logical values and leave every source path, byte, and inode unchanged. The JSONL provider returns a read handle from that in-memory result without publishing; a write open holds its single-writer claim and file lease while it reuses the preparation, exclusively publishes the final current generation, and only then returns the writable handle. A future highest generation refuses even when an older readable generation remains. Current-format restoration retains installed extensions and unknown events carrying `ignorable: true`; historical v0/v1/v2 migration refuses an unknown type even when marked ignorable. The message appends the selected raw log path when the backend keeps one artifact per session. An out-of-tree backend must enforce equivalent current-only handle values and direction-aware refusals at its physical-format entry. The [released-format migration decision](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) owns the chain and immutable-publication rules.
+A backend refuses a log it cannot faithfully interpret with `SessionFormatUnsupportedError`, distinct from `SessionPersistenceCorruptionError` because nothing is damaged. `stat` and `list` classify the highest canonical generation and translate a supported historical header without reading or mutating its body. Historical `open` calls share one per-session migration preparation before returning current logical values and leave every source path, byte, and inode unchanged. A JSONL `relocate` of a session whose highest generation is historical first publishes the current successor the same way, then renames the retained generations into the target directory with their bytes and inodes unchanged. The JSONL provider returns a read handle from that in-memory result without publishing; a write open holds its single-writer claim and file lease while it reuses the preparation, exclusively publishes the final current generation, and only then returns the writable handle. A future highest generation refuses even when an older readable generation remains. Current-format restoration retains installed extensions and unknown events carrying `ignorable: true`; historical v0/v1/v2 migration refuses an unknown type even when marked ignorable. The message appends the selected raw log path when the backend keeps one artifact per session. An out-of-tree backend must enforce equivalent current-only handle values and direction-aware refusals at its physical-format entry. The [released-format migration decision](../../.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) owns the chain and immutable-publication rules.
 
 ## `CreateSessionOptions` — seeding and metadata
 
@@ -348,10 +350,13 @@ Visibility: a created session is observable through `stat`/`list`/`open` in this
 
 Freshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.
 
+Relocation: a backend may implement the optional `relocate`, which moves a stored session to the storage location of another cwd. Other processes see the session at its old location, then at neither while the move is between the two, then at its new one; a move interrupted between the two leaves the session absent until the backend recovers that move. While the session is absent, `stat` returns `undefined`, `list` omits it, and an `open` or a handle read that consults storage rejects with `SessionPersistenceNotFoundError`. An `open` or a handle read that located the old storage just before the move rejects with the backend's own error for vanished storage, as when any stored file vanishes (`ENOENT` for the JSONL backend). A read handle may stay open across the move: later reads observe the new location, and its `header` keeps the value it had at open.
+
 ```ts cordis-catalog
 /**
  * Create a new stored session and take its write ownership.
- * @param header - the immutable header (id, version, cwd, lineage) to store.
+ * @param header - the header (id, version, cwd, lineage) to store; only
+ *   `relocate` later replaces its cwd.
  * @param options - optional cancellation.
  * @returns a `write` handle owned by the caller; close it to release ownership.
  * @throws {SessionAlreadyExistsError} when the id already exists.
@@ -408,6 +413,71 @@ abstract stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<S
  * @returns one snapshot per stored session.
  */
 abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+/**
+ * Move a stored session to the storage location of `cwd` and replace its
+ * header cwd. The id, `createdAt`, lineage, `isSeeded`, inherited cut,
+ * events, and seqs stay unchanged; the returned snapshot carries a new
+ * revision. When the stored cwd already equals `cwd` (exact string
+ * comparison) nothing changes, no event fires, and the current snapshot
+ * returns, so a caller that crashed may repeat the call. Pass exactly the
+ * cwd later resumes will pass: resume compares cwd strings exactly.
+ *
+ * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
+ * 'function'` first. A write handle held by this or another process, or a
+ * pending create in this process, refuses the move; read handles may stay
+ * open. Success emits `session-persistence/relocated` after write ownership
+ * is released.
+ * @param id - the stored session to move.
+ * @param cwd - the absolute working directory the session moves to.
+ * @param options - optional cancellation, observed until the target
+ *   generation is published; a cancelled move rolls back.
+ * @returns the snapshot after the move.
+ * @throws {TypeError} when `cwd` is not absolute.
+ * @throws {SessionPersistenceNotFoundError} when the session does not exist.
+ * @throws {SessionAlreadyOwnedError} while a write handle or pending create
+ *   holds the session, or another holder keeps the source or target
+ *   location, including an unfinished earlier move of the same session.
+ * @throws {SessionFormatUnsupportedError} when the stored log is newer than
+ *   this build.
+ * @throws {SessionPersistenceCorruptionError} when the stored log cannot be
+ *   decoded, the target location already holds a log, another location
+ *   gained a session with the same id while this one was absent during the
+ *   move, or an unfinished earlier move of the same session is malformed or
+ *   contradicts the storage; when a move stays unfinished, the message
+ *   names the backend's record of it.
+ * @throws {Error} when the source and target locations are on different
+ *   filesystems.
+ */
+relocate?(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencerelocated--emit"></a>
+
+#### `session-persistence/relocated` — emit
+
+A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership. Not emitted by startup recovery. Listeners run synchronously, must not throw, and must catch their own asynchronous failures.
+
+```ts cordis-catalog
+/**
+ * A stored session moved to another storage location and its header cwd
+ * changed. Emitted once per successful relocate, after the backend released
+ * its write ownership. Not emitted by startup recovery. Listeners run
+ * synchronously, must not throw, and must catch their own asynchronous failures.
+ * @mode emit
+ * @param id - the relocated session.
+ * @param previous - the stored header before the move.
+ * @param current - the snapshot after the move (new cwd, new revision).
+ */
+'session-persistence/relocated'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): void
 ```
 
 Types: [SessionId](core.md)

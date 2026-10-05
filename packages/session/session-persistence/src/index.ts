@@ -106,9 +106,29 @@ export interface SessionPersistenceListOptions {
   readonly signal?: AbortSignal
 }
 
+/** Options for {@link SessionPersistence.relocate}. */
+export interface SessionPersistenceRelocateOptions {
+  /** Optional cancellation, observed until the target generation is published. */
+  readonly signal?: AbortSignal
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
+  }
+
+  interface Events {
+    /**
+     * A stored session moved to another storage location and its header cwd
+     * changed. Emitted once per successful relocate, after the backend released
+     * its write ownership. Not emitted by startup recovery. Listeners run
+     * synchronously, must not throw, and must catch their own asynchronous failures.
+     * @mode emit
+     * @param id - the relocated session.
+     * @param previous - the stored header before the move.
+     * @param current - the snapshot after the move (new cwd, new revision).
+     */
+    'session-persistence/relocated'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): void
   }
 }
 
@@ -131,6 +151,19 @@ declare module '@deepseek-ai/cordis' {
  *
  * Freshness: once an `append` or `flush` resolves, reads started afterwards
  * on this backend instance observe at least that prefix.
+ *
+ * Relocation: a backend may implement the optional `relocate`, which moves a
+ * stored session to the storage location of another cwd. Other processes see
+ * the session at its old location, then at neither while the move is between
+ * the two, then at its new one; a move interrupted between the two leaves the
+ * session absent until the backend recovers that move. While the session is
+ * absent, `stat` returns `undefined`, `list` omits it, and an `open` or a
+ * handle read that consults storage rejects with
+ * `SessionPersistenceNotFoundError`. An `open` or a handle read that located
+ * the old storage just before the move rejects with the backend's own error
+ * for vanished storage, as when any stored file vanishes (`ENOENT` for the
+ * JSONL backend). A read handle may stay open across the move: later reads
+ * observe the new location, and its `header` keeps the value it had at open.
  */
 export abstract class SessionPersistence extends Service {
   /** Process-local instance identity, stable through Context proxies and distinct after service replacement. */
@@ -142,7 +175,8 @@ export abstract class SessionPersistence extends Service {
 
   /**
    * Create a new stored session and take its write ownership.
-   * @param header - the immutable header (id, version, cwd, lineage) to store.
+   * @param header - the header (id, version, cwd, lineage) to store; only
+   *   `relocate` later replaces its cwd.
    * @param options - optional cancellation.
    * @returns a `write` handle owned by the caller; close it to release ownership.
    * @throws {SessionAlreadyExistsError} when the id already exists.
@@ -199,6 +233,43 @@ export abstract class SessionPersistence extends Service {
    * @returns one snapshot per stored session.
    */
   abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+  /**
+   * Move a stored session to the storage location of `cwd` and replace its
+   * header cwd. The id, `createdAt`, lineage, `isSeeded`, inherited cut,
+   * events, and seqs stay unchanged; the returned snapshot carries a new
+   * revision. When the stored cwd already equals `cwd` (exact string
+   * comparison) nothing changes, no event fires, and the current snapshot
+   * returns, so a caller that crashed may repeat the call. Pass exactly the
+   * cwd later resumes will pass: resume compares cwd strings exactly.
+   *
+   * Optional: callers test `typeof ctx.sessionPersistence.relocate ===
+   * 'function'` first. A write handle held by this or another process, or a
+   * pending create in this process, refuses the move; read handles may stay
+   * open. Success emits `session-persistence/relocated` after write ownership
+   * is released.
+   * @param id - the stored session to move.
+   * @param cwd - the absolute working directory the session moves to.
+   * @param options - optional cancellation, observed until the target
+   *   generation is published; a cancelled move rolls back.
+   * @returns the snapshot after the move.
+   * @throws {TypeError} when `cwd` is not absolute.
+   * @throws {SessionPersistenceNotFoundError} when the session does not exist.
+   * @throws {SessionAlreadyOwnedError} while a write handle or pending create
+   *   holds the session, or another holder keeps the source or target
+   *   location, including an unfinished earlier move of the same session.
+   * @throws {SessionFormatUnsupportedError} when the stored log is newer than
+   *   this build.
+   * @throws {SessionPersistenceCorruptionError} when the stored log cannot be
+   *   decoded, the target location already holds a log, another location
+   *   gained a session with the same id while this one was absent during the
+   *   move, or an unfinished earlier move of the same session is malformed or
+   *   contradicts the storage; when a move stays unfinished, the message
+   *   names the backend's record of it.
+   * @throws {Error} when the source and target locations are on different
+   *   filesystems.
+   */
+  relocate?(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot>
 }
 
 export default SessionPersistence

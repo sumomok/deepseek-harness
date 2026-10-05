@@ -2136,7 +2136,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage addressed through per-session handles.',
-    description: 'Durable append-only session storage addressed through per-session handles.\n\nStorage semantics shared by every backend: events are contiguous from seq 0 and never rewritten; a torn physical tail is never returned to a reader and is truncated by the write path before its first append; reads validate current-format records only and refuse unknown vocabulary fail-closed. `append` persists best-effort; `flush` — per handle or service-wide — is the durability barrier.\n\nVisibility: a created session is observable through `stat`/`list`/`open` in this process from the moment `create` resolves, even while a backend defers physical materialization (a pure optimization); other processes see the session only once it materializes, and a session that never materialized before a crash never existed. `SessionHandle.flush` forces materialization.\n\nFreshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.',
+    description: 'Durable append-only session storage addressed through per-session handles.\n\nStorage semantics shared by every backend: events are contiguous from seq 0 and never rewritten; a torn physical tail is never returned to a reader and is truncated by the write path before its first append; reads validate current-format records only and refuse unknown vocabulary fail-closed. `append` persists best-effort; `flush` — per handle or service-wide — is the durability barrier.\n\nVisibility: a created session is observable through `stat`/`list`/`open` in this process from the moment `create` resolves, even while a backend defers physical materialization (a pure optimization); other processes see the session only once it materializes, and a session that never materialized before a crash never existed. `SessionHandle.flush` forces materialization.\n\nFreshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.\n\nRelocation: a backend may implement the optional `relocate`, which moves a stored session to the storage location of another cwd. Other processes see the session at its old location, then at neither while the move is between the two, then at its new one; a move interrupted between the two leaves the session absent until the backend recovers that move. While the session is absent, `stat` returns `undefined`, `list` omits it, and an `open` or a handle read that consults storage rejects with `SessionPersistenceNotFoundError`. An `open` or a handle read that located the old storage just before the move rejects with the backend\'s own error for vanished storage, as when any stored file vanishes (`ENOENT` for the JSONL backend). A read handle may stay open across the move: later reads observe the new location, and its `header` keeps the value it had at open.',
     methods: [
       {
         signature: 'readonly identity: symbol = Symbol(\'sessionPersistence\')',
@@ -2146,7 +2146,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract create(header: SessionHeader, options?: SessionPersistenceCreateOptions): Promise<SessionHandle>',
         description: 'Create a new stored session and take its write ownership.',
-        parameters: [{ name: 'header', description: 'the immutable header (id, version, cwd, lineage) to store.' }, { name: 'options', description: 'optional cancellation.' }],
+        parameters: [{ name: 'header', description: 'the header (id, version, cwd, lineage) to store; only `relocate` later replaces its cwd.' }, { name: 'options', description: 'optional cancellation.' }],
         returns: 'a `write` handle owned by the caller; close it to release ownership.',
         throws: ['{SessionAlreadyExistsError} when the id already exists.'],
       },
@@ -2176,12 +2176,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'options', description: 'optional cancellation.' }],
         returns: 'one snapshot per stored session.',
       },
+      {
+        signature: 'relocate?(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot>',
+        description: 'Move a stored session to the storage location of `cwd` and replace its header cwd. The id, `createdAt`, lineage, `isSeeded`, inherited cut, events, and seqs stay unchanged; the returned snapshot carries a new revision. When the stored cwd already equals `cwd` (exact string comparison) nothing changes, no event fires, and the current snapshot returns, so a caller that crashed may repeat the call. Pass exactly the cwd later resumes will pass: resume compares cwd strings exactly.\n\nOptional: callers test `typeof ctx.sessionPersistence.relocate === \'function\'` first. A write handle held by this or another process, or a pending create in this process, refuses the move; read handles may stay open. Success emits `session-persistence/relocated` after write ownership is released.',
+        parameters: [{ name: 'id', description: 'the stored session to move.' }, { name: 'cwd', description: 'the absolute working directory the session moves to.' }, { name: 'options', description: 'optional cancellation, observed until the target generation is published; a cancelled move rolls back.' }],
+        returns: 'the snapshot after the move.',
+        throws: ['{TypeError} when `cwd` is not absolute.', '{SessionPersistenceNotFoundError} when the session does not exist.', '{SessionAlreadyOwnedError} while a write handle or pending create holds the session, or another holder keeps the source or target location, including an unfinished earlier move of the same session.', '{SessionFormatUnsupportedError} when the stored log is newer than this build.', '{SessionPersistenceCorruptionError} when the stored log cannot be decoded, the target location already holds a log, another location gained a session with the same id while this one was absent during the move, or an unfinished earlier move of the same session is malformed or contradicts the storage; when a move stays unfinished, the message names the backend\'s record of it.', '{Error} when the source and target locations are on different filesystems.'],
+      },
     ],
   },
   {
     key: 'sessionProjectionCache',
     summary: 'The persisted projection cache service.',
-    description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.',
+    description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. A `session-persistence/relocated` event rebinds the moved session\'s record to its new cwd. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.',
     methods: [
       {
         signature: 'cachedSnapshot( meta: SessionHeader, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): ProjectionSnapshot | undefined',
@@ -4282,6 +4289,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     description: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     parameters: [],
+  },
+  {
+    name: 'session-persistence/relocated',
+    mode: 'emit',
+    signature: '\'session-persistence/relocated\'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): void',
+    summary: 'A stored session moved to another storage location and its header cwd changed.',
+    description: 'A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership. Not emitted by startup recovery. Listeners run synchronously, must not throw, and must catch their own asynchronous failures.',
+    parameters: [{ name: 'id', description: 'the relocated session.' }, { name: 'previous', description: 'the stored header before the move.' }, { name: 'current', description: 'the snapshot after the move (new cwd, new revision).' }],
   },
   {
     name: 'session-telemetry/record',
@@ -7010,6 +7025,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceOpenOptions',
     declaration: 'export interface SessionPersistenceOpenOptions {\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionPersistenceRelocateOptions',
+    declaration: 'export interface SessionPersistenceRelocateOptions {\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'SessionPersistenceRevision',

@@ -57,7 +57,7 @@ export interface WorkspaceEntityHost {
   /**
    * Publish a successfully validated canonical cwd to the projection index.
    * @param id - Validated session id.
-   * @param path - Canonical existing directory from the immutable header cwd.
+   * @param path - Canonical existing directory from the stored header cwd.
    */
   rememberSessionPath(id: SessionId, path: string): void
 }
@@ -108,11 +108,13 @@ export class WorkspaceEntity implements Workspace {
 
   async attachSession(sessionId: SessionId): Promise<void> {
     // Validation is skipped when the settled snapshot already accounts the
-    // id: the cwd fact was checked when it first attached, the stored header
-    // cwd is immutable, and the workspace path changes only at registry
-    // startup, before any entity exists, so both are fixed for the process
-    // lifetime. Membership itself is decided on the write chain inside
-    // `mutate`, never on this snapshot.
+    // id: the cwd fact was checked when it first attached, and the workspace
+    // path changes only at registry startup, before any entity exists. A
+    // stored header cwd changes only through `session-persistence/relocated`;
+    // the registry swaps its index entry before any await, and the filter in
+    // `mutate` drops every id whose indexed path differs from this workspace.
+    // Membership itself is decided on the write chain inside `mutate`, never
+    // on this snapshot.
     if (!this.record.sessionIds.includes(sessionId)) {
       const header = await this.host.readSessionHeader(sessionId)
       if (header.cwd === undefined) {

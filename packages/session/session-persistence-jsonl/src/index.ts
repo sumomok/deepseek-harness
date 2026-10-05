@@ -15,24 +15,26 @@ import {
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
 import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
+  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
+  type SessionPersistenceRelocateOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
+import { createJsonlRelocationRuntime } from './relocation.ts'
 import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
@@ -94,6 +96,8 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under human-readable project
    * directories, then per-session directories. An existing root must be a
    * readable directory; an absent root is created on first materialization.
+   * Plain files directly under the root whose names start with `.relocate.`
+   * record relocations in progress.
    */
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
@@ -266,6 +270,7 @@ class JsonlSessionPersistence extends SessionPersistence {
   private readonly coldLogMemo = new Map<SessionId, StoredLog>()
   /** One joinable decode/migration operation per selected historical Session file revision. */
   private readonly migrationPreparations = new Map<SessionId, MigrationPreparation>()
+  private readonly relocation = createJsonlRelocationRuntime()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -377,9 +382,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     this.tracker.claimWrite(id)
     let lease: SessionWriteLease | undefined
     try {
-      const resolved = await this.findLog(id, options?.signal)
-      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
-      lease = await this.acquireLease(id, undefined, dirname(resolved.currentPath))
+      lease = (await this.lockStoredDirectory(id, options?.signal)).lease
       const prepared = await this.requireStoredLog(id, options?.signal)
       options?.signal?.throwIfAborted()
       let stored: CurrentStoredLog
@@ -415,6 +418,39 @@ class JsonlSessionPersistence extends SessionPersistence {
         throw new AggregateError([failure, releaseFailure], `session "${id}": write open failed and its lock release failed`)
       }
       throw failure
+    }
+  }
+
+  /**
+   * Lock the directory holding the session's selected generation. A relocation
+   * removes its source directory together with the lock file it holds, so a
+   * writer that resolved that directory may recreate it and lock a fresh file
+   * there; resolving again after locking detects the move, and the writer
+   * discards what it recreated and retries once.
+   */
+  private async lockStoredDirectory(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ readonly lease: SessionWriteLease; readonly dir: string }> {
+    for (let attempt = 0; ; attempt += 1) {
+      const resolved = await this.findLog(id, signal)
+      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
+      const dir = dirname(resolved.currentPath)
+      const lease = await this.acquireLease(id, undefined, dir)
+      let current: ResolvedJsonlGeneration | undefined
+      try {
+        current = await this.findLog(id, signal)
+        if (current !== undefined && dirname(current.currentPath) === dir) return { lease, dir }
+        await this.relocation.discardDirectory(dir)
+      } catch (error: unknown) {
+        await lease.release()
+        throw error
+      }
+      await lease.release()
+      if (attempt > 0) {
+        if (current === undefined) throw new SessionPersistenceNotFoundError(id)
+        throw new SessionAlreadyOwnedError(id)
+      }
     }
   }
 
@@ -506,6 +542,128 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     signal?.throwIfAborted()
     return snapshots
+  }
+
+  override async relocate(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot> {
+    const signal = options?.signal
+    signal?.throwIfAborted()
+    if (!isAbsolute(cwd)) throw new TypeError(`relocate cwd must be an absolute path, got ${JSON.stringify(cwd)}`)
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    this.tracker.claimWrite(id)
+    const leases: SessionWriteLease[] = []
+    let moved: { readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }
+    try {
+      moved = await this.relocateOwned(id, cwd, leases, signal)
+    } catch (error: unknown) {
+      const releaseFailure = await this.releaseRelocation(id, leases)
+      if (releaseFailure !== undefined) {
+        throw new AggregateError([error, releaseFailure], `session "${id}": relocation failed and its lock release failed`)
+      }
+      throw error
+    }
+    const releaseFailure = await this.releaseRelocation(id, leases)
+    if (releaseFailure !== undefined) {
+      this.ctx.logger.warn(`${this.name}: session "${id}" relocated, but releasing its write locks failed: ${String(releaseFailure)}`)
+    }
+    if (moved.previous !== undefined) {
+      try {
+        this.ctx.emit('session-persistence/relocated', id, moved.previous, moved.current)
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`${this.name}: a session-persistence/relocated listener for session "${id}" threw: ${String(error)}`)
+      }
+    }
+    return moved.current
+  }
+
+  /**
+   * Move one session while this process holds its write claim; every acquired
+   * lease joins `leases` so the caller releases it. A session already at `cwd`
+   * returns its snapshot without `previous`.
+   */
+  private async relocateOwned(
+    id: SessionId,
+    cwd: string,
+    leases: SessionWriteLease[],
+    signal?: AbortSignal,
+  ): Promise<{ readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }> {
+    await this.relocation.settle(this.root, this.compression, id)
+    const source = await this.lockStoredDirectory(id, signal)
+    leases.push(source.lease)
+    let stored = await this.requireStoredLog(id, signal)
+    signal?.throwIfAborted()
+    if (stored.meta.cwd === cwd) return { current: await this.snapshotOf(id) }
+    if (stored.status === 'prepared') stored = await this.publishStoredMigration(id, stored)
+    signal?.throwIfAborted()
+    const targetDir = sessionDir(this.root, cwd, id)
+    const sameDirectory = await this.relocation.isSameDirectory(targetDir, source.dir)
+    const header: SessionHeader = { ...stored.meta, cwd }
+    const recoveredBatch = stored.recoveredTail.length > 0 ? await this.encodeEventBatch(stored.recoveredTail) : ''
+    if (!sameDirectory) {
+      await this.ensureTargetDirectory(targetDir)
+      leases.push(await this.acquireLease(id, undefined, targetDir))
+    }
+    const outcome = await this.relocation.relocate({
+      root: this.root,
+      id,
+      compression: this.compression,
+      sourceDir: source.dir,
+      targetDir,
+      sameDirectory,
+      fromCwd: stored.meta.cwd,
+      toCwd: cwd,
+      headerLine: JSON.stringify(toHeaderLine(header, header.isSeeded ? stored.inheritedEventCount : undefined)) + '\n',
+      sourceEnd: stored.tornTruncateTo,
+      recoveredBatch,
+      eventCount: stored.events.length,
+    }, signal)
+    if (outcome.failure !== undefined) {
+      this.ctx.logger.warn('%s: session "%s" relocated, but a later relocation step failed: %s', this.name, id, outcome.failure)
+    }
+    if (outcome.sourceRetained) {
+      this.ctx.logger.warn(`${this.name}: session "${id}" relocated; its source directory "${source.dir}" holds other files and stays`)
+    }
+    return { previous: stored.meta, current: await this.snapshotOf(id) }
+  }
+
+  /** Stat a session whose log the caller keeps in place under its write lease. */
+  private async snapshotOf(id: SessionId): Promise<SessionPersistenceSnapshot> {
+    const snapshot = await this.stat(id)
+    /* v8 ignore next -- the caller's write lease keeps the stored log in place */
+    if (snapshot === undefined) throw new SessionPersistenceNotFoundError(id)
+    return snapshot
+  }
+
+  /** Release a relocation's leases and in-process claim, then drop cached state keyed by its old location. */
+  private async releaseRelocation(id: SessionId, leases: readonly SessionWriteLease[]): Promise<Error | undefined> {
+    const failures: unknown[] = []
+    for (const lease of [...leases].reverse()) {
+      try {
+        await lease.release()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+    }
+    this.tracker.releaseClaim(id)
+    this.coldLogMemo.delete(id)
+    const preparation = this.migrationPreparations.get(id)
+    this.migrationPreparations.delete(id)
+    preparation?.controller.abort()
+    return failures.length > 0 ? new AggregateError(failures, `session "${id}": relocation could not release its write locks`) : undefined
+  }
+
+  /** Create the target session directory durably before its lock file appears. */
+  private async ensureTargetDirectory(dir: string): Promise<void> {
+    /* v8 ignore start -- native Windows coverage exercises this platform branch; POSIX covers the peer */
+    if (process.platform === 'win32') {
+      await ensureDurableDirectoryWin32(dir)
+      return
+    }
+    /* v8 ignore stop */
+    await mkdir(dirname(dir), { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(this.root)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(dirname(dir))
   }
 
   // --- handle-facing storage internals (package-private via the handle class below) ---
@@ -1603,10 +1761,21 @@ class JsonlSessionPersistence extends SessionPersistence {
     return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
-  /** Reject a root that already belongs to the other physical encoding. */
+  /**
+   * Settle relocations left by earlier processes, then reject a root that
+   * already belongs to the other physical encoding. Runs once, at this
+   * backend's first operation; relocation recovery never rejects.
+   */
   private ensureRootEncoding(): Promise<void> {
-    this.rootEncodingCheck ??= this.checkRootEncoding()
+    this.rootEncodingCheck ??= this.initializeRoot()
     return this.rootEncodingCheck
+  }
+
+  private async initializeRoot(): Promise<void> {
+    await this.relocation.sweep(this.root, this.compression, (message) => {
+      this.ctx.logger.warn(`${this.name}: ${message}`)
+    })
+    await this.checkRootEncoding()
   }
 
   private async checkRootEncoding(): Promise<void> {
