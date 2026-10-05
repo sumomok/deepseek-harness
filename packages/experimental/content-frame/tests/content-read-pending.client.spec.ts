@@ -11,6 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { PendingCalls, type CallSettlement, type CallTimeouts } from '../src/access/pending.ts'
 import { HIDDEN_CLAIM_GRACE_MS, PREFERRED_TAB_WINDOW_MS, type ReadOutcome } from '../src/access/wire.ts'
 
@@ -34,7 +35,7 @@ afterEach(() => {
 
 /** Open one wait and hand back the promise plus a way to see it settle. */
 function open(callId: string, sessionId = 'session_1'): Promise<CallSettlement> {
-  return table.open(callId, sessionId, aborter.signal, TIMEOUTS)
+  return table.open(callId, SessionId(sessionId), aborter.signal, TIMEOUTS)
 }
 
 describe('the claim window', () => {
@@ -48,7 +49,7 @@ describe('the claim window', () => {
   it('hands the claiming tab the entry the column had in front when the wait opened', async () => {
     // The wait opens once the call has been approved, so this is the entry the
     // user was looking at when they agreed; the seat holds the column to it.
-    const settled = table.open('call_1', 'session_1', aborter.signal, TIMEOUTS, { id: 'home', title: 'Home' })
+    const settled = table.open('call_1', SessionId('session_1'), aborter.signal, TIMEOUTS, { id: 'home', title: 'Home' })
     expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' }))
       .toEqual({ claimed: true, page: { id: 'home', title: 'Home' } })
     table.report({ callId: 'call_1', tabId: 'tab_a', outcome: OUTCOME })
@@ -279,5 +280,27 @@ describe('the preferred tab', () => {
     expect(await table.claim({ callId: 'call_late', tabId: 'tab_b' })).toEqual({ claimed: true })
     table.report({ callId: 'call_late', tabId: 'tab_b', outcome: OUTCOME })
     await settled
+  })
+})
+
+describe('the session a call id names', () => {
+  it('names the session of a waiting call, and of a settled one while it is remembered', async () => {
+    expect(table.sessionOf('call_1')).toBeUndefined()
+    const settled = open('call_1', 'session_2')
+    expect(table.sessionOf('call_1')).toBe('session_2')
+    await table.claim({ callId: 'call_1', tabId: 'tab_a' })
+    expect(table.sessionOf('call_1')).toBe('session_2')
+    table.report({ callId: 'call_1', tabId: 'tab_a', outcome: OUTCOME })
+    await settled
+    expect(table.sessionOf('call_1')).toBe('session_2')
+  })
+
+  it('forgets the session of a settled call once the call itself is forgotten', async () => {
+    for (let index = 0; index <= 64; index += 1) {
+      const settled = open(`call_${index}`, `session_${index}`)
+      await vi.advanceTimersByTimeAsync(TIMEOUTS.claimTimeoutMs)
+      await settled
+    }
+    expect([table.sessionOf('call_0'), table.sessionOf('call_64')]).toEqual([undefined, 'session_64'])
   })
 })

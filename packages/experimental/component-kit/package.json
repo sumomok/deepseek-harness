@@ -72,8 +72,10 @@
     "@deepseek-ai/dsh-experimental-auth-gate": "workspace:*",
     "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
     "@deepseek-ai/dsh-experimental-component-surface": "workspace:*",
+    "@deepseek-ai/dsh-experimental-console-members": "workspace:*",
     "@deepseek-ai/dsh-experimental-vue2-echarts-poc": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@types/react": "~18.3.1",
     "react": "^18.2.0"
   },

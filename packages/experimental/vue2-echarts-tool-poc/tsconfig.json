@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
       "path": "../../attachment/attachment"
     },
     {
@@ -52,6 +55,9 @@
     },
     {
       "path": "../../session/session-projection"
+    },
+    {
+      "path": "../console-members"
     },
     {
       "path": "../content-column"

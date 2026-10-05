@@ -29,6 +29,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves ctx.contentSurface for the optional extractor child.
 import type {} from '@deepseek-ai/dsh-experimental-content-surface'
+import { placeEveryReporter, placeReporterByMember, reportDirectoryMismatch } from './members.ts'
 import { PendingCharts } from './pending.ts'
 import { showChartsProjection } from './projection.ts'
 import { chartExtractor } from './surface.ts'
@@ -87,6 +88,18 @@ export interface Config {
    * image tokens on every call.
    */
   screenshot?: boolean
+  /**
+   * Take each render report only for the console member whose session the
+   * call runs in. Which member sent a request and which member a session
+   * belongs to are the `consoleMembers` service's answers, and this row reads
+   * no identity header of its own: before reading a body, the report route
+   * answers 503 while that service is not running and 401 when it places the
+   * request with nobody, and a report naming another member's call, a call of
+   * a session that belongs to nobody, or a call made outside any agent is
+   * answered as one naming a call nothing is waiting on. The default is false,
+   * which takes every report for every call, for a process serving one person.
+   */
+  perMember?: boolean
 }
 
 /** Largest `option` accepted when a deployment configures none. */
@@ -101,6 +114,7 @@ export const Config: z<Config> = z.object({
   maxPoints: z.natural().default(DEFAULT_MAX_POINTS),
   verdictTimeoutMs: z.natural().default(DEFAULT_VERDICT_TIMEOUT_MS),
   screenshot: z.boolean().default(false),
+  perMember: z.boolean().default(false),
 })
 
 /**
@@ -195,6 +209,9 @@ export function apply(ctx: Context, config: Config): void {
   }
   const pending = new PendingCharts()
   const settings: ShowChartSettings = { screenshot: policy.screenshot }
+  const perMember = config.perMember === true
+  const place = perMember ? placeReporterByMember(ctx) : placeEveryReporter
+  reportDirectoryMismatch(ctx, perMember, ctx.logger('show-chart'))
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -219,6 +236,11 @@ export function apply(ctx: Context, config: Config): void {
         return
       }
       if (rejectUntrustedReport(req, res)) return
+      const reporter = place(req)
+      if (reporter.kind === 'refused') {
+        answerJson(res, reporter.status, { error: reporter.error })
+        return
+      }
       // A capture is a whole PNG in base64, so the bound follows the store's own
       // per-image ceiling; with screenshots off nothing legitimate carries one.
       const imageBytes = policy.screenshot ? ctx.get('attachments')?.imageLimits.maxImageBytes ?? 0 : 0
@@ -227,7 +249,7 @@ export function apply(ctx: Context, config: Config): void {
         answerJson(res, 400, { error: 'show-chart: expected a JSON body with callId and verdict' })
         return
       }
-      const ack: ShowChartReportAck = { accepted: pending.report(report) }
+      const ack: ShowChartReportAck = { accepted: reporter.owns(pending.sessionOf(report.callId)) && pending.report(report) }
       answerJson(res, 200, ack)
     },
   }), 'show-chart: render report route')

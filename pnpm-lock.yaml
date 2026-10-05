@@ -8066,12 +8066,18 @@ importers:
       '@deepseek-ai/dsh-experimental-component-surface':
         specifier: workspace:*
         version: link:../component-surface
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
         specifier: workspace:*
         version: link:../vue2-echarts-poc
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:*
+        version: link:../../core/session
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -8513,6 +8519,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:*
         version: link:../../attachment/attachment
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../../client/locale
@@ -8540,6 +8549,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../../interaction/commands
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-content-column':
         specifier: workspace:*
         version: link:../content-column
@@ -9403,6 +9415,9 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:*
         version: link:../../attachment/attachment
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:*
         version: link:../../client/connection
@@ -9427,6 +9442,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-tool':
         specifier: workspace:*
         version: link:../../client/ui-tool
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-content-column':
         specifier: workspace:*
         version: link:../content-column

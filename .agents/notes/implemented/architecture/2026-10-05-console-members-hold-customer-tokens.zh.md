@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-**成员 id 以签名断言进入 Host，只有成员目录读它。** 部署方的登录门用部署方的认证服务核验每位访客的 token，删掉客户端自带的成员头，再往它转给 dsh 的每个请求里注入一枚现签的成员身份断言，载荷是核验出的 `login_uid`。`@deepseek-ai/dsh-experimental-console-members` 的 `consoleMembers` 服务在连接准入时用部署方的公钥核验这枚断言，为 webServer 路由回答 `principalOfRequest(req)`，为会话回答 `principalOfSession(sessionId)`，其中子会话归它的最上层会话所属的那位成员。本 fork 的路由只问 `principalOfRequest`，此外什么也不做：不读任何身份头，也不调 `connection.admit`。
+**成员 id 以签名断言进入 Host，只有成员目录读它。** 部署方的登录门用部署方的认证服务核验每位访客的 token，删掉客户端自带的成员头，再往它转给 dsh 的每个请求里注入一枚现签的成员身份断言，载荷是核验出的 `login_uid`。`@deepseek-ai/dsh-experimental-console-members` 的 `consoleMembers` 服务在连接准入时用部署方的公钥核验这枚断言，为 webServer 路由回答 `principalOfRequest(req)`，为会话回答 `principalOfSession(sessionId)`，其中子会话归它的最上层会话所属的那位成员。本 fork 的路由只问 `principalOfRequest`，此外什么也不做：不读任何身份头，也不调 `connection.admit`。页面读取与图表汇报路由还拿 `principalOfSession` 核对一次投递所点名的调用，见[裸路由 Note](2026-10-05-console-bare-routes-answer-only-the-call-owner.zh.md)。
 
 **单点登录闸按成员各持一枚客户 token。** 开了 `perMember` 后，auth-gate 的 node 半边在内存里保存一个 `Map<PrincipalKey, string>`。token 路由在读正文之前经 `consoleMembers` 认出发送者——没有成员目录在跑时答 503，认不出是谁时答 401——并且只有当投递的 token 的 `principalClaim` 声明（toy-core 写 `login_uid`）点名的正是这位成员时才持有它，否则答 409。声明按签名代理的规则读出，于是 19 位的数字 id 按数字串比对。[登出路由 Note](2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.zh.md) 里的那条登出路由丢掉发送者自己的那一枚。`ctx.bizBackend` 经同一个成员目录解析每次读取的主体，成员目录归不到任何人的主体解析不到任何槽，绝不会解析到别的成员的槽，也不会解析到替整个进程持有的那一个。`perMember` 下 MCP 转发在加载时被拒，因为转发请求来自进程内的 MCP 客户端，点不出是哪位成员。缺省的 `perMember: false` 仍为整个进程持有一枚 token。
 

@@ -5,14 +5,15 @@
  * (`@deepseek-ai/dsh-experimental-server-sidebar`), which keeps a literal copy
  * of this path the way it already keeps `content-frame`'s, and nothing else
  * addresses it. A browser half receives no cordis config — the boot manifest
- * carries plugin names, not their `config` blocks — so a configured catalog a
- * browser must know about has to be served to it.
+ * carries plugin names, not their `config` blocks — so the catalog a browser
+ * must know about has to be served to it.
  *
- * The document is the catalog and nothing more. A view's spec never travels
- * this route: what a click puts in the column is appended by the command, on
- * the host, out of the same index this route lists — so a page cannot ask for
- * a view the deployment did not configure, and the spec has exactly one way in
- * (see `view-command.ts`).
+ * The document is the catalog and nothing more: the views the view registry
+ * holds, whether the deployment configured them or a skill pack shipped them.
+ * A view's spec never travels this route: what a click puts in the column is
+ * appended by the command, on the host, out of the same index this route lists
+ * — so a page cannot ask for a view the registry does not hold, and the spec
+ * has exactly one way in (see `view-command.ts`).
  * @module @deepseek-ai/dsh-experimental-component-surface/src/route
  */
 
@@ -45,9 +46,11 @@ export interface ComponentViewsDocument {
 /**
  * Build the route that answers one already-resolved catalog.
  *
- * The document is captured at load and never recomputed: its values come from
- * the row's own config, which cannot change without a reload, so every request
- * for the life of the process has the same answer.
+ * The document is fixed for the life of the route it builds. Whenever the view
+ * registry changes, a configured view or a pack's view added or withdrawn,
+ * `installViews` in `index.ts` withdraws this route and registers a new one
+ * over the new index, so a request reads the registry as it stood when the
+ * route serving it was registered.
  * @param document - the catalog to serve, built from the resolved view index.
  * @returns the route to hand to `ctx.webServer.register`.
  */

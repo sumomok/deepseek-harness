@@ -192,7 +192,7 @@ export function showChartTool(ctx: Context, policy: ShowChartPolicy, pending: Pe
         ?? validateChartOption(args.option as ChartOptionArgument, policy)
       if (refusal !== undefined) throw new Error(refusal)
 
-      const report = await pending.settle(exec.callId, policy.verdictTimeoutMs, exec.signal)
+      const report = await pending.settle(exec.callId, exec.agent?.session.header.id, policy.verdictTimeoutMs, exec.signal)
       if (report === undefined) {
         return { status: 'unverified', text: unverifiedText(policy.verdictTimeoutMs) }
       }

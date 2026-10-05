@@ -24,7 +24,7 @@
 
 import { Buffer } from 'node:buffer'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { PendingCalls } from './pending.ts'
+import { REPORT_REFUSED, type PendingCalls } from './pending.ts'
 import { imageStoreRefusal } from './text.ts'
 import type { ImageCapture, ImageReportRequest, ReadOutcome, ReportAck } from './wire.ts'
 
@@ -98,7 +98,7 @@ export async function settleImageReport(
   pending: PendingCalls,
   report: ImageReportRequest,
 ): Promise<ReportAck> {
-  if (!pending.reserveReport(report.callId, report.tabId)) return { accepted: false }
+  if (!pending.reserveReport(report.callId, report.tabId)) return REPORT_REFUSED
   const outcome = report.capture.status === 'error'
     ? report.capture
     : await storeCapture(attachments, report.capture)

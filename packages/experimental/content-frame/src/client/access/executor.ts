@@ -261,13 +261,12 @@ type Posted<T> =
  * Post one document to a read route.
  *
  * A refusal and a post that never landed are different endings, and only the
- * statuses the routes themselves refuse with — {@link ROUTE_REFUSAL_STATUSES} —
- * are the first. Those the route answers this exact document with however many
- * times it is sent, so there is nothing to gain by sending it again. Every
- * other ending is worth one more try, including the rest of the 4xx range: a
- * reverse proxy refreshing a token answers 401 and a rate limiter answers 429,
- * neither of which has read the document, and treating those as final would end
- * a read the next post would have completed.
+ * statuses in {@link ROUTE_REFUSAL_STATUSES} are the first: the route answers
+ * this exact document with one of those however many times it is sent, so
+ * there is nothing to gain by sending it again. Every other ending, the rest of
+ * the 4xx range included, says nothing about the document and is worth one
+ * more try, and treating one as final would end a read the next post would
+ * have completed. That list's documentation names what answers the rest.
  *
  * The address is resolved here rather than written into the route constants,
  * because the two halves need different ones: the node half registers these

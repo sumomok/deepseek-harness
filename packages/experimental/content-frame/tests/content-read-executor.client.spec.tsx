@@ -733,9 +733,9 @@ describe('what the reader reports', () => {
   })
 
   it('posts the read a second time when the first report never landed, and no third', async () => {
-    // A server failure and a rate limiter's answer alike: neither has read the
-    // document, so neither is the route deciding about it.
-    for (const fate of [SERVER_FAILURE, 'unreachable', RATE_LIMITED] as const) {
+    // A server failure, a token refresh, and a rate limiter's answer alike: none
+    // has read the document, so none is the route deciding about it.
+    for (const fate of [SERVER_FAILURE, 'unreachable', TOKEN_REFRESH, RATE_LIMITED] as const) {
       posted = []
       fates.set(CONTENT_REPORT_ROUTE, [fate])
       const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
@@ -997,33 +997,34 @@ describe('what the reader reports', () => {
     // One-byte text, where the character bound is the tighter of the two: the
     // envelope puts the byte bound 22,528 above four times the budget, so a
     // listing of ASCII can pass what the whole body is held to and still be
-    // past what the parser takes for `text`. At 70 characters a column that
-    // happens at 680 columns, and 679 is the last one taken.
-    const inside = readTable(wideTable(679, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
+    // past what the parser takes for `text`. Read at the floor budget, where
+    // the table is smallest: at 70 characters a column that happens at 52
+    // columns, and 51 is the last one taken.
+    const inside = readTable(wideTable(51, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
     expect({
       chars: outcome.snapshot.text.length,
       body: reportedBytes(),
-      charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
-      byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-    }).toEqual({ chars: 47931, body: 50909, charBound: 48000, byteBound: 70528 })
+      charBound: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      byteBound: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
+    }).toEqual({ chars: 3970, body: 4436, charBound: 4000, byteBound: 26528 })
     inside.unmount()
 
     posted = []
-    const past = readTable(wideTable(680, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
+    const past = readTable(wideTable(52, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
     past.unmount()
 
     // Which half that was, read off the same table rather than written out: a
-    // budget of 20,000 characters takes it on both — 80,000 characters and
-    // 102,528 bytes — so it is posted, and what it costs there is past the
-    // shipped budget's character bound while the whole report is inside that
+    // budget of 2,000 characters takes it on both — 8,000 characters and
+    // 30,528 bytes — so it is posted, and what it costs there is past the
+    // floor budget's character bound while the whole report is inside that
     // budget's byte bound.
     posted = []
-    const taken = readTable(wideTable(680, 'c', 'P'.repeat(300)), 20000)
+    const taken = readTable(wideTable(52, 'c', 'P'.repeat(300)), 2000)
     await settled()
     const listing = reported()
     if (listing.status !== 'ok') throw new Error('the reader answered a failure')
@@ -1032,9 +1033,9 @@ describe('what the reader reports', () => {
     expect({
       chars,
       body,
-      pastCharBound: chars > DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
-      insideByteBound: body <= DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-    }).toEqual({ chars: 48001, body: 50983, pastCharBound: true, insideByteBound: true })
+      pastCharBound: chars > MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      insideByteBound: body <= MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
+    }).toEqual({ chars: 4040, body: 4510, pastCharBound: true, insideByteBound: true })
     taken.unmount()
   })
 

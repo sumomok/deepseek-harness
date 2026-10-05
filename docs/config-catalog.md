@@ -1336,7 +1336,7 @@ export interface ServerAuthRequest {
 ## `@deepseek-ai/dsh-experimental-content-frame`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/content-frame/src/index.ts:84`](../packages/experimental/content-frame/src/index.ts)
+- `source`: [`packages/experimental/content-frame/src/index.ts:85`](../packages/experimental/content-frame/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the hosted application, and the pages the agent may show from it. */
@@ -1425,6 +1425,20 @@ export interface Config {
    * default below.
    */
   pageAccess?: PageAccessConfig
+  /**
+   * Answer each page-read post only for the console member whose session the
+   * call is against. Which member sent a request and which member a session
+   * belongs to are the `consoleMembers` service's answers, and this row reads
+   * no identity header of its own: before reading a body, the claim, report,
+   * and picture routes answer 503 while that service is not running and 401
+   * when it places the request with nobody, and a post naming another member's
+   * call, or a call of a session that belongs to nobody, is answered as one
+   * naming a call this host does not know. Only those three routes read it, so
+   * a row setting it without {@link Config.pageAccess} is refused at load. The
+   * default is false, which answers every post for every session, for a
+   * process serving one person.
+   */
+  perMember?: boolean
 }
 
 /** One page the agent may put in the content column. */
@@ -2045,7 +2059,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc`
 
 - `inject`: `webServer`
-- `source`: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:63`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
+- `source`: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:64`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the bounds one deployment puts on a model-supplied chart. */
@@ -2076,6 +2090,18 @@ export interface Config {
    * image tokens on every call.
    */
   screenshot?: boolean
+  /**
+   * Take each render report only for the console member whose session the
+   * call runs in. Which member sent a request and which member a session
+   * belongs to are the `consoleMembers` service's answers, and this row reads
+   * no identity header of its own: before reading a body, the report route
+   * answers 503 while that service is not running and 401 when it places the
+   * request with nobody, and a report naming another member's call, a call of
+   * a session that belongs to nobody, or a call made outside any agent is
+   * answered as one naming a call nothing is waiting on. The default is false,
+   * which takes every report for every call, for a process serving one person.
+   */
+  perMember?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc -->

@@ -52,6 +52,7 @@ Every package must be resolvable from the profile directory, which for an out-of
 | `maxPoints` | `2000` | Largest total of `series[i].data` entries. The tool description states the configured value. |
 | `verdictTimeoutMs` | `8000` | How long the call waits for a browser to report what it painted. |
 | `screenshot` | `false` | Whether the painted chart is captured as a PNG and returned to the model as an image block. |
+| `perMember` | `false` | Whether a render report is taken only from the console member whose session the call runs in; see [Trust](#trust). |
 
 <a id="the-three-feedback-layers"></a>
 ## The three feedback layers
@@ -105,6 +106,8 @@ Everything else passes through unchanged: a model writing ordinary ECharts is th
 
 The report route is same-site and JSON-only: a request a browser labels `sec-fetch-site: cross-site` is refused 403 and one that does not declare `application/json` is refused 415, both before the body is read, so a cross-origin page cannot post a verdict as a preflight-free simple request. Past that fence it accepts a verdict from anything that can reach the dsh origin, exactly as the rest of the HTTP API does; a report can only settle a call already waiting for one, and its worst outcome is a wrong verdict line on one chart the user is looking at.
 
+With `perMember`, a report is taken only from the member the call belongs to. Before reading the body the route asks `ctx.consoleMembers` which member sent the request: 503 while no such service is running, and 401 when it places the request with nobody. After reading it, the route looks up the session the waiting call runs in and asks the same service which member that session belongs to; a child session belongs to whoever its parent belongs to. A report naming another member's call, a call of a session that belongs to nobody, or a call made outside any agent gets `{ accepted: false }`, the answer a report naming no waiting call gets, with the same status and the same bytes. Once the Loader tree settles, a row with `perMember` and no member directory running, and a row without it beside a running directory, each log one error line.
+
 <a id="model-experience"></a>
 ## Model Experience
 
@@ -153,6 +156,8 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **The model is not told a chart was superseded** — the replacement is a browser-side render decision. The tool result of the older call is whatever it was when the call settled, and nothing revisits it.
 - **The projection grows with the session's chart calls** — one small entry per call, kept for the life of the session, and its `title` is carried as the model wrote it. Nothing trims either; a session that draws hundreds of charts pushes a correspondingly larger value to the browser.
 - **No interaction reaches the model** — a click, a legend toggle, or a zoom stays in the browser. The agent can put a chart in front of the user; it cannot learn what the user did with it.
+- **Under `perMember`, a call no member owns is verified by no console** — a call made outside any agent runs in no session, and a session the member directory places with nobody has no member, so every report for such a call is refused and the call answers unverified.
+- **Under `perMember`, two members' calls can share an id** — the id is the provider's, and a provider numbering its calls `call_1`, `call_2` can give two members' concurrent `show_chart` calls the same one. The host keeps one wait per id, so the later call's wait replaces the earlier one's: the earlier call answers unverified, and when its deadline ends it drops the later call's wait too, which then answers unverified unless its own member's report arrived first. Neither member's report settles the other's call.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition, and the model-visible text is pinned verbatim in unit tests; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
 <a id="dev-note"></a>
