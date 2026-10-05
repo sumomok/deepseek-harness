@@ -96,7 +96,7 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - 上行除了有界的 Host inbox 之外没有流控：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
 - `remote/invoke` 只覆盖 Remote 方法调用：Gateway 自有的 `$events` 流与 `$events/result`、Connection 的精确 Fetch 路由及其专用 RPC 通道都不经过它。
 - `remote/invoke` 没有上行钩子：`RemoteInvokeCall` 不暴露上行，Client 的上行项不经过监听器。
-- `RemoteInvokeCall` 不带载体的取消信号，监听器看不到客户端断开：监听器在调用 `next()` 之前的 await 期间载体中止时，`next()` 仍调用方法，方法读到的 `ctx.invocation.signal` 已经中止，Gateway 以方法的结果完成这次调用，不以取消使它失败。不检查 signal 的方法在客户端断开之后照常运行。
+- `RemoteInvokeCall` 不带载体的取消信号，监听器看不到客户端断开：监听器在调用 `next()` 之前的 await 期间载体中止时，`next()` 仍调用方法，方法读到的 `ctx.invocation.signal` 已经中止。一元调用随后以方法的结果完成，不以取消失败，不检查 signal 的一元方法在客户端断开之后照常运行。流调用在被读取时仍以取消失败，async generator 方法体不会运行。
 
 
 <a id="dev-note"></a>
