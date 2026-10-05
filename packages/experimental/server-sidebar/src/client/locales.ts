@@ -6,7 +6,10 @@
  * `temporary.untitled` in `UntitledTitle.tsx`), the conversation's rows for a
  * compaction that landed or failed (`CompactionRows.tsx`), and the notice and
  * the stop-and-remove confirmation in place of `dsh-client-ui-workspace`'s
- * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). No
+ * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`), the identity row's
+ * menu entry, and the organization notice card (`OrgNotice.tsx`), whose
+ * title, body, and category names are the organization's own text and come
+ * from no dictionary. No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -79,6 +82,23 @@ export const zh = {
   'avatar.namePlaceholder': '用户',
   'signOut.action': '退出登录',
   'identityMenu.org': '组织',
+  'orgNotice.collects': '收集的内容',
+  'orgNotice.sentTo': '发往「{org}」',
+  'orgNotice.sentToUnnamed': '发往你所在的组织',
+  'orgNotice.viewers': '可以查看的人',
+  'orgNotice.viewers.self': '只有你本人',
+  'orgNotice.viewers.selfAndAdmins': '你本人和「{org}」的管理员',
+  'orgNotice.viewers.selfAndAdminsUnnamed': '你本人和组织的管理员',
+  'orgNotice.retention': '保留时间',
+  'orgNotice.retentionDays.one': '{n} 天',
+  'orgNotice.retentionDays.other': '{n} 天',
+  'orgNotice.contact': '联系方式：{contact}',
+  'orgNotice.policy': '查看完整说明',
+  'orgNotice.whereLater': '以后可以在 设置 → 组织 里再看这份说明',
+  'orgNotice.acknowledge': '知道了',
+  'orgNotice.consent': '同意',
+  'orgNotice.dismiss': '稍后',
+  'orgNotice.consentFailed': '没有记下你的同意，请稍后再试',
   'brand.name.fallback': '工作台小助手',
   'compaction.completed': '已压缩较早的对话',
   'compaction.failed': '较早的对话压缩失败',
@@ -154,6 +174,23 @@ export const en = {
   'avatar.namePlaceholder': 'User',
   'signOut.action': 'Sign out',
   'identityMenu.org': 'Organization',
+  'orgNotice.collects': 'What is collected',
+  'orgNotice.sentTo': 'Sent to “{org}”',
+  'orgNotice.sentToUnnamed': 'Sent to your organization',
+  'orgNotice.viewers': 'Who can view it',
+  'orgNotice.viewers.self': 'Only you',
+  'orgNotice.viewers.selfAndAdmins': 'You and the administrators of “{org}”',
+  'orgNotice.viewers.selfAndAdminsUnnamed': 'You and your organization’s administrators',
+  'orgNotice.retention': 'How long it is kept',
+  'orgNotice.retentionDays.one': '{n} day',
+  'orgNotice.retentionDays.other': '{n} days',
+  'orgNotice.contact': 'Contact: {contact}',
+  'orgNotice.policy': 'Read the full policy',
+  'orgNotice.whereLater': 'You can read this again in Settings → Organization',
+  'orgNotice.acknowledge': 'Got it',
+  'orgNotice.consent': 'I agree',
+  'orgNotice.dismiss': 'Later',
+  'orgNotice.consentFailed': 'Your agreement wasn’t recorded. Try again shortly.',
   'brand.name.fallback': 'Workbench Assistant',
   'compaction.completed': 'Earlier conversation compacted',
   'compaction.failed': 'Couldn’t compact the earlier conversation',

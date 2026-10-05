@@ -33,6 +33,8 @@ import { WithheldRenameDialog } from '../src/client/withheld-rename.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import { SettingsOpenerSeat, type SettingsOpenerSeatInjected } from '../src/client/settings-opener.ts'
 import { ORG_SECTION_ID } from '../src/client/org-section.ts'
+import { OrgNotice, type OrgNoticeInjected } from '../src/client/OrgNotice.tsx'
+import { DISCLOSURE } from './fixtures/org-notice-port.client.ts'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -174,6 +176,35 @@ function declareSlots(ctx: Context): void {
   )
 }
 
+/** The locale service's snapshot face, and a switch a test turns. */
+interface BenchLocale {
+  getSnapshot: () => { active: string }
+  subscribe: (listener: () => void) => () => void
+  /** Switch the active locale and tell subscribers. */
+  set: (active: string) => void
+}
+
+/**
+ * A locale snapshot face over one active locale.
+ * @param active - the first active locale.
+ * @returns the face and its switch.
+ */
+function benchLocale(active: string): BenchLocale {
+  let snapshot = { active }
+  const listeners = new Set<() => void>()
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    set: (next) => {
+      snapshot = { active: next }
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
 /** Boot the browser half over a real slot tree, with every service it calls stubbed. */
 async function bench(
   options: {
@@ -195,6 +226,8 @@ async function bench(
     dictionary?: Readonly<Record<string, string>>
     /** What this package's own menu route answers the first read, in place of one saved workflow. */
     menuRead?: { ok?: boolean; status?: number; body: unknown }
+    /** The locale service's active locale; `en` by default. */
+    locale?: BenchLocale
   } = {},
 ): Promise<BenchResult> {
   stubFetch({
@@ -265,7 +298,8 @@ async function bench(
     ? (key: string, values: Record<string, string> = {}) => (dictionary[key] ?? key)
       .replace(/\{(\w+)\}/gu, (_slot, name: string) => values[name] ?? '')
     : options.echoLocale === true ? (key: string) => key : () => ''
-  ctx.provide('locale', { register: () => () => {}, bind: () => lookup } as never)
+  const locale = options.locale ?? benchLocale('en')
+  ctx.provide('locale', { register: () => () => {}, bind: () => lookup, getSnapshot: locale.getSnapshot, subscribe: locale.subscribe } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber, workspaces, uiWorkspace, sessions, remote, cancel }
@@ -960,6 +994,216 @@ describe('server-sidebar browser half: settings opener and organization section'
     expect(openerSeat(ctx)).toBeDefined()
     await fiber.dispose()
     expect(ctx.slots.entries('settings.trigger.action')).toHaveLength(0)
+  })
+})
+
+/** The wire form of the fixture disclosure, with the fields the card does not read. */
+const WIRE_DISCLOSURE = { ...DISCLOSURE, version: 4, acceptance: 'member' }
+
+/**
+ * A notice namespace whose methods answer as the gateway's namespace service
+ * does: a `RemoteResult` envelope per call.
+ * @param answers - each method's answer, or a refusal envelope.
+ * @returns the namespace service and its method spies.
+ */
+function noticeNamespace(answers: {
+  due?: unknown
+  markSeen?: unknown
+  confirm?: unknown
+} = {}) {
+  const ok = (value: unknown) => Promise.resolve({ ok: true, value })
+  return {
+    due: vi.fn(() => ok(answers.due ?? { kind: 'none' })),
+    markSeen: vi.fn((_version: number) => ok(answers.markSeen ?? { kind: 'recorded' })),
+    confirm: vi.fn((_version: number) => ok(answers.confirm ?? { kind: 'accepted', version: 1 })),
+  }
+}
+
+/**
+ * The notice card's stored entry.
+ * @param ctx - the bench context.
+ * @returns the entry this package registered in `shell.overlay` for the notice, if any.
+ */
+function noticeEntry(ctx: Context): ReturnType<Context['slots']['entries']>[number] | undefined {
+  return ctx.slots.entries('shell.overlay').find(entry => entry.options.id === 'server-sidebar.org-notice')
+}
+
+/**
+ * The notice card's injected face.
+ * @param ctx - the bench context.
+ * @returns the face the card's inject factory hands it.
+ */
+function noticeFace(ctx: Context): OrgNoticeInjected {
+  const face: unknown = noticeEntry(ctx)?.inject?.()
+  if (!isNoticeFace(face)) throw new Error('the notice card is not registered')
+  return face
+}
+
+/**
+ * Narrow an inject factory's result to the notice card's face.
+ * @param value - the factory's result.
+ * @returns whether it carries the card's hooks and its three actions.
+ */
+function isNoticeFace(value: unknown): value is OrgNoticeInjected {
+  return typeof value === 'object' && value !== null && typeof Reflect.get(value, 'hooks') === 'object'
+    && ['acknowledge', 'later', 'consent'].every(action => typeof Reflect.get(value, action) === 'function')
+}
+
+/** Wait for every queued promise reaction to run. */
+const settled = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
+
+/**
+ * Mount a notice namespace, as the organization plugin's browser half does,
+ * and let the sub-plugin waiting for it start.
+ * @param ctx - the bench context.
+ * @param namespace - the `remote.sumomokOrgNotice` service.
+ */
+async function mountNamespace(ctx: Context, namespace: object): Promise<void> {
+  ctx.provide('remote.sumomokOrgNotice', namespace as never)
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
+  else await settled()
+}
+
+/**
+ * Set the page's visibility and announce it, as a browser does on a tab switch.
+ * @param state - the visibility to report.
+ */
+function setVisibility(state: DocumentVisibilityState): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
+describe('server-sidebar browser half: organization notice', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'visibilityState')
+    vi.restoreAllMocks()
+  })
+
+  it('registers no card while the organization plugin mounts no notice namespace', async () => {
+    const { ctx } = await bench()
+    expect(noticeEntry(ctx)).toBeUndefined()
+  })
+
+  it('registers the card in this package\'s locale once the namespace is mounted, and asks it at once', async () => {
+    const { ctx } = await bench()
+    const namespace = noticeNamespace({ due: { kind: 'notice', version: 2, disclosure: {} } })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await mountNamespace(ctx, namespace)
+    const entry = noticeEntry(ctx)
+    expect(entry?.component).toBe(OrgNotice)
+    expect(entry?.locale).toBe('serverSidebar')
+    expect(namespace.due).toHaveBeenCalledOnce()
+    await settled()
+    // The answer has no readable disclosure: nothing shows, and the field is named once.
+    expect(noticeFace(ctx).hooks.orgNotice.getSnapshot().shown).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(
+      'server-sidebar: the organization notice could not be read:',
+      expect.objectContaining({ field: 'disclosure.categories' }),
+    )
+  })
+
+  it('shows what the namespace answers, and sends what the member does with it', async () => {
+    const { ctx } = await bench()
+    const namespace = noticeNamespace({ due: { kind: 'consent', version: 4, disclosure: WIRE_DISCLOSURE } })
+    await mountNamespace(ctx, namespace)
+    await settled()
+    const face = noticeFace(ctx)
+    expect(face.hooks.orgNotice.getSnapshot().shown?.kind).toBe('consent')
+    face.consent()
+    await settled()
+    expect(namespace.confirm).toHaveBeenCalledWith(4)
+    expect(face.hooks.orgNotice.getSnapshot().shown).toBeUndefined()
+    namespace.due.mockImplementation(() => Promise.resolve({ ok: true, value: { kind: 'notice', version: 5, disclosure: WIRE_DISCLOSURE } }))
+    ctx.emit('connection/reset')
+    await settled()
+    face.acknowledge()
+    expect(namespace.markSeen).toHaveBeenCalledWith(5)
+    namespace.due.mockImplementation(() => Promise.resolve({ ok: true, value: { kind: 'consent', version: 6, disclosure: WIRE_DISCLOSURE } }))
+    ctx.emit('connection/reset')
+    await settled()
+    face.later()
+    expect(face.hooks.orgNotice.getSnapshot().shown).toBeUndefined()
+  })
+
+  it('asks again on reconnection and when the page becomes visible, not when it is hidden', async () => {
+    const { ctx } = await bench()
+    const namespace = noticeNamespace()
+    await mountNamespace(ctx, namespace)
+    ctx.emit('connection/reset')
+    expect(namespace.due).toHaveBeenCalledTimes(2)
+    setVisibility('hidden')
+    expect(namespace.due).toHaveBeenCalledTimes(2)
+    setVisibility('visible')
+    expect(namespace.due).toHaveBeenCalledTimes(3)
+  })
+
+  it('asks again once a wait\'s delay has passed', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx } = await bench()
+      const namespace = noticeNamespace({ due: { kind: 'pending', retryAfterMs: 1000 } })
+      await mountNamespace(ctx, namespace)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(namespace.due).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('places the card by the foot band the sidebar measures, and shows the disclosure in the page\'s language', async () => {
+    const locale = benchLocale('zh')
+    const { ctx } = await bench({ locale })
+    await mountNamespace(ctx, noticeNamespace())
+    const { hooks } = noticeFace(ctx)
+    const { injected } = injectSidebar(ctx)
+    const placement = { left: 0, width: 210, bottom: 60 }
+    injected.onFootPlacement(placement)
+    expect(hooks.footPlacement.getSnapshot()).toBe(placement)
+    const changed = vi.fn()
+    hooks.language.subscribe(changed)
+    expect(hooks.language.getSnapshot()).toBe('zh')
+    locale.set('en')
+    expect(changed).toHaveBeenCalledOnce()
+    expect(hooks.language.getSnapshot()).toBe('en')
+    locale.set('ja')
+    expect(hooks.language.getSnapshot()).toBe('en')
+  })
+
+  it('reports a kind it does not know once, and shows nothing for it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench()
+    await mountNamespace(ctx, noticeNamespace({ due: { kind: 'reminder' } }))
+    await settled()
+    ctx.emit('connection/reset')
+    await settled()
+    expect(warn.mock.calls).toEqual([[
+      'server-sidebar: the organization notice answer has a kind the page does not know ("reminder"), so nothing is shown',
+    ]])
+    expect(noticeFace(ctx).hooks.orgNotice.getSnapshot().shown).toBeUndefined()
+  })
+
+  it('registers no card, and says why, for a namespace without one of the three methods', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench()
+    await mountNamespace(ctx, { due: vi.fn(), markSeen: vi.fn() })
+    expect(noticeEntry(ctx)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith('server-sidebar: the organization notice namespace has no confirm method, so no notice is shown')
+  })
+
+  it('removes the card, stops asking, and drops the page listener on teardown (HMR safety)', async () => {
+    vi.useFakeTimers()
+    try {
+      const { ctx, fiber } = await bench()
+      const namespace = noticeNamespace({ due: { kind: 'pending', retryAfterMs: 1000 } })
+      await mountNamespace(ctx, namespace)
+      await fiber.dispose()
+      expect(noticeEntry(ctx)).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(5000)
+      setVisibility('visible')
+      expect(namespace.due).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

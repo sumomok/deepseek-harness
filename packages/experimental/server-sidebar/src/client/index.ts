@@ -67,7 +67,9 @@
  * `settings.trigger.action` with a seat that renders nothing and hands the
  * sidebar the settings shell's section opener (`settings-opener.ts`), which
  * the identity row's menu uses to open the organization plugin's section
- * (`org-section.ts`).
+ * (`org-section.ts`). A thirteenth, registered only once the organization
+ * plugin mounts its notice Remote, shows that plugin's disclosure as a card
+ * in `shell.overlay` (`org-notice-remote.ts`, `OrgNotice.tsx`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -109,6 +111,8 @@ import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
 import { createSettingsOpenerSource, SettingsOpenerSeat, type SettingsOpenerSeatInjected } from './settings-opener.ts'
 import { createOrgSectionSource } from './org-section.ts'
+import { createFootPlacementSource } from './foot-placement.ts'
+import { installOrgNotice } from './org-notice-remote.ts'
 import { en, zh, type ServerSidebarKey, type ServerSidebarTranslate } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
@@ -243,6 +247,8 @@ export async function apply(ctx: ClientContext): Promise<void> {
     'server-sidebar: settings opener seat',
   )
   const orgSection = createOrgSectionSource(ctx.slots)
+  const footPlacement = createFootPlacementSource()
+  installOrgNotice(ctx, NS, footPlacement)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),
@@ -380,6 +386,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // its doc), so there is nothing here to catch.
             void signOut(windowSignOutBrowser(ctx), authGate)
           },
+          onFootPlacement: footPlacement.publish,
           hooks: { displayName, settingsOpener, orgSection },
         }
       },

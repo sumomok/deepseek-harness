@@ -50,6 +50,7 @@ import {
 } from './workflow-actions.ts'
 import { ORG_SECTION_ID } from './org-section.ts'
 import type { SettingsOpener } from './settings-opener.ts'
+import { useFootPlacementReport, type FootPlacement } from './foot-placement.ts'
 import css from './ServerSidebarRoot.module.css'
 
 /**
@@ -201,6 +202,11 @@ export interface ServerSidebarInjected {
   ) => Promise<void>
   /** Sign the visitor out. Not awaited by the component: the page is leaving. */
   onSignOut: () => void
+  /**
+   * Where the column and its foot band are, measured at mount and on every
+   * resize, and `undefined` at unmount — see `client/foot-placement.ts`.
+   */
+  onFootPlacement: (placement: FootPlacement | undefined) => void
   hooks: {
     /**
      * Who the deployment's access token says is signed in, absent while
@@ -300,7 +306,7 @@ export type ServerSidebarRootComponentProps =
 export function ServerSidebarRoot({
   width, t, renderSlot,
   navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveMenu,
-  onOpenTemporary, onDismissTemporary, onSignOut,
+  onOpenTemporary, onDismissTemporary, onSignOut, onFootPlacement,
   useStore, actions, useSessions, useSessionStatus, useWorkspaces, useDisplayName, useSettingsOpener, useOrgSection,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
@@ -439,6 +445,8 @@ export function ServerSidebarRoot({
     }
   }, [pointerInside])
   /* jscpd:ignore-end */
+  const footArea = useRef<HTMLDivElement>(null)
+  useFootPlacementReport(column, footArea, onFootPlacement)
 
   return (
     <div
@@ -504,7 +512,7 @@ export function ServerSidebarRoot({
         />
       </div>
 
-      <div className={css.footArea}>
+      <div ref={footArea} className={css.footArea}>
         <div className={css.footerActions}>{renderSlot('sidebar.footer.action', { wide: true })}</div>
         <div className={css.identityRow} data-server-sidebar-section="identity">
           <div className={css.avatarRow}>

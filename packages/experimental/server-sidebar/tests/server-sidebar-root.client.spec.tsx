@@ -98,6 +98,7 @@ function mount(overrides: Partial<Bench> = {}) {
   const setGroupCollapsed = vi.fn()
   const setTemporaryExpanded = vi.fn()
   const onSignOut = vi.fn()
+  const onFootPlacement = vi.fn()
   const renderSlot = vi.fn((
     key: string,
     _owner: unknown,
@@ -132,6 +133,7 @@ function mount(overrides: Partial<Bench> = {}) {
       onOpenWorkbench={onOpenWorkbench}
       onOpenWorkflow={onOpenWorkflow} onSaveMenu={onSaveMenu}
       onOpenTemporary={onOpenTemporary} onDismissTemporary={onDismissTemporary} onSignOut={onSignOut}
+      onFootPlacement={onFootPlacement}
       useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(current.displayName)}
       useSettingsOpener={<S,>(sel: (opener: SettingsOpener | undefined) => S): S => sel(current.settingsOpener)}
       useOrgSection={<S,>(sel: (present: boolean) => S): S => sel(current.orgSection)}
@@ -207,6 +209,7 @@ function mount(overrides: Partial<Bench> = {}) {
     setGroupCollapsed,
     setTemporaryExpanded,
     onSignOut,
+    onFootPlacement,
     renderSlot,
     rerender(next: Partial<Bench>) {
       current = { ...current, ...next }
@@ -317,6 +320,14 @@ describe('ServerSidebarRoot', () => {
       expect(menuTrigger()?.getAttribute('aria-expanded')).toBe('false')
       expect(screen.queryByRole('menuitem')).toBeNull()
     })
+  })
+
+  it('reports where its column and foot band are while mounted, and that it is gone once unmounted', () => {
+    const b = mount()
+    expect(b.onFootPlacement).toHaveBeenLastCalledWith({ left: 0, width: 0, bottom: window.innerHeight })
+    expect(b.onFootPlacement).not.toHaveBeenCalledWith(undefined)
+    cleanup()
+    expect(b.onFootPlacement).toHaveBeenLastCalledWith(undefined)
   })
 
   describe('workbench click: clean-draft semantics', () => {

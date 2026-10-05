@@ -3214,6 +3214,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'experimental-server-sidebar WorkspaceNotice id \'workspace.row-toast\'',
       'experimental-server-sidebar WithheldReference id \'shortcuts\'',
       'experimental-server-sidebar ShortcutReference id \'shortcuts\'',
+      'experimental-server-sidebar OrgNotice id \'server-sidebar.org-notice\'',
       'experimental-server-sidebar WithheldRenameDialog id \'workspace.session-rename\'',
     ],
     replaceRisk: 'none',
