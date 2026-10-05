@@ -562,6 +562,8 @@ flowchart TD
   pkg_experimental_auth_gate --> pkg_client_connection
   pkg_experimental_auth_gate --> pkg_experimental_biz_backend
   pkg_experimental_auth_gate --> pkg_host_webserver
+  pkg_experimental_auth_gate --> pkg_session
+  pkg_experimental_auth_gate --> pkg_util_values
   pkg_experimental_speech_to_text --> pkg_settings
   pkg_host_product_telemetry_otel --> pkg_otel
   pkg_ptc_runtime --> pkg_sandbox
@@ -1674,7 +1676,7 @@ flowchart TD
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`spill`](../packages/spill/spill) |
 | [`session-log-export`](../packages/session-query/session-log-export) | `session-query` | [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence) |
 | [`hmr`](../packages/boot/hmr) | `boot` | [`app-boot`](../packages/boot/app-boot), [`cmdline`](../packages/boot/cmdline) |
-| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`host-webserver`](../packages/host/webserver) |
+| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`host-webserver`](../packages/host/webserver), [`session`](../packages/core/session), [`util-values`](../packages/util/values) |
 | [`experimental-speech-to-text`](../packages/experimental/speech-to-text) | `experimental` | [`settings`](../packages/settings/settings) |
 | [`host-product-telemetry-otel`](../packages/host/product-telemetry-otel) | `host` | [`otel`](../packages/telemetry/otel) |
 | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime) | `ptc-runtime` | [`sandbox`](../packages/sandbox/sandbox) |

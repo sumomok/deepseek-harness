@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
       "path": "../../client/connection/tsconfig.client.json"
     },
     {
@@ -28,6 +31,12 @@
     },
     {
       "path": "../biz-backend"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }
