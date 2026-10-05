@@ -133,8 +133,8 @@ declare module '@deepseek-ai/cordis' {
      * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
      * none of them: the listeners own every stream the call opened, and a listener that discards one returns
      * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
-     * the method. A listener that throws synchronously ends the waterfall at once; otherwise the Gateway
-     * receives the outcome only after the microtasks the listener queued before returning or throwing have
+     * the method. The Gateway receives the outermost listener's outcome at once when that listener throws
+     * synchronously, and otherwise only after the microtasks it queued before returning or throwing have
      * run, so a `next()` called from one of them still runs the method.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
