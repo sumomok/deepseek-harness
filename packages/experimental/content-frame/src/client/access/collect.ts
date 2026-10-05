@@ -22,7 +22,7 @@ import {
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, computedStyleOf, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, heldByItem, insideOpaque, isChecked, isDisabled, isIconShape, isInline, isNameable,
   isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
-  quantityValue, queryInOrder, roleOf, visibleText, type ComputedStyleOf,
+  quantityValue, queryInOrder, roleOf, treeParent, visibleText, type ComputedStyleOf,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -1265,6 +1265,35 @@ function marksIcon(el: Element, walk: Walk, place: Place): boolean {
 }
 
 /**
+ * True for an element a `label` naming a control holds with no group between
+ * the two, inside one document: where the walk stands when it reaches the
+ * element, as {@link labelPlace} turns that on at the label and off again at
+ * a group.
+ * @param el - the element.
+ * @param walk - the walk in progress.
+ * @returns whether the text and the icons there are part of a control's name.
+ */
+function insideNamingLabel(el: Element, walk: Walk): boolean {
+  for (let at = treeParent(el); at !== undefined; at = treeParent(at)) {
+    if (namesControl(at, walk)) return true
+    if (isGroup(at)) return false
+  }
+  return false
+}
+
+/**
+ * True where a single-element caller names an element as an icon: a
+ * {@link heldIcon} no `label` naming a control holds, which is where the walk
+ * prints it a row; see {@link marksIcon}.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the element is named as an icon.
+ */
+function namesIcon(el: Element, walk: Walk): boolean {
+  return heldIcon(el, walk) && !insideNamingLabel(el, walk)
+}
+
+/**
  * Where the walk stands inside an element, which turns the suppression of text
  * already printed as a name on at a `label` and off again inside the group a
  * tree node holds its nodes in.
@@ -1448,14 +1477,14 @@ export function itemName(el: Element, options: SnapshotOptions, root: Document):
     // a chart a click drills into is reachable, and named by what the page
     // wrote on it, because what is inside a drawing labels the picture.
     if (topClickable(el, walk)) return namedAs(el, CLICKABLE_ROLE, walk).name
-    return heldIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+    return namesIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
   }
   const role = roleOf(el)
   if (isTableRole(role)) return nameOf(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
-  if (!topClickable(el, walk)) return heldIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+  if (!topClickable(el, walk)) return namesIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
   const items = topItems(childHost(el), walk)
   if (wrapsOnly(el, items, walk)) return ''
   return items.length > 0 ? clickableName(el, walk) : namedAs(el, CLICKABLE_ROLE, walk).name

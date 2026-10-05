@@ -260,17 +260,28 @@ export function isRepeatedItem(el: Element): boolean {
 }
 
 /**
- * The element an element is drawn inside: its parent, the host of the shadow
- * root it stands at the top of, or the frame holding the document it is the
- * root of, up to the document a read started from.
+ * The element an element is drawn inside within its own document: its parent,
+ * or the host of the shadow root it stands at the top of.
+ * @param el - the element.
+ * @returns the element around it, or undefined at the top of its document.
+ */
+export function treeParent(el: Element): Element | undefined {
+  if (el.parentElement !== null) return el.parentElement
+  const tree = el.getRootNode()
+  return tree.nodeType === tree.DOCUMENT_FRAGMENT_NODE && 'host' in tree ? (tree as ShadowRoot).host : undefined
+}
+
+/**
+ * The element an element is drawn inside: its {@link treeParent}, or the frame
+ * holding the document it is the root of, up to the document a read started
+ * from.
  * @param el - the element.
  * @param root - the document the read started from.
  * @returns the element around it, or undefined at the top of that document.
  */
 function composedParent(el: Element, root: Document): Element | undefined {
-  if (el.parentElement !== null) return el.parentElement
-  const tree = el.getRootNode()
-  if (tree.nodeType === tree.DOCUMENT_FRAGMENT_NODE && 'host' in tree) return (tree as ShadowRoot).host
+  const parent = treeParent(el)
+  if (parent !== undefined) return parent
   if (el.ownerDocument === root) return undefined
   /* v8 ignore next -- a document the walk entered through a frame has a window, and that window a frame element. */
   return el.ownerDocument.defaultView?.frameElement ?? undefined

@@ -2307,6 +2307,27 @@ describe('an icon a table cell or a repeated item draws', () => {
     const refs = page(tableOf('<span class="op-link" data-pointer>详情</span>'))
     expect(rowOf(refs, { isClickable: pointer })).toBe('  row 1: 东风站 | e3 clickable "详情"')
   })
+
+  it('names an icon a label naming a control holds nothing, as the walk that prints no row for it', () => {
+    // The listing prints the box and not the glyph beside it, and a step that
+    // reaches the glyph through a markup read is held to the nothing the
+    // listing calls it. A group inside the label starts names of its own, as
+    // it does in the walk.
+    const refs = page('<ul aria-label="标签列表">'
+      + `<li><label><input type="checkbox"><i id="tick" class="x" aria-label="勾" ${GLYPH}></i></label></li>`
+      + '<li><label><input type="checkbox"><svg id="drawn" class="s" aria-label="勾"><use href="#tick"></use></svg></label></li>'
+      + `<li><label><input type="checkbox"><span role="group"><i id="grouped" class="x" aria-label="勾" ${GLYPH}></i></span></label></li>`
+      + `<li><i id="loose" class="x" aria-label="勾" ${GLYPH}></i></li></ul>`)
+    const listing = read(refs).text
+    expect(listing.split('\n').filter(line => line.includes(' icon '))).toEqual([
+      '  e5 icon "勾" (in list "标签列表")',
+      '  e6 icon "勾" (in list "标签列表")',
+    ])
+    const options = { refs, budgetChars: 4000, isVisible, computedStyle }
+    expect(['#tick', '#drawn', '#grouped', '#loose']
+      .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
+      .toEqual(['', '', '勾', '勾'])
+  })
 })
 
 describe('whether an icon draws a picture', () => {
