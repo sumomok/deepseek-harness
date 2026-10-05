@@ -243,12 +243,13 @@ describe('what each step dispatches at the page', () => {
 
   it('clicks an icon a read printed in a row\'s cell, by the ref and the mark that read printed', async () => {
     // An operation column whose commands carry no role, no name, and no pointer
-    // cursor: the read prints each one as an icon with its mark, and a step
-    // copying a ref and a mark out of that read reaches the element it meant.
+    // cursor, and draw a picture: the read prints each one as an icon with its
+    // mark, and a step copying a ref and a mark out of that read reaches the
+    // element it meant.
     mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
       + '<tbody><tr><td>东风站</td><td>'
-      + '<i id="edit" class="el-icon-edit operation-modify"></i>'
-      + '<i id="warn" class="el-icon-warning"></i>'
+      + '<i id="edit" class="el-icon-edit operation-modify" style="background-image: url(edit.svg)"></i>'
+      + '<i id="warn" class="el-icon-warning" style="background-image: url(warning.svg)"></i>'
       + '<svg id="drop"><use href="#icon-delete"></use></svg>'
       + '</td></tr></tbody></table></main>')
     const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
@@ -298,7 +299,7 @@ describe('what each step dispatches at the page', () => {
     // The item is in the page the read started from and the icon in the
     // application framed inside it; a step is held to the name that read printed.
     const nested = nest('<ul><li><iframe id="inner" title="明细"></iframe></li></ul>',
-      '<i id="edit" class="el-icon-edit" aria-label="编辑"></i>')
+      '<i id="edit" class="el-icon-edit" aria-label="编辑" style="background-image: url(edit.svg)"></i>')
     const listed = snapshot(doc(), { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }).text
     const icon = /(e\d+) icon "编辑"/.exec(listed)
     expect(icon?.[1]).toBe(refIn(nested.doc, '#edit'))
@@ -878,7 +879,8 @@ describe('one name, printed and checked', () => {
     + '<table aria-label="设备">'
     + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
     + '<tbody><tr><td>mill-01</td>'
-    + '<td><a href="#x">详情</a><button class="el-button">编辑</button><i class="el-icon-view" aria-label="查看"></i></td>'
+    + '<td><a href="#x">详情</a><button class="el-button">编辑</button>'
+    + '<i class="el-icon-view" aria-label="查看" style="background-image: url(view.svg)"></i></td>'
     + '</tr></tbody>'
     + '</table>'
     + '</main>'

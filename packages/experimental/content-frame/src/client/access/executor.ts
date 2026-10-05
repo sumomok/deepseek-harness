@@ -53,7 +53,7 @@ import { settlePage } from '../perception/settle.ts'
 import { captureElement, type ExportPixels } from './capture.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
-import { looksClickable, readableDocuments, rowMark } from './dom.ts'
+import { computedStyleOf, looksClickable, readableDocuments, rowMark } from './dom.ts'
 import { itemName } from './collect.ts'
 import { markup } from './markup.ts'
 import { RefTable } from './refs.ts'
@@ -658,6 +658,7 @@ async function readPage(
     ...readOptions(request),
     isVisible,
     isClickable: looksClickable,
+    computedStyle: computedStyleOf,
   }
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
@@ -821,6 +822,7 @@ async function actOnPage(
     budgetChars: access.outlineChars,
     isVisible,
     isClickable: looksClickable,
+    computedStyle: computedStyleOf,
   }
   let watch: ActWatch | undefined
   try {

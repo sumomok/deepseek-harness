@@ -11,17 +11,18 @@
  * something and holds something — a card the page makes clickable, a tree node
  * over the nodes under it — prints its row and is read into all the same.
  *
- * An element drawn the way an icon is — no role, nothing inside it, and a mark
- * to be named by — is a control of the table cell or the repeated item holding
- * it, whatever cursor the page draws over it, and is nothing anywhere else.
+ * An element drawn the way an icon is — no role, nothing inside it, a mark to
+ * be named by, and a picture it draws — is a control of the table cell or the
+ * repeated item holding it, whatever cursor the page draws over it, and is
+ * nothing anywhere else.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES, OFFERED_ROLES,
-  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, computedStyleOf, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, heldByItem, insideOpaque, isChecked, isDisabled, isIconShape, isInline, isNameable,
   isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
-  quantityValue, queryInOrder, roleOf, visibleText,
+  quantityValue, queryInOrder, roleOf, visibleText, type ComputedStyleOf,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -127,6 +128,8 @@ interface Walk {
   readonly isVisible: (el: Element) => boolean
   /** Injected clickability, defaulted. */
   readonly isClickable: (el: Element) => boolean
+  /** Injected computed style, defaulted. */
+  readonly computedStyle: ComputedStyleOf
   /** The element the read asked for, which tops whatever the page nests it in. */
   readonly scope: Element | undefined
   /** The document the read started from, which bounds the search for the item around an icon. */
@@ -348,7 +351,7 @@ function cellControlRole(el: Element, walk: Walk, labelled: boolean): string | u
   const role = roleOf(el)
   if (role !== null && CELL_CONTROL_ROLES.has(role) && rowRole(el, role)) return role
   if (role !== null) return undefined
-  if (!labelled && isIconShape(el, walk.isVisible)) return ICON_ROLE
+  if (!labelled && isIconShape(el, walk.isVisible, walk.computedStyle)) return ICON_ROLE
   return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
 
@@ -1235,16 +1238,17 @@ function offersClick(el: Element, walk: Walk, place: Place): boolean {
 }
 
 /**
- * True for an element with the structure of an icon that a repeated item
- * holds, looked for up to the document the walk started from. Every cell a
- * table lists stands in a `tr` or a `row`, which are repeated items, so this
- * holds for every icon a read prints.
+ * True for an element a repeated item holds, looked for up to the document the
+ * walk started from, that draws an icon. Every cell a table lists stands in a
+ * `tr` or a `row`, which are repeated items, so this holds for every icon a
+ * read prints. The item is looked for first, so an element outside every item
+ * is never asked for its computed style.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @returns whether the element is an icon of the item around it.
  */
 function heldIcon(el: Element, walk: Walk): boolean {
-  return isIconShape(el, walk.isVisible) && heldByItem(el, walk.root)
+  return heldByItem(el, walk.root) && isIconShape(el, walk.isVisible, walk.computedStyle)
 }
 
 /**
@@ -1401,6 +1405,7 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
     options,
     isVisible: options.isVisible,
     isClickable: options.isClickable ?? looksClickable,
+    computedStyle: options.computedStyle ?? computedStyleOf,
     scope,
     root,
     items: [],

@@ -5,12 +5,20 @@
   font-family: system-ui, sans-serif;
 }
 
-/* The command the faulted row draws as a bare class: sized because an element
-   holding nothing draws nothing, and a reader shows what a user can see. */
+/* The command the faulted row draws as a bare class, with its glyph written
+   into `::before` the way an icon font writes one: a leaf that paints a colour
+   and nothing else draws no icon, and a reader shows what a user can see. */
 .el-icon-warning {
   display: inline-block;
   width: 16px;
   height: 16px;
   margin-left: 8px;
-  background: rgb(230, 162, 60);
+  color: rgb(230, 162, 60);
+  font-style: normal;
+  line-height: 16px;
+  text-align: center;
+}
+
+.el-icon-warning::before {
+  content: "!";
 }

@@ -1,8 +1,8 @@
 /**
  * What the walk knows about a page: HTML and ARIA, and nothing about any
  * particular application. Layout is not one of them — jsdom has none and a
- * frame's layout belongs to the frame — so visibility and geometry arrive as
- * injected functions and only reach the DOM through the caller.
+ * frame's layout belongs to the frame — so visibility, geometry and computed
+ * style arrive as injected functions and only reach the DOM through the caller.
  *
  * `getComputedStyle` and `computeAccessibleName` read through the shell's own
  * window, which reaches elements of every same-origin frame the walk enters.
@@ -290,23 +290,92 @@ export function heldByItem(el: Element, root: Document): boolean {
   return false
 }
 
+/** The two pseudo-elements a page writes generated content into, which is where an icon font draws its glyph. */
+export type GeneratedPseudo = '::before' | '::after'
+
+/** The one read the walk makes of a computed style. */
+export type StyleRead = Pick<CSSStyleDeclaration, 'getPropertyValue'>
+
+/**
+ * The computed style of an element, or of one of its {@link GeneratedPseudo}s,
+ * as `window.getComputedStyle` answers it.
+ */
+export type ComputedStyleOf = (el: Element, pseudo?: GeneratedPseudo) => StyleRead
+
+/**
+ * The computed style a read uses where it injects none: the one the window an
+ * element is drawn in computes.
+ * @param el - the element.
+ * @param pseudo - one of its generated-content pseudo-elements, or the element itself when omitted.
+ * @returns the computed style.
+ */
+export function computedStyleOf(el: Element, pseudo?: GeneratedPseudo): CSSStyleDeclaration {
+  return viewOf(el).getComputedStyle(el, pseudo)
+}
+
+/** The tags that draw a picture by being what they are. */
+const PICTURE_TAGS: ReadonlySet<string> = new Set(['svg', 'img'])
+
+/** The properties an element paints an image of its own through. */
+const PICTURE_PROPERTIES = ['background-image', 'mask-image', '-webkit-mask-image'] as const
+
+/**
+ * The values of a picture property that paint nothing: its initial value, and
+ * the empty answer of an engine that does not compute the property at all.
+ */
+const NO_PICTURE: ReadonlySet<string> = new Set(['none', ''])
+
+/** The pseudo-elements an icon font writes its glyph into. */
+const GENERATED_PSEUDOS: readonly GeneratedPseudo[] = ['::before', '::after']
+
+/**
+ * The values of `content` that generate nothing: the initial values of a
+ * pseudo-element and of an element, the empty string a page writes to give a
+ * pseudo-element a box and no glyph — a clearfix, or a tick drawn with a
+ * border — and the empty answer of an engine that computes no `content`.
+ */
+const NO_CONTENT: ReadonlySet<string> = new Set(['none', 'normal', '""', ''])
+
+/**
+ * True for an element that draws a picture: an `svg` or an `img`, an element
+ * painting an image as its background or through its mask, or one whose
+ * `::before` or `::after` generates content. What decides is how the element
+ * renders and not what it is called, and the element's own properties are read
+ * before its two pseudo-elements.
+ * @param el - the element to classify.
+ * @param computedStyle - injected computed style.
+ * @returns whether the element draws a picture.
+ */
+function drawsPicture(el: Element, computedStyle: ComputedStyleOf): boolean {
+  if (PICTURE_TAGS.has(el.localName)) return true
+  const own = computedStyle(el)
+  if (PICTURE_PROPERTIES.some(property => !NO_PICTURE.has(own.getPropertyValue(property)))) return true
+  return GENERATED_PSEUDOS.some(pseudo => !NO_CONTENT.has(computedStyle(el, pseudo).getPropertyValue('content')))
+}
+
 /**
  * True for an element drawn the way an icon is: no role, no element inside it
- * and no text of its own, and a {@link rowMark} to be named by. An `svg` is one
- * drawing whatever shapes it is built from, so what it holds is neither its
- * children nor its text here.
+ * and no text of its own, a {@link rowMark} to be named by, and a picture it
+ * draws (see {@link drawsPicture}). An `svg` is one drawing whatever shapes it
+ * is built from, so what it holds is neither its children nor its text here.
  *
- * The test is structure alone: no class token is read for what it says, and no
- * cursor decides it. Where it counts is the caller's: a table cell, or a
- * repeated item (see {@link heldByItem}).
+ * An `img` meets the first condition only where the page wrote a role ARIA
+ * does not define, which reads as no role: HTML gives every other `img` the
+ * role `img`, or `presentation` for an empty `alt`, and it is read by that role.
+ *
+ * No class token is read for what it says, and no cursor decides it. Where it
+ * counts is the caller's: a table cell, or a repeated item (see
+ * {@link heldByItem}).
  * @param el - the element to classify.
  * @param isVisible - injected visibility.
- * @returns whether the element has the structure of an icon.
+ * @param computedStyle - injected computed style.
+ * @returns whether the element draws an icon.
  */
-export function isIconShape(el: Element, isVisible: (el: Element) => boolean): boolean {
+export function isIconShape(el: Element, isVisible: (el: Element) => boolean, computedStyle: ComputedStyleOf): boolean {
   if (roleOf(el) !== null || rowMark(el) === '') return false
-  if (el.localName === 'svg') return true
-  return childHost(el).children.length === 0 && drawsNothing(visibleText(el, isVisible))
+  const leaf = el.localName === 'svg'
+    || (childHost(el).children.length === 0 && drawsNothing(visibleText(el, isVisible)))
+  return leaf && drawsPicture(el, computedStyle)
 }
 
 /**
