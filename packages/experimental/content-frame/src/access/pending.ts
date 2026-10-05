@@ -27,6 +27,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/access/pending
  */
 
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
   PREFERRED_TAB_WINDOW_MS, type ChannelOutcome, type ChannelReportRequest, type ClaimAck, type ClaimRequest,
   type ReadPage, type ReportAck,
@@ -52,6 +53,15 @@ export type CallSettlement =
   | { kind: 'unanswered' }
   /** The execution was cancelled while it waited. */
   | { kind: 'aborted' }
+
+/** What a claim naming a call this table does not know is answered with. */
+export const UNKNOWN_CLAIM: Readonly<ClaimAck> = Object.freeze({ claimed: false, reason: 'unknown' })
+
+/** What a claim naming a call that already ended is answered with. */
+const SETTLED_CLAIM: Readonly<ClaimAck> = Object.freeze({ claimed: false, reason: 'settled' })
+
+/** What a report no waiting call takes is answered with. */
+export const REPORT_REFUSED: Readonly<ReportAck> = Object.freeze({ accepted: false })
 
 /**
  * How many recently settled call ids the table remembers so a claim arriving
@@ -98,7 +108,7 @@ interface PendingCall {
   /** The tool execution's call id. */
   readonly callId: string
   /** The session whose column the call is against; the unit the preferred tab is pinned per. */
-  readonly sessionId: string
+  readonly sessionId: SessionId
   /** This call's configured deadlines. */
   readonly timeouts: CallTimeouts
   /** The entry the column had in front when the wait opened, for a call that will act. */
@@ -122,14 +132,17 @@ export class PendingCalls {
   /** Calls still waiting, by call id. */
   private readonly waiting = new Map<string, PendingCall>()
 
-  /** Call ids that have settled, newest last, bounded by {@link SETTLED_MEMORY}. */
-  private readonly settled = new Set<string>()
+  /**
+   * Call ids that have settled, newest last and bounded by
+   * {@link SETTLED_MEMORY}, each with the session it was against.
+   */
+  private readonly settled = new Map<string, SessionId>()
 
   /**
    * The tab each session's last successful claim came from, while its pin
    * lasts, newest last and bounded by {@link PREFERRED_MEMORY}.
    */
-  private readonly preferred = new Map<string, { tabId: string; until: number }>()
+  private readonly preferred = new Map<SessionId, { tabId: string; until: number }>()
 
   /**
    * Register one call and wait for a browser to answer it.
@@ -146,7 +159,7 @@ export class PendingCalls {
    */
   async open(
     callId: string,
-    sessionId: string,
+    sessionId: SessionId,
     signal: AbortSignal,
     timeouts: CallTimeouts,
     page?: ReadPage,
@@ -182,9 +195,7 @@ export class PendingCalls {
    */
   async claim(request: ClaimRequest): Promise<ClaimAck> {
     const entry = this.waiting.get(request.callId)
-    if (entry === undefined) {
-      return { claimed: false, reason: this.settled.has(request.callId) ? 'settled' : 'unknown' }
-    }
+    if (entry === undefined) return this.settled.has(request.callId) ? SETTLED_CLAIM : UNKNOWN_CLAIM
     if (entry.tabId !== undefined) return { claimed: false, reason: 'taken' }
     const preferred = this.preferredTab(entry.sessionId)
     if (preferred === undefined || preferred === request.tabId) {
@@ -213,9 +224,21 @@ export class PendingCalls {
    */
   report(request: ChannelReportRequest): ReportAck {
     const entry = this.claimant(request.callId, request.tabId)
-    if (entry === undefined) return { accepted: false }
+    if (entry === undefined) return REPORT_REFUSED
     this.finish(entry, { kind: 'reported', outcome: request.outcome })
     return { accepted: true }
+  }
+
+  /**
+   * The session one call id was opened against, for a route that answers only
+   * the member that session belongs to.
+   * @param callId - the call a claim or a report names.
+   * @returns the session of the call waiting under that id or, once it has
+   * settled, of the call it was while the table still remembers it; `undefined`
+   * for an id this table does not know.
+   */
+  sessionOf(callId: string): SessionId | undefined {
+    return this.waiting.get(callId)?.sessionId ?? this.settled.get(callId)
   }
 
   /**
@@ -264,7 +287,7 @@ export class PendingCalls {
    * @param sessionId - the session being read.
    * @returns the pinned tab, or undefined when none is pinned or its pin has run out.
    */
-  private preferredTab(sessionId: string): string | undefined {
+  private preferredTab(sessionId: SessionId): string | undefined {
     const pinned = this.preferred.get(sessionId)
     if (pinned === undefined) return undefined
     if (pinned.until > Date.now()) return pinned.tabId
@@ -312,7 +335,7 @@ export class PendingCalls {
     /* v8 ignore next -- a second settlement of one entry: each path that reaches here drops the others first. */
     if (this.waiting.get(entry.callId) !== entry) return
     this.waiting.delete(entry.callId)
-    this.remember(entry.callId)
+    this.remember(entry)
     clearTimeout(entry.timer)
     entry.release()
     this.releaseHold(entry, { claimed: false, reason: 'settled' })
@@ -320,11 +343,11 @@ export class PendingCalls {
   }
 
   /**
-   * Record one settled call id, dropping the oldest past the bound.
-   * @param callId - the id that just settled.
+   * Record one settled call id and its session, dropping the oldest past the bound.
+   * @param entry - the call that just settled.
    */
-  private remember(callId: string): void {
-    this.settled.add(callId)
+  private remember(entry: PendingCall): void {
+    this.settled.set(entry.callId, entry.sessionId)
     bound(this.settled, SETTLED_MEMORY)
   }
 }

@@ -50,7 +50,8 @@ import { serveContentApp } from './serve.ts'
 import {
   answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody, type BodyRefusals,
 } from './access/http.ts'
-import { PendingCalls, type CallTimeouts } from './access/pending.ts'
+import { admitCaller, placeByMember, placeEveryCaller, reportDirectoryMismatch } from './access/members.ts'
+import { PendingCalls, REPORT_REFUSED, UNKNOWN_CLAIM, type CallTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import { contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool } from './access/markup-tool.ts'
@@ -166,6 +167,20 @@ export interface Config {
    * default below.
    */
   pageAccess?: PageAccessConfig
+  /**
+   * Answer each page-read post only for the console member whose session the
+   * call is against. Which member sent a request and which member a session
+   * belongs to are the `consoleMembers` service's answers, and this row reads
+   * no identity header of its own: before reading a body, the claim, report,
+   * and picture routes answer 503 while that service is not running and 401
+   * when it places the request with nobody, and a post naming another member's
+   * call, or a call of a session that belongs to nobody, is answered as one
+   * naming a call this host does not know. Only those three routes read it, so
+   * without {@link Config.pageAccess} it changes nothing. The default is
+   * false, which answers every post for every session, for a process serving
+   * one person.
+   */
+  perMember?: boolean
 }
 
 /** How long each phase of a read waits, and how much of a page one read may carry. */
@@ -381,6 +396,7 @@ export const Config: z<Config> = z.object({
     actApproval: z.union([z.const('always'), z.const('judged')]).default(DEFAULT_ACT_APPROVAL),
     judgedBy: z.string(),
   }).default(undefined as never),
+  perMember: z.boolean().default(false),
 })
 
 /**
@@ -496,9 +512,10 @@ const IMAGE_ROUTE_NAME = 'the picture report route'
  * so a deployment with nowhere to keep them is offered neither.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - the deployment's page-access block.
+ * @param perMember - whether each post is answered only for its member's calls.
  * @returns the settings the browser half needs to run a read.
  */
-function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSettings['pageAccess'] {
+function claimPageAccess(ctx: Context, config: PageAccessConfig, perMember: boolean): ContentFrameSettings['pageAccess'] {
   // Loud at load: a zero deadline would refuse every read the model can make,
   // with no diagnostic pointing at the row that set it.
   const claimTimeoutMs = requireAtLeast('claimTimeoutMs', config.claimTimeoutMs, 1)
@@ -580,6 +597,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   }
   const pending = new PendingCalls()
   const approvals = new DialogApprovals()
+  const place = perMember ? placeByMember(ctx) : placeEveryCaller
+  reportDirectoryMismatch(ctx, perMember, ctx.logger('content-frame'))
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -590,6 +609,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         return
       }
       if (rejectUntrustedPost(req, res, CLAIM_ROUTE_NAME, MAX_CLAIM_BYTES)) return
+      const caller = admitCaller(place, req, res, CLAIM_ROUTE_NAME, MAX_CLAIM_BYTES)
+      if (caller === undefined) return
       const body = takeJsonBody(res, await readJsonBody(req, MAX_CLAIM_BYTES), claimRefusals)
       if (body === undefined) return
       const claim = parseClaimRequest(body.value)
@@ -597,7 +618,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         answerJson(res, 400, { error: claimRefusals.shape })
         return
       }
-      answerJson(res, 200, await pending.claim(claim))
+      answerJson(res, 200, caller.owns(pending.sessionOf(claim.callId)) ? await pending.claim(claim) : UNKNOWN_CLAIM)
     },
   }), 'content-frame: page read claim route')
 
@@ -610,6 +631,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         return
       }
       if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME, reportBytes)) return
+      const caller = admitCaller(place, req, res, REPORT_ROUTE_NAME, reportBytes)
+      if (caller === undefined) return
       const body = takeJsonBody(res, await readJsonBody(req, reportBytes), reportRefusals)
       if (body === undefined) return
       const report = parseChannelReport(body.value, maxTextChars, maxSteps)
@@ -617,7 +640,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         answerJson(res, 400, { error: reportRefusals.shape })
         return
       }
-      answerJson(res, 200, pending.report(report))
+      answerJson(res, 200, caller.owns(pending.sessionOf(report.callId)) ? pending.report(report) : REPORT_REFUSED)
     },
   }), 'content-frame: page read report route')
 
@@ -652,6 +675,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
           return
         }
         if (rejectUntrustedPost(req, res, IMAGE_ROUTE_NAME, IMAGE_REPORT_BYTES)) return
+        const caller = admitCaller(place, req, res, IMAGE_ROUTE_NAME, IMAGE_REPORT_BYTES)
+        if (caller === undefined) return
         const body = takeJsonBody(res, await readJsonBody(req, IMAGE_REPORT_BYTES), imageRefusals)
         if (body === undefined) return
         const report = parseImageReport(body.value)
@@ -659,7 +684,13 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
           answerJson(res, 400, { error: imageRefusals.shape })
           return
         }
-        answerJson(res, 200, await settleImageReport(attachments, pending, report))
+        // Checked before the settlement is taken: a post for another member's
+        // call stores no picture.
+        answerJson(
+          res,
+          200,
+          caller.owns(pending.sessionOf(report.callId)) ? await settleImageReport(attachments, pending, report) : REPORT_REFUSED,
+        )
       },
     }), 'content-frame: page picture report route')
   })
@@ -737,7 +768,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
-  const pageAccess = config.pageAccess === undefined ? undefined : claimPageAccess(ctx, config.pageAccess)
+  const pageAccess = config.pageAccess === undefined
+    ? undefined
+    : claimPageAccess(ctx, config.pageAccess, config.perMember === true)
   const settings: ContentFrameSettings = {
     cacheSize,
     navigationPollMs,

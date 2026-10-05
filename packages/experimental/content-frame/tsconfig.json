@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {
@@ -58,6 +61,9 @@
     },
     {
       "path": "../../session/session-projection"
+    },
+    {
+      "path": "../console-members"
     },
     {
       "path": "../content-column"
