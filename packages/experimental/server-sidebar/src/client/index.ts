@@ -161,9 +161,9 @@ async function persistServerMenu(
 }
 
 /**
- * Refuse an entry that would save the menu, or open, create, or archive a
- * conversation, while the menu the page loaded is unread, and report it to the
- * browser console. The 我的工作流 section already says the menu could not be
+ * Refuse an entry that would save the menu, show a navigation target, or open,
+ * create, or archive a conversation, while the menu the page loaded is unread,
+ * and report it to the browser console. The 我的工作流 section already says the menu could not be
  * read (`workflows.unreadable`), so nothing new is drawn.
  * @returns an already-resolved promise, matching the asynchronous face of the
  * entry the refusal stands in for.
@@ -242,8 +242,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
   const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
   // An unread menu seeds the store marked unreadable, and stays unread for
   // the page's life: every entry below that would save the menu, open or
-  // create the workbench, create a workflow's conversation, or archive a
-  // conversation refuses while it is (`refuseUnread`), so no save answers it.
+  // create the workbench, show a navigation target (which creates a
+  // conversation when none is on screen), create a workflow's conversation,
+  // or archive a conversation refuses while it is (`refuseUnread`), so no
+  // save answers it.
   // Unknown, the menu cannot say which conversations are the member's
   // workbench and workflows, and the temporary list then shows those too.
   const menuUnread = initialMenu === undefined
@@ -275,7 +277,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
         return {
           navItems,
           ...home === undefined ? {} : { home },
-          onOpenNavItem: target => openNavItem(ctx, target),
+          onOpenNavItem: target => (menuUnread ? refuseUnread() : openNavItem(ctx, target)),
           onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (menuUnread
             ? refuseUnread()
             : landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench, t)),

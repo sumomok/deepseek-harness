@@ -926,14 +926,16 @@ describe('server-sidebar browser half: a menu the page could not read', () => {
    * Boot over a menu read the route refused, with somewhere to create a
    * conversation, a conversation on screen, and a configured home page, then
    * record every request the browser half makes from there on.
+   * @param onScreen - whether a conversation is on screen; without one, an
+   * entry that shows something has to create one first.
    * @returns the bench, the recorded requests, and the console spy.
    */
-  async function unreadBench() {
+  async function unreadBench(onScreen = true) {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const result = await bench({
       menuRead: { ok: false, status: 503, body: { error: 'not running' } },
-      recentWorkspaceId: 'workspace-1', currentSessionId: 'session-loose', liveSessionIds: ['home-1'], homePage: 'home',
-      echoLocale: true,
+      recentWorkspaceId: 'workspace-1', liveSessionIds: ['home-1'], homePage: 'home', echoLocale: true,
+      ...onScreen ? { currentSessionId: 'session-loose' } : {},
     })
     const requests: string[] = []
     vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
@@ -988,6 +990,14 @@ describe('server-sidebar browser half: a menu the page could not read', () => {
     await injected.onOpenWorkflow(WORKFLOW, true)
     expect(result.uiWorkspace.openSession).toHaveBeenCalledWith('session-a')
     expect(result.requests).toEqual([])
+  })
+
+  it('creates no conversation for a navigation row when none is on screen, and shows nothing', async () => {
+    const result = await unreadBench(false)
+    const { injected, actions } = injectSidebar(result.ctx)
+    await injected.onOpenNavItem({ kind: 'page', entryId: 'home' })
+    await injected.onOpenNavItem({ kind: 'view', entryId: 'sales' })
+    expectRefused(result, actions)
   })
 
   it('saves no patch from the section: a new group, a rename, a pin, a deletion, a removal, a move, or a drag', async () => {
