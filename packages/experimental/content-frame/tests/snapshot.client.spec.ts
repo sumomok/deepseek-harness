@@ -2637,10 +2637,14 @@ describe('whether an icon draws a picture', () => {
   })
 
   it('reads an image or a gradient generated in front of a leaf as an icon', () => {
+    // An image set reads as one whether or not its images are written with
+    // `url()`: the string inside it is the image.
     const refs = page(tableOf(leaves(
       'url("edit.png")',
       'image-set(url("edit.png") 1dppx)',
       '-webkit-image-set(url("edit.png") 1x)',
+      'image-set("edit.png" 1x)',
+      '-webkit-image-set("edit.png" 1x)',
       'linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
       'radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
       'conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
@@ -2648,7 +2652,7 @@ describe('whether an icon draws a picture', () => {
       'repeating-radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
       'repeating-conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
     )))
-    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9, 10, 11]
+    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
       .map((ref, at) => `e${ref} icon {class: g${at + 1}}`).join('  ')}`)
   })
 
