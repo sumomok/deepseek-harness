@@ -934,6 +934,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
   WebUpgradeRoute:
     'upgrade route registration contract is owned by packages/host/webserver/src/index.ts',
+  WebRouteListing: 'route listing entry is owned by packages/host/webserver/src/index.ts',
   JsonValue: 'JSON value union is owned by packages/core/session/src/json.ts',
   KnobState: 'projection unit state fields are owned by packages/interaction/permission-presets/README.md',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',

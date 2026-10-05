@@ -3588,6 +3588,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer releasing the seat.',
       },
       {
+        signature: 'routes(): readonly WebRouteListing[]',
+        description: 'List the registrations in effect: `exact`, `prefix`, and `upgrade` routes, each kind sorted by path, then the fallback seat while it is claimed. A registration whose disposer has run is absent. Read-only: listing changes no matching.',
+        parameters: [],
+        returns: 'fresh entries; `kind` and `path` together identify a named route.',
+      },
+      {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
         description: 'Register a raw-HTML index transform, the escape hatch for markup no IndexInjection row expresses: renderIndex applies taps in registration order after rendering the structured rows.',
         parameters: [{ name: 'transform', description: 'pure html-to-html function.' }],
@@ -8325,6 +8331,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebRouteKind',
     declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
+  },
+  {
+    name: 'WebRouteListing',
+    declaration: 'export type WebRouteListing = {\n    readonly kind: WebRouteKind | \'upgrade\';\n    readonly path: string;\n} | {\n    readonly kind: \'fallback\';\n};',
   },
   {
     name: 'WebSearchProvider',

@@ -1577,7 +1577,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-host-webserver`
 
-- `source`: [`packages/host/webserver/src/index.ts:59`](../packages/host/webserver/src/index.ts)
+- `source`: [`packages/host/webserver/src/index.ts:69`](../packages/host/webserver/src/index.ts)
 
 ```ts config-catalog
 /** Web server listen and response-compression config. */

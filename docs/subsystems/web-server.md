@@ -48,7 +48,7 @@ interface Config {
 
 ## The service
 
-`WebServer` (`ctx.webServer`) listens immediately on activation; a listen failure (EADDRINUSE…) rejects initialization, and the boot process reports the failed fiber. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. Gzip wraps eligible socket-backed responses inside the server, so route handlers retain direct `ServerResponse` ownership and no response-writing API is added to the service. Existing content encodings, `Cache-Control: no-transform`, ranges, SSE, ZIP, and the packaged `.gz` Worker image remain identity responses. `collectIndexInjections()` gathers structured `IndexInjection` rows over one `webserver/index-inject` emit, and `renderIndex(html)` renders them into successful root and configured index responses before applying the raw `tapIndex(transform)` escape-hatch transforms in registration order; [dsh-client-modules](../../packages/client/modules) answers the event with the boot manifest rows. `port` reads the listening port, including the port assigned by the OS when `config.port` is 0.
+`WebServer` (`ctx.webServer`) listens immediately on activation; a listen failure (EADDRINUSE…) rejects initialization, and the boot process reports the failed fiber. `register(route)` adds one named route and returns its disposer; a duplicate `(kind, path)` throws because route patterns are a composition-level contract and a collision is a misconfiguration. `routes()` lists the named routes, upgrade routes, and claimed fallback seat in effect, without handlers or methods. Gzip wraps eligible socket-backed responses inside the server, so route handlers retain direct `ServerResponse` ownership and no response-writing API is added to the service. Existing content encodings, `Cache-Control: no-transform`, ranges, SSE, ZIP, and the packaged `.gz` Worker image remain identity responses. `collectIndexInjections()` gathers structured `IndexInjection` rows over one `webserver/index-inject` emit, and `renderIndex(html)` renders them into successful root and configured index responses before applying the raw `tapIndex(transform)` escape-hatch transforms in registration order; [dsh-client-modules](../../packages/client/modules) answers the event with the boot manifest rows. `port` reads the listening port, including the port assigned by the OS when `config.port` is 0.
 
 A request whose handling throws (a malformed %-escape hitting `decodeURIComponent`, a client dropping mid-body) is logged as a warning and answered 400 — or the socket destroyed when headers are already out — never a process exit. Disposal pairs `close()` with `closeAllConnections()` because a handler may hold its response open (SSE) and such connections never end on their own; without the force-close, teardown would hang. The package never prints: the URL line belongs to the shell. Per-package operational detail, including the dev-mode bundle watch pipeline, stays in the [README](../../packages/host/webserver/README.md).
 
@@ -148,6 +148,15 @@ registerUpgrade(route: WebUpgradeRoute): () => void
  * @returns the disposer releasing the seat.
  */
 registerFallback(handler: WebRoute['handler']): () => void
+
+/**
+ * List the registrations in effect: `exact`, `prefix`, and `upgrade`
+ * routes, each kind sorted by path, then the fallback seat while it is
+ * claimed. A registration whose disposer has run is absent. Read-only:
+ * listing changes no matching.
+ * @returns fresh entries; `kind` and `path` together identify a named route.
+ */
+routes(): readonly WebRouteListing[]
 
 /**
  * Register a raw-HTML index transform, the escape hatch for markup no
