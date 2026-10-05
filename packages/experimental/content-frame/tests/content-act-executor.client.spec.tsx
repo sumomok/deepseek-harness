@@ -264,6 +264,25 @@ describe('what each step dispatches at the page', () => {
     expect({ warned, dropped }).toEqual({ warned: ['click'], dropped: ['click'] })
   })
 
+  it('clicks one of two sprite icons sharing a class, by the mark the read printed with its symbol', async () => {
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td>'
+      + '<svg id="edit" class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '<svg id="drop" class="svg-icon"><use xlink:href="/static/sprite.svg#icon-delete"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const icons = [...listed.matchAll(/(e\d+) icon \{class: ([^}]*)\}/g)]
+      .map(match => ({ action: 'click' as const, ref: match[1] ?? '', label: '', mark: match[2] ?? '' }))
+    expect(icons.map(icon => icon.mark)).toEqual(['svg-icon icon-edit', 'svg-icon icon-delete'])
+    const edited = listen(at('#edit'), ['click'])
+    const dropped = listen(at('#drop'), ['click'])
+    const outcome = await run(icons.slice(1))
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect({ edited, dropped }).toEqual({ edited: [], dropped: ['click'] })
+  })
+
   it('fills a box the listing named by the word written in it', async () => {
     // The console's own query field, and the loop it used to cause: the
     // listing printed `textbox = ""`, the model had no name to copy, and every

@@ -68,7 +68,10 @@ function directText(el: Element): string {
  * prints a mark with, so a step naming a row this tree printed carries the
  * string this tree showed and the seat compares the two character for
  * character. The tokens are the element's {@link elementMark} alone: a line of
- * markup says what the `class` attribute holds.
+ * markup says what the `class` attribute holds. That leaves out the symbol id
+ * the listing's mark adds for an `svg` whose `use` points at one, so the seat
+ * refuses a step carrying this line's tokens for such a drawing as a page that
+ * changed.
  *
  * What a password control holds is answered with {@link WITHHELD} in place of
  * that text: a `textarea` declaring a password in `autocomplete` keeps its

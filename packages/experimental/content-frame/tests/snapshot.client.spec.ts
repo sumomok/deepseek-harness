@@ -2058,17 +2058,42 @@ describe('an icon a table cell or a repeated item draws', () => {
   it('marks a sprite drawing that carries no class by the symbol it points at', () => {
     // The symbol id is the drawing's own word for itself where it carries no
     // class. A reference to another file keeps what follows its `#`, and a
-    // reference without one marks nothing. A class, where the drawing carries
-    // one, is its mark as everywhere else.
+    // reference without one marks nothing.
     const refs = page(tableOf('<svg><use href="#icon-edit"></use></svg>'
       + '<svg><use xlink:href="#icon-warning"></use></svg>'
       + '<svg><use href="/static/sprite.svg#icon-delete"></use></svg>'
       + '<svg><use href="/static/sprite.svg"></use></svg>'
       + '<svg><use></use></svg>'
-      + '<svg><path d="M0 0"></path></svg>'
-      + '<svg class="svg-icon"><use href="#icon-share"></use></svg>'))
+      + '<svg><path d="M0 0"></path></svg>'))
     expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: icon-edit}  e4 icon {class: icon-warning}  '
-      + 'e5 icon {class: icon-delete}  e6 icon {class: svg-icon}')
+      + 'e5 icon {class: icon-delete}')
+  })
+
+  it('marks a sprite drawing that carries a class by its class tokens and then the symbol it points at', () => {
+    // A sprite sheet draws every command with the same class, so the symbol is
+    // what tells two of them in one cell apart. A reference to another file or
+    // host keeps only what follows its `#`, and one without a `#` adds nothing.
+    const refs = page(tableOf('<svg class="svg-icon"><use href="#icon-edit"></use></svg>'
+      + '<svg class="svg-icon"><use href="#icon-delete"></use></svg>'
+      + '<svg class="svg-icon"><use xlink:href="#icon-warning"></use></svg>'
+      + '<svg class="svg-icon"><use href="https://cdn.example.com/static/sprite.svg#icon-share"></use></svg>'
+      + '<svg class="svg-icon"><use href="/static/sprite.svg"></use></svg>'))
+    const row = rowOf(refs)
+    expect(row).toBe('  row 1: 东风站 | e3 icon {class: svg-icon icon-edit}  e4 icon {class: svg-icon icon-delete}  '
+      + 'e5 icon {class: svg-icon icon-warning}  e6 icon {class: svg-icon icon-share}  e7 icon {class: svg-icon}')
+    expect(row).not.toMatch(/sprite\.svg|example\.com/)
+  })
+
+  it('adds no symbol a sprite drawing\'s class already holds as a token of its own', () => {
+    // A token is compared whole: a class holding `icon-editor` does not hold
+    // `icon-edit`. The whitespace a URL parser drops around a reference is no
+    // part of the symbol, so the mark stays the single-spaced string a step's
+    // mark is read as.
+    const refs = page(tableOf('<svg class="svg-icon icon-edit"><use href="#icon-edit"></use></svg>'
+      + '<svg class="icon-editor"><use href="#icon-edit"></use></svg>'
+      + '<svg class="svg-icon"><use href=" #icon-copy "></use></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: svg-icon icon-edit}  '
+      + 'e4 icon {class: icon-editor icon-edit}  e5 icon {class: svg-icon icon-copy}')
   })
 
   it('reads an icon of a repeated item the walk reads through', () => {

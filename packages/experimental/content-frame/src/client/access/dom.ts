@@ -195,23 +195,28 @@ export function elementMark(el: Element): string {
 /**
  * What the first `use` inside a drawing points at: the part of its `href` — or,
  * where it has none, its `xlink:href` — after the `#`, whatever path or host
- * stands in front of it.
+ * stands in front of it. The whitespace a URL parser drops around a reference
+ * is no part of it.
  * @param el - the drawing.
  * @returns the symbol id, or the empty string where no `use` points at one.
  */
 function spriteSymbol(el: Element): string {
   const use = el.querySelector('use')
   if (use === null) return ''
-  const reference = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? ''
+  const reference = (use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? '').trim()
   const at = reference.indexOf('#')
   return at === -1 ? '' : reference.slice(at + 1)
 }
 
 /**
  * The mark a row carries for something the page offers and names nowhere:
- * {@link elementMark}, and for an `svg` carrying no class the symbol id its
- * first `use` points at — `<svg><use href="#icon-edit"></use></svg>` is marked
- * `icon-edit`. A sprite drawing writes its identity there and nowhere else.
+ * {@link elementMark}, and for an `svg` whose first `use` points at a symbol,
+ * those tokens followed by the symbol id, one space between them. A sprite
+ * sheet draws every command with the same class and writes which command it is
+ * only in the reference, so `<svg class="svg-icon"><use href="#icon-edit">`
+ * is marked `svg-icon icon-edit` and `<svg><use href="#icon-edit">` is marked
+ * `icon-edit`. A symbol id the class already holds as a whole token is not
+ * added again.
  *
  * The listing prints this and the seat checks a step's `mark` against it, so
  * the two compare one string computed one way.
@@ -220,7 +225,10 @@ function spriteSymbol(el: Element): string {
  */
 export function rowMark(el: Element): string {
   const tokens = elementMark(el)
-  return tokens === '' && el.localName === 'svg' ? spriteSymbol(el) : tokens
+  if (el.localName !== 'svg') return tokens
+  const symbol = spriteSymbol(el)
+  if (symbol === '' || el.classList.contains(symbol)) return tokens
+  return tokens === '' ? symbol : `${tokens} ${symbol}`
 }
 
 /**
