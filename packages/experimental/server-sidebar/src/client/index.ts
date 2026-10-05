@@ -163,8 +163,8 @@ async function persistServerMenu(
 /**
  * Refuse an entry that would save the menu, show a navigation target, or open,
  * create, or archive a conversation, while the menu the page loaded is unread,
- * and report it to the browser console. The 我的工作流 section already says the menu could not be
- * read (`workflows.unreadable`), so nothing new is drawn.
+ * and report it to the browser console. The 我的工作流 section already says
+ * the menu could not be read (`workflows.unreadable`), so nothing new is drawn.
  * @returns an already-resolved promise, matching the asynchronous face of the
  * entry the refusal stands in for.
  */
