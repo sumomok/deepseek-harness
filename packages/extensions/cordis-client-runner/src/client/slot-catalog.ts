@@ -3209,6 +3209,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'experimental-page-refresh PageRefreshBanner id \'page-refresh.banner\'',
       'experimental-server-sidebar StopAndRemoveDialog id \'workspace.session-archive\'',
       'experimental-server-sidebar WorkspaceNotice id \'workspace.row-toast\'',
+      'experimental-server-sidebar WithheldReference id \'shortcuts\'',
+      'experimental-server-sidebar ShortcutReference id \'shortcuts\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'shell.overlay\', () => ctx.slots.register(\n      { name: \'shell.overlay\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',

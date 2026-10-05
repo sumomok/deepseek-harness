@@ -17,7 +17,8 @@
  * the Settings entries the console withholds (`ui-chat`'s busy-compaction row,
  * the vendored `@haoran/dsh-auto-compact` row, and the Settings header's
  * configuration-file action) while both console presets reach the compaction
- * engine the plugin drives,
+ * engine the plugin drives, the `ui-workspace` keyboard shortcuts the shortcut
+ * reference leaves out and the one it lists under the console's label,
  * the Host administration Remote methods the console bundle disables, which
  * answer 404 to a request the login cookie admits while the console's own
  * Remote calls answer,
@@ -495,6 +496,15 @@ const { version: CLIENT_VERSION } = JSON.parse(await readFile(new URL('../../../
 const WITHHELD_GENERAL_TITLES = [
   'Compaction while busy', 'Automatic compaction', 'Language', 'Appearance', 'Font size', 'Work details',
   'Performance & usage', 'Open chat links in', 'Send behavior while busy', 'Show coding view',
+] as const
+
+/**
+ * The English labels `dsh-client-ui-workspace` gives the five keyboard
+ * shortcuts `server-sidebar` withholds on the console, and the one it keeps
+ * under another label (`console-shortcuts.ts`).
+ */
+const WORKSPACE_SHORTCUT_LABELS = [
+  'New Session', 'Search sessions', 'Add workspace', 'Rename session', 'Fork session', 'Archive session',
 ] as const
 
 /**
@@ -1037,6 +1047,34 @@ describe('web e2e: the product-console sidebar', () => {
     expect(forms.find(form => form.ns === 'ui-theme')?.value).toMatchObject({ preference: 'system', fontSize: 14 })
     expect(forms.find(form => form.ns === 'ui-conversation')?.value).toMatchObject({ busyEnter: 'queue' })
     expect(forms.find(form => form.ns === 'ui-settings')?.value).toMatchObject({ enabled: false })
+  }, 30_000)
+
+  it('lists none of ui-workspace\'s shortcuts in the shortcut reference but the one it keeps, as Remove from list', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-shortcut-reference'))
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    const reference = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+    // A failed check below would otherwise leave both dialogs over the next test.
+    onTestFinished(async () => {
+      if (await reference.count() > 0) await page.keyboard.press('Escape')
+      if (await settings.count() > 0) await page.keyboard.press('Escape')
+    })
+    await settings.waitFor({ timeout: 10_000 })
+    await settings.getByRole('button', { name: 'Edit shortcuts', exact: true }).click()
+    await reference.waitFor({ timeout: 10_000 })
+    // Both halves: the reference lists its rows — the kept one among them,
+    // under the console's label — and none of the withheld ones. Absence
+    // alone would pass on a reference that drew no rows at all.
+    const labels = reference.locator('[class*="commandLabel"]')
+    await expect.poll(() => labels.allInnerTexts(), { timeout: 10_000 }).toContain('Remove from list')
+    const listed = await labels.allInnerTexts()
+    for (const label of WORKSPACE_SHORTCUT_LABELS) {
+      expect({ label, listed: listed.includes(label) }).toEqual({ label, listed: false })
+    }
+    await page.keyboard.press('Escape')
+    await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
   }, 30_000)
 
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
