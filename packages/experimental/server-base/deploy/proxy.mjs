@@ -1038,6 +1038,7 @@ function closeWithStatus(socket, status) {
 /** `clientError` codes Node's own answer gives a more precise status than 400 for. */
 const CLIENT_ERROR_STATUS = new Map([
   ['HPE_HEADER_OVERFLOW', '431 Request Header Fields Too Large'],
+  ['HPE_CHUNK_EXTENSIONS_OVERFLOW', '413 Payload Too Large'],
   ['ERR_HTTP_REQUEST_TIMEOUT', '408 Request Timeout'],
 ])
 /**
@@ -1103,13 +1104,14 @@ function followResponses(server) {
  * Install the `clientError` listener both modes use. A client that left is
  * sent nothing and logged nothing. Any other error is a request Node's parser
  * or its request deadlines refused, never an upstream failure, and is logged:
- * a header section over Node's size limit is answered 431, a request that did
- * not arrive within the server's headers or request timeout 408, and anything
- * else 400. A connection that is no longer writable, or on which a response
- * that has not ended has already sent its header, gets no status and is
- * destroyed: a status line written there would land inside that response's
- * body. Node's own listener, `socketOnError` in lib/_http_server.js, writes
- * its status under the same condition, read from the internal
+ * a header section over Node's size limit is answered 431, a chunk whose
+ * extensions are over Node's size limit 413, a request that did not arrive
+ * within the server's headers or request timeout 408, and anything else 400.
+ * A connection that is no longer writable, or on which a response that has
+ * not ended has already sent its header, gets no status and is destroyed: a
+ * status line written there would land inside that response's body. Node's
+ * own listener, `socketOnError` in lib/_http_server.js, writes its status
+ * under the same condition, read from the internal
  * `socket._httpMessage._headerSent`; this one reads the public `headersSent`
  * of every response `responses` reports open on the connection, queued ones
  * included. That flag is set by `writeHead`, before the header is flushed,

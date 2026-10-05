@@ -1295,6 +1295,15 @@ describe('malformed requests', () => {
     expect(w.dsh.requests.length + w.renewals()).toBe(0)
   })
 
+  it.each([
+    ['proxy', {}, 'POST /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\n'],
+    ['verify', { PROXY_MODE: 'verify' }, `POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${TOKEN}\r\n`],
+  ] as const)('are answered 413 when a chunk\'s extensions are over Node\'s limit in %s mode', async (_mode, env, head) => {
+    const w = await world(env)
+    const answer = await exchange(w.port, `${head}Transfer-Encoding: chunked\r\n\r\n1;${'a'.repeat(20_000)}\r\nz\r\n0\r\n\r\n`)
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 413 Payload Too Large')
+  })
+
   it.each(modes)('are answered 408 when the header section does not arrive in time in %s mode', async (_mode, env) => {
     const settings = readSettings({ DSH_WEB_PORT: '9', REMOTE_HOST: '127.0.0.1', REMOTE_PORT: '9', AUTH_ORIGIN: 'http://127.0.0.1:9', ...env })
     const runtime = { log: () => {}, now: () => 0 }
