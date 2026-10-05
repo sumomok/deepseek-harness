@@ -53,7 +53,7 @@ describe('saveRefusalCopy', () => {
 
   it('names each listed workflow by the name the page sent at that index, and the workbench by its label', () => {
     expect(saveRefusalCopy(refused(400, ['workflows[1].homeSessionId']), SENT, t))
-      .toBe('the chat behind “Beta” is someone else’s; remove it from the list, then save again')
+      .toBe('the chat behind “Beta” is someone else’s; remove it, then save again')
     expect(saveRefusalCopy(refused(400, ['workflows[0].homeSessionId', 'workflows[1].homeSessionId', 'workbenchSessionId']), SENT, t))
       .toBe('the chats behind “Alpha”, “Beta”, “Workbench” are someone else’s; the change was not saved')
   })
@@ -87,19 +87,19 @@ describe('the line the screen shows for a refusal that names entries', () => {
   it.each([
     {
       entries: 'one workflow', language: 'zh', fields: ['workflows[0].homeSessionId'],
-      line: '保存失败：「Alpha」指向别人的对话，请先把它移出列表再保存',
+      line: '保存失败：「Alpha」指向别人的对话，请先把它移除再保存',
     },
     {
       entries: 'one workflow', language: 'en', fields: ['workflows[0].homeSessionId'],
-      line: 'Failed to save: the chat behind “Alpha” is someone else’s; remove it from the list, then save again',
+      line: 'Failed to save: the chat behind “Alpha” is someone else’s; remove it, then save again',
     },
     {
       entries: 'two workflows', language: 'zh', fields: ['workflows[0].homeSessionId', 'workflows[1].homeSessionId'],
-      line: '保存失败：「Alpha」、「Beta」指向别人的对话，请先把它们移出列表再保存',
+      line: '保存失败：「Alpha」、「Beta」指向别人的对话，请先把它们移除再保存',
     },
     {
       entries: 'two workflows', language: 'en', fields: ['workflows[0].homeSessionId', 'workflows[1].homeSessionId'],
-      line: 'Failed to save: the chats behind “Alpha”, “Beta” are someone else’s; remove them from the list, then save again',
+      line: 'Failed to save: the chats behind “Alpha”, “Beta” are someone else’s; remove them, then save again',
     },
     {
       entries: 'a workflow and the workbench', language: 'zh', fields: ['workflows[1].homeSessionId', 'workbenchSessionId'],
