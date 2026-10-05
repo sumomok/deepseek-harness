@@ -16,6 +16,7 @@ import { en } from '../src/client/locales.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { NavSnapshotItem, ServerMenuGroup, ServerMenuPatch, ServerMenuWorkflow } from '../src/client/workflow-api.ts'
 import { TEMPORARY_GROUP_ID } from '../src/menu-constants.ts'
+import type { SettingsOpener } from '../src/client/settings-opener.ts'
 
 const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unknown>) => {
   const template = (en as Record<string, string>)[key] ?? key
@@ -80,6 +81,10 @@ interface Bench {
   displayName: string | undefined
   /** The deployment's configured automatic home, or `undefined` when none is configured. */
   home: NavSnapshotItem | undefined
+  /** The settings shell's section opener, absent while no seat has published one. */
+  settingsOpener: SettingsOpener | undefined
+  /** Whether the organization plugin's settings section is on the Settings page. */
+  orgSection: boolean
 }
 
 function mount(overrides: Partial<Bench> = {}) {
@@ -113,6 +118,8 @@ function mount(overrides: Partial<Bench> = {}) {
     hasWorkspace: true,
     displayName: undefined,
     home: undefined,
+    settingsOpener: undefined,
+    orgSection: false,
     ...overrides,
   }
   const root = () => (
@@ -126,6 +133,8 @@ function mount(overrides: Partial<Bench> = {}) {
       onOpenWorkflow={onOpenWorkflow} onSaveMenu={onSaveMenu}
       onOpenTemporary={onOpenTemporary} onDismissTemporary={onDismissTemporary} onSignOut={onSignOut}
       useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(current.displayName)}
+      useSettingsOpener={<S,>(sel: (opener: SettingsOpener | undefined) => S): S => sel(current.settingsOpener)}
+      useOrgSection={<S,>(sel: (present: boolean) => S): S => sel(current.orgSection)}
       useStore={(<S,>(sel: (s: {
         workflows: ServerMenuWorkflow[]
         groups: ServerMenuGroup[]
@@ -242,6 +251,71 @@ describe('ServerSidebarRoot', () => {
       const b = mount()
       fireEvent.click(screen.getByRole('button', { name: en['signOut.action'] }))
       expect(b.onSignOut).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('identity menu', () => {
+    const identityRow = (): Element | null => document.querySelector('[data-server-sidebar-section="identity"]')
+    const menuTrigger = (): Element | null => document.querySelector('[data-server-sidebar-action="identity-menu"]')
+
+    it('draws no menu trigger without the organization section, or without the settings opener', () => {
+      for (const overrides of [{ settingsOpener: vi.fn() }, { orgSection: true }, {}]) {
+        mount({ displayName: 'Signed-in Person', ...overrides })
+        expect(menuTrigger()).toBeNull()
+        // The cluster keeps the circle and the name as its own first two children.
+        const cluster = identityRow()?.firstElementChild
+        expect([...cluster?.children ?? []].map(child => child.tagName)).toEqual(['SPAN', 'SPAN', 'BUTTON'])
+        expect(cluster?.children[1]?.textContent).toBe('Signed-in Person')
+        cleanup()
+      }
+    })
+
+    it('puts the circle and the name in a menu trigger named by the name, beside the sign-out button', () => {
+      mount({ displayName: 'Signed-in Person', settingsOpener: vi.fn(), orgSection: true })
+      const trigger = screen.getByRole('button', { name: 'Signed-in Person' })
+      expect(trigger).toBe(menuTrigger())
+      expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+      expect(trigger.getAttribute('aria-expanded')).toBe('false')
+      expect(trigger.querySelector('[aria-hidden="true"]')).not.toBeNull()
+      // Sign-out stays a sibling in the same cluster, outside the trigger.
+      const signOut = screen.getByRole('button', { name: en['signOut.action'] })
+      expect(trigger.contains(signOut)).toBe(false)
+      expect(identityRow()?.firstElementChild?.contains(signOut)).toBe(true)
+    })
+
+    it('opens the organization section from the menu, closing it and returning the focus to the trigger', () => {
+      const opener = vi.fn()
+      mount({ settingsOpener: opener, orgSection: true })
+      const trigger = screen.getByRole('button', { name: en['avatar.namePlaceholder'] })
+      fireEvent.click(trigger)
+      expect(trigger.getAttribute('aria-expanded')).toBe('true')
+      expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([en['identityMenu.org']])
+      fireEvent.click(screen.getByRole('menuitem', { name: en['identityMenu.org'] }))
+      expect(opener).toHaveBeenCalledWith('sumomok-org')
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
+    })
+
+    it('closes on a second click of its trigger and on its own close request', () => {
+      mount({ settingsOpener: vi.fn(), orgSection: true })
+      const trigger = screen.getByRole('button', { name: en['avatar.namePlaceholder'] })
+      fireEvent.click(trigger)
+      fireEvent.click(trigger)
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      fireEvent.click(trigger)
+      fireEvent.keyDown(screen.getByRole('menuitem'), { key: 'Escape' })
+      expect(screen.queryByRole('menuitem')).toBeNull()
+    })
+
+    it('takes the open menu down when its entry leaves, and does not reopen it when the entry comes back', () => {
+      const b = mount({ settingsOpener: vi.fn(), orgSection: true })
+      fireEvent.click(screen.getByRole('button', { name: en['avatar.namePlaceholder'] }))
+      b.rerender({ orgSection: false })
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      expect(menuTrigger()).toBeNull()
+      b.rerender({ orgSection: true })
+      expect(menuTrigger()?.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('menuitem')).toBeNull()
     })
   })
 

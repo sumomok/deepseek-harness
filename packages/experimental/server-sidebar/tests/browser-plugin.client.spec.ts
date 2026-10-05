@@ -31,6 +31,8 @@ import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
 import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
 import { WithheldRenameDialog } from '../src/client/withheld-rename.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
+import { SettingsOpenerSeat, type SettingsOpenerSeatInjected } from '../src/client/settings-opener.ts'
+import { ORG_SECTION_ID } from '../src/client/org-section.ts'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -885,6 +887,79 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('settings.action')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.chat.node')).toHaveLength(0)
     expect(ctx.slots.entries('shell.overlay')).toHaveLength(0)
+  })
+})
+
+/**
+ * Stand in for `ui-settings-general`'s settings shell: occupy `sidebar.settings`
+ * and declare the trigger-action list and the section list it renders.
+ * @param ctx - the bench context.
+ * @returns the disposer that takes the shell, and both declarations, away.
+ */
+function mountSettingsShell(ctx: Context): () => void {
+  return ctx.slots.register(
+    {
+      name: 'sidebar.settings',
+      children: {
+        'settings.trigger.action': { kind: 'list', scope: 'root' },
+        'settings.section': { kind: 'list', scope: 'root' },
+      },
+    } as never,
+    () => null,
+  )
+}
+
+/**
+ * The settings opener seat's stored entry.
+ * @param ctx - the bench context.
+ * @returns the entry this package registered in `settings.trigger.action`, if any.
+ */
+function openerSeat(ctx: Context): ReturnType<Context['slots']['entries']>[number] | undefined {
+  return ctx.slots.entries('settings.trigger.action').find(entry => entry.options.id === 'server-sidebar.settings-opener')
+}
+
+describe('server-sidebar browser half: settings opener and organization section', () => {
+  it('seats the opener in the settings shell\'s trigger-action list once the shell declares it, and leaves with the shell', async () => {
+    const { ctx } = await bench()
+    expect(openerSeat(ctx)).toBeUndefined()
+    const unmountShell = mountSettingsShell(ctx)
+    const seat = openerSeat(ctx)
+    expect(seat?.component).toBe(SettingsOpenerSeat)
+    expect(seat?.locale).toBeUndefined()
+    unmountShell()
+    expect(openerSeat(ctx)).toBeUndefined()
+  })
+
+  it('hands the seat the source the sidebar reads its opener from', async () => {
+    const { ctx } = await bench()
+    mountSettingsShell(ctx)
+    const { injected } = injectSidebar(ctx)
+    expect(injected.hooks.settingsOpener.getSnapshot()).toBeUndefined()
+    const face = openerSeat(ctx)?.inject?.() as SettingsOpenerSeatInjected | undefined
+    const opener = vi.fn()
+    face?.publish(opener)
+    expect(injected.hooks.settingsOpener.getSnapshot()).toBe(opener)
+    face?.publish(undefined)
+    expect(injected.hooks.settingsOpener.getSnapshot()).toBeUndefined()
+  })
+
+  it('reads whether the organization section is on the settings shell\'s section list', async () => {
+    const { ctx } = await bench()
+    const { injected } = injectSidebar(ctx)
+    expect(injected.hooks.orgSection.getSnapshot()).toBe(false)
+    mountSettingsShell(ctx)
+    const disposeSection = ctx.slots.register({ name: 'settings.section', id: ORG_SECTION_ID, label: 'Organization' }, () => null)
+    expect(injected.hooks.orgSection.getSnapshot()).toBe(true)
+    disposeSection()
+    expect(injected.hooks.orgSection.getSnapshot()).toBe(false)
+  })
+
+  it('removes the seat on teardown (HMR safety)', async () => {
+    const { ctx, fiber } = await bench()
+    mountSettingsShell(ctx)
+    expect(openerSeat(ctx)).toBeDefined()
+    await fiber.dispose()
+    expect(ctx.slots.entries('settings.trigger.action')).toHaveLength(0)
   })
 })
 

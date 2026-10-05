@@ -63,7 +63,11 @@
  * conversation header's corner (`conversation.session.header.corner`, a
  * single slot) with an entry that renders nothing, at
  * {@link REPLACING_PRIORITY}; with its toggle shortcut withheld as well, the
- * right column opens only for a file a visitor clicks.
+ * right column opens only for a file a visitor clicks. A twelfth occupies
+ * `settings.trigger.action` with a seat that renders nothing and hands the
+ * sidebar the settings shell's section opener (`settings-opener.ts`), which
+ * the identity row's menu uses to open the organization plugin's section
+ * (`org-section.ts`).
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -103,6 +107,8 @@ import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
+import { createSettingsOpenerSource, SettingsOpenerSeat, type SettingsOpenerSeatInjected } from './settings-opener.ts'
+import { createOrgSectionSource } from './org-section.ts'
 import { en, zh, type ServerSidebarKey, type ServerSidebarTranslate } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
@@ -227,6 +233,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
   replaceArchiveConfirm(ctx)
   withholdShortcuts(ctx)
   withholdRenameDialog(ctx)
+  const settingsOpener = createSettingsOpenerSource()
+  ctx.effect(
+    () => ctx.slots.inject('settings.trigger.action', () => ctx.slots.register({
+      name: 'settings.trigger.action',
+      id: 'server-sidebar.settings-opener',
+      inject: (): SettingsOpenerSeatInjected => ({ publish: settingsOpener.publish }),
+    }, SettingsOpenerSeat)),
+    'server-sidebar: settings opener seat',
+  )
+  const orgSection = createOrgSectionSource(ctx.slots)
 
   const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),
@@ -364,7 +380,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // its doc), so there is nothing here to catch.
             void signOut(windowSignOutBrowser(ctx), authGate)
           },
-          hooks: { displayName },
+          hooks: { displayName, settingsOpener, orgSection },
         }
       },
     }, ServerSidebarRoot),
