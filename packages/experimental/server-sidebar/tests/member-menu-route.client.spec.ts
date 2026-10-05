@@ -377,12 +377,13 @@ describe('per-member server-menu route', () => {
       { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1, homeSessionId: 'session-a-child' },
       { ...WORKFLOW, id: 'w3', name: 'Gamma', order: 2, homeSessionId: 'session-b' },
     ]
-    directory.seed(MEMBER_A, UNIT, document({ workflows: saved }))
+    const stored = { workflows: saved, groups: [] }
+    directory.seed(MEMBER_A, UNIT, stored)
     const renamed = await postPatch(ctx, ASSERTION_A, { workflows: [{ ...saved[0]!, name: 'Alpha 2' }, saved[1]!, saved[2]!] })
     expect(outcome(renamed)).toEqual({ status: 400, body: foreign('workflows[2].homeSessionId') })
     expect(renamed.body).not.toContain(MEMBER_B)
     expect(renamed.body).not.toContain('session-b')
-    expect(directory.value(MEMBER_A, UNIT)).toEqual(document({ workflows: saved }))
+    expect(directory.value(MEMBER_A, UNIT)).toEqual(stored)
     expectNothingQuoted([renamed], logs)
   })
 
