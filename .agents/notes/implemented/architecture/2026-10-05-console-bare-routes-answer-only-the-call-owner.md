@@ -38,7 +38,7 @@ This extends the rule of the [member directory note](2026-10-05-console-members-
 
 ## Consequences
 
-In a console with `perMember` set on both rows, another member's console can neither claim, report on, store a picture into, nor settle a chart call of a member's session or of that session's children, and nothing it is answered about one call tells it whether that call exists. The seat bids again on `unknown`, but only for a call on the pending list of a session it shows, so turning another member's `settled` into `unknown` changes the bidding only of a console that lists that call.
+In a console with `perMember` set on both rows, another member's console can neither claim, report on, store a picture into, nor settle a chart call of a member's session or of that session's children, and nothing it is answered about one call tells it whether that call exists. The seat bids again on `unknown`, but only for a call on the pending list of a session whose page it still holds a frame of, so turning another member's `settled` into `unknown` changes the bidding only of a console that lists that call.
 
 Two content-frame tables stay process-wide: the 64 most recently settled call ids and the preferred tabs of the last 64 sessions read. A member can tell from its own settled call turning `unknown` that about 64 calls settled since in any member's sessions, and a member reading in more than 64 sessions drops other members' tab pins; neither names a call or a session. A provider that numbers its calls can give two members' concurrent calls one id: content-frame refuses the second wait, and show-chart's second wait replaces the first, so the first call answers unverified. Neither lets one member settle the other's call.
 

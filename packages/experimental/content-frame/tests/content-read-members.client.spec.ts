@@ -188,6 +188,8 @@ function origin(ctx: Context): string {
 interface Answer {
   status: number
   body: string
+  /** The `connection` header, read only where the answer came over a raw request. */
+  connection?: string | undefined
 }
 
 /**
@@ -237,7 +239,7 @@ async function postUnfinished(ctx: Context, path: string, assertion: string | un
         response.on('data', (chunk: string) => { body += chunk })
         response.on('end', () => {
           clearTimeout(timer)
-          resolveAnswer({ status: response.statusCode ?? 0, body })
+          resolveAnswer({ status: response.statusCode ?? 0, body, connection: response.headers.connection })
         })
       })
       req.write(sent)
@@ -371,6 +373,8 @@ describe('per-member read routes', () => {
         answers.push(unfinished, whole)
         expect([unfinished, whole].map(answer => ({ route: route.path, status: answer.status, body: documentOf(answer) })))
           .toEqual([{ route: route.path, status: 401, body: refusal }, { route: route.path, status: 401, body: refusal }])
+        // The body is left unread, so the connection cannot carry another request.
+        expect({ route: route.path, connection: unfinished.connection }).toEqual({ route: route.path, connection: 'close' })
       }
     }
     expect(picturesOf(ctx).saved).toEqual([])
@@ -393,6 +397,7 @@ describe('per-member read routes', () => {
       answers.push(unfinished, whole)
       expect([unfinished, whole].map(answer => ({ route: route.path, status: answer.status, body: documentOf(answer) })))
         .toEqual([{ route: route.path, status: 503, body: refusal }, { route: route.path, status: 503, body: refusal }])
+      expect({ route: route.path, connection: unfinished.connection }).toEqual({ route: route.path, connection: 'close' })
     }
     expectNothingQuoted(answers, logs)
   })
