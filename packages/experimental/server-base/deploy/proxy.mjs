@@ -1173,7 +1173,9 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
 
 /**
  * Build the PROXY_MODE=proxy server. It is returned unlistened; the caller
- * owns `listen` and `close`.
+ * owns `listen` and `close`. A client that leaves before its request body is
+ * complete, or before its response is completely written, has its upstream
+ * request and response destroyed, and nothing is logged or answered for it.
  * @param {Settings} settings - validated settings with `mode` set to `proxy`.
  * @param {Runtime} runtime - the log sink and clock.
  * @returns {{ server: import('node:http').Server, gate: Gate }} the server and the gate whose sockets `gate.close()` releases.
@@ -1205,15 +1207,28 @@ export function createProxyServer(settings, runtime) {
     }
     // Installed before the login check, which can wait on the authentication
     // service. A client that leaves before its body is complete leaves the
-    // upstream waiting on bytes its framing promised, so that request is
-    // destroyed, and the failure it then reports goes unlogged and unanswered.
+    // upstream waiting on bytes its framing promised; one that leaves before
+    // its response is completely written leaves the upstream response paused
+    // on an open connection, which an event stream never ends. Either way the
+    // upstream request and response are destroyed, and any failure the
+    // upstream request then reports goes unlogged and unanswered.
     /** @type {import('node:http').ClientRequest | undefined} */
     let upstream
+    /** @type {import('node:http').IncomingMessage | undefined} */
+    let upstreamRes
     let abandoned = false
-    req.on('close', () => {
-      if (req.complete) return
+    const abandon = () => {
       abandoned = true
       upstream?.destroy()
+      upstreamRes?.destroy()
+    }
+    req.on('close', () => {
+      if (!req.complete) abandon()
+    })
+    res.on('close', () => {
+      // An upstream response that already ended holds nothing open, and its
+      // connection may already be back in the agent's pool.
+      if (!res.writableFinished && upstreamRes?.complete !== true) abandon()
     })
     try {
       const remote = isRemote(pathname)
@@ -1237,20 +1252,21 @@ export function createProxyServer(settings, runtime) {
         path: req.url,
         headers: upstreamRequestHeaders(req.headers, remote ? remoteHostHeader : undefined, assertion, framing),
         agent: remote ? remoteAgent : dshAgent,
-      }, (upstreamRes) => {
-        const headers = remote ? remoteResponseHeaders(upstreamRes.headers) : forwardHeaders(upstreamRes.headers, undefined)
-        const status = upstreamRes.statusCode ?? 502
+      }, (response) => {
+        upstreamRes = response
+        const headers = remote ? remoteResponseHeaders(response.headers) : forwardHeaders(response.headers, undefined)
+        const status = response.statusCode ?? 502
         if (!remote && status === 401 && exchangeable(req, pathname)) {
           const token = launchToken(settings.launchTokenFile)
           if (token !== undefined) {
-            upstreamRes.resume()
+            response.resume()
             sendExchange(req, res, token, runtime)
             return
           }
         }
         if (status >= 400) runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> ${String(status)}`)
         res.writeHead(status, headers)
-        upstreamRes.pipe(res)
+        response.pipe(res)
       })
       upstream.on('error', (error) => {
         if (abandoned) return

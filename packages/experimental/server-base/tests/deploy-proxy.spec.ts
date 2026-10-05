@@ -398,28 +398,114 @@ async function rawStub(reply: string | undefined): Promise<RawStub> {
 }
 
 /**
- * A proxy-mode gate whose dsh and remote application are raw stand-ins
- * answering `reply`, with a separate stand-in answering the renewal check.
- * @param reply - what both raw stand-ins answer the handshake with.
- * @returns the gate's port and the two raw stand-ins.
+ * A proxy-mode gate in front of the given dsh and remote-application ports,
+ * with a separate stand-in answering the renewal check.
+ * @param dshPort - the stand-in dsh's port.
+ * @param remotePort - the stand-in remote application's port.
+ * @returns the gate's port and the lines it logged.
  */
-async function rawWorld(reply: string | undefined): Promise<{ port: number; dsh: RawStub; remote: RawStub }> {
+async function gateBetween(dshPort: number, remotePort: number): Promise<{ port: number; logs: string[] }> {
   const renewal = await stub((req, res) => {
     res.end(JSON.stringify({ renewal: '3600000', token: req.headers.authorization }))
     return true
   })
-  const dsh = await rawStub(reply)
-  const remote = await rawStub(reply)
   const settings = readSettings({
-    DSH_WEB_PORT: String(dsh.port),
+    DSH_WEB_PORT: String(dshPort),
     REMOTE_HOST: '127.0.0.1',
-    REMOTE_PORT: String(remote.port),
+    REMOTE_PORT: String(remotePort),
     AUTH_ORIGIN: `http://127.0.0.1:${String(renewal.port)}`,
     MEMBER_ASSERTION_KEY_FILE: KEY_FILE,
     MEMBER_ASSERTION_DEPLOYMENT_ID: DEPLOYMENT,
   }, readKeyFile)
-  const { server, gate } = createProxyServer(settings, { log: () => {}, now: () => 1_800_000_000_000 })
-  return { port: await listen(server, gate), dsh, remote }
+  const logs: string[] = []
+  const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
+  return { port: await listen(server, gate), logs }
+}
+
+/**
+ * A proxy-mode gate whose dsh and remote application are raw stand-ins
+ * answering `reply`.
+ * @param reply - what both raw stand-ins answer the handshake with.
+ * @returns the gate's port and the two raw stand-ins.
+ */
+async function rawWorld(reply: string | undefined): Promise<{ port: number; dsh: RawStub; remote: RawStub }> {
+  const dsh = await rawStub(reply)
+  const remote = await rawStub(reply)
+  const { port } = await gateBetween(dsh.port, remote.port)
+  return { port, dsh, remote }
+}
+
+/** The one chunk a streaming stand-in writes after its response head. */
+const FIRST_CHUNK = 'first-chunk'
+
+/** A stand-in upstream that starts every response and never ends one. */
+interface StreamingStub {
+  port: number
+  /** Resolves once the connection that carried the first started response closes. */
+  closed: Promise<true>
+}
+
+/**
+ * A stand-in upstream that answers each request with a 200 head and
+ * FIRST_CHUNK, then holds the response open, as an event stream does.
+ * @returns the stub.
+ */
+async function streamingStub(): Promise<StreamingStub> {
+  const closed = Promise.withResolvers<true>()
+  const server = http.createServer((req, res) => {
+    req.resume()
+    req.socket.once('close', () => { closed.resolve(true) })
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write(FIRST_CHUNK)
+  })
+  return { port: await listen(server), closed: closed.promise }
+}
+
+/**
+ * A proxy-mode gate whose dsh and remote application are streaming stand-ins.
+ * @returns the gate's port, the lines it logged, and the two stand-ins.
+ */
+async function streamingWorld(): Promise<{ port: number; logs: string[]; dsh: StreamingStub; remote: StreamingStub }> {
+  const dsh = await streamingStub()
+  const remote = await streamingStub()
+  return { ...(await gateBetween(dsh.port, remote.port)), dsh, remote }
+}
+
+/** An open raw connection to the gate. */
+interface OpenConnection {
+  client: Socket
+  /** Everything the gate has sent so far, as latin1 text. */
+  received: () => string
+  /** Resolves once the connection closes. */
+  closed: Promise<true>
+}
+
+/**
+ * Open a raw connection, write `text`, and wait until the gate's answer
+ * contains `marker`.
+ * @param port - the gate's port.
+ * @param text - the bytes sent first.
+ * @param marker - the text to wait for in the answer.
+ * @returns the still-open connection.
+ * @throws {Error} when the connection closes before `marker` arrives.
+ */
+async function readUntil(port: number, text: string, marker: string): Promise<OpenConnection> {
+  let received = ''
+  const reached = Promise.withResolvers<true>()
+  const closed = Promise.withResolvers<true>()
+  const client = net.connect(port, '127.0.0.1', () => { client.write(text) })
+  closers.push(async () => { client.destroy() })
+  client.on('data', (chunk: Buffer) => {
+    received += chunk.toString('latin1')
+    if (received.includes(marker)) reached.resolve(true)
+  })
+  client.on('error', () => { client.destroy() })
+  client.on('close', () => {
+    reached.reject(new Error(`connection closed before ${JSON.stringify(marker)}: ${JSON.stringify(received)}`))
+    closed.resolve(true)
+  })
+  await reached.promise
+  return { client, received: () => received, closed: closed.promise }
 }
 
 /**
@@ -954,6 +1040,19 @@ describe('a client that leaves during the login check', () => {
     expect(await upgrade(w.port, '/api/remote.mux', LOGGED_IN)).toBe(101)
     expect(w.dshConnections()).toBe(1)
     expect(w.dsh.upgrades).toHaveLength(1)
+  })
+})
+
+describe('a client that leaves while its response streams', () => {
+  it.each([
+    ['a verified dsh path', '/api/events', 'dsh'],
+    ['a remote-application path', '/ini-web2/events', 'remote'],
+  ] as const)('closes the upstream connection on %s and logs nothing', async (_label, path, target) => {
+    const w = await streamingWorld()
+    const { client } = await readUntil(w.port, `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
+    client.destroy()
+    await w[target].closed
+    expect(w.logs).toEqual([])
   })
 })
 
