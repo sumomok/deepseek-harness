@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/auth-gate/README.md
 /:
-  en: b6aed5b7130d61b0
-  zh: 123aa115aaf57b19
+  en: a39c24c783cd08d8
+  zh: d83237851d3764bc
 /deepseek-ai-dsh-experimental-auth-gate:
   en: ee7944b76363d55c
   zh: 773b351c4c567f33
 /deepseek-ai-dsh-experimental-auth-gate/summary:
-  en: f931476f38fbc1cf
-  zh: 98c499cf95807324
+  en: 8f9fb5b83a4facab
+  zh: 9f3ef5b0ae69949d
 /deepseek-ai-dsh-experimental-auth-gate/table-of-contents:
-  en: 1f05e9634bcb6fef
-  zh: 56a558f090e1f234
+  en: cb34896c21e824cb
+  zh: a2f41f01d8b13c26
 /deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load:
-  en: 5bc10cbe69ddb7b3
-  zh: 33b524d7b9e3c8aa
+  en: cfe089731f855195
+  zh: 5225581267d82f0a
 /deepseek-ai-dsh-experimental-auth-gate/what-the-gate-does-on-every-page-load/the-mirror-never-loops:
   en: 08dca740259a6206
   zh: ee160254e307edfa
@@ -30,17 +30,23 @@
   en: 244d7c5aec6c4004
   zh: 531c337ef7fb34dc
 /deepseek-ai-dsh-experimental-auth-gate/routes:
-  en: 5b83491d7ec2066a
-  zh: 8066a4b202fd9593
+  en: eb1b5a91ef27df29
+  zh: d09187ce4dd85013
 /deepseek-ai-dsh-experimental-auth-gate/forwarding-mcp-requests-with-the-token:
-  en: ef5101f2a0da5385
-  zh: 297105af90c4e89c
+  en: db8a232f907ecb49
+  zh: 662752aacf7dd60f
 /deepseek-ai-dsh-experimental-auth-gate/reading-the-deployment-s-data-backend:
-  en: fa97918c0ee43045
-  zh: d6c2413a0cdfd6a7
+  en: 241251a6e41cce5a
+  zh: 0c773fd48d6c24c1
+/deepseek-ai-dsh-experimental-auth-gate/holding-one-token-per-console-member:
+  en: 3df841e26a7e71c1
+  zh: 9b85a3e9c7e7693c
+/deepseek-ai-dsh-experimental-auth-gate/holding-one-token-per-console-member/who-can-read-a-token-once-sharewithmemberdirectory-is-set:
+  en: b0fa9237e7824fb2
+  zh: 24b75984683eaa6c
 /deepseek-ai-dsh-experimental-auth-gate/composition:
-  en: 9e2878e0fedbea32
-  zh: 99a9b54a0bdf1286
+  en: 909717d11b86d3a3
+  zh: be7a9b5908b5e97e
 /deepseek-ai-dsh-experimental-auth-gate/model-experience:
   en: 25e94b6a273584cb
   zh: 25e94b6a273584cb
@@ -48,8 +54,8 @@
   en: dfcef6725d05d467
   zh: dfcef6725d05d467
 /deepseek-ai-dsh-experimental-auth-gate/known-limitations-and-deferred-work:
-  en: e41722fd9736bd78
-  zh: 7e1fda2fb7633b41
+  en: bd88a2809b45f124
+  zh: 9922221640141d51
 /deepseek-ai-dsh-experimental-auth-gate/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

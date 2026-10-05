@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for console-members.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/console-members.md
+/console-members:
+  en: c5c3b1fc8a4f9fa6
+  zh: 1d5a4d8f9f4e4c21
+/console-members/a-request-s-member-has-one-source:
+  en: f5b9f721fb52075f
+  zh: 9aaf74caefa39224
+/console-members/a-child-session-follows-its-parent-not-its-own-cwd:
+  en: 39a6f949e4b05a9b
+  zh: 9da412b58b1d85df
+/console-members/the-directory-is-not-a-path-to-customer-tokens:
+  en: a054cb9469213138
+  zh: f8d83eb45e42fa13

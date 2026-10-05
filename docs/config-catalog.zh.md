@@ -922,10 +922,10 @@ export interface Config {
 
 - `inject`: `webServer`
 - `refs`: [`BizOperationRules`](../packages/experimental/biz-backend/src/index.ts)
-- `source`: [`packages/experimental/auth-gate/src/index.ts:71`](../packages/experimental/auth-gate/src/index.ts)
+- `source`: [`packages/experimental/auth-gate/src/index.ts:88`](../packages/experimental/auth-gate/src/index.ts)
 
 ```ts config-catalog
-/** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
+/** Plugin config: where a visitor signs in, how tokens are mirrored and held, and which MCP servers they are spent on. */
 export interface Config {
   /**
    * Page an unauthenticated visitor is sent to. The browser half appends
@@ -1012,6 +1012,40 @@ export interface Config {
    * believes it renews and does not.
    */
   renewalIntervalSeconds?: number
+  /**
+   * Hold one token per console member instead of one for the whole process.
+   * Which member a request or a session belongs to is the `consoleMembers`
+   * service's answer, and this package reads no identity header of its own:
+   * while that service is not running, the token and sign-out routes answer
+   * 503 and every data-backend read answers `unauthenticated`. A posted token
+   * is held only for the member its {@link Config.principalClaim} names.
+   *
+   * Requires {@link Config.principalClaim}, and an empty
+   * {@link Config.mcpUpstreams}: a forwarded MCP request comes from the MCP
+   * client inside this process, so it names no member whose token it could
+   * carry. The default is false, which holds one token for the process.
+   */
+  perMember?: boolean
+  /**
+   * The claim of a posted token's payload that names the member it was issued
+   * to, compared against the member the request was admitted as before the
+   * token is held — `login_uid` for a toy-core deployment. A string claim is
+   * compared as it stands and a numeric one by its source digits, so a 19-digit
+   * id is not rounded; an empty string, or any other value, names nobody.
+   * Required when {@link Config.perMember} is set, and refused without it: a
+   * claim configured for a process holding one token is a deployment that
+   * believes it compares members and does not.
+   */
+  principalClaim?: string
+  /**
+   * Lend the `consoleMembers` service a reader of the per-member tokens, once
+   * it is running: the service and whatever it hands a token to can then read
+   * every member's token. The reader reads one member's token at a time and
+   * reports when one is set or dropped; it lists nobody. Refused at load
+   * without {@link Config.perMember}. The default is false, which lends
+   * nothing.
+   */
+  shareWithMemberDirectory?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-auth-gate -->
@@ -5339,6 +5373,7 @@ export interface Config {
 | `@deepseek-ai/dsh-experimental-agent-team-profile` | — | [`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-biz-backend` | — | [`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-browser-use-runtime` | — | [`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts) |
+| `@deepseek-ai/dsh-experimental-console-members` | — | [`packages/experimental/console-members/src/index.ts`](../packages/experimental/console-members/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-console-profile` | — | [`packages/experimental/console-profile/src/index.ts`](../packages/experimental/console-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-inspector-profile` | — | [`packages/experimental/inspector-profile/src/index.ts`](../packages/experimental/inspector-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-library-skills` | — | [`packages/experimental/library-skills/src/index.ts`](../packages/experimental/library-skills/src/index.ts) |

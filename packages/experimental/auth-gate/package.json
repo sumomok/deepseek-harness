@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-experimental-auth-gate",
-  "description": "Wires a deployment's own single sign-on into a dsh browser session: the browser half sends an unauthenticated visitor to the login page and mirrors the access token it comes back with into a cookie, and the node half holds that token in memory and injects it into the MCP requests it forwards upstream",
+  "description": "Wires a deployment's own single sign-on into a dsh browser session: the browser half sends an unauthenticated visitor to the login page and mirrors the access token it comes back with into a cookie, and the node half holds that token in memory — one for the process, or one per console member — and spends it on the MCP requests it forwards upstream and on the deployment's data backend",
   "version": "0.2.1-alpha.1",
   "private": true,
   "repository": {
@@ -40,17 +40,24 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
-    "@deepseek-ai/dsh-host-webserver": "workspace:*"
+    "@deepseek-ai/dsh-experimental-console-members": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
-    "@deepseek-ai/dsh-host-webserver": "workspace:*"
+    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:*",
+    "@deepseek-ai/dsh-experimental-console-members": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "files": [
     "lib/index.js",

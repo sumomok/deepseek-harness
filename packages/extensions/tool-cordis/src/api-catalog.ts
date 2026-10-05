@@ -917,6 +917,68 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'consoleMembers',
+    summary: 'The console member directory, `ctx.consoleMembers`.',
+    description: 'The console member directory, `ctx.consoleMembers`.\n\nEvery method is synchronous; a MemberStore it returns reads and writes asynchronously. No method returns, enumerates, or exposes a customer token or the attached CustomerCredentialReader.',
+    methods: [
+      {
+        signature: 'principalOfRequest(req: IncomingMessage): PrincipalKey | undefined',
+        description: 'The member one browser request was admitted as, for a webServer route.\n\nAdmits the request through `connection.admit(req)`, the check the `/api` route applies, and looks up the member of the admitted Peer. This is the only way a fork webServer route obtains the member of a request: such a route reads no identity header and calls no `connection.admit` of its own.',
+        parameters: [{ name: 'req', description: 'the request the route is answering.' }],
+        returns: 'that member\'s key, or `undefined` when admission refuses the request or the admitted Peer belongs to no member.',
+      },
+      {
+        signature: 'principalOfCaller(peer: PeerScope): PrincipalKey | undefined',
+        description: 'The member a Remote method\'s caller acts for.',
+        parameters: [{ name: 'peer', description: 'the caller\'s Peer, `this.ctx.invocation.peer` inside a Remote method.' }],
+        returns: 'that member\'s key, or `undefined` for the operator Peer and for a Peer this directory did not open for a member.',
+      },
+      {
+        signature: 'principalOfSession(sessionId: SessionId): PrincipalKey | undefined',
+        description: 'The member one Session belongs to.\n\nA Session without `parentSession` belongs to the member whose registered root contains its `header.cwd`; a cwd under a root registered to no one, or under no registered root, belongs to no member. A Session with `parentSession` belongs to whoever its parent belongs to, followed up to the topmost Session; when any Session on that chain is unknown or belongs to no member, the answer is `undefined`. A child Session whose own `header.cwd` lies under a root registered to another member or to no one answers `undefined` and logs one warning that carries no principal key; a child cwd under no registered root is not a conflict and leaves the parent-chain answer in force. A child Session takes its parent\'s member synchronously on `session/created`, and a Session not loaded since startup is resolved through its parent chain. The Host alone writes `parentSession`, at fork and at subagent creation; no RPC caller can set it.',
+        parameters: [{ name: 'sessionId', description: 'the Session to look up.' }],
+        returns: 'that member\'s key, or `undefined` when the Session is unknown or belongs to no member.',
+      },
+      {
+        signature: 'memberRoot(principal: PrincipalKey): string',
+        description: 'The member\'s default root, `<membersRoot>/<directory id>`. The member\'s default workspace is its `workspace` subdirectory. The directory id does not contain the principal key.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'the absolute path of that member\'s default root.',
+      },
+      {
+        signature: 'rootsOf(principal: PrincipalKey): readonly string[]',
+        description: 'Every root registered to the member: the default root plus each root a migration seed registers to them.',
+        parameters: [{ name: 'principal', description: 'the member.' }],
+        returns: 'those roots\' absolute paths.',
+      },
+      {
+        signature: 'principals(): readonly PrincipalKey[]',
+        description: 'The members that currently have an open Peer.',
+        parameters: [],
+        returns: 'their keys.',
+      },
+      {
+        signature: 'onChange(listener: (event: { principal: PrincipalKey; kind: \'opened\' | \'closed\' }) => void): () => void',
+        description: 'Observe members opening and closing Peers: `opened` when a member\'s Peer opens and `closed` when it closes, the changes ConsoleMemberDirectory.principals reports.',
+        parameters: [{ name: 'listener', description: 'called with the member and the kind of change.' }],
+        returns: 'the disposer that stops the notifications.',
+      },
+      {
+        signature: 'memberStore(principal: PrincipalKey, unit: string): MemberStore',
+        description: 'Per-member storage for one caller-named unit, kept at `dshHomePath(\'console-members\', <directory id>, \'<unit>.json\')`. It holds non-secret data only.',
+        parameters: [{ name: 'principal', description: 'the member the data belongs to.' }, { name: 'unit', description: 'the caller\'s own name for its data, for example `\'server-sidebar\'`.' }],
+        returns: 'the store for that member and unit.',
+      },
+      {
+        signature: 'attachCustomerCredentials(reader: CustomerCredentialReader): () => void',
+        description: 'Attach the reader of members\' customer tokens. The directory holds one reader at a time: attaching while a reader is attached throws, and once the returned disposer has run a new reader may be attached, as the token holder\'s plugin does when it restarts. Running the disposer counts as every member\'s token being dropped: the directory stops reading the reader, and whatever was derived from those tokens is discarded; the reader emits no `dropped` for it.',
+        parameters: [{ name: 'reader', description: 'the read-only customer-token reader.' }],
+        returns: 'the disposer that detaches the reader.',
+        throws: ['Error when a reader is already attached.'],
+      },
+    ],
+  },
+  {
     key: 'contentSurface',
     summary: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.',
     description: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.\n\n**Registration timing is free.** The projection registry fixes a unit\'s fold and its `stateVersion` at registration and caches one folded cell per session, so a table read live inside one long-lived unit would leave every cell built before a late extractor arrived permanently missing that kind\'s history. This registry therefore registers a NEW unit for every table change: the registry drops the old unit\'s cells with it, and each session\'s next touch refolds `init` over its whole in-memory log through the new table. `stateVersion` is derived from the table for the same reason, so a persisted checkpoint written under a different set of kinds is discarded rather than forward-applied.\n\nThe one cost is push latency: the registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session\'s next event.',
@@ -5434,6 +5496,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CronScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'cron\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly expression: string;\n    readonly timeZone: string;\n    readonly scheduledAt: string;\n}',
   },
   {
+    name: 'CustomerCredentialReader',
+    declaration: 'export interface CustomerCredentialReader {\n    read(principal: PrincipalKey): string | undefined;\n    onChange(listener: (principal: PrincipalKey, kind: \'set\' | \'dropped\') => void): () => void;\n}',
+  },
+  {
     name: 'DailyInput',
     declaration: 'export interface DailyInput {\n    readonly time: string;\n    readonly time_zone: string;\n}',
   },
@@ -6192,6 +6258,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'MemberStore',
+    declaration: 'export interface MemberStore {\n    read(): Promise<JsonValue | undefined>;\n    write(value: JsonValue): Promise<void>;\n}',
   },
   {
     name: 'Message',

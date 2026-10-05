@@ -52,6 +52,7 @@
 | [content-surface.md](content-surface.zh.md) | content 栏的 entry 流：`ContentSurfaceExtractor` 契约、已存记录与已解析 entry 之别、按 `(kind, entryId)` 取代，以及由表派生的 fold 版本 |
 | [biz-backend.md](biz-backend.zh.md) | 部署数据读取缝：`ctx.bizBackend` 由谁构造出来、为什么拿主意的是答复自己的结果码而不是状态，以及失败绝不能携带什么 |
 | [skill-pack.md](skill-pack.zh.md) | 技能包这条缝：为什么「扣下」这件事住在提供方里、一份技能包清单说了什么，以及部件来源挂上之前那个 fail-closed 的答案 |
+| [console-members.md](console-members.zh.md) | 控制台成员目录：路由怎样取得请求背后的成员、子会话的成员怎样随父链判定，以及那个只接受一次、没有方法交出的客户 token 读取器 |
 | [web.md](web.zh.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、提供方可用性、`WebError` |
 | [spill.md](spill.zh.md) | spill 存储 seam：`SaveTextSpill`、`SpillOwner`/`SpillSource`、`SpillRef`、品牌类型 `SpillLocator` |
 | [workflow.md](workflow.zh.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |

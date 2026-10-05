@@ -52,6 +52,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 | [content-surface.md](content-surface.md) | the content-column entry stream: the `ContentSurfaceExtractor` contract, the stored record vs the resolved entry, supersede-by-`(kind, entryId)`, and the table-derived fold version |
 | [biz-backend.md](biz-backend.md) | the deployment-data read seam: where `ctx.bizBackend` is constructed from, why the answer's own result code decides rather than the status, and what a failure may never carry |
 | [skill-pack.md](skill-pack.md) | the skill-pack seam: why withholding lives in the provider, what a pack manifest states, and the fail-closed answer before a parts source is mounted |
+| [console-members.md](console-members.md) | the console member directory: how a route obtains a request's member, how a child Session's member follows its parent chain, and the single customer-token reader no method returns |
 | [web.md](web.md) | the web access seam: `WebSearchRequest`/`Result`, `WebFetchRequest`/`Result`, `WebFetchBody`, provider availability, `WebError` |
 | [spill.md](spill.md) | the spill storage seam: `SaveTextSpill`, `SpillOwner`/`SpillSource`, `SpillRef`, the branded `SpillLocator` |
 | [workflow.md](workflow.md) | the workflow seam: `WorkflowStartRequest`, `WorkflowMeta`, `WorkflowRun`/`Result`, the `workflow/*` event payloads, `WorkflowError` fatality |
