@@ -75,18 +75,26 @@ Host `ctx.connection` members consumed by transport-independent adapters.
 createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
 /**
- * Apply Connection's Host/Origin checks and browser authentication to
- * another Web route.
+ * Apply {@link admit} to another Web route and keep only its verdict:
+ * Connection's Host/Origin checks, browser authentication, and the installed
+ * Peer admitter's refusal all reject.
  * @param request - request headers from the HTTP or upgrade request.
  * @returns rejection status, or undefined when the route may accept the request.
  */
 requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
 /**
- * Admit one request: it passes {@link requestRejection} and speaks for the
- * operator, or it is refused with that status.
+ * Admit one request. A failed Host/Origin check is refused with 403 and a
+ * missing browser session with 401, before any admitter runs. Without an
+ * admitter the request speaks for the operator, or is refused with 401
+ * when {@link HostConnectionPeers.requireAdmitter} is true. With one, it
+ * speaks for the live member Peer the admitter returns; 401 and 403 from
+ * the admitter refuse it, and `undefined` or a Peer that is released or was
+ * not opened by {@link HostConnectionPeers.open} refuses it with 401 and
+ * logs one error. Synchronous; repeated calls for the same headers agree
+ * while the admitter does.
  * @param request - request headers from the HTTP or upgrade request.
- * @returns the operator Peer, or the rejection status.
+ * @returns the admitted Peer, or the rejection status.
  */
 admit(request: ConnectionTrustRequest): PeerAdmission
 
@@ -180,6 +188,43 @@ Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/s
 <a id="connection-events"></a>
 
 ### `connection/*` events
+
+<a id="connectionpeer-closed--emit"></a>
+
+#### `connection/peer-closed` — emit
+
+A member Peer's first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race. The operator never emits it.
+
+```ts cordis-catalog
+/**
+ * A member Peer's first `dispose()` call has quiesced its scope; emitted
+ * once per Peer, however many `dispose()` calls race. The operator never
+ * emits it.
+ * @param peer - the released member Peer.
+ * @mode emit
+ */
+'connection/peer-closed'(peer: PeerScope): void
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
+
+<a id="connectionpeer-opened--emit"></a>
+
+#### `connection/peer-opened` — emit
+
+A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it. The operator never emits it.
+
+```ts cordis-catalog
+/**
+ * A member Peer was opened through `connection.peers.open()`; emitted
+ * before `open()` returns it. The operator never emits it.
+ * @param peer - the new member Peer.
+ * @mode emit
+ */
+'connection/peer-opened'(peer: PeerScope): void
+```
+
+Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
 
 <a id="connectionrequest--waterfall"></a>
 

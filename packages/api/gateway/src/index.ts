@@ -44,6 +44,7 @@ import type {
 import {
   RemoteStreamMuxServer,
   rejectRemoteStreamUpgrade,
+  type RemoteSocketId,
 } from './stream-server.ts'
 import {
   REMOTE_EVENT_STREAM_ENDPOINT,
@@ -77,6 +78,31 @@ export type {
   TypertRemoteEventSource,
 } from './types.ts'
 export type { RemoteEventHostInfo } from './stream-protocol.ts'
+export type { RemoteSocketId } from './stream-server.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A `/api/remote.mux` WebSocket was accepted and bound to the Peer
+     * Connection admitted at upgrade; every logical stream it carries speaks
+     * for that Peer.
+     * @param peer - Peer admitted at upgrade.
+     * @param socketId - Host-minted socket identity, repeated by `remote-stream/socket-closed`.
+     * @mode emit
+     */
+    'remote-stream/socket-opened'(peer: PeerScope, socketId: RemoteSocketId): void
+
+    /**
+     * A socket announced by `remote-stream/socket-opened` has closed and every
+     * logical stream it carried has finished, whether the Client closed it,
+     * its Peer was disposed (close code 1001), or the Gateway unloaded.
+     * @param peer - Peer admitted at upgrade.
+     * @param socketId - identity from the matching `remote-stream/socket-opened`.
+     * @mode emit
+     */
+    'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+  }
+}
 
 interface GatewayErrorOptions {
   readonly cause?: unknown
@@ -245,6 +271,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
           this.wireStream.failure,
           resolved.websocketHeartbeatIntervalMs,
           resolved.streamInboxBytes,
+          {
+            opened: (peer, socketId) => { announceSocket(webCtx, 'remote-stream/socket-opened', peer, socketId) },
+            closed: (peer, socketId) => { announceSocket(webCtx, 'remote-stream/socket-closed', peer, socketId) },
+          },
         )
         webCtx.effect(function* () {
           yield () => mux.close()
@@ -998,6 +1028,20 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
     return resolved
+  }
+}
+
+/** Emit one socket lifecycle event; a throwing listener is logged, not propagated into the WebSocket server. */
+function announceSocket(
+  ctx: Context,
+  event: 'remote-stream/socket-opened' | 'remote-stream/socket-closed',
+  peer: PeerScope,
+  socketId: RemoteSocketId,
+): void {
+  try {
+    ctx.emit(event, peer, socketId)
+  } catch (error) {
+    ctx.logger.error(`api-gateway: a ${event} listener threw`, error)
   }
 }
 

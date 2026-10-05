@@ -482,4 +482,48 @@ async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
 ```
 
 Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-stream-events"></a>
+
+### `remote-stream/*` events
+
+<a id="remote-streamsocket-closed--emit"></a>
+
+#### `remote-stream/socket-closed` — emit
+
+A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.
+
+```ts cordis-catalog
+/**
+ * A socket announced by `remote-stream/socket-opened` has closed and every
+ * logical stream it carried has finished, whether the Client closed it,
+ * its Peer was disposed (close code 1001), or the Gateway unloaded.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - identity from the matching `remote-stream/socket-opened`.
+ * @mode emit
+ */
+'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-streamsocket-opened--emit"></a>
+
+#### `remote-stream/socket-opened` — emit
+
+A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.
+
+```ts cordis-catalog
+/**
+ * A `/api/remote.mux` WebSocket was accepted and bound to the Peer
+ * Connection admitted at upgrade; every logical stream it carries speaks
+ * for that Peer.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - Host-minted socket identity, repeated by `remote-stream/socket-closed`.
+ * @mode emit
+ */
+'remote-stream/socket-opened'(peer: PeerScope, socketId: RemoteSocketId): void
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
 <!-- END GENERATED cordis-surface -->

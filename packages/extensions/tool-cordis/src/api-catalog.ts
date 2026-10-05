@@ -775,7 +775,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'readonly operator: PeerScope',
-        description: 'The operator Peer every admitted request speaks for; its scope lives as long as Connection.',
+        description: 'The operator Peer, which every admitted request speaks for while no admitter is installed and `requireAdmitter` is false; its scope lives as long as Connection.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly peers: HostConnectionPeers',
+        description: 'Member Peer admission and lifetime.',
         parameters: [],
       },
       {
@@ -786,15 +791,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection',
-        description: 'Apply Connection\'s Host/Origin checks and browser authentication to another Web route.',
+        description: 'Apply admit to another Web route and keep only its verdict: Connection\'s Host/Origin checks, browser authentication, and the installed Peer admitter\'s refusal all reject.',
         parameters: [{ name: 'request', description: 'request headers from the HTTP or upgrade request.' }],
         returns: 'rejection status, or undefined when the route may accept the request.',
       },
       {
         signature: 'admit(request: ConnectionTrustRequest): PeerAdmission',
-        description: 'Admit one request: it passes requestRejection and speaks for the operator, or it is refused with that status.',
+        description: 'Admit one request. A failed Host/Origin check is refused with 403 and a missing browser session with 401, before any admitter runs. Without an admitter the request speaks for the operator, or is refused with 401 when HostConnectionPeers.requireAdmitter is true. With one, it speaks for the live member Peer the admitter returns; 401 and 403 from the admitter refuse it, and `undefined` or a Peer that is released or was not opened by HostConnectionPeers.open refuses it with 401 and logs one error. Synchronous; repeated calls for the same headers agree while the admitter does.',
         parameters: [{ name: 'request', description: 'request headers from the HTTP or upgrade request.' }],
-        returns: 'the operator Peer, or the rejection status.',
+        returns: 'the admitted Peer, or the rejection status.',
       },
       {
         signature: 'authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean',
@@ -4009,6 +4014,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.signal - optional compaction cancellation signal.' }, { name: 'next', description: 'delegate to the next recovery listener.' }],
   },
   {
+    name: 'connection/peer-closed',
+    mode: 'emit',
+    signature: '\'connection/peer-closed\'(peer: PeerScope): void',
+    summary: 'A member Peer\'s first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race.',
+    description: 'A member Peer\'s first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race. The operator never emits it.',
+    parameters: [{ name: 'peer', description: 'the released member Peer.' }],
+  },
+  {
+    name: 'connection/peer-opened',
+    mode: 'emit',
+    signature: '\'connection/peer-opened\'(peer: PeerScope): void',
+    summary: 'A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it.',
+    description: 'A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it. The operator never emits it.',
+    parameters: [{ name: 'peer', description: 'the new member Peer.' }],
+  },
+  {
     name: 'connection/request',
     mode: 'waterfall',
     signature: '\'connection/request\'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>',
@@ -4223,6 +4244,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'An installation moved between its Host phases.',
     description: 'An installation moved between its Host phases. `installing` is announced once per registry the installation asks, with the attempt\'s registry and position; `cancelling` and `applying` once.',
     parameters: [{ name: 'progress', description: 'the installation\'s request id and phase, with the attempt while installing.' }],
+  },
+  {
+    name: 'remote-stream/socket-closed',
+    mode: 'emit',
+    signature: '\'remote-stream/socket-closed\'(peer: PeerScope, socketId: RemoteSocketId): void',
+    summary: 'A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.',
+    description: 'A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.',
+    parameters: [{ name: 'peer', description: 'Peer admitted at upgrade.' }, { name: 'socketId', description: 'identity from the matching `remote-stream/socket-opened`.' }],
+  },
+  {
+    name: 'remote-stream/socket-opened',
+    mode: 'emit',
+    signature: '\'remote-stream/socket-opened\'(peer: PeerScope, socketId: RemoteSocketId): void',
+    summary: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
+    description: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
+    parameters: [{ name: 'peer', description: 'Peer admitted at upgrade.' }, { name: 'socketId', description: 'Host-minted socket identity, repeated by `remote-stream/socket-closed`.' }],
   },
   {
     name: 'schedule/changed',
@@ -4894,7 +4931,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConnectionFetchHandler',
-    declaration: 'export interface ConnectionFetchHandler {\n    requestBodyMode(request: {\n        readonly method: string;\n        readonly url: URL;\n    }): ConnectionRequestBodyMode;\n    fetch(request: Request): Promise<Response>;\n}',
+    declaration: 'export interface ConnectionFetchHandler {\n    requestBodyMode(request: {\n        readonly method: string;\n        readonly url: URL;\n    }): ConnectionRequestBodyMode;\n    fetch(request: Request, peer?: PeerScope): Promise<Response>;\n}',
   },
   {
     name: 'ConnectionFetchMethod',
@@ -4902,7 +4939,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConnectionFetchRoute',
-    declaration: 'export interface ConnectionFetchRoute {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n    readonly requestBody: ConnectionRequestBodyMode;\n    readonly fetch: (request: Request) => Promise<Response>;\n}',
+    declaration: 'export interface ConnectionFetchRoute {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n    readonly requestBody: ConnectionRequestBodyMode;\n    readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>;\n}',
   },
   {
     name: 'ConnectionIndexRequest',
@@ -5439,6 +5476,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'HostConnectionFetch',
     declaration: 'export interface HostConnectionFetch {\n    register(route: ConnectionFetchRoute): () => Promise<void>;\n}',
+  },
+  {
+    name: 'HostConnectionPeers',
+    declaration: 'export interface HostConnectionPeers {\n    readonly requireAdmitter: boolean;\n    admitWith(admitter: PeerAdmitter): () => Promise<void>;\n    open(): PeerScope;\n    get(id: PeerId): PeerScope | undefined;\n    list(): readonly PeerScope[];\n}',
   },
   {
     name: 'HostConnectionRpc',
@@ -6061,6 +6102,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PeerAdmission = {\n    readonly peer: PeerScope;\n} | {\n    readonly rejection: 401 | 403;\n};',
   },
   {
+    name: 'PeerAdmitter',
+    declaration: 'export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined;',
+  },
+  {
     name: 'PeerId',
     declaration: 'export type PeerId = Branded<\'PeerId\'>;',
   },
@@ -6391,6 +6436,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RemoteEventHostInfo',
     declaration: 'export interface RemoteEventHostInfo {\n    readonly home: string;\n}',
+  },
+  {
+    name: 'RemoteSocketId',
+    declaration: 'export type RemoteSocketId = Branded<\'RemoteSocketId\'>;',
   },
   {
     name: 'RenderedDocumentBytes',

@@ -184,7 +184,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert`
-- `source`: [`packages/api/gateway/src/index.ts:146`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:172`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */
@@ -437,7 +437,7 @@ export type Config = LocalConfig
 ## `@deepseek-ai/dsh-client-connection`
 
 - `inject`: `credentials`
-- `source`: [`packages/client/connection/src/index.ts:92`](../packages/client/connection/src/index.ts)
+- `source`: [`packages/client/connection/src/index.ts:112`](../packages/client/connection/src/index.ts)
 
 ```ts config-catalog
 /** Browser authentication, request limits, and connection recovery configuration. */
@@ -457,6 +457,15 @@ export interface ConnectionConfig {
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Refuse with 401, while no Peer admitter is installed, every HTTP request
+   * and WebSocket upgrade that passes the Host/Origin checks and browser
+   * authentication, instead of admitting it as the operator. This covers the
+   * time before the admitter's plugin applies and while it restarts. With no
+   * admitter plugin in the composition, every such request is refused.
+   * Index authorization is unaffected. Default: false.
+   */
+  requireAdmitter?: boolean
 }
 
 /** Timing for generation readiness and automatic reconnection. */

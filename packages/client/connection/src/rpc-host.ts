@@ -2,20 +2,21 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import type { PeerId, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import {
   RpcId,
   type ClientRequest,
   type RpcId as RpcIdType,
 } from './rpc.ts'
 import { clientRequestSchema } from './rpc-schema.ts'
-import { bridge } from './http-bridge.ts'
+import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
 import { API_PATH } from './api-path.ts'
 import type { BrowserAuth } from './browser-auth.ts'
-import { OperatorPeer } from './operator-peer.ts'
+import { ConnectionPeer, OperatorPeer } from './operator-peer.ts'
 import type {
   PeerAdmission,
+  PeerAdmitter,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
   ConnectionFetchRoute,
@@ -28,6 +29,7 @@ import type {
   ConnectionRequestRejection,
   ConnectionTrustRequest,
   HostConnectionHandle,
+  HostConnectionPeers,
   HostConnectionRpc,
 } from './rpc.ts'
 
@@ -61,25 +63,34 @@ declare module '@deepseek-ai/cordis' {
 
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
-  /** The operator Peer every admitted request speaks for. */
+  /** The operator Peer, which every admitted request speaks for while no admitter is installed and `requireAdmitter` is false. */
   readonly operator: PeerScope
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
+  /** Connection plugin context; member Peer scopes hang under it whichever fiber opens them. */
+  private readonly peerOwner: Context
+  private readonly members = new Map<PeerId, ConnectionPeer>()
+  private admitter: PeerAdmitter | undefined
 
   /**
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
    * @param browserAuth - process token and persistent browser-session owner.
+   * @param requireAdmitter - while no admitter is installed, refuse with 401 every request that passes
+   * the Host/Origin checks and browser authentication.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
     private readonly browserAuth: BrowserAuth,
+    private readonly requireAdmitter = false,
   ) {
     super(ctx, 'connection')
+    this.peerOwner = ctx
     this.operator = new OperatorPeer(ctx)
     ctx.effect(() => () => this.operator.dispose(), 'client-connection: operator Peer')
+    ctx.effect(() => () => this.disposeMembers(), 'client-connection: member Peers')
   }
 
   /** Generic channel registry scoped to the Context reading this service. */
@@ -100,16 +111,37 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
-  /** Apply the configured Host/Origin fence, then browser authentication. */
-  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
-    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
-    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+  /** Member Peer registry; the admitter registration belongs to the Context reading this service. */
+  get peers(): HostConnectionPeers {
+    const owner = this.ctx
+    return {
+      requireAdmitter: this.requireAdmitter,
+      admitWith: admitter => this.installAdmitter(owner, admitter),
+      open: () => this.openMember(),
+      get: id => this.liveMember(id),
+      list: () => [...this.members.values()].filter(peer => !peer.released),
+    }
   }
 
-  /** A request that passes the fence and authentication speaks for the operator. */
+  /** Keep only the verdict of {@link admit}. */
+  requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    const admission = this.admit(request)
+    return 'rejection' in admission ? admission.rejection : undefined
+  }
+
+  /** Apply the Host/Origin fence and browser authentication, then the installed admitter or, without one, `requireAdmitter`. */
   admit(request: ConnectionTrustRequest): PeerAdmission {
-    const rejection = this.requestRejection(request)
-    return rejection === undefined ? { peer: this.operator } : { rejection }
+    const rejection = this.fenceRejection(request)
+    if (rejection !== undefined) return { rejection }
+    const admitter = this.admitter
+    if (admitter === undefined) return this.requireAdmitter ? { rejection: 401 } : { peer: this.operator }
+    const verdict = admitter(request)
+    if (verdict === 401 || verdict === 403) return { rejection: verdict }
+    if (verdict !== undefined && this.liveMember(verdict.id) === verdict) return { peer: verdict }
+    this.peerOwner.logger.error(verdict === undefined
+      ? 'client-connection: the Peer admitter named no member; refusing the request with 401'
+      : 'client-connection: the Peer admitter returned a Peer that connection.peers.open() did not open or that is released; refusing the request with 401')
+    return { rejection: 401 }
   }
 
   /** Authenticate an index request through the process-token exchange or cookie. */
@@ -135,17 +167,62 @@ export class HostConnectionService extends Service implements HostConnectionHand
         const route = this.fetchRoutes.get(url.pathname)
         return route?.methods.has(method) === true ? route.requestBody : 'buffered'
       },
-      fetch: (request) => {
+      fetch: (request, peer = this.operator) => {
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
-        if (route?.methods.has(request.method) === true) return route.fetch(request)
+        if (route?.methods.has(request.method) === true) return route.fetch(request, peer)
         const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
           return Promise.resolve(new Response('not found', { status: 404 }))
         }
-        return interceptor.fetchHandler.fetch(request)
+        return interceptor.fetchHandler.fetch(request, peer)
       },
+    }
+  }
+
+  private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
+    return this.browserAuth.isAuthenticated(request) ? undefined : 401
+  }
+
+  private installAdmitter(owner: Context, admitter: PeerAdmitter): () => Promise<void> {
+    return owner.effect(() => {
+      if (this.admitter !== undefined) {
+        throw new Error('connection: a Peer admitter is already installed')
+      }
+      this.admitter = admitter
+      return () => {
+        this.admitter = undefined
+      }
+    }, 'client-connection: Peer admitter')
+  }
+
+  private openMember(): ConnectionPeer {
+    const peer = new ConnectionPeer(this.peerOwner, (closed) => {
+      this.members.delete(closed.id)
+      this.announce('connection/peer-closed', closed)
+    })
+    this.members.set(peer.id, peer)
+    this.announce('connection/peer-opened', peer)
+    return peer
+  }
+
+  private liveMember(id: PeerId): ConnectionPeer | undefined {
+    const peer = this.members.get(id)
+    return peer === undefined || peer.released ? undefined : peer
+  }
+
+  private async disposeMembers(): Promise<void> {
+    await Promise.all([...this.members.values()].map(peer => peer.dispose()))
+  }
+
+  /** Emit one member Peer lifecycle event; a throwing listener is logged, not propagated. */
+  private announce(event: 'connection/peer-opened' | 'connection/peer-closed', peer: PeerScope): void {
+    try {
+      this.peerOwner.emit(event, peer)
+    } catch (error) {
+      this.peerOwner.logger.error(`client-connection: a ${event} listener threw`, error)
     }
   }
 
@@ -185,7 +262,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
           res.end(admission.rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
-        await bridge(req, res, fetchHandler)
+        await bridge(req, res, fetchHandler, DEFAULT_MAX_REQUEST_BODY_BYTES, admission.peer)
       },
     }
     return owner.effect(
@@ -219,14 +296,22 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 }
 
+/**
+ * Decode one RPC channel's requests for `handler`, passing each call the Peer
+ * its request was admitted as.
+ * @param channel - absolute channel prefix the endpoint is read below.
+ * @param handler - decoded endpoint handler.
+ * @param operator - Peer a call that names none speaks for.
+ * @returns a buffered Fetch handler for the channel.
+ */
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
-  peer: PeerScope,
+  operator: PeerScope,
 ): ConnectionFetchHandler {
   return {
     requestBodyMode: () => 'buffered',
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, peer: PeerScope = operator): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
       if (request.method !== 'POST' || endpoint === undefined) {
         return new Response('not found', { status: 404 })

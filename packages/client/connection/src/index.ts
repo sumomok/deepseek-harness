@@ -10,11 +10,13 @@ import { API_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { HostConnectionService } from './rpc-host.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
 
 export type {
   PeerAdmission,
+  PeerAdmitter,
   ConnectionFetchMethod,
   ConnectionFetchHandler,
   ConnectionFetchRoute,
@@ -32,6 +34,7 @@ export type {
   ClientRequest,
   HostConnectionHandle,
   HostConnectionFetch,
+  HostConnectionPeers,
   HostConnectionRpc,
   RpcMessage,
   ServerResponse,
@@ -65,6 +68,23 @@ declare module '@deepseek-ai/cordis' {
      * @mode waterfall
      */
     'connection/request'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>
+
+    /**
+     * A member Peer was opened through `connection.peers.open()`; emitted
+     * before `open()` returns it. The operator never emits it.
+     * @param peer - the new member Peer.
+     * @mode emit
+     */
+    'connection/peer-opened'(peer: PeerScope): void
+
+    /**
+     * A member Peer's first `dispose()` call has quiesced its scope; emitted
+     * once per Peer, however many `dispose()` calls race. The operator never
+     * emits it.
+     * @param peer - the released member Peer.
+     * @mode emit
+     */
+    'connection/peer-closed'(peer: PeerScope): void
   }
 }
 
@@ -105,6 +125,15 @@ export interface ConnectionConfig {
   cookieMaxAgeDays?: number
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
+  /**
+   * Refuse with 401, while no Peer admitter is installed, every HTTP request
+   * and WebSocket upgrade that passes the Host/Origin checks and browser
+   * authentication, instead of admitting it as the operator. This covers the
+   * time before the admitter's plugin applies and while it restarts. With no
+   * admitter plugin in the composition, every such request is refused.
+   * Index authorization is unaffected. Default: false.
+   */
+  requireAdmitter?: boolean
 }
 
 export const Config: z<ConnectionConfig> = z.object({
@@ -112,6 +141,7 @@ export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   cookieMaxAgeDays: z.natural().min(1).default(30),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  requireAdmitter: z.boolean().default(false),
 })
 
 /**
@@ -127,6 +157,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   const trustedHosts = config?.trustedHosts ?? []
   const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  const requireAdmitter = config?.requireAdmitter ?? false
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
@@ -135,6 +166,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     ctx,
     trustedHosts,
     await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays),
+    requireAdmitter,
   )
   ctx.inject(['webServer'], (webCtx) => {
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
@@ -152,7 +184,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
           res.end(admission.rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
-        await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, maxRequestBodyBytes))
+        await webCtx.waterfall('connection/request', req, res, () => bridge(req, res, fetchHandler, maxRequestBodyBytes, admission.peer))
       },
     }
     webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')

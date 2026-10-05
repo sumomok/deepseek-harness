@@ -1,7 +1,7 @@
 /** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
+import type { PeerId, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 
 /** Correlation id minted by a caller and echoed by the Connection response. */
 export type RpcId = Branded<'rpc-id'>
@@ -115,14 +115,79 @@ export interface ConnectionIndexResponse {
   end(body?: string): unknown
 }
 
-/** Outcome of admitting one request: the operator Peer it speaks for, or the status refusing it. */
+/** Outcome of admitting one request: the Peer it speaks for, or the status refusing it. */
 export type PeerAdmission =
   | { readonly peer: PeerScope }
   | { readonly rejection: 401 | 403 }
 
 /**
+ * Deployment-supplied decision about which member Peer one request speaks
+ * for. Connection calls it only for requests that already passed the
+ * Host/Origin checks and browser authentication, so it can refuse a request
+ * but never admit one those checks refused. It runs synchronously inside
+ * {@link HostConnectionHandle.admit} and must answer the same for the same
+ * headers, because route handlers may admit one request more than once.
+ * @param request - headers of the HTTP or upgrade request.
+ * @returns a live Peer from {@link HostConnectionPeers.open}; 401 or 403 to
+ * refuse; or `undefined` when the request names no member, which Connection
+ * refuses with 401.
+ */
+export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined
+
+/**
+ * Member Peers on the Host. A member Peer carries no identity; the plugin that
+ * installs the admitter keeps its own mapping from members to Peers.
+ */
+export interface HostConnectionPeers {
+  /**
+   * The resolved `requireAdmitter` value of Connection's Config: whether this
+   * Connection refuses with 401 every request that passes its own checks while
+   * no admitter is installed. A plugin that installs the admitter for a
+   * deployment that depends on default deny reads it at load and refuses to
+   * start when it is false, because a later configuration layer replaces the
+   * whole Connection row and can drop the field.
+   */
+  readonly requireAdmitter: boolean
+
+  /**
+   * Install the sole Peer admitter. From then on every HTTP request and
+   * WebSocket upgrade speaks for the member Peer the admitter returns, or is
+   * refused; none is admitted as the operator. Removing the admitter restores
+   * operator admission, or refusal with 401 when {@link requireAdmitter} is
+   * true.
+   * @param admitter - synchronous decision applied after Connection's own checks.
+   * @returns asynchronous disposer removing the admitter; it also leaves with the registering fiber.
+   * @throws Error when another admitter is installed.
+   */
+  admitWith(admitter: PeerAdmitter): () => Promise<void>
+
+  /**
+   * Open one member Peer scope under Connection and emit
+   * `connection/peer-opened` before returning it. The first completed
+   * `dispose()` emits `connection/peer-closed`; unloading Connection disposes
+   * every member Peer still open.
+   * @returns the new Peer.
+   */
+  open(): PeerScope
+
+  /**
+   * Look up one live member Peer.
+   * @param id - identity of a Peer returned by {@link open}.
+   * @returns the Peer while it is open and `dispose()` has not been called, otherwise `undefined`.
+   */
+  get(id: PeerId): PeerScope | undefined
+
+  /**
+   * List the live member Peers.
+   * @returns Peers returned by {@link open} whose `dispose()` has not been called; never the operator.
+   */
+  list(): readonly PeerScope[]
+}
+
+/**
  * Handler invoked after Connection has decoded the transport envelope.
- * `peer` is the Peer the request was admitted as: the operator.
+ * `peer` is the Peer the request was admitted as: the operator, or the member
+ * Peer an installed admitter returned.
  */
 export type ConnectionRpcHandler = (
   endpoint: string,
@@ -148,8 +213,11 @@ export interface ConnectionFetchRoute {
   readonly methods: readonly ConnectionFetchMethod[]
   /** Buffered requests obey the configured JSON cap; streaming requests arrive with backpressure and no aggregate cap. */
   readonly requestBody: ConnectionRequestBodyMode
-  /** Handle one request after the physical carrier has applied its trust and authentication policy. */
-  readonly fetch: (request: Request) => Promise<Response>
+  /**
+   * Handle one request after the physical carrier has applied its trust and
+   * authentication policy; `peer` is the Peer the request was admitted as.
+   */
+  readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>
 }
 
 /** Host registry for exact Fetch routes that cannot use JSON Remote invocation. */
@@ -195,8 +263,14 @@ export interface HostConnectionHandle {
   readonly rpc: HostConnectionRpc
   /** Exact Fetch routes for streaming or browser-native responses. */
   readonly fetch: HostConnectionFetch
-  /** The operator Peer every admitted request speaks for; its scope lives as long as Connection. */
+  /**
+   * The operator Peer, which every admitted request speaks for while no
+   * admitter is installed and `requireAdmitter` is false; its scope lives as
+   * long as Connection.
+   */
   readonly operator: PeerScope
+  /** Member Peer admission and lifetime. */
+  readonly peers: HostConnectionPeers
 
   /**
    * Compose exact Fetch routes and the shared-channel RPC interceptor.
@@ -206,18 +280,26 @@ export interface HostConnectionHandle {
   createSharedFetchHandler(channel: '/api'): ConnectionFetchHandler
 
   /**
-   * Apply Connection's Host/Origin checks and browser authentication to
-   * another Web route.
+   * Apply {@link admit} to another Web route and keep only its verdict:
+   * Connection's Host/Origin checks, browser authentication, and the installed
+   * Peer admitter's refusal all reject.
    * @param request - request headers from the HTTP or upgrade request.
    * @returns rejection status, or undefined when the route may accept the request.
    */
   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection
 
   /**
-   * Admit one request: it passes {@link requestRejection} and speaks for the
-   * operator, or it is refused with that status.
+   * Admit one request. A failed Host/Origin check is refused with 403 and a
+   * missing browser session with 401, before any admitter runs. Without an
+   * admitter the request speaks for the operator, or is refused with 401
+   * when {@link HostConnectionPeers.requireAdmitter} is true. With one, it
+   * speaks for the live member Peer the admitter returns; 401 and 403 from
+   * the admitter refuse it, and `undefined` or a Peer that is released or was
+   * not opened by {@link HostConnectionPeers.open} refuses it with 401 and
+   * logs one error. Synchronous; repeated calls for the same headers agree
+   * while the admitter does.
    * @param request - request headers from the HTTP or upgrade request.
-   * @returns the operator Peer, or the rejection status.
+   * @returns the admitted Peer, or the rejection status.
    */
   admit(request: ConnectionTrustRequest): PeerAdmission
 
@@ -249,9 +331,10 @@ export interface ConnectionFetchHandler {
   /**
    * Dispatch one already-authenticated request.
    * @param request - Fetch request below the shared channel.
+   * @param peer - Peer the request was admitted as; omitted, the request speaks for the operator.
    * @returns the registered response or a 404 response.
    */
-  fetch(request: Request): Promise<Response>
+  fetch(request: Request, peer?: PeerScope): Promise<Response>
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */
