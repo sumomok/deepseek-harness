@@ -1484,9 +1484,9 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
  * reading into it — a named single-row tree node, an option, a button in a
  * cell — while a read scoped at an element inside one of those starts there
  * and prints the icon. Such an icon is named by what the reads print for it,
- * as a row of its own or as a control of a listed table row: the whole-page
- * read and a read scoped at each element around the icon, through shadow roots
- * and frames up to `root`. Each of them that prints a row for it prints the
+ * as a row of its own or as a control in a table's header or in a table row
+ * the read lists: the whole-page read and a read scoped at each element around
+ * the icon, through shadow roots and frames up to `root`. Each of them that prints a row for it prints the
  * name the page wrote on it, and an icon none of them prints a row for — one
  * such a `label`, node, option or button holds directly — is named nothing.
  * The reads are walked nearest scope first and the whole page last, stopping
