@@ -189,6 +189,8 @@ async function bench(
     liveSessionIds?: readonly string[]
     /** Answer every dictionary lookup with its key, rather than with nothing. */
     echoLocale?: boolean
+    /** Answer every dictionary lookup from this dictionary, its `{name}` slots filled from the lookup's values. */
+    dictionary?: Readonly<Record<string, string>>
     /** What this package's own menu route answers the first read, in place of one saved workflow. */
     menuRead?: { ok?: boolean; status?: number; body: unknown }
   } = {},
@@ -256,7 +258,11 @@ async function bench(
   ctx.provide('sessions', sessions as never)
   ctx.provide('remote', remote as never)
   ctx.provide('remote.commands', remote.commands as never)
-  const lookup = options.echoLocale === true ? (key: string) => key : () => ''
+  const { dictionary } = options
+  const lookup = dictionary !== undefined
+    ? (key: string, values: Record<string, string> = {}) => (dictionary[key] ?? key)
+      .replace(/\{(\w+)\}/gu, (_slot, name: string) => values[name] ?? '')
+    : options.echoLocale === true ? (key: string) => key : () => ''
   ctx.provide('locale', { register: () => () => {}, bind: () => lookup } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
@@ -615,13 +621,68 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: next, groups: [], workbenchSessionId: undefined })
   })
 
-  it('surfaces a failed save through setError rather than throwing', async () => {
-    const { ctx } = await bench()
+  it('reports a save the route failed or never reached in the fixed try-later copy, and sends the failure to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
     const { injected, actions } = injectSidebar(ctx)
-    stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status: 500, body: {} } })
-    await injected.onSaveMenu({ workflows: [] })
-    expect(actions.setError).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'))
+    for (const status of [500, 502]) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body: { error: 'server-sidebar: the server-menu could not be saved' } } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect(actions.setError).toHaveBeenLastCalledWith('workflows.later')
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({
+        message: 'server-sidebar: the server-menu could not be saved', status,
+      }))
+    }
+    // A 200 with no usable document.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new Error('not json')) })))
+    await injected.onSaveMenu({ workflows: [WORKFLOW] })
+    expect(actions.setError).toHaveBeenLastCalledWith('workflows.later')
+    expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({
+      message: 'server-menu save answered no usable document',
+    }))
     expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('reports a save the route refused 4xx in the fixed not-accepted copy, and sends the refusal to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    for (const [status, body] of [
+      [400, { error: 'server-sidebar: duplicate workflow id "w1"' }],
+      [403, { error: 'server-sidebar: the server-menu route refuses a cross-site request' }],
+      [413, { error: 'server-sidebar: the server-menu route body is too large' }],
+      // A list of field paths the page cannot name.
+      [400, { error: 'server-sidebar: groups names a conversation that belongs to another member', fields: ['groups'] }],
+    ] as const) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect({ status, shown: actions.setError.mock.lastCall }).toEqual({ status, shown: ['workflows.refused'] })
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: body.error, status }))
+    }
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('names the workflows and the workbench a save was refused for, by the names it sent, in fixed copy that quotes nothing of the refusal', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = 'server-sidebar: workflows[1].homeSessionId, workbenchSessionId name conversations that belong to another member'
+    const workflows = [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1, homeSessionId: 'session-b' }]
+    for (const [dictionary, expected] of [
+      [zh, '保存失败：「Beta」、「工作台」指向别人的对话，请先把它移出列表再保存'],
+      [en, 'Failed to save: the chat behind “Beta”, “Workbench” is someone else’s; remove it from the list, then save again'],
+    ] as const) {
+      const { ctx } = await bench({ dictionary })
+      const { injected, actions } = injectSidebar(ctx)
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status: 400, body: { error, fields: ['workflows[1].homeSessionId', 'workbenchSessionId'] } } })
+      await injected.onSaveMenu({ workflows, workbenchSessionId: 'session-b' })
+      const shown = dictionary['workflows.error'].replace('{message}', String(actions.setError.mock.lastCall?.[0]))
+      expect(shown).toBe(expected)
+      expect(shown).not.toMatch(/server-sidebar:|homeSessionId|workbenchSessionId|session/iu)
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: error, status: 400 }))
+      expect(actions.setServerMenu).not.toHaveBeenCalled()
+    }
+    warn.mockRestore()
   })
 
   it('reports in fixed copy a save that reached no member\'s menu, and sends the refusal to the browser console', async () => {
@@ -649,13 +710,29 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(zh['workflows.error'].replace('{message}', zh['workflows.retry'])).toBe('保存失败：请刷新页面后重试')
   })
 
-  it('stringifies a non-Error transport rejection rather than losing it', async () => {
-    const { ctx } = await bench()
+  it('renders the copy for a refused or failed save free of the vocabulary the console keeps off the screen, in both languages', () => {
+    for (const dictionary of [zh, en]) {
+      const item = dictionary['workflows.foreignItem'].replace('{name}', dictionary['workbench.label'])
+      const foreign = dictionary['workflows.foreign'].replace('{items}', `${item}${dictionary['workflows.foreignSeparator']}${item}`)
+      for (const message of [foreign, dictionary['workflows.refused'], dictionary['workflows.later']]) {
+        const line = dictionary['workflows.error'].replace('{message}', message)
+        expect(line).not.toMatch(/工作区|会话|归档|workspace|session|archive|member|server|\{/iu)
+      }
+    }
+    expect((['workflows.refused', 'workflows.later'] as const).map(key => zh['workflows.error'].replace('{message}', zh[key])))
+      .toEqual(['保存失败：这次修改没有被接受，请刷新页面后再改', '保存失败：请稍后再试'])
+  })
+
+  it('reports a save that never reached the route in the fixed try-later copy, and sends the rejection to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
     const { injected, actions } = injectSidebar(ctx)
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject('transport exploded')))
+    const rejection = new TypeError('Failed to fetch')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(rejection)))
     await injected.onSaveMenu({ workflows: [] })
-    expect(actions.setError).toHaveBeenCalledWith('transport exploded')
+    expect(actions.setError).toHaveBeenCalledWith('workflows.later')
+    expect(warn).toHaveBeenCalledWith('server-sidebar: the menu could not be saved:', rejection)
+    warn.mockRestore()
   })
 
   it('sends a groups-only patch without resending the workflow list', async () => {

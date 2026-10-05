@@ -59,13 +59,14 @@ const UNPLACED = { error: 'server-sidebar: the server-menu route could not tell 
 /**
  * The refusal of a save whose fields name another member's conversations.
  * @param paths - the field paths that name them, in the order the route lists them.
- * @returns the refusal's body.
+ * @returns the refusal's body: its text, and the same paths as a list.
  */
-function foreign(...paths: string[]): { error: string } {
+function foreign(...paths: string[]): { error: string; fields: string[] } {
   return {
     error: paths.length === 1
       ? `server-sidebar: ${paths[0]!} names a conversation that belongs to another member`
       : `server-sidebar: ${paths.join(', ')} name conversations that belong to another member`,
+    fields: paths,
   }
 }
 const UNREADABLE = { error: 'server-sidebar: the saved server-menu could not be read' }

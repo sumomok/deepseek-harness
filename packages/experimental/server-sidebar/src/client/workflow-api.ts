@@ -68,6 +68,35 @@ export class ServerMenuUnplacedError extends Error {
 }
 
 /**
+ * A save the route refused with any status but 401 and 503: the request
+ * reached the route, which did not save the patch. The message is the refusal
+ * as the server gave it, which is not text for the console's screen.
+ */
+export class ServerMenuRefusedError extends Error {
+  override readonly name = 'ServerMenuRefusedError'
+
+  /**
+   * @param message - the refusal's own text.
+   * @param status - the refusal's HTTP status.
+   * @param fields - the field paths the refusal lists, such as
+   * `workflows[2].homeSessionId`, which the per-member route answers for a
+   * save naming another member's conversations; undefined when it lists none.
+   */
+  constructor(message: string, readonly status: number, readonly fields: readonly string[] | undefined) {
+    super(message)
+  }
+}
+
+/**
+ * Narrow a refusal's decoded `fields` to a list of field paths.
+ * @param value - the decoded member.
+ * @returns the list when it is an array of strings; undefined otherwise.
+ */
+function readFields(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every(field => typeof field === 'string') ? value : undefined
+}
+
+/**
  * Narrow one decoded `navSnapshot` entry to a usable {@link NavSnapshotItem}.
  *
  * The pre-view `string` form fails this check like any other unusable entry:
@@ -169,9 +198,10 @@ export async function readServerMenu(): Promise<ServerMenuState | undefined> {
  * @param patch - the fields to change (see {@link ServerMenuPatch}).
  * @returns the server's authoritative resulting document.
  * @throws {ServerMenuUnplacedError} when the route answers 401 or 503.
- * @throws {Error} when the request fails transport-level, answers any other
- * non-200, or answers a document with no usable shape; the message names the
- * server's own refusal text when one was given.
+ * @throws {ServerMenuRefusedError} when the route answers any other non-2xx;
+ * the message is the server's own refusal text when one was given.
+ * @throws {Error} when the request fails transport-level, or a 2xx answers a
+ * document with no usable shape.
  */
 export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenuState> {
   const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), {
@@ -180,11 +210,11 @@ export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenu
     body: JSON.stringify(patch),
   })
   const body = await response.json().catch(() => undefined) as
-    { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown } | undefined
+    { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown; fields?: unknown } | undefined
   if (!response.ok) {
     const refusal = typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`
     if (response.status === 401 || response.status === 503) throw new ServerMenuUnplacedError(refusal, response.status)
-    throw new Error(refusal)
+    throw new ServerMenuRefusedError(refusal, response.status, readFields(body?.fields))
   }
   if (body === undefined) {
     throw new Error('server-menu save answered no usable document')

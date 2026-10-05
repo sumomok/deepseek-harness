@@ -84,9 +84,8 @@ import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
 import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
 import { openHome, openNavItem } from './open-nav.ts'
 import { mainViewSessionId } from './session-resolution.ts'
-import {
-  readServerMenu, saveServerMenu, ServerMenuUnplacedError, type ServerMenuPatch, type ServerMenuWorkflow,
-} from './workflow-api.ts'
+import { readServerMenu, saveServerMenu, type ServerMenuPatch, type ServerMenuWorkflow } from './workflow-api.ts'
+import { saveRefusalCopy } from './save-refusal.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
   dismissTemporarySession, nextOrder, openTemporarySession,
@@ -104,7 +103,7 @@ import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
-import { en, zh, type ServerSidebarKey } from './locales.ts'
+import { en, zh, type ServerSidebarKey, type ServerSidebarTranslate } from './locales.ts'
 
 export type { ServerSidebarInjected, ServerSidebarRootComponentProps } from './ServerSidebarRoot.tsx'
 export type { ServerSidebarKey } from './locales.ts'
@@ -135,34 +134,27 @@ type BoundWorkflowActions = BoundActions<ReturnType<typeof createWorkflowStore>>
  */
 export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale', 'remote', 'remote.commands']
 
-/** This package's dictionary lookup, as `ctx.locale.bind` returns it. */
-type Translate = (key: ServerSidebarKey) => string
-
 /**
  * Persist a server-menu patch and commit the server's authoritative answer
  * into the given bound actions and the header's workbench source, or surface
- * the failure inline. A save that reached no member's menu
- * ({@link ServerMenuUnplacedError}) is reported in fixed copy, and its refusal
- * goes to the browser console: that text is the server's, not the console's.
+ * the failure inline. A failed save is reported in the fixed copy
+ * `save-refusal.ts` picks for it, and the failure itself goes to the browser
+ * console: a refusal's text is the server's, not the console's.
  * @param patch - the fields to change (see `workflow-api.ts#saveServerMenu`).
  * @param actions - the bound actions to commit the result (or the failure) into.
  * @param workbench - the header's copy of the workbench id, published from the same answer.
  * @param t - this package's dictionary lookup.
  */
 async function persistServerMenu(
-  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource, t: Translate,
+  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource, t: ServerSidebarTranslate,
 ): Promise<void> {
   try {
     const saved = await saveServerMenu(patch)
     actions.setServerMenu(saved)
     workbench.publish(saved.workbenchSessionId)
   } catch (error) {
-    if (error instanceof ServerMenuUnplacedError) {
-      console.warn('server-sidebar: the menu could not be saved:', error)
-      actions.setError(t('workflows.retry'))
-      return
-    }
-    actions.setError(error instanceof Error ? error.message : String(error))
+    console.warn('server-sidebar: the menu could not be saved:', error)
+    actions.setError(saveRefusalCopy(error, patch, t))
   }
 }
 
@@ -194,7 +186,7 @@ function refuseUnread(): Promise<void> {
  */
 async function landOnWorkbench(
   ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean,
-  actions: BoundWorkflowActions, workbench: WorkbenchSource, t: Translate,
+  actions: BoundWorkflowActions, workbench: WorkbenchSource, t: ServerSidebarTranslate,
 ): Promise<void> {
   const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
   if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
@@ -213,7 +205,7 @@ async function landOnWorkbench(
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'server-sidebar: dictionaries')
-  const t: Translate = ctx.locale.bind(NS)
+  const t: ServerSidebarTranslate = ctx.locale.bind(NS)
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
   ctx.effect(
     () => ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(

@@ -9,8 +9,9 @@
  * read. A placed request reads and writes `memberStore(<member>, 'server-sidebar')`
  * and nothing else: no settings write, and no profile patch. A save that names
  * a conversation the directory gives to another member is refused 400 by the
- * field paths that name one, such as `workflows[2].homeSessionId`, and the
- * refusal carries neither the member nor the conversation; one the directory
+ * field paths that name one, such as `workflows[2].homeSessionId`, in its
+ * `error` text and as the list `fields`, and the refusal carries neither the
+ * member nor the conversation; one the directory
  * places with nobody, or does not know, is saved, because a menu holds weak
  * references to conversations. One member's saves are applied one
  * at a time, each reading the menu the one before it wrote; different members'
@@ -171,7 +172,11 @@ interface Save {
 }
 
 /**
- * Merge one patch into the member's saved menu and write it back.
+ * Merge one patch into the member's saved menu and write it back. A patch
+ * naming another member's conversation is answered 400 with `error`, the
+ * paths and {@link FOREIGN_CONVERSATION_ERROR} or
+ * {@link FOREIGN_CONVERSATIONS_ERROR}, and `fields`, the same paths as a list
+ * a browser can name them by.
  * @param save - the member, their store, and the patch.
  * @param res - the response.
  * @param logger - where a failed read or write is reported.
@@ -189,7 +194,7 @@ async function applySave(save: Save, res: ServerResponse, logger: Logger): Promi
   const foreign = foreignConversationPaths(save.members, save.principal, fields)
   if (foreign.length > 0) {
     const refusal = foreign.length === 1 ? FOREIGN_CONVERSATION_ERROR : FOREIGN_CONVERSATIONS_ERROR
-    answerJson(res, 400, { error: `server-sidebar: ${foreign.join(', ')} ${refusal}` })
+    answerJson(res, 400, { error: `server-sidebar: ${foreign.join(', ')} ${refusal}`, fields: foreign })
     return
   }
   const next: ServerMenuSettings = { ...current, ...fields }

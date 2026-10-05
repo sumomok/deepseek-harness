@@ -6,7 +6,7 @@
  * client-side failure and filtering paths those never exercise.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readServerMenu, saveServerMenu, ServerMenuUnplacedError } from '../src/client/workflow-api.ts'
+import { readServerMenu, saveServerMenu, ServerMenuRefusedError, ServerMenuUnplacedError } from '../src/client/workflow-api.ts'
 import type { ServerMenuGroup, ServerMenuWorkflow } from '../src/workflows.ts'
 
 const ROUTE = '/server-menu/workflows'
@@ -163,11 +163,28 @@ describe('saveServerMenu', () => {
       .toEqual({ workflows: [], groups: [], workbenchSessionId: 'home-1' })
   })
 
-  it('throws the server\'s own error text on refusal', async () => {
+  it('throws a refusal the route answered as its own error, carrying the status and the server\'s own text', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
       ok: false, status: 400, json: () => Promise.resolve({ error: 'server-sidebar: duplicate workflow id "w1"' }),
     })))
-    await expect(saveServerMenu({ workflows: [] })).rejects.toThrow('server-sidebar: duplicate workflow id "w1"')
+    const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+    expect(refusal).toBeInstanceOf(ServerMenuRefusedError)
+    expect(refusal).toMatchObject({
+      name: 'ServerMenuRefusedError', status: 400, message: 'server-sidebar: duplicate workflow id "w1"', fields: undefined,
+    })
+  })
+
+  it('carries the field paths a refusal lists, and reads a list that is not one of strings as none', async () => {
+    const error = 'server-sidebar: workflows[0].homeSessionId, workbenchSessionId name conversations that belong to another member'
+    for (const [fields, carried] of [
+      [['workflows[0].homeSessionId', 'workbenchSessionId'], ['workflows[0].homeSessionId', 'workbenchSessionId']],
+      ['workbenchSessionId', undefined],
+      [['workbenchSessionId', 2], undefined],
+    ] as const) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error, fields }) })))
+      const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((thrown: unknown) => thrown)
+      expect({ fields, refusal }).toMatchObject({ fields, refusal: { status: 400, message: error, fields: carried } })
+    }
   })
 
   it('falls back to the HTTP status when the refusal body carries no usable error text', async () => {
@@ -187,10 +204,11 @@ describe('saveServerMenu', () => {
       expect(refusal).toBeInstanceOf(ServerMenuUnplacedError)
       expect(refusal).toMatchObject({ name: 'ServerMenuUnplacedError', status, message })
     }
-    // Any other refusal stays a plain error.
+    // Any other refusal is one the route answered.
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })))
     const other: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
     expect(other).not.toBeInstanceOf(ServerMenuUnplacedError)
+    expect(other).toMatchObject({ name: 'ServerMenuRefusedError', status: 400, message: 'server-menu save failed: HTTP 400' })
   })
 
   it('throws when a 200 answers a body that cannot be parsed as JSON', async () => {

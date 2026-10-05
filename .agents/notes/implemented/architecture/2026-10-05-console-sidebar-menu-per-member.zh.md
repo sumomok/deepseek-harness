@@ -16,7 +16,7 @@ Status: implemented
 
 **单人模式不变。** 不开 `perMember` 时，路由、它的回答和它的设置写入就是原先运行的代码，原样移进 `serveProfileMenu`，现有 spec 不改动全部通过。组合加载完成后，`perMember` 与是否有 `consoleMembers` 服务在运行不一致的行，两个方向都写一行错误日志：没有目录的按成员行对每位成员答 503，目录旁边的共用行把一份菜单交给每位成员。
 
-**保存不得点名另一位成员的对话。** 一次保存要存的各工作流 `homeSessionId` 与 `workbenchSessionId` 逐个交给 `principalOfSession`；目录判给另一位成员的，保存被拒绝，答 400，写出每个指向这类对话的字段路径，例如 `workflows[2].homeSessionId` 或 `workbenchSessionId`，既不点名那位成员，也不带 id。否则成员可以把别人的对话存进自己的菜单，再从菜单里打开它。宿主给每位成员的会话列表是第一道检查，这里是第二道。目录判给无人或不认识的对话照常保存，因为工作流对它的对话是弱引用，对话可能已经不在了。
+**保存不得点名另一位成员的对话。** 一次保存要存的各工作流 `homeSessionId` 与 `workbenchSessionId` 逐个交给 `principalOfSession`；目录判给另一位成员的，保存被拒绝，答 400，写出每个指向这类对话的字段路径，例如 `workflows[2].homeSessionId` 或 `workbenchSessionId`，在 `error` 文本里写出，并在 `fields` 列表里再列一遍，既不点名那位成员，也不带 id。浏览器按它发出的列表叫出 `fields` 背后的条目，所以写着字段名的服务器原文不会上屏。否则成员可以把别人的对话存进自己的菜单，再从菜单里打开它。宿主给每位成员的会话列表是第一道检查，这里是第二道。目录判给无人或不认识的对话照常保存，因为工作流对它的对话是弱引用，对话可能已经不在了。
 
 **身份路由仍是部署配置。** `/server-menu/identity` 只回答 `displayNameClaim`，对每位成员都一样，所以它不认成员，不论目录是否在运行都提供。
 
@@ -32,8 +32,8 @@ Status: implemented
 
 ## Consequences
 
-多人部署在这一行和 auth-gate 那一行上开启 `perMember`，组合一个 `consoleMembers` 提供者，并在 profile 补丁之上以空菜单重述这一行。在这次重述出现之前，设置写入仍能把菜单字段写进这一行的 Config；路由从不读它们，下次启动时这一行在加载时失败。成员目录的存储是每位成员菜单的唯一一份：没有东西把它写进 profile 补丁，所以 profile 的备份不再含有这些菜单。两种模式下保存被答以 401 或 503 时，浏览器都显示「保存失败：请刷新页面后重试」（Failed to save: refresh the page and try again），并把拒绝送去浏览器控制台。读取按同样的界线区分：浏览器只在没有任何东西服务这条路由时当作空菜单；路由拒绝的读取或根本没有到达路由的读取，会让侧栏显示菜单没有读出来，在刷新页面之前，页面不保存菜单，也不为它打开、新建或归档对话；菜单加载成功之后，先读工作流列表再写回的路径在那次读取失败时什么都不写。不这样做的话，副本读不出的成员每次加载都会多出一段新的工作台对话，一次被拒的读取会让一次保存把成员的工作流替换成只有新那一条的列表，「移出列表」也可能归档成员自己的工作台或工作流对话，因为菜单未知时它们留在临时列表里。
+多人部署在这一行和 auth-gate 那一行上开启 `perMember`，组合一个 `consoleMembers` 提供者，并在 profile 补丁之上以空菜单重述这一行。在这次重述出现之前，设置写入仍能把菜单字段写进这一行的 Config；路由从不读它们，下次启动时这一行在加载时失败。成员目录的存储是每位成员菜单的唯一一份：没有东西把它写进 profile 补丁，所以 profile 的备份不再含有这些菜单。两种模式下，保存被拒或失败时浏览器都只显示固定文案，并把拒绝送去浏览器控制台：401 或 503 显示「保存失败：请刷新页面后重试」（Failed to save: refresh the page and try again）；带 `fields` 的 400 按名字点出工作流，工作台叫「工作台」，并提示「请先把它移出列表再保存」（remove it from the list, then save again）；其他 4xx 显示一句没有被接受的固定文案；5xx 或根本没有到达的请求显示「请稍后再试」（try again in a moment）。读取按同样的界线区分：浏览器只在没有任何东西服务这条路由时当作空菜单；路由拒绝的读取或根本没有到达路由的读取，会让侧栏显示菜单没有读出来，在刷新页面之前，页面不保存菜单，也不为它打开、新建或归档对话；菜单加载成功之后，先读工作流列表再写回的路径在那次读取失败时什么都不写。不这样做的话，副本读不出的成员每次加载都会多出一段新的工作台对话，一次被拒的读取会让一次保存把成员的工作流替换成只有新那一条的列表，「移出列表」也可能归档成员自己的工作台或工作流对话，因为菜单未知时它们留在临时列表里。
 
 ## Testing
 
-`packages/experimental/server-sidebar/tests/member-menu-route.client.spec.ts` 用一个仅供测试的 `consoleMembers` 行（`tests/fixtures/console-members.client.ts`）经测试组合运行这一行。它用请求体永远发不完的请求钉住判断顺序，证明 401 与 503 在读请求体之前；保存只进保存者自己的存储，不进 profile 补丁，也不进另一位成员的菜单；拒绝点名另一位成员的工作流或工作台对话（含旧引用），按字段路径指出每一处，且两者都不引用；目录不认识或判给无人的对话照常保存；读不懂的副本和被拒绝的写入答 500，文案与日志固定；同一成员的两次和三次并发保存都落地，排在目录抛错的那次保存后面的保存照样落地，而另一位成员的保存不等待；加载时的字段拒绝，包括菜单本身违反跨元素检查的情形；以及两行不一致日志。`workflow-api.client.spec.ts`、`workflow-store.client.spec.ts`、`server-sidebar-root.client.spec.tsx` 与 `browser-plugin.client.spec.ts` 钉住浏览器对被拒读取的处理。现有 `server-menu` spec 不改动，覆盖单人路径；`apps/web/tests/server-sidebar.e2e.ts` 运行出厂控制台组合。
+`packages/experimental/server-sidebar/tests/member-menu-route.client.spec.ts` 用一个仅供测试的 `consoleMembers` 行（`tests/fixtures/console-members.client.ts`）经测试组合运行这一行。它用请求体永远发不完的请求钉住判断顺序，证明 401 与 503 在读请求体之前；保存只进保存者自己的存储，不进 profile 补丁，也不进另一位成员的菜单；拒绝点名另一位成员的工作流或工作台对话（含旧引用），按字段路径指出每一处，且两者都不引用；目录不认识或判给无人的对话照常保存；读不懂的副本和被拒绝的写入答 500，文案与日志固定；同一成员的两次和三次并发保存都落地，排在目录抛错的那次保存后面的保存照样落地，而另一位成员的保存不等待；加载时的字段拒绝，包括菜单本身违反跨元素检查的情形；以及两行不一致日志。`workflow-api.client.spec.ts`、`workflow-store.client.spec.ts`、`server-sidebar-root.client.spec.tsx` 与 `browser-plugin.client.spec.ts` 钉住浏览器对被拒读取的处理。`save-refusal.client.spec.ts` 与 `browser-plugin.client.spec.ts` 钉住每种被拒或失败的保存显示的固定文案、`fields` 里的路径被叫成什么名字，以及屏幕上不引用拒绝原文、原文送进浏览器控制台。现有 `server-menu` spec 不改动，覆盖单人路径；`apps/web/tests/server-sidebar.e2e.ts` 运行出厂控制台组合。
