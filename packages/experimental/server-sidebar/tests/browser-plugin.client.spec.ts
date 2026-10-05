@@ -120,13 +120,13 @@ const WORKFLOW = {
  * exactly what it uses. The browser half asks for URLs resolved against the
  * deployment base, so the path is read off them.
  */
-function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown }>>): void {
+function stubFetch(routes: Partial<Record<string, { ok?: boolean; status?: number; body: unknown }>>): void {
   vi.stubGlobal('fetch', vi.fn((input: URL) => {
     const route = routes[input.pathname]
     if (route === undefined) throw new Error(`unexpected fetch: ${input.href}`)
     return Promise.resolve({
       ok: route.ok ?? true,
-      status: route.ok === false ? 503 : 200,
+      status: route.status ?? (route.ok === false ? 503 : 200),
       json: () => Promise.resolve(route.body),
     })
   }))
@@ -182,6 +182,8 @@ async function bench(
     withoutIdentity?: boolean
     /** Extra ids the session directory lists alongside the current one. */
     liveSessionIds?: readonly string[]
+    /** Answer every dictionary lookup with its key, rather than with nothing. */
+    echoLocale?: boolean
   } = {},
 ): Promise<BenchResult> {
   stubFetch({
@@ -247,7 +249,8 @@ async function bench(
   ctx.provide('sessions', sessions as never)
   ctx.provide('remote', remote as never)
   ctx.provide('remote.commands', remote.commands as never)
-  ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+  const lookup = options.echoLocale === true ? (key: string) => key : () => ''
+  ctx.provide('locale', { register: () => () => {}, bind: () => lookup } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return { ctx, fiber, workspaces, uiWorkspace, sessions, remote, cancel }
@@ -584,10 +587,35 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('surfaces a failed save through setError rather than throwing', async () => {
     const { ctx } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, body: {} } })
+    stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status: 500, body: {} } })
     await injected.onSaveMenu({ workflows: [] })
-    expect(actions.setError).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'))
+    expect(actions.setError).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'))
     expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('reports in fixed copy a save that reached no member\'s menu, and sends the refusal to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    for (const [status, error] of [
+      [401, 'server-sidebar: the server-menu route could not tell which member sent this request'],
+      [503, 'server-sidebar: the server-menu route needs the consoleMembers service, which is not running'],
+    ] as const) {
+      stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, status, body: { error } } })
+      await injected.onSaveMenu({ workflows: [WORKFLOW] })
+      expect(actions.setError).toHaveBeenLastCalledWith('workflows.retry')
+      expect(warn).toHaveBeenLastCalledWith('server-sidebar: the menu could not be saved:', expect.objectContaining({ message: error, status }))
+    }
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('renders the fixed copy free of the vocabulary the console keeps off the screen, in both languages', () => {
+    for (const dictionary of [zh, en]) {
+      const line = dictionary['workflows.error'].replace('{message}', dictionary['workflows.retry'])
+      expect(line).not.toMatch(/工作区|会话|归档|workspace|session|archive|member|server/iu)
+    }
+    expect(zh['workflows.error'].replace('{message}', zh['workflows.retry'])).toBe('保存失败：请刷新页面后重试')
   })
 
   it('stringifies a non-Error transport rejection rather than losing it', async () => {

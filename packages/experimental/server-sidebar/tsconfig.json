@@ -76,6 +76,12 @@
     },
     {
       "path": "../content-surface"
+    },
+    {
+      "path": "../console-members"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }

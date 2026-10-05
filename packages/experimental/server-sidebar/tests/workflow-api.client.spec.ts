@@ -6,7 +6,7 @@
  * client-side failure and filtering paths those never exercise.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readServerMenu, saveServerMenu } from '../src/client/workflow-api.ts'
+import { readServerMenu, saveServerMenu, ServerMenuUnplacedError } from '../src/client/workflow-api.ts'
 import type { ServerMenuGroup, ServerMenuWorkflow } from '../src/workflows.ts'
 
 const ROUTE = '/server-menu/workflows'
@@ -159,6 +159,22 @@ describe('saveServerMenu', () => {
       ok: false, status: 503, json: () => Promise.reject(new Error('not json')),
     })))
     await expect(saveServerMenu({ workflows: [] })).rejects.toThrow('server-menu save failed: HTTP 503')
+  })
+
+  it('throws a refusal that reached no member\'s menu as its own error, carrying the status and the text', async () => {
+    for (const [status, body, message] of [
+      [401, { error: 'server-sidebar: the server-menu route could not tell which member sent this request' }, 'server-sidebar: the server-menu route could not tell which member sent this request'],
+      [503, {}, 'server-menu save failed: HTTP 503'],
+    ] as const) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) })))
+      const refusal: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+      expect(refusal).toBeInstanceOf(ServerMenuUnplacedError)
+      expect(refusal).toMatchObject({ name: 'ServerMenuUnplacedError', status, message })
+    }
+    // Any other refusal stays a plain error.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({}) })))
+    const other: unknown = await saveServerMenu({ workflows: [] }).catch((error: unknown) => error)
+    expect(other).not.toBeInstanceOf(ServerMenuUnplacedError)
   })
 
   it('throws when a 200 answers a body that cannot be parsed as JSON', async () => {

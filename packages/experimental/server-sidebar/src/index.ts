@@ -7,18 +7,24 @@
  * and `dsh-experimental-component-surface`'s configured views, and a
  * per-account "my workflows" menu. This node half carries the two
  * parts of that which cannot live entirely in the browser: the
- * workbench/workflow feature's durable half — three volatile fields of this
- * plugin's own `Config`, written through the settings service into the active
- * profile's patch, and the HTTP route the browser half reads and writes them
- * through — and the identity field of that `Config`, which a browser half
- * never receives (the boot manifest carries plugin names, not their `config`
- * blocks) and therefore reads from a second, read-only route.
+ * workbench/workflow feature's durable half — the menu, and the HTTP route the
+ * browser half reads and writes it through — and the identity field of this
+ * plugin's `Config`, which a browser half never receives (the boot manifest
+ * carries plugin names, not their `config` blocks) and therefore reads from a
+ * second, read-only route.
  *
- * Both services are optional children: a composition without `ctx.settings`
+ * The menu is kept in one of two places. By default it is three volatile
+ * fields of this plugin's own `Config`, written through the settings service
+ * into the active profile's patch, for a deployment that runs one process per
+ * signed-in person. With `perMember`, one process serves several console
+ * members, and each member's menu is kept in that member's own store under the
+ * `consoleMembers` service (`members.ts`); the three fields stay empty.
+ *
+ * Every service is an optional child: a composition without `ctx.settings`
  * keeps the sidebar itself (navigation still works, the workbench/workflow
- * menu just has nothing to show or persist), one without `ctx.webServer`
- * additionally leaves the footer showing the anonymous placeholder, and no
- * absence fails the row.
+ * menu of a process serving one person just has nothing to show or persist),
+ * one without `ctx.webServer` additionally leaves the footer showing the
+ * anonymous placeholder, and no absence fails the row.
  * @module @deepseek-ai/dsh-experimental-server-sidebar
  */
 
@@ -29,6 +35,11 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import { answerJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
+import { reportDirectoryMismatch, serveMemberMenus } from './members.ts'
+import {
+  decodeJson, MAX_SERVER_MENU_POST_CHARS, PATCH_SHAPE_ERROR, readPatch, renderThrown, resolvePatch, ROUTE_LABEL,
+  type ServerMenuPatchBody,
+} from './menu-patch.ts'
 import { SERVER_IDENTITY_ROUTE, SERVER_MENU_ROUTE, type ServerIdentitySettings } from './route.ts'
 import {
   ServerMenuGroupsSchema, ServerMenuWorkflowsSchema, validateServerMenu,
@@ -54,9 +65,10 @@ export const name = 'server-sidebar'
 
 /**
  * Plugin config: the one browser-facing value this shell cannot work out for
- * itself, and the three user-edited menu fields. The menu fields are volatile:
- * the server-menu route writes them through the settings service without
- * remounting this plugin, and every read takes the current value.
+ * itself, where the menu is kept, and the three user-edited menu fields of a
+ * process serving one person. The menu fields are volatile: the server-menu
+ * route writes them through the settings service without remounting this
+ * plugin, and every read takes the current value.
  */
 export interface Config {
   /**
@@ -73,6 +85,20 @@ export interface Config {
   groups: Volatile<ServerMenuGroup[]>
   /** The workbench conversation's id; see {@link ServerMenuSettings.workbenchSessionId}. */
   workbenchSessionId: Volatile<string | undefined>
+  /**
+   * Keep one menu per console member instead of one for the whole process,
+   * the meaning `dsh-experimental-auth-gate`'s field of the same name has.
+   * Which member a request belongs to is the `consoleMembers` service's
+   * answer, and each member's menu is kept in that member's store under the
+   * unit `server-sidebar`; nothing is written through the settings service.
+   * While that service is not running, the server-menu route answers 503.
+   *
+   * Requires {@link Config.workflows} and {@link Config.groups} empty and no
+   * {@link Config.workbenchSessionId}: a menu written into this row would be
+   * one every member shares. The default is false, which keeps one menu in
+   * this row's fields.
+   */
+  perMember: boolean
 }
 
 /** The `config` block a composition writes for this row; the menu fields default to empty. */
@@ -81,6 +107,7 @@ export interface ConfigInput {
   workflows?: ServerMenuWorkflow[]
   groups?: ServerMenuGroup[]
   workbenchSessionId?: string
+  perMember?: boolean
 }
 
 export const Config: z<ConfigInput, Config> = z.object({
@@ -88,81 +115,8 @@ export const Config: z<ConfigInput, Config> = z.object({
   workflows: ServerMenuWorkflowsSchema.default([]).volatile(),
   groups: ServerMenuGroupsSchema.default([]).volatile(),
   workbenchSessionId: z.string().volatile(),
+  perMember: z.boolean().default(false),
 })
-
-/** How the server-menu route names itself in a refusal. */
-const ROUTE_LABEL = 'server-menu route'
-
-/**
- * Bytes a server-menu patch can plausibly need: JSON overhead plus a
- * generous per-workflow allowance (a workflow's `navSnapshot` adds a handful
- * of `{kind, entryId}` pairs on top of its name and ids). A protocol bound,
- * not a deployment choice — a real user's workflow list is a handful of
- * conversations, not thousands.
- */
-const MAX_SERVER_MENU_POST_CHARS = 64 * 1024
-
-/**
- * Whether a decoded JSON value is a data object (not an array, null, or a
- * primitive). `decodeJson`'s only source is `JSON.parse`, which never
- * produces anything but a plain (`Object.prototype`-rooted) object for an
- * object literal — no prototype check is needed for this value's actual
- * origin.
- */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/**
- * Decode one request body as JSON.
- * @param text - the body text.
- * @returns the decoded value, or `undefined` when the text is not JSON.
- */
-function decodeJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown
-  } catch (_bodyIsNotJson) {
-    return undefined
-  }
-}
-
-/** Render arbitrary thrown values without trusting their string coercion. */
-function renderThrown(value: unknown): string {
-  return value instanceof Error ? value.message : String(value)
-}
-
-/** The fields one server-menu patch may carry; each array field is a whole-value replacement. */
-type ServerMenuPatchBody = Partial<{
-  workflows: ServerMenuWorkflow[]
-  groups: ServerMenuGroup[]
-  workbenchSessionId: string
-}>
-
-/**
- * Narrow a decoded POST body to the patch shape the route accepts: any
- * non-empty subset of `{ workflows, groups, workbenchSessionId }`. Element
- * shapes are left to the schema and to `validateServerMenu` — this check only
- * decides which keys the merge carries and that each names a type the merge
- * can hold.
- * @param body - the decoded JSON body.
- * @returns the patch to merge, or `undefined` when the body names none of the
- * three keys, or names one with a type the merge cannot hold.
- */
-function readPatch(body: unknown): ServerMenuPatchBody | undefined {
-  if (!isPlainObject(body)) return undefined
-  const hasWorkflows = 'workflows' in body
-  const hasGroups = 'groups' in body
-  const hasWorkbenchSessionId = 'workbenchSessionId' in body
-  if (!hasWorkflows && !hasGroups && !hasWorkbenchSessionId) return undefined
-  if (hasWorkflows && !Array.isArray(body.workflows)) return undefined
-  if (hasGroups && !Array.isArray(body.groups)) return undefined
-  if (hasWorkbenchSessionId && typeof body.workbenchSessionId !== 'string') return undefined
-  const patch: ServerMenuPatchBody = {}
-  if (hasWorkflows) patch.workflows = body.workflows as ServerMenuWorkflow[]
-  if (hasGroups) patch.groups = body.groups as ServerMenuGroup[]
-  if (hasWorkbenchSessionId) patch.workbenchSessionId = body.workbenchSessionId as string
-  return patch
-}
 
 /**
  * Reject a claim name the browser half could read nothing out of.
@@ -193,57 +147,39 @@ function readMenu(config: Config): VolatileSnapshot<ServerMenuSettings> {
 }
 
 /**
- * Resolve one patch's fields and check the menu they would leave behind.
- * @param current - the menu as it stands.
- * @param patch - the fields to replace.
- * @returns the patched fields, schema defaults filled, ready to write.
- * @throws {Error} when an element breaks the schema or the merged menu breaks
- * a cross-element constraint ({@link validateServerMenu}).
+ * Reject a per-member row whose own configuration carries a menu.
+ *
+ * Loud at load, and naming fields only: a menu written into this row would be
+ * served to nobody, and saved by nobody, once each member's menu is kept in
+ * that member's store.
+ * @param config - validated {@link Config}.
+ * @throws {Error} when `perMember` is set and `workflows` or `groups` is
+ * non-empty, or `workbenchSessionId` is set.
  */
-function resolvePatch(current: VolatileSnapshot<ServerMenuSettings>, patch: ServerMenuPatchBody): ServerMenuPatchBody {
-  const fields: ServerMenuPatchBody = {
-    ...patch.workflows === undefined ? {} : { workflows: ServerMenuWorkflowsSchema(patch.workflows) },
-    ...patch.groups === undefined ? {} : { groups: ServerMenuGroupsSchema(patch.groups) },
-    ...patch.workbenchSessionId === undefined ? {} : { workbenchSessionId: patch.workbenchSessionId },
+function requireMemberMenuFields(config: Config): void {
+  if (!config.perMember) return
+  const menu = readMenu(config)
+  const carried = [
+    ...menu.workflows.length > 0 ? ['workflows'] : [],
+    ...menu.groups.length > 0 ? ['groups'] : [],
+    ...menu.workbenchSessionId === undefined ? [] : ['workbenchSessionId'],
+  ]
+  if (carried.length > 0) {
+    throw new Error(`server-sidebar: ${carried.join(', ')} must be empty when perMember is set, because each member's menu is kept in that member's own store`)
   }
-  validateServerMenu({ ...current, ...fields })
-  return fields
 }
 
 /**
- * Serve the browser half its identity settings whenever the optional
- * webserver is composed, and serve the workbench/workflow menu over one
- * same-origin route when the optional settings service is composed too.
+ * Serve the menu of a process serving one person: the three volatile Config
+ * fields over one same-origin route, written through the optional settings
+ * service into this row's profile entry.
  * @param ctx - Host context that may acquire the settings and webserver services.
  * @param config - validated {@link Config}.
  */
-export function apply(ctx: Context, config: Config): void {
-  // Loud at load: a claim nobody named is one the browser half would read
-  // nothing out of on every page, with no diagnostic tying the anonymous
-  // footer back to the composition.
-  const identity: ServerIdentitySettings = { displayNameClaim: requireDisplayNameClaim(config.displayNameClaim) }
-  // Loud at load as well: a profile edited by hand can carry a menu the
-  // route would never have written.
-  validateServerMenu(readMenu(config))
+function serveProfileMenu(ctx: Context, config: Config): void {
   // The profile entry the settings service writes the menu fields into;
   // absent when this plugin is mounted outside the Loader.
   const entryId = ctx.fiber.entry?.options.id
-
-  ctx.inject(['webServer'], (childCtx) => {
-    childCtx.effect(() => childCtx.webServer.register({
-      kind: 'exact',
-      path: SERVER_IDENTITY_ROUTE,
-      handler: (req, res) => {
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-          rejectMethod(res, 'GET, HEAD')
-          return
-        }
-        // The browser half reads this once per boot and the value comes from
-        // the row it booted with, so a cached copy would outlive its own truth.
-        answerJson(res, 200, identity)
-      },
-    }), 'server-sidebar: identity route')
-  })
 
   ctx.inject(['settings', 'webServer'], (childCtx) => {
     if (entryId === undefined) {
@@ -273,9 +209,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         const patch = readPatch(decodeJson(text))
         if (patch === undefined) {
-          answerJson(res, 400, {
-            error: 'server-sidebar: expected a JSON body shaped { workflows?: [...], groups?: [...], workbenchSessionId?: string }',
-          })
+          answerJson(res, 400, { error: PATCH_SHAPE_ERROR })
           return
         }
         let fields: ServerMenuPatchBody
@@ -301,4 +235,47 @@ export function apply(ctx: Context, config: Config): void {
       },
     }), 'server-sidebar: server-menu route')
   })
+}
+
+/**
+ * Serve the browser half its identity settings whenever the optional
+ * webserver is composed, and serve the workbench/workflow menu over one
+ * same-origin route: from this row's fields when the optional settings
+ * service is composed too, or from each member's store with `perMember`.
+ * @param ctx - Host context that may acquire the settings, webserver, and
+ * member directory services.
+ * @param config - validated {@link Config}.
+ */
+export function apply(ctx: Context, config: Config): void {
+  // Loud at load: a claim nobody named is one the browser half would read
+  // nothing out of on every page, with no diagnostic tying the anonymous
+  // footer back to the composition.
+  const identity: ServerIdentitySettings = { displayNameClaim: requireDisplayNameClaim(config.displayNameClaim) }
+  // Loud at load as well: a profile edited by hand can carry a menu the
+  // route would never have written.
+  validateServerMenu(readMenu(config))
+  requireMemberMenuFields(config)
+  const logger = ctx.logger('server-sidebar')
+  reportDirectoryMismatch(ctx, config.perMember, logger)
+
+  // Deployment configuration, the same for every member: it needs no member
+  // and carries nothing any member saved.
+  ctx.inject(['webServer'], (childCtx) => {
+    childCtx.effect(() => childCtx.webServer.register({
+      kind: 'exact',
+      path: SERVER_IDENTITY_ROUTE,
+      handler: (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          rejectMethod(res, 'GET, HEAD')
+          return
+        }
+        // The browser half reads this once per boot and the value comes from
+        // the row it booted with, so a cached copy would outlive its own truth.
+        answerJson(res, 200, identity)
+      },
+    }), 'server-sidebar: identity route')
+  })
+
+  if (config.perMember) serveMemberMenus(ctx, logger)
+  else serveProfileMenu(ctx, config)
 }

@@ -76,7 +76,9 @@ import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
 import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
 import { openHome, openNavItem } from './open-nav.ts'
 import { mainViewSessionId } from './session-resolution.ts'
-import { readServerMenu, saveServerMenu, type ServerMenuPatch, type ServerMenuWorkflow } from './workflow-api.ts'
+import {
+  readServerMenu, saveServerMenu, ServerMenuUnplacedError, type ServerMenuPatch, type ServerMenuWorkflow,
+} from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
   dismissTemporarySession, nextOrder, openTemporarySession,
@@ -122,22 +124,33 @@ type BoundWorkflowActions = BoundActions<ReturnType<typeof createWorkflowStore>>
  */
 export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale', 'remote', 'remote.commands']
 
+/** This package's dictionary lookup, as `ctx.locale.bind` returns it. */
+type Translate = (key: ServerSidebarKey) => string
+
 /**
  * Persist a server-menu patch and commit the server's authoritative answer
  * into the given bound actions and the header's workbench source, or surface
- * the failure inline.
+ * the failure inline. A save that reached no member's menu
+ * ({@link ServerMenuUnplacedError}) is reported in fixed copy, and its refusal
+ * goes to the browser console: that text is the server's, not the console's.
  * @param patch - the fields to change (see `workflow-api.ts#saveServerMenu`).
  * @param actions - the bound actions to commit the result (or the failure) into.
  * @param workbench - the header's copy of the workbench id, published from the same answer.
+ * @param t - this package's dictionary lookup.
  */
 async function persistServerMenu(
-  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource,
+  patch: ServerMenuPatch, actions: BoundWorkflowActions, workbench: WorkbenchSource, t: Translate,
 ): Promise<void> {
   try {
     const saved = await saveServerMenu(patch)
     actions.setServerMenu(saved)
     workbench.publish(saved.workbenchSessionId)
   } catch (error) {
+    if (error instanceof ServerMenuUnplacedError) {
+      console.warn('server-sidebar: the menu could not be saved:', error)
+      actions.setError(t('workflows.retry'))
+      return
+    }
     actions.setError(error instanceof Error ? error.message : String(error))
   }
 }
@@ -153,13 +166,14 @@ async function persistServerMenu(
  * @param isLive - whether that id names a session the workspace domain still lists.
  * @param actions - the bound actions a created id is committed through.
  * @param workbench - the header's copy of the workbench id, published with it.
+ * @param t - this package's dictionary lookup.
  */
 async function landOnWorkbench(
   ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean,
-  actions: BoundWorkflowActions, workbench: WorkbenchSource,
+  actions: BoundWorkflowActions, workbench: WorkbenchSource, t: Translate,
 ): Promise<void> {
   const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
-  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
+  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
 }
 
 /**
@@ -173,6 +187,7 @@ async function landOnWorkbench(
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'server-sidebar: dictionaries')
+  const t: Translate = ctx.locale.bind(NS)
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
   ctx.effect(
     () => ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
@@ -234,12 +249,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
           ...home === undefined ? {} : { home },
           onOpenNavItem: target => openNavItem(ctx, target),
           onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (
-            landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench)
+            landOnWorkbench(ctx, workbenchSessionId, isLive, actions, workbench, t)
           ),
           onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
-            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench)
+            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions, workbench, t)
             // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
             // configured automatic home always belongs on it; a reused draft
@@ -263,13 +278,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
             const next = current.workflows.map(candidate => (
               candidate.id === workflow.id ? { ...candidate, homeSessionId: outcome.sessionId } : candidate
             ))
-            await persistServerMenu({ workflows: next }, actions, workbench)
+            await persistServerMenu({ workflows: next }, actions, workbench, t)
           },
           // One patch rather than a call per list: deleting a group has to
           // clear its members' `groupId` in the same write, and the route
           // refuses the intermediate document either half would leave behind
           // (see `src/index.ts` and `validateServerMenu`).
-          onSaveMenu: patch => persistServerMenu(patch, actions, workbench),
+          onSaveMenu: patch => persistServerMenu(patch, actions, workbench, t),
           onOpenTemporary: sessionId => openTemporarySession(ctx, sessionId),
           onDismissTemporary: async (sessionId, workbenchSessionId, workbenchIsLive) => {
             // Read the selection before the archive, not after: the workspace
@@ -293,7 +308,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // The console always rests on a conversation: archiving the one on
             // screen leaves none selected, and the shell's own load-time
             // landing is a one-shot that never fires a second time.
-            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions, workbench)
+            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions, workbench, t)
           },
           onSignOut: () => {
             if (authGate === undefined) {
@@ -334,7 +349,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
           }
           const next = [...current.workflows, workflow]
           if (sidebarActions !== undefined) {
-            await persistServerMenu({ workflows: next }, sidebarActions, workbench)
+            await persistServerMenu({ workflows: next }, sidebarActions, workbench, t)
             return
           }
           // Defensive: the sidebar is always resident in the shipped

@@ -9,6 +9,10 @@
  * A decoded workflow is passed through as it arrived rather than rebuilt field
  * by field, so a field a given release of this browser half makes no use of
  * survives a read, an edit of some other field, and the write back.
+ *
+ * Which menu a request reads and writes is the node half's to decide: the one
+ * this process keeps, or, in a process serving several console members, the
+ * menu of the member the request was admitted as. Nothing here names a member.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-api
  */
 import { SERVER_MENU_ROUTE } from '../route.ts'
@@ -44,6 +48,24 @@ export interface ServerMenuPatch {
 
 /** The empty document a failed or absent read answers. */
 const EMPTY_STATE: ServerMenuState = { workflows: [], groups: [], workbenchSessionId: undefined }
+
+/**
+ * A save refused 401 or 503: the request reached no member's menu, because it
+ * could not be placed with a member or nothing was running to place it. The
+ * message is the refusal as the server or whatever sits in front of it gave
+ * it, which is not text for the console's screen.
+ */
+export class ServerMenuUnplacedError extends Error {
+  override readonly name = 'ServerMenuUnplacedError'
+
+  /**
+   * @param message - the refusal's own text.
+   * @param status - the refusal's HTTP status.
+   */
+  constructor(message: string, readonly status: 401 | 503) {
+    super(message)
+  }
+}
 
 /**
  * Narrow one decoded `navSnapshot` entry to a usable {@link NavSnapshotItem}.
@@ -125,8 +147,9 @@ export async function readServerMenu(): Promise<ServerMenuState> {
  * `src/index.ts`).
  * @param patch - the fields to change (see {@link ServerMenuPatch}).
  * @returns the server's authoritative resulting document.
- * @throws {Error} when the request fails transport-level, answers non-200,
- * or answers a document with no usable shape; the message names the
+ * @throws {ServerMenuUnplacedError} when the route answers 401 or 503.
+ * @throws {Error} when the request fails transport-level, answers any other
+ * non-200, or answers a document with no usable shape; the message names the
  * server's own refusal text when one was given.
  */
 export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenuState> {
@@ -138,7 +161,9 @@ export async function saveServerMenu(patch: ServerMenuPatch): Promise<ServerMenu
   const body = await response.json().catch(() => undefined) as
     { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown; error?: unknown } | undefined
   if (!response.ok) {
-    throw new Error(typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`)
+    const message = typeof body?.error === 'string' ? body.error : `server-menu save failed: HTTP ${String(response.status)}`
+    if (response.status === 401 || response.status === 503) throw new ServerMenuUnplacedError(message, response.status)
+    throw new Error(message)
   }
   if (body === undefined) {
     throw new Error('server-menu save answered no usable document')
