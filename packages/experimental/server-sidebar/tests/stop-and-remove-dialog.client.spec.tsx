@@ -309,7 +309,8 @@ describe('shadowedStopRequest', () => {
     }
   })
 
-  it('asks nothing for a request any part of which it cannot read, so nothing is stopped unlisted', () => {
+  it('asks nothing for a request any part of which it cannot read, so nothing is stopped unlisted, and says so once per request in the browser console', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const owner = ownerFace()
     const source = shadowedStopRequest({
       entries: () => [{ component: null, options: { id: 'workspace.session-archive' }, inject: owner.inject }],
@@ -332,7 +333,14 @@ describe('shadowedStopRequest', () => {
     ]) {
       owner.archiveRequest.set(request)
       expect({ request, read: source.request.getSnapshot() }).toEqual({ request, read: null })
+      expect(source.request.getSnapshot()).toBeNull()
     }
+    expect(warn).toHaveBeenCalledTimes(13)
+    expect(warn.mock.calls.every(call => call.length === 1 && !JSON.stringify(call).includes(BUSY))).toBe(true)
+    warn.mockClear()
+    owner.archiveRequest.set(null)
+    expect(source.request.getSnapshot()).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
     // An item whose label is not text is named by its id.
     owner.archiveRequest.set({ sessionId: BUSY, activity: [{ kind: 'job', items: [{ id: 'bash-1', label: 7 }] }] })
     expect(source.request.getSnapshot()).toEqual({ sessionId: BUSY, activity: [{ kind: 'job', names: ['bash-1'] }] })

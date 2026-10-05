@@ -172,11 +172,10 @@ function activityOf(value: unknown): StopActivity | undefined {
 
 /**
  * One published confirmation, read field by field.
- * @param value - the shadowed request source's snapshot.
- * @returns the request, or null when there is none or any part of it is
- * unreadable: the dialog does not ask to stop work it cannot list.
+ * @param value - a non-null snapshot of the shadowed request source.
+ * @returns the request, or null when any part of it is unreadable.
  */
-function stopRequestOf(value: unknown): StopRequest | null {
+function readStopRequest(value: unknown): StopRequest | null {
   if (typeof value !== 'object' || value === null || !('sessionId' in value) || !('activity' in value)) return null
   const { sessionId, activity } = value
   if (typeof sessionId !== 'string' || !Array.isArray(activity)) return null
@@ -188,6 +187,21 @@ function stopRequestOf(value: unknown): StopRequest | null {
     families.push(family)
   }
   return { sessionId: sessionId as SessionId, activity: families }
+}
+
+/**
+ * One published confirmation, or none. An unreadable one leaves
+ * `ui-workspace`'s request pending, stops nothing, and is reported once to the
+ * browser console without its content.
+ * @param value - the shadowed request source's snapshot.
+ * @returns the request, or null when there is none or it is unreadable: the
+ * dialog does not ask to stop work it cannot list.
+ */
+function stopRequestOf(value: unknown): StopRequest | null {
+  if (value === null) return null
+  const request = readStopRequest(value)
+  if (request === null) console.warn('server-sidebar: ignored a stop-and-archive confirmation this console cannot read; nothing was stopped')
+  return request
 }
 
 /**
