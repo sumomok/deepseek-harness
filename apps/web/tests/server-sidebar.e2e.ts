@@ -1191,6 +1191,46 @@ describe('web e2e: the product-console sidebar', () => {
     30_000,
   )
 
+  it('restores a Files tab a browser kept from before the upgrade under its saved title, with the line for a kind nothing views and no directory path of the Host', async () => {
+    // What `ui-sidebar-right` keeps under `dsh.sidebar-right.v1.<session>` for
+    // a conversation whose column showed the Files tab: one docked pane holding
+    // that page, titled with the Files type's label in the language of the
+    // page that opened it. A page loaded with no conversation open lands on
+    // the workbench, so the layout is kept for the workbench's conversation.
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+    const sessionId = readServerMenu(scaffold).workbenchSessionId!
+    const kept = {
+      bySession: {
+        [sessionId]: {
+          layout: {
+            nodes: { pane1: { kind: 'pane', id: 'pane1', host: 'dock', tabs: ['tab1'], activeTabId: 'tab1' } },
+            tabs: { tab1: { id: 'tab1', kind: 'files', contentId: 'sidebar://files', title: '文件' } },
+            rootId: 'pane1', floats: [], activePaneId: 'pane1', expanded: true, mode: 'push',
+          },
+          minted: 1,
+        },
+      },
+    }
+    const zhPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+    onTestFinished(() => zhPage.close())
+    onTestFailed(() => saveFailureShot(zhPage, 'web-e2e-server-sidebar-restored-files-tab'))
+    await zhPage.addInitScript(({ key, value }) => {
+      if (window === window.top) localStorage.setItem(key, value)
+    }, { key: `dsh.sidebar-right.v1.${sessionId}`, value: JSON.stringify(kept) })
+    await zhPage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(zhPage).waitFor({ timeout: 30_000 })
+    const column = zhPage.locator('[data-sidebar-right-open]')
+    await column.waitFor({ timeout: 15_000 })
+    const unavailable = column.locator('[data-sidebar-right-unavailable]')
+    await unavailable.waitFor({ state: 'visible', timeout: 10_000 })
+    await expect(unavailable.innerText()).resolves.toBe('这类内容还没有可用的查看方式。')
+    await expect(column.locator('[data-dockkit-tab]').allInnerTexts()).resolves.toEqual(['文件'])
+    const text = await zhPage.locator('body').innerText()
+    expect(text).not.toContain(scaffold.workspaceCwd)
+    expect(text).not.toContain('server-sidebar-workspace')
+    await evidence(zhPage, 'web-e2e-server-sidebar-restored-files-tab')
+  }, 60_000)
+
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
     // `remote.settings` answers any browser the deployment admits, so the
     // pinned preset holds only because the lock composes above the profile
