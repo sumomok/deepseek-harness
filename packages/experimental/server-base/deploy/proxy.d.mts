@@ -105,6 +105,10 @@ export function requestPathname(url: string | undefined): string
  * @returns true when the remote origin owns it.
  */
 export function isRemote(pathname: string): boolean
+/** dsh paths the login gate lets through unchecked; the nginx template opens the same ones. */
+export const GATE_EXEMPT_EXACT: ReadonlySet<string>
+/** Path prefixes the login gate lets through unchecked, matching the prefix itself or a path continuing with a slash. */
+export const GATE_EXEMPT_PREFIXES: readonly string[]
 /**
  * Whether a dsh-routed path is reachable without a customer login.
  * @param pathname - request path, query stripped.

@@ -183,9 +183,11 @@ const DSH_PREFIXES = [
  * before anyone is logged in: the SPA shell, its static assets (/assets), the
  * client plugin modules (/plugins), and the route the browser half of auth-gate
  * reads to find the customer login page. Prefixes match the way DSH_PREFIXES
- * do: the path equals the prefix or continues with a slash.
+ * do: the path equals the prefix or continues with a slash. The nginx template
+ * (deploy/nginx.console.conf) opens the same paths; its prefix locations end
+ * in a slash and so do not match the bare prefix.
  */
-const GATE_EXEMPT_EXACT = new Set([
+export const GATE_EXEMPT_EXACT = new Set([
   '/',
   '/index.html',
   '/sw.js',
@@ -199,7 +201,8 @@ const GATE_EXEMPT_EXACT = new Set([
   // here would keep every data page shut until the next full reload.
   '/component-kit/settings',
 ])
-const GATE_EXEMPT_PREFIXES = ['/assets', '/plugins']
+/** Path prefixes the login gate lets through unchecked; see GATE_EXEMPT_EXACT. */
+export const GATE_EXEMPT_PREFIXES = ['/assets', '/plugins']
 
 /** Headers that describe one hop and must not be copied to the next one. */
 const HOP_BY_HOP = new Set([
@@ -1015,8 +1018,10 @@ function refuseRequest(res) {
 
 /**
  * Answer on a raw socket with a bodiless status and close it once the status
- * line is flushed: an upgrade that is not forwarded, or a request Node's
- * parser refused. No upstream connection was made.
+ * line is flushed: an upgrade that is not forwarded or whose upstream failed
+ * before answering, or a request Node's parser or request deadlines refused.
+ * Call it at most once per socket: a second call finds the socket no longer
+ * writable and destroys it before the first status is flushed.
  * @param {import('node:stream').Duplex} socket - the client socket.
  * @param {string} status - the status code and reason phrase.
  * @returns {void}
@@ -1030,16 +1035,32 @@ function closeWithStatus(socket, status) {
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () => socket.destroy())
 }
 
+/** `clientError` codes Node's own answer gives a more precise status than 400 for. */
+const CLIENT_ERROR_STATUS = new Map([
+  ['HPE_HEADER_OVERFLOW', '431 Request Header Fields Too Large'],
+  ['ERR_HTTP_REQUEST_TIMEOUT', '408 Request Timeout'],
+])
+/** `clientError` codes that mean the client left: a reset, or a connection that ended before its request was complete. */
+const CLIENT_LEFT = new Set(['ECONNRESET', 'HPE_INVALID_EOF_STATE'])
+
 /**
- * The `clientError` listener both modes install: a request Node's parser
- * refused is malformed, so it is answered 400, never as an upstream failure.
+ * The `clientError` listener both modes install. A client that left is sent
+ * nothing and logged nothing. Any other error is a request Node's parser or
+ * its request deadlines refused, never an upstream failure: a header section
+ * over Node's size limit is answered 431, a request that did not arrive within
+ * the server's headers or request timeout 408, and anything else 400.
  * @param {Runtime} runtime - the log sink.
- * @returns {(error: Error, socket: import('node:stream').Duplex) => void} the listener.
+ * @returns {(error: NodeJS.ErrnoException, socket: import('node:stream').Duplex) => void} the listener.
  */
-function refuseMalformed(runtime) {
+function answerClientError(runtime) {
   return (error, socket) => {
+    const code = String(error.code)
+    if (CLIENT_LEFT.has(code)) {
+      socket.destroy()
+      return
+    }
     runtime.log(`proxy: client error: ${String(error)}`)
-    closeWithStatus(socket, '400 Bad Request')
+    closeWithStatus(socket, CLIENT_ERROR_STATUS.get(code) ?? '400 Bad Request')
   }
 }
 
@@ -1075,33 +1096,41 @@ function upgradeCarriesBody(framing) {
  * answer is the upstream treating the handshake as an ordinary request on a
  * connection it may keep for more, so no further client byte is sent: the
  * upstream's write side is ended and its answer is relayed until it closes.
- * An upstream that closes before its response head is complete is answered
- * 502.
+ * An upstream that cannot be reached, fails, or closes before its response
+ * head is complete, or whose head runs past UPGRADE_RESPONSE_HEAD_LIMIT_BYTES,
+ * is answered 502, as a request is; one that fails after its head was relayed
+ * closes the client socket. The caller handles the client socket's errors;
+ * its close destroys the upstream connection.
  * @param {import('node:stream').Duplex} socket - the client socket.
  * @param {Buffer} head - client bytes that followed the handshake.
  * @param {string} handshake - the request head to send, ending in a blank line.
  * @param {{ host: string, port: number }} target - the upstream address.
- * @param {(error: Error) => void} logFailure - receives a connection failure before both sockets are destroyed.
+ * @param {(error: Error) => void} logFailure - receives each upstream failure.
  * @returns {void}
  */
 function spliceUpgrade(socket, head, handshake, target, logFailure) {
   const upstream = net.connect(target.port, target.host, () => {
     upstream.write(handshake)
   })
-  /** @param {Error} error - why the upgrade stops. */
+  let received = Buffer.alloc(0)
+  let relayed = false
+  let refused = false
+  // A failed connection emits 'error' and then 'close'; the client is sent one 502.
+  const badGateway = () => {
+    if (relayed || refused) return
+    refused = true
+    closeWithStatus(socket, '502 Bad Gateway')
+  }
+  /** @param {Error} error - why the upstream connection stops. */
   const fail = (error) => {
     logFailure(error)
-    socket.destroy()
     upstream.destroy()
+    if (relayed) socket.destroy()
+    else badGateway()
   }
   upstream.on('error', fail)
-  socket.on('error', fail)
+  upstream.on('close', badGateway)
   socket.on('close', () => upstream.destroy())
-  let received = Buffer.alloc(0)
-  let answered = false
-  upstream.on('close', () => {
-    if (!answered) closeWithStatus(socket, '502 Bad Gateway')
-  })
   /** @param {Buffer} chunk - bytes read from the upstream before its response head is complete. */
   const readResponseHead = (chunk) => {
     received = Buffer.concat([received, chunk])
@@ -1109,7 +1138,7 @@ function spliceUpgrade(socket, head, handshake, target, logFailure) {
       if (received.length > UPGRADE_RESPONSE_HEAD_LIMIT_BYTES) fail(new Error('upgrade response head too large'))
       return
     }
-    answered = true
+    relayed = true
     upstream.off('data', readResponseHead)
     upstream.pause()
     socket.write(received)
@@ -1174,11 +1203,26 @@ export function createProxyServer(settings, runtime) {
       refuseRequest(res)
       return
     }
+    // Installed before the login check, which can wait on the authentication
+    // service. A client that leaves before its body is complete leaves the
+    // upstream waiting on bytes its framing promised, so that request is
+    // destroyed, and the failure it then reports goes unlogged and unanswered.
+    /** @type {import('node:http').ClientRequest | undefined} */
+    let upstream
+    let abandoned = false
+    req.on('close', () => {
+      if (req.complete) return
+      abandoned = true
+      upstream?.destroy()
+    })
     try {
       const remote = isRemote(pathname)
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
+        // Node destroys the request when its connection closes, so a client
+        // that left during the check gets no upstream request at all.
+        if (req.destroyed) return
         if (decision.outcome !== 'admitted') {
           if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
           denyRequest(res, decision.outcome)
@@ -1186,7 +1230,7 @@ export function createProxyServer(settings, runtime) {
         }
         assertion = decision.assertion
       }
-      const upstream = http.request({
+      upstream = http.request({
         host: remote ? settings.remoteHost : DSH_HOST,
         port: remote ? settings.remotePort : settings.dshPort,
         method: req.method,
@@ -1209,14 +1253,10 @@ export function createProxyServer(settings, runtime) {
         upstreamRes.pipe(res)
       })
       upstream.on('error', (error) => {
+        if (abandoned) return
         runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad gateway')
-      })
-      // A client that leaves before its body is complete leaves the upstream
-      // waiting on bytes its framing promised; that connection is dropped.
-      req.on('close', () => {
-        if (!req.complete) upstream.destroy()
       })
       if (framing.body === 'none') upstream.end()
       else req.pipe(upstream)
@@ -1265,6 +1305,8 @@ export function createProxyServer(settings, runtime) {
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
+        // A client that reset the connection during the check gets no upstream connection.
+        if (socket.destroyed) return
         if (decision.outcome !== 'admitted') {
           if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
           denyUpgrade(socket, decision.outcome)
@@ -1297,7 +1339,7 @@ export function createProxyServer(settings, runtime) {
     }
   })
 
-  server.on('clientError', refuseMalformed(runtime))
+  server.on('clientError', answerClientError(runtime))
   server.on('close', () => {
     remoteAgent.destroy()
     dshAgent.destroy()
@@ -1344,7 +1386,7 @@ export function createVerifierServer(settings, runtime) {
       res.end()
     }
   })
-  server.on('clientError', refuseMalformed(runtime))
+  server.on('clientError', answerClientError(runtime))
   return { server, gate }
 }
 

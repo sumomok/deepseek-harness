@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import http from 'node:http'
 import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http'
 import net from 'node:net'
@@ -20,6 +21,8 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ASSERTION_LIFETIME_SECONDS,
+  GATE_EXEMPT_EXACT,
+  GATE_EXEMPT_PREFIXES,
   MEMBER_HEADER,
   claimsRefusal,
   createGate,
@@ -429,6 +432,112 @@ function handshake(path: string, extra = ''): string {
   return `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nCookie: accessToken=${TOKEN}\r\n${FORGED_LINES}${extra}\r\n`
 }
 
+/**
+ * A loopback port that was just released, so nothing listens on it.
+ * @returns the port.
+ */
+async function closedPort(): Promise<number> {
+  const server = net.createServer()
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as AddressInfo).port
+  await new Promise<void>((resolve) => {
+    server.close(() => { resolve() })
+  })
+  return port
+}
+
+/** A proxy-mode gate whose renewal check waits until released. */
+interface HeldWorld {
+  port: number
+  dsh: Stub
+  /** TCP connections the stand-in dsh accepted. */
+  dshConnections: () => number
+  logs: string[]
+  /** Resolves once the first renewal check reaches the authentication service. */
+  checking: Promise<true>
+  /** Resolves with the gate's side of the first connection it accepts. */
+  accepted: Promise<Socket>
+  /** Answers every held renewal check, and every later one at once. */
+  release: () => void
+}
+
+/**
+ * Start a proxy-mode gate whose renewal answers are held until `release`,
+ * between a stand-in dsh that counts its connections and that held service.
+ * @returns the world.
+ */
+async function heldWorld(): Promise<HeldWorld> {
+  const checking = Promise.withResolvers<true>()
+  const held: Array<() => void> = []
+  let released = false
+  const renewal = http.createServer((req, res) => {
+    req.resume()
+    const answer = () => { res.end(JSON.stringify({ renewal: '3600000', token: req.headers.authorization })) }
+    if (released) answer()
+    else held.push(answer)
+    checking.resolve(true)
+  })
+  const renewalPort = await listen(renewal)
+  const dsh = await stub()
+  let dshConnections = 0
+  dsh.server.on('connection', () => { dshConnections += 1 })
+  const settings = readSettings({
+    DSH_WEB_PORT: String(dsh.port),
+    REMOTE_HOST: '127.0.0.1',
+    REMOTE_PORT: String(await closedPort()),
+    AUTH_ORIGIN: `http://127.0.0.1:${String(renewalPort)}`,
+  })
+  const logs: string[] = []
+  const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 1_800_000_000_000 })
+  const accepted = Promise.withResolvers<Socket>()
+  server.on('connection', (socket: Socket) => { accepted.resolve(socket) })
+  const port = await listen(server, gate)
+  const release = () => {
+    released = true
+    for (const answer of held.splice(0)) answer()
+  }
+  return { port, dsh, dshConnections: () => dshConnections, logs, checking: checking.promise, accepted: accepted.promise, release }
+}
+
+/**
+ * Open a raw connection, write `text`, then leave once the gate's renewal
+ * check is in flight, and wait until the gate has closed its side.
+ * @param w - the held world.
+ * @param text - what the client sends before leaving.
+ * @param leave - `end` sends FIN; `reset` sends RST.
+ * @returns once the gate's side of the connection has closed.
+ */
+async function leaveDuringCheck(w: HeldWorld, text: string, leave: 'end' | 'reset'): Promise<void> {
+  const client = net.connect(w.port, '127.0.0.1', () => { client.write(text) })
+  closers.push(async () => { client.destroy() })
+  client.on('data', () => {})
+  client.on('error', () => { client.destroy() })
+  await w.checking
+  const gateSide = await w.accepted
+  const closed = new Promise<void>((resolve) => { gateSide.once('close', () => { resolve() }) })
+  if (leave === 'end') client.end()
+  else client.resetAndDestroy()
+  await closed
+}
+
+/**
+ * Write raw bytes to the gate, end the client's side, and collect whatever
+ * the gate sends back until the connection closes.
+ * @param port - the gate's port.
+ * @param text - the bytes sent before the client's FIN.
+ * @returns everything the gate sent back, as latin1 text.
+ */
+function sendAndEnd(port: number, text: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let received = ''
+    const client = net.connect(port, '127.0.0.1', () => { client.end(text) })
+    closers.push(async () => { client.destroy() })
+    client.on('data', (chunk: Buffer) => { received += chunk.toString('latin1') })
+    client.on('close', () => { resolve(received) })
+    client.on('error', reject)
+  })
+}
+
 describe('configuration fails loud at start', () => {
   const base = { DSH_WEB_PORT: '3739', REMOTE_HOST: '127.0.0.1', REMOTE_PORT: '9532' }
   const ecKey = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'pem', type: 'pkcs8' })
@@ -502,6 +611,22 @@ describe('routing', () => {
     expect(isGateExempt('/favicon-dark.svg')).toBe(true)
     expect(isGateExempt('/component-kit/settings')).toBe(true)
     expect(isGateExempt('/component-kit/data')).toBe(false)
+  })
+
+  it('exempts the same paths as the nginx template, whose prefix locations end in a slash', () => {
+    const template = readFileSync(fileURLToPath(new URL('../deploy/nginx.console.conf', import.meta.url)), 'utf8')
+    const exact: string[] = []
+    const prefixes: string[] = []
+    for (const [, equals, path] of template.matchAll(/^ *location (= )?\/console(\/\S*) +\{ auth_request off;/gm)) {
+      if (equals === undefined) {
+        expect(path).toMatch(/\/$/)
+        prefixes.push(String(path).slice(0, -1))
+      } else {
+        exact.push(String(path))
+      }
+    }
+    expect(new Set(exact)).toEqual(GATE_EXEMPT_EXACT)
+    expect(prefixes).toEqual(GATE_EXEMPT_PREFIXES)
   })
 
   it('strips the framing and cookie attributes that block embedding the remote application', () => {
@@ -771,7 +896,7 @@ describe('request bodies', () => {
     expect(w.dsh.requests.length + w.customer.requests.length + w.renewals()).toBe(0)
   })
 
-  it('drop the upstream request when the client leaves before its body is complete', async () => {
+  it('drop the upstream request, answer nothing, and log nothing when the client leaves before its body is complete', async () => {
     const started = Promise.withResolvers<true>()
     const closed = Promise.withResolvers<boolean>()
     const dsh = http.createServer((req) => {
@@ -781,15 +906,54 @@ describe('request bodies', () => {
     })
     const dshPort = await listen(dsh)
     const settings = readSettings({ DSH_WEB_PORT: String(dshPort), REMOTE_HOST: '127.0.0.1', REMOTE_PORT: '9', LOGIN_GATE: 'off' })
-    const { server, gate } = createProxyServer(settings, { log: () => {}, now: () => 0 })
+    const logs: string[] = []
+    const { server, gate } = createProxyServer(settings, { log: (line) => { logs.push(line) }, now: () => 0 })
     const port = await listen(server, gate)
+    let received = ''
+    const left = Promise.withResolvers<true>()
     const client = net.connect(port, '127.0.0.1', () => {
       client.write('POST /assets/upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\npartial')
     })
     closers.push(async () => { client.destroy() })
+    client.on('data', (chunk: Buffer) => { received += chunk.toString('latin1') })
+    client.on('error', () => { client.destroy() })
+    client.on('close', () => { left.resolve(true) })
     await started.promise
-    client.destroy()
+    client.end()
     expect(await closed.promise).toBe(false)
+    await left.promise
+    expect(received).toBe('')
+    expect(logs).toEqual([])
+  })
+})
+
+describe('a client that leaves during the login check', () => {
+  const incomplete = `POST /api/rpc HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\nContent-Length: 100\r\n\r\npartial`
+  const complete = `GET /api/rpc HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`
+
+  it.each([
+    ['with its body incomplete', 'end', incomplete],
+    ['with its body incomplete', 'reset', incomplete],
+    ['with its request complete', 'end', complete],
+    ['with its request complete', 'reset', complete],
+  ] as const)('causes no upstream request %s, leaving by %s, and no log line', async (_label, leave, text) => {
+    const w = await heldWorld()
+    await leaveDuringCheck(w, text, leave)
+    w.release()
+    // Admitted from the same check, so its upstream request is made after the departed client's would have been.
+    expect((await send(w.port, '/api/rpc', LOGGED_IN)).status).toBe(200)
+    expect(w.dshConnections()).toBe(1)
+    expect(w.dsh.requests).toHaveLength(1)
+    expect(w.logs).toEqual([])
+  })
+
+  it('causes no upstream upgrade when it resets the connection', async () => {
+    const w = await heldWorld()
+    await leaveDuringCheck(w, handshake('/api/remote.mux'), 'reset')
+    w.release()
+    expect(await upgrade(w.port, '/api/remote.mux', LOGGED_IN)).toBe(101)
+    expect(w.dshConnections()).toBe(1)
+    expect(w.dsh.upgrades).toHaveLength(1)
   })
 })
 
@@ -835,6 +999,24 @@ describe('upgrades', () => {
     expect((await exchange(w.port, handshake('/plugins/events'))).split('\r\n')[0]).toBe('HTTP/1.1 502 Bad Gateway')
   })
 
+  it.each(paths)('answer 502, as a request does, when the upstream cannot be reached on %s', async (_label, path) => {
+    const renewal = await stub((req, res) => {
+      res.end(JSON.stringify({ renewal: '3600000', token: req.headers.authorization }))
+      return true
+    })
+    const settings = readSettings({
+      DSH_WEB_PORT: String(await closedPort()),
+      REMOTE_HOST: '127.0.0.1',
+      REMOTE_PORT: String(await closedPort()),
+      AUTH_ORIGIN: `http://127.0.0.1:${String(renewal.port)}`,
+    })
+    const { server, gate } = createProxyServer(settings, { log: () => {}, now: () => 1_800_000_000_000 })
+    const port = await listen(server, gate)
+    expect((await exchange(port, handshake(path))).split('\r\n')[0]).toBe('HTTP/1.1 502 Bad Gateway')
+    const request = handshake(path).replace(/Connection: Upgrade\r\nUpgrade: websocket\r\n/, 'Connection: close\r\n')
+    expect((await exchange(port, request)).split('\r\n')[0]).toBe('HTTP/1.1 502 Bad Gateway')
+  })
+
   it.each(paths)('answer 400 to a handshake that declares a body on %s, before contacting anything upstream', async (_label, path) => {
     const w = await world()
     for (const framing of [framedBody('content-length', SMUGGLED), framedBody('chunked', SMUGGLED)]) {
@@ -846,7 +1028,32 @@ describe('upgrades', () => {
 })
 
 describe('malformed requests', () => {
-  it.each([['proxy', {}], ['verify', { PROXY_MODE: 'verify' }]] as const)('are answered 400 in %s mode', async (_mode, env) => {
+  const modes = [['proxy', {}], ['verify', { PROXY_MODE: 'verify' }]] as const
+
+  it.each(modes)('are answered 431 when the header section is over Node\'s limit in %s mode', async (_mode, env) => {
+    const w = await world(env)
+    const answer = await exchange(w.port, `GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Padding: ${'a'.repeat(20_000)}\r\n\r\n`)
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 431 Request Header Fields Too Large')
+    expect(w.dsh.requests.length + w.renewals()).toBe(0)
+  })
+
+  it.each(modes)('are answered 408 when the header section does not arrive in time in %s mode', async (_mode, env) => {
+    const settings = readSettings({ DSH_WEB_PORT: '9', REMOTE_HOST: '127.0.0.1', REMOTE_PORT: '9', AUTH_ORIGIN: 'http://127.0.0.1:9', ...env })
+    const runtime = { log: () => {}, now: () => 0 }
+    const { server, gate } = settings.mode === 'verify' ? createVerifierServer(settings, runtime) : createProxyServer(settings, runtime)
+    // Node reads connectionsCheckingInterval, how often it checks these deadlines, when the server starts listening.
+    Object.assign(server, { headersTimeout: 200, requestTimeout: 200, connectionsCheckingInterval: 50 })
+    const port = await listen(server, gate)
+    expect((await exchange(port, 'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\n')).split('\r\n')[0]).toBe('HTTP/1.1 408 Request Timeout')
+  })
+
+  it.each(modes)('are answered nothing and logged nothing when the client leaves mid-request in %s mode', async (_mode, env) => {
+    const w = await world(env)
+    expect(await sendAndEnd(w.port, 'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\n')).toBe('')
+    expect(w.logs).toEqual([])
+  })
+
+  it.each(modes)('are answered 400 in %s mode', async (_mode, env) => {
     const w = await world(env)
     for (const text of [
       'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Other: a\r\n x-dsh-member: folded\r\n\r\n',
