@@ -33,8 +33,8 @@
   en: 9a3cc5bd61f3a9b7
   zh: 269848b756490601
 /deepseek-ai-dsh-experimental-content-frame/reading-the-page-as-it-was-written:
-  en: 3c1e449b135cf83c
-  zh: 77102ecc1294650d
+  en: cf3ab3d00aa17ecc
+  zh: 5d5e457c58252ce9
 /deepseek-ai-dsh-experimental-content-frame/reading-one-picture-on-the-page:
   en: 67979a90830f9dc0
   zh: f98c9c32e15f998b
@@ -45,14 +45,17 @@
   en: b7c3801b533805e1
   zh: 1c466cfdaca9479b
 /deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame:
-  en: 7b6c8efd69576f5e
-  zh: b983c4984bb393e2
+  en: 831e1255892dd888
+  zh: 8cd15c595ae47d69
 /deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-console-table-reads-as:
-  en: 89f792524d22758c
-  zh: aa24fd77dee51413
+  en: 00205b0e80ff1763
+  zh: 171c713c508a3a67
+/deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-an-icon-a-cell-or-an-item-draws-reads-as:
+  en: 3be238467b3a08dc
+  zh: 5d998fb805c0af78
 /deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-control-the-page-names-nowhere-reads-as:
-  en: 3140e1c5d44513ef
-  zh: b9d1b4625d5c044f
+  en: 805911520897ebed
+  zh: e49f6b7e77f718e4
 /deepseek-ai-dsh-experimental-content-frame/reading-the-page-in-the-frame/what-a-console-form-reads-as:
   en: cf27e7cbd673d880
   zh: 9866ac6017be67f4
@@ -117,8 +120,8 @@
   en: f84c91effeac78c3
   zh: f84c91effeac78c3
 /deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/what-the-model-sees:
-  en: a2f20d40a388a0eb
-  zh: 82c7b111218d241a
+  en: e3f90e8146e13a56
+  zh: 8db6623bd3de0902
 /deepseek-ai-dsh-experimental-content-frame/model-experience/the-read-result/what-the-model-sees/the-claim-timeout-over-an-empty-column:
   en: 257a4fa728ec153b
   zh: 257a4fa728ec153b
@@ -267,8 +270,8 @@
   en: 0eb32019aa53ec2f
   zh: d97b252fc32201cf
 /deepseek-ai-dsh-experimental-content-frame/known-limitations-and-deferred-work:
-  en: 51016a23a28bbbbb
-  zh: 6738d6288bd9eafa
+  en: 1c3b5c7e7d557f4a
+  zh: ce08b2b270753f43
 /deepseek-ai-dsh-experimental-content-frame/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

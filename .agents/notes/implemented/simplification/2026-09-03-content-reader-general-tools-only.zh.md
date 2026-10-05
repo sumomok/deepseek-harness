@@ -29,7 +29,7 @@ Status: implemented
 ### 退役了什么
 
 1. **固定列整套子系统。** 每一个 `<table>`、`grid`、`treegrid` 都按页面写下的样子打出来。既不合并成文档里不存在的那张表，也不把任何一张当作另一张的副本丢掉，更不因为「画在另一个东西上面」而丢掉任何元素：`splitPartner`、`neighbourTable`、`repeatsTable`、`tablePieces`、`mergeCells`、`pickCells`、`duplicate`、`rectsMeet`、`rectsOverlap` 与注入的几何（`rectOf`）全部删除。
-2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。
+2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 在表格格子和重复条目里取代了这一条：在那里具有图标结构的元素是一行 `icon`，只按结构读；不带 class 的精灵图用它 `<use href>` 的符号 id 作标记。从 class 词元里读出一个词、再拿它给一行命名，这两件事仍然删除着。
 3. **分页条与面包屑。** `PAGINATION_MARKER`、`BREADCRUMB_MARKER`、分隔符正则、`pagination:` 行、`rows on this page` 的措辞，以及读取头部的 `breadcrumb` 字段，全部删除。这两样部件按页面把它们画成的那段文字打出来。`role="navigation"` 与别的容器无异。
 4. **画出来的必填星。** `(required)` 只跟随 `required` 与 `aria-required`，别的一概不跟；`REQUIRED_MARKS` 与注入的 `drawnAround`（读 `::before`/`::after`）删除。
 5. **消息观察器。** 盯着「文字变得能读到」的 `MutationObserver`，连同 `message` 这一事件种类一起删除。一次动手上报的是浏览器替页面做的事——对话框、跳转、想开的窗口——这些是任何读取都找不回来的；页面画出来的东西在收尾那次读取里。
@@ -57,7 +57,7 @@ Status: implemented
 
 **组件库画的页面，字符数大约翻倍。** 2026-09-03 在真机 ini-web2 控制台上实测，跑的是「退役那批规则之后、标记还没打全也还没改成单花括号」的那个中间版本：整页读取图层列表是 2507 字符，这份列表到模型那儿是六张表——`e28` 到 `e33`，主片一个表头半张、一个表体半张，每个固定列副本各一份。在 `tests/snapshot.client.spec.ts` 里记录着那张页面标记语言的 jsdom 夹具上，同一次改动把整页读取从 524 字符 6 行变成 1020 字符 16 行。行和列都没变，涨的是「原来打一张表，现在打六张」。
 
-**那台控制台的命令列读出来是空的。** 同一次读取里实测：`e33` 是固定在右边的那张表体，也就是画着 操作 列的那一片，它的二十行每一格都是空的。这些行内命令没有 role、没有名字、没有 title、也没有指针光标，于是一行都不打：看得见它们的读者拿不到任何 ref。页面确实标出来的东西照样到得了模型：同一次读取为一个画成按钮的命令打出 `e3 button {class: el-button el-tooltip head-btn el-button--text …}`，这就是步骤点得到的那种行。那次读取把 token 裁到四个、并且用两重花括号拼写标记，与这个版本打出来的差别仅此而已。
+**那台控制台的命令列一直读成空的，直到[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 把它的命令读成各自格子的图标。** 同一次读取里实测：`e33` 是固定在右边的那张表体，也就是画着 操作 列的那一片，它的二十行每一格都是空的。这些行内命令没有 role、没有名字、没有 title、也没有指针光标，于是一行都不打：看得见它们的读者拿不到任何 ref。页面确实标出来的东西照样到得了模型：同一次读取为一个画成按钮的命令打出 `e3 button {class: el-button el-tooltip head-btn el-button--text …}`，这就是步骤点得到的那种行。那次读取把 token 裁到四个、并且用两重花括号拼写标记，与这个版本打出来的差别仅此而已。
 
 **用户眼里的一张表，到模型那儿是页面用来搭出它的那几张表**——冻结表头、表体，以及每个固定列一份副本，各自带着这一片画出的那些列，其余为空。哪几片拼成那一张表，属于「关于这个应用要懂的事」。
 

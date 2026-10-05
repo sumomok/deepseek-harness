@@ -132,7 +132,7 @@ export interface ControlState {
  * holds. A row of its own and the room a node opens print this the same way.
  */
 export interface ControlFace extends ControlState {
-  /** The element's ARIA role, or `clickable` for a role-less click target. */
+  /** The element's ARIA role, `clickable` for a role-less click target, or `icon` for an icon a cell or an item holds. */
   readonly role: string
   /** True for a tree node or menu item the page has closed over what it holds. */
   readonly collapsed: boolean

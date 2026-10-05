@@ -486,6 +486,14 @@ describe('the approval every set of steps runs under', () => {
     expect(asked).toEqual(['在「当前展示的这一项」上：填「名称」为「东风」；点「查询」'])
   })
 
+  it('asks about an icon a read printed by the mark it carries, as about any row named nothing', async () => {
+    const { asked, pending, run } = await bench()
+    const { callId, settled } = run({ steps: [{ action: 'click', ref: 'e4', label: '', mark: 'el-icon-warning' }] })
+    await answer(pending, callId, DONE)
+    expect((await settled).isError).toBe(false)
+    expect(asked).toEqual(['在「当前展示的这一项」上：点标为「class: el-icon-warning」的无名控件'])
+  })
+
   it('denies where the deployment composes no approval channel', async () => {
     // The historical degrade, and the reason the listener asks rather than
     // allowing: a composition with no channel runs no steps at all.

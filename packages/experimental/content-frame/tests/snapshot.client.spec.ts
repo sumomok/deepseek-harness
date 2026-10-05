@@ -1959,19 +1959,20 @@ describe('a drawing the page only draws', () => {
       </div></td></tr></tbody>
     </table>`
 
-  it('reads a drawing the page marks with nothing but a class as nothing at all', () => {
-    // A class is a page's own spelling, and nothing a specification defines
-    // says these elements are there. The column reads as the empty cell the
-    // document says it is, and what those drawings mean is for a skill that
-    // knows this application to say.
+  it('reads a drawing a cell holds with nothing but a class as an icon of that cell', () => {
+    // The structure is what counts: an element holding no element and no text
+    // and carrying a class is a control of the cell it is drawn in. The class
+    // is printed as the row's mark and nothing is read out of it, and the
+    // wrapper around the second command is read through to the icon inside it.
     const refs = page(ROW_COMMANDS)
     expect(read(refs).text).toBe([
       'e1 table 1 rows × 2 cols',
       '  header: 名称 | 操作',
-      '  sample: 东风站 | ',
+      '  sample: 东风站 | [icon icon]',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
     ].join('\n'))
-    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2]).toBe('  row 1: 东风站 | ')
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2])
+      .toBe('  row 1: 东风站 | e3 icon {class: el-tooltip operation-modify el-icon-edit}  e4 icon {class: el-icon-delete}')
   })
 
   it('reads a drawing the page named, wherever the page wrote the name', () => {
@@ -1995,6 +1996,221 @@ describe('a drawing the page only draws', () => {
       // about it; the one after it says nothing at all and prints nothing.
       '  e5 clickable {class: el-icon-star} (in toolbar "操作")',
     ].join('\n'))
+  })
+})
+
+describe('an icon a table cell or a repeated item draws', () => {
+  const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+
+  // The 操作 column of a console's list draws edit, warning and delete as three
+  // `<i>` elements with no role, no text, and a cursor of `auto`: the cursor is
+  // no part of what makes them controls.
+  const OPERATIONS = '<i class="el-icon-edit operation-modify" style="cursor: auto"></i>'
+    + '<i class="el-icon-warning" style="cursor: auto"></i>'
+    + '<i class="el-icon-delete operation-delete" style="cursor: auto"></i>'
+
+  /** One table of one data row whose second cell holds `inside`. */
+  const tableOf = (inside: string): string => '<table aria-label="设备">'
+    + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
+    + `<tbody><tr><td>东风站</td><td><div class="ops">${inside}</div></td></tr></tbody></table>`
+
+  /** The listed row of the one table on the page. */
+  const rowOf = (refs: RefTable, ask: Ask = {}): string => {
+    read(refs, ask)
+    return read(refs, { ...ask, scope: refOf(refs, 'table') }).text.split('\n')[2] ?? ''
+  }
+
+  it('reads each command of an operation column as an icon of its own, with its own mark', () => {
+    const refs = page(tableOf(OPERATIONS))
+    expect(read(refs).text).toBe([
+      'e1 table "设备" 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | [icon icon icon]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    expect(read(refs, { scope: 'e1' }).text.split('\n')[2]).toBe('  row 1: 东风站 | '
+      + 'e3 icon {class: el-icon-edit operation-modify}  e4 icon {class: el-icon-warning}  '
+      + 'e5 icon {class: el-icon-delete operation-delete}')
+  })
+
+  it('reads the same elements outside a cell or an item as nothing', () => {
+    const refs = page(`<div class="ops">${OPERATIONS}</div><p>说明</p>`)
+    expect(read(refs).text).toBe('text "说明"')
+  })
+
+  it('reads an element holding words or holding an element as what it holds', () => {
+    // Words make a run of text, and a wrapper is read through to what it
+    // holds: the bold element inside this one carries no class.
+    const refs = page(tableOf('<i class="el-icon-edit">编辑</i><span class="op-wrap"><b></b></span>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | 编辑')
+  })
+
+  it('reads an element carrying no class as nothing, because it has no mark to be named by', () => {
+    const refs = page(tableOf('<i></i><i class=""></i><i class="  "></i>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('marks a sprite drawing that carries no class by the symbol it points at', () => {
+    // The symbol id is the drawing's own word for itself where it carries no
+    // class. A reference to another file keeps what follows its `#`, and a
+    // reference without one marks nothing. A class, where the drawing carries
+    // one, is its mark as everywhere else.
+    const refs = page(tableOf('<svg><use href="#icon-edit"></use></svg>'
+      + '<svg><use xlink:href="#icon-warning"></use></svg>'
+      + '<svg><use href="/static/sprite.svg#icon-delete"></use></svg>'
+      + '<svg><use href="/static/sprite.svg"></use></svg>'
+      + '<svg><use></use></svg>'
+      + '<svg><path d="M0 0"></path></svg>'
+      + '<svg class="svg-icon"><use href="#icon-share"></use></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: icon-edit}  e4 icon {class: icon-warning}  '
+      + 'e5 icon {class: icon-delete}  e6 icon {class: svg-icon}')
+  })
+
+  it('reads an icon of a repeated item the walk reads through', () => {
+    const refs = page('<ul aria-label="站点"><li>东风站<i class="el-icon-edit"></i></li>'
+      + '<li>朝阳站<i class="el-icon-edit"></i></li></ul>')
+    expect(read(refs).text).toBe([
+      'e1 list "站点"',
+      '  text "东风站" (in list "站点")',
+      '  e2 icon {class: el-icon-edit} (in list "站点")',
+      '  text "朝阳站" (in list "站点")',
+      '  e3 icon {class: el-icon-edit} (in list "站点")',
+    ].join('\n'))
+    // A map counts an icon among the things to click.
+    expect(read(refs, { mode: 'map' }).text).toBe('e1 list "站点"  2 buttons, 2 texts')
+  })
+
+  it('reads an icon in every kind of repeated item, and in nothing else', () => {
+    const refs = page('<div role="list"><div role="listitem">甲<i class="a"></i></div></div>'
+      + '<div role="row">乙<i class="b"></i></div>'
+      + '<table role="presentation"><tr><td>丙<i class="c"></i></td></tr></table>'
+      + '<div role="feed"><article>丁<i class="d"></i></article></div>'
+      + '<article>戊<i class="f"></i></article>'
+      + '<ol><li>己<svg class="g"><path d="M0 0"></path></svg><svg><use href="#h"></use></svg></li></ol>'
+      + '<div role="tree"><div role="treeitem"><i class="e"></i>'
+      + '<div role="group"><div role="treeitem">北京</div></div></div></div>')
+    expect(read(refs).text).toBe([
+      'e1 list',
+      '  text "甲" (list)',
+      '  e2 icon {class: a} (list)',
+      'text "乙"',
+      'e3 icon {class: b}',
+      'text "丙"',
+      'e4 icon {class: c}',
+      'e5 list',
+      '  text "丁" (list)',
+      '  e6 icon {class: d} (list)',
+      'text "戊"',
+      'e7 list',
+      '  text "己" (list)',
+      '  e8 icon {class: g} (list)',
+      '  e9 icon {class: h} (list)',
+      'e10 tree',
+      '  e11 treeitem',
+      '    e12 icon {class: e} (treeitem)',
+      '    e13 treeitem "北京" (treeitem)',
+    ].join('\n'))
+  })
+
+  it('reads an icon whatever cursor the page draws over it', () => {
+    // The role is the structure's, not the cursor's: a pointer over one of the
+    // commands and not over its neighbour would otherwise print two kinds of
+    // row for one column.
+    const refs = page(tableOf('<i class="el-icon-edit" data-pointer></i><i class="el-icon-delete"></i>'))
+    expect(rowOf(refs, { isClickable: pointer }))
+      .toBe('  row 1: 东风站 | e3 icon {class: el-icon-edit}  e4 icon {class: el-icon-delete}')
+    const listed = page('<ul><li data-pointer><span>东风站</span><i class="el-icon-edit" data-pointer></i></li></ul>'
+      + '<ul><li><span>朝阳站</span><i class="el-icon-edit" data-pointer></i></li></ul>')
+    expect(read(listed, { isClickable: pointer }).text).toBe([
+      'e1 list',
+      '  e2 clickable "东风站" (list)',
+      'e3 list',
+      '  text "朝阳站" (list)',
+      '  e4 icon {class: el-icon-edit} (list)',
+    ].join('\n'))
+  })
+
+  it('names an icon by what the page wrote on it', () => {
+    const refs = page(tableOf('<i class="el-icon-edit" aria-label="编辑"></i><i class="el-icon-view" title="查看"></i>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon "编辑"  e4 icon {class: el-icon-view}')
+  })
+
+  it('reads an empty wrapper a cell draws around nothing as an icon, because the rule reads structure alone', () => {
+    // A library that draws every cell inside a `div class="cell"` draws an
+    // empty value as that wrapper holding nothing, which is the same structure
+    // an icon has.
+    const refs = page('<table><tr><td><div class="cell"></div></td><td><div class="cell">东风站</div></td></tr></table>')
+    expect(read(refs).text.split('\n')[1]).toBe('  sample: [icon] | 东风站')
+  })
+
+  it('reads the tick box a label holds rather than the box the label draws beside it', () => {
+    // What a `label` naming a control holds is that control's name and hit
+    // area, so the drawing beside the box is no control of its own.
+    const refs = page(tableOf('<label><span class="el-checkbox__inner"></span><input type="checkbox" aria-label="选中"></label>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 checkbox "选中" [ ]')
+    const listed = page('<ul><li><label><span class="el-checkbox__inner"></span><input type="checkbox">选中</label></li></ul>')
+    expect(read(listed).text).toBe(['e1 list', '  e2 checkbox "选中" [ ] (list)'].join('\n'))
+  })
+
+  it('reads a control drawn inside a drawing before the drawing as an icon', () => {
+    // A chart a cell draws with a link inside it offers the link: the class on
+    // the drawing does not stand in front of what the reader can operate.
+    const refs = page(tableOf('<svg class="chart"><a href="#x">详情</a></svg>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 link "详情"')
+  })
+
+  it('folds an icon drawn inside a field into the field\'s row as the half that opens it', () => {
+    const refs = page('<ul><li><div class="el-input"><input aria-label="状态" readonly>'
+      + '<span class="el-input__suffix"><i class="el-icon-arrow-down"></i></span></div></li></ul>')
+    expect(read(refs).text).toBe(['e1 list', '  e2 textbox "状态" = "" (readonly) [e3 opens] (list)'].join('\n'))
+  })
+
+  it('reads an icon in an item the same way when a read is scoped inside that item', () => {
+    // The item is around the scope rather than inside it, through a shadow root
+    // and a frame alike.
+    const refs = page('<ul><li><div data-pointer><h3>东风站</h3><i class="el-icon-edit"></i></div></li>'
+      + '<li><div id="host"></div></li><li><iframe title="明细"></iframe></li></ul>')
+    const host = document.querySelector('#host')
+    if (host === null) throw new Error('fixture has no host')
+    host.attachShadow({ mode: 'open' }).innerHTML = '<div data-pointer><h3>朝阳站</h3><i class="el-icon-view"></i></div>'
+    const inner = document.querySelector('iframe')?.contentDocument
+    if (inner === null || inner === undefined) throw new Error('jsdom gave the frame no document')
+    inner.body.innerHTML = '<div data-pointer><h3>西湖站</h3><i class="el-icon-delete"></i></div>'
+    const whole = read(refs, { isClickable: pointer }).text
+    expect(whole).toBe([
+      'e1 list',
+      '  e2 clickable "东风站"',
+      '    e3 heading "东风站" (in clickable "东风站")',
+      '    e4 icon {class: el-icon-edit} (in clickable "东风站")',
+      '  e5 clickable "朝阳站"',
+      '    e6 heading "朝阳站" (in clickable "朝阳站")',
+      '    e7 icon {class: el-icon-view} (in clickable "朝阳站")',
+      '  e8 frame "明细"',
+      '    e9 clickable "西湖站"',
+      '      e10 heading "西湖站" (in clickable "西湖站")',
+      '      e11 icon {class: el-icon-delete} (in clickable "西湖站")',
+    ].join('\n'))
+    for (const [scope, icon] of [['e2', 'e4'], ['e5', 'e7'], ['e9', 'e11']] as const) {
+      expect(read(refs, { isClickable: pointer, scope }).text).toContain(`${icon} icon {class: `)
+    }
+  })
+
+  it('names an icon the same way for a step as for the listing that printed it', () => {
+    const refs = page(tableOf('<i id="named" class="el-icon-edit" aria-label="编辑"></i>'
+      + '<svg id="drawn" aria-label="查看"><use href="#icon-view"></use></svg><i id="bare" class="el-icon-delete"></i>'
+      + '<i id="worded" class="el-icon-share">分享</i>'))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | 分享  e3 icon "编辑"  e4 icon "查看"  e5 icon {class: el-icon-delete}')
+    // The one holding words prints no row of its own, and a step naming it is
+    // held to the nothing it is called.
+    const options = { refs, budgetChars: 4000, isVisible }
+    expect(['#named', '#drawn', '#bare', '#worded']
+      .map(selector => itemName(document.querySelector(selector) as Element, options)))
+      .toEqual(['编辑', '查看', '', ''])
+  })
+
+  it('reads a click target holding words in a cell as the click target it is', () => {
+    const refs = page(tableOf('<span class="op-link" data-pointer>详情</span>'))
+    expect(rowOf(refs, { isClickable: pointer })).toBe('  row 1: 东风站 | e3 clickable "详情"')
   })
 })
 
@@ -2107,10 +2323,13 @@ describe('the console table this reader was written against', () => {
     ])
     // Each piece draws the columns it was pinned for and hides the rest, so the
     // names are on one table and the commands the page draws as bare classes
-    // are on another — where they reach the model as an empty column.
+    // are on another, where each command reads as an icon of its cell. The
+    // tick-box column this fixture leaves empty is an empty `div class="cell"`
+    // in every cell, which is the structure of an icon and reads as one.
     const listing = read(refs).text
-    expect(listing).toContain('  sample:  | 东风站 | ')
-    expect(listing).toContain('e6 table 2 rows × 20 cols')
+    expect(listing).toContain('  header: e7 icon {class: cell} | 名称 | ')
+    expect(listing).toContain('  sample: [icon] | 东风站 | ')
+    expect(listing).toContain(`  sample: ${[...Array.from({ length: 19 }, () => ''), '[icon icon]'].join(' | ')}`)
   })
 
   it('lists the rows of the half a read names by ref', () => {
@@ -2123,7 +2342,7 @@ describe('the console table this reader was written against', () => {
 
   it('finds a row by a name the piece pinned left draws', () => {
     const refs = page(CONSOLE_TABLE)
-    expect(read(refs, { find: '东风站' }).text.startsWith('row 1:  | 东风站 |')).toBe(true)
+    expect(read(refs, { find: '东风站' }).text).toMatch(/^row 1: e\d+ icon \{class: cell\} \| 东风站 \|/)
   })
 })
 
@@ -2439,7 +2658,7 @@ describe('tables', () => {
     expect(sample.length - '  sample: '.length).toBeLessThanOrEqual(24)
   })
 
-  it('offers the icons a page makes clickable in a cell, which is where a row keeps what it can do', () => {
+  it('offers the icons a cell draws, which is where a row keeps what it can do, whatever cursor is over them', () => {
     const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
     const refs = page(`
       <table>
@@ -2451,11 +2670,12 @@ describe('tables', () => {
       </table>`)
     // The icon a table draws for editing a row carries no role and no name of
     // any kind. Read as text it is nothing at all, and the column the reader
-    // can see would offer the model nothing to click.
-    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
+    // can see would offer the model nothing to click. The pointer over these
+    // two makes them no different from the icons a page draws without one.
+    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [icon icon]')
     const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
     expect(listed.split('\n')[2])
-      .toBe('  row 1: 东风站 | e3 clickable {class: modify}  e4 clickable {class: remove}')
+      .toBe('  row 1: 东风站 | e3 icon {class: modify}  e4 icon {class: remove}')
     // The confirmation the page keeps beside them is drawn nowhere until the
     // reader asks for it, and reaches the cell nowhere either.
     expect(listed).not.toContain('确定删除吗')

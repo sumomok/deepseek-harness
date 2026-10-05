@@ -167,14 +167,21 @@ const GLOBAL_ARIA_SELECTOR = [
 export const CLICKABLE_ROLE = 'clickable'
 
 /**
- * The mark a row carries for something the page offers and names nowhere: every
- * class token the element holds, in the order it holds them, separated by one
- * space, and empty for an element carrying no class.
+ * The role a snapshot gives an element {@link isIconShape} accepts where a
+ * table cell or a repeated item holds it; see {@link heldByItem}.
+ */
+export const ICON_ROLE = 'icon'
+
+/**
+ * The class tokens an element holds, in the order it holds them, separated by
+ * one space, and empty for an element carrying no class. This is the string a
+ * markup tree prints as `{class: …}`; the mark a listing row prints is
+ * {@link rowMark}, which starts from it.
  *
- * Whole and uncut, because this string is that row's identity: the listing
+ * Whole and uncut, because a row's mark is that row's identity: the listing
  * prints it, a step naming that row carries it back, and the seat recomputes it
- * here and compares the two character for character. A cut would leave the
- * seat comparing a mark against a shortened copy of itself.
+ * and compares the two character for character. A cut would leave the seat
+ * comparing a mark against a shortened copy of itself.
  *
  * Nothing is read out of the tokens. They are the page's own spelling, printed
  * as they stand, and what they mean is for whoever knows the application.
@@ -186,15 +193,113 @@ export function elementMark(el: Element): string {
 }
 
 /**
+ * What the first `use` inside a drawing points at: the part of its `href` — or,
+ * where it has none, its `xlink:href` — after the `#`, whatever path or host
+ * stands in front of it.
+ * @param el - the drawing.
+ * @returns the symbol id, or the empty string where no `use` points at one.
+ */
+function spriteSymbol(el: Element): string {
+  const use = el.querySelector('use')
+  if (use === null) return ''
+  const reference = use.getAttribute('href') ?? use.getAttribute('xlink:href') ?? ''
+  const at = reference.indexOf('#')
+  return at === -1 ? '' : reference.slice(at + 1)
+}
+
+/**
+ * The mark a row carries for something the page offers and names nowhere:
+ * {@link elementMark}, and for an `svg` carrying no class the symbol id its
+ * first `use` points at — `<svg><use href="#icon-edit"></use></svg>` is marked
+ * `icon-edit`. A sprite drawing writes its identity there and nowhere else.
+ *
+ * The listing prints this and the seat checks a step's `mark` against it, so
+ * the two compare one string computed one way.
+ * @param el - the element to mark.
+ * @returns the mark, or the empty string for an element carrying neither.
+ */
+export function rowMark(el: Element): string {
+  const tokens = elementMark(el)
+  return tokens === '' && el.localName === 'svg' ? spriteSymbol(el) : tokens
+}
+
+/**
  * The roles of the things a page offers to act on, the click target it declares
- * no role for included. What a row under one of these says is what the model
- * can point a step at, so a row printing one of them and no name is a row it
- * cannot use.
+ * no role for and the icon included. What a row under one of these says is what
+ * the model can point a step at, so a row printing one of them and no name is a
+ * row it cannot use.
  */
 export const OFFERED_ROLES: ReadonlySet<string> = new Set([
-  CLICKABLE_ROLE, 'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
+  CLICKABLE_ROLE, ICON_ROLE, 'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
   'treeitem', ...FIELD_ROLES,
 ])
+
+/** The roles of an element that is itself one of a run of items a page repeats. */
+const REPEATED_ITEM_ROLES: ReadonlySet<string> = new Set(['listitem', 'row', 'treeitem', 'option'])
+
+/**
+ * True for an element that is itself one of a run of items a page repeats: a
+ * `<tr>` whatever role the page gives it, a list item, a row, a tree node, an
+ * option, and an article of a feed.
+ * @param el - the element to classify.
+ * @returns whether the element is a repeated item.
+ */
+export function isRepeatedItem(el: Element): boolean {
+  if (el.localName === 'tr') return true
+  const role = roleOf(el)
+  if (role !== null && REPEATED_ITEM_ROLES.has(role)) return true
+  return role === 'article' && el.matches('[role~="feed"] *')
+}
+
+/**
+ * The element an element is drawn inside: its parent, the host of the shadow
+ * root it stands at the top of, or the frame holding the document it is the
+ * root of, up to the document a read started from.
+ * @param el - the element.
+ * @param root - the document the read started from.
+ * @returns the element around it, or undefined at the top of that document.
+ */
+function composedParent(el: Element, root: Document): Element | undefined {
+  if (el.parentElement !== null) return el.parentElement
+  const tree = el.getRootNode()
+  if (tree.nodeType === tree.DOCUMENT_FRAGMENT_NODE && 'host' in tree) return (tree as ShadowRoot).host
+  if (el.ownerDocument === root) return undefined
+  /* v8 ignore next -- a document the walk entered through a frame has a window, and that window a frame element. */
+  return el.ownerDocument.defaultView?.frameElement ?? undefined
+}
+
+/**
+ * True for an element some repeated item holds, through shadow roots and frames
+ * up to the document a read started from; see {@link isRepeatedItem}.
+ * @param el - the element.
+ * @param root - the document the read started from.
+ * @returns whether a repeated item encloses the element.
+ */
+export function heldByItem(el: Element, root: Document): boolean {
+  for (let at = composedParent(el, root); at !== undefined; at = composedParent(at, root)) {
+    if (isRepeatedItem(at)) return true
+  }
+  return false
+}
+
+/**
+ * True for an element drawn the way an icon is: no role, no element inside it
+ * and no text of its own, and a {@link rowMark} to be named by. An `svg` is one
+ * drawing whatever shapes it is built from, so what it holds is neither its
+ * children nor its text here.
+ *
+ * The test is structure alone: no class token is read for what it says, and no
+ * cursor decides it. Where it counts is the caller's: a table cell, or a
+ * repeated item (see {@link heldByItem}).
+ * @param el - the element to classify.
+ * @param isVisible - injected visibility.
+ * @returns whether the element has the structure of an icon.
+ */
+export function isIconShape(el: Element, isVisible: (el: Element) => boolean): boolean {
+  if (roleOf(el) !== null || rowMark(el) === '') return false
+  if (el.localName === 'svg') return true
+  return childHost(el).children.length === 0 && drawsNothing(visibleText(el, isVisible))
+}
 
 /**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not

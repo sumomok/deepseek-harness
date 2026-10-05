@@ -241,6 +241,29 @@ describe('what each step dispatches at the page', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
 
+  it('clicks an icon a read printed in a row\'s cell, by the ref and the mark that read printed', async () => {
+    // An operation column whose commands carry no role, no name, and no pointer
+    // cursor: the read prints each one as an icon with its mark, and a step
+    // copying a ref and a mark out of that read reaches the element it meant.
+    mount('<main><table aria-label="设备"><thead><tr><th>名称</th><th>操作</th></tr></thead>'
+      + '<tbody><tr><td>东风站</td><td>'
+      + '<i id="edit" class="el-icon-edit operation-modify"></i>'
+      + '<i id="warn" class="el-icon-warning"></i>'
+      + '<svg id="drop"><use href="#icon-delete"></use></svg>'
+      + '</td></tr></tbody></table></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    snapshot(doc(), options)
+    const listed = snapshot(doc(), { ...options, scope: refs.ref(at('table')) }).text
+    const icons = [...listed.matchAll(/(e\d+) icon \{class: ([^}]*)\}/g)]
+      .map(match => ({ action: 'click' as const, ref: match[1] ?? '', label: '', mark: match[2] ?? '' }))
+    expect(icons.map(icon => icon.mark)).toEqual(['el-icon-edit operation-modify', 'el-icon-warning', 'icon-delete'])
+    const warned = listen(at('#warn'), ['click'])
+    const dropped = listen(at('#drop'), ['click'])
+    const outcome = await run(icons.slice(1))
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
+    expect({ warned, dropped }).toEqual({ warned: ['click'], dropped: ['click'] })
+  })
+
   it('fills a box the listing named by the word written in it', async () => {
     // The console's own query field, and the loop it used to cause: the
     // listing printed `textbox = ""`, the model had no name to copy, and every
@@ -811,7 +834,7 @@ describe('one name, printed and checked', () => {
     + '<table aria-label="设备">'
     + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
     + '<tbody><tr><td>mill-01</td>'
-    + '<td><a href="#x">详情</a><button class="el-button">编辑</button></td>'
+    + '<td><a href="#x">详情</a><button class="el-button">编辑</button><i class="el-icon-view" aria-label="查看"></i></td>'
     + '</tr></tbody>'
     + '</table>'
     + '</main>'
@@ -862,6 +885,7 @@ describe('one name, printed and checked', () => {
       // this reader was written for puts its edit and delete on.
       'link "详情"',
       'button "编辑"',
+      'icon "查看"',
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)

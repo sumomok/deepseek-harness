@@ -53,7 +53,7 @@ import { settlePage } from '../perception/settle.ts'
 import { captureElement, type ExportPixels } from './capture.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
-import { elementMark, looksClickable, readableDocuments } from './dom.ts'
+import { looksClickable, readableDocuments, rowMark } from './dom.ts'
 import { itemName } from './collect.ts'
 import { markup } from './markup.ts'
 import { RefTable } from './refs.ts'
@@ -838,7 +838,7 @@ async function actOnPage(
       // listing printed for an element is what a step naming it is held to.
       name: el => itemName(el, options),
       // And the reader's own marking, for the rows it printed no name for.
-      mark: elementMark,
+      mark: rowMark,
     }, {
       settleQuietMs: access.settleQuietMs,
       settleMaxMs: access.settleMaxMs,
