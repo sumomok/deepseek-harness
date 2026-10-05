@@ -40,6 +40,10 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 每条流还在同一条逻辑流上携带从 Client 到 Host 的上行。方法把上行项类型声明为返回类型的第二个类型参数——来自 [`dsh-typert-protocol`](../../typert/protocol/README.zh.md) 的 `RemoteStream<Out, In>`；`In` 缺省为 `never`，返回 `Iterable`、`AsyncIterable` 或 `RemoteStream<Out>` 的方法即声明自己不读上行。运行中的方法通过 `this.ctx.invocation` 读取本次调用：Gateway 从携带该 `RemoteInvocation`（`request`、`service`、`peer`、`signal` 与 `uplink()`）的 Context 派生接收者，因此没有任何东西进入参数列表，而非 Remote 调用派生的 Context 上 `ctx.invocation` 为 `undefined`。`uplink()` 每次调用只能取一次。描述符带 codec 时它在交付前逐项解码；不带时——SRC 方法，或 `In` 为 `never` 的方法——它交付经 JSON 安全校验的 `unknown` 值。Client 在已打开的逻辑流上把每一项作为 `item` 帧发送（顶层 `undefined` 项是不带 `value` 的 `item` 帧），以 `end` 帧表示半关闭；方法通过 `uplink()` 迭代结束感知半关闭，通过 `signal` 感知取消。被拒绝的项使整条流以 `gateway/input-invalid`（字段 `uplink`）失败。上行项在 Host 逐项校验，因为它们来自浏览器；下行项是 Host 方法产出的值，不经校验原样透传。方法结束下行时 Gateway 调用 uplink 迭代器的 return 并丢弃未读的项；发给从未取用 uplink 的方法的项在 inbox 里等到那时为止。每条逻辑流最多缓冲 `streamInboxBytes`（默认 262144）字节的上行帧；超限使流以 `gateway/uplink-overflow` 失败，`end` 之后的项使流以 `gateway/protocol` 失败，两种情况都不关闭 socket。发给 Host 已结束的流 id 的 `item`、`end` 与 `cancel` 帧被丢弃；只有重复的 `open` 会关闭 socket。`$events` 这类 Gateway 自有的流在打开时立即 return 其 uplink，因此它们的 `item` 帧被丢弃而不缓冲。一元方法也可以调用 `uplink()`；其项只在方法运行期间可读。WebSocket 上的流代表 Connection 在升级时接纳的 Peer，没有安装 Peer 准入器且 Connection 未设 `requireAdmitter` 时即操作者（设了该字段又没有准入器时，升级以 401 被拒）；该 Peer 的 scope 释放时 socket 以 1001 关闭；进程内载体的流直接代表操作者。
 
+每次 Remote 方法调用在描述符解析之后都会经过 `remote/invoke` waterfall，无论从哪个入口进入：`invoke()`、`stream()`、`wireStream.open()`、`/api` RPC 载体和 `/api/remote.mux` WebSocket；Gateway 自有的 `$events` 流与 `$events/result` 不经过它。监听器收到一个 `RemoteInvokeCall`——`endpoint`、`mode`（来自 `invoke()` 与 `/api` 的为 `unary`，来自流入口的为 `stream`）、调用方 `peer`、描述符的 `invocation`、`scope` 与 `parameters`，以及尚未校验的 wire `args`——和 `next()`；`next()` 校验 `call.args`、解析接收者与 lookup、调用方法，并解析为 `RemoteInvokeOutcome`，即 `{ kind: 'value', value }` 或 `{ kind: 'stream', source }`。监听器可以在调用 `next()` 之前给 `call.args` 赋一个替换值，替换后的参数与 Client 发来的参数经过同样的字段、codec 与 lookup 检查。它可以返回改写后的值或包装后的 source；在 `/api` 上，改写后的值与方法结果一样编码，二者都不按描述符的 result codec 校验。监听器不调用 `next()`、直接抛出 `RemoteError` 即拒绝调用，访问被拒时用带 `{ endpoint }` details 的 `gateway/forbidden`，调用方收到它的方式与方法自己抛出同一错误时相同；监听器不调用 `next()` 就返回时由它代替方法作答，返回另一种模式的结果时调用以 `gateway/result-invalid` 失败。Cordis 把同一个 `next()` 交给每个监听器：每次调用都运行下一个尚未运行的监听器，没有剩余时直接调用方法。所以监听器至多调用一次 `next()`；第二次调用（例如在它之后的监听器拒绝之后重试）会跳过所有已经运行过的监听器。一个监听器的拒绝或检查只在它之前的每个监听器都调用一次 `next()` 时成立，它看到的 `call.args` 是它之后的监听器替换之前的值。方法在调用 `next()` 时所处的异步上下文中运行，因此监听器可以在 `AsyncLocalStorage.run()` 里调用 `next()`；流的项由载体在 waterfall 返回之后拉取，需要在产出项时保留该上下文的监听器，要在 source 的每次 `next()` 与 `return()` 外重新进入它。丢弃 `next()` 返回的流结果时，监听器要调用其 iterator 的 `return()`；无论之前是否拉取过项，这都会释放本次调用的上行并 return 方法的 iterator，该 iterator 上有尚未完成的 `next()` 时在它完成之后进行。没有监听器时，每次调用直接进入上述校验与调用。
+
+`claimedEndpoints()` 按排序列出 `/api` 载体认领的方法 endpoint：活跃的严格定义，以及活跃 Service 上的 SRC 标记。载体还认领 `$events/result` 和已撤回的严格 endpoint，它们没有方法提供服务，列表不含它们。
+
 Host 下行、Host 上行和 Client 上行泵的取消与停止状态归属单次读取，不保留已交付项的历史。下行结束也会唤醒尚未完成的上行读取。
 
 Host 组合可通过 `registerRemoteEvents()` 注册唯一的应用事件 source。Gateway 为它保留内部 `$events` logical endpoint，只接受空 `args`，并在 source 撤回时中止该注册打开的流。事件名单、参数校验、每个 Client 的队列及 opening `{ type: 'ready', clientId, host: { home } }` frame 中的 Host home 由 API Remotes 拥有。source factory 在返回 iterable 前同步挂好增量 listener，因此 Client 只在增量投递就绪后发布 generation 并开始 baseline 读取。
@@ -90,6 +94,8 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - 被转发的事件到达 `$on` 时不做业务载荷投影或脱敏。普通通知在重连后不重放；Agent-scoped waterfall 只投影选择 Client Context 所需的顶层 Agent 身份，并自行携带 pending 生命周期。
 - `websocketHeartbeatIntervalMs` 同时是 Ping 周期和 Pong 截止时间。对端未在下一周期前回复时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。
 - 上行除了有界的 Host inbox 之外没有流控：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
+- `remote/invoke` 只覆盖 Remote 方法调用：Gateway 自有的 `$events` 流与 `$events/result`、Connection 的精确 Fetch 路由及其专用 RPC 通道都不经过它。
+- `remote/invoke` 没有上行钩子：`RemoteInvokeCall` 不暴露上行，Client 的上行项不经过监听器。
 
 
 <a id="dev-note"></a>

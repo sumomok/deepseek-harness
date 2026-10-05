@@ -3460,6 +3460,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['{@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.'],
       },
       {
+        signature: 'claimedEndpoints(): readonly string[]',
+        description: 'List the method endpoints the `/api` carrier claims.',
+        parameters: [],
+        returns: 'sorted live strict and SRC endpoints, without `$events/result` and withdrawn strict endpoints.',
+      },
+      {
         signature: 'async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>',
         description: 'Open one live stream Remote method without assuming a physical carrier.',
         parameters: [{ name: 'request', description: 'decoded endpoint, named wire arguments, and the Client uplink when the carrier has one.' }],
@@ -4260,6 +4266,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
     description: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
     parameters: [{ name: 'peer', description: 'Peer admitted at upgrade.' }, { name: 'socketId', description: 'Host-minted socket identity, repeated by `remote-stream/socket-closed`.' }],
+  },
+  {
+    name: 'remote/invoke',
+    mode: 'waterfall',
+    signature: '\'remote/invoke\'(call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>): Promise<RemoteInvokeOutcome>',
+    summary: 'Wrap one Remote method call.',
+    description: 'Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a listener calls it at most once: calling it again runs the next listener that has not yet run, or the method when none remains. A listener\'s refusal or check therefore holds only while every listener before it calls `next()` once, and it sees `call.args` before any listener after it replaces them. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method\'s `RemoteError`. A listener that returns without calling `next()` answers in the method\'s place. The method runs in the async context that called `next()`; a stream method\'s items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator; whether or not items were pulled, that releases the call\'s uplink and returns the method\'s iterator, after any pending `next()` on that iterator settles.',
+    parameters: [{ name: 'call', description: 'endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.' }, { name: 'next', description: 'validate `call.args`, resolve the receiver and lookups, and call the method.' }],
   },
   {
     name: 'schedule/changed',
@@ -6436,6 +6450,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RemoteEventHostInfo',
     declaration: 'export interface RemoteEventHostInfo {\n    readonly home: string;\n}',
+  },
+  {
+    name: 'RemoteInvokeCall',
+    declaration: 'export interface RemoteInvokeCall {\n    readonly endpoint: string;\n    readonly mode: \'unary\' | \'stream\';\n    readonly peer: PeerScope;\n    readonly invocation: InvocationDescriptor[\'invocation\'];\n    readonly scope?: InvocationDescriptor[\'scope\'];\n    readonly parameters: InvocationDescriptor[\'parameters\'];\n    args: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'RemoteInvokeOutcome',
+    declaration: 'export type RemoteInvokeOutcome = {\n    readonly kind: \'value\';\n    readonly value: unknown;\n} | {\n    readonly kind: \'stream\';\n    readonly source: AsyncIterable<unknown>;\n};',
   },
   {
     name: 'RemoteSocketId',

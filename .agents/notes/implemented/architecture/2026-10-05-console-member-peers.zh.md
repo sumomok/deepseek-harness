@@ -10,7 +10,11 @@ Status: implemented
 
 本 fork 的服务器控制台由一个 Host 进程服务多位成员，每位成员经客户自己的系统登录。上游 `dsh-client-connection` 只有一个 Peer，即操作者。`connection.admit()` 对每个可信且已认证的请求都以它作答；`/api` 拦截器与专用 RPC 通道在注册时就绑定它；精确 Fetch 路由与 `bridge()` 根本拿不到 Peer。于是 Remote 方法分不出是哪位成员在调用，插件也既影响不了 WebSocket 准入，也给不了一元调用标记：`connection/request` waterfall 在准入之后运行、换不了 Peer，升级路由又归 Gateway 所有。
 
-双工流那份记录为第一个需要第二个 Peer 的消费者预留了三处扩展点：`admit` 里的准入器、按 id 查找 Peer、Peer 开关事件，都在 `dsh-client-connection` 里。控制台就是这个消费者。本记录覆盖 Connection 的成员 Peer 与 Gateway 的 socket 事件，以 fork 核心补丁 `connection-member-peers` 承载。
+双工流那份记录为第一个需要第二个 Peer 的消费者预留了三处扩展点：`admit` 里的准入器、按 id 查找 Peer、Peer 开关事件，都在 `dsh-client-connection` 里。控制台就是这个消费者。
+
+只知道调用方还不够。控制台必须核对成员一次调用里点名的每个会话 id 都属于这位成员，过滤结果与流的每一项，并整类拒绝某些方法。上游 Gateway 从载体直接分发每个 Remote 方法，插件没法插在载体与方法之间。双工流那份记录把访问控制交给 `vouch` 与 `remote/invoke` waterfall，而基座发布两者都没有实现。
+
+本记录覆盖 Connection 的成员 Peer 与 Gateway 的 socket 事件，以 fork 核心补丁 `connection-member-peers` 承载；以及 Gateway 的 `remote/invoke` waterfall，以 `remote-invoke-guard` 承载。
 
 ## 决策
 
@@ -50,13 +54,29 @@ Gateway 的 `RemoteStreamMuxServer` 接受一个可选的 socket 观察者，Gat
 
 成员 Peer 只有 `id`、`ctx` 与 `dispose()`，与双工流那份记录所说一致：Peer 不承载访问模型。一个 Peer 属于哪位成员，只由安装准入器的插件记录。Connection 从不看到成员的主体键，因此这个键进不了 Connection 的日志，也进不了 Connection 交给模型的任何东西。
 
+### Remote 调用经过 `remote/invoke`
+
+Gateway 在每次 Remote 方法调用外跑 `remote/invoke` waterfall，不论调用来自 `invoke()`、`stream()`、`wireStream.open()`、`/api` RPC 载体还是 WebSocket mux。事件名用的是双工流那份记录为访问控制预留的名字，所以上游若以不同签名声明它，会与这里的声明编译冲突，逼出退役决定。
+
+Gateway 先解析描述符，再把一个 `RemoteInvokeCall` 交给监听器：endpoint、入口模式、调用方 Peer、描述符的接收者选择（`invocation` 与 `scope`）和参数描述，以及 wire `args`。因此监听器不读 schema 就知道哪些 wire 字段承载 lookup 或 Context 身份。`next()` 执行上游的分发：精确参数检查、接收者与 lookup 解析、调用方法，所用的是监听器看到的那个描述符，不会重新解析，因此监听器等待期间被替换的定义改变不了已核对的参数。故障按上游的顺序发生：endpoint 与描述符的故障发生在 waterfall 之前，参数、codec、lookup 与模式的故障在 `next()` 里发生。
+
+监听器通过抛出 `RemoteError` 拒绝调用，`gateway/forbidden` 是 Gateway 为访问被拒提供的码。拒绝会跳过 `next()`；仓库「waterfall 监听器必须调用 `next()`」的规则管的是委托，拒绝或代替方法作答是监听器自己的决定。监听器赋给 `call.args` 的参数与 Client 发来的参数经过同样的校验，因为 `next()` 在运行时才读这个字段。改写后的一元值与方法结果一样经过 `/api` 编码器，Gateway 对二者都不按 result codec 校验。返回另一种模式的结果时，调用以 `gateway/result-invalid` 失败。
+
+监听器共用一个 `next()`，它运行下一个尚未运行的监听器，所以一个监听器的拒绝或检查只在它之前的每个监听器都调用一次 `next()` 时成立，它看到的 `call.args` 是它之后的监听器替换之前的值（[Gateway README](../../../../packages/api/gateway/README.zh.md#host-service-typertgatewayservice-ctx-key-typertgateway)）。因此多人控制台的组合把全部规则放在一个 `remote/invoke` 监听器里，不注册别的。
+
+`next()` 同步开始分发，校验与方法调用在同一异步上下文里继续，所以在 `AsyncLocalStorage.run()` 里调用 `next()` 的监听器能让方法读取到的东西看见调用方。流方法的正文在载体拉取项时才运行，那时 waterfall 已经返回，所以需要在那里保留上下文的监听器，要在它返回的 source 每次被拉取时重新进入该上下文。
+
+`claimedEndpoints()` 列出 `/api` 载体认领的方法 endpoint，即活跃的严格定义与 SRC 标记，这样门禁测试能要求 Gateway 提供的每个 endpoint 都有分类。Gateway 自有的 `$events` 流与 `$events/result` 不进这个 waterfall。
+
 ### 没有准入器时
 
-默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。
+默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。没有 `remote/invoke` 监听器时，`remote-invoke.host.spec.ts` 经 `invoke()`、`stream()`、`wireStream.open()`、`/api` 与 WebSocket 断言结果与故障不变，用 `for await` 读流的两个载体（WebSocket mux 与 webworker tunnel）分辨不出 Gateway 的流与上游的流。仍有两处差异。在没有 Connection 的 Host 上，进程内载体在参数校验之前（而不是之后）就创建 Gateway 自有的操作者 Peer。自己驱动 `stream()` 或 `wireStream.open()` 返回值的 iterator 的调用方会看到，第一次 `next()` 之前的 `return()` 会释放上行并打开、return 方法的 iterator（上游两者都不做），iterator 工厂或 iterator 的 `return()` 抛错时这次 `return()` 以该错误 reject，返回的 iterable 也不是 `AsyncGenerator`：没有 `throw()` 与 `Symbol.asyncDispose`，`Symbol.toStringTag` 也不同。
 
 ### 退役
 
 上游 `dsh-client-connection` 自己实现多 Peer 准入、按 id 查找与 Peer 开关事件时，本补丁退役，fork 改用上游的形式。判据是 `git grep -n "peer-opened\|admitter\|peers\." <tag> -- packages/client/connection/src`。
+
+上游 Gateway 实现 `remote/invoke` 或等价的 Remote 调用钩子时，`remote-invoke-guard` 退役，控制台的方法表改挂到那个钩子上。判据是 `git grep -n "'remote/invoke'" <tag> -- packages/api/gateway/src`。
 
 ## 考虑过的替代方案
 
@@ -72,11 +92,21 @@ Gateway 的 `RemoteStreamMuxServer` 接受一个可选的 socket 观察者，Gat
 
 **在插件里做准入。** `connection/request` waterfall 在准入之后运行、替换不了 Peer，WebSocket 升级路由归 Gateway 所有，上游又在注册时把一元处理器绑定到操作者，因此插件层没有扩展点能把成员附到一次调用上。
 
+**在每个业务包里做归属检查。** 每个拥有 Remote 方法的包都要自己做检查，同步带进来的新包在补上之前没有保护。Gateway 上的一个 waterfall 覆盖每个方法，基于 `claimedEndpoints()` 的门禁能抓到未分类的 endpoint。
+
+**包装 Connection 的 `/api` 处理器。** 它只覆盖一元 HTTP 调用，WebSocket 流与进程内调用绕过它；它在描述符解析之前看到载荷，分不出 lookup 字段与 JSON 字段。
+
+**在 `next()` 里重新解析描述符。** 监听器等待期间被撤回或替换的定义，会按监听器没有检查过的参数校验。
+
+**按 result codec 校验改写后的结果。** Gateway 不校验任何方法结果；只校验改写过的结果，会让同一个值在改写过与未改写的调用里得到不同答复。
+
 ## 影响
 
-- **得到的**：装了准入器后，每个 RPC、逻辑流与精确 Fetch 路由都知道是哪个成员 Peer 在调用；用 `requestRejection` 把关的路由拒绝非成员；准入器所在的插件从四个事件得知成员在场情况。
-- **核心改动面**：Connection 的 `rpc.ts`、`rpc-host.ts`、`index.ts`、`http-bridge.ts`、`operator-peer.ts` 与 Gateway 的 `index.ts`、`stream-server.ts` 与上游不同。Gateway 的 `index.ts` 在上游改动频繁，滚动同步要在那里解冲突。本补丁也会进入桌面线，在那里不起作用。
+- **得到的**：装了准入器后，每个 RPC、逻辑流与精确 Fetch 路由都知道是哪个成员 Peer 在调用；用 `requestRejection` 把关的路由拒绝非成员；准入器所在的插件从四个事件得知成员在场情况。组合里唯一的 `remote/invoke` 监听器能按 endpoint 决定谁能调用、参数可以点名哪些身份、结果或流的每一项可以带什么，替换的参数只能经过正常校验到达方法。
+- **核心改动面**：Connection 的 `rpc.ts`、`rpc-host.ts`、`index.ts`、`http-bridge.ts`、`operator-peer.ts` 与 Gateway 的 `index.ts`、`stream-server.ts`、`types.ts`、`remote-error-codes.ts` 与上游不同。Gateway 的 `index.ts` 在上游改动频繁，滚动同步要在那里解冲突。本补丁也会进入桌面线，在那里不起作用。
 - **`requireAdmitter: false` 时，移除准入器会重新打开按操作者接纳**，对每个已认证的浏览器都是如此；依赖成员准入的部署设 `requireAdmitter: true`，其准入器插件在 `peers.requireAdmitter` 为 false 时拒绝启动。
 - **`requireAdmitter: true` 而没有准入器插件时，每个通过 Connection 自身检查的请求都被拒绝**，直到装上准入器。
 - **Connection 不回收成员 Peer**：从未释放的 Peer 一直存活到 Connection 卸载，因此空闲关闭由准入器所在的插件负责。
 - **`requestRejection` 会运行准入器**：装了准入器后每次调用都会运行，包括对认不出的请求记的那行 error。
+- **`remote/invoke` 也看到 Host 自己的进程内调用**，它们带的是操作者 Peer；限制成员的监听器要放行操作者的调用。
+- **丢弃流结果的监听器用 `return()` 释放它**：对 source 的 iterator 调用 `return()`，无论之前是否拉取过项，都会释放这次调用的上行并 return 方法的 iterator（该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）；不调用 `return()` 就丢下的 source，Gateway 两者都不释放。

@@ -296,6 +296,7 @@ type TypertGatewayErrorCode =
   | 'gateway/context-not-found'
   | 'gateway/context-unavailable'
   | 'gateway/definition-unavailable'
+  | 'gateway/forbidden'
   | 'gateway/input-invalid'
   | 'gateway/invocation-unavailable'
   | 'gateway/lookup-failed'
@@ -343,6 +344,13 @@ interface TypertGateway {
    * @returns a cancellation-aware iterable over the business results.
    */
   stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+  /**
+   * List the method endpoints the `/api` carrier claims: every live strict definition and every SRC
+   * marker on an active Service, each a `<namespace>/<method>` the carrier accepts. The carrier also
+   * claims `$events/result` and withdrawn strict endpoints, which no method serves; neither is listed.
+   * @returns sorted endpoints, read from the registry and Services at call time.
+   */
+  claimedEndpoints(): readonly string[]
 }
 ```
 
@@ -474,11 +482,52 @@ registerRemoteEvents( source: TypertRemoteEventSource, host: RemoteEventHostInfo
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 
 /**
+ * List the method endpoints the `/api` carrier claims.
+ * @returns sorted live strict and SRC endpoints, without `$events/result` and withdrawn strict endpoints.
+ */
+claimedEndpoints(): readonly string[]
+
+/**
  * Open one live stream Remote method without assuming a physical carrier.
  * @param request - decoded endpoint, named wire arguments, and the Client uplink when the carrier has one.
  * @returns a cancellation-aware iterable over the business results.
  */
 async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-events"></a>
+
+### `remote/*` events
+
+<a id="remoteinvoke--waterfall"></a>
+
+#### `remote/invoke` — waterfall
+
+Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a listener calls it at most once: calling it again runs the next listener that has not yet run, or the method when none remains. A listener's refusal or check therefore holds only while every listener before it calls `next()` once, and it sees `call.args` before any listener after it replaces them. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without calling `next()` answers in the method's place. The method runs in the async context that called `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator; whether or not items were pulled, that releases the call's uplink and returns the method's iterator, after any pending `next()` on that iterator settles.
+
+```ts cordis-catalog
+/**
+ * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
+ * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
+ * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
+ * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
+ * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
+ * method when none remains. A listener's refusal or check therefore holds only while every listener
+ * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+ * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
+ * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
+ * calling `next()` answers in the method's place. The method runs in the async context that called
+ * `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener
+ * that discards the stream outcome of `next()` calls `return()` on its iterator; whether or not items
+ * were pulled, that releases the call's uplink and returns the method's iterator, after any pending
+ * `next()` on that iterator settles.
+ * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
+ * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
+ * @mode waterfall
+ */
+'remote/invoke'(call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>): Promise<RemoteInvokeOutcome>
 ```
 
 Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)

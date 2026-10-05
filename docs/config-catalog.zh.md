@@ -186,7 +186,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-api-gateway`
 
 - `inject`: `typert`
-- `source`: [`packages/api/gateway/src/index.ts:172`](../packages/api/gateway/src/index.ts)
+- `source`: [`packages/api/gateway/src/index.ts:205`](../packages/api/gateway/src/index.ts)
 
 ```ts config-catalog
 /** Gateway transport configuration. */

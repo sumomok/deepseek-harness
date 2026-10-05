@@ -6,8 +6,8 @@
   en: f13f63417e51d434
   zh: dda72028bc02ef6b
 /agent-note-one-host-serving-several-members/problem:
-  en: c578a93d98d9c70f
-  zh: e16c6281f18f4f6a
+  en: 91ee5eed8661ea47
+  zh: df36f21a36c5c5ee
 /agent-note-one-host-serving-several-members/decision:
   en: a15c7c13f167e5ac
   zh: 63bcc2ef60c2f344
@@ -26,15 +26,18 @@
 /agent-note-one-host-serving-several-members/decision/the-peer-carries-no-identity:
   en: afbb2f177bcd3136
   zh: 5bdaa203ae43da57
+/agent-note-one-host-serving-several-members/decision/remote-calls-pass-through-remote-invoke:
+  en: 68f26e3b64852f01
+  zh: 43484279b185b474
 /agent-note-one-host-serving-several-members/decision/without-an-admitter:
-  en: d64c43a09db960de
-  zh: 355134ed622be248
+  en: 3f829b612be995b4
+  zh: 89ece70622b08a39
 /agent-note-one-host-serving-several-members/decision/retirement:
-  en: 9e8beb639b0f07e0
-  zh: 851a6e6ad9a49cce
+  en: 22d418947b688f6b
+  zh: 8ed030924a538d26
 /agent-note-one-host-serving-several-members/alternatives-considered:
-  en: 6efb0f51b54b223e
-  zh: 3dda56a04f177c8e
+  en: 4af5e58958a36a94
+  zh: 2030138e305b4bd2
 /agent-note-one-host-serving-several-members/consequences:
-  en: 62773e76326987d1
-  zh: c67ffc566e47fea8
+  en: 78e96065bc3c00f8
+  zh: be6e4347ed282212

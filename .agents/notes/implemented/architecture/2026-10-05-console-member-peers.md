@@ -10,7 +10,11 @@ Related: [Remote duplex stream](2026-09-19-remote-duplex-stream.md) (partially s
 
 The fork's server console serves several members, each signed in through the customer's own system, from one Host process. Upstream `dsh-client-connection` has exactly one Peer, the operator. `connection.admit()` answers every trusted, authenticated request with it; the `/api` interceptor and dedicated RPC channels bind it when they are registered; and exact Fetch routes and `bridge()` receive no Peer at all. A Remote method therefore cannot tell which member called it, and a plugin cannot influence WebSocket admission or label a unary call: the `connection/request` waterfall runs after admission and cannot change the Peer, and the upgrade route belongs to the Gateway.
 
-The duplex-stream note reserves three extension points for the first consumer that needs a second Peer: an admitter in `admit`, lookup of a Peer by id, and Peer open and close events, all inside `dsh-client-connection`. The console is that consumer. This record covers Connection's member Peers and the Gateway's socket events, carried as the fork core patch `connection-member-peers`.
+The duplex-stream note reserves three extension points for the first consumer that needs a second Peer: an admitter in `admit`, lookup of a Peer by id, and Peer open and close events, all inside `dsh-client-connection`. The console is that consumer.
+
+Knowing the caller is not enough. The console must check that every session id a member's call names belongs to that member, filter results and stream items, and refuse whole classes of methods. Upstream's Gateway dispatches each Remote method straight from its carrier, and no plugin can act between the carrier and the method. The duplex-stream note assigns access control to `vouch` and a `remote/invoke` waterfall, and the base release implements neither.
+
+This record covers Connection's member Peers and the Gateway's socket events, carried as the fork core patch `connection-member-peers`, and the Gateway's `remote/invoke` waterfall, carried as `remote-invoke-guard`.
 
 ## Decision
 
@@ -50,13 +54,29 @@ The events exist for the plugin that installs the admitter: closing an idle Peer
 
 A member Peer has only `id`, `ctx`, and `dispose()`, as the duplex-stream note states: the Peer carries no access model. Which member a Peer belongs to is recorded only by the plugin that installs the admitter. Connection never sees a member's principal key, so the key cannot enter Connection's logs or anything Connection hands to a model.
 
+### Remote calls pass through `remote/invoke`
+
+The Gateway runs the `remote/invoke` waterfall around every Remote method call, whether it arrives through `invoke()`, `stream()`, `wireStream.open()`, the `/api` RPC carrier, or the WebSocket mux. The name is the one the duplex-stream note reserves for access control, so an upstream declaration with a different signature fails to compile against this one and forces the retirement decision.
+
+The Gateway resolves the descriptor first and hands listeners a `RemoteInvokeCall`: the endpoint, the entry mode, the calling Peer, the descriptor's receiver selection (`invocation` and `scope`) and parameter descriptors, and the wire `args`. A listener therefore knows which wire fields carry lookup or Context identities without reading schemas. `next()` performs the upstream dispatch: exact-argument checks, receiver and lookup resolution, and the method call, against the descriptor the listener saw, which is not resolved again, so a definition replaced while a listener awaits cannot change which parameters were checked. Failures occur in upstream order: endpoint and descriptor failures precede the waterfall, and argument, codec, lookup, and mode failures occur inside `next()`.
+
+A listener refuses a call by throwing a `RemoteError`, and `gateway/forbidden` is the Gateway code for an access refusal. A refusal skips `next()`; the repository rule that waterfall listeners call `next()` governs delegation, and refusing, or answering in the method's place, is a decision the listener owns. Arguments a listener assigns to `call.args` pass the same validation as the Client's, because `next()` reads the field when it runs. A rewritten unary value goes through the `/api` encoder like a method result, and the Gateway validates neither against the result codec. An outcome of the other mode fails the call with `gateway/result-invalid`.
+
+Listeners share one `next()`, which runs the next listener that has not yet run, so a listener's refusal or check holds only while every listener before it calls `next()` once, and it sees `call.args` before listeners after it replace them ([Gateway README](../../../../packages/api/gateway/README.md#host-service-typertgatewayservice-ctx-key-typertgateway)). A multi-member console composition therefore keeps all its rules in one `remote/invoke` listener and registers no other.
+
+`next()` starts dispatch synchronously, and validation and the method call continue in that async context, so a listener that calls `next()` inside `AsyncLocalStorage.run()` makes the caller visible to whatever the method reads. A stream method's body runs when the carrier pulls items, after the waterfall has returned, so a listener that needs the context there re-enters it around each pull of the source it returns.
+
+`claimedEndpoints()` lists the method endpoints the `/api` carrier claims, the live strict definitions and SRC markers, so a gate test can require a classification for every endpoint the Gateway serves. The Gateway-owned `$events` stream and `$events/result` stay outside the waterfall.
+
 ### Without an admitter
 
-No admitter is installed by default and `requireAdmitter` defaults to `false`; then every path behaves as upstream: `admit` answers with the operator, `requestRejection` with the Host/Origin and authentication verdict, and every handler receives the operator. The desktop composition runs in this state. `peer-admission.host.spec.ts` asserts the operator on all four paths with no admitter, and `socket-events.host.spec.ts` asserts the operator on the socket events.
+No admitter is installed by default and `requireAdmitter` defaults to `false`; then every path behaves as upstream: `admit` answers with the operator, `requestRejection` with the Host/Origin and authentication verdict, and every handler receives the operator. The desktop composition runs in this state. `peer-admission.host.spec.ts` asserts the operator on all four paths with no admitter, and `socket-events.host.spec.ts` asserts the operator on the socket events. With no `remote/invoke` listener, `remote-invoke.host.spec.ts` asserts unchanged results and failures through `invoke()`, `stream()`, `wireStream.open()`, `/api`, and the WebSocket, and the two carriers that read a stream with `for await`, the WebSocket mux and the webworker tunnel, cannot tell the Gateway's stream from upstream's. Two differences remain. On a Host without Connection, an in-process carrier creates the Gateway-owned operator Peer before argument validation instead of after it. A caller that drives the iterator of `stream()` or `wireStream.open()` itself sees that `return()` before the first `next()` releases the uplink and opens and returns the method's iterator, where upstream does neither, that this `return()` rejects when the iterator factory or the iterator's `return()` throws, and that the iterable is not an `AsyncGenerator`, with no `throw()` or `Symbol.asyncDispose` and a different `Symbol.toStringTag`.
 
 ### Retirement
 
 Upstream `dsh-client-connection` implementing multi-Peer admission, lookup by id, and Peer open and close events retires this patch; the fork then moves to the upstream form. The check is `git grep -n "peer-opened\|admitter\|peers\." <tag> -- packages/client/connection/src`.
+
+Upstream's Gateway implementing `remote/invoke`, or an equivalent hook around Remote calls, retires `remote-invoke-guard`, and the console's method table moves to that hook. The check is `git grep -n "'remote/invoke'" <tag> -- packages/api/gateway/src`.
 
 ## Alternatives considered
 
@@ -72,11 +92,21 @@ Upstream `dsh-client-connection` implementing multi-Peer admission, lookup by id
 
 **Admission in a plugin.** The `connection/request` waterfall runs after admission and cannot replace the Peer, the WebSocket upgrade route is owned by the Gateway, and upstream binds unary handlers to the operator at registration, so no plugin-level extension point can attach a member to a call.
 
+**Ownership checks inside each business package.** Every package that owns Remote methods would need its own check, and a package a sync adds would stay unguarded until patched. One waterfall at the Gateway covers every method, and a gate over `claimedEndpoints()` catches an unclassified endpoint.
+
+**Wrapping Connection's `/api` handler.** It covers only unary HTTP calls; WebSocket streams and in-process calls bypass it, and it sees the payload before descriptor resolution, so it cannot tell lookup fields from JSON fields.
+
+**Resolving the descriptor again inside `next()`.** A definition withdrawn or replaced while a listener awaits would be validated against parameters the listener never inspected.
+
+**Validating rewritten results against the result codec.** The Gateway validates no method result; validating only rewritten ones would make a rewritten call and an untouched call answer differently for the same value.
+
 ## Consequences
 
-- **Bought**: with an admitter installed, every RPC, logical stream, and exact Fetch route knows which member Peer called it; routes that gate on `requestRejection` refuse non-members; the admitter's plugin learns member presence from four events.
-- **Core footprint**: Connection's `rpc.ts`, `rpc-host.ts`, `index.ts`, `http-bridge.ts`, and `operator-peer.ts`, and the Gateway's `index.ts` and `stream-server.ts`, differ from upstream. The Gateway's `index.ts` changes often upstream, so rolling syncs resolve conflicts there. The patch also reaches the desktop line, where it stays inert.
+- **Bought**: with an admitter installed, every RPC, logical stream, and exact Fetch route knows which member Peer called it; routes that gate on `requestRejection` refuse non-members; the admitter's plugin learns member presence from four events. A composition's only `remote/invoke` listener can decide per endpoint who may call, which identities the arguments may name, and what a result or stream item may carry, and argument replacements reach a method only through the normal validation.
+- **Core footprint**: Connection's `rpc.ts`, `rpc-host.ts`, `index.ts`, `http-bridge.ts`, and `operator-peer.ts`, and the Gateway's `index.ts`, `stream-server.ts`, `types.ts`, and `remote-error-codes.ts`, differ from upstream. The Gateway's `index.ts` changes often upstream, so rolling syncs resolve conflicts there. The patch also reaches the desktop line, where it stays inert.
 - **With `requireAdmitter: false`, removing the admitter reopens operator admission** for every authenticated browser; a deployment that depends on member admission sets `requireAdmitter: true`, and its admitter plugin refuses to start when `peers.requireAdmitter` is false.
 - **`requireAdmitter: true` without an admitter plugin refuses every request** that passes Connection's own checks, until an admitter is installed.
 - **Member Peers are not reclaimed by Connection**: a Peer that is never disposed lives until Connection unloads, so the admitter's plugin owns idle closing.
 - **`requestRejection` runs the admitter** on each call once one is installed, including its error line for an unrecognized request.
+- **`remote/invoke` also sees the Host's own in-process calls**, which carry the operator Peer; a listener that restricts members lets operator calls through.
+- **A listener that discards a stream outcome releases it with `return()`**: calling `return()` on the source's iterator releases the call's uplink and returns the method's iterator whether or not items were pulled, after any pending `next()` on it settles; for a source dropped without `return()`, the Gateway releases neither.

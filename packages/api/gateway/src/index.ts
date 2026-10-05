@@ -32,6 +32,8 @@ import {
 } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   InvokeRemoteRequest,
+  RemoteInvokeCall,
+  RemoteInvokeOutcome,
   TypertGateway,
   TypertGatewayErrorCode,
   TypertGatewayWireStream,
@@ -67,6 +69,8 @@ import {
 
 export type {
   InvokeRemoteRequest,
+  RemoteInvokeCall,
+  RemoteInvokeOutcome,
   TypertGateway,
   TypertGatewayErrorCode,
   TypertGatewayWireStream,
@@ -101,6 +105,27 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+
+    /**
+     * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
+     * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
+     * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
+     * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
+     * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
+     * method when none remains. A listener's refusal or check therefore holds only while every listener
+     * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+     * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
+     * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
+     * calling `next()` answers in the method's place. The method runs in the async context that called
+     * `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener
+     * that discards the stream outcome of `next()` calls `return()` on its iterator; whether or not items
+     * were pulled, that releases the call's uplink and returns the method's iterator, after any pending
+     * `next()` on that iterator settles.
+     * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
+     * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
+     * @mode waterfall
+     */
+    'remote/invoke'(call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>): Promise<RemoteInvokeOutcome>
   }
 }
 
@@ -112,6 +137,14 @@ interface GatewayErrorOptions {
 interface ResolvedBinding {
   readonly binding: TypertGatewayBinding
   readonly original: object
+}
+
+/** A call whose descriptor has resolved, passing through `remote/invoke`. */
+interface PendingInvocation {
+  readonly request: InvokeRemoteRequest
+  readonly descriptor: InvocationDescriptor
+  /** The object `remote/invoke` listeners receive; the end of the waterfall reads its `args`. */
+  readonly call: RemoteInvokeCall
 }
 
 interface PreparedInvocation {
@@ -385,7 +418,50 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   async invoke(request: InvokeRemoteRequest): Promise<unknown> {
-    return this.invokePrepared(await this.prepareInvocation(request, new AbortController()))
+    return this.invokeUnary(this.pendingInvocation(request, 'unary'))
+  }
+
+  /**
+   * List the method endpoints the `/api` carrier claims.
+   * @returns sorted live strict and SRC endpoints, without `$events/result` and withdrawn strict endpoints.
+   */
+  claimedEndpoints(): readonly string[] {
+    this.srcClaims ??= this.collectSrcClaims()
+    const candidates = new Set(this.srcClaims)
+    for (const descriptor of this.ctx.typert.local.list()) candidates.add(endpointOf(descriptor.namespace, descriptor.method))
+    return [...candidates]
+      .filter(endpoint => endpoint !== REMOTE_EVENT_RESULT_ENDPOINT && this.claimsEndpoint(endpoint))
+      .sort()
+  }
+
+  /** Resolve the descriptor and build the call `remote/invoke` listeners see. */
+  private pendingInvocation(request: InvokeRemoteRequest, mode: RemoteInvokeCall['mode']): PendingInvocation {
+    const endpoint = endpointOf(request.namespace, request.method)
+    const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
+    const call: RemoteInvokeCall = {
+      endpoint,
+      mode,
+      peer: request.peer ?? this.operatorPeer(),
+      invocation: descriptor.invocation,
+      ...(descriptor.scope === undefined ? {} : { scope: descriptor.scope }),
+      parameters: descriptor.parameters,
+      args: request.args,
+    }
+    return { request, descriptor, call }
+  }
+
+  private async invokeUnary(pending: PendingInvocation): Promise<unknown> {
+    const outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => ({
+      kind: 'value',
+      value: await this.invokePrepared(await this.prepareInvocation(pending, new AbortController())),
+    }))
+    if (outcome.kind === 'value') return outcome.value
+    throw new TypertGatewayError(
+      'gateway/result-invalid',
+      pending.call.endpoint,
+      'a remote/invoke listener returned a stream for a unary call',
+      { field: 'result' },
+    )
   }
 
   private async invokePrepared(prepared: PreparedInvocation): Promise<unknown> {
@@ -422,7 +498,19 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * with the Remote failure as the reason so the carrier delivers that failure.
    */
   private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
-    const prepared = await this.prepareInvocation(request, control)
+    const pending = this.pendingInvocation(request, 'stream')
+    const outcome = await this.ctx.waterfall('remote/invoke', pending.call, () => this.openPreparedStream(pending, control))
+    if (outcome.kind === 'stream') return outcome.source
+    throw new TypertGatewayError(
+      'gateway/result-invalid',
+      pending.call.endpoint,
+      'a remote/invoke listener returned a value for a stream call',
+      { field: 'result' },
+    )
+  }
+
+  private async openPreparedStream(pending: PendingInvocation, control: AbortController): Promise<RemoteInvokeOutcome> {
+    const prepared = await this.prepareInvocation(pending, control)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()
       throw new TypertGatewayError(
@@ -448,7 +536,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: 'result' },
       )
     }
-    return cancellableStream(source, prepared.endpoint, prepared.invocation)
+    return { kind: 'stream', source: new CancellableStream(source, prepared.endpoint, prepared.invocation) }
   }
 
   private async dispatchRpc(
@@ -711,29 +799,29 @@ export class TypertGatewayService extends Service implements TypertGateway {
     peer: PeerScope,
   ): Promise<ConnectionRpcResult> {
     try {
-      const prepared = await this.prepareInvocation(
-        remoteRequest(endpoint, payload, signal, peer),
-        new AbortController(),
-      )
-      const value = await this.invokePrepared(prepared)
+      const pending = this.pendingInvocation(remoteRequest(endpoint, payload, signal, peer), 'unary')
+      const value = await this.invokeUnary(pending)
       // A void or explicitly absent business result carries no `value` field;
       // JSON has no `undefined`, and the envelope's optional slot is the one
       // representation of absence that both args and results already use.
-      return encodeRpcResult(value, prepared.descriptor.result)
+      return encodeRpcResult(value, pending.descriptor.result)
     } catch (error) {
       return rpcFailure(error)
     }
   }
 
-  /** `control` fails the logical stream when an uplink item is rejected; unary calls hand over an inert one. */
+  /**
+   * Validate the call's current `args` against the descriptor `remote/invoke` listeners saw and bind the method.
+   * `control` fails the logical stream when an uplink item is rejected; unary calls hand over an inert one.
+   */
   private async prepareInvocation(
-    request: InvokeRemoteRequest,
+    pending: PendingInvocation,
     control: AbortController,
   ): Promise<PreparedInvocation> {
-    const endpoint = endpointOf(request.namespace, request.method)
-    const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
-    assertExactArguments(request.args, descriptor, endpoint)
-    const receiverContext = await this.resolveReceiverContext(descriptor, request.args, endpoint)
+    const { request, descriptor, call } = pending
+    const { endpoint, args: wire } = call
+    assertExactArguments(wire, descriptor, endpoint)
+    const receiverContext = await this.resolveReceiverContext(descriptor, wire, endpoint)
     const receiver: unknown = receiverContext.get(descriptor.service)
     if (!isObject(receiver)) {
       throw new TypertGatewayError(
@@ -744,12 +832,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
     validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint)
     const args = await Promise.all(descriptor.parameters.map(parameter =>
-      this.resolveParameter(parameter, request.args, endpoint)))
+      this.resolveParameter(parameter, wire, endpoint)))
     const signal = methodSignal(request, control)
     const invocation = new GatewayInvocation(
-      { namespace: request.namespace, method: request.method, args: request.args },
+      { namespace: request.namespace, method: request.method, args: wire },
       descriptor.service,
-      request.peer ?? this.operatorPeer(),
+      call.peer,
       signal,
       {
         source: request.uplink ?? EMPTY_ASYNC_ITERABLE,
@@ -1209,17 +1297,86 @@ function isIterable(value: unknown): value is Iterable<unknown> | AsyncIterable<
       || typeof Reflect.get(value, Symbol.asyncIterator) === 'function')
 }
 
-async function *cancellableStream(
+/**
+ * Open the method's iterator over its stream result, preferring the async protocol.
+ * @param source - the iterable the stream method returned.
+ * @returns the iterator the Gateway pulls and returns.
+ */
+function methodIterator(source: Iterable<unknown> | AsyncIterable<unknown>): AsyncIterator<unknown> | Iterator<unknown> {
+  const asyncFactory: unknown = Reflect.get(source, Symbol.asyncIterator)
+  const syncFactory: unknown = Reflect.get(source, Symbol.iterator)
+  return typeof asyncFactory === 'function'
+    ? Reflect.apply(asyncFactory, source, []) as AsyncIterator<unknown>
+    : Reflect.apply(syncFactory as (...args: never[]) => Iterator<unknown>, source, [])
+}
+
+/**
+ * The stream `next()` of `remote/invoke` resolves to. `return()` releases the
+ * call's uplink and returns the method's iterator whether or not an item was
+ * pulled. After a `return()` before the first `next()`, later `return()` and
+ * `next()` calls settle as done once that release has finished, without
+ * repeating its failure, as calls queued on an async generator do.
+ */
+class CancellableStream implements AsyncIterableIterator<unknown> {
+  private readonly pump: AsyncGenerator
+  private started = false
+  /** Settles, never rejecting, once a `return()` before the first `next()` has finished its release. */
+  private released: Promise<void> | undefined
+
+  /**
+   * @param source - the iterable the stream method returned.
+   * @param endpoint - canonical endpoint named by cancellation failures.
+   * @param invocation - the call whose uplink the stream releases.
+   */
+  constructor(
+    private readonly source: Iterable<unknown> | AsyncIterable<unknown>,
+    endpoint: string,
+    private readonly invocation: GatewayInvocation,
+  ) {
+    this.pump = pumpStream(source, endpoint, invocation)
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {
+    return this
+  }
+
+  next(): Promise<IteratorResult<unknown>> {
+    this.started = true
+    return this.released === undefined ? this.pump.next() : this.released.then(() => this.pump.next())
+  }
+
+  async return(value?: unknown): Promise<IteratorResult<unknown>> {
+    if (!this.started) {
+      this.started = true
+      const release = this.release()
+      // The first caller receives the release's failure; later calls only wait for it.
+      this.released = release.then(() => undefined, () => undefined)
+      await release
+      return { done: true, value }
+    }
+    if (this.released === undefined) return this.pump.return(value)
+    await this.released
+    return { done: true, value }
+  }
+
+  /**
+   * A generator returned before its first next() skips its finally block, so
+   * this releases the uplink and the method's iterator in that block's order.
+   */
+  private async release(): Promise<void> {
+    await this.pump.return(undefined)
+    await this.invocation.close()
+    await methodIterator(this.source).return?.()
+  }
+}
+
+async function *pumpStream(
   source: Iterable<unknown> | AsyncIterable<unknown>,
   endpoint: string,
   invocation: GatewayInvocation,
 ): AsyncGenerator {
   const { signal } = invocation
-  const asyncFactory: unknown = Reflect.get(source, Symbol.asyncIterator)
-  const syncFactory: unknown = Reflect.get(source, Symbol.iterator)
-  const iterator = typeof asyncFactory === 'function'
-    ? Reflect.apply(asyncFactory, source, []) as AsyncIterator<unknown>
-    : Reflect.apply(syncFactory as (...args: never[]) => Iterator<unknown>, source, [])
+  const iterator = methodIterator(source)
   let rejectAbort: ((error: unknown) => void) | undefined
   const onAbort = (): void => {
     rejectAbort?.(streamAbortFailure(endpoint, signal.reason))
