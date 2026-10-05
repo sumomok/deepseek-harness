@@ -181,6 +181,17 @@ describe('StopAndRemoveDialog', () => {
     expect(stopAndRemove).toHaveBeenCalledOnce()
   })
 
+  it('drops a refusal\'s error when the next request names another conversation', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ask } = dialog(vi.fn<StopAndRemoveInjected['stopAndRemove']>().mockRejectedValueOnce(new Error('refused')))
+    ask({ sessionId: BUSY, running: 1 })
+    fireEvent.click(screen.getByRole('button', { name: '停止并移出' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('停止或移出失败，请稍后重试') })
+    ask({ sessionId: 'conversation-2' as SessionId, running: 2 })
+    expect(screen.getByRole('dialog').textContent).toContain('还有 2 项工作在运行')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('reads the English refusal under the English dictionary, and every copy key is free of the banned words', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { ask } = dialog(vi.fn<StopAndRemoveInjected['stopAndRemove']>().mockRejectedValueOnce('plain failure'), tEn)
@@ -348,11 +359,15 @@ describe('the shadowed entry', () => {
   /** `ui-workspace`'s client source directory. */
   const owner = resolvePath(import.meta.dirname, '../../../client/ui-workspace/src/client')
 
-  it('is the id `ui-workspace` registers its confirmation under in `shell.overlay`', () => {
+  it('is the id `ui-workspace` registers its confirmation under in `shell.overlay`, at the default priority', () => {
     // A literal copy: `ui-workspace` exports no constant for the id, and a
-    // renamed id there would bring its own dialog back beside this one.
-    expect(readFileSync(resolvePath(owner, 'index.ts'), 'utf8'))
-      .toMatch(/name: 'shell\.overlay', id: 'workspace\.session-archive',[^}]*\}, SessionArchiveConfirmDialog\)/u)
+    // renamed id there would bring its own dialog back beside this one. The
+    // console's entry shadows it at -1 only while `ui-workspace` registers at
+    // the default 0: any priority there could rank its own dialog first.
+    const registration = /ctx\.slots\.register\(\{([^}]*)\}, SessionArchiveConfirmDialog\)/u
+      .exec(readFileSync(resolvePath(owner, 'index.ts'), 'utf8'))?.[1]
+    expect(registration).toMatch(/name: 'shell\.overlay', id: 'workspace\.session-archive',/u)
+    expect(registration).not.toMatch(/\bpriority\b/u)
   })
 
   it('carries the face members and request fields `ui-workspace` declares for its confirmation', () => {

@@ -996,19 +996,25 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await page.locator('style[data-dsh-auto-compact]').count()).toBe(1)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
+    // A failed check below would otherwise leave the dialog over the next test.
+    onTestFinished(async () => {
+      if (await dialog.count() > 0) await page.keyboard.press('Escape')
+    })
     await dialog.waitFor({ timeout: 10_000 })
     // Both halves: the General panel is drawn — the one row it keeps with a
     // control is on screen — and no withheld row is. The panel draws exactly
     // two rows, the keyboard shortcuts and the current version, so a row a
     // later release adds to Settings → General turns this red as well: the
     // list's `display: contents` wrapper holds one element per drawn row, and
-    // a withheld cell draws none.
+    // a withheld cell draws none. The row count and the withheld titles are
+    // checked before the version row is awaited, so a row that leaks fails on
+    // its own check.
     await expect.poll(() => dialog.getByText('Keyboard shortcuts', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    await dialog.getByText(`Current version: ${CLIENT_VERSION}`, { exact: true }).waitFor({ timeout: 10_000 })
-    expect(await dialog.locator('[data-slot="settings.general.item"] > *').count()).toBe(2)
+    await expect.poll(() => dialog.locator('[data-slot="settings.general.item"] > *').count(), { timeout: 10_000 }).toBe(2)
     for (const title of WITHHELD_GENERAL_TITLES) {
       expect({ title, count: await dialog.getByText(title, { exact: true }).count() }).toEqual({ title, count: 0 })
     }
+    await dialog.getByText(`Current version: ${CLIENT_VERSION}`, { exact: true }).waitFor({ timeout: 10_000 })
     expect(await dialog.locator('input[type="range"]').count()).toBe(0)
     expect(await dialog.getByRole('switch').count()).toBe(0)
     await page.keyboard.press('Escape')

@@ -22,8 +22,20 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { isVolatile } from '@deepseek-ai/cosmokit'
+import type z from '@deepseek-ai/schemastery'
 import { bundlePatchPaths, composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import type { DshBundleManifest } from '@deepseek-ai/dsh-package-manifest'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import SandboxBashExecutor from '@deepseek-ai/dsh-bash-sandbox'
+import { Config as LocaleConfig } from '@deepseek-ai/dsh-client-locale'
+import { Config as UiChatConfig } from '@deepseek-ai/dsh-client-ui-chat'
+import { Config as UiConversationConfig } from '@deepseek-ai/dsh-client-ui-conversation'
+import { Config as UiSettingsConfig } from '@deepseek-ai/dsh-client-ui-settings'
+import { Config as UiThemeConfig } from '@deepseek-ai/dsh-client-ui-theme'
+import { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import SubagentModelSelectionConfig from '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+import { Config as AutoCompactConfig } from '@haoran/dsh-auto-compact'
 
 /** This package's directory. */
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -189,6 +201,50 @@ const FIXED_ROWS = [
   ['ui-conversation', '@deepseek-ai/dsh-client-ui-conversation', { busyEnter: 'queue' }],
   ['ui-settings', '@deepseek-ai/dsh-client-ui-settings', { enabled: false }],
 ] as const
+
+/**
+ * Each fixed row's own Config schema, which fills the fields a config leaves
+ * out with the plugin's defaults: what the row runs with is the schema's
+ * reading of its composed config, not the config as written.
+ */
+const FIXED_ROW_SCHEMAS: Record<typeof FIXED_ROWS[number][0], z> = {
+  'bash-sandbox': SandboxBashExecutor.Config,
+  'agent-loop': AgentLoop.Config,
+  'subagent': SubagentRuntime.Config,
+  'subagent-model-selection-settings': SubagentModelSelectionConfig.Config,
+  'auto-compact': AutoCompactConfig,
+  'locale': LocaleConfig,
+  'ui-theme': UiThemeConfig,
+  'ui-chat': UiChatConfig,
+  'ui-conversation': UiConversationConfig,
+  'ui-settings': UiSettingsConfig,
+}
+
+/**
+ * A parsed config as plain data: a volatile field's reference becomes the
+ * value it holds, so two readings compare by value.
+ * @param value - a Config schema's output, or any part of it.
+ * @returns the same data without references.
+ */
+function plain(value: unknown): unknown {
+  if (isVolatile(value)) return plain(value.get())
+  if (Array.isArray(value)) return value.map(plain)
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, plain(child)]))
+  return value
+}
+
+/**
+ * The config two fixed rows carried in this package's bundle layer before the
+ * lock took them over (`cordis.patch.yml` no longer states them): what the
+ * console ran is the layers below with these fields over them.
+ */
+const MOVED_FROM_BUNDLE: Partial<Record<typeof FIXED_ROWS[number][0], Record<string, unknown>>> = {
+  'auto-compact': { enabled: true, thresholdPercent: 60 },
+  'ui-chat': { performanceUsage: 'compact' },
+}
+
+/** The one fixed row whose locked value differs from what the console ran before the lock. */
+const CHANGED_ROW = 'ui-settings'
 
 interface Row {
   id?: string
@@ -681,6 +737,22 @@ describe('the lock over the console layer', () => {
     // refuse a settings write to the row; the value is what every visitor gets.
     expect(rowOf(LOCK_PATCH, id)).toEqual({ id, name, config })
     expect(composed.get(id)?.config).toEqual(config)
+  })
+
+  it.each(FIXED_ROWS.filter(([id]) => id !== CHANGED_ROW))('runs `%s` at the value the layers below ran it with, defaults included', (id) => {
+    // Compared with the composition below the lock, not with a copy of the
+    // lock file: editing a locked value fails here whatever FIXED_ROWS says.
+    // A field the plugin's schema defaults reads the same whether a layer
+    // states it or not.
+    const read = (config: unknown) => plain(FIXED_ROW_SCHEMAS[id](config))
+    const before = { ...(below.get(id)?.config ?? {}) as Record<string, unknown>, ...MOVED_FROM_BUNDLE[id] }
+    expect(read(composed.get(id)?.config ?? {})).toEqual(read(before))
+  })
+
+  it('turns the code working view off, the one value the lock changes', () => {
+    const read = (config: unknown) => plain(FIXED_ROW_SCHEMAS[CHANGED_ROW](config))
+    expect(read(below.get(CHANGED_ROW)?.config ?? {})).toEqual({ enabled: true })
+    expect(read(composed.get(CHANGED_ROW)?.config ?? {})).toEqual({ enabled: false })
   })
 
   it.each(FIXED_ROWS)('restates every field the layers below set on `%s`, at the value they set', (id) => {

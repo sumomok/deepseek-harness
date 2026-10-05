@@ -344,11 +344,15 @@ describe('the shadowed entry', () => {
   /** `ui-workspace`'s client source directory. */
   const owner = resolvePath(import.meta.dirname, '../../../client/ui-workspace/src/client')
 
-  it('is the id `ui-workspace` registers its notice under in `shell.overlay`', () => {
+  it('is the id `ui-workspace` registers its notice under in `shell.overlay`, at the default priority', () => {
     // A literal copy: `ui-workspace` exports no constant for the id, and a
-    // renamed id there would bring its own toast back beside this one.
-    expect(readFileSync(resolvePath(owner, 'index.ts'), 'utf8'))
-      .toMatch(/name: 'shell\.overlay', id: 'workspace\.row-toast',[^}]*\}, RowActionToast\)/u)
+    // renamed id there would bring its own toast back beside this one. The
+    // console's entry shadows it at -1 only while `ui-workspace` registers at
+    // the default 0: any priority there could rank its own toast first.
+    const registration = /ctx\.slots\.register\(\{([^}]*)\}, RowActionToast\)/u
+      .exec(readFileSync(resolvePath(owner, 'index.ts'), 'utf8'))?.[1]
+    expect(registration).toMatch(/name: 'shell\.overlay', id: 'workspace\.row-toast',/u)
+    expect(registration).not.toMatch(/\bpriority\b/u)
   })
 
   it('carries the face members and notice fields `ui-workspace` declares for its toast', () => {
