@@ -29,7 +29,7 @@ import {
 /** Words the console keeps off the screen, in either language. */
 const BANNED = /工作区|会话|归档|workspace|session|archive/iu
 
-/** The seven commands the console withholds, with the label their owners' dictionaries give each. */
+/** The eight commands the console withholds, with the label their owners' dictionaries give each. */
 const WITHHELD: readonly [string, string][] = [
   ['session.new', '新会话'],
   ['session.search', '搜索会话'],
@@ -38,6 +38,7 @@ const WITHHELD: readonly [string, string][] = [
   ['session.fork', '分叉会话'],
   ['session.archive', '归档会话'],
   ['workspace.files', '工作区文件'],
+  ['sidebar.right.toggle', '展开／收起右侧栏'],
 ]
 
 /**
@@ -62,12 +63,12 @@ function row(id: string, label: string, overrides: Partial<ShortcutCatalogEntry>
   }
 }
 
-/** The registry's catalog as the console sees it: the seven withheld commands and three of the shell's own. */
+/** The registry's catalog as the console sees it: the eight withheld commands and three of the shell's own. */
 const CATALOG: readonly ShortcutCatalogEntry[] = [
   row('shortcuts.open', '快捷键速查'),
   ...WITHHELD.map(([id, label]) => row(id, label)),
   row('settings.open', '打开设置'),
-  row('sidebar.right.toggle', '切换右侧栏'),
+  row('pane.fullscreen.toggle', '面板全屏／退出全屏'),
 ]
 
 /** An accepted configuration snapshot, as far as these tests read one. */
@@ -81,7 +82,7 @@ afterEach(() => {
 describe('consoleCatalog', () => {
   it('leaves out every withheld command and keeps the registry\'s own rows for the rest', () => {
     const rows = consoleCatalog(createSnapshotStore(CATALOG)).getSnapshot()
-    expect(rows.map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'sidebar.right.toggle'])
+    expect(rows.map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'pane.fullscreen.toggle'])
     expect(rows.map(entry => entry.label).join('\n')).not.toMatch(BANNED)
     expect(rows[0]).toBe(CATALOG[0])
   })
@@ -96,7 +97,7 @@ describe('consoleCatalog', () => {
     source.set([...CATALOG, row('page.refresh', '刷新页面')])
     expect(listener).toHaveBeenCalledOnce()
     expect(catalog.getSnapshot()).not.toBe(first)
-    expect(catalog.getSnapshot().map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'sidebar.right.toggle', 'page.refresh'])
+    expect(catalog.getSnapshot().map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'pane.fullscreen.toggle', 'page.refresh'])
     stop()
     source.set(CATALOG)
     expect(listener).toHaveBeenCalledOnce()
@@ -286,6 +287,7 @@ describe('withheld shortcut keys over the real registry', () => {
     ['session.fork', 'KeyF', ['primary', 'shift'], ['page', 'editable']],
     ['session.archive', 'KeyA', ['primary', 'alt'], ['page', 'editable']],
     ['workspace.files', 'KeyP', ['primary', 'alt'], ['page', 'editable', 'terminal']],
+    ['sidebar.right.toggle', 'KeyB', ['primary', 'shift'], ['page', 'editable', 'terminal']],
     ['test.visible', 'KeyY', ['primary', 'alt'], ['page', 'editable']],
   ]
 
@@ -333,7 +335,7 @@ describe('withheld shortcut keys over the real registry', () => {
     const consumed = DEFAULTS.map(([, code, modifiers]) => mac(code, modifiers.includes('shift')).defaultPrevented)
     expect(counts()).toEqual({
       'session.new': 0, 'session.search': 0, 'workspace.add': 0, 'session.rename': 0, 'session.fork': 0,
-      'session.archive': 0, 'workspace.files': 0, 'test.visible': 1,
+      'session.archive': 0, 'workspace.files': 0, 'sidebar.right.toggle': 0, 'test.visible': 1,
     })
     // Every press is consumed: a withheld one by the console, the shell's own by the registry.
     expect(consumed).toEqual(DEFAULTS.map(() => true))
@@ -463,7 +465,7 @@ describe('the console\'s shortcut reference', () => {
       const face = winner.inject?.() ?? {}
       const hooks = face['hooks'] as Record<string, HostObservable<unknown>>
       expect(hooks['config']).toBe(owner.config)
-      expect((hooks['catalog']?.getSnapshot() as ShortcutCatalogEntry[]).map(entry => entry.label)).toEqual(['快捷键速查', '打开设置', '切换右侧栏'])
+      expect((hooks['catalog']?.getSnapshot() as ShortcutCatalogEntry[]).map(entry => entry.label)).toEqual(['快捷键速查', '打开设置', '面板全屏／退出全屏'])
       expect([face['platform'], face['runtime']]).toEqual(['macos', 'web'])
       const describe = face['describeBinding'] as Shortcuts['describeBinding']
       expect(describe({ code: 'KeyG', modifiers: ['meta', 'alt'] })).toEqual({ binding: null, keys: [], issue: 'reserved', conflicts: [] })
@@ -548,6 +550,13 @@ describe('the copied ids', () => {
     expect(registration).toMatch(/regions: \['page', 'editable', 'terminal'\]/u)
     expect(WITHHELD_COMMANDS.get('workspace.files')).toEqual(['page', 'editable', 'terminal'])
     expect([...WITHHELD_COMMANDS.keys()]).toEqual(WITHHELD.map(([id]) => id))
+  })
+
+  it('names the command `ui-sidebar-right` registers to open and close the right column, in the regions it registers it with', () => {
+    const source = readFileSync(resolvePath(client('ui-sidebar-right'), 'shortcuts.ts'), 'utf8')
+    const registration = /id: 'sidebar\.right\.toggle' as ShortcutCommandId,([\s\S]*?)resolve:/u.exec(source)?.[1]
+    expect(registration).toMatch(/regions: \['page', 'editable', 'terminal'\]/u)
+    expect(WITHHELD_COMMANDS.get('sidebar.right.toggle')).toEqual(['page', 'editable', 'terminal'])
   })
 
   it('is the id and namespace `ui-shortcuts` registers its reference under in `shell.overlay`, at the default priority', () => {

@@ -8,18 +8,22 @@
  * (`session.rename`), 分叉会话 (`session.fork`), and 归档会话
  * (`session.archive`). `dsh-client-ui-sidebar-files` registers 工作区文件
  * (`workspace.files`), which opens a file tree of the conversation's working
- * directory in the right column. The shortcut reference
- * `dsh-client-ui-shortcuts` draws lists every registered command, by the label
- * its owner gives it, and the registry runs a command whenever its key is
- * pressed. The console offers no place to start, search, add, rename, or fork
- * a conversation, and no file tree. Its 移出列表 applies only to the 临时工作流
- * section, asks first, and returns to the workbench, while `session.archive`
- * archives whichever conversation is on screen — the workbench and a
- * workflow's own conversation included — and leaves the page on no
- * conversation. All seven are withheld ({@link WITHHELD_COMMANDS}): their rows
- * are left out of the reference, and their keys do nothing. The console bundle
- * also disables `ui-sidebar-files`, so `workspace.files` is withheld for a
- * composition that keeps that row.
+ * directory in the right column, and `dsh-client-ui-sidebar-right` registers
+ * 展开／收起右侧栏 (`sidebar.right.toggle`), which opens and closes the right
+ * column. The shortcut reference `dsh-client-ui-shortcuts` draws lists every
+ * registered command, by the label its owner gives it, and the registry runs a
+ * command whenever its key is pressed. The console offers no place to start,
+ * search, add, rename, or fork a conversation, and no file tree. Its 移出列表
+ * applies only to the 临时工作流 section, asks first, and returns to the
+ * workbench, while `session.archive` archives whichever conversation is on
+ * screen — the workbench and a workflow's own conversation included — and
+ * leaves the page on no conversation. The right column opens on the console
+ * for a file a visitor clicks, on that file's document tab; opened empty, it
+ * shows a guide page that offers nothing to open, since the console composes
+ * no tab type the guide lists. All eight are withheld
+ * ({@link WITHHELD_COMMANDS}): their rows are left out of the reference, and
+ * their keys do nothing. The console bundle also disables `ui-sidebar-files`,
+ * so `workspace.files` is withheld for a composition that keeps that row.
  *
  * The registry takes no second registration of a command id, so neither half
  * is a registration of the console's own. The reference is the shortcut
@@ -59,6 +63,9 @@ type Regions = readonly ShortcutContext['region'][]
 /** The regions `ui-workspace` registers every one of its commands with. */
 const WORKSPACE_REGIONS: Regions = ['page', 'editable']
 
+/** Every input region: the regions `ui-sidebar-files` and `ui-sidebar-right` register their withheld commands with. */
+const EVERY_REGION: Regions = ['page', 'editable', 'terminal']
+
 /** The commands the console withholds, each with the input regions its owner runs it in. */
 export const WITHHELD_COMMANDS: ReadonlyMap<string, Regions> = new Map([
   ['session.new', WORKSPACE_REGIONS],
@@ -67,7 +74,8 @@ export const WITHHELD_COMMANDS: ReadonlyMap<string, Regions> = new Map([
   ['session.rename', WORKSPACE_REGIONS],
   ['session.fork', WORKSPACE_REGIONS],
   ['session.archive', WORKSPACE_REGIONS],
-  ['workspace.files', ['page', 'editable', 'terminal']],
+  ['workspace.files', EVERY_REGION],
+  ['sidebar.right.toggle', EVERY_REGION],
 ])
 
 /**

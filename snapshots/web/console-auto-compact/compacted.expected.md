@@ -1,7 +1,6 @@
 - banner:
   - navigation "Session hierarchy": First event sourcing keeps every
   - button "Save as workflow"
-  - button "Open right sidebar"
 - navigation "Turn navigation":
   - button "Jump to turn 1"
   - button "Jump to turn 2"

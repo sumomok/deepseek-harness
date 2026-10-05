@@ -58,7 +58,12 @@
  * (`WorkspaceNotice.tsx`, `StopAndRemoveDialog.tsx`). A ninth withholds the
  * keyboard shortcuts the console has no place for, their keys and their rows
  * in the shortcut reference (`console-shortcuts.ts`), and a tenth shadows
- * `ui-workspace`'s rename dialog with nothing (`withheld-rename.ts`).
+ * `ui-workspace`'s rename dialog with nothing (`withheld-rename.ts`). An
+ * eleventh takes `dsh-client-ui-sidebar-right`'s expand button out of the
+ * conversation header's corner (`conversation.session.header.corner`, a
+ * single slot) with an entry that renders nothing, at
+ * {@link REPLACING_PRIORITY}; with its toggle shortcut withheld as well, the
+ * right column opens only for a file a visitor clicks.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -95,6 +100,7 @@ import { replaceWorkspaceNotice } from './WorkspaceNotice.tsx'
 import { replaceArchiveConfirm } from './StopAndRemoveDialog.tsx'
 import { withholdShortcuts } from './console-shortcuts.ts'
 import { withholdRenameDialog } from './withheld-rename.ts'
+import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 import { installTerminologyGuard } from './terminology-guard.ts'
 import { UntitledTitle, type UntitledTitleInjected } from './UntitledTitle.tsx'
 import { createWorkbenchSource, type WorkbenchSource } from './workbench-source.ts'
@@ -196,7 +202,8 @@ async function landOnWorkbench(
 
 /**
  * Client plugin body: dictionaries, the terminology guard, the hero
- * brand-mark takeover, the withheld Settings entries, the compaction rows, the
+ * brand-mark takeover, the withheld expand button in the conversation
+ * header's corner, the withheld Settings entries, the compaction rows, the
  * workspace notice, the stop-and-remove confirmation, the withheld keyboard
  * shortcuts, and the withheld rename dialog, then the
  * read-before-register fetches (this package's own
@@ -214,6 +221,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
       () => null,
     )),
     'server-sidebar: hero brand-mark takeover',
+  )
+  ctx.effect(
+    () => ctx.slots.inject('conversation.session.header.corner', () => ctx.slots.register(
+      { name: 'conversation.session.header.corner', priority: REPLACING_PRIORITY },
+      () => null,
+    )),
+    'server-sidebar: withheld right-column expand button',
   )
   withholdSettingsEntries(ctx)
   replaceCompactionRows(ctx)

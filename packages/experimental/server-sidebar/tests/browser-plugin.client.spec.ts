@@ -7,11 +7,14 @@
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action and the untitled-conversation
  * title beside it with the workbench id it reads, the withheld Settings
- * entries, the replaced compaction rows and workspace notice, the
+ * entries, the replaced compaction rows and workspace notice, the withheld
+ * expand button in the conversation header's corner, the
  * workbench/workflow/page business logic each injected callback wires, the footer's identity source
  * and its sign-out action, removal on fiber teardown (HMR safety), and the
  * dictionaries.
  */
+import { readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -159,6 +162,7 @@ function declareSlots(ctx: Context): void {
       name: 'conversation',
       children: {
         'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+        'conversation.session.header.corner': { kind: 'single', scope: 'session' },
         'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
         // Declared by ui-chat's Chat view in the real page.
         'conversation.chat.node': { kind: 'keyed', scope: 'session' },
@@ -342,6 +346,31 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const [winner] = ctx.slots.entriesOfSlot('conversation.hero.brand.mark')
     expect(winner?.options.priority).toBe(-1)
     disposeCompetitor()
+  })
+
+  it('takes over the conversation header\'s corner at priority -1 with an entry that renders nothing, shadowing the right column\'s expand button', async () => {
+    const { ctx } = await bench()
+    // `ui-sidebar-right` seats its expand button there at the default priority 0.
+    function ExpandButton(): null {
+      return null
+    }
+    const disposeOwner = ctx.slots.register({ name: 'conversation.session.header.corner' } as never, ExpandButton as never)
+    const [winner] = ctx.slots.entriesOfSlot('conversation.session.header.corner')
+    expect(winner?.options.priority).toBe(-1)
+    expect(winner?.component).not.toBe(ExpandButton)
+    expect((winner?.component as (() => null) | undefined)?.()).toBeNull()
+    disposeOwner()
+  })
+
+  it('shadows the entry `ui-sidebar-right` seats in the header\'s corner, which registers at the default priority', () => {
+    // The console's entry shadows the expand button only while
+    // `ui-sidebar-right` seats it in this slot at the default priority 0.
+    const source = readFileSync(resolvePath(import.meta.dirname, '../../../client/ui-sidebar-right/src/client/index.ts'), 'utf8')
+    const end = source.indexOf('}, ExpandButton)')
+    expect(end).toBeGreaterThan(0)
+    const registration = source.slice(source.lastIndexOf('ctx.slots.register({', end), end)
+    expect(registration).toMatch(/^ctx\.slots\.register\(\{\s+name: 'conversation\.session\.header\.corner',/u)
+    expect(registration).not.toMatch(/\bpriority\b/u)
   })
 
   it('shadows each withheld settings entry at priority -1 with an entry that renders nothing', async () => {
@@ -771,6 +800,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.spec('sidebar.brand.mark')).toBeUndefined()
     expect(ctx.slots.spec('sidebar.footer.action')).toBeUndefined()
     expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.session.header.corner')).toHaveLength(0)
     expect(ctx.slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(ctx.slots.entries('settings.general.item')).toHaveLength(0)
     expect(ctx.slots.entries('settings.action')).toHaveLength(0)

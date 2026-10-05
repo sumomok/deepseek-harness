@@ -234,8 +234,10 @@
 # path on the Host, and the 工作区文件 shortcut that opens it. With the Terminal
 # tab off, and the Browser tab composed only under the `desktop` profile, it is
 # the one tab type the right sidebar's guide offers, so a column that opens
-# empty — on its toggle key or the conversation header's expand button — shows
-# it. Without the row that column shows the guide page instead.
+# empty shows it. Without the row the guide offers nothing to open, and
+# `server-sidebar` withholds the column's toggle key and the conversation
+# header's expand button, so the column opens only on the document tab of a
+# file a visitor clicks.
 # The column and its document tab (`ui-sidebar-documentpreview`), which opens
 # the files a conversation links, stay composed. The document tab reads them
 # through the `workspace-files` Remote, whose reads follow the composed

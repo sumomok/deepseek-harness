@@ -13,7 +13,11 @@
 import type { HostObservable, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** Shadowing rank of this package's `shell.overlay` entries: below the owners' default 0. */
+/**
+ * Shadowing rank of the entries this package registers in place of another
+ * package's — its `shell.overlay` entries and the conversation header's
+ * corner: below the owners' default 0.
+ */
 export const REPLACING_PRIORITY = -1
 
 /** The share of the slot ledger a shadowed entry is read from. */
