@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-05-console-bare-routes-answer-only-the-call-owner.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-bare-routes-answer-only-the-call-owner.md
+/agent-note-console-page-read-and-chart-report-routes-answer-a-post-only-for-the-member-whose-call-it-names:
+  en: e7eb54fa4ce3e2dd
+  zh: be12f39d3cc09ad7
+/agent-note-console-page-read-and-chart-report-routes-answer-a-post-only-for-the-member-whose-call-it-names/problem:
+  en: f9dc5268a9cd7aa4
+  zh: 64b7c9250f78dd3e
+/agent-note-console-page-read-and-chart-report-routes-answer-a-post-only-for-the-member-whose-call-it-names/decision:
+  en: 51fa9f83b674f3f2
+  zh: 8c082ec5fa2ac370
+/agent-note-console-page-read-and-chart-report-routes-answer-a-post-only-for-the-member-whose-call-it-names/alternatives-considered:
+  en: e685988aa6f12232
+  zh: b33928bbdf65960a
+/agent-note-console-page-read-and-chart-report-routes-answer-a-post-only-for-the-member-whose-call-it-names/consequences:
+  en: a2d8a77b90bc8125
+  zh: 46a0c48e87d7c251
