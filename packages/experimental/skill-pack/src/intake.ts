@@ -268,11 +268,11 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
 
   /**
    * The view ids a set is judged against: the offered set's while a set is
-   * offered, and otherwise those of the entries the organization root holds on
-   * disk. Only a call whose entries passed these rules wrote those entries, so
-   * a set handed over again after the holding fiber reloads, or after a
-   * restart, is judged as it was while that set was offered.
-   * @throws the error reading the organization root failed with.
+   * offered, and otherwise those of the entries the last write left in the
+   * organization root. Only a call whose entries passed these rules wrote those
+   * entries; a call whose caller or row stopped during its write left there a
+   * set that was never offered.
+   * @throws the error reading the organization root failed with, for every failure other than the root not existing.
    */
   private async heldViewIds(): Promise<HeldViewIds> {
     if (this.state.holder !== undefined) return { bytes: firstDeclared(this.state.offered), holder: 'the offered organization set' }
