@@ -56,8 +56,8 @@ interface Probe {
   readonly events: string[]
   returns: number
   failure: Error | undefined
-  /** Failure `follow` throws from its iterator factory or from its iterator's `return()`. */
-  followFailure: { readonly at: 'iterator' | 'return'; readonly error: Error } | undefined
+  /** Failure `follow` throws from its iterator factory, rejects its iterator's `next()` with, or throws from its `return()`. */
+  followFailure: { readonly at: 'iterator' | 'next' | 'return'; readonly error: Error } | undefined
   /** Whether `follow`'s iterator `return()` settles only after a timer, then records `follow:returned`. */
   slowReturn: boolean
   /** Failure `stall`'s iterator `return()` rejects with. */
@@ -137,6 +137,7 @@ class GuardService extends TypertRemoteService {
         return {
           next: () => {
             events.push('follow:next')
+            if (followFailure?.at === 'next') return Promise.reject(followFailure.error)
             return Promise.resolve({ done: false as const, value: label })
           },
           return: async () => {
@@ -631,6 +632,18 @@ describe('remote/invoke', () => {
     expect(probe.events).toEqual(events)
   })
 
+  it('releases the uplink when the method iterator factory throws on the first pull', async () => {
+    const ctx = await mount()
+    const error = new Error('fixture: follow iterator failed')
+    probe.followFailure = { at: 'iterator', error }
+    const stream = await ctx.typertGateway.stream({
+      namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
+    })
+
+    await expect(stream[Symbol.asyncIterator]().next()).rejects.toBe(error)
+    expect(probe.events).toEqual(['follow:iterator', 'uplink:iterator', 'uplink:return'])
+  })
+
   it('settles later return() and next() calls as done without the method after a return() before the first next()', async () => {
     const ctx = await mount()
     discardWith(ctx, async (iterator) => {
@@ -856,6 +869,28 @@ describe('remote/invoke', () => {
     await socket.close()
   })
 
+  // The Gateway handles only the pulls its release ends: one the method's own failure ended before the listener threw is
+  // the listener's, although the Gateway releases the stream in the same run of the microtask queue.
+  it('leaves to the listener the rejection of a discarded pull that the method failed before the call did', async () => {
+    const ctx = await mount()
+    const error = new Error('fixture: follow next failed')
+    probe.followFailure = { at: 'next', error }
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused after a failed pull', { endpoint: 'guard/follow' })
+    ctx.on('remote/invoke', async (_call, next) => {
+      const outcome = await next()
+      if (outcome.kind === 'stream') void outcome.source[Symbol.asyncIterator]().next()
+      for (let step = 0; step < 10; step++) await Promise.resolve()
+      throw refusal
+    })
+
+    const unhandled = await unhandledRejections(async () => {
+      await expect(ctx.typertGateway.stream({ namespace: 'guard', method: 'follow', args: { label: 'x' } })).rejects.toBe(refusal)
+    })
+    expect(unhandled).toHaveLength(1)
+    expect(unhandled[0]).toBe(error)
+    expect(probe.events).toEqual(['follow:iterator', 'follow:next', 'follow:return'])
+  })
+
   it('rejects a pending pull with the failure the caller receives, for a listener that awaits it', async () => {
     const ctx = await mount()
     const failure = new Error('fixture: failed while a pull is pending')
@@ -952,6 +987,29 @@ describe('remote/invoke', () => {
     })
     expect(unhandled).toEqual([])
     if (use === 'awaits') await expect(late).resolves.toBe(failure)
+  })
+
+  // A pull made from an abort listener of the method's signal is the stream's first, so it opens the method's iterator.
+  it('releases the uplink when the method iterator factory throws on a first pull made as the call fails', async () => {
+    const ctx = await mount()
+    probe.followFailure = { at: 'iterator', error: new Error('fixture: follow iterator failed') }
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused before a first pull', { endpoint: 'guard/follow' })
+    ctx.on('remote/invoke', async (_call, next) => {
+      const outcome = await next()
+      if (outcome.kind === 'stream') {
+        const iterator = outcome.source[Symbol.asyncIterator]()
+        probe.signals[0]?.addEventListener('abort', () => { void iterator.next() }, { once: true })
+      }
+      throw refusal
+    })
+
+    const unhandled = await unhandledRejections(async () => {
+      await expect(ctx.typertGateway.stream({
+        namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
+      })).rejects.toBe(refusal)
+      await vi.waitFor(() => { expect(probe.events).toEqual(['follow:iterator', 'uplink:iterator', 'uplink:return']) })
+    })
+    expect(unhandled).toEqual([])
   })
 
   // A microtask queued from `relay`'s abort listener runs after the Gateway's release step, which calls `return()` on

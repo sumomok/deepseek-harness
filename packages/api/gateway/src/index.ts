@@ -123,12 +123,19 @@ declare module '@deepseek-ai/cordis' {
      * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
      * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
      * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
-     * or is opening. A `next()` pending on such a stream settles with a failure, which the Gateway handles,
-     * once the method's iterator has returned, so a stream method must end when its `signal` aborts: an
-     * async generator suspended on a promise that ignores the signal never returns. When the outcome is a
-     * stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call
-     * opened, and a listener that discards one returns it. A `next()` called after the waterfall has ended
-     * rejects without running the method.
+     * or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles
+     * with a failure once the method's iterator has returned, so a stream method must end when its `signal`
+     * aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway
+     * handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and
+     * of no other: a `next()` that the method's own failure ends before the release belongs to the listener,
+     * even when its promise settles after the release. A listener that discards it leaves an unhandled
+     * rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a
+     * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
+     * none of them: the listeners own every stream the call opened, and a listener that discards one returns
+     * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
+     * the method. A listener that throws synchronously ends the waterfall at once; otherwise the Gateway
+     * receives the outcome only after the microtasks the listener queued before returning or throwing have
+     * run, so a `next()` called from one of them still runs the method.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -1384,7 +1391,10 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
   private started = false
   /** Settles, never rejecting, once a `return()` before the first `next()` has finished its release. */
   private released: Promise<void> | undefined
-  /** The `next()` results handed out that have not settled. */
+  /**
+   * The `next()` results handed out whose pull of the pump has not settled. Each is deleted when that pull settles,
+   * which is before the result itself settles.
+   */
   private readonly pulls = new Set<Promise<IteratorResult<unknown>>>()
 
   /**
@@ -1419,8 +1429,9 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
   }
 
   /**
-   * Handle the rejection of each `next()` result still pending: the failure of the call that opened this stream ends
-   * it, and the listener that pulled it may have discarded it. A caller that awaits it still receives the rejection.
+   * Handle the rejection of each `next()` result whose pull of the pump is still pending: the failure of the call that
+   * opened this stream ends it, and the listener that pulled it may have discarded it. A result whose pull has already
+   * settled is left to that listener. A caller that awaits a handled result still receives the rejection.
    */
   abandonPulls(): void {
     for (const pull of this.pulls) void pull.catch(ignoreReleasedRejection)
@@ -1520,13 +1531,15 @@ async function *pumpStream(
 ): AsyncGenerator {
   const { signal } = invocation
   const failure = (): unknown => release.aborted ? release.reason : streamAbortFailure(endpoint, signal.reason)
-  const iterator = methodIterator(source)
+  let iterator: AsyncIterator<unknown> | Iterator<unknown> | undefined
   let rejectAbort: ((error: unknown) => void) | undefined
   const onAbort = (): void => {
     rejectAbort?.(failure())
   }
   signal.addEventListener('abort', onAbort, { once: true })
   try {
+    // Opened inside `try`, so an iterator factory that throws still releases the uplink.
+    iterator = methodIterator(source)
     while (true) {
       if (signal.aborted) throw failure()
       // Reusing a pending cancellation promise retains every completed race.
@@ -1546,7 +1559,7 @@ async function *pumpStream(
     // The uplink closes first so a method blocked on `uplink.next()` unwinds
     // before its iterator is asked to return.
     await invocation.close()
-    await iterator.return?.()
+    await iterator?.return?.()
   }
 }
 
