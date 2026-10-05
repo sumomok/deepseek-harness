@@ -34,7 +34,8 @@
  * `SessionActivityKindMap`. `tests/stop-and-remove-dialog.client.spec.tsx`
  * checks each copy against the owning source. A renamed entry id un-shadows
  * `ui-workspace`'s dialog; a face or a request this module does not recognise
- * shows no dialog, and nothing is stopped.
+ * shows no dialog, and nothing is stopped. An unreadable request is reported
+ * once to the browser console.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/StopAndRemoveDialog
  */
 import { useState } from 'react'
