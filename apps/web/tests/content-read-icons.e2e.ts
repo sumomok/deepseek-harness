@@ -1,14 +1,16 @@
 /**
- * Web e2e regression: a real browser reads an Element table's glyph as an icon
- * and its empty value and tree indent as nothing.
+ * Web e2e regression: a real browser reads an Element table's glyph as an icon,
+ * and its empty value, the `--` placeholder it generates for one, and its tree
+ * indent as nothing.
  *
  * Whether a leaf draws a picture is read from the computed style of it and of
  * its `::before` and `::after`, which jsdom does not compute for a
  * pseudo-element; here the frame is pointed at the real route, loads a real
  * document, and a layout engine computes the glyph Element UI writes into
  * `::before`. The fixture page puts, in one table, the empty `div.cell` an
- * empty value is drawn as, the indent and placeholder spans a tree table puts
- * in front of a row's text, and an `el-icon-edit` glyph on a bare `<i>`.
+ * empty value is drawn as, an empty `div.cell` whose `::before` the sheet
+ * fills with `--`, the indent and placeholder spans a tree table puts in front
+ * of a row's text, and an `el-icon-edit` glyph on a bare `<i>`.
  *
  * No recording of its own, and no model. The seeded log shows the page, and a
  * scripted model turn asks for two reads — the page, then the table's rows by
@@ -189,8 +191,16 @@ describe.skipIf(MODE === 'record')('web e2e: a real browser reads only a glyph a
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
   })
 
-  it('prints the glyph as an icon, and the empty value and the indent as nothing', async () => {
+  it('prints the glyph as an icon, and the empty value, the placeholder and the indent as nothing', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-icons'))
+    // The placeholder is drawn: the browser computes the `--` the sheet
+    // generates into the empty wrapper, so the reads below see it and read it
+    // as text rather than as a picture.
+    const placeholder = await page.frameLocator('iframe[data-content-frame][data-content-active]')
+      .locator('#fixture-table .placeholder-dash .cell').first()
+      .evaluate(cell => getComputedStyle(cell, '::before').getPropertyValue('content'))
+    expect(placeholder).toBe('"--"')
+
     const input = page.locator(COMPOSER).first()
     await writeComposerDraft(page, input, PROMPT)
     await page.keyboard.press('Enter')
@@ -202,20 +212,22 @@ describe.skipIf(MODE === 'record')('web e2e: a real browser reads only a glyph a
     const listing = pageRead?.text ?? ''
     const rows = rowsRead?.text ?? ''
     // The sample row prints the one icon the operation column draws, an empty
-    // cell where the value is empty, and the name with no icon in front of it.
+    // cell where the value is empty and where the sheet generates `--` for it,
+    // and the name with no icon in front of it.
     expect(listing.split('\n').slice(1)).toEqual([
-      'e1 table "设备" 2 rows × 3 cols',
-      '  header: 名称 | 备注 | 操作',
-      '  sample: 东风站 |  | [icon]',
+      'e1 table "设备" 2 rows × 4 cols',
+      '  header: 名称 | 备注 | 班组 | 操作',
+      '  sample: 东风站 |  |  | [icon]',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
     ])
     // Each row lists the glyph as an icon with a ref of its own, and nothing
-    // else in the row: not the empty wrapper, not the indent, not the placeholder.
+    // else in the row: not the empty wrapper, not the wrapper the sheet
+    // generates `--` into, not the indent, not the placeholder span.
     expect(rows.split('\n').slice(1)).toEqual([
-      'e1 table "设备" 2 rows × 3 cols',
-      '  header: 名称 | 备注 | 操作',
-      '  row 1: 东风站 |  | e3 icon {class: el-icon-edit}',
-      '  row 2: 朝阳站 | 检修中 | e5 icon {class: el-icon-edit}',
+      'e1 table "设备" 2 rows × 4 cols',
+      '  header: 名称 | 备注 | 班组 | 操作',
+      '  row 1: 东风站 |  |  | e3 icon {class: el-icon-edit}',
+      '  row 2: 朝阳站 | 检修中 | 二班 | e5 icon {class: el-icon-edit}',
     ])
     expect([...rows.matchAll(/ icon \{class: ([^}]*)\}/g)].map(match => match[1])).toEqual(['el-icon-edit', 'el-icon-edit'])
   }, 120_000)
