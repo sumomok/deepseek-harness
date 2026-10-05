@@ -605,6 +605,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Declares what a pack\'s requirements are judged against — each registered part\'s id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive.',
   },
   {
+    key: 'skillPackIntake',
+    pkg: 'skill-pack',
+    title: 'Organization skill-pack intake',
+    mode: 'service',
+    note: 'Provided by the skill-pack row where organizationRoot is configured: installs the packs an organization plugin hands over, judges each entry as the pack root is judged, and offers the active entries\' views while the calling fiber is active; the organization plugin, outside this repository, reports those skills itself.',
+  },
+  {
     key: 'consoleMembers',
     pkg: 'console-members',
     title: 'Console member directory',

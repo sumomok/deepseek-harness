@@ -29,7 +29,7 @@ Two packages that must not depend on each other meet here. [`component-surface`]
 
 It publishes the components this deployment **offers** rather than the ones it registered. A component the deployment did not turn on cannot be drawn, so a pack requiring it must stay inactive — the deployment's own data page on a console that left `dataPage` off is that case, and it is why the catalog answers an offer at all.
 
-Views travel the other way. Every active pack's views are offered to `ctx.componentViews` as one source and re-offered whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart.
+Views travel the other way. Every active pack's views are offered to `ctx.componentViews` as one source and re-offered whenever the pack set moves, so a pack activating puts its views in the sidebar and a pack going inactive takes them out, with no restart. The packs of an organization set that `ctx.skillPackIntake` installed arrive the same way, through `ctx.skillPacks.activeViews()`, and leave when that set is withdrawn.
 
 Anywhere after the component surface and the pack root's provider. The row has no configuration: what it publishes is read off the two services beside it.
 

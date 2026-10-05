@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/skill-pack.md
 /skill-packs:
-  en: 2eaa84dcc7722620
-  zh: ead26160b5dc198d
+  en: 08ee536ea1fcbcd4
+  zh: f45498ba12244076
 /skill-packs/withholding-can-only-live-in-the-provider:
   en: 80fe9a3d3b1a8fb9
   zh: a377e244330bac5d
@@ -14,3 +14,6 @@
 /skill-packs/an-absent-parts-source-is-an-answer-not-a-degradation:
   en: b8bfeede4c770ce3
   zh: 98d0f80d4677cf56
+/skill-packs/an-organization-set-is-held-by-the-fiber-that-handed-it-over:
+  en: 830436b014a4056f
+  zh: f06953671453a446

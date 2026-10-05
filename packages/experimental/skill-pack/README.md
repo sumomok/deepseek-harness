@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-A skill pack is an ordinary skill directory — a `SKILL.md` with YAML frontmatter, and view files beside it — whose frontmatter `metadata` also states which component plugin parts its views place. This package is the skill provider for one directory of them. It reads the root, judges every pack against the parts a component plugin has actually registered, and contributes to `ctx.skills` only the packs whose every requirement is met.
+A skill pack is an ordinary skill directory — a `SKILL.md` with YAML frontmatter, and view files beside it — whose frontmatter `metadata` also states which component plugin parts its views place. This package is the skill provider for one directory of them. It reads the root, judges every pack against the parts a component plugin has actually registered, and contributes to `ctx.skills` only the packs whose every requirement is met. A deployment that configures an organization root also provides `ctx.skillPackIntake`, which installs and judges the packs an organization plugin hands over while that plugin reports their skills itself.
 
 ## Table of Contents
 
@@ -21,6 +21,10 @@ A skill pack is an ordinary skill directory — a `SKILL.md` with YAML frontmatt
 - [Replacing a pack root](#replacing-a-pack-root)
   - [What a delivery is checked for](#what-a-delivery-is-checked-for)
 - [Installing from a packed file](#installing-from-a-packed-file)
+- [Organization packs](#organization-packs)
+  - [What the organization plugin hands over](#what-the-organization-plugin-hands-over)
+  - [How a set is judged](#how-a-set-is-judged)
+  - [How long a set is offered](#how-long-a-set-is-offered)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -53,10 +57,12 @@ Mount the row beside `@deepseek-ai/dsh-skill`, and point the generic filesystem 
 | `deliveries.maxArchiveBytes` | `33554432` | Largest archive that is read at all. |
 | `deliveries.maxFileBytes` | `4194304` | Largest single file an archive may carry. |
 | `deliveries.maxFiles` | `512` | Most entries an archive may carry, its manifest among them. |
+| `organizationRoot` | absent | Absolute path of the organization root, one `<name>@<version>` directory per [organization entry](#organization-packs). Configured, the row provides `ctx.skillPackIntake`; absent, no organization pack is installed or offered. Give it a parent of its own: a replacement stages and retires sibling directories beside it. |
+| `perMember` | `false` | Whether `GET /skill-pack/status` answers only a request `ctx.consoleMembers` places with a member. |
 
 A watched root is re-read when the watch arms and again on every event it delivers. A pack that lands between the watcher's own first listing and its native stream starting is in neither, and without that first reading it would be offered only after the next unrelated change to the root.
 
-A relative `root`, a relative `deliveries.directory`, and a `platformVersion` that is not an exact semantic version are refused when the row loads, because both would otherwise be discovered one pack at a time: a relative root reads whatever directory the process happens to be in, and an unreadable platform version satisfies no range, so every pack stating one would go quietly inactive.
+A relative `root`, a relative `deliveries.directory`, and a `platformVersion` that is not an exact semantic version are refused when the row loads, because both would otherwise be discovered one pack at a time: a relative root reads whatever directory the process happens to be in, and an unreadable platform version satisfies no range, so every pack stating one would go quietly inactive. An `organizationRoot` that is relative, or is `root` or `deliveries.directory` or lies inside or around either, is refused at load as well: replacing one of them wholesale would replace the other's contents.
 
 <a id="what-a-pack-says-about-itself"></a>
 ## What a pack says about itself
@@ -159,16 +165,22 @@ A composition with no provider of that key sees an empty part list, which is the
 
 | Read | Answers |
 |---|---|
-| `statuses()` | Every pack in the root, active and inactive alike, in skill-name order, each with its version and every unmet requirement. |
-| `activeViews()` | Each active pack's declared views, carrying the pack that declared them. An inactive pack contributes none, including views that read cleanly. |
+| `statuses()` | Every pack in the root in skill-name order, then every entry of the offered organization set in `name@version` order, active and inactive alike, each with its versions and every unmet requirement. |
+| `activeViews()` | Each active pack's declared views, the root's and then the organization set's, carrying the pack that declared them. An inactive pack contributes none, including views that read cleanly. |
 
-An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `anchor-format` and `view-format` with the version the pack stated and the versions this build reads, `view-unreadable` with the file, `view-refused` with the file, the value inside it and the component surface's own sentence about that value, and `view-id-conflict` with the id and the other pack claiming it. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
+Each status carries `origin`: `pack-root`, or `organization` for an entry of the offered organization set, which also carries `entryVersion` — its organization manifest entry's version, which keys it together with the skill name — and `channel`, `stable` or `trial`. `version` is always the pack's own `metadata.pack.version`, and nothing compares it with `entryVersion`. No trial identifier is published: which member is in which trial is the organization plugin's to know.
+
+An unmet requirement names the value that was refused: `manifest-invalid` with the field, `platform-version` and `plugin-version` with both versions, `plugin-absent` and `part-absent` with the name, `anchor-format` and `view-format` with the version the pack stated and the versions this build reads, `view-unreadable` with the file, `view-refused` with the file, the value inside it and the component surface's own sentence about that value, and `view-id-conflict` with the id, the other pack claiming it and where that pack is installed. The union is closed, so a consumer switches on the tag and ends in `assertNever`.
 
 Two packs this root would otherwise offer that declare one view id are **both** withheld, each naming the id and the other pack. One menu row cannot have two owners, and keeping the id for the first of them would make what a deployment offers depend on the order its packs happened to be read in. A pack that is inactive for another reason claims nothing, so a pack nobody is offered cannot withhold one that would be; an id the deployment's own configuration claims is refused earlier, by the component surface, because the deployment's views own their ids.
 
+An active organization entry keeps a view id against the pack root: a pack of the root declaring it is withheld with `view-id-conflict` naming the organization pack, whatever order anything was read in, because the organization set is the source a deployment chooses for a pack delivered both ways. An organization entry that is inactive holds no id.
+
 Order is by code unit, not by `localeCompare`: the skill-name order of `statuses()`, the directory-name order a pack root is scanned in, and the path order an archive is written in are all the same on every host, whatever ICU data and default locale it has.
 
-The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions and refusal reasons only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it.
+The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions, where each pack is installed, an organization entry's channel and refusal reasons only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it.
+
+With `perMember`, the route answers only a request `ctx.consoleMembers` places with a member: 503 while no such service runs, and 401 when it places the request with nobody. Every placed member reads the same document. Once the composition has loaded, a `perMember` setting that disagrees with whether a member directory runs is logged at error: a per-member row with no directory answers every request 503, and a row without `perMember` beside a running directory answers anyone who reaches the route.
 
 Every withheld pack is also stated once in the process log, and again only when that report changes. Its level says whether anyone has to act: a report naming a refused view is written at **error**, and every other report at **info**. A pack waiting for a plugin, a part or a version activates by itself the moment that row is composed, and a deployment part-way through installing one has nothing to fix; a pack whose view was judged and refused never activates, whatever else arrives, until somebody edits the view file or retires the pack.
 
@@ -262,11 +274,79 @@ The directory is read when the watch is armed and again on every event, and a fi
 
 There is no upload route, and this is not an oversight. `dsh` has no authentication of its own and sits behind a reverse proxy that answers its privileged methods with 403; a route that accepted an archive would be an unauthenticated write into the directory this deployment installs its packs from. The delivery directory adds no authority of its own: whoever the host already lets write that directory is who decides what this deployment offers.
 
-Installing or retiring a pack changes what a deployment **offers**, never what a user is **allowed**. Which user is offered which pack would be composition-time filtering per user, which does not exist and waits on the multi-user decision; whether a user may act through a pack's page is the customer's own backend and the approval card in front of it.
+Installing or retiring a pack changes what a deployment **offers**, never what a user is **allowed**. This package offers the pack root and the organization set to the whole process; which member is offered which organization version is the organization plugin's decision, made before it hands the set over. Whether a user may act through a pack's page is the customer's own backend and the approval card in front of it.
+
+<a id="organization-packs"></a>
+## Organization packs
+
+A row configuring `organizationRoot` provides `ctx.skillPackIntake`. The organization plugin, which verifies an organization's signed skills, hands the packs among them over; this row installs them, judges each one by the rules a pack of the root is held to, and hands the active ones' views to the component surface. The organization plugin stays their only skill provider: nothing here reports them to `ctx.skills`, and the plugin asks `isActive` which versions it may report.
+
+| Method | Answers |
+|---|---|
+| `replace(packs, { signal })` | Replaces the organization root with the entries that pass, and answers which were refused. |
+| `isActive(name, version)` | Synchronously, whether the offered set holds that entry and its parts, plugins, platform range, anchor format and views are all met now. |
+| `onChange(listener)` | Calls the listener after a set is offered or withdrawn, or the registered parts change, for as long as the calling fiber lives. |
+
+A deployment writes both rows, with the two fields, in its own overlay. An overlay that writes a row's `config` replaces the whole block, so `organizationRoot` and `perMember` are written in the same entry as `root` rather than in a layer of their own.
+
+```yaml
+- name: '@deepseek-ai/dsh-experimental-skill-pack'
+  config:
+    root: /var/lib/dsh/packs
+    platformVersion: 0.5.2
+    organizationRoot: /var/lib/dsh/skill-pack-org/packs
+    perMember: true
+- name: '@deepseek-ai/dsh-experimental-skill-pack-components'
+```
+
+Nothing but `replace` writes the organization root, so it is not watched.
+
+<a id="what-the-organization-plugin-hands-over"></a>
+### What the organization plugin hands over
+
+The organization plugin hands an entry over when its verified `SKILL.md` frontmatter `metadata` carries `pack`, `requires` or `views`, or when its organization manifest entry carries `requires` or `anchorFormat`. Every entry handed over states `metadata.pack.version`, or it is refused as `pack-invalid`.
+
+| `OrgPackInput` field | Meaning |
+|---|---|
+| `name` | The skill name; the entry's `SKILL.md` frontmatter `name` must be the same. |
+| `version` | The organization manifest entry's `version`, which keys the entry and names its directory `<name>@<version>`, so a stable and a trial version of one skill sit side by side. It must be one directory name: no `/`, `\` or NUL, and neither `.` nor `..`. It need not equal `metadata.pack.version`, which is shown and traced only, and nothing here compares the two. |
+| `channel` | `stable` or `trial`, shown on the status route; nothing here chooses a version by it. |
+| `files` | Every file of the skill directory, its path relative to that directory with `/` separators. Content is bytes, or a string written as UTF-8; the organization plugin hands the raw bytes it verified against the organization's digests. The bytes judged are the bytes written, a byte-order mark included, so an entry is judged in memory exactly as the same file reads from disk. |
+
+The organization root is this package's own layout and enters no model-visible path. The organization plugin points each of these skills' `resourceBase` at its own skill cache, `orgSkillsCacheRoot`, rather than at the organization root, so the version in a directory name never reaches `<skill_resources>`.
+
+The organization plugin compiles in another repository and reads the intake as a structural type of its own, through `ctx.get('skillPackIntake')` or an `inject` of it. It does not declare `Context.skillPackIntake` again: two declarations of one property with different types fail any program that holds both.
+
+<a id="how-a-set-is-judged"></a>
+### How a set is judged
+
+Each entry is judged on its own. An entry breaking a rule is refused and not written; the accepted entries are staged and swapped in together, so the root holds all of them or is left as it was. An entry waiting for a plugin, a part or a platform version installs and stays inactive until that arrives, without a restart.
+
+| `IntakeRefusalCode` | What it refused |
+|---|---|
+| `pack-invalid` | a file, path, extension, frontmatter, manifest or view file breaking the pack rules; a frontmatter `name` other than the entry's; a version that is not one directory name |
+| `anchor-format` | an entry stating an anchor format this build does not read |
+| `view-format` | an entry declaring views in a view format this build does not read, or stating none |
+| `view-refused` | an entry whose other requirements are met and whose view the composed surface will not draw |
+| `view-id-conflict` | an entry declaring a view id another entry of the set declares with a file of different bytes |
+| `duplicate` | every occurrence of a `name@version` the set names more than once, because nothing says which of them is meant |
+
+Codes are added as the pack rules grow, so a consumer shows one general sentence for a code it does not know. Each refusal also carries `detail`, one English sentence for an operator naming the refused value; it belongs in a diagnostic log, not in an interface or a model request.
+
+A view id the set declares with files of identical bytes is one view, listed once under the first entry in `name@version` order. With different bytes the answer does not depend on the order the entries come in: an id the offered set already holds keeps the bytes it holds, and every entry declaring it with other bytes is refused; an id the offered set does not hold is refused to every entry declaring it. An id the new set declares with one content takes over whatever the offered set held, so a new stable version replaces an old one the set no longer names. An id the deployment's own configuration claims is refused as `view-refused`, as it is for a pack of the root.
+
+<a id="how-long-a-set-is-offered"></a>
+### How long a set is offered
+
+`replace` answers `{ kind: 'ok', refused }` or `{ kind: 'failed', detail }`, and no other kind. When it answers `ok`, `isActive` already answers from the new set, and every `onChange` listener has been called after the set was offered. Calls run one at a time in the order they arrive, and the last one offered is the set offered.
+
+The set is held by the calling fiber — the fiber of the context the caller read `skillPackIntake` from, an `inject` callback's own fiber included — while that fiber is loading or loaded. When it stops, because the organization plugin was disabled, reloaded or failed, or this row went away, the set is withdrawn: its views leave the sidebar and its entries leave the status route, and its files stay on disk. A withdrawal the organization plugin decides on, such as an expired manifest or a member signing out, is `replace([])`, which withdraws the set and empties the organization root. After a process starts nothing is offered until the first `replace`, and a set the root already holds byte for byte is offered without being written again.
+
+A call answers `failed` and offers nothing new when the write fails, when this row has stopped before the call's turn, or when the calling fiber is no longer active at its turn, once its entries are judged, or when its write finishes. In that last case the root already holds the new set, and the next call handing over the same files writes nothing. A `signal` aborted before the call or while the call waits rejects it with the signal's `reason`, changing nothing; once the write starts the call no longer reads it.
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-skill`: an active pack appears in the merged skill catalog as an ordinary skill, and loading it returns its `SKILL.md` body. An inactive pack contributes nothing to any catalog or result, so the model is never told a skill exists that it could not use.
+Indirectly, through `dsh-tool-skill`: an active pack appears in the merged skill catalog as an ordinary skill, and loading it returns its `SKILL.md` body. An inactive pack contributes nothing to any catalog or result, so the model is never told a skill exists that it could not use. The organization intake adds no model-visible input. An organization entry reaches the model only through the catalog entry the organization plugin reports for it, and its views reach the sidebar through `activeViews()`, as a pack of the root's do. `metadata.pack.anchorFormat` is carried in a candidate's `metadata`, which `dsh-tool-skill` does not render.
 
 #### KV Cache effect
 
@@ -275,12 +355,15 @@ The skill registry's consumer owns the durable catalog message and its append-on
 ## Known Limitations and Deferred Work
 
 - **A missing plugin is reported, never installed.** A pack that needs a component plugin the deployment does not have stays inactive until somebody installs it. Nothing here fetches or mounts a plugin: an install path that runs from pack data would be the code-install route the pack rules exist to close. The trigger for revisiting is a delivery side that ships plugin and pack together as one bundle.
-- **One delivered set per deployment.** `root` is a single directory and `syncPackRoot` replaces all of it, so every user of a deployment sees the same packs. Per-user sets would need an identity this package does not have; the trigger is the multi-user decision.
+- **One pack root and one organization set per deployment.** `root` is a single directory and `syncPackRoot` replaces all of it, and the organization set is offered to the whole process, so every member sees the same packs of the root and the same organization views. Which member is offered which organization skill is the organization plugin's decision; this package has no member list and filters nothing per member.
+- **A trial version's views are offered to the whole process, and its files are readable by every member's agent.** The views of a trial entry join the view index every member's sidebar is built from, and the organization plugin's skill cache that members' agents read resources from holds trial versions too. This is accepted: a trial manages how far a version is rolled out, not who may read it, and every member belongs to the same customer organization. The trigger for revisiting is `ctx.componentViews` offering views per member.
+- **Nothing is offered between a start and the first `replace`.** The organization set is held in memory by the fiber that handed it over, so after a restart the organization plugin calls `replace` with its cached set once the intake arrives; a conversation started in that window sees none of the organization's views.
+- **The organization root is not watched.** What is offered is the set `replace` judged in memory; a hand edit in the organization root changes nothing offered, and the next `replace` that writes puts the root back.
 - **A delivery arrives by being copied in, and by nothing else.** There is no route, no command and no pull: something outside this deployment puts the archive in the directory. The trigger for revisiting is an authenticated identity for the delivery console, at which point a route is authenticated where every other privileged method already is.
 - **One archive is read whole, in memory.** `maxArchiveBytes` is what keeps that bounded, and a set larger than it is a loud refusal rather than a slow one. There is no streaming install and no resume.
 - **An archive's entry metadata is never read.** A link, hard-link or device entry cannot install as one — every declared file is written as an ordinary file — but the refusal that names it is `archive-entry`, for an entry the manifest does not declare, rather than one naming what the entry claimed to be.
 - **The same packs produce the same bytes for one build of this package.** The entry order, modification time and compression level are fixed here; the compressor is `fflate` at the version the lockfile pins. A set's identity across versions is the digests in its manifest.
-- **Two packs may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack.
+- **Two packs of the root may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack. Organization entries are reported to the registry by the organization plugin, which reports one version per skill name; an organization skill sharing a name with a pack of the root is resolved by the registry's rules the same way.
 - **A pack's views are judged by whoever provides the parts, and unjudged where nobody does.** Without a provider of `ctx.skillPackParts` a view that parsed is carried through, because nothing could draw it either way; the pack is then offered with views no surface has seen, and a delivery is installed on the structural checks alone. It is the same fail-closed position the part list is in, one step further along.
 - **One pack declaring one view id twice keeps the first of them.** The whole-root rule is about two packs. Inside one pack the order is the `views` list the pack's own author wrote, so the second is dropped where any second claim on an id is — by `ctx.componentViews`, with one error line naming the source twice.
 - **A delivery the root already holds is installed by doing nothing, and checked by nothing.** `syncPackRoot` compares first, so a set that matches the root byte for byte returns unchanged without reading a manifest or a view. A root that holds a pack this build would refuse therefore keeps it until a different set arrives.

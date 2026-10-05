@@ -139,7 +139,11 @@ export interface PackDeliveryDirectory {
   maxFiles: number
 }
 
-/** Where the packs are, which platform version they are judged against, whether the root is watched, and where a delivery arrives. */
+/**
+ * Where the packs are, which platform version they are judged against, whether
+ * the root is watched, where a delivery arrives, where an organization's packs
+ * are installed, and whether the status route answers per member.
+ */
 export interface Config {
   /** Absolute path of the pack root: one directory per pack. */
   root: string

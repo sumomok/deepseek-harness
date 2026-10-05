@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-05-skill-pack-organization-intake.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-skill-pack-organization-intake.md
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake:
+  en: e7f307ca7a8c2049
+  zh: b642b635f89b77ff
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/problem:
+  en: 56f56fde6fbb162a
+  zh: badc2a9f2893b2ea
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/decision:
+  en: 3b680fc09f559722
+  zh: 299ec5b92025b97f
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/the-decision-gate:
+  en: af721dfa8d355a65
+  zh: 32cb8c155a120b05
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/the-decision-gate/boundaries:
+  en: c95ad98cbc1a623b
+  zh: dda5cdf62eaa993d
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/testing:
+  en: f7ac9cc96a08c661
+  zh: fb33e181e70cf157
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/alternatives-considered:
+  en: 79ccd2f5c51942e6
+  zh: f0eb522d343e77aa
+/agent-note-the-skill-pack-row-installs-and-judges-an-organization-s-skill-packs-through-an-intake/consequences:
+  en: 04130d87925e92fb
+  zh: 788b61ef5e1c1298

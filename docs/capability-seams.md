@@ -175,6 +175,7 @@ flowchart LR
   pkg_skill_pack_components["skill-pack-components"]
   svc_skillPacks["ctx.skillPacks<br/>Skill-pack root provider"]
   svc_skillPackParts["ctx.skillPackParts<br/>Component parts a pack may require"]
+  svc_skillPackIntake["ctx.skillPackIntake<br/>Organization skill-pack intake"]
   pkg_console_members["console-members"]
   svc_consoleMembers["ctx.consoleMembers<br/>Console member directory"]
   svc_agents["ctx.agents<br/>Agent service"]
@@ -417,6 +418,7 @@ flowchart LR
   pkg_skill_badge --> svc_skills
   pkg_skill_filesystem --> svc_skills
   pkg_skill_office --> svc_skills
+  pkg_skill_pack --> svc_skillPackIntake
   pkg_skill_pack --> svc_skillPackParts
   pkg_skill_pack --> svc_skillPacks
   pkg_skill_pack --> svc_skills
@@ -679,6 +681,7 @@ flowchart LR
 | `ctx.componentViews` | `seam` | `component-surface` | `skill-pack-components` | `component-surface` | - | Holds the views the sidebar lists and /show-content-view shows, from the deployment's own configuration and from any package that registers a source; every view is judged by the pass a show_component call is judged by, and a contributed view the catalog refuses is dropped with one error line rather than failing the console. |
 | `ctx.skillPacks` | `core` | `skill-pack` | - | - | - | Owns one pack root: it judges every pack against the registered component parts, contributes only the active ones to ctx.skills, and publishes each pack's state and unmet requirements on its own route. |
 | `ctx.skillPackParts` | `seam` | `skill-pack` | `skill-pack-components` | `skill-pack` | - | Declares what a pack's requirements are judged against — each registered part's id, owning plugin package and version — plus a change notification; an unmounted Provider leaves the part list empty, which holds every pack that names a part inactive. |
+| `ctx.skillPackIntake` | `service` | `skill-pack` | - | - | - | Provided by the skill-pack row where organizationRoot is configured: installs the packs an organization plugin hands over, judges each entry as the pack root is judged, and offers the active entries' views while the calling fiber is active; the organization plugin, outside this repository, reports those skills itself. |
 | `ctx.consoleMembers` | `service` | `console-members` | - | - | - | Declares which signed-in member a browser request, a Remote caller, or a Session belongs to, each member's registered roots, and per-member non-secret storage; the package registers no plugin, so the key has no Provider in this repository and an inject of it stays pending. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`subagent-in-process-driver`](../packages/subagent/subagent-in-process-driver) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentDefaultModel` | `core` | [`agent-default-model`](../packages/core/agent-default-model) | - | [`api-session-controller`](../packages/api/session-controller), [`headless`](../packages/bundle/headless) | - | Reads the default ModelSelection from volatile Config and saves selections through the profile editor. |

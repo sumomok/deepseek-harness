@@ -1900,10 +1900,14 @@ export type NavSnapshotKind = 'page' | 'view'
 ## `@deepseek-ai/dsh-experimental-skill-pack`
 
 - `inject`: `skills`
-- `source`: [`packages/experimental/skill-pack/src/index.ts:152`](../packages/experimental/skill-pack/src/index.ts)
+- `source`: [`packages/experimental/skill-pack/src/index.ts:147`](../packages/experimental/skill-pack/src/index.ts)
 
 ```ts config-catalog
-/** Where the packs are, which platform version they are judged against, whether the root is watched, and where a delivery arrives. */
+/**
+ * Where the packs are, which platform version they are judged against, whether
+ * the root is watched, where a delivery arrives, where an organization's packs
+ * are installed, and whether the status route answers per member.
+ */
 export interface Config {
   /** Absolute path of the pack root: one directory per pack. */
   root: string
@@ -1913,6 +1917,22 @@ export interface Config {
   watch?: boolean
   /** Where a delivery archive is dropped; absent where a deployment installs its packs some other way. */
   deliveries?: PackDeliveryDirectory
+  /**
+   * Absolute path of the organization root: one `<name>@<version>` directory
+   * per organization entry, written by `ctx.skillPackIntake` and by nothing
+   * else, and not watched. Configured, it provides `ctx.skillPackIntake`;
+   * absent, no organization pack is installed or offered. Its parent holds the
+   * staging and retired siblings a replacement writes, so it is a directory of
+   * its own.
+   */
+  organizationRoot?: string
+  /**
+   * Whether `GET /skill-pack/status` answers only a request `ctx.consoleMembers`
+   * places with a member: 503 while no such service runs, 401 when it places
+   * the request with nobody. Every placed member reads the same document. The
+   * default is false, which answers every request.
+   */
+  perMember?: boolean
 }
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
