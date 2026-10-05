@@ -16,7 +16,7 @@
 
 ## 目录不是通往客户 token 的路
 
-进程里任何插件都能注入 `ctx.consoleMembers`，所以目录不把客户 token 交给其中任何一个：token 持有方挂上一个只读读取器，没有方法返回这个读取器或 token，而目录在整个生命周期里只接受这一个读取器，后加载的插件换不掉它。握有目录的任何插件都能用任何单元名打开任何成员的存储，所以按成员的存储只放非秘密数据；成员的目录 id 不含主体键，所以存储路径里没有成员的 `login_uid`。
+进程里任何插件都能注入 `ctx.consoleMembers`，所以目录不把客户 token 交给其中任何一个：token 持有方挂上一个只读读取器，没有方法返回这个读取器或 token；目录同一时刻只持有一个读取器，持有方的读取器挂着时，别的插件挂不上。持有方撤下读取器时（它的插件重启），每位成员的 token 都算已丢弃，之后可以挂上新的读取器；别的插件趁这个间隙挂上的读取器，只能提供它自己已有的 token，读不到持有方的。握有目录的任何插件都能用任何单元名打开任何成员的存储，所以按成员的存储只放非秘密数据；成员的目录 id 不含主体键，所以存储路径里没有成员的 `login_uid`。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -118,11 +118,16 @@ onChange(listener: (event: { principal: PrincipalKey; kind: 'opened' | 'closed' 
 memberStore(principal: PrincipalKey, unit: string): MemberStore
 
 /**
- * Accept the reader of members' customer tokens. The directory accepts one
- * reader for its lifetime.
+ * Attach the reader of members' customer tokens. The directory holds one
+ * reader at a time: attaching while a reader is attached throws, and once
+ * the returned disposer has run a new reader may be attached, as the token
+ * holder's plugin does when it restarts. Running the disposer counts as
+ * every member's token being dropped: the directory stops reading the
+ * reader, and whatever was derived from those tokens is discarded; the
+ * reader emits no `dropped` for it.
  * @param reader - the read-only customer-token reader.
  * @returns the disposer that detaches the reader.
- * @throws Error when a reader has already been attached.
+ * @throws Error when a reader is already attached.
  */
 attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 ```

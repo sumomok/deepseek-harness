@@ -44,7 +44,7 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 只接受一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/index.ts`](src/index.ts) 写明每个方法的契约。
+`principalOfRequest` 是 fork 的 webServer 路由取得请求背后成员的唯一方式：路由不自己读身份头，也不自己调 `connection.admit`。`principalOfSession` 沿子会话的父链追到最上层的会话，`attachCustomerCredentials` 同一时刻只持有一个客户 token 读取器，且没有方法交出它。[子系统页](../../../docs/subsystems/console-members.zh.md) 解释这三条规则；[`src/index.ts`](src/index.ts) 写明每个方法的契约。
 
 `PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`，值是成员的 `login_uid`。消费方把它当作不透明的值，它不进模型请求、不进日志、不上传。
 

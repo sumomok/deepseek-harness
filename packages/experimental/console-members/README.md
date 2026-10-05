@@ -44,7 +44,7 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` accepts one customer-token reader that no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/index.ts`](src/index.ts) states every method's contract.
+`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/index.ts`](src/index.ts) states every method's contract.
 
 `PrincipalKey` is `Branded<'PrincipalKey'>` from `@deepseek-ai/dsh-brand`, and its value is the member's `login_uid`. A consumer treats it as opaque, and it reaches no model request, log line, or upload.
 
