@@ -2406,7 +2406,10 @@ describe('web e2e: the product-console sidebar with the organization plugin', ()
         expect(composerBox.x + composerBox.width).toBeLessThanOrEqual(width)
         expect({ width, overlapsComposer: overlaps(await boxOf(card), composerBox) })
           .toEqual({ width, overlapsComposer: false })
-        if (width === 390) await evidence(page, 'server-sidebar-org-consent-narrow')
+        if (width === 390) {
+          await expectNonModal(card)
+          await evidence(page, 'server-sidebar-org-consent-narrow')
+        }
       }
     } finally {
       await resize(1680, 1000)
