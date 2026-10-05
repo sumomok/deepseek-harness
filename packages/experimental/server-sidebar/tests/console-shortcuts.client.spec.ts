@@ -1,41 +1,43 @@
 // @vitest-environment jsdom
 /**
- * `console-shortcuts.ts`: the console's catalog of `dsh-client-ui-workspace`'s
- * keyboard shortcuts — the five it withholds left out, the one it keeps under
- * the console's label, in both languages and free of the vocabulary the
- * console keeps off the screen; the binding check that reports a withheld
- * command's combination as reserved; the key guard over the real shortcut
- * registry, which runs no withheld command and every other one; the shortcut
- * reference's entry, registered again over the console's catalog and followed
- * as it comes and goes; and the command ids, the entry id, and the namespace,
- * checked against their owners' source.
+ * `console-shortcuts.ts`: the console's catalog, with the commands it
+ * withholds left out and the rest free of the vocabulary the console keeps
+ * off the screen; the binding check and the save that report a withheld
+ * command's combination as reserved; the key guard, alone and over the real
+ * shortcut registry, which runs no withheld command, every other one, and
+ * passes composition, dead keys, and AltGraph through as the registry does;
+ * the shortcut reference's entry, registered again over the console's catalog
+ * and followed as it comes and goes; and the command ids, their regions, the
+ * entry id, and the namespace, checked against their owners' source.
  */
 import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import ShortcutsService, { type ShortcutCatalogEntry, type ShortcutCommandId, type Shortcuts } from '@deepseek-ai/dsh-client-shortcuts/client'
+import ShortcutsService, {
+  type ShortcutCatalogEntry, type ShortcutCommandId, type ShortcutContext, type ShortcutFixedInput, type ShortcutGesture,
+  type Shortcuts,
+} from '@deepseek-ai/dsh-client-shortcuts/client'
+import type { ShortcutSaveResult } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createSnapshotStore, defineStore } from '@deepseek-ai/dsh-client-store'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  consoleCatalog, consoleDescribeBinding, installShortcutGuard, RELABELED_COMMANDS, WITHHELD_COMMANDS,
-  withholdWorkspaceShortcuts,
+  consoleCatalog, consoleDescribeBinding, consoleEdit, installShortcutGuard, WITHHELD_COMMANDS, withholdShortcuts,
 } from '../src/client/console-shortcuts.ts'
-import { en, zh } from '../src/client/locales.ts'
 
 /** Words the console keeps off the screen, in either language. */
 const BANNED = /工作区|会话|归档|workspace|session|archive/iu
 
-/** The six commands `ui-workspace` registers, with the label its own dictionary gives each. */
-const WORKSPACE_COMMANDS: readonly [string, string][] = [
+/** The seven commands the console withholds, with the label their owners' dictionaries give each. */
+const WITHHELD: readonly [string, string][] = [
   ['session.new', '新会话'],
   ['session.search', '搜索会话'],
   ['workspace.add', '添加工作区'],
   ['session.rename', '重命名会话'],
   ['session.fork', '分叉会话'],
   ['session.archive', '归档会话'],
+  ['workspace.files', '工作区文件'],
 ]
 
 /**
@@ -60,12 +62,16 @@ function row(id: string, label: string, overrides: Partial<ShortcutCatalogEntry>
   }
 }
 
-/** The registry's catalog as the console sees it: `ui-workspace`'s six and two of the shell's own. */
+/** The registry's catalog as the console sees it: the seven withheld commands and three of the shell's own. */
 const CATALOG: readonly ShortcutCatalogEntry[] = [
   row('shortcuts.open', '快捷键速查'),
-  ...WORKSPACE_COMMANDS.map(([id, label]) => row(id, label)),
+  ...WITHHELD.map(([id, label]) => row(id, label)),
   row('settings.open', '打开设置'),
+  row('sidebar.right.toggle', '切换右侧栏'),
 ]
+
+/** An accepted configuration snapshot, as far as these tests read one. */
+const SNAPSHOT: ShortcutSaveResult['snapshot'] = { status: 'ready' } as never
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -73,28 +79,16 @@ afterEach(() => {
 })
 
 describe('consoleCatalog', () => {
-  it('leaves out the five withheld commands and gives the kept one the console\'s label, in Chinese', () => {
-    const catalog = consoleCatalog(createSnapshotStore(CATALOG), makeTranslate(zh))
-    const rows = catalog.getSnapshot()
-    expect(rows.map(entry => [entry.id, entry.label])).toEqual([
-      ['shortcuts.open', '快捷键速查'],
-      ['session.archive', '移出列表'],
-      ['settings.open', '打开设置'],
-    ])
+  it('leaves out every withheld command and keeps the registry\'s own rows for the rest', () => {
+    const rows = consoleCatalog(createSnapshotStore(CATALOG)).getSnapshot()
+    expect(rows.map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'sidebar.right.toggle'])
     expect(rows.map(entry => entry.label).join('\n')).not.toMatch(BANNED)
-    // Everything but the label is the registry's own row.
-    expect(rows[1]).toEqual({ ...CATALOG[6], label: '移出列表' })
     expect(rows[0]).toBe(CATALOG[0])
-  })
-
-  it('reads in English under the English dictionary', () => {
-    const rows = consoleCatalog(createSnapshotStore(CATALOG), makeTranslate(en)).getSnapshot()
-    expect(rows.map(entry => entry.label)).toEqual(['快捷键速查', 'Remove from list', '打开设置'])
   })
 
   it('keeps a snapshot\'s identity until the catalog changes, and follows the catalog\'s notifications', () => {
     const source = createSnapshotStore(CATALOG)
-    const catalog = consoleCatalog(source, makeTranslate(zh))
+    const catalog = consoleCatalog(source)
     const first = catalog.getSnapshot()
     expect(catalog.getSnapshot()).toBe(first)
     const listener = vi.fn()
@@ -102,7 +96,7 @@ describe('consoleCatalog', () => {
     source.set([...CATALOG, row('page.refresh', '刷新页面')])
     expect(listener).toHaveBeenCalledOnce()
     expect(catalog.getSnapshot()).not.toBe(first)
-    expect(catalog.getSnapshot().map(entry => entry.id)).toEqual(['shortcuts.open', 'session.archive', 'settings.open', 'page.refresh'])
+    expect(catalog.getSnapshot().map(entry => entry.id)).toEqual(['shortcuts.open', 'settings.open', 'sidebar.right.toggle', 'page.refresh'])
     stop()
     source.set(CATALOG)
     expect(listener).toHaveBeenCalledOnce()
@@ -124,88 +118,175 @@ describe('consoleDescribeBinding', () => {
   })
 
   it('keeps an issue the registry found, and drops the withheld conflict', () => {
-    const check = consoleDescribeBinding(described({ ...DESCRIBED, issue: 'unsupported-browser', conflicts: ['session.fork'] as ShortcutCommandId[] }))
+    const check = consoleDescribeBinding(described({ ...DESCRIBED, issue: 'unsupported-browser', conflicts: ['workspace.files'] as ShortcutCommandId[] }))
     expect(check(BINDING)).toEqual({ ...DESCRIBED, issue: 'unsupported-browser', conflicts: [] })
   })
 
   it('answers the registry\'s own result where no withheld command holds the combination', () => {
-    const result = { ...DESCRIBED, issue: null, conflicts: ['settings.open', 'session.archive'] as ShortcutCommandId[] }
+    const result = { ...DESCRIBED, issue: null, conflicts: ['settings.open', 'shortcuts.open'] as ShortcutCommandId[] }
     expect(consoleDescribeBinding(described(result))(BINDING)).toBe(result)
+  })
+})
+
+describe('consoleEdit', () => {
+  const RESET = { type: 'reset', id: 'settings.open' as ShortcutCommandId } as const
+  const REVISION: Parameters<Shortcuts['edit']>[1] = 3 as never
+
+  it('reports a refusal only withheld commands caused as a reserved combination, naming none of them', async () => {
+    const edit = vi.fn(() => Promise.resolve<ShortcutSaveResult>({ status: 'conflict', snapshot: SNAPSHOT, conflicts: ['session.new' as ShortcutCommandId] }))
+    expect(await consoleEdit(edit)(RESET, REVISION)).toEqual({ status: 'conflict', snapshot: SNAPSHOT, conflicts: [], issue: 'reserved' })
+    expect(edit).toHaveBeenCalledWith(RESET, REVISION)
+  })
+
+  it('keeps the commands the reference lists, and the registry\'s issue', async () => {
+    const edit = () => Promise.resolve<ShortcutSaveResult>({
+      status: 'conflict', snapshot: SNAPSHOT, issue: 'unsupported-key', conflicts: ['workspace.files', 'shortcuts.open'] as ShortcutCommandId[],
+    })
+    expect(await consoleEdit(edit)(RESET, REVISION))
+      .toEqual({ status: 'conflict', snapshot: SNAPSHOT, issue: 'unsupported-key', conflicts: ['shortcuts.open'] })
+  })
+
+  it('answers the registry\'s own result where no withheld command is named', async () => {
+    for (const result of [
+      { status: 'saved', snapshot: SNAPSHOT },
+      { status: 'conflict', snapshot: SNAPSHOT, conflicts: ['shortcuts.open' as ShortcutCommandId] },
+    ] satisfies ShortcutSaveResult[]) {
+      expect(await consoleEdit(() => Promise.resolve(result))(RESET, REVISION)).toBe(result)
+    }
   })
 })
 
 describe('installShortcutGuard', () => {
   /**
-   * Press one key on the page.
-   * @param init - the key and its modifiers.
-   * @returns the dispatched event.
+   * A registry stand-in: its catalog, its configuration, its device, and the
+   * observers the guard installs.
+   * @param rows - the effective catalog.
+   * @param device - the visiting device; a Mac browser unless given.
+   * @returns a key press delivered as the registry's keyboard adapter delivers it, and the stand-in's parts.
    */
-  function press(init: KeyboardEventInit): KeyboardEvent {
-    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
-    document.body.dispatchEvent(event)
-    return event
+  function guarded(rows: readonly ShortcutCatalogEntry[], device: Pick<Shortcuts, 'runtime' | 'platform'> = { runtime: 'web', platform: 'macos' }) {
+    const observers = new Set<(input: ShortcutFixedInput) => void>()
+    const config = createSnapshotStore<{ status: string }>({ status: 'ready' })
+    const stop = installShortcutGuard({
+      ...device,
+      catalog: createSnapshotStore(rows),
+      config: config as never,
+      observeFixedInput: (listener) => {
+        observers.add(listener)
+        return () => { observers.delete(listener) }
+      },
+    })
+    const press = (gesture: Partial<ShortcutGesture>, region: ShortcutContext['region'] = 'page'): boolean => {
+      const consume = vi.fn()
+      for (const observer of observers) {
+        observer({
+          type: 'keydown',
+          gesture: { code: 'KeyN', control: false, alt: true, shift: false, meta: true, repeat: false, composing: false, defaultPrevented: false, ...gesture },
+          context: { region, modal: null, target: null },
+          consume,
+        })
+      }
+      return consume.mock.calls.length > 0
+    }
+    return { press, stop, config, observers }
   }
 
-  const PRESS_N = { code: 'KeyN', metaKey: true, altKey: true } as const
+  const ROWS: readonly ShortcutCatalogEntry[] = [
+    row('session.new', '新会话', { binding: { code: 'KeyN', modifiers: ['alt', 'meta'] } }),
+    row('session.fork', '分叉会话', { binding: { code: 'KeyF', modifiers: ['shift', 'meta'] }, conflicts: ['settings.open' as ShortcutCommandId] }),
+    row('session.rename', '重命名会话', { binding: { code: 'KeyG', modifiers: ['alt', 'meta'] }, issue: 'unsupported-browser' }),
+    row('session.search', '搜索会话', { binding: null }),
+    row('workspace.add', '添加工作区', { binding: { code: 'KeyO', secondCode: 'KeyP', modifiers: ['alt', 'meta'] } }),
+    row('workspace.files', '工作区文件', { binding: { code: 'KeyP', modifiers: ['alt', 'meta'] } }),
+    row('settings.open', '打开设置', { binding: { code: 'KeyS', modifiers: ['alt', 'meta'] } }),
+  ]
 
   it('consumes only the exact combination of a withheld command the registry would run', () => {
-    const catalog = createSnapshotStore<readonly ShortcutCatalogEntry[]>([
-      row('session.new', '新会话', { binding: { code: 'KeyN', modifiers: ['alt', 'meta'] } }),
-      row('session.fork', '分叉会话', { binding: { code: 'KeyF', modifiers: ['shift', 'meta'] }, conflicts: ['settings.open' as ShortcutCommandId] }),
-      row('session.rename', '重命名会话', { binding: { code: 'KeyG', modifiers: ['alt', 'meta'] }, issue: 'unsupported-browser' }),
-      row('session.search', '搜索会话', { binding: null }),
-      row('workspace.add', '添加工作区', { binding: { code: 'KeyO', secondCode: 'KeyP', modifiers: ['alt', 'meta'] } }),
-      row('session.archive', '归档会话', { binding: { code: 'KeyA', modifiers: ['alt', 'meta'] } }),
-    ])
-    const stop = installShortcutGuard({ catalog }, document)
-    expect(press(PRESS_N).defaultPrevented).toBe(true)
-    for (const init of [
+    const { press, stop, observers } = guarded(ROWS)
+    expect(press({})).toBe(true)
+    for (const gesture of [
       // The same key with one modifier more, one fewer, or another key.
-      { ...PRESS_N, shiftKey: true }, { code: 'KeyN', metaKey: true }, { ...PRESS_N, code: 'KeyM' },
+      { shift: true }, { alt: false }, { code: 'KeyM' },
       // Withheld, but one the registry would not run: a conflict, an issue, an unbound row, a two-key chord.
-      { code: 'KeyF', metaKey: true, shiftKey: true }, { code: 'KeyG', metaKey: true, altKey: true },
-      { code: 'KeyO', metaKey: true, altKey: true },
-      // The kept command.
-      { code: 'KeyA', metaKey: true, altKey: true },
-      // Input that is mid-composition.
-      { ...PRESS_N, isComposing: true },
-    ]) {
-      expect({ init, consumed: press(init).defaultPrevented }).toEqual({ init, consumed: false })
+      { code: 'KeyF', alt: false, shift: true }, { code: 'KeyG' }, { code: 'KeyO' },
+      // A command the console keeps.
+      { code: 'KeyS' },
+      // Input another observer consumed already.
+      { defaultPrevented: true },
+    ] satisfies Partial<ShortcutGesture>[]) {
+      expect({ gesture, consumed: press(gesture) }).toEqual({ gesture, consumed: false })
     }
     stop()
-    expect(press(PRESS_N).defaultPrevented).toBe(false)
+    expect(observers.size).toBe(0)
   })
 
-  it('leaves a key press another listener already consumed as it was', () => {
-    const catalog = createSnapshotStore<readonly ShortcutCatalogEntry[]>([row('session.new', '新会话', { binding: { code: 'KeyN', modifiers: ['alt', 'meta'] } })])
-    const stop = installShortcutGuard({ catalog }, document)
-    const consumed = vi.fn((event: Event) => { event.preventDefault() })
-    document.body.addEventListener('keydown', consumed)
-    const prevented = vi.spyOn(KeyboardEvent.prototype, 'preventDefault')
-    press(PRESS_N)
-    expect(prevented).toHaveBeenCalledOnce()
-    document.body.removeEventListener('keydown', consumed)
-    stop()
+  it('consumes a withheld command\'s press only in the regions its owner runs it in', () => {
+    const { press } = guarded(ROWS)
+    expect([press({}, 'editable'), press({}, 'terminal')]).toEqual([true, false])
+    expect([press({ code: 'KeyP' }, 'page'), press({ code: 'KeyP' }, 'terminal')]).toEqual([true, true])
+  })
+
+  it('leaves Control+W and Control+R in a terminal to the terminal, whichever command holds them', () => {
+    const { press } = guarded([
+      row('workspace.files', '工作区文件', { binding: { code: 'KeyW', modifiers: ['control'] } }),
+      row('workspace.files', '工作区文件', { binding: { code: 'KeyR', modifiers: ['control'] } }),
+      row('workspace.files', '工作区文件', { binding: { code: 'KeyE', modifiers: ['control'] } }),
+    ])
+    const control = { control: true, alt: false, meta: false }
+    expect([press({ ...control, code: 'KeyW' }, 'terminal'), press({ ...control, code: 'KeyR' }, 'terminal')]).toEqual([false, false])
+    expect([press({ ...control, code: 'KeyW' }, 'page'), press({ ...control, code: 'KeyR' }, 'editable')]).toEqual([true, true])
+    // Another key, or one more modifier, in a terminal is the command's.
+    expect([press({ ...control, code: 'KeyE' }, 'terminal'), press({ ...control, code: 'KeyW', shift: true }, 'terminal')])
+      .toEqual([true, false])
+  })
+
+  it('consumes nothing before the registry\'s accepted bindings are active', () => {
+    const { press, config } = guarded(ROWS)
+    config.set({ status: 'loading' })
+    expect(press({})).toBe(false)
+    config.set({ status: 'unreadable' })
+    expect(press({})).toBe(true)
+  })
+
+  it('passes a composing press through, except the Option+Command+N a Mac browser reports as a dead key', () => {
+    const rows = [
+      ...ROWS,
+      row('session.search', '搜索会话', { binding: { code: 'KeyK', modifiers: ['alt', 'meta'] } }),
+      row('session.archive', '归档会话', { binding: { code: 'KeyN', modifiers: ['control', 'alt', 'meta'] } }),
+      row('session.rename', '重命名会话', { binding: { code: 'KeyN', modifiers: ['alt', 'shift', 'meta'] } }),
+      row('session.fork', '分叉会话', { binding: { code: 'KeyN', modifiers: ['meta'] } }),
+      row('workspace.add', '添加工作区', { binding: { code: 'KeyN', modifiers: ['alt'] } }),
+    ]
+    const { press } = guarded(rows)
+    expect(press({ composing: true })).toBe(true)
+    for (const gesture of [
+      { code: 'KeyK' }, { control: true }, { shift: true }, { alt: false }, { meta: false },
+    ] satisfies Partial<ShortcutGesture>[]) {
+      expect({ gesture, consumed: press({ ...gesture, composing: true }) }).toEqual({ gesture, consumed: false })
+    }
+    for (const device of [{ runtime: 'desktop', platform: 'macos' }, { runtime: 'web', platform: 'windows' }] as const) {
+      expect({ device, consumed: guarded(rows, device).press({ composing: true }) }).toEqual({ device, consumed: false })
+    }
+  })
+
+  it('ignores the adapter\'s sequence resets', () => {
+    const { observers } = guarded(ROWS)
+    for (const observer of observers) expect(observer({ type: 'reset' })).toBeUndefined()
   })
 })
 
 describe('withheld shortcut keys over the real registry', () => {
-  /** A stand-in for each `ui-workspace` command with its Web defaults, and one of the shell's own. */
-  const DEFAULTS: readonly [string, string, ('primary' | 'alt' | 'shift')[]][] = [
-    ['session.new', 'KeyN', ['primary', 'alt']],
-    ['session.search', 'KeyK', ['primary', 'alt']],
-    ['workspace.add', 'KeyO', ['primary', 'alt']],
-    ['session.rename', 'KeyG', ['primary', 'alt']],
-    ['session.fork', 'KeyF', ['primary', 'shift']],
-    ['session.archive', 'KeyA', ['primary', 'alt']],
-    ['test.visible', 'KeyY', ['primary', 'alt']],
+  /** A stand-in for each withheld command with its Web defaults and regions, and one of the shell's own. */
+  const DEFAULTS: readonly [string, string, ('primary' | 'alt' | 'shift')[], ShortcutContext['region'][]][] = [
+    ['session.new', 'KeyN', ['primary', 'alt'], ['page', 'editable']],
+    ['session.search', 'KeyK', ['primary', 'alt'], ['page', 'editable']],
+    ['workspace.add', 'KeyO', ['primary', 'alt'], ['page', 'editable']],
+    ['session.rename', 'KeyG', ['primary', 'alt'], ['page', 'editable']],
+    ['session.fork', 'KeyF', ['primary', 'shift'], ['page', 'editable']],
+    ['session.archive', 'KeyA', ['primary', 'alt'], ['page', 'editable']],
+    ['workspace.files', 'KeyP', ['primary', 'alt'], ['page', 'editable', 'terminal']],
+    ['test.visible', 'KeyY', ['primary', 'alt'], ['page', 'editable']],
   ]
-
-  beforeEach(() => {
-    // The registry reads the visiting device off the navigator: a Mac browser,
-    // which `ui-workspace` gives Web defaults.
-    Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true })
-  })
 
   afterEach(() => {
     Reflect.deleteProperty(navigator, 'platform')
@@ -213,58 +294,85 @@ describe('withheld shortcut keys over the real registry', () => {
 
   /**
    * Boot the real shortcut registry with the stand-ins, then the console's guard.
+   * @param platform - the visiting device, as `navigator.platform` reports it.
    * @param stored - the browser's stored shortcut document, if any.
-   * @returns each command's run spy, the context, and a key press.
+   * @returns the context, the plugin, each command's run count, and key presses.
    */
-  async function registry(stored?: object) {
+  async function registry(platform: 'MacIntel' | 'Win32' = 'MacIntel', stored?: object) {
+    // The registry reads the visiting device off the navigator.
+    Object.defineProperty(navigator, 'platform', { value: platform, configurable: true })
     if (stored !== undefined) localStorage.setItem('dsh.keybindings.v1', JSON.stringify(stored))
     const ctx = new Context()
     ctx.provide('locale', { subscribe: () => () => {}, bind: () => (key: string) => key, register: () => () => {} } as never)
     await ctx.plugin(SlotRegistry).await()
     await ctx.plugin(ShortcutsService).await()
     const runs = new Map(DEFAULTS.map(([id]) => [id, vi.fn()]))
-    for (const [id, code, modifiers] of DEFAULTS) {
+    for (const [id, code, modifiers, regions] of DEFAULTS) {
       ctx.shortcuts.register({
         id: id as ShortcutCommandId, label: () => id, aliases: [],
-        defaults: { 'web:macos': { code, modifiers } }, regions: ['page', 'editable'], modals: [],
+        defaults: { 'web:macos': { code, modifiers }, 'web:windows': { code, modifiers } }, regions, modals: [],
         resolve: () => ({ status: 'handled', run: () => { runs.get(id)?.() } }),
       })
     }
     await vi.waitFor(() => { expect(ctx.shortcuts.config.getSnapshot().status).toBe('ready') })
-    const plugin = ctx.plugin({ name: 'server-sidebar', apply: withholdWorkspaceShortcuts })
+    const plugin = ctx.plugin({ name: 'server-sidebar', apply: withholdShortcuts })
     await plugin.await()
-    const press = (code: string, shift = false): void => {
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { code, metaKey: true, altKey: !shift, shiftKey: shift, bubbles: true, cancelable: true }))
+    const press = (init: KeyboardEventInit): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+      document.body.dispatchEvent(event)
+      return event
     }
-    return { ctx, plugin, runs, press }
+    const mac = (code: string, shift = false): KeyboardEvent => press({ code, metaKey: true, altKey: !shift, shiftKey: shift })
+    const counts = (): Record<string, number> => Object.fromEntries([...runs].map(([id, run]) => [id, run.mock.calls.length]))
+    return { ctx, plugin, press, mac, counts }
   }
 
-  it('runs no withheld command for its key, and runs the kept command and the shell\'s own', async () => {
-    const { ctx, runs, press } = await registry()
-    for (const [, code, modifiers] of DEFAULTS) press(code, modifiers.includes('shift'))
-    expect(Object.fromEntries([...runs].map(([id, run]) => [id, run.mock.calls.length]))).toEqual({
+  it('runs no withheld command for its key, and runs the shell\'s own', async () => {
+    const { ctx, mac, counts } = await registry()
+    const consumed = DEFAULTS.map(([, code, modifiers]) => mac(code, modifiers.includes('shift')).defaultPrevented)
+    expect(counts()).toEqual({
       'session.new': 0, 'session.search': 0, 'workspace.add': 0, 'session.rename': 0, 'session.fork': 0,
-      'session.archive': 1, 'test.visible': 1,
+      'session.archive': 0, 'workspace.files': 0, 'test.visible': 1,
     })
+    // Every press is consumed: a withheld one by the console, the shell's own by the registry.
+    expect(consumed).toEqual(DEFAULTS.map(() => true))
     await ctx.fiber.dispose()
   })
 
   it('withholds the key a person rebound a withheld command to, and lets the command that took its old key run', async () => {
-    const { ctx, runs, press } = await registry({
+    const { ctx, mac, counts } = await registry('MacIntel', {
       schemaVersion: 1,
       profiles: { 'web:macos': { 'session.new': { code: 'KeyJ', modifiers: ['primary', 'alt'] }, 'test.visible': { code: 'KeyN', modifiers: ['primary', 'alt'] } } },
     })
-    press('KeyJ')
-    press('KeyN')
-    expect([runs.get('session.new')?.mock.calls.length, runs.get('test.visible')?.mock.calls.length]).toEqual([0, 1])
+    mac('KeyJ')
+    mac('KeyN')
+    expect([counts()['session.new'], counts()['test.visible']]).toEqual([0, 1])
+    await ctx.fiber.dispose()
+  })
+
+  it('lets AltGraph input through on a Windows browser, as the registry does', async () => {
+    const { ctx, press, counts } = await registry('Win32')
+    // Control+Alt+N is `session.new`'s Windows default; with AltGraph held it
+    // is the character a Polish layout types there.
+    expect(press({ code: 'KeyN', key: 'ń', ctrlKey: true, altKey: true, modifierAltGraph: true }).defaultPrevented).toBe(false)
+    expect(press({ code: 'KeyN', key: 'n', ctrlKey: true, altKey: true }).defaultPrevented).toBe(true)
+    expect(counts()['session.new']).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('consumes the Option+Command+N a Mac browser reports as a dead key without swallowing the press after it', async () => {
+    const { ctx, press, counts } = await registry()
+    expect(press({ code: 'KeyN', key: 'Dead', metaKey: true, altKey: true }).defaultPrevented).toBe(true)
+    press({ code: 'KeyY', key: 'y', metaKey: true, altKey: true })
+    expect([counts()['session.new'], counts()['test.visible']]).toEqual([0, 1])
     await ctx.fiber.dispose()
   })
 
   it('gives every key back to the registry once the console unloads', async () => {
-    const { ctx, plugin, runs, press } = await registry()
+    const { ctx, plugin, mac, counts } = await registry()
     await plugin.dispose()
-    press('KeyN')
-    expect(runs.get('session.new')).toHaveBeenCalledOnce()
+    mac('KeyN')
+    expect(counts()['session.new']).toBe(1)
     await ctx.fiber.dispose()
   })
 })
@@ -285,17 +393,21 @@ describe('the console\'s shortcut reference', () => {
       describeBinding: vi.fn((): ReturnType<Shortcuts['describeBinding']> => ({
         binding: null, keys: [], issue: null, conflicts: ['session.rename' as ShortcutCommandId],
       })),
+      edit: vi.fn((): Promise<ShortcutSaveResult> => Promise.resolve({
+        status: 'conflict', snapshot: SNAPSHOT, conflicts: ['session.archive' as ShortcutCommandId],
+      })),
     }
   }
 
-  /** A root context with the slot registry, locale, and shortcut registry, and `shell.overlay` declared as the shell declares it. */
+  /** A root context with the slot registry and shortcut registry, and `shell.overlay` declared as the shell declares it. */
   async function referenceBench() {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.slots.register({ name: 'root', children: { 'shell.overlay': { kind: 'list', scope: 'root' } } } as never, () => null)
-    ctx.provide('locale', { bind: () => makeTranslate(zh) } as never)
     const shortcuts = shortcutsStub()
-    ctx.provide('shortcuts', shortcuts as never)
+    ctx.provide('shortcuts', {
+      ...shortcuts, config: createSnapshotStore({ status: 'ready' }), observeFixedInput: () => () => {},
+    } as never)
     return { ctx, shortcuts }
   }
 
@@ -305,7 +417,7 @@ describe('the console\'s shortcut reference', () => {
     return {
       config,
       inject: () => ({
-        platform: 'macos', runtime: 'web', edit: vi.fn(), recording: vi.fn(), describeBinding: shortcuts.describeBinding,
+        platform: 'macos', runtime: 'web', edit: shortcuts.edit, recording: vi.fn(), describeBinding: shortcuts.describeBinding,
         hooks: { catalog: shortcuts.catalog, config, fixedCatalog: createSnapshotStore([]) },
       }),
     }
@@ -334,13 +446,13 @@ describe('the console\'s shortcut reference', () => {
     return winners[0]!
   }
 
-  it('draws the reference\'s own component, store, and namespace over the console\'s catalog, whichever registers first', async () => {
+  it('draws the reference\'s own component, store, and namespace over the console\'s catalog, check, and save, whichever registers first', async () => {
     for (const ownerFirst of [true, false]) {
       const { ctx, shortcuts } = await referenceBench()
       const owner = ownerFace(shortcuts)
       const options = { locale: 'shortcuts', store: STORE, inject: owner.inject }
       if (ownerFirst) registerOwner(ctx, options)
-      await ctx.plugin({ name: 'server-sidebar', apply: withholdWorkspaceShortcuts }).await()
+      await ctx.plugin({ name: 'server-sidebar', apply: withholdShortcuts }).await()
       if (!ownerFirst) registerOwner(ctx, options)
       await settle()
       const winner = drawn(ctx)
@@ -350,17 +462,21 @@ describe('the console\'s shortcut reference', () => {
       const face = winner.inject?.() ?? {}
       const hooks = face['hooks'] as Record<string, HostObservable<unknown>>
       expect(hooks['config']).toBe(owner.config)
-      expect((hooks['catalog']?.getSnapshot() as ShortcutCatalogEntry[]).map(entry => entry.label)).toEqual(['快捷键速查', '移出列表', '打开设置'])
+      expect((hooks['catalog']?.getSnapshot() as ShortcutCatalogEntry[]).map(entry => entry.label)).toEqual(['快捷键速查', '打开设置', '切换右侧栏'])
       expect([face['platform'], face['runtime']]).toEqual(['macos', 'web'])
       const describe = face['describeBinding'] as Shortcuts['describeBinding']
       expect(describe({ code: 'KeyG', modifiers: ['meta', 'alt'] })).toEqual({ binding: null, keys: [], issue: 'reserved', conflicts: [] })
+      const edit = face['edit'] as Shortcuts['edit']
+      const reset = { type: 'reset', id: 'settings.open' as ShortcutCommandId } as const
+      expect(await edit(reset, 1 as never)).toEqual({ status: 'conflict', snapshot: SNAPSHOT, conflicts: [], issue: 'reserved' })
+      expect(shortcuts.edit).toHaveBeenCalledWith(reset, 1)
       await ctx.fiber.dispose()
     }
   })
 
   it('follows the reference\'s entry as it leaves and comes back, and leaves it alone once the console unloads', async () => {
     const { ctx, shortcuts } = await referenceBench()
-    const plugin = ctx.plugin({ name: 'server-sidebar', apply: withholdWorkspaceShortcuts })
+    const plugin = ctx.plugin({ name: 'server-sidebar', apply: withholdShortcuts })
     await plugin.await()
     const owner = ownerFace(shortcuts)
     const leave = registerOwner(ctx, { locale: 'shortcuts', store: STORE, inject: owner.inject })
@@ -398,7 +514,7 @@ describe('the console\'s shortcut reference', () => {
     for (const [options, component] of unreadable) {
       const { ctx } = await referenceBench()
       registerOwner(ctx, options, component)
-      await ctx.plugin({ name: 'server-sidebar', apply: withholdWorkspaceShortcuts }).await()
+      await ctx.plugin({ name: 'server-sidebar', apply: withholdShortcuts }).await()
       const winner = drawn(ctx)
       expect({ options, priority: winner.options.priority, drawn: (winner.component as () => unknown)() })
         .toEqual({ options, priority: -1, drawn: null })
@@ -412,20 +528,32 @@ describe('the copied ids', () => {
   /** A client source directory of another package. */
   const client = (name: string): string => resolvePath(import.meta.dirname, `../../../client/${name}/src/client`)
 
-  it('names every command `ui-workspace` registers, once each', () => {
+  it('names every command `ui-workspace` registers, once each, in the regions it registers them with', () => {
     // Literal copies: `ui-workspace` exports no constant for its command ids,
     // and a command it adds needs the console's decision before it reaches
     // the reference unwithheld.
     const source = readFileSync(resolvePath(client('ui-workspace'), 'shortcuts.ts'), 'utf8')
-    const registered = [...source.matchAll(/^ {2}register\('([\w.]+)',/gmu)].map(match => match[1])
-    expect(registered).toEqual(WORKSPACE_COMMANDS.map(([id]) => id))
-    expect(new Set([...WITHHELD_COMMANDS, ...RELABELED_COMMANDS.keys()])).toEqual(new Set(registered))
+    const registered = [...source.matchAll(/^ {2}register\('([\w.]+)',/gmu)].map(match => match[1] ?? '')
+    expect(registered).toEqual(WITHHELD.slice(0, 6).map(([id]) => id))
+    // Every command goes through the one `register` helper, which fixes the regions.
+    expect(source.match(/regions: \[[^\]]*\]/gu)).toEqual(['regions: [\'page\', \'editable\']'])
+    for (const id of registered) expect({ id, regions: WITHHELD_COMMANDS.get(id) }).toEqual({ id, regions: ['page', 'editable'] })
+  })
+
+  it('names the command `ui-sidebar-files` registers, in the regions it registers it with', () => {
+    const source = readFileSync(resolvePath(client('ui-sidebar-files'), 'index.ts'), 'utf8')
+    const registration = /ctx\.shortcuts\.register\(\{([\s\S]*?)resolve:/u.exec(source)?.[1]
+    expect(registration).toMatch(/id: 'workspace\.files' as ShortcutCommandId/u)
+    expect(registration).toMatch(/regions: \['page', 'editable', 'terminal'\]/u)
+    expect(WITHHELD_COMMANDS.get('workspace.files')).toEqual(['page', 'editable', 'terminal'])
+    expect([...WITHHELD_COMMANDS.keys()]).toEqual(WITHHELD.map(([id]) => id))
   })
 
   it('is the id and namespace `ui-shortcuts` registers its reference under in `shell.overlay`, at the default priority', () => {
     // A literal copy: `ui-shortcuts` exports no constant for either. The
     // console's entry shadows it at -1 only while `ui-shortcuts` registers at
-    // the default 0, and draws it with its store and its face's hooks.
+    // the default 0, and draws it with its store and its face's hooks; the
+    // face's check and save are the registry's own, which the console wraps.
     const source = readFileSync(resolvePath(client('ui-shortcuts'), 'index.ts'), 'utf8')
     const registration = /ctx\.slots\.register\(\{([^}]*)\}, ShortcutReference\)/u.exec(source)?.[1]
     expect(registration).toMatch(/name: 'shell\.overlay', id: 'shortcuts', locale: 'shortcuts', store,/u)
@@ -433,5 +561,7 @@ describe('the copied ids', () => {
     expect(registration).not.toMatch(/\bpriority\b/u)
     const hooks = 'hooks: { catalog: ctx.shortcuts.catalog, config: ctx.shortcuts.config, fixedCatalog: ctx.shortcuts.fixedCatalog }'
     expect(source).toContain(`describeBinding,\n    ${hooks}`)
+    expect(source).toContain('const edit: typeof ctx.shortcuts.edit = (...args) => ctx.shortcuts.edit(...args)')
+    expect(source).toContain('const describeBinding: typeof ctx.shortcuts.describeBinding = binding => ctx.shortcuts.describeBinding(binding)')
   })
 })

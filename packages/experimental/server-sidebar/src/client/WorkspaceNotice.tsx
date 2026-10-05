@@ -14,7 +14,9 @@
  * that id below `ui-workspace`'s priority (`shadowed-overlay.ts`), so
  * `ui-workspace`'s own toast never mounts. The two archive notices keep their
  * undo, which un-archives through `ui-workspace`, on the same 6 s hold
- * `ui-workspace` gives them.
+ * `ui-workspace` gives them. The console withholds the `session.archive` key
+ * (`console-shortcuts.ts`), so the two archive notices are raised only where
+ * that command still runs: a Desktop shell's native accelerator.
  *
  * Which notice is up is still `ui-workspace`'s to say: the shadowed entry's
  * inject face carries it (`hooks.toast`, `dismissToast`, `undoArchive`), and

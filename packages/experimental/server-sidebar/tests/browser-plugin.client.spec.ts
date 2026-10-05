@@ -26,6 +26,7 @@ import { WithheldSettingsEntry } from '../src/client/settings-entries.ts'
 import { CompactedRow, CompactionFailedRow } from '../src/client/CompactionRows.tsx'
 import { WorkspaceNotice } from '../src/client/WorkspaceNotice.tsx'
 import { StopAndRemoveDialog } from '../src/client/StopAndRemoveDialog.tsx'
+import { WithheldRenameDialog } from '../src/client/withheld-rename.ts'
 import { UntitledTitle } from '../src/client/UntitledTitle.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import type { NavSnapshotItem } from '../src/workflows.ts'
@@ -374,19 +375,18 @@ describe('server-sidebar browser half: sidebar registration', () => {
     for (const dispose of [...disposeOwners, ...disposeKept]) dispose()
   })
 
-  it('replaces ui-workspace\'s notice and stop-and-archive confirmation by their `shell.overlay` ids at priority -1, in this package\'s locale', async () => {
+  it('replaces ui-workspace\'s notice, stop-and-archive confirmation, and rename dialog by their `shell.overlay` ids at priority -1', async () => {
     const { ctx } = await bench()
     const replaced = [
-      { id: 'workspace.row-toast', component: WorkspaceNotice },
-      { id: 'workspace.session-archive', component: StopAndRemoveDialog },
+      { id: 'workspace.row-toast', component: WorkspaceNotice, locale: 'serverSidebar' },
+      { id: 'workspace.session-archive', component: StopAndRemoveDialog, locale: 'serverSidebar' },
+      // Draws nothing, so it reads no dictionary.
+      { id: 'workspace.session-rename', component: WithheldRenameDialog, locale: undefined },
     ] as const
-    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component })))
+    expect(ctx.slots.entries('shell.overlay').map(entry => ({ id: entry.options.id, component: entry.component, locale: entry.locale })))
       .toEqual(replaced)
-    for (const entry of ctx.slots.entries('shell.overlay')) {
-      expect(entry.options.priority).toBe(-1)
-      expect(entry.locale).toBe('serverSidebar')
-    }
-    // ui-workspace registers both at the default priority 0; each cell's
+    for (const entry of ctx.slots.entries('shell.overlay')) expect(entry.options.priority).toBe(-1)
+    // ui-workspace registers all three at the default priority 0; each cell's
     // winner stays this package's entry.
     const disposeOwners = replaced.map(({ id }) => ctx.slots.register({ name: 'shell.overlay', id }, () => null))
     expect(ctx.slots.entriesOfSlot('shell.overlay').map(entry => entry.component)).toEqual(replaced.map(({ component }) => component))

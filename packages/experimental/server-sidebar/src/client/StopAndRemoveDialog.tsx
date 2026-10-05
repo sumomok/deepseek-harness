@@ -12,7 +12,10 @@
  * 全部对话（显示已归档） filter, which this shell does not have; and, for a
  * refused stop, the Host's own reason. {@link replaceArchiveConfirm} registers
  * {@link StopAndRemoveDialog} under that id below `ui-workspace`'s priority
- * (`shadowed-overlay.ts`), so `ui-workspace`'s dialog never mounts.
+ * (`shadowed-overlay.ts`), so `ui-workspace`'s dialog never mounts. The
+ * console withholds that key (`console-shortcuts.ts`), so the confirmation is
+ * asked for only where the command still runs: a Desktop shell's native
+ * accelerator.
  *
  * The console's dialog asks 停止并移出列表？ about the conversation on screen,
  * the only one the shortcut acts on, without naming it, and says how many
