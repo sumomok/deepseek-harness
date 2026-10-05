@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-05-console-members-hold-customer-tokens.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-members-hold-customer-tokens.md
+/agent-note-console-members-enter-the-host-as-a-signed-assertion-and-the-sign-on-gate-holds-one-customer-token-per-member:
+  en: 35f5c8cc3e6dc9ef
+  zh: 77ab4b0ead86b757
+/agent-note-console-members-enter-the-host-as-a-signed-assertion-and-the-sign-on-gate-holds-one-customer-token-per-member/problem:
+  en: fc7058454960294b
+  zh: 0e9d502ae6923c09
+/agent-note-console-members-enter-the-host-as-a-signed-assertion-and-the-sign-on-gate-holds-one-customer-token-per-member/decision:
+  en: 59f9e96cf5493043
+  zh: d71e6817e519a1f4
+/agent-note-console-members-enter-the-host-as-a-signed-assertion-and-the-sign-on-gate-holds-one-customer-token-per-member/alternatives-considered:
+  en: 858f94c88153d94f
+  zh: 717e3457cc6e0bf9
+/agent-note-console-members-enter-the-host-as-a-signed-assertion-and-the-sign-on-gate-holds-one-customer-token-per-member/consequences:
+  en: ec263a3d1e6ae109
+  zh: 0b512d74232064a6

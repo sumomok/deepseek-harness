@@ -631,7 +631,10 @@ flowchart TD
   pkg_experimental_api_speech_to_text --> pkg_typert_protocol
   pkg_experimental_auth_gate --> pkg_client_connection
   pkg_experimental_auth_gate --> pkg_experimental_biz_backend
+  pkg_experimental_auth_gate --> pkg_experimental_console_members
   pkg_experimental_auth_gate --> pkg_host_webserver
+  pkg_experimental_auth_gate --> pkg_session
+  pkg_experimental_auth_gate --> pkg_util_values
   pkg_experimental_ptc_runtime_python --> pkg_ptc_runtime
   pkg_experimental_ptc_runtime_python --> pkg_timeout
   pkg_experimental_ptc_runtime_python --> pkg_util_values
@@ -1699,7 +1702,7 @@ flowchart TD
 | [`api-workspace-controller`](../packages/api/workspace-controller) | `api` | [`api-gateway`](../packages/api/gateway), [`client-connection`](../packages/client/connection), [`host-directory-picker`](../packages/host/directory-picker), [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`config-editor`](../packages/boot/config-editor) | `boot` | [`app-boot`](../packages/boot/app-boot), [`hmr`](../packages/boot/hmr) |
 | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | `experimental` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text), [`typert-protocol`](../packages/typert/protocol) |
-| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`host-webserver`](../packages/host/webserver) |
+| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`client-connection`](../packages/client/connection), [`experimental-biz-backend`](../packages/experimental/biz-backend), [`experimental-console-members`](../packages/experimental/console-members), [`host-webserver`](../packages/host/webserver), [`session`](../packages/core/session), [`util-values`](../packages/util/values) |
 | [`experimental-ptc-runtime-python`](../packages/experimental/ptc-runtime-python) | `experimental` | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`experimental-speech-to-text-sensevoice`](../packages/experimental/speech-to-text-sensevoice) | `experimental` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text), [`subprocess`](../packages/subprocess/subprocess) |
 | [`lsp-stdio`](../packages/lsp/lsp-stdio) | `lsp` | [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
