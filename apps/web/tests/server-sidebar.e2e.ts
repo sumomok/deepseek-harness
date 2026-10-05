@@ -48,10 +48,11 @@
  * in-memory `sumomokOrgNotice` Remote) checks the identity row's menu, which
  * opens that section through the opener seat the compact settings row hides,
  * and the organization notice card: clear of the identity row, its settings
- * button, and the composer on wide and narrow frames, covered by an open
- * drawer, recorded as read or agreed through the fixture, shown again for a
- * new version, and after 稍后 (Later) shown again on the next load. Inside the
- * open drawer an Escape on the identity menu closes only the menu.
+ * button, and the composer on wide and narrow frames, held to its height cap
+ * on the narrowest wide frame (1024×768), covered by an open drawer, recorded
+ * as read or agreed through the fixture, shown again for a new version, and
+ * after 稍后 (Later) shown again on the next load. Inside the open drawer an
+ * Escape on the identity menu closes only the menu.
  *
  * The last describe block owns the `console-auto-compact` Web snapshot: it
  * replays an authored conversation through the same composition and checks
@@ -2210,13 +2211,13 @@ describe('web e2e: the product-console sidebar with the organization plugin', ()
   /**
    * Resize the page and wait until the shell's animated column tracks have
    * settled: the chat column across the frame on a narrow frame, and beside
-   * the session column's 3/24 share on the lane's wide one.
+   * the session column's 3/24 share, at least 180px, on a wide one.
    * @param width - the viewport width.
    * @param height - the viewport height.
    */
   async function resize(width: number, height: number): Promise<void> {
     await page.setViewportSize({ width, height })
-    const session = width < 1024 ? 0 : Math.round(width * 3 / 24)
+    const session = width < 1024 ? 0 : Math.max(180, Math.round(width * 3 / 24))
     await expect.poll(() => columnWidth(shellColumn(page, 'chat')), { timeout: 10_000 }).toBe(width - session)
   }
 
@@ -2331,6 +2332,19 @@ describe('web e2e: the product-console sidebar with the organization plugin', ()
     expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(column.x + column.width)
     await expectNonModal(card)
     await evidence(page, 'server-sidebar-org-notice-wide')
+    // On the narrowest wide frame the column is 180px and the card's text fills it to the height cap.
+    try {
+      await resize(1024, 768)
+      await expect.poll(async () => (await boxOf(card)).width, { timeout: 10_000 }).toBe(164)
+      const bottom = Number.parseFloat(await card.evaluate(element => element.style.getPropertyValue('--server-sidebar-notice-bottom')))
+      const smallBox = await boxOf(card)
+      expect(smallBox.height).toBeCloseTo(Math.min(0.7 * 768, 520, 768 - bottom - 20), 0)
+      expect(overlaps(smallBox, await boxOf(identityRow()))).toBe(false)
+      expect(overlaps(smallBox, await boxOf(heroComposer()))).toBe(false)
+      await evidence(page, 'server-sidebar-org-notice-1024x768')
+    } finally {
+      await resize(1680, 1000)
+    }
   }, 60_000)
 
   it('keeps the notice under the drawer button and clear of the composer on a narrow frame, and under an open drawer', async () => {
