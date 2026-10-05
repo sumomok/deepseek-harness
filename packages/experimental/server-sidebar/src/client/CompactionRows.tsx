@@ -7,11 +7,11 @@
  * 上下文压缩失败 with a line promising another attempt. `conversation.chat.node`
  * is a keyed slot, and only a key's lowest-priority entry renders
  * (`SlotCore.register`'s shadowing rule), so {@link replaceCompactionRows}
- * registers these two rows at priority -1 under the `compaction` and
- * `compaction-failure` keys, and `ui-chat`'s own entries at the default
- * priority 0 never mount. Where `ui-chat` places the row in a turn is
- * unchanged; only what the row shows is the console's: a fixed sentence, no
- * count, no token figure, and no summary to open. The running row
+ * registers these two rows at {@link REPLACING_PRIORITY} under the
+ * `compaction` and `compaction-failure` keys, and `ui-chat`'s own entries at
+ * the default priority 0 never mount. Where `ui-chat` places the row in a
+ * turn is unchanged; only what the row shows is the console's: a fixed
+ * sentence, no count, no token figure, and no summary to open. The running row
  * 正在压缩… (`compaction-running`) stays `ui-chat`'s.
  *
  * A key `ui-chat` renames is a key nothing shadows any longer, and its row
@@ -26,9 +26,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls ui-chat's declaration of `conversation.chat.node` and its node kinds.
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import css from './CompactionRows.module.css'
-
-/** Shadowing rank of the console's rows: below `ui-chat`'s default 0. */
-const REPLACING_PRIORITY = -1
+import { REPLACING_PRIORITY } from './shadowed-overlay.ts'
 
 /** Dictionary namespace both rows read. */
 const NS = 'serverSidebar'

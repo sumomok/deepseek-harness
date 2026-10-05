@@ -35,8 +35,8 @@
  * `dsh-client-ui-conversation`'s `conversation.hero.brand.mark` seat with
  * nothing at all (decision ②'s brand takeover, matching the sidebar's own
  * fallback-less `sidebar.brand.mark` — see `ServerSidebarRoot.tsx`'s module
- * doc): registered at priority -1 so it wins the slot's shadowing rank
- * (ascending, lowest renders) even under an official build, where
+ * doc): registered at {@link REPLACING_PRIORITY} so it wins the slot's
+ * shadowing rank (ascending, lowest renders) even under an official build, where
  * `@deepseek-ai/dsh-client-ui-brand-official` fills the same seat at the
  * default priority 0 — customer overlays also disable that package outright
  * (see the package README), so this is belt-and-suspenders for a deployment
@@ -209,7 +209,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
   ctx.effect(
     () => ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
-      { name: 'conversation.hero.brand.mark', priority: -1 },
+      { name: 'conversation.hero.brand.mark', priority: REPLACING_PRIORITY },
       () => null,
     )),
     'server-sidebar: hero brand-mark takeover',
