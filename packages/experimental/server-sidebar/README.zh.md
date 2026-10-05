@@ -73,7 +73,7 @@ kind: "package-reference"
 <a id="my-workflows"></a>
 ## 我的工作流
 
-我的工作流是用户自己命名的快捷方式，按账号持久化（对应这一部署形态「一个用户一个进程」的形状——这里的「按账号」即「按 `$DSH_HOME`」）。v1 中一条工作流恰好绑定一个对话（v1 边界，见「已知限制」）：`{id, name, order, homeSessionId, navSnapshot, savedAt, groupId?}`。
+我的工作流是用户自己命名的快捷方式，按账号持久化：在「一个登录者一个进程」的部署里即按 `$DSH_HOME`，开启 `perMember` 时按控制台成员（见本节末尾）。v1 中一条工作流恰好绑定一个对话（v1 边界，见「已知限制」）：`{id, name, order, homeSessionId, navSnapshot, savedAt, groupId?}`。
 
 - **存**——「存为工作流」动作坐落在对话自己的会话头部（`conversation.session.header.actions`，序号 30，排在子代理目录与后台任务之后），而不是侧边栏上的一个「+」按钮：一个面向会话级、偶发动作的常规席位已经存在，为同一类动作再引入一种新的交互模式没有正当理由。它只在当前对话至少携带一条用户自己写下的消息时才可见（决策③，通过 `chat.legacy.nodes` 判断——这一 v1 近似的边界见「已知限制」），这符合直觉：工作流是回到一个用户真正开始过的对话的快捷方式,而不是一个空对话的快捷方式。保存时会把当前会话 id 记为 `homeSessionId`，把 content 栏当下展示、且 导航 菜单自己列出的那些落点（从旧到新）记为 `navSnapshot`——栏里的其余东西不会记（见「已知限制」）。
 - **开**——点击一条工作流,在其 `homeSessionId` 仍然存活时直接重新打开它。**恢复只补齐缺失的部分**（决策⑦）：重新打开一个存活会话从不触碰它的内容，因为没有任何缺失需要补齐。
@@ -119,12 +119,16 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **「移出列表」是归档，不是删除**——它调用 `ctx.workspaces.archiveSession`，会话日志在 host 侧保留。由于被移出列表的对话回不来，这个控件会先就地问一次，第二次点击才真正提交；而且这一问的排布本身就挡住了误提交：「确定移出」向左展开，行的右缘——刚才「移出列表」图标所在、也是双击第二下落点的位置——变成「取消」。Escape 同样解除，无论焦点去了哪里；把这一段折起也解除。移出的如果正是屏幕上打开的那个对话，外壳随即落回工作台：这个控制台任何时候都停在一个对话上，而侧栏自己那次载入时的落位是一次性的，不会再触发第二次。归档失败就地报在这一段里，用它自己的一句固定文案（「移出失败，请稍后重试」），而不是工作流列表的保存失败；被拒绝的那句原文出自 host 运行时（`session archive failed: …`），带着本控制台要挡在屏幕之外的词汇，因此只进浏览器控制台。
 - **一条工作流被存下后会自己离开这一段**——保存会绑定它的 `homeSessionId`，而那正是五条排除之一。不需要第二套记账。
 
-菜单（`{workflows, groups, workbenchSessionId}`）是本行自己 Config 里的三个 volatile 字段，经 settings 服务写入当前 profile 的补丁，不会重新挂载本行；本行为它们关掉了自动生成的设置页，因为侧边栏就是它们的编辑器。早先版本存在 `settings.yaml` 的 `server-sidebar` 分区里的菜单，会被一次性导入同名 id 的 profile 条目，所以本行保留这个 id。它在一条同源路由上对外提供：
+默认情况下，菜单（`{workflows, groups, workbenchSessionId}`）是本行自己 Config 里的三个 volatile 字段，经 settings 服务写入当前 profile 的补丁，不会重新挂载本行；本行为它们关掉了自动生成的设置页，因为侧边栏就是它们的编辑器。早先版本存在 `settings.yaml` 的 `server-sidebar` 分区里的菜单，会被一次性导入同名 id 的 profile 条目，所以本行保留这个 id。它在一条同源路由上对外提供：
 
 - `GET /server-menu/workflows`——当前文档，`cache-control: no-store`。
 - `POST /server-menu/workflows`——把提交的补丁（`{workflows?, groups?, workbenchSessionId?}`）**合并**进当前菜单，而不是整体替换，因此只改其中一个字段的调用方从不需要重新提交其余字段；补丁里真正携带的每个数组则是整值替换。上文每一条规则（重复的工作流 id、改版前的 `navSnapshot`、任一条分组约束）都会对合并后的菜单检查，并在写入前以 400 拒绝；settings 服务拒绝的写入（例如被更高配置层覆盖的写入）答以 500。本行在加载时检查同样的规则，所以被手工改到违反其中一条的 profile 会让本行加载失败。
 
 浏览器无法直接调用 `settings.*` RPC——这是一组 loopback 特权方法，经反向代理进来的请求会被外壳自身的信任栅栏答以 403，而不是被反代配置里的某条规则拦下——因此本包的 node 半边是一个可选子节点，只在 `ctx.settings` 与 `ctx.webServer` 同时被组合、且本行由 Loader 挂载时（settings 服务写入的是 profile 条目）才注册这条路由；条件不满足时侧边栏本身依然可用（导航不受影响），只是我的工作流下面没有东西可展示或持久化。
+
+**开启 `perMember` 时，每位控制台成员的菜单分开保存。** 这时一个进程服务多位成员，本行 Config 里的菜单就成了全体成员共用的一份：一位成员保存会改写所有人的菜单，共用的 `workbenchSessionId` 也会在每次加载时于成员之间来回改。这条路由改为把每位成员的菜单存进 `ctx.consoleMembers.memberStore(<成员>, 'server-sidebar')`，不经 settings 服务写任何东西，也不写 profile 补丁，所以只需要 `ctx.webServer`，也不需要 Loader 条目；组合了 `ctx.settings` 的地方，本行照样关掉自动生成的设置页。同样的两个方法、同样的合并方式提供它，判断顺序是：`GET`、`HEAD`、`POST` 以外的方法答 405，浏览器标为跨站的 `POST` 答 403，不以 JSON 发送的答 415；随后在读请求体之前，没有 `consoleMembers` 服务在运行时答 503，该服务认不出请求属于哪位成员（`principalOfRequest`）时答 401；请求体超出上限答 413，不是补丁的答 400，合并后的菜单违反上文任一条规则答 400。从没保存过的成员读到空菜单。
+
+保存的工作流或工作台指向一段被目录的 `principalOfSession` 判给另一位成员的对话时，答 400，文案固定，既不点名那位成员，也不带那段对话：否则成员可以把别人的对话存进自己的菜单，再从菜单里打开它。目录判给无人或不认识的对话照常保存，因为菜单对对话是弱引用（见上文工作流）。已存的那份读不出菜单时，两个方法都答 500，并写一行固定日志，既不带成员也不带内容；它绝不当作空菜单读，因为合并到空菜单上的一次保存会替换掉这位成员存过的一切。存储拒绝写入时同样答 500。同一成员的保存逐个执行，每次都读到前一次写下的内容，所以同时发出的两次保存都会落地；不同成员的保存互不等待。保存被答以 401 或 503 时（两种模式都一样），我的工作流一段显示「保存失败：请刷新页面后重试」（Failed to save: refresh the page and try again），拒绝本身送去浏览器控制台。
 
 <a id="selection-highlight"></a>
 ## 选中高亮
@@ -158,17 +162,18 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 字段 | 用途 |
 | --- | --- |
 | `displayNameClaim` | 部署方访问令牌里携带登录者显示名的那个 claim（本部署所用的 toy-core 登录体系里是 `login_uname`）。必填，且在加载期拒绝空白值：无人指名的 claim 会让每一个登录者都显示为匿名，而现场没有任何线索说明原因。 |
+| `perMember` | 按控制台成员各存一份菜单，而不是整个进程一份，含义与 `dsh-experimental-auth-gate` 的同名字段相同（见上文我的工作流）。默认为 `false`，不是 volatile，只有本行自己的配置能改它。开启时 `workflows` 与 `groups` 必须为空、`workbenchSessionId` 必须不设，否则本行在加载时失败，报错只点字段名，不带任何值。组合加载完成后，开着它却没有 `consoleMembers` 服务在运行的行写一行错误日志；没开它而旁边有这个服务在运行的行也写一行：这样的行把它 Config 里那一份菜单交给每位成员。两行都不点名任何成员。 |
 
 它通过又一条同源路由送到 browser 半边，因为 browser 半边收不到任何 cordis 配置——启动清单携带的是插件名，不是它们的 `config` 块：
 
-- `GET /server-menu/identity`——`{ displayNameClaim }`，`cache-control: no-store`。没有任何东西写它；其它方法一律 405 并列出它确实提供的方法集。与 server-menu 路由不同，这一条只需要 `ctx.webServer`：没有组合 settings 能力的部署照样能写明登录者是谁。
+- `GET /server-menu/identity`——`{ displayNameClaim }`，`cache-control: no-store`。没有任何东西写它；其它方法一律 405 并列出它确实提供的方法集。与 server-menu 路由不同，这一条只需要 `ctx.webServer`：没有组合 settings 能力的部署照样能写明登录者是谁。它只回答部署配置：一个 claim 的名字，对每位成员都一样，不含任何成员存下的东西。因此开启 `perMember` 时它不要求认出请求属于哪位成员，不论 `consoleMembers` 服务是否在运行，页面都读得到它。
 
 -----
 
 <a id="de-terminology"></a>
 ## 去术语化
 
-决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有十二处出厂界面携带这套词汇，或是向终端用户递出一个本产品并不提供的权限开关，或是提供一项控制台不让客户碰的设置或运维动作，或是在对话里显示计数与英文摘要：其中四处的移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案；一处靠隔离它注册所经的那个服务，让它根本不进入这份组合；两处自己没有可用通路，改由一次作用域受限的 CSS 注入隐藏；一处由本包自己的会话标题栏条目盖住；一组设置条目在各自的槽位里被遮蔽；对话里的压缩行，以及 `ui-workspace` 的提示与停止并归档确认框，换成本包自己的（见下文）：
+决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有十三处出厂界面携带这套词汇，或是向终端用户递出一个本产品并不提供的权限开关，或是提供一项控制台不让客户碰的设置或运维动作，或是在对话里显示计数与英文摘要：其中四处的移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案；一处靠隔离它注册所经的那个服务，让它根本不进入这份组合；两处自己没有可用通路，改由一次作用域受限的 CSS 注入隐藏；一处由本包自己的会话标题栏条目盖住；一组设置条目在各自的槽位里被遮蔽；对话里的压缩行，以及 `ui-workspace` 的提示与停止并归档确认框，换成本包自己的；`ui-workspace` 的快捷键从键盘和快捷键速查里一并隐去（见下文）：
 
 | 界面 | 禁用的行 | 说明 |
 | --- | --- | --- |
@@ -184,6 +189,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 对话里压缩落定与压缩失败的行 | *（不禁用：`ui-chat` 画出整个 Chat 栏）* | `ui-chat` 的标记写出被压缩的历史条数与 token 数，点开是 `compaction-basic` 用英文写的摘要；它的失败行说稍后会再试。`CompactionRows.tsx` 遮蔽这两个节点键——见下文。 |
 | `ui-workspace` 的提示 | *（不禁用：`dsh-client-ui-conversation` 需要 `ui-workspace`）* | 页面没能准备好存放对话的地方时显示「无法创建默认工作区，请通过“选择工作区”选择文件夹」，新建对话被拒时显示「新建会话失败：」加宿主给的原因，`session.archive` 快捷键归档时显示「会话已归档」。`WorkspaceNotice.tsx` 遮蔽这条提示在 `shell.overlay` 里的 id——见下文。 |
 | `ui-workspace` 的停止并归档确认框 | *（不禁用：`dsh-client-ui-conversation` 需要 `ui-workspace`）* | `session.archive` 快捷键碰上屏幕上的对话里仍在运行的工作时，「停止并归档此会话？」用显示标题称呼这个对话，清单里把正在运行的一轮写成「进行中的回合」，还指向一个本外壳没有的侧栏已归档筛选。`StopAndRemoveDialog.tsx` 遮蔽它在 `shell.overlay` 里的 id——见下文。 |
+| `ui-workspace` 的快捷键 | *（不禁用：`dsh-client-ui-conversation` 需要 `ui-workspace`）* | 快捷键速查列出「新会话」「搜索会话」「添加工作区」「重命名会话」「分叉会话」「归档会话」，每个按键都会执行对应命令。`console-shortcuts.ts` 隐去前五个，按键和条目一起隐去，第六个列为「移出列表」——见下文。 |
 
 轮次/步骤状态行没有官方通路可以移除，本包因此退回到一个作用域受限的 CSS 注入：一个仅在客户端运行的 effect（`terminology-guard.ts`）向文档头部插入 `[data-composer-card] + * { display: none !important; }`。`data-composer-card` 是输入框自己的卡片外层（`InputBar.tsx`）；它的下一个兄弟节点是输入框的footer/dock 区域，在出厂组合里这个区域只承载 `StatsLine`（`conversation.composer.dock`，序号 0）——因此今天这条规则恰好只会隐藏轮次/步骤这一行，但它是一个与 DOM 顺序耦合的选择器,不是一个 Config 开关：未来任何插件注册进 `conversation.composer.dock`，或者输入框自身标记结构的一次重排，都会在两边任何测试都察觉不到的情况下，悄悄改变这条规则实际隐藏的内容。本包自己的 e2e 场景（`apps/web/tests/server-sidebar.e2e.ts`）钉住了这一点，一旦这一行重新可见就会让这条门禁失败。
 
@@ -203,6 +209,10 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 `session.archive` 快捷键碰上屏幕上的对话里仍在运行的工作时，宿主拒绝归档，`ui-workspace` 便经由它在 `shell.overlay` 里的条目 `workspace.session-archive` 先问一句：「停止并归档此会话？」，称呼对话用的是显示标题，而显示标题会退回到目录名或光秃秃的 id；一份将被停止的工作清单，把正在运行的一轮写成「进行中的回合」，对它的语言表不认识的族直接写出族的键；一句建议，让人从侧栏的「全部对话（显示已归档）」筛选里恢复对话，而本外壳没有这个筛选；停止被拒时，还有宿主自己给的原因。`StopAndRemoveDialog.tsx` 在这个 id 下以优先级 -1、用本包的语言表注册 `StopAndRemoveDialog`，`ui-workspace` 的确认框就永远不会挂载。它问「停止并移出列表？」（Stop and remove from the list?），不点对话的名字，因为那总是屏幕上的这一个；说明仍在运行的工作会先被停止，且不会自动继续；用一句话说出有多少项工作：「还有 N 项工作在运行」（N items of work are still running）。列出条目的族按条目数计，没有条目的族（例如正在进行的回复）计为一项。确认框不写族名，也不写条目，条目的标签是宿主的数据。「停止并移出」（Stop and remove）请 `ui-workspace` 停止这些工作并归档这个对话，随后出现上面那条带撤销的「已停止并移出列表」提示；「取消」、关闭按钮与 Escape 都是取消，停止进行期间它们都不响应。停止被拒时显示「停止或移出失败，请稍后重试」（Couldn’t stop the work and remove it from the list. Try again shortly.），宿主给的原因带着控制台不让上屏的词，送去浏览器控制台。如何回答仍由 `ui-workspace` 执行：确认调用被遮蔽面的 `stopAndArchiveSession`，再调用 `settleSessionArchive`；取消调用 `settleSessionArchive`。工作清单的 `kind` 与 `items` 字段在本包类型检查时对照导出的 `SessionActivity` 类型核对；条目 id、面的成员（`hooks.archiveRequest`、`settleSessionArchive` 与 `stopAndArchiveSession`）以及请求的 `sessionId` 与 `activity` 字段是字面复制，因为 `/client` 入口既没有导出那个面的类型，也没有导出请求的类型。控制台的条目读不懂请求的任何一部分时，不显示确认框，不停止任何东西，这个请求在 `ui-workspace` 里保持待处理，直到下一个请求替换它；浏览器控制台会收到一次报告，不带请求内容。两处 `shell.overlay` 替换都经由 `shadowed-overlay.ts` 读取各自所属包的面：每个条目只读一次，并随着那个条目的注册、替换或移除跟随账本。条目 id 改名会让 `ui-workspace` 的确认框重新出现；`tests/stop-and-remove-dialog.client.spec.tsx` 钉住这次遮蔽，并对照各自所属包的源码核对条目 id、面的成员与请求的字段。
 
+`dsh-client-ui-workspace` 向快捷键注册表注册六个命令，`dsh-client-ui-shortcuts` 的快捷键速查按所属包给的名字逐个列出，并允许访客改键：「新会话」（`session.new`）、「搜索会话」（`session.search`）、「添加工作区」（`workspace.add`）、「重命名会话」（`session.rename`）、「分叉会话」（`session.fork`）、「归档会话」（`session.archive`）。`session.archive` 把屏幕上的对话移出列表，与临时工作流一段的「移出列表」做的是同一件事，所以保留：速查把它列为「移出列表」（Remove from list，即本包的 `temporary.dismiss`），由上面的提示和确认框回应它。其余五个在控制台上没有对应界面——本外壳没有新建按钮，也没有搜索、文件夹或分叉的控件——所以 `console-shortcuts.ts` 把每一个整个隐去：条目隐去而按键仍然生效，访客就会在看不见的地方触发宿主操作。注册表不接受同一个命令 id 的第二次注册，所以两半都不是控制台自己的注册。**按键：** 文档上的一个 `keydown` 监听器先于注册表在 window 上的监听器收到事件，把按下的隐去命令当前生效的组合键消费掉，注册表对已被消费的按键不做任何事。监听器读的是实时目录，所以访客给隐去命令改过的键同样被隐去；它只消费注册表会执行的组合键，所以另一个命令占着的键仍然交给那个命令。**条目：** `shell.overlay` 的单元格是条目 id，所以控制台以优先级 -1 把速查自己的条目 `shortcuts` 再注册一次，用从槽位账本上读出的 `ui-shortcuts` 自己的组件、store 和 `shortcuts` 命名空间，注入面里的目录去掉那五个，给第六个换上控制台的名字。它随着那个条目的注册、替换或移除跟随账本。它的组合键检查把隐去命令占着的组合报为保留组合（「此组合由系统或文本编辑操作保留。」）：注册表不会替换另一个命令的默认组合键，而它的拒绝会点名一个速查里没有列出的命令。控制台读不懂条目的组件、store、命名空间或面的 hooks 时，换成一个什么都不画的条目，并向浏览器控制台报告一次，这时设置行的「编辑快捷键」打开不了任何东西。命令 id、条目 id 与命名空间是字面复制，因为两个包的 `/client` 入口都没有导出这些常量；`tests/console-shortcuts.client.spec.ts` 对照两个所属包的源码核对它们，包括 `ui-shortcuts` 以默认优先级注册、`ui-workspace` 没有注册控制台尚未决定如何处理的命令；e2e 场景核对打开的速查。
+
+控制台上没有给对话改名的地方，所以改名对话框不换文案。`ui-workspace` 的改名对话框（`shell.overlay` 条目 `workspace.session-rename`，标题「重命名会话」）由 `session.rename` 快捷键和 `sidebar.workspaces` 下的两个控件打开，而本外壳从不声明这个槽位；快捷键隐去之后，没有任何东西能打开它。控制台要留下的对话，靠存为工作流来命名。
+
 <a id="brand-and-hero-facade"></a>
 ## 品牌与英雄区门面
 
@@ -215,7 +225,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 <a id="composition"></a>
 ## 组合方式
 
-本插件不属于任何出厂 bundle。客户控制台通过 [`@deepseek-ai/dsh-experimental-console-profile`](../console-profile/README.zh.md) 组合它：该包的 bundle 层禁用 `ui-layout`、`ui-sidebar`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`，并插入 `server-layout`、`content-surface`、`content-column`、本包，以及 `library-skills` 行（一个以 `@deepseek-ai/dsh-experimental-library-skills` 出厂 `skills/` 为根的隔离 `skill-filesystem` provider）。这一行必须组合在 bundle 层里：菜单是 settings 服务保存进 profile 补丁的 volatile Config，而当 `--patch` overlay 或 home 补丁插入或配置了这一行时，config-editor 会拒绝这次写入，所以用 `dsh --profile web --patch <overlay>` 组装的控制台存不下工作流、分组和工作台会话。用 `dsh plugin --profile <name> add <path>` 安装这个 bundle。同一个包还附带 `permission-lock.patch.yml`，即部署叠在 profile 补丁之上应用的那些行。其中的 `permission` 行把预设表改写为面向客户的名字——出厂的 `workspace-write` 名字正是权限 chip 显示的那一个，而这个 chip 在宿主给出的名字与内置默认不同时会原样透传；写明新会话被钉住的 `defaultPreset`（见上文「去术语化」）；以及携带 `isolate: { commands: true }`，正是它让 `/permission` 从未注册（见上文「去术语化」）。控制台包的 `tests/profile.spec.ts` 钉住这三件事。两个文件都不插入 `content-frame` 或 `component-surface`：部署自己的页面目录与视图目录放进部署自己的 bundle 层，因为两者各自携带部署专属配置。两者同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。控制台 bundle 与 `overlay/sidebar-menu.patch.yml` 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。`sidebar-menu.patch.yml` 是最小组合——这一行加上 `ui-sidebar` 的禁用行——使用它的组合同样要把它放进 bundle 层，菜单才存得下。发布 bundle 不得声明实验性包。`dsh-experimental-library-skills` 是被某一行的 `bundledSkillDir` 表达式点名的，而不是被某一行的插件名点名，但它一样是必需的：profile 解析不到它时，该行加载时就抛 `MODULE_NOT_FOUND`，entry tree 永远无法就绪，**控制台起不来**。控制台 bundle 因此把它列在 `dependencies` 里。
+本插件不属于任何出厂 bundle。客户控制台通过 [`@deepseek-ai/dsh-experimental-console-profile`](../console-profile/README.zh.md) 组合它：该包的 bundle 层禁用 `ui-layout`、`ui-sidebar`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`、`ui-permission`，并插入 `server-layout`、`content-surface`、`content-column`、本包，以及 `library-skills` 行（一个以 `@deepseek-ai/dsh-experimental-library-skills` 出厂 `skills/` 为根的隔离 `skill-filesystem` provider）。这一行必须组合在 bundle 层里：菜单是 settings 服务保存进 profile 补丁的 volatile Config，而当 `--patch` overlay 或 home 补丁插入或配置了这一行时，config-editor 会拒绝这次写入，所以用 `dsh --profile web --patch <overlay>` 组装的控制台存不下工作流、分组和工作台会话。开启 `perMember` 时菜单不经 settings 服务保存，所以 profile 补丁之上的层可以配置这一行：服务多位成员的部署在那里重述整行，写 `perMember: true`、空菜单、不带 `workbenchSessionId`，这样 `settings/describe` 也不会把早先单人运行留在共用补丁里的菜单交给每位成员。用 `dsh plugin --profile <name> add <path>` 安装这个 bundle。同一个包还附带 `permission-lock.patch.yml`，即部署叠在 profile 补丁之上应用的那些行。其中的 `permission` 行把预设表改写为面向客户的名字——出厂的 `workspace-write` 名字正是权限 chip 显示的那一个，而这个 chip 在宿主给出的名字与内置默认不同时会原样透传；写明新会话被钉住的 `defaultPreset`（见上文「去术语化」）；以及携带 `isolate: { commands: true }`，正是它让 `/permission` 从未注册（见上文「去术语化」）。控制台包的 `tests/profile.spec.ts` 钉住这三件事。两个文件都不插入 `content-frame` 或 `component-surface`：部署自己的页面目录与视图目录放进部署自己的 bundle 层，因为两者各自携带部署专属配置。两者同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。控制台 bundle 与 `overlay/sidebar-menu.patch.yml` 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。`sidebar-menu.patch.yml` 是最小组合——这一行加上 `ui-sidebar` 的禁用行——使用它的组合同样要把它放进 bundle 层，菜单才存得下。发布 bundle 不得声明实验性包。`dsh-experimental-library-skills` 是被某一行的 `bundledSkillDir` 表达式点名的，而不是被某一行的插件名点名，但它一样是必需的：profile 解析不到它时，该行加载时就抛 `MODULE_NOT_FOUND`，entry tree 永远无法就绪，**控制台起不来**。控制台 bundle 因此把它列在 `dependencies` 里。
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -251,10 +261,13 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **停止扫描以 `SessionSummary.running` 为判据。** 一个 running 位尚未推到本浏览器、又不是当前打开的那个对话，不会被停止，宿主侧的回合会一直跑到它自己结束。
 - **退出这套流程没有浏览器级证据。** Playwright 场景只断言这个控件渲染出来了、底部那一带装得下它，到此为止：本包的场景没有组合 `auth-gate` 行（那个包会以令牌为门槛拦住整个页面，于是场景里其余每一条断言都得先自带令牌），因此「点退出→cookie 消失→落到登录页」是由针对注入式 browser 的单测覆盖证明的，而不是端到端证明的。
 - **设置入口画成一个图标，连接状态提示也随文字标签一起消失。** 底部这一带只有一行，而它所在的那一列是画面宽度的一个份额（`dsh-experimental-server-layout` 的 `solveTracks` 给会话轨道 24 份中的 3 份），因此带文字的触发器在登录名与退出按钮旁边放不下：本外壳向 `sidebar.settings` 的占位方要的是它的紧凑形态（`wide: false`）。`dsh-client-ui-settings-general` 只在带文字的形态里画它的连接状态提示，而那个提示是本控制台唯一的断线通知、也是唯一的重连按钮——现在连接掉了，侧栏什么都不会说。要把两者都拿回来，得让这一列更宽，而那是那个包里已经冻结的轨道比例，不是本包改得动的东西。
+- **只在 bundle 层配置的按成员行，菜单字段仍可写。** settings 服务仍把 `workflows`、`groups` 和 `workbenchSessionId` 交给设置写入，写入存进 profile 补丁，不重新挂载本行。那里没有东西读它们，下次启动时本行在加载时失败，所以服务多位成员的部署在 profile 补丁之上的一层重述这一行（见组合方式），config-editor 在那里拒绝这次写入。
+- **隐去的按键仍会到达桌面壳的原生快捷键。** 按键拦截在页面上消费按键。macOS 或 Windows 上的桌面壳把应用快捷键作为原生菜单快捷键送达，不经过页面，所以在这种壳里打开的控制台页面仍会执行隐去的命令。控制台是给浏览器用的。
+- **隐去命令占着的键不能交给别的命令。** 快捷键速查把它报为保留组合。不改键的访客保留全部默认键，而隐去命令的默认组合键没有任何保留的命令在用。
 - **settings 路由假定存在 HTTP 载体。** browser 半边请求 `/server-menu/workflows`——node 半边注册的那条路由，按页面的部署基址解析而来。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 content-frame 自己那条 settings 路由的处境相同。
 - **仅因内容而不干净的草稿并没有真正被顶替。** `isCleanWorkbenchDraft` 会拒绝复用一份内容列上摆着首页以外任何东西的草稿，但它落下去的那条创建路径经由 `resolveOrCreateSession` → `connectWorkspace` 解析，而后者自己的复用扫描会交回工作区里已有的第一个空白会话——一份没有跑过任何一轮的草稿正是其中之一。通常交回的就是这份草稿本身；若该工作区里另有一个空白会话排在它前面，交回的就是那一个，`workbenchSessionId` 也随之改指。无论是哪一种，访客落到的都是一段本就存在的对话上的首页，而他先前导航到的那个页面仍然留在那份草稿的切换条里。要在这里真正起一段新对话，需要一条为这一个调用方绕开那次扫描的创建路径，而那同时也就决定了一次「导航再点工作台」的循环允许留下多少段被抛弃的空白对话——这是本片没有去拍的产品决定。
 - **跨组移动没有键盘路径，分组之间的排序则完全没有界面。** 移动一条工作流的两条路都需要指针或触屏：拖拽，以及行上的「移动到…」菜单——`Menu` 把它的列表 portal 到 `document.body` 末尾，既不接管焦点、也不响应方向键、也不把 Tab 圈在列表里，因此那些行排在页面上其余全部可聚焦元素之后。Tab 走到触发按钮就停。要补上这条路，要么本包自绘一个自己管理焦点的下拉，要么改共享原件；两者都不在本片之内，而焦点离开该行至少会关掉列表，不至于让它在触发按钮已被隐藏之后还悬在屏幕上。给分组本身重新排序则无路可走——一个分组在创建时拿到自己的 `order`，此后只有置顶会改变它的位置。
-- **临时工作流那一段没有任何身份判定。** 决定成员资格的五条谓词过滤的是本进程所服务的整份对话目录，没有一条追问某一行是谁的对话。让它等于「本人的对话」的是部署形态——一个访客一个进程、一份 `$DSH_HOME`——本包里没有任何东西强制这一点。把两个人指向同一个进程的组合，会让他们互相看见对方的行。
+- **临时工作流那一段没有任何身份判定。** 决定成员资格的五条谓词过滤的是本进程所服务的整份对话目录，没有一条追问某一行是谁的对话。让它等于「本人的对话」的是部署形态——一个访客一个进程、一份 `$DSH_HOME`——本包里没有任何东西强制这一点。把两个人指向同一个进程的组合，会让他们互相看见对方的行。开启 `perMember` 时本包同样不按成员过滤：一位成员的页面列出哪些对话，取决于宿主给这个页面的会话列表。
 - **「移出列表」对使用者是单向的。** 它是归档，host 侧不丢东西，但它不弹带撤销的提示，出厂浏览器取消归档的控件也没有被组合进来；本外壳唯一的撤销在 `session.archive` 快捷键弹出的提示上，只撤那一次归档。一行被移出后不会再回来。
 - **临时工作流那一段是在整份会话目录上现算的。** `session.list` 返回全部（其 v1 没有分页），因此一份很长的历史会在每一次相关变化时于浏览器里被整份过滤一遍。五行上限缩短的是画出来的部分，不是算出来的部分。
 - **一行的相对时间不会自己走。** 它在渲染时算出，因此「刚刚」会一直停在那里，直到别的什么触发这一段重新渲染。

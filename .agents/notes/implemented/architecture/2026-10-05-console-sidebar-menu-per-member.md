@@ -1,0 +1,39 @@
+# Agent Note: The console sidebar keeps each member's menu in that member's store
+
+Status: implemented
+
+English | [中文](2026-10-05-console-sidebar-menu-per-member.zh.md)
+
+## Problem
+
+The console sidebar's menu — the workflows, their groups, and the workbench conversation's id — is three volatile Config fields of the `server-sidebar` row. Its server-menu route saves them in the Host process with `settings.update`, which writes them into the profile patch every visitor of that process reads. That matches one process per signed-in person. One console process serving several members turns it into one menu they all share: a member's save rewrites every member's menu. The workbench id is worse: a page that cannot open the saved workbench conversation creates one on load and saves its id, so once each member sees only their own conversations, the shared id would move between members on every load, each move creating a conversation and rewriting the profile patch.
+
+## Decision
+
+**A `perMember` switch moves the menu into the member directory.** `server-sidebar` gains a `perMember` Config field, `false` by default and not volatile, with the meaning `dsh-experimental-auth-gate`'s field of the same name has. With it set, the server-menu route keeps each member's menu in `ctx.consoleMembers.memberStore(<member>, 'server-sidebar')`, read from `ctx.get('consoleMembers')` per request, and calls neither `settings.update` nor anything else that writes the profile patch. The route answers in the order the auth-gate's per-member token route does: method 405, cross-site `POST` 403, non-JSON `POST` 415, no directory running 503, request placed with nobody 401, the last two before any body is read; then body 413 or 400, the merged menu's validation 400, and a save naming another member's conversation 400. A saved copy that does not read as a menu answers 500 instead of reading as empty, and one member's saves run one after another so that two sent together both land.
+
+**The row cannot be locked, so the switch is a field of the row.** The console's permission lock pins volatile rows by restating them in a layer above the profile patch, where `dsh-config-editor` refuses any settings write to them. The sidebar's own route makes that write on every save, so a locked row would refuse every save of the menu. The single-member console therefore keeps the row in the bundle layer, where the menu stays writable by design. With `perMember` the route no longer writes through settings, so a multi-member deployment can restate the whole row above the profile patch with `perMember: true` and no menu. That deployment lock, `members-lock.patch.yml`, belongs to the member-directory rollout and is not added by this change. To keep a row from carrying a menu nobody reads, the row fails at load when `perMember` is set and `workflows` or `groups` is non-empty or `workbenchSessionId` is set, naming the fields and none of their values.
+
+**Single-member mode is unchanged.** With `perMember` unset the route, its answers, and its settings writes are the code that ran before, moved into `serveProfileMenu` without edits, and the existing specs pass unedited. After the composition loads, a row whose `perMember` disagrees with whether a `consoleMembers` service is running logs one error either way: a per-member row without a directory answers 503 to every member, and a shared row beside a directory serves every member one menu.
+
+**A save may not name another member's conversation.** The workflows' `homeSessionId` values and `workbenchSessionId` a save would store are each passed to `principalOfSession`; one the directory gives to a different member refuses the save, in a fixed line that names neither the member nor the id. Otherwise a member could store another member's conversation in their own menu and open it from there. The session list the Host serves each member is the first check; this is the second. A conversation the directory places with nobody, or does not know, is stored, because a workflow holds a weak reference to its conversation and the conversation may be gone.
+
+**The identity route stays deployment configuration.** `/server-menu/identity` answers only `displayNameClaim`, the same for every member, so it reads no member and is served whether or not a directory runs.
+
+## Alternatives considered
+
+**Lock the row and save the menu somewhere else in the settings service.** Any settings-owned place is one document per process, the same sharing problem, and the lock exists to keep visitors from writing shared documents.
+
+**Key the menu by member inside the row's Config.** The menu would still be one volatile document every visitor's settings write can replace, the profile patch would hold every member's conversation ids, and `settings/describe` would hand them to any visitor.
+
+**Copy the old shared menu to each member as a template.** Its conversation ids belong to whoever created them, so every copy but one would point at another member's conversations; the old menu is assigned to one member or discarded by the migration, not by this row.
+
+**Read an unreadable saved copy as the empty menu.** The next save merged onto it would replace whatever that member had saved; a 500 leaves the copy for repair.
+
+## Consequences
+
+A multi-member deployment sets `perMember` on the row and on auth-gate's row, composes a `consoleMembers` provider, and restates the row above the profile patch with an empty menu. Until that restatement exists, a settings write can still put menu fields into the row's Config; the route never reads them, and the next start refuses the row at load. The member directory's store is the only copy of each member's menu: nothing writes it to the profile patch, so a backup of the profile no longer holds the menus. The browser shows 保存失败：请刷新页面后重试 (Failed to save: refresh the page and try again) for a save refused 401 or 503 in either mode, and sends the refusal to the browser console.
+
+## Testing
+
+`packages/experimental/server-sidebar/tests/member-menu-route.client.spec.ts` runs the row with a test-only `consoleMembers` row (`tests/fixtures/console-members.client.ts`) through a test composition. It pins the answer order with requests whose body never finishes, so 401 and 503 are shown to come before the body is read; a save kept in the saving member's store and out of the profile patch and the other member's menu; a refusal for another member's workflow or workbench conversation that quotes neither; a stored unknown or unplaced conversation; 500 with a fixed line and log for an unreadable copy and a refused write; two concurrent saves of one member both landing while another member's save does not wait; the load-time field refusal; and the two mismatch log lines. The existing `server-menu` specs run unedited for the single-member path, and `apps/web/tests/server-sidebar.e2e.ts` runs the shipped console composition.

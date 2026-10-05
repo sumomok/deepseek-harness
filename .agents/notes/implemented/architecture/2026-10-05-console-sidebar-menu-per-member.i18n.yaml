@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-05-console-sidebar-menu-per-member.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-05-console-sidebar-menu-per-member.md
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store:
+  en: a23a3e6fd948b777
+  zh: 8a07bbe833f414a6
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store/problem:
+  en: 479cf6942e8af280
+  zh: 607d63278a12ff7d
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store/decision:
+  en: b7dcc1173b1690fa
+  zh: d7f39c5b01d876fe
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store/alternatives-considered:
+  en: 4880cec7c8d6c495
+  zh: a8f6cb111f20f46c
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store/consequences:
+  en: 5749c905c1805443
+  zh: ccc32840ff8f1266
+/agent-note-the-console-sidebar-keeps-each-member-s-menu-in-that-member-s-store/testing:
+  en: d0bf5487f0566b23
+  zh: 6c335c03c5e9b4e8
