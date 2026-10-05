@@ -125,6 +125,20 @@ function trackedResponse(text = 'route body'): { readonly response: Response; re
   return { response: new Response(body), cancelled: () => cancelled }
 }
 
+/** Run `body`, then wait 20ms, and return the reasons of the unhandled rejections Node reported meanwhile. */
+async function unhandledRejectionsDuring(body: () => Promise<void>): Promise<unknown[]> {
+  const reasons: unknown[] = []
+  const record = (reason: unknown): void => { reasons.push(reason) }
+  process.on('unhandledRejection', record)
+  try {
+    await body()
+    await new Promise(resolve => setTimeout(resolve, 20))
+  } finally {
+    process.off('unhandledRejection', record)
+  }
+  return reasons
+}
+
 /** Register one exact route on a bare Connection and return its shared Fetch handler. */
 async function bareRoute(fetch: (request: Request, peer: PeerScope) => Promise<Response>): Promise<{
   readonly ctx: Context
@@ -318,21 +332,52 @@ describe('connection/fetch', () => {
   })
 
   it('swallows the failure of a route whose Response the caller does not receive', async () => {
-    const unhandled = vi.fn()
-    process.on('unhandledRejection', unhandled)
-    try {
-      const route = await bareRoute(async () => { throw new Error('route failed unseen') })
-      route.ctx.on('connection/fetch', async (_call, next) => {
-        void next()
-        // The route rejects while the listener is still running.
-        await new Promise(resolve => setTimeout(resolve, 20))
-        return new Response('answered', { status: 403 })
-      })
-      expect((await route.fetch()).status).toBe(403)
+    const route = await bareRoute(async () => { throw new Error('route failed unseen') })
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      void next()
+      // The route rejects while the listener is still running.
       await new Promise(resolve => setTimeout(resolve, 20))
-      expect(unhandled).not.toHaveBeenCalled()
-    } finally {
-      process.off('unhandledRejection', unhandled)
+      return new Response('answered', { status: 403 })
+    })
+    expect(await unhandledRejectionsDuring(async () => {
+      expect((await route.fetch()).status).toBe(403)
+    })).toEqual([])
+  })
+
+  it('leaves a body the listener locked to the holder of its reader, without an unhandled rejection', async () => {
+    const tracked = trackedResponse()
+    const route = await bareRoute(async () => tracked.response)
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      ;(await next()).body!.getReader()
+      return new Response('refused after locking', { status: 403 })
+    })
+    expect(await unhandledRejectionsDuring(async () => {
+      expect((await route.fetch()).status).toBe(403)
+    })).toEqual([])
+    expect(tracked.cancelled()).toBe(false)
+  })
+
+  it('dispatches nothing for a next() called after the waterfall ended, and rejects it', async () => {
+    const onTimer = (run: () => void): void => { setTimeout(run, 0) }
+    const onImmediate = (run: () => void): void => { setImmediate(run) }
+    const refuse = (): Response => new Response('refused', { status: 403 })
+    const fail = (): Response => { throw new Error('guard failed') }
+    const cases = [[onTimer, refuse, 403], [onImmediate, refuse, 403], [onTimer, fail, 'Error: guard failed']] as const
+    for (const [schedule, answer, callerOutcome] of cases) {
+      const route = vi.fn(async () => new Response('route body'))
+      const guarded = await bareRoute(route)
+      let late!: Promise<unknown>
+      guarded.ctx.on('connection/fetch', async (_call, next) => {
+        // The handlers attach in the turn that calls next(), so its rejection is never unhandled.
+        late = new Promise((settle) => { schedule(() => { next().then(settle, settle) }) })
+        return answer()
+      })
+
+      expect(await guarded.fetch().then(response => response.status, (error: unknown) => String(error))).toBe(callerOutcome)
+      const outcome = await late
+      expect(outcome).toBeInstanceOf(Error)
+      expect(outcome).toHaveProperty('message', 'connection/fetch: next() was called after the waterfall ended')
+      expect(route).not.toHaveBeenCalled()
     }
   })
 

@@ -44,7 +44,7 @@ Set `compression: 'gzip'` to wrap eligible socket-backed responses without chang
 
 `register(route)` adds a named `exact` or `prefix` HTTP route, `registerUpgrade(route)` adds an upgrade route for an exact pathname, and both return a disposer that removes the registration. A duplicate path within either table throws — route patterns are a composition-level contract, so a collision is a misconfiguration. HTTP matching is exact over the whole table, then longest prefix, then the fallback handler; upgrades match exactly and unmatched connections are closed.
 
-`routes()` lists the registrations in effect: `{ kind, path }` for each `exact`, `prefix`, and `upgrade` route, each kind sorted by path, then `{ kind: 'fallback' }` while the fallback seat is claimed. A registration whose disposer has run is absent. Registrations declare no HTTP methods, so entries carry none, and listing changes no matching. These routes pass through no Connection hook, so a composition's gate test reads the list to require a classification for every one.
+`routes()` lists the registrations in effect: `{ kind, path }` for each `exact`, `prefix`, and `upgrade` route, each kind sorted by path, then `{ kind: 'fallback' }` while the fallback seat is claimed. A registration whose disposer has run is absent. Registrations declare no HTTP methods, so entries carry none, and listing changes no matching. Routes registered directly on the webserver pass through no Connection hook; the list also holds the `/api` prefix and the channel prefixes that Connection registers, which do. A composition's gate test reads the list to require a classification for every entry.
 
 ### The fallback seat
 

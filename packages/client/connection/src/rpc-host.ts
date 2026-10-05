@@ -202,8 +202,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 
   /**
-   * Run `connection/fetch` around one dispatch to a route or channel. Each Response a `next()` call
-   * produced that the caller does not receive has its body cancelled.
+   * Run `connection/fetch` around one dispatch to a route or channel. The body of each Response the
+   * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
+   * caller receives that Response or its body. Once the waterfall has ended, a `next()` that reaches
+   * the route or channel dispatches nothing and rejects.
    * @param call - the request as listeners see it.
    * @param dispatch - hand the request to the route or channel.
    * @returns the waterfall's Response; rejects with the waterfall's failure.
@@ -211,7 +213,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
   private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
     // A listener may call next() more than once, so each call's Response is recorded.
     const dispatched: DispatchedResponse[] = []
+    let ended = false
     const next = (): Promise<Response> => {
+      // The caller already has the waterfall's outcome, so nothing would read or cancel this Response. The rejection
+      // belongs to the listener that called next(); one it discards is that listener's unhandled rejection.
+      if (ended) return Promise.reject(new Error('connection/fetch: next() was called after the waterfall ended'))
       const entry: DispatchedResponse = { pending: (async () => dispatch())(), settled: undefined }
       void entry.pending.then((response) => { entry.settled = response }, swallowDiscardedRouteFailure)
       dispatched.push(entry)
@@ -222,9 +228,11 @@ export class HostConnectionService extends Service implements HostConnectionHand
       // A listener that throws synchronously makes `waterfall()` throw rather than reject.
       result = await this.peerOwner.waterfall('connection/fetch', call, next)
     } catch (error) {
+      ended = true
       discardDispatched(dispatched, undefined)
       throw error
     }
+    ended = true
     discardDispatched(dispatched, result)
     return result
   }
