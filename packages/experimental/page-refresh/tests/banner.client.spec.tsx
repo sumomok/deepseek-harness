@@ -85,6 +85,15 @@ describe('the banner', () => {
     expect(screen.getByRole('status').getAttribute('data-page-refresh-notice')).toBe('lost')
   })
 
+  it('carries each sentence whole in the text\'s title, for the part a narrow banner cuts off', () => {
+    const { set } = mount(en)
+    set({ refresh: 'update' })
+    const text = screen.getByText('A new version is available. Reload the page to continue.')
+    expect(text.getAttribute('title')).toBe('A new version is available. Reload the page to continue.')
+    set({ refresh: null, connection: 'lost' })
+    expect(screen.getByText('Connection lost, reconnecting…').getAttribute('title')).toBe('Connection lost, reconnecting…')
+  })
+
   it('keeps the English dictionary key-identical to the Chinese one', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
