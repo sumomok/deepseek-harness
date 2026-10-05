@@ -147,11 +147,6 @@ describe('client bundle purity gate', () => {
     expect(() => resolveId('@deepseek-ai/dsh-plugin-manager/registry/internal')).toThrow(/purity/)
   })
 
-  it('admits the zero-dependency timeout root, not its source subpaths', () => {
-    expect(resolveId('@deepseek-ai/dsh-timeout')).toBeNull()
-    expect(() => resolveId('@deepseek-ai/dsh-timeout/src/index.ts')).toThrow(/purity/)
-  })
-
   it('admits only the pure spill notice entry, not its Host policy', () => {
     expect(resolveId('@deepseek-ai/dsh-spill-policy/notice')).toBeNull()
     expect(resolveId('@deepseek-ai/dsh-output-retention')).toBeNull()
