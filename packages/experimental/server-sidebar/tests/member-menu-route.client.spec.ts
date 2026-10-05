@@ -252,6 +252,16 @@ describe('per-member configuration', () => {
     }).not.toThrow()
   })
 
+  it('loads a row that writes only perMember: the empty lists the schema fills in are no menu', async () => {
+    const config = ServerSidebar.Config({ displayNameClaim: 'login_uname', perMember: true })
+    expect([config.workflows.get(), config.groups.get(), config.workbenchSessionId.get()]).toEqual([[], [], undefined])
+    expect(() => { ServerSidebar.apply(new Context(), config) }).not.toThrow()
+    // The same row through the Loader, as a cordis.yml row writing only the field.
+    const { ctx, logs } = await bootMembers()
+    expect(errorsOf(logs)).toEqual([])
+    expect((await readMenu(ctx, ASSERTION_A)).status).toBe(200)
+  })
+
   it('defaults to one menu for the process, and does not declare the field volatile', () => {
     expect(ServerSidebar.Config({ displayNameClaim: 'login_uname' }).perMember).toBe(false)
     // A settings write reaches only fields declared `.volatile()`, so the
