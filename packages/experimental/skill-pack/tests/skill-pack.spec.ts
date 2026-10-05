@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -249,15 +249,22 @@ async function logSettlesOn(fragment: string): Promise<string[]> {
   )
 }
 
-/** Boot a composition whose pack root is empty and whose packs arrive as one archive in a delivery directory. */
-async function loadDeliveryComposition(limits: string[] = []): Promise<{ ctx: Context; root: string; deliveries: string }> {
+/**
+ * Boot a composition whose pack root is empty and whose packs arrive as one archive in a delivery directory.
+ * @param limits - the archive limit lines the `deliveries` block carries.
+ * @param trailing - which of the two directories the configuration writes with a trailing separator.
+ */
+async function loadDeliveryComposition(
+  limits: string[] = [],
+  trailing: { readonly root?: boolean; readonly directory?: boolean } = {},
+): Promise<{ ctx: Context; root: string; deliveries: string }> {
   world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-'))
   const root = join(world, 'packs')
   const deliveries = join(world, 'deliveries')
   await mkdir(deliveries, { recursive: true })
-  const ctx = await boot(skillPackRow(root, false, [
+  const ctx = await boot(skillPackRow(trailing.root === true ? `${root}${sep}` : root, false, [
     '    deliveries:',
-    `      directory: ${JSON.stringify(deliveries)}`,
+    `      directory: ${JSON.stringify(trailing.directory === true ? `${deliveries}${sep}` : deliveries)}`,
     ...limits,
   ]))
   return { ctx, root, deliveries }
@@ -585,6 +592,20 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('over the 64 it is read under'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     await expect(readdir(root)).rejects.toThrow()
+  }, WATCHED_MS)
+
+  it('installs a delivery into a pack root configured with a trailing separator', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition([], { root: true })
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+    expect(await readdir(root)).toEqual(['plain-note'])
+  }, WATCHED_MS)
+
+  it('installs a delivery from a delivery directory configured with a trailing separator', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition([], { directory: true })
+    await deliver(deliveries, 'v1.dshpack', [deliveredPack('plain-note', '  pack:\n    version: 2.0.0')])
+    expect(await catalogSettlesOn(ctx, ['plain-note'])).toEqual(['plain-note'])
+    expect(await readdir(root)).toEqual(['plain-note'])
   }, WATCHED_MS)
 
   it('stops watching the delivery directory when its own fiber is disposed', async () => {

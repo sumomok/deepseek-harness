@@ -16,7 +16,7 @@
 
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, Logger, Service, type Fiber } from '@deepseek-ai/cordis'
@@ -322,6 +322,15 @@ describe('the organization root configuration', () => {
       expect(() => new SkillPackRegistry(new Context(), { root, platformVersion: PLATFORM_VERSION, deliveries, organizationRoot }))
         .toThrow(`and deliveries.directory ${JSON.stringify(deliveries.directory)} must be separate directories`)
     }
+  })
+
+  it('replaces an organization root configured with a trailing separator', async () => {
+    const paths = await newWorld()
+    const ctx = await boot({ ...paths, organizationRoot: `${paths.organizationRoot}${sep}` })
+    const { intake } = await organization(ctx)
+    expect(await intake.replace([entry('layer-guide', '1', 'stable')])).toEqual({ kind: 'ok', refused: [] })
+    expect(intake.isActive('layer-guide', '1')).toBe(true)
+    expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@1'])
   })
 
   it('takes an organization root beside the pack root and the delivery directory', async () => {

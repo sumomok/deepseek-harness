@@ -41,7 +41,7 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack
  */
 
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import chokidar from 'chokidar'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -238,17 +238,18 @@ export class SkillPackRegistry extends Service {
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'skillPacks')
-    if (!isAbsolute(config.root)) {
-      throw new Error(`skill-pack: root must be an absolute path, received ${JSON.stringify(config.root)}`)
-    }
+    const root = absoluteDirectory('root', config.root)
     if (semver.valid(config.platformVersion) === null) {
       throw new Error(
         `skill-pack: platformVersion must be an exact semantic version, received ${JSON.stringify(config.platformVersion)}`)
     }
-    this.root = config.root
+    this.root = root
     this.platformVersion = config.platformVersion
     this.deliveries = resolveDeliveries(config.deliveries)
-    const organizationRoot = resolveOrganizationRoot(config)
+    const organizationRoot = resolveOrganizationRoot(config.organizationRoot, [
+      ['root', root],
+      ...this.deliveries === undefined ? [] : [['deliveries.directory', this.deliveries.directory] as const],
+    ])
     this.intake = organizationRoot === undefined ? undefined : new OrganizationPackIntake(ctx, {
       root: organizationRoot,
       judge: observation => this.judgeAlone(observation),
@@ -540,24 +541,34 @@ function labelOf(status: PackStatus): string {
 }
 
 /**
+ * Read one configured directory as the one path every comparison and write
+ * uses: a trailing separator, `.` and `..` are resolved away, so a write
+ * staged beside the directory never lands inside it.
+ * @param field - the configuration field, as a refusal names it.
+ * @param path - the configured path.
+ * @returns the resolved path.
+ * @throws {Error} when the path is not absolute; resolving it would read it against whatever directory the process is in.
+ */
+function absoluteDirectory(field: string, path: string): string {
+  if (!isAbsolute(path)) throw new Error(`skill-pack: ${field} must be an absolute path, received ${JSON.stringify(path)}`)
+  return resolve(path)
+}
+
+/**
  * Read the organization root, refusing one that would share a directory with
  * a root this row replaces wholesale.
- * @param config - the row's configuration.
- * @returns the organization root, or `undefined` where none is configured.
- * @throws {Error} when the organization root is not an absolute path, or is `root` or
- *   `deliveries.directory`, lies inside either, or contains either: replacing the one
- *   would replace the other's contents.
+ * @param configured - the configured organization root, or `undefined` where none is configured.
+ * @param neighbours - each resolved directory this row replaces or reads wholesale, with the field naming it.
+ * @returns the resolved organization root, or `undefined` where none is configured.
+ * @throws {Error} when the organization root is not an absolute path, or is one of `neighbours`,
+ *   lies inside one, or contains one: replacing the one would replace the other's contents.
  */
-function resolveOrganizationRoot(config: Config): string | undefined {
-  const organizationRoot = config.organizationRoot
-  if (organizationRoot === undefined) return undefined
-  if (!isAbsolute(organizationRoot)) {
-    throw new Error(`skill-pack: organizationRoot must be an absolute path, received ${JSON.stringify(organizationRoot)}`)
-  }
-  const neighbours: [string, string][] = [
-    ['root', config.root],
-    ...config.deliveries === undefined ? [] : [['deliveries.directory', config.deliveries.directory] as [string, string]],
-  ]
+function resolveOrganizationRoot(
+  configured: string | undefined,
+  neighbours: readonly (readonly [string, string])[],
+): string | undefined {
+  if (configured === undefined) return undefined
+  const organizationRoot = absoluteDirectory('organizationRoot', configured)
   for (const [field, path] of neighbours) {
     if (within(organizationRoot, path) || within(path, organizationRoot)) {
       throw new Error(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and ${field} ${JSON.stringify(path)} `
@@ -583,17 +594,13 @@ function within(outer: string, inner: string): boolean {
  * is decided by the configuration schema, which is the one place a number a
  * deployment left out comes from.
  * @param configured - the `deliveries` block, or `undefined` where a deployment configured none.
- * @returns the directory and its limits, or `undefined` where no delivery directory is watched.
+ * @returns the resolved directory and its limits, or `undefined` where no delivery directory is watched.
  * @throws {Error} when the configured directory is not an absolute path.
  */
 function resolveDeliveries(configured: PackDeliveryDirectory | undefined): DeliveryDirectory | undefined {
   if (configured === undefined) return undefined
-  if (!isAbsolute(configured.directory)) {
-    throw new Error(
-      `skill-pack: deliveries.directory must be an absolute path, received ${JSON.stringify(configured.directory)}`)
-  }
   return {
-    directory: configured.directory,
+    directory: absoluteDirectory('deliveries.directory', configured.directory),
     limits: {
       maxArchiveBytes: configured.maxArchiveBytes,
       maxFileBytes: configured.maxFileBytes,
