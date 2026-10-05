@@ -1250,7 +1250,9 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
  * response has not ended, has its upstream request destroyed, which closes
  * that upstream connection, and nothing is logged or answered for it; a
  * response still queued behind an earlier one on the client's connection
- * counts as not completely written.
+ * counts as not completely written. An upgrade that arrives on a connection
+ * whose earlier response has not ended is logged and closed with nothing
+ * written.
  * @param {Settings} settings - validated settings with `mode` set to `proxy`.
  * @param {Runtime} runtime - the log sink and clock.
  * @returns {{ server: import('node:http').Server, gate: Gate }} the server and the gate whose sockets `gate.close()` releases.
@@ -1378,6 +1380,16 @@ export function createProxyServer(settings, runtime) {
       runtime.log(`proxy: upgrade socket error: ${String(error.code ?? error.name)}`)
       socket.destroy()
     })
+    // Node hands over an upgrade pipelined behind a response that is still in
+    // progress, and that response goes on writing to this socket, so nothing
+    // may be written here: a status or the upstream's 101 would land inside
+    // its body. Any response that has not ended counts, started or not, since
+    // one that starts later would write into the upgraded stream.
+    if (responses.openOn(socket).length > 0) {
+      runtime.log('proxy: refused upgrade: a response on its connection is in progress')
+      socket.destroy()
+      return
+    }
     let pathname
     try {
       pathname = requestPathname(req.url)

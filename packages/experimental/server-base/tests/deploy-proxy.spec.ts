@@ -449,9 +449,11 @@ const FLOOD_PIECE = Buffer.alloc(16 * 1024, 'x')
  */
 type StreamingAnswer = 'chunk' | 'flood' | 'silent'
 
-/** A stand-in upstream that never ends a response. */
+/** A stand-in upstream that never ends a response and answers every upgrade 101. */
 interface StreamingStub {
   port: number
+  /** The target of every upgrade handshake received. */
+  upgrades: string[]
   /**
    * @param index - the request's position in arrival order, from 0.
    * @returns a promise that resolves once that request has arrived.
@@ -481,7 +483,8 @@ function slot(slots: Map<number, PromiseWithResolvers<true>>, index: number): Pr
 }
 
 /**
- * A stand-in upstream that answers each request as `answer` says.
+ * A stand-in upstream that answers each request as `answer` says and each
+ * upgrade with 101.
  * @param answer - how each request is answered.
  * @returns the stub.
  */
@@ -508,8 +511,14 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
       flood()
     }
   })
+  const upgrades: string[] = []
+  server.on('upgrade', (req: http.IncomingMessage, socket: Socket) => {
+    upgrades.push(req.url ?? '')
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
+  })
   return {
     port: await listen(server),
+    upgrades,
     arrived: index => slot(arrivals, index).promise,
     closed: index => slot(closes, index).promise,
   }
@@ -531,6 +540,11 @@ interface OpenConnection {
   client: Socket
   /** Everything the gate has sent so far, as latin1 text. */
   received: () => string
+  /**
+   * @param marker - the text to wait for in the answer.
+   * @returns a promise that resolves once the answer contains `marker` and rejects when the connection closes first.
+   */
+  until: (marker: string) => Promise<true>
   /** Resolves once the connection closes. */
   closed: Promise<true>
 }
@@ -546,21 +560,31 @@ interface OpenConnection {
  */
 async function readUntil(port: number, text: string, marker: string): Promise<OpenConnection> {
   let received = ''
-  const reached = Promise.withResolvers<true>()
+  let ended = false
+  const waiters: Array<{ marker: string; reached: PromiseWithResolvers<true> }> = []
   const closed = Promise.withResolvers<true>()
   const client = net.connect(port, '127.0.0.1', () => { client.write(text) })
   closers.push(async () => { client.destroy() })
+  const refusal = (wanted: string) => new Error(`connection closed before ${JSON.stringify(wanted)}: ${JSON.stringify(received)}`)
   client.on('data', (chunk: Buffer) => {
     received += chunk.toString('latin1')
-    if (received.includes(marker)) reached.resolve(true)
+    for (const waiter of waiters) if (received.includes(waiter.marker)) waiter.reached.resolve(true)
   })
   client.on('error', () => { client.destroy() })
   client.on('close', () => {
-    reached.reject(new Error(`connection closed before ${JSON.stringify(marker)}: ${JSON.stringify(received)}`))
+    ended = true
+    for (const waiter of waiters) waiter.reached.reject(refusal(waiter.marker))
     closed.resolve(true)
   })
-  await reached.promise
-  return { client, received: () => received, closed: closed.promise }
+  const until = (wanted: string): Promise<true> => {
+    const reached = Promise.withResolvers<true>()
+    if (received.includes(wanted)) reached.resolve(true)
+    else if (ended) reached.reject(refusal(wanted))
+    else waiters.push({ marker: wanted, reached })
+    return reached.promise
+  }
+  await until(marker)
+  return { client, received: () => received, until, closed: closed.promise }
 }
 
 /**
@@ -1177,6 +1201,30 @@ describe('upgrades', () => {
     expect(received.slice(received.indexOf('\r\n\r\n') + 4)).toBe('client-frame')
     client.write('second-frame')
     expect((await w.dsh.until('second-frame')).endsWith('client-framesecond-frame')).toBe(true)
+  })
+
+  it.each([
+    ['a dsh path without a credential', '/api/remote.mux', ''],
+    ['a verified dsh path', '/api/remote.mux', `Cookie: accessToken=${TOKEN}\r\n`],
+    ['a remote-application path', '/ini-web2/socket', ''],
+  ] as const)('close the connection with nothing written when an earlier response on it is in progress, on %s', async (_label, path, cookie) => {
+    const w = await streamingWorld('chunk')
+    const { client, received, closed } = await readUntil(w.port, 'GET /ini-web2/events HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n', FIRST_CHUNK)
+    client.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n${cookie}\r\n`)
+    await Promise.all([closed, w.remote.closed(0)])
+    const answer = received()
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(answer.slice(answer.indexOf('\r\n\r\n'))).not.toMatch(/HTTP\/1\.[01] \d{3}/)
+    expect([...w.dsh.upgrades, ...w.remote.upgrades]).toEqual([])
+    expect(w.logs).toEqual(['proxy: refused upgrade: a response on its connection is in progress'])
+  })
+
+  it('switch protocols on a connection whose earlier response has completed', async () => {
+    const w = await world()
+    const connection = await readUntil(w.port, 'GET /assets/a HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n', '\r\n\r\nok')
+    connection.client.write(handshake('/plugins/events'))
+    await connection.until('\r\n\r\nokHTTP/1.1 101 Switching Protocols\r\n')
+    expect(w.dsh.upgrades).toHaveLength(1)
   })
 
   it('answer 502 when the upstream closes before answering the handshake', async () => {
