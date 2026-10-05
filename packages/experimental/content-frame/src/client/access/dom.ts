@@ -341,19 +341,84 @@ const NO_PICTURE: ReadonlySet<string> = new Set(['none', ''])
 const GENERATED_PSEUDOS: readonly GeneratedPseudo[] = ['::before', '::after']
 
 /**
- * The values of `content` that generate nothing: the initial values of a
- * pseudo-element and of an element, the empty string a page writes to give a
- * pseudo-element a box and no glyph — a clearfix, or a tick drawn with a
- * border — and the empty answer of an engine that computes no `content`.
+ * A code point in one of Unicode's three private use areas: U+E000–U+F8FF,
+ * U+F0000–U+FFFFD and U+100000–U+10FFFD. An icon font maps its glyphs there;
+ * the placeholders and symbols a page writes as text are not spelled there.
  */
-const NO_CONTENT: ReadonlySet<string> = new Set(['none', 'normal', '""', ''])
+const PRIVATE_USE = /[\u{E000}-\u{F8FF}\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u
+
+/**
+ * One escape in a CSS value: a backslash and one to six hex digits, with the
+ * one whitespace after them that ends the escape, or a backslash and the
+ * character it stands for.
+ */
+const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\n\r\f])?|[\s\S])/gu
+
+/** The last code point Unicode defines. */
+const LAST_CODE_POINT = 0x10FFFF
+
+/**
+ * The character a hex escape stands for, by the CSS rules: U+FFFD for zero, for
+ * a surrogate, and for a value past {@link LAST_CODE_POINT}.
+ * @param hex - the escape's hex digits.
+ * @returns the character.
+ */
+function escapedCharacter(hex: string): string {
+  const point = Number.parseInt(hex, 16)
+  const replaced = point === 0 || (point >= 0xD800 && point <= 0xDFFF) || point > LAST_CODE_POINT
+  return replaced ? '�' : String.fromCodePoint(point)
+}
+
+/**
+ * A CSS value with every escape in it replaced by the character it stands for.
+ * Chromium answers a private use character in a computed `content` as the
+ * character itself, and a stylesheet writes it as an escape (`"\e78c"`); both
+ * spellings decode to the same character. The value is read left to right, so
+ * an escaped backslash (`"\\e78c"`) is a backslash and the digits after it are
+ * text.
+ * @param value - the value as written or serialized.
+ * @returns the decoded value.
+ */
+function decodeEscapes(value: string): string {
+  return value.replace(CSS_ESCAPE, (escape: string, hex: string | undefined) =>
+    (hex === undefined ? escape.slice(1) : escapedCharacter(hex)))
+}
+
+/** A double-quoted string in a serialized CSS value, its escapes included. */
+const CSS_STRING = /"(?:[^"\\]|\\[\s\S])*"/gu
+
+/**
+ * A function that generates an image in `content`: `url()`, `image-set()`, and
+ * a linear, radial or conic gradient. It matches the end of the function's
+ * name, so `-webkit-image-set(` and the `repeating-` gradients match too.
+ */
+const PICTURE_FUNCTION = /(?:url|image-set|(?:linear|radial|conic)-gradient)\(/iu
+
+/**
+ * True for a computed `content` that draws a picture: one holding a private use
+ * character (see {@link PRIVATE_USE}), raw or escaped, or one of the functions
+ * {@link PICTURE_FUNCTION} names outside its strings.
+ *
+ * Everything else is text or nothing: the placeholder a page draws an empty
+ * value with (`"--"`), a symbol spelled as an ordinary character (`"✓"`), what
+ * `attr()`, a counter and a quote resolve to, the empty string a page writes to
+ * give a pseudo-element a box and no glyph — a clearfix, or a tick drawn with a
+ * border — and `none`, `normal`, or the empty answer of an engine that
+ * computes no `content` for a pseudo-element.
+ * @param content - the computed value.
+ * @returns whether the value draws a picture.
+ */
+function generatesPicture(content: string): boolean {
+  return PICTURE_FUNCTION.test(content.replace(CSS_STRING, '""')) || PRIVATE_USE.test(decodeEscapes(content))
+}
 
 /**
  * True for an element that draws a picture: an `svg` or an `img`, an element
  * painting an image as its background or through its mask, or one whose
- * `::before` or `::after` generates content. What decides is how the element
- * renders and not what it is called, and the element's own properties are read
- * before its two pseudo-elements.
+ * `::before` or `::after` generates a glyph or an image (see
+ * {@link generatesPicture}). What decides is how the element renders and not
+ * what it is called, and the element's own properties are read before its two
+ * pseudo-elements.
  * @param el - the element to classify.
  * @param computedStyle - injected computed style.
  * @returns whether the element draws a picture.
@@ -362,7 +427,7 @@ function drawsPicture(el: Element, computedStyle: ComputedStyleOf): boolean {
   if (PICTURE_TAGS.has(el.localName)) return true
   const own = computedStyle(el)
   if (PICTURE_PROPERTIES.some(property => !NO_PICTURE.has(own.getPropertyValue(property)))) return true
-  return GENERATED_PSEUDOS.some(pseudo => !NO_CONTENT.has(computedStyle(el, pseudo).getPropertyValue('content')))
+  return GENERATED_PSEUDOS.some(pseudo => generatesPicture(computedStyle(el, pseudo).getPropertyValue('content')))
 }
 
 /**

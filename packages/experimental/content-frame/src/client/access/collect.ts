@@ -337,10 +337,12 @@ function controlFace(el: Element, role: string, walk: Walk): ControlFace {
  * row of its own, and a run the page makes clickable is offered in a cell
  * exactly where it would be offered outside one.
  *
- * An element with the structure of an icon is one before the cursor is asked
- * about: an operation column draws its commands with a pointer over some and
- * not over others, and one column printing two kinds of row for one kind of
- * command would say the commands differ.
+ * An element drawn the way an icon is — no role, no element and no text
+ * inside it, a mark to be named by, and a picture it draws (see
+ * {@link isIconShape}) — is one before the cursor is asked about: an
+ * operation column draws its commands with a pointer over some and not over
+ * others, and one column printing two kinds of row for one kind of command
+ * would say the commands differ.
  * @param el - the element inside the cell.
  * @param walk - the walk in progress.
  * @param labelled - whether a `label` naming a control holds the element, which
@@ -371,9 +373,9 @@ function isCellControl(el: Element, walk: Walk): boolean {
  * answered with what the page wrote on it and a click target holding text with
  * the text it shows.
  *
- * A drawing with the structure of an icon is read for the controls drawn inside
- * it first, and is an icon only where it holds none: a link drawn as a slice of
- * a chart is what the reader can operate there, whatever class the chart
+ * A drawing {@link isIconShape} accepts is read for the controls drawn inside
+ * it first, and is an icon only where it holds none: a link drawn as a slice
+ * of a chart is what the reader can operate there, whatever class the chart
  * carries.
  * @param el - the cell, or an element inside it.
  * @param walk - the walk in progress.

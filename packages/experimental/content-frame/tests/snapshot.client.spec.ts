@@ -43,9 +43,20 @@ function computedStyle(el: Element, pseudo?: GeneratedPseudo): StyleRead {
 
 /**
  * The glyph an icon font draws an icon with, written into its `::before` the
- * way Element UI's `el-icon-edit` writes `content: "\e764"`.
+ * way element-ui 2.15.14's `el-icon-edit` writes `content: "\e78c"`, and
+ * serialized as a browser answers it: the private use character itself.
  */
-const GLYPH = 'data-before=\'"\ue764"\''
+const GLYPH = 'data-before=\'"\ue78c"\''
+
+/**
+ * One leaf per value, each writing that value into its `::before` and carrying
+ * the class `g1`, `g2`, \u2026 by its position.
+ * @param values - the computed `content` of each leaf's `::before`.
+ * @returns the markup.
+ */
+function leaves(...values: string[]): string {
+  return values.map((value, at) => `<i class="g${at + 1}" data-before='${value}'></i>`).join('')
+}
 
 /** Put one page up, with a fresh numbering. */
 function page(html: string): RefTable {
@@ -2337,7 +2348,7 @@ describe('whether an icon draws a picture', () => {
   // rendering, and no class says which is which.
 
   it('reads a leaf an icon font writes a glyph into, in front of it or behind it, as an icon', () => {
-    const refs = page(tableOf(`<i class="el-icon-edit" ${GLYPH}></i><i class="el-icon-share" data-after='"\ue6a2"'></i>`))
+    const refs = page(tableOf(`<i class="el-icon-edit" ${GLYPH}></i><i class="el-icon-share" data-after='"\ue793"'></i>`))
     expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: el-icon-edit}  e4 icon {class: el-icon-share}')
   })
 
@@ -2357,11 +2368,61 @@ describe('whether an icon draws a picture', () => {
 
   it('reads generated content that is none, normal or an empty string as drawing nothing', () => {
     // An empty string is how a page gives a pseudo-element a box and no glyph:
-    // a clearfix, or the tick a library draws with a border.
+    // a clearfix, or the tick a library draws with a border. An engine that
+    // computes no `content` for a pseudo-element answers `normal` or nothing.
     const refs = page(tableOf('<i class="a" data-before="none" data-after="none"></i>'
       + '<i class="b" data-before="normal" data-after="normal"></i>'
-      + '<i class="c" data-before=\'""\' data-after=\'""\'></i>'))
+      + '<i class="c" data-before=\'""\' data-after=\'""\'></i>'
+      + '<i class="d" data-before="" data-after=""></i>'))
     expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('reads a glyph from each of the three private use areas as an icon, as the character or as an escape', () => {
+    // Chromium serializes a private use character as the character itself; the
+    // escape a stylesheet writes it with is read the same.
+    const refs = page(tableOf(leaves('""', '"\u{f0000}"', '"\u{10fffd}"', '"\\e78c"', '"\\f0000"', '"\\10fffd"')))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | e3 icon {class: g1}  e4 icon {class: g2}  e5 icon {class: g3}  '
+      + 'e6 icon {class: g4}  e7 icon {class: g5}  e8 icon {class: g6}')
+  })
+
+  it('reads plain text, a counter, a quote and an attribute generated in front of a leaf as drawing nothing', () => {
+    // The placeholder an empty value is drawn with, and a tick or a cross drawn
+    // as an ordinary character, are text. A browser resolves `attr()` to the
+    // attribute's string before it answers; these values stand for what the
+    // functions spell, which draws no picture either.
+    const refs = page(tableOf(leaves('"--"', '"✓"', '"✗"', 'attr(x)', 'counter(n)', 'open-quote')))
+    expect(rowOf(refs)).toBe('  row 1: 东风站 | ')
+  })
+
+  it('reads an image or a gradient generated in front of a leaf as an icon', () => {
+    const refs = page(tableOf(leaves(
+      'url("edit.png")',
+      'image-set(url("edit.png") 1dppx)',
+      '-webkit-image-set(url("edit.png") 1x)',
+      'linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255))',
+      'repeating-linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+      'repeating-radial-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+      'repeating-conic-gradient(rgb(255, 0, 0), rgb(0, 0, 255) 10%)',
+    )))
+    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9, 10, 11]
+      .map((ref, at) => `e${ref} icon {class: g${at + 1}}`).join('  ')}`)
+  })
+
+  it('decodes an escape by the rules of CSS before it looks for a glyph', () => {
+    // Hex digits in either case, up to six of them, end at the first space
+    // after them; an escaped backslash is a backslash, so the digits after it
+    // are text. Zero, a surrogate, and a value past the last code point decode
+    // to the replacement character. The first and last code point of each area
+    // are glyphs, and the code points either side of an area are not.
+    const refs = page(tableOf(leaves(
+      '"\\E78C"', '"\\00e78c"', '"a\\e78c b"', '"\\e000"', '"\\f8ff"', '"\\ffffd"', '"\\100000"',
+      '"\\\\e78c"', '"\\110000"', '"\\0"', '"\\d800"', '"\\f900"', '"\\effff"', '"\\ffffe"', '"\\10fffe"',
+      '"url(edit.png)"',
+    )))
+    expect(rowOf(refs)).toBe(`  row 1: 东风站 | ${[3, 4, 5, 6, 7, 8, 9]
+      .map((ref, at) => `e${ref} icon {class: g${at + 1}}`).join('  ')}`)
   })
 
   it('reads the empty value and the indent of a tree table as nothing, and the icon beside them as one', () => {
