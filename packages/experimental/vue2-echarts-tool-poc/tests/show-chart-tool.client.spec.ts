@@ -433,12 +433,12 @@ describe('show_chart cancellation', () => {
   it('answers unverified immediately for a wait that starts already aborted', async () => {
     const pending = new PendingCharts()
     const aborted = AbortSignal.abort(new Error('gone'))
-    await expect(pending.settle('call-x', 30_000, aborted)).resolves.toBeUndefined()
+    await expect(pending.settle('call-x', undefined, 30_000, aborted)).resolves.toBeUndefined()
   })
 
   it('takes no report once a wait has ended', async () => {
     const pending = new PendingCharts()
-    await pending.settle('call-y', 1, new AbortController().signal)
+    await pending.settle('call-y', undefined, 1, new AbortController().signal)
     expect(pending.report({ callId: 'call-y', verdict: { ok: true, seriesCount: 1, pointCount: 1 } })).toBe(false)
   })
 })

@@ -28,16 +28,16 @@ export class PendingCharts {
   /**
    * Wait for one call's report.
    * @param callId - the tool execution's call id.
+   * @param sessionId - the session the call runs in, `undefined` for a call made outside any agent.
    * @param timeoutMs - how long a browser has to answer before the call gives up.
    * @param signal - the execution's cancellation; an abort ends the wait like a timeout.
-   * @param sessionId - the session the call runs in, absent for a call made outside any agent.
    * @returns the report a browser posted, or `undefined` when none arrived in time.
    */
   async settle(
     callId: string,
+    sessionId: SessionId | undefined,
     timeoutMs: number,
     signal: AbortSignal,
-    sessionId?: SessionId,
   ): Promise<ShowChartReport | undefined> {
     // One deadline for both ways this wait can end without an answer, so there
     // is a single settlement point rather than a timer racing a listener.

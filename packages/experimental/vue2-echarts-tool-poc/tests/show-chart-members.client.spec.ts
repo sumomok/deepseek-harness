@@ -24,6 +24,8 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ShowChart from '../src/index.ts'
+import { reportDirectoryMismatch } from '../src/members.ts'
+import { PendingCharts } from '../src/pending.ts'
 import { SHOW_CHART_REPORT_ROUTE } from '../src/route.ts'
 import { MEMBER_HEADER, type Config as FixtureConfig } from './fixtures/console-members.client.ts'
 
@@ -62,6 +64,7 @@ let world: string | undefined
 let context: Context | undefined
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
@@ -302,9 +305,13 @@ describe('per-member report route', () => {
     const sessions = createSessions(ctx)
     const noCall = await report(ctx, ASSERTION_B, 'chart-call-nobody-opened')
     expect({ status: noCall.status, body: noCall.body }).toEqual({ status: 200, body: REFUSED_BODY })
+    const waits = vi.spyOn(PendingCharts.prototype, 'settle')
     const drawn = draw(ctx, CALL_A, sessions.a)
+    // The call is waiting before B reports: the wait is registered inside the
+    // `settle` call itself, so every report below names a call that is open.
+    await vi.waitFor(() => { expect(waits).toHaveBeenCalledTimes(1) })
     const answers: Answer[] = [noCall]
-    // B reports while the call opens and waits; none of the reports settles it.
+    // None of B's reports settles the call.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const forged = await report(ctx, ASSERTION_B, CALL_A, FORGED)
       answers.push(forged)
@@ -354,6 +361,8 @@ describe('per-member report route', () => {
   it('releases the report route when the fiber disposes (HMR safety)', async () => {
     const { ctx } = await loadComposition({ perMember: true, members: MEMBERS })
     const base = origin(ctx)
+    // Served by this row before it goes: a report nobody is placed for is refused by the row itself.
+    expect((await report(ctx, undefined, CALL_A)).status).toBe(401)
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'show-chart')
     await row?.fiber?.dispose()
     // The webserver's own fallback answers a path nobody claims.
@@ -367,6 +376,34 @@ describe('per-member report route', () => {
     await ctx.loader.await()
     await new Promise((resolveTick) => { setImmediate(resolveTick) })
     expect(logs.filter(line => line.type === 'error')).toEqual([])
+  })
+})
+
+describe('member directory check', () => {
+  it('logs nothing for a row disposed before the composition has loaded', async () => {
+    const ctx = context = new Context()
+    const errors: string[] = []
+    ctx.logger.exporter({ export: (message) => { if (message.type === 'error') errors.push(message.name) } })
+    let settle = (): void => {}
+    const loaded = new Promise<void>((resolveLoaded) => { settle = resolveLoaded })
+    // A Loader whose tree has not settled yet; the check reads nothing else of it.
+    ctx.provide('loader', { await: () => loaded } as never)
+    // Both rows set perMember with no directory running, which is a mismatch the
+    // live one reports once the tree settles.
+    const gone = ctx.plugin({
+      name: 'disposed-row',
+      apply: (scope: Context) => { reportDirectoryMismatch(scope, true, scope.logger('disposed-row')) },
+    })
+    const live = ctx.plugin({
+      name: 'live-row',
+      apply: (scope: Context) => { reportDirectoryMismatch(scope, true, scope.logger('live-row')) },
+    })
+    // Both rows have started, and so registered their check, before one goes.
+    await Promise.all([gone.await(), live.await()])
+    await gone.dispose()
+    settle()
+    await new Promise((resolveTick) => { setImmediate(resolveTick) })
+    expect(errors).toEqual(['live-row'])
   })
 })
 
