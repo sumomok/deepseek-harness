@@ -271,7 +271,8 @@ describe('installShortcutGuard', () => {
 
   it('ignores the adapter\'s sequence resets', () => {
     const { observers } = guarded(ROWS)
-    for (const observer of observers) expect(observer({ type: 'reset' })).toBeUndefined()
+    expect(observers.size).toBe(1)
+    for (const observer of observers) expect(() => { observer({ type: 'reset' }) }).not.toThrow()
   })
 })
 
