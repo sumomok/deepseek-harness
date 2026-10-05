@@ -517,8 +517,8 @@ flowchart TD
   pkg_app_boot --> pkg_system_prompt
   pkg_experimental_computer_use_cua_driver_mcp --> pkg_computer_use
   pkg_experimental_console_members --> pkg_brand
-  pkg_experimental_console_members --> pkg_client_connection
   pkg_experimental_console_members --> pkg_session
+  pkg_experimental_console_members --> pkg_typert_protocol
   pkg_experimental_console_members --> pkg_util_values
   pkg_experimental_inspector --> pkg_client_connection
   pkg_experimental_inspector --> pkg_client_modules
@@ -1657,7 +1657,7 @@ flowchart TD
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths) |
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
 | [`experimental-computer-use-cua-driver-mcp`](../packages/experimental/computer-use-cua-driver-mcp) | `experimental` | [`computer-use`](../packages/computer-use/computer-use) |
-| [`experimental-console-members`](../packages/experimental/console-members) | `experimental` | [`brand`](../packages/util/brand), [`client-connection`](../packages/client/connection), [`session`](../packages/core/session), [`util-values`](../packages/util/values) |
+| [`experimental-console-members`](../packages/experimental/console-members) | `experimental` | [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values) |
 | [`experimental-inspector`](../packages/experimental/inspector) | `experimental` | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
 | [`experimental-page-refresh`](../packages/experimental/page-refresh) | `experimental` | [`client-connection`](../packages/client/connection), [`client-store`](../packages/client/store), [`client-ui-slots`](../packages/client/ui-slots) |
 | [`experimental-skill-pack`](../packages/experimental/skill-pack) | `experimental` | [`host-webserver`](../packages/host/webserver), [`skill`](../packages/skill/skill), [`util-values`](../packages/util/values) |
