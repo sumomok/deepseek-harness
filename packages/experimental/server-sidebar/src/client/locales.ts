@@ -3,8 +3,9 @@
  * 导航 / 我的工作流), the 临时工作流 section under it, the two session-header
  * entries this package registers alongside them (the "存为工作流" action, and
  * the title of an untitled conversation, which reads `workbench.label` or
- * `temporary.untitled` in `UntitledTitle.tsx`), and the conversation's rows
- * for a compaction that landed or failed (`CompactionRows.tsx`). No
+ * `temporary.untitled` in `UntitledTitle.tsx`), the conversation's rows for a
+ * compaction that landed or failed (`CompactionRows.tsx`), and the notice in
+ * place of `dsh-client-ui-workspace`'s (`WorkspaceNotice.tsx`). No
  * shipped-sidebar controls survive here — decision ① drops New Session and
  * the collapse toggle outright, so this package no longer reuses
  * `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
@@ -63,6 +64,8 @@ export const zh = {
   'brand.name.fallback': '工作台小助手',
   'compaction.completed': '已压缩较早的对话',
   'compaction.failed': '较早的对话压缩失败',
+  'notice.startFailed': '暂时无法开始对话，请刷新页面后重试',
+  'notice.newFailed': '暂时无法新建对话，请稍后重试',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -110,4 +113,6 @@ export const en = {
   'brand.name.fallback': 'Workbench Assistant',
   'compaction.completed': 'Earlier conversation compacted',
   'compaction.failed': 'Couldn’t compact the earlier conversation',
+  'notice.startFailed': 'Couldn’t start a conversation. Refresh the page to try again.',
+  'notice.newFailed': 'Couldn’t start a new conversation. Try again shortly.',
 } satisfies Record<ServerSidebarKey, string>

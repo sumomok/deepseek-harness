@@ -3,7 +3,10 @@
  * one-click content — `dsh-experimental-content-frame`'s pages and
  * `dsh-experimental-component-surface`'s views, merged into one list. Pure
  * presentation — every row comes from props (decision ⑤: navigation follows
- * deployment configuration order, never user-reordered).
+ * deployment configuration order, never user-reordered). Each row's button
+ * carries the catalog it came from (`data-server-sidebar-nav-kind`) and that
+ * catalog's own entry id (`data-server-sidebar-nav-entry`); a page and a view
+ * may share an id, so only the pair names one row.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/NavGroup
  */
 import type { NavSnapshotItem } from '../workflows.ts'
@@ -42,6 +45,7 @@ export function NavGroup({ items, onOpenNavItem, t }: NavGroupProps) {
                   type="button"
                   className={css.itemButton}
                   data-server-sidebar-nav-kind={item.kind}
+                  data-server-sidebar-nav-entry={item.entryId}
                   onClick={() => { void onOpenNavItem({ kind: item.kind, entryId: item.entryId }) }}
                 >
                   {item.title}
