@@ -571,14 +571,14 @@
 ## settings-trigger-action-seat — 设置触发行右端的同行贡献位
 
 - **改了什么**：`ui-settings`／`ui-settings-general` 在设置触发行右端开一个同行贡献位（`settings.trigger.action`），并给它一个打开设置面板的 opener；触发行自己拥有该贡献位所在的 hover 面。
-- **为什么**：仓外插件要在设置行右端放一个自己的动作，没有任何槽位可用。
-- **要达到的效果**：插件在设置行右端占位，hover 表现与该行一致。
-- **退役条件**：上游在设置触发行提供等价贡献位，或 fork 改用上游桌面外壳、不再需要那个更新按钮插件。
+- **为什么**：仓外插件要在设置行右端放一个自己的动作，没有任何槽位可用。控制台的 server-sidebar 要从身份行菜单打开「组织」设置分区，经本位取外壳的 `openSection`（`settings.onboarding` 位一出现就会关掉已打开的设置面板，不能用）。
+- **要达到的效果**：插件在设置行右端占位，hover 表现与该行一致；插件也可以注册一个什么都不渲染的占据者，只取 `openSection`，从自己别处的控件打开指定分区（列表条目不加包装元素，这样的占据者不占盒子与间距）。占据者：develop 上北冥 vendor 的 `@haoran/dsh-desktop-update`（更新就绪按钮）；product/server-console 上 `@deepseek-ai/dsh-experimental-server-sidebar` 的一个不渲染的占据者，供身份行菜单的「组织」项打开分区。两者按 `order` 排列，共存时没有先后冲突。
+- **退役条件**：两个占据者都有去处时整族退役。上游在设置触发行提供等价的同行贡献位（任何形式，不限这个槽名）时整体退役，desktop-update 与 server-sidebar 都改用上游的形式；否则两侧各自满足才退役：北冥一侧，fork 改用上游桌面外壳、不再需要更新按钮插件；控制台一侧，上游提供插件可调用、按分区 id 打开设置面板的公开入口且 server-sidebar 已改用它，或控制台身份行菜单不再需要打开设置分区。只满足一侧时本族继续在役。判据：`git grep -n "settings.trigger.action" <tag>` 有命中时按整体退役复核；上游 `packages/client/ui-settings/src/client` 出现 owner props 之外、按 id 打开分区的导出时，按控制台一侧复核。
 - **状态**：在役（`feature/core-patches`）。核实依据：`git grep -n settings.trigger.action dsh-v0.2.1-alpha.1` 零命中，`ui-settings-general/src` 与 `ui-settings/src` 在 `dsh-v0.2.0-rc.2..dsh-v0.2.1-alpha.1` 无改动。`core-patches-v11` 那一轮适配一处上游改动：上游在同一行的 `ConnectionIndicator` 之后放了自己的 `DesktopUpdateIndicator`（上游 PR #4033），本族的贡献位改排在它之后，两者同行共存。
 - **本轮适配（`dsh-v0.2.1-alpha.1`）**：无冲突。上游这一段只改了本族认领的 `docs/subsystems/slots` 双语，自动合并；`slot-catalog.ts` 的冲突取上游侧后重跑 `gen-client-catalog`，本族的 `settings.trigger.action` 条目在。
 - **`dsh-v0.2.0-rc.2` 那一轮适配**：无冲突。`SettingsRoot.tsx`、`SettingsRoot.module.css`、`index.ts` 的上游改动与本族的贡献位自动合并。
 - **`dsh-v0.1.7-rc.2` 那一轮适配**：上游重写快捷键与设置启动器（上游 PR #4891、#4938、#5117、#4475）：`SettingsRoot.tsx` 以上游为底，本族的 `<div className={css.triggerActions}>{renderSlot('settings.trigger.action', { wide, openSection })}</div>` 插在 launcher／Tooltip 之后，`openSection` 仍来自 `actions`；`ui-settings-general/src/client/index.ts` 上游改为闭包，本族的 `settings.trigger.action` 子位接在其中。上游新增的圆角门禁（上游 PR #5030）拒绝不在主题 token 上的圆角，触发行的 `12px` 改为 `var(--dsw-radius-md)`。
-- **滚动同步注意**：这是 client-UI 补丁，每轮都要重新移植并重新核实。两处会撞行：`SettingsRoot.tsx` 传给本位的 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改那段时两处一起看；宽行的悬停面落在 `SettingsRoot.module.css` 的触发行选择器上，上游改触发行悬停样式会与它撞。`slot-catalog.ts` 是生成物，冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
+- **滚动同步注意**：这是 client-UI 补丁，每轮都要重新移植并重新核实。两处会撞行：`SettingsRoot.tsx` 传给本位的 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改那段时两处一起看；宽行的悬停面落在 `SettingsRoot.module.css` 的触发行选择器上，上游改触发行悬停样式会与它撞。`slot-catalog.ts` 是生成物，冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。`openSection` 是控制台身份行「组织」菜单项的依赖：每轮把 core-patches 合进 product 之后，跑 `apps/web/tests/server-sidebar.e2e.ts` 里身份菜单打开设置分区的用例（窄行里本位被 CSS 隐藏，占据者仍挂载）；上游改动 `SettingsRoot.tsx` 传给本位的 `openSection` 或窄行的隐藏规则时一起核实。
 - **Agent Note**：[`settings-trigger-action-slot`](../.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md)
 - **路径**：`.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.*` `docs/subsystems/slots.*` `packages/client/ui-settings-general/src/client/SettingsRoot.module.css` `packages/client/ui-settings-general/src/client/SettingsRoot.tsx` `packages/client/ui-settings-general/src/client/index.ts` `packages/client/ui-settings-general/src/client/shell-contract.ts` `packages/client/ui-settings-general/tests/settings-root.client.spec.tsx` `packages/client/ui-settings-general/tests/shell.client.spec.ts` `packages/client/ui-settings/src/client/contract/slots.ts` `packages/client/ui-settings/src/client/index.ts`
 
