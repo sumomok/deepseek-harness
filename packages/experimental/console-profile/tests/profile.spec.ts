@@ -83,6 +83,7 @@ const TEST_DEPLOYMENTS = [
   'apps/web/tests/server-sidebar.overlay.yml',
   'apps/web/tests/server-sidebar-homepage.overlay.yml',
   'apps/web/tests/server-sidebar-views.overlay.yml',
+  'apps/web/tests/server-sidebar-org.overlay.yml',
 ] as const
 
 /** The access presets the console names, by id, in table order. */
