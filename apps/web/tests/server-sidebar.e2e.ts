@@ -500,15 +500,17 @@ const WITHHELD_GENERAL_TITLES = [
 
 /**
  * The English labels `dsh-client-ui-workspace` and `dsh-client-ui-sidebar-files`
- * give the seven keyboard shortcuts `server-sidebar` withholds on the console
- * (`console-shortcuts.ts`).
+ * give the seven keyboard shortcuts `server-sidebar` withholds
+ * (`console-shortcuts.ts`). The console profile also disables
+ * `ui-sidebar-files`, so the seventh is never registered there.
  */
 const WITHHELD_SHORTCUT_LABELS = [
   'New Session', 'Search sessions', 'Add workspace', 'Rename session', 'Fork session', 'Archive session', 'Workspace files',
 ] as const
 
 /**
- * Each withheld command's Web default on this device, as Playwright names the
+ * Each withheld command's Web default on this device, and those of the
+ * shortcut reference and the right column's toggle, as Playwright names the
  * keys: `primary` is Meta on macOS and Control on Windows. A Linux browser
  * has no Web default for any of them, so it has no key to press.
  */
@@ -518,6 +520,7 @@ const WITHHELD_SHORTCUT_KEYS = process.platform === 'darwin' || process.platform
     return {
       new: `${primary}+Alt+KeyN`, search: `${primary}+Alt+KeyK`, add: `${primary}+Alt+KeyO`, rename: `${primary}+Alt+KeyG`,
       fork: `${primary}+Shift+KeyF`, archive: `${primary}+Alt+KeyA`, files: `${primary}+Alt+KeyP`, reference: `${primary}+Slash`,
+      rightColumn: `${primary}+Shift+KeyB`,
     }
   })()
   : undefined
@@ -1136,6 +1139,35 @@ describe('web e2e: the product-console sidebar', () => {
       await reference.waitFor({ timeout: 10_000 })
       await page.keyboard.press('Escape')
       await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
+    },
+    30_000,
+  )
+
+  it.skipIf(WITHHELD_SHORTCUT_KEYS === undefined)(
+    'opens the right column on its key and on its header button with no Files tab, and puts no directory path of the Host on the page',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-right-column'))
+      const keys = WITHHELD_SHORTCUT_KEYS!
+      const open = page.locator('[data-sidebar-right-open]')
+      const expand = page.locator('[data-sidebar-right-expand]')
+      // The header's corner button is drawn once a conversation is on screen,
+      // which is also when the key has a column to open.
+      await expand.waitFor({ timeout: 15_000 })
+      for (const opening of ['key', 'button'] as const) {
+        if (opening === 'key') await page.keyboard.press(keys.rightColumn)
+        else await expand.click()
+        await open.waitFor({ timeout: 10_000 })
+        // A column that opens empty seeds its default page: the Files tab
+        // where it is the only tab type the guide offers, the guide otherwise.
+        await open.locator('[data-sidebar-right-guide]').waitFor({ state: 'visible', timeout: 10_000 })
+        expect(await open.locator('[data-sidebar-right-guide-entry]').count(), opening).toBe(0)
+        expect(await page.getByRole('tab', { name: 'Files' }).count(), opening).toBe(0)
+        const text = await page.locator('body').innerText()
+        expect(text, opening).not.toContain(scaffold.workspaceCwd)
+        expect(text, opening).not.toContain('server-sidebar-workspace')
+        await page.keyboard.press(keys.rightColumn)
+        await expect.poll(() => open.count(), { timeout: 10_000 }).toBe(0)
+      }
     },
     30_000,
   )

@@ -63,6 +63,7 @@ pnpm dsh --profile web --patch ./packages/experimental/console-profile/permissio
 | `goal`、`goal-round-driver`、`ui-goal` | 禁用：目标，两半加上会话驱动。`goals.create`、`edit`、`resume` 等都在根 realm 上回应每个被放行的访客，一旦目标被设上，`goal-round-driver` 就用 Host 的 key 跑模型轮次，直到目标的轮次上限。没有控制台预设挂载 `tool-goal`，Web bundle 禁用了 `command-goal` 与 `tool-goal`，`ui-goal` 又是没有任何东西导航到的浏览器一半，所以没有控制台功能设得上目标，也没有被组合的行等待 `goals` 服务 |
 | `cordis-host-runner`、`cordis-inspect-providers`、`cordis-client-runner` | 禁用：动态 Cordis 包，两半都禁用。`dynamicCordisRunner.runHostHalf` 激活一个由调用方提供的包，它的 Host 一半在 Host 进程里的 `node:vm` realm 中运行；没有控制台预设挂载 `tool-cordis`，检查 provider 也只往这个 runner 里注册 |
 | `terminal-controller`、`ui-sidebar-terminal` | 禁用：`terminal.create` 以 Host 用户的权限启动一个 shell，不受 Agent 沙箱约束，也没有审批这一步；右侧栏的终端标签页画出它 |
+| `ui-sidebar-files` | 禁用：右侧栏的文件标签页（一棵以工作目录在 Host 上的绝对路径为标题的文件树）及其「工作区文件」快捷键。组合进来时，它是引导页唯一提供的标签页类型，用切换快捷键或对话页眉的展开按钮打开右栏会显示它；禁用后右栏打开时显示引导页。右栏本身、文档标签页，以及文档标签页读取文件所用的 `workspace-files` Remote 照常组合 |
 | `llm-pi-ai` | 禁用：唯一的模型发现——`llm.discoverModels` 让 Host 去请求调用方给出的 URL——以及一个 volatile 的 `providers` 字段，其中的路由各自带着自己的端点与凭据引用。控制台里这一行没有任何 provider，控制台的模型跑在 `llm-deepseek` 上 |
 | `web`、`web-search-deepseek`、`web-fetch-http` | 禁用：没有控制台预设提供 `web_search` 或 `web_fetch`，而搜索行的 `apiKey`、`apiKeyEnv` 与 `baseURL` 是设置写入够得着的 volatile Config |
 | `directory-picker`、`open-in-app`、`ui-open-in-app`、`office-to-pdf` | 禁用：`directoryPicker.list` 与 `directoryPicker.createDirectory` 在 Host 文件系统的任何位置列出并创建目录，「打开方式」在一个路径上启动 Host 的应用，`officeToPdf.render` 在 Host 里用 LibreOffice 转换调用方点名的 Office 文件。控制台侧栏不提供添加工作区的流程、「打开方式」按钮或 Office 预览 |

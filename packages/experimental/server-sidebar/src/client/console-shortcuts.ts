@@ -17,7 +17,9 @@
  * archives whichever conversation is on screen — the workbench and a
  * workflow's own conversation included — and leaves the page on no
  * conversation. All seven are withheld ({@link WITHHELD_COMMANDS}): their rows
- * are left out of the reference, and their keys do nothing.
+ * are left out of the reference, and their keys do nothing. The console bundle
+ * also disables `ui-sidebar-files`, so `workspace.files` is withheld for a
+ * composition that keeps that row.
  *
  * The registry takes no second registration of a command id, so neither half
  * is a registration of the console's own. The reference is the shortcut
