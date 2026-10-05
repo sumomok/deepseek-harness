@@ -240,10 +240,11 @@
 # file a visitor clicks.
 # The column and its document tab (`ui-sidebar-documentpreview`), which opens
 # the files a conversation links, stay composed. The document tab reads them
-# through the `workspace-files` Remote, whose reads follow the composed
-# filesystem's read access, including paths outside the working directory;
-# only its directory listings are confined to the working directory. No other
-# row registers into the Files tab but `ui-open-in-app`, disabled below.
+# through the `workspace-files` Remote, whose directory listings and change
+# observations are confined to the working directory, while its file reads
+# follow the composed filesystem's read access, including paths outside the
+# working directory. No other row registers into the Files tab but
+# `ui-open-in-app`, disabled below.
 - id: ui-sidebar-files
   disabled: true
 

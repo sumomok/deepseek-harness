@@ -181,7 +181,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 会话日志下载按钮 | `session-log-download`（`@deepseek-ai/dsh-session-log-export`） | 下载弹窗本身也携带「Session」文案；禁用这一行会同时移除触发按钮与弹窗。 |
 | 模型选择器 | `ui-model-selection` | 也是输入框自己「未选模型」阻断态的来源（`ConversationRoot.tsx` 的 `useComposerBlock`）——这一行不在了，就没有任何插件会激活这个阻断态，输入框在完全没有模型选择器的情况下依然可用。 |
 | Settings → General 的权限默认值行 | `ui-permission`（`@deepseek-ai/dsh-client-ui-permission-presets`） | 这一行写的是后续新会话的 `permission.defaultPreset`，并通过 Settings 缝盖过组合层推断出的默认值。该包唯一的另一处注册是 `/permission` 的弹窗装饰，而它已经没有宿主命令可以装饰了。 |
-| 右侧栏的文件标签页 | `ui-sidebar-files` | 一棵对话工作目录的文件树，标题是这个目录在 Host 上的绝对路径，控制台部署上它以 `workspace` 结尾。在本组合里它是右侧栏引导页唯一提供的标签页类型，所以右栏空着打开时先显示它。禁用这一行后引导页没有可打开的内容，控制台又隐去了右栏的切换快捷键和对话页眉的展开按钮（见下文），所以右栏只在访客点开一个文件时打开，显示该文件的文档标签页。文档标签页经由 `workspace-files` Remote 读取文件，这个 Remote 的读取按组合的文件系统读权限进行，包括工作目录之外的路径，只有目录列表限定在工作目录之内。 |
+| 右侧栏的文件标签页 | `ui-sidebar-files` | 一棵对话工作目录的文件树，标题是这个目录在 Host 上的绝对路径，控制台部署上它以 `workspace` 结尾。在本组合里它是右侧栏引导页唯一提供的标签页类型，所以右栏空着打开时先显示它。禁用这一行后引导页没有可打开的内容，控制台又隐去了右栏的切换快捷键和对话页眉的展开按钮（见下文），所以右栏只在访客点开一个文件时打开，显示该文件的文档标签页。文档标签页经由 `workspace-files` Remote 读取文件，这个 Remote 的目录列表和变更观察（change observations）限定在工作目录之内，读文件则按组合的文件系统读权限进行，包括工作目录之外的路径。 |
 | 轮次/步骤状态行 | *（不存在可禁用的行）* | `StatsLine` 是出厂 `ui-conversation` 的一个组件，既没有 Config 开关，自己也没有可禁用的席位——见下文。 |
 | 权限预设选择器 | *（不存在可禁用的行）* | `PermissionSelect` 是 `ui-conversation` 自己的输入框控件，数据来自 Host 仍在提供的 `permission-presets` 投影；它的「Workspace Write」标签由预设的机器名逐词首字母大写转出，因此也没有任何 locale 条目能触达它——见下文。 |
 | `/permission` | *（不存在可禁用的行）* | `@deepseek-ai/dsh-permission-presets` 是在 `ctx.inject(['commands'], …)` 里注册这条命令的，而这个注册表还有本控制台组合的另外四类消费者，因此控制台的权限锁改为只在那一行上隔离这个名字——见下文。 |
