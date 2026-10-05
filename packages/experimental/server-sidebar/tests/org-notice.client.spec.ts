@@ -4,6 +4,7 @@
  * travels, when the store asks again, and what reaches the browser console.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   createOrgNoticeStore, isRecord, OrgNoticeAnswerError, parseConfirmAnswer, parseMarkSeenAnswer, parseOrgNoticeDue,
   reportOncePerTopic, type OrgNoticeView,
@@ -47,10 +48,10 @@ describe('parseOrgNoticeDue', () => {
   })
 
   it('reads a wait longer than a timer can hold as the longest one it can', () => {
-    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 2_147_483_647 }, vi.fn()))
-      .toEqual({ kind: 'pending', retryAfterMs: 2_147_483_647 })
+    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: MAX_TIMER_DELAY_MS }, vi.fn()))
+      .toEqual({ kind: 'pending', retryAfterMs: MAX_TIMER_DELAY_MS })
     expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: Number.MAX_SAFE_INTEGER }, vi.fn()))
-      .toEqual({ kind: 'pending', retryAfterMs: 2_147_483_647 })
+      .toEqual({ kind: 'pending', retryAfterMs: MAX_TIMER_DELAY_MS })
   })
 
   it('reads a notice and a disclosure to agree to, keeping only the fields the card reads', () => {
