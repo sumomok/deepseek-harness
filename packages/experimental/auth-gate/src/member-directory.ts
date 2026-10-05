@@ -43,10 +43,15 @@ export interface ConsoleMemberDirectory {
    */
   principalOfSession(sessionId: SessionId): PrincipalKey | undefined
   /**
-   * Take the reader of the customer tokens this package holds. Accepted once;
-   * a second call throws.
+   * Take the reader of the customer tokens this package holds. One reader is
+   * held at a time: a call while one is attached throws, and once the disposer
+   * returned for it has run, another may be attached. This package attaches
+   * again to the same directory each time its own row restarts.
    * @param reader - the read-only view of the held tokens.
-   * @returns a disposer that releases the reader.
+   * @returns a disposer that releases the reader. This package revokes the
+   * reader before it calls the disposer: from then on the reader reads
+   * `undefined` for every member and reports no further change, so whoever read
+   * a token through it treats every member's token as dropped.
    */
   attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 }
@@ -63,7 +68,8 @@ export interface CustomerCredentialReader {
    */
   read(principal: PrincipalKey): string | undefined
   /**
-   * Subscribe to the moments one member's token is set or dropped.
+   * Subscribe to the moments one member's token is set or dropped. A
+   * subscription ends with no last report when the reader is released.
    * @param listener - called with the member and which of the two happened.
    * @returns a disposer that ends the subscription.
    */

@@ -1,8 +1,9 @@
 /**
  * Test-only `consoleMembers` row: a member directory that places requests and
  * sessions from tables in its own config, records the customer credential
- * reader it is lent, and accepts one reader at a time. Mounted by file URL from
- * a test-only cordis.yml; no shipped profile names it.
+ * reader it is lent, and accepts one reader at a time: a second while one is
+ * attached is refused, and another is accepted once the first is released.
+ * Mounted by file URL from a test-only cordis.yml; no shipped profile names it.
  *
  * A request is placed by its `x-test-member` header, which stands in for the
  * deployment's signed member assertion. A session is placed through its parent
@@ -35,6 +36,8 @@ export interface Config {
   parents: Record<string, string>
   /** Refuse every reader offered, as a directory that already holds one does. */
   refuseReader?: boolean
+  /** Throw from the disposer of an accepted reader, after recording the release. */
+  throwOnRelease?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -42,6 +45,7 @@ export const Config: z<Config> = z.object({
   sessions: z.dict(z.string()).required(),
   parents: z.dict(z.string()).required(),
   refuseReader: z.boolean().default(false),
+  throwOnRelease: z.boolean().default(false),
 })
 
 /** The directory this row provides, with what it was lent kept for the test to read. */
@@ -85,6 +89,7 @@ export class ConsoleMembersFixture implements ConsoleMemberDirectory {
     return () => {
       this.reader = undefined
       this.releases += 1
+      if (this.config.throwOnRelease === true) throw new Error('console-members fixture: release failed')
     }
   }
 }

@@ -232,8 +232,16 @@ describe('token claim', () => {
     ]) {
       expect({ payload, claim: tokenClaim(jwt(payload), 'login_uid') }).toEqual({ payload, claim: undefined })
     }
-    // Inherited names are not claims the token carries.
-    expect(tokenClaim(jwt('{}'), 'toString')).toBeUndefined()
+    // Inherited names are not claims the token carries, a string-valued one
+    // included: a non-enumerable string on the prototype every parsed payload
+    // inherits from, removed again before anything else runs.
+    const inherited = 'auth_gate_inherited_claim'
+    Object.defineProperty(Object.prototype, inherited, { value: 'member-x', configurable: true })
+    try {
+      expect(tokenClaim(jwt('{}'), inherited)).toBeUndefined()
+    } finally {
+      Reflect.deleteProperty(Object.prototype, inherited)
+    }
     expect(tokenClaim('no-dots-at-all', 'login_uid')).toBeUndefined()
   })
 })

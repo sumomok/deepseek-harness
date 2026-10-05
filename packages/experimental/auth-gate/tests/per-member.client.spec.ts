@@ -382,10 +382,14 @@ describe('per-member configuration', () => {
       .toEqual([AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, AUTH_GATE_LOGOUT_ROUTE])
   })
 
-  it('reads no claim while one token serves the whole process', () => {
-    // A claim with no per-member holding to compare it in is ignored, and the
-    // row forwards as it always has.
-    expect(claimedRoutes({ principalClaim: 'login_uid', mcpUpstreams: { crm: 'https://mcp.internal/crm' } }))
+  it('refuses a claim while one token serves the whole process, naming the field and not the claim', () => {
+    for (const holding of [{}, { perMember: false }]) {
+      const refusal = refusalOf({ ...holding, principalClaim: 'login_uid' })
+      expect(refusal).toBe('Error: auth-gate: principalClaim needs perMember, because a process holding one token compares no claim')
+      expect(refusal).not.toContain('login_uid')
+    }
+    // An empty claim names nothing, and the row forwards as it always has.
+    expect(claimedRoutes({ principalClaim: '', mcpUpstreams: { crm: 'https://mcp.internal/crm' } }))
       .toEqual([AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, AUTH_GATE_LOGOUT_ROUTE, '/auth-gate/mcp/crm'])
   })
 
@@ -472,6 +476,19 @@ describe('per-member token route', () => {
     expect(readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_B))).toBeUndefined()
     expect(changes).toEqual([])
     expectNothingQuoted(answers, logs)
+  })
+
+  it('compares a posted token on the claim the row names', async () => {
+    const { ctx, logs } = await loadComposition({ members: MEMBERS, gate: { principalClaim: 'uid', shareWithMemberDirectory: true } })
+    const byUid = jwt(`{"uid":"${MEMBER_B}"}`)
+    const held = await postToken(ctx, ASSERTION_B, byUid)
+    expect({ status: held.status, body: held.body }).toEqual({ status: 204, body: '' })
+    expect(readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_B))).toBe(byUid)
+    // `login_uid` is the claim of another deployment's tokens, and names nobody here.
+    const refused = await postToken(ctx, ASSERTION_B, TOKEN_B)
+    expect(refused.status).toBe(409)
+    expect(readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_B))).toBe(byUid)
+    expectNothingQuoted([held, refused], logs)
   })
 
   it('tells the reader\'s subscribers when a member\'s token changes, and not when the same one arrives again', async () => {
@@ -689,6 +706,74 @@ describe('customer credential reader', () => {
     // The token held before the swap is still held, and the new reader reads it.
     expect(successor.reader?.read(brandString<PrincipalKey>(MEMBER_A))).toBe(TOKEN_A)
     expect(successor.reader).not.toBe(lent)
+  })
+
+  it('revokes the reader of a directory whose release throws', async () => {
+    const { ctx, logs } = await loadComposition({
+      members: { ...MEMBERS, throwOnRelease: true },
+      gate: { shareWithMemberDirectory: true },
+    })
+    const answers = [await postToken(ctx, ASSERTION_A, TOKEN_A)]
+    const lent = readerOf(ctx)
+    const changes: string[] = []
+    lent.onChange((principal, kind) => { changes.push(`${principal}:${kind}`) })
+
+    const stopped = directoryOf(ctx)
+    const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'console-members')
+    await row?.fiber?.dispose()
+    // The release ran and threw; the reader was revoked all the same.
+    expect([ctx.get('consoleMembers'), stopped.releases]).toEqual([undefined, 1])
+    expect(lent.read(brandString<PrincipalKey>(MEMBER_A))).toBeUndefined()
+
+    // A successor takes a new reader, and a change it lets through reaches no
+    // subscription the stopped directory made.
+    const successor = new ConsoleMembersFixture(MEMBERS)
+    ctx.plugin({ name: 'console-members-successor', apply: (scope: Context) => { scope.provide('consoleMembers', successor) } })
+    await vi.waitFor(() => { expect(successor.attaches).toBe(1) })
+    answers.push(await postToken(ctx, ASSERTION_A, TOKEN_A_RENEWED))
+    expect(answers.map(answer => answer.status)).toEqual([204, 204])
+    expect(successor.reader?.read(brandString<PrincipalKey>(MEMBER_A))).toBe(TOKEN_A_RENEWED)
+    expect([lent.read(brandString<PrincipalKey>(MEMBER_A)), changes]).toEqual([undefined, []])
+    expectNothingQuoted(answers, logs)
+  })
+
+  it('revokes at once a reader the directory refuses', async () => {
+    const { ctx, logs } = await loadComposition({ members: MEMBERS, gate: { shareWithMemberDirectory: true } })
+    const answers = [await postToken(ctx, ASSERTION_A, TOKEN_A)]
+    const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'console-members')
+    await row?.fiber?.dispose()
+
+    // A successor that keeps the reader it is offered and then refuses it.
+    const successor = new ConsoleMembersFixture({ ...MEMBERS, refuseReader: true })
+    ctx.plugin({ name: 'console-members-successor', apply: (scope: Context) => { scope.provide('consoleMembers', successor) } })
+    await vi.waitFor(() => { expect(successor.offered).toHaveLength(1) })
+    expect(successor.offered[0]!.read(brandString<PrincipalKey>(MEMBER_A))).toBeUndefined()
+    const refused = await postToken(ctx, ASSERTION_A, TOKEN_A_RENEWED)
+    answers.push(refused)
+    expect({ status: refused.status, body: documentOf(refused) }).toEqual({
+      status: 503,
+      body: { error: 'auth-gate: the token route takes no token while the consoleMembers service refuses the customer credential reader' },
+    })
+    expectNothingQuoted(answers, logs)
+  })
+
+  it('attaches a new reader to the same directory when the gate row restarts', async () => {
+    const { ctx, logs } = await loadComposition({ members: MEMBERS, gate: { shareWithMemberDirectory: true } })
+    await postToken(ctx, ASSERTION_A, TOKEN_A)
+    const directory = directoryOf(ctx)
+    const lent = readerOf(ctx)
+    const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'auth-gate')
+    await row?.fiber?.restart()
+    await vi.waitFor(() => { expect(directory.attaches).toBe(2) })
+    expect([directoryOf(ctx), directory.attaches, directory.releases]).toEqual([directory, 2, 1])
+    expect(directory.reader).toBeDefined()
+    expect(directory.reader).not.toBe(lent)
+    // The restarted row holds nothing until a member posts again.
+    expect([lent.read(brandString<PrincipalKey>(MEMBER_A)), readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_A))])
+      .toEqual([undefined, undefined])
+    expect((await postToken(ctx, ASSERTION_A, TOKEN_A_RENEWED)).status).toBe(204)
+    expect(readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_A))).toBe(TOKEN_A_RENEWED)
+    expect(logs.filter(line => line.type === 'error')).toEqual([])
   })
 
   it('releases every route and takes the reader back when the fiber disposes (HMR safety)', async () => {

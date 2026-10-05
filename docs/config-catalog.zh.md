@@ -1032,7 +1032,9 @@ export interface Config {
    * token is held — `login_uid` for a toy-core deployment. A string claim is
    * compared as it stands and a numeric one by its source digits, so a 19-digit
    * id is not rounded; an empty string, or any other value, names nobody.
-   * Required when {@link Config.perMember} is set, and read nowhere otherwise.
+   * Required when {@link Config.perMember} is set, and refused without it: a
+   * claim configured for a process holding one token is a deployment that
+   * believes it compares members and does not.
    */
   principalClaim?: string
   /**

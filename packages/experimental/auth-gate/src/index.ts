@@ -191,7 +191,9 @@ export interface Config {
    * token is held — `login_uid` for a toy-core deployment. A string claim is
    * compared as it stands and a numeric one by its source digits, so a 19-digit
    * id is not rounded; an empty string, or any other value, names nobody.
-   * Required when {@link Config.perMember} is set, and read nowhere otherwise.
+   * Required when {@link Config.perMember} is set, and refused without it: a
+   * claim configured for a process holding one token is a deployment that
+   * believes it compares members and does not.
    */
   principalClaim?: string
   /**
@@ -402,23 +404,29 @@ function requireRenewal(path: string | undefined, intervalSeconds: number | unde
  *
  * Loud at load, and naming fields only: a per-member process with no claim to
  * compare would hold a token for whichever member posted it, a forward has no
- * member to carry a token for, and a reader lent while one token serves the
- * whole process would hand the member directory a token it cannot place.
+ * member to carry a token for, a reader lent while one token serves the whole
+ * process would hand the member directory a token it cannot place, and a claim
+ * configured without `perMember` is a deployment that believes it holds tokens
+ * per member while one token serves everybody.
  * @param config - the row's configuration.
  * @returns the claim posted tokens are compared on, or `undefined` for a
  * process that holds one token.
- * @throws {Error} when `shareWithMemberDirectory` is set without `perMember`,
- * or `perMember` is set with no `principalClaim` or with a non-empty
- * `mcpUpstreams`.
+ * @throws {Error} when `shareWithMemberDirectory` or a non-empty
+ * `principalClaim` is set without `perMember`, or `perMember` is set with no
+ * `principalClaim` or with a non-empty `mcpUpstreams`.
  */
 function requireMemberHolding(config: Config): string | undefined {
+  const claimed = config.principalClaim !== undefined && config.principalClaim !== ''
   if (config.perMember !== true) {
     if (config.shareWithMemberDirectory === true) {
       throw new Error('auth-gate: shareWithMemberDirectory needs perMember, because only per-member tokens are lent to the member directory')
     }
+    if (claimed) {
+      throw new Error('auth-gate: principalClaim needs perMember, because a process holding one token compares no claim')
+    }
     return undefined
   }
-  if (config.principalClaim === undefined || config.principalClaim === '') {
+  if (!claimed) {
     throw new Error('auth-gate: perMember needs a principalClaim naming the token claim each member is compared on')
   }
   if (Object.keys(config.mcpUpstreams).length > 0) {
@@ -540,10 +548,13 @@ interface ReaderLoan {
  * starts, and take it back when that service stops or this row is disposed.
  *
  * The reader is a new one per service, so a directory that was replaced, or one
- * that refused it, holds a revoked reader rather than a live one. A refusal is
- * the directory's one-taker rule — it accepts one reader and throws for a
- * second — and leaves the token route answering 503 until a service that
- * accepts one starts.
+ * that refused it, holds a revoked reader rather than a live one; it is revoked
+ * before the directory's release runs, so a release that throws does not keep
+ * it live. A refusal is the directory's one-taker rule — it holds one reader at
+ * a time and throws for another — and leaves the token route answering 503
+ * until a service that accepts one starts. This row restarting while the
+ * directory keeps running releases the old reader and attaches a new one to the
+ * same directory.
  * @param ctx - this row's context.
  * @param credentials - the store the reader reads.
  * @param loan - the refusal state the token route reads.
@@ -565,8 +576,10 @@ function lendToMemberDirectory(ctx: Context, credentials: MemberCredentials, loa
       loan.refused = release === undefined
       return () => {
         loan.refused = false
-        release?.()
+        // Revoked before the directory's own release runs, so a release that
+        // throws still leaves the stopped directory holding a dead reader.
         lent.revoke()
+        release?.()
       }
     }, 'auth-gate: customer credential reader lent to consoleMembers')
   })
