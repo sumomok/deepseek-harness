@@ -689,6 +689,29 @@ describe('view ids an organization set declares', () => {
     },
   )
 
+  it('holds an id on disk by the first entry declaring it in name@version order while no set is offered', async () => {
+    const paths = await newWorld()
+    for (const [name, title] of [['a-guide', 'OLD'], ['b-guide', 'NEW']] as const) {
+      const directory = join(paths.organizationRoot, `${name}@1`)
+      await mkdir(join(directory, 'views'), { recursive: true })
+      await writeFile(join(directory, 'SKILL.md'), skillText(name, { views: { 'layers.yml': '' } }))
+      await writeFile(join(directory, 'views', 'layers.yml'), viewText('layers', title))
+    }
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('c-guide', '1', 'stable', { views: { 'layers.yml': viewText('layers', 'OLD') } }),
+      entry('d-guide', '1', 'stable', { views: { 'layers.yml': viewText('layers', 'NEW') } }),
+    ])
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([{
+      name: 'd-guide',
+      version: '1',
+      code: 'view-id-conflict',
+      detail: 'the view id layers is held by the organization root with a different file',
+    }])
+    expect(await readdir(paths.organizationRoot)).toEqual(['c-guide@1'])
+  })
+
   it('reads the organization root the way the pack root is read while no set is offered: a directory that is no pack, and a view that does not read, hold no id', async () => {
     const paths = await newWorld()
     await mkdir(join(paths.organizationRoot, 'notes@1'), { recursive: true })
