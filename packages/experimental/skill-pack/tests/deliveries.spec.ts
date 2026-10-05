@@ -19,11 +19,11 @@ const LIMITS = { maxArchiveBytes: 1_000_000, maxFileBytes: 100_000, maxFiles: 50
 
 const SET = { id: 'space-console', version: '2026.9.19' }
 
-let world: string | undefined
+/** Every directory a case made, removed after it, however many deployments the case set up. */
+const worlds: string[] = []
 
 afterEach(async () => {
-  if (world !== undefined) await rm(world, { recursive: true, force: true })
-  world = undefined
+  for (const world of worlds.splice(0)) await rm(world, { recursive: true, force: true })
 })
 
 /** A pack root, a delivery directory beside it, and the lines one read reported. */
@@ -35,7 +35,8 @@ interface Deployment {
 }
 
 async function deployment(limits = LIMITS, create = true): Promise<Deployment> {
-  world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-deliveries-'))
+  const world = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-deliveries-'))
+  worlds.push(world)
   const root = join(world, 'packs')
   const directory = join(world, 'deliveries')
   if (create) await mkdir(directory, { recursive: true })
