@@ -710,7 +710,7 @@ describe('customer credential reader', () => {
 
   it('revokes the reader of a directory whose release throws', async () => {
     const { ctx, logs } = await loadComposition({
-      members: { ...MEMBERS, throwOnRelease: true },
+      members: { requests: MEMBERS.requests, sessions: MEMBERS.sessions, parents: MEMBERS.parents, throwOnRelease: true },
       gate: { shareWithMemberDirectory: true },
     })
     const answers = [await postToken(ctx, ASSERTION_A, TOKEN_A)]
@@ -744,7 +744,12 @@ describe('customer credential reader', () => {
     await row?.fiber?.dispose()
 
     // A successor that keeps the reader it is offered and then refuses it.
-    const successor = new ConsoleMembersFixture({ ...MEMBERS, refuseReader: true })
+    const successor = new ConsoleMembersFixture({
+      requests: MEMBERS.requests,
+      sessions: MEMBERS.sessions,
+      parents: MEMBERS.parents,
+      refuseReader: true,
+    })
     ctx.plugin({ name: 'console-members-successor', apply: (scope: Context) => { scope.provide('consoleMembers', successor) } })
     await vi.waitFor(() => { expect(successor.offered).toHaveLength(1) })
     expect(successor.offered[0]!.read(brandString<PrincipalKey>(MEMBER_A))).toBeUndefined()
