@@ -118,9 +118,13 @@ declare module '@deepseek-ai/cordis' {
      * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
      * calling `next()` answers in the method's place. The method runs in the async context that called
      * `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener
-     * that discards the stream outcome of `next()` calls `return()` on its iterator; whether or not items
-     * were pulled, that releases the call's uplink and returns the method's iterator, after any pending
-     * `next()` on that iterator settles.
+     * that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the
+     * call's uplink and opens and returns the method's iterator, or returns the one already open when items
+     * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
+     * outcome is a value, the Gateway returns each stream that a `next()` called during the waterfall
+     * opened before the caller receives the failure, and each stream still opening once it opens. When the
+     * outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every
+     * stream the call opened, and a listener that discards one returns it.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -427,8 +431,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
    */
   claimedEndpoints(): readonly string[] {
     this.srcClaims ??= this.collectSrcClaims()
-    const candidates = new Set(this.srcClaims)
-    for (const descriptor of this.ctx.typert.local.list()) candidates.add(endpointOf(descriptor.namespace, descriptor.method))
+    const { local } = this.ctx.typert
+    // An SRC endpoint that once had a strict definition answers `gateway/definition-unavailable` unless one is live.
+    const candidates = new Set([...this.srcClaims].filter(endpoint => !local.hasSeen(endpoint)))
+    for (const descriptor of local.list()) candidates.add(endpointOf(descriptor.namespace, descriptor.method))
     return [...candidates]
       .filter(endpoint => endpoint !== REMOTE_EVENT_RESULT_ENDPOINT && this.claimsEndpoint(endpoint))
       .sort()
@@ -499,8 +505,25 @@ export class TypertGatewayService extends Service implements TypertGateway {
    */
   private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
     const pending = this.pendingInvocation(request, 'stream')
-    const outcome = await this.ctx.waterfall('remote/invoke', pending.call, () => this.openPreparedStream(pending, control))
+    // Each `next()` that reaches the method opens one stream; a listener that calls `next()` again opens another.
+    const streams: OpeningStream[] = []
+    let outcome: RemoteInvokeOutcome
+    try {
+      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
+      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+        const stream: OpeningStream = { opening: this.openPreparedStream(pending, control), opened: false }
+        streams.push(stream)
+        const source = await stream.opening
+        stream.opened = true
+        return { kind: 'stream', source }
+      })
+    } catch (error) {
+      await releaseStreams(streams)
+      throw error
+    }
+    // A stream outcome may wrap the opened streams, so the call's listeners own their release.
     if (outcome.kind === 'stream') return outcome.source
+    await releaseStreams(streams)
     throw new TypertGatewayError(
       'gateway/result-invalid',
       pending.call.endpoint,
@@ -509,7 +532,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     )
   }
 
-  private async openPreparedStream(pending: PendingInvocation, control: AbortController): Promise<RemoteInvokeOutcome> {
+  private async openPreparedStream(pending: PendingInvocation, control: AbortController): Promise<CancellableStream> {
     const prepared = await this.prepareInvocation(pending, control)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()
@@ -536,7 +559,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: 'result' },
       )
     }
-    return { kind: 'stream', source: new CancellableStream(source, prepared.endpoint, prepared.invocation) }
+    return new CancellableStream(source, prepared.endpoint, prepared.invocation)
   }
 
   private async dispatchRpc(
@@ -1312,10 +1335,11 @@ function methodIterator(source: Iterable<unknown> | AsyncIterable<unknown>): Asy
 
 /**
  * The stream `next()` of `remote/invoke` resolves to. `return()` releases the
- * call's uplink and returns the method's iterator whether or not an item was
- * pulled. After a `return()` before the first `next()`, later `return()` and
- * `next()` calls settle as done once that release has finished, without
- * repeating its failure, as calls queued on an async generator do.
+ * call's uplink and opens and returns the method's iterator, or returns the one
+ * already open when items were pulled. After a `return()` before the first
+ * `next()`, later `return()` and `next()` calls settle as done once that
+ * release has finished, without repeating its failure, as calls queued on an
+ * async generator do.
  */
 class CancellableStream implements AsyncIterableIterator<unknown> {
   private readonly pump: AsyncGenerator
@@ -1367,6 +1391,38 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
     await this.pump.return(undefined)
     await this.invocation.close()
     await methodIterator(this.source).return?.()
+  }
+}
+
+/** One stream a stream call's `next()` opens; `opened` turns true once `opening` has resolved. */
+interface OpeningStream {
+  readonly opening: Promise<CancellableStream>
+  opened: boolean
+}
+
+/**
+ * Return every stream a failed or value-answered stream call's `next()` opened or is still opening.
+ * @param streams - the streams that call's `next()` calls opened or are opening.
+ * @returns once each opened stream has been returned; a stream still opening is returned once it opens, later.
+ */
+async function releaseStreams(streams: readonly OpeningStream[]): Promise<void> {
+  for (const stream of streams) {
+    const released = returnWhenOpened(stream.opening)
+    if (stream.opened) await released
+  }
+}
+
+/**
+ * Return one stream of a failed or value-answered stream call once it has opened.
+ * @param opening - the stream that call's `next()` opened or is opening.
+ * @returns once the stream has opened and been returned, or has failed to; never rejects.
+ */
+async function returnWhenOpened(opening: Promise<CancellableStream>): Promise<void> {
+  try {
+    await (await opening).return()
+  } catch (_releaseFailure) {
+    // The caller receives the waterfall's own failure, or gateway/result-invalid; failing to open or return this stream
+    // must not replace it.
   }
 }
 

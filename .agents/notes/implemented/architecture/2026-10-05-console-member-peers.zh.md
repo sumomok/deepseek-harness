@@ -70,7 +70,7 @@ Gateway 先解析描述符，再把一个 `RemoteInvokeCall` 交给监听器：e
 
 ### 没有准入器时
 
-默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。没有 `remote/invoke` 监听器时，`remote-invoke.host.spec.ts` 经 `invoke()`、`stream()`、`wireStream.open()`、`/api` 与 WebSocket 断言结果与故障不变，用 `for await` 读流的两个载体（WebSocket mux 与 webworker tunnel）分辨不出 Gateway 的流与上游的流。仍有两处差异。在没有 Connection 的 Host 上，进程内载体在参数校验之前（而不是之后）就创建 Gateway 自有的操作者 Peer。自己驱动 `stream()` 或 `wireStream.open()` 返回值的 iterator 的调用方会看到，第一次 `next()` 之前的 `return()` 会释放上行并打开、return 方法的 iterator（上游两者都不做），iterator 工厂或 iterator 的 `return()` 抛错时这次 `return()` 以该错误 reject，返回的 iterable 也不是 `AsyncGenerator`：没有 `throw()` 与 `Symbol.asyncDispose`，`Symbol.toStringTag` 也不同。
+默认不安装准入器，`requireAdmitter` 默认为 `false`；此时每条路径都与上游相同：`admit` 以操作者作答，`requestRejection` 以 Host/Origin 与认证的判定作答，每个处理器都收到操作者。桌面组合就运行在这种状态下。`peer-admission.host.spec.ts` 断言没有准入器时四条路径都是操作者，`socket-events.host.spec.ts` 断言 socket 事件上是操作者。没有 `remote/invoke` 监听器时，`remote-invoke.host.spec.ts` 经 `invoke()`、`stream()`、`wireStream.open()`、`/api` 与 WebSocket 断言结果与故障不变，用 `for await` 读流的两个载体（WebSocket mux 与 webworker tunnel）分辨不出 Gateway 的流与上游的流。仍有三处差异。在没有 Connection 的 Host 上，`invoke()`、`stream()` 与不指明 Peer 的 `wireStream.open()` 调用在参数校验之前（而不是之后）就创建 Gateway 自有的操作者 Peer。自己驱动 `stream()` 或 `wireStream.open()` 返回值的 iterator 的调用方会看到，第一次 `next()` 之前的 `return()` 会释放上行并打开、return 方法的 iterator（上游两者都不做），iterator 工厂或 iterator 的 `return()` 抛错时这次 `return()` 以该错误 reject，返回的 iterable 也不是 `AsyncGenerator`：没有 `throw()` 与 `Symbol.asyncDispose`，`Symbol.toStringTag` 也不同。Cordis 的 `internal/dispatch` 监听器能看到每次 `remote/invoke` 分发，连同调用方 Peer 与尚未校验的参数。
 
 ### 退役
 
@@ -109,4 +109,4 @@ Gateway 先解析描述符，再把一个 `RemoteInvokeCall` 交给监听器：e
 - **Connection 不回收成员 Peer**：从未释放的 Peer 一直存活到 Connection 卸载，因此空闲关闭由准入器所在的插件负责。
 - **`requestRejection` 会运行准入器**：装了准入器后每次调用都会运行，包括对认不出的请求记的那行 error。
 - **`remote/invoke` 也看到 Host 自己的进程内调用**，它们带的是操作者 Peer；限制成员的监听器要放行操作者的调用。
-- **丢弃流结果的监听器用 `return()` 释放它**：对 source 的 iterator 调用 `return()`，无论之前是否拉取过项，都会释放这次调用的上行并 return 方法的 iterator（该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）；不调用 `return()` 就丢下的 source，Gateway 两者都不释放。
+- **流调用以流作答时，监听器自己 return 它丢弃的每条流**：对 source 的 iterator 调用 `return()` 会释放这次调用的上行，再打开并 return 方法的 iterator（拉取过项时 return 已打开的那个；该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）。只有监听器抛错或返回 value 时，Gateway 才 return 本次调用中 `next()` 已打开或正在打开的流；结果是流时，它可能包着这些流，Gateway 一条都不 return，所以监听器捕获在它之后的监听器的错误、再调用一次 `next()` 时，第一次打开的流若没有监听器 return 就一直保持打开。

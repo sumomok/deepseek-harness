@@ -60,6 +60,8 @@ interface Probe {
   slowReturn: boolean
 }
 
+type InvokeListener = (call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>) => Promise<RemoteInvokeOutcome>
+
 const member = new AsyncLocalStorage<string>()
 let probe: Probe = freshProbe()
 
@@ -120,21 +122,23 @@ class GuardService extends TypertRemoteService {
   @Remote({ mode: 'stream' })
   follow(label: string): AsyncIterable<string> {
     this.observe('follow')
+    // A release that outlives its test records into that test's probe.
+    const { events, followFailure, slowReturn } = probe
     return {
       [Symbol.asyncIterator]: () => {
-        probe.events.push('follow:iterator')
-        if (probe.followFailure?.at === 'iterator') throw probe.followFailure.error
+        events.push('follow:iterator')
+        if (followFailure?.at === 'iterator') throw followFailure.error
         return {
           next: () => {
-            probe.events.push('follow:next')
+            events.push('follow:next')
             return Promise.resolve({ done: false as const, value: label })
           },
           return: async () => {
-            probe.events.push('follow:return')
-            if (probe.followFailure?.at === 'return') throw probe.followFailure.error
-            if (probe.slowReturn) {
+            events.push('follow:return')
+            if (followFailure?.at === 'return') throw followFailure.error
+            if (slowReturn) {
               await new Promise((resolve) => { setTimeout(resolve, 10) })
-              probe.events.push('follow:returned')
+              events.push('follow:returned')
             }
             return { done: true as const, value: undefined }
           },
@@ -148,6 +152,25 @@ class GuardService extends TypertRemoteService {
     probe.peers.push(this.ctx.invocation?.peer)
     probe.wireArgs.push(this.ctx.invocation?.request.args)
     probe.stores.push(member.getStore())
+  }
+}
+
+/** SRC methods whose markers `claimedEndpoints()` must leave out. */
+class ClaimsService extends TypertRemoteService {
+  constructor(ctx: Context) {
+    super(ctx, 'claims', { namespace: 'claims' })
+  }
+
+  /** Shadowed by a strict definition the test registers and withdraws. */
+  @Remote
+  withdrawn(): string {
+    return 'withdrawn'
+  }
+
+  /** Its endpoint `claims/nested/name` has three segments, which the `/api` carrier never claims. */
+  @Remote
+  ['nested/name'](): string {
+    return 'nested'
   }
 }
 
@@ -325,6 +348,20 @@ describe('remote/invoke', () => {
       .resolves.toEqual(['replaced'])
     expect(probe.calls).toEqual(['passthrough', 'watch'])
     expect(probe.wireArgs).toEqual([{ value: 'replaced' }, { label: 'replaced' }])
+  })
+
+  it('resolves the receiver Context from the identity a listener replaced', async () => {
+    const ctx = await mount()
+    ctx.on('remote/invoke', (call, next) => {
+      call.args = { ...call.args, agentId: 'agent-missing' }
+      return next()
+    })
+
+    const failure = await expectRemoteCode(ctx.typertGateway.invoke({
+      namespace: 'guard', method: 'rename', args: { agentId: 'agent-1', request: { title: 'x' } },
+    }), 'gateway/context-not-found')
+    expect(failure.details).toEqual({ endpoint: 'guard/rename', field: 'agentId' })
+    expect(probe.calls).toEqual([])
   })
 
   it('returns a rewritten unary value, which the RPC carrier still encodes', async () => {
@@ -518,6 +555,81 @@ describe('remote/invoke', () => {
     expect(probe.events.slice(5).sort()).toEqual(['settled:first', 'settled:next', 'settled:second'])
   })
 
+  // Each next() that reaches the method opens one stream; the caller receives the listener's outcome once every opened
+  // stream has returned, never the release failure.
+  it.each([
+    { answer: 'throws', opens: 1, releaseFails: false, code: 'gateway/forbidden' },
+    { answer: 'returns a value', opens: 1, releaseFails: false, code: 'gateway/result-invalid' },
+    { answer: 'throws', opens: 2, releaseFails: false, code: 'gateway/forbidden' },
+    { answer: 'throws', opens: 1, releaseFails: true, code: 'gateway/forbidden' },
+    { answer: 'returns a value', opens: 1, releaseFails: true, code: 'gateway/result-invalid' },
+  ] as const)('returns each stream next() opened when a listener $answer after next() (opens: $opens, release fails: $releaseFails)', async ({ answer, opens, releaseFails, code }) => {
+    const ctx = await mount()
+    probe.slowReturn = true
+    if (releaseFails) probe.followFailure = { at: 'return', error: new Error('fixture: follow failed') }
+    ctx.on('remote/invoke', async (call, next): Promise<RemoteInvokeOutcome> => {
+      for (let opened = 0; opened < opens; opened++) await next()
+      if (answer === 'returns a value') return { kind: 'value', value: 'answered' }
+      throw new RemoteError('gateway/forbidden', 'fixture: refused after next', { endpoint: call.endpoint })
+    })
+
+    await expectRemoteCode(ctx.typertGateway.stream({
+      namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
+    }), code)
+    probe.events.push('caller:failed')
+    const returned = releaseFails ? ['follow:return'] : ['follow:return', 'follow:returned']
+    expect(probe.calls).toEqual(Array.from({ length: opens }, () => 'follow'))
+    expect(probe.events).toEqual([
+      ...Array.from({ length: opens }, () => ['uplink:iterator', 'uplink:return', 'follow:iterator', ...returned]).flat(),
+      'caller:failed',
+    ])
+  })
+
+  // A stream still opening when the call fails is returned once it opens; the caller does not wait for that return,
+  // which settles after a timer.
+  it.each([
+    {
+      answer: 'throws synchronously after calling next()',
+      code: 'gateway/forbidden',
+      listener: (refusal: RemoteError): InvokeListener => (_call, next) => {
+        void next()
+        throw refusal
+      },
+    },
+    {
+      answer: 'throws when its race with next() rejects first',
+      code: 'gateway/forbidden',
+      listener: (refusal: RemoteError): InvokeListener => async (_call, next) => {
+        const opening = next()
+        await Promise.race([opening, Promise.reject(refusal)])
+        return opening
+      },
+    },
+    {
+      answer: 'returns a value without awaiting next()',
+      code: 'gateway/result-invalid',
+      listener: (): InvokeListener => async (_call, next) => {
+        void next()
+        return { kind: 'value', value: 'answered' }
+      },
+    },
+  ] as const)('returns the stream next() is still opening when a listener $answer', async ({ code, listener }) => {
+    const ctx = await mount()
+    probe.slowReturn = true
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused while next() opens', { endpoint: 'guard/follow' })
+    ctx.on('remote/invoke', listener(refusal))
+
+    const failure = await expectRemoteCode(ctx.typertGateway.stream({
+      namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
+    }), code)
+    if (code === 'gateway/forbidden') expect(failure).toBe(refusal)
+    expect(probe.events).not.toContain('follow:returned')
+    await vi.waitFor(() => {
+      expect(probe.events).toEqual(['uplink:iterator', 'uplink:return', 'follow:iterator', 'follow:return', 'follow:returned'])
+    })
+    expect(probe.calls).toEqual(['follow'])
+  })
+
   it('keeps the Gateway-owned $events stream and $events/result outside the waterfall', async () => {
     const ctx = await mount()
     const unregister = ctx.effect(() => ctx.typertGateway.registerRemoteEvents(signal => (async function* () {
@@ -590,35 +702,69 @@ describe('remote/invoke', () => {
 
   it('lists exactly the method endpoints the /api carrier claims', async () => {
     const ctx = await mount()
-    const strictOnly = (namespace: string, method: string): InvocationDescriptor => ({
-      id: `@fixture/claims#${namespace}/${method}`,
-      service: 'retired',
-      namespace,
-      method,
-      invocation: { kind: 'direct' },
-      parameters: [],
-      result: { mode: 'src-json' },
-    })
-    const register = (invocation: InvocationDescriptor): (() => Promise<void>) => ctx.typert.register({
-      package: `@fixture/claims-${invocation.namespace}`,
-      face: 'host',
-      schemas: [],
-      model: { services: [], events: [], objects: [] },
-      invocations: [invocation],
-    })
-    await register(strictOnly('retired', 'run'))()
-    register(strictOnly('$events', 'result'))
+    await registerStrict(ctx, strictOnly('retired', 'run'))()
+    registerStrict(ctx, strictOnly('$events', 'result'))
 
     const listed = ctx.typertGateway.claimedEndpoints()
-    expect(listed).toEqual([
-      'guard/create', 'guard/fail', 'guard/feed', 'guard/follow', 'guard/passthrough', 'guard/read', 'guard/rename', 'guard/watch',
-    ])
+    expect(listed).toEqual(GUARD_ENDPOINTS)
     for (const endpoint of listed) expect(await httpStatus(ctx, endpoint)).toBe(200)
     expect(await httpStatus(ctx, 'retired/run')).toBe(200)
     expect(await httpStatus(ctx, '$events/result')).toBe(200)
     expect(await httpStatus(ctx, 'guard/absent')).toBe(404)
   })
+
+  it('omits an SRC endpoint whose strict definition was withdrawn, which the carrier claims and no method answers', async () => {
+    const ctx = await mount()
+    await ctx.plugin(ClaimsService)
+    expect(ctx.typertGateway.claimedEndpoints()).toContain('claims/withdrawn')
+    await registerStrict(ctx, strictOnly('claims', 'withdrawn'))()
+
+    expect(ctx.typertGateway.claimedEndpoints()).not.toContain('claims/withdrawn')
+    expect(await httpStatus(ctx, 'claims/withdrawn')).toBe(200)
+    await expect(rpc(ctx, 'claims/withdrawn', {})).resolves.toMatchObject({
+      ok: false, error: { code: 'gateway/definition-unavailable', details: { endpoint: 'claims/withdrawn' } },
+    })
+    await expectRemoteCode(ctx.typertGateway.invoke({
+      namespace: 'claims', method: 'withdrawn', args: {},
+    }), 'gateway/definition-unavailable')
+  })
+
+  it('omits an SRC method whose name is not one endpoint segment, which the carrier does not claim', async () => {
+    const ctx = await mount()
+    await ctx.plugin(ClaimsService)
+
+    expect(ctx.typertGateway.claimedEndpoints()).toEqual(['claims/withdrawn', ...GUARD_ENDPOINTS])
+    expect(await httpStatus(ctx, 'claims/withdrawn')).toBe(200)
+    expect(await httpStatus(ctx, 'claims/nested/name')).toBe(404)
+  })
 })
+
+const GUARD_ENDPOINTS = [
+  'guard/create', 'guard/fail', 'guard/feed', 'guard/follow', 'guard/passthrough', 'guard/read', 'guard/rename', 'guard/watch',
+]
+
+/** A strict definition whose Service is never mounted. */
+function strictOnly(namespace: string, method: string): InvocationDescriptor {
+  return {
+    id: `@fixture/claims#${namespace}/${method}`,
+    service: 'retired',
+    namespace,
+    method,
+    invocation: { kind: 'direct' },
+    parameters: [],
+    result: { mode: 'src-json' },
+  }
+}
+
+function registerStrict(ctx: Context, invocation: InvocationDescriptor): () => Promise<void> {
+  return ctx.typert.register({
+    package: `@fixture/claims-${invocation.namespace}`,
+    face: 'host',
+    schemas: [],
+    model: { services: [], events: [], objects: [] },
+    invocations: [invocation],
+  })
+}
 
 function freshProbe(): Probe {
   return {
@@ -845,15 +991,16 @@ async function followRefused(ctx: Context): Promise<void> {
   }), 'gateway/forbidden')
 }
 
-/** An uplink with no items that records when the Gateway opens and returns it. */
+/** An uplink with no items that records, into the probe current when it is created, when the Gateway opens and returns it. */
 function trackedUplink(): AsyncIterable<unknown> {
+  const { events } = probe
   return {
     [Symbol.asyncIterator]: () => {
-      probe.events.push('uplink:iterator')
+      events.push('uplink:iterator')
       return {
         next: () => Promise.resolve({ done: true as const, value: undefined }),
         return: () => {
-          probe.events.push('uplink:return')
+          events.push('uplink:return')
           return Promise.resolve({ done: true as const, value: undefined })
         },
       }

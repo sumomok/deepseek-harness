@@ -65,7 +65,7 @@
 | `plugin-manager/install-state` | `emit` | [`packages/boot/plugin-manager/src/types.ts:272`](../packages/boot/plugin-manager/src/types.ts) | [`plugin-manager`](../packages/boot/plugin-manager) (`emit`) | `remotes` |
 | `remote-stream/socket-closed` | `emit` | [`packages/api/gateway/src/index.ts:107`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
 | `remote-stream/socket-opened` | `emit` | [`packages/api/gateway/src/index.ts:97`](../packages/api/gateway/src/index.ts) | `gateway` (`emit`) | - |
-| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:128`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
+| `remote/invoke` | `waterfall` | [`packages/api/gateway/src/index.ts:132`](../packages/api/gateway/src/index.ts) | `gateway` (`waterfall`) | - |
 | `schedule/changed` | `emit` | [`packages/schedule/schedule/src/types.ts:478`](../packages/schedule/schedule/src/types.ts) | [`schedule`](../packages/schedule/schedule) (`emit`) | `remotes` |
 | `session-telemetry/record` | `waterfall` | [`packages/session/session-telemetry/src/index.ts:44`](../packages/session/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/session/session-telemetry) (`waterfall`) | - |
 | `session/created` | `emit` | [`packages/core/session/src/index.ts:54`](../packages/core/session/src/index.ts) | [`session`](../packages/core/session) (`events.dispatch`) | [`permission-presets`](../packages/interaction/permission-presets), [`schedule`](../packages/schedule/schedule), `server`, `session-controller`, [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-telemetry`](../packages/session/session-telemetry) |
