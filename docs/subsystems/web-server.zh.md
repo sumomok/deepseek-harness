@@ -202,7 +202,7 @@ Source: [`packages/host/webserver/src/index.ts`](../../packages/host/webserver/s
 
 #### `connection/fetch` — waterfall
 
-Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge's body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it. A listener refuses by returning its own Response without calling `next()`, or delegates with `next()`. All listeners share one `next()`, so a listener calls it at most once: a second call runs the next listener that has not yet run, or the route. A listener must not consume the request body; it reads `call.request.clone()`. Connection cancels the body of each Response the route or channel produced for a `next()` called before the waterfall ended, unless the caller receives that Response or its body; after the waterfall ended, a `next()` that reaches the route or channel dispatches nothing and rejects. A throwing listener rejects the dispatch as a throwing route does.
+Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge's body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it. A listener refuses by returning its own Response without calling `next()`, or delegates with `next()`. All listeners share one `next()`, so a listener calls it at most once: a second call runs the next listener that has not yet run, or the route. A listener must not consume the request body; it reads `call.request.clone()`. Connection cancels the body of each Response the route or channel produced for a `next()` called before the waterfall ended, when Connection takes the outermost listener's result, unless the caller receives that Response or its body; after that, a `next()` that reaches the route or channel dispatches nothing and rejects. A throwing listener rejects the dispatch as a throwing route does.
 
 ```ts cordis-catalog
 /**
@@ -216,9 +216,10 @@ Wrap one request to an exact Fetch route or a dedicated RPC channel, after admis
  * or the route. A listener must not consume the request body; it reads
  * `call.request.clone()`. Connection cancels the body of each Response
  * the route or channel produced for a `next()` called before the
- * waterfall ended, unless the caller receives that Response or its body;
- * after the waterfall ended, a `next()` that reaches the route or channel
- * dispatches nothing and rejects. A throwing listener rejects the
+ * waterfall ended, when Connection takes the outermost listener's result,
+ * unless the caller receives that Response or its body; after that, a
+ * `next()` that reaches the route or channel dispatches nothing and
+ * rejects. A throwing listener rejects the
  * dispatch as a throwing route does.
  * @param call - kind, registered path, method, Fetch request, and admitted Peer.
  * @param next - hand the request to the route or channel; resolves to its Response.

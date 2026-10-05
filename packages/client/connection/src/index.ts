@@ -83,9 +83,10 @@ declare module '@deepseek-ai/cordis' {
      * or the route. A listener must not consume the request body; it reads
      * `call.request.clone()`. Connection cancels the body of each Response
      * the route or channel produced for a `next()` called before the
-     * waterfall ended, unless the caller receives that Response or its body;
-     * after the waterfall ended, a `next()` that reaches the route or channel
-     * dispatches nothing and rejects. A throwing listener rejects the
+     * waterfall ended, when Connection takes the outermost listener's result,
+     * unless the caller receives that Response or its body; after that, a
+     * `next()` that reaches the route or channel dispatches nothing and
+     * rejects. A throwing listener rejects the
      * dispatch as a throwing route does.
      * @param call - kind, registered path, method, Fetch request, and admitted Peer.
      * @param next - hand the request to the route or channel; resolves to its Response.
