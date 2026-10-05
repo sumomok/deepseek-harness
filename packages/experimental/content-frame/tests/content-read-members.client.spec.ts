@@ -26,6 +26,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
 import { reportDirectoryMismatch } from '../src/access/members.ts'
+import { PendingCalls } from '../src/access/pending.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, MIN_OUTLINE_CHARS, type ImageCapture, type ReadOutcome,
@@ -104,6 +105,7 @@ let world: string | undefined
 let context: Context | undefined
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
@@ -458,8 +460,12 @@ describe('per-member read routes', () => {
     const { ctx, logs } = await loadComposition({ perMember: true, members: MEMBERS })
     const sessions = createSessions(ctx)
     const cancel = new AbortController()
+    const opens = vi.spyOn(PendingCalls.prototype, 'open')
     const child = startRead(ctx, sessions.child, CALL_CHILD)
     const orphan = startRead(ctx, sessions.orphan, CALL_ORPHAN, false, cancel.signal)
+    // Both calls are waiting before anyone bids: the wait is registered inside
+    // the `open` call itself, so every bid below names a call that is open.
+    await vi.waitFor(() => { expect(opens).toHaveBeenCalledTimes(2) })
     const answers: Answer[] = []
     for (let bid = 0; bid < 20; bid += 1) {
       for (const [assertion, callId] of [[ASSERTION_B, CALL_CHILD], [ASSERTION_A, CALL_ORPHAN], [ASSERTION_B, CALL_ORPHAN]]) {
@@ -470,6 +476,11 @@ describe('per-member read routes', () => {
       await new Promise<void>((resolveDelay) => { setTimeout(resolveDelay, 5) })
     }
     answers.push(await claimAs(ctx, ASSERTION_A, CALL_CHILD))
+    // Now claimed: A's other tab is told another tab holds it, and B is still told nothing is known of it.
+    const ownOtherTab = await post(ctx, CONTENT_CLAIM_ROUTE, ASSERTION_A, { callId: CALL_CHILD, tabId: 'tab-other' })
+    const crossedClaimed = await post(ctx, CONTENT_CLAIM_ROUTE, ASSERTION_B, { callId: CALL_CHILD, tabId: 'tab-other' })
+    expect([ownOtherTab.body, crossedClaimed.body]).toEqual(['{"claimed":false,"reason":"taken"}', UNKNOWN_CLAIM_BODY])
+    answers.push(ownOtherTab, crossedClaimed)
     answers.push(await post(ctx, CONTENT_REPORT_ROUTE, ASSERTION_A, { callId: CALL_CHILD, tabId: TAB, outcome: LISTING }))
     expect(documentOf(answers.at(-1)!)).toEqual({ accepted: true })
     expect((await child).content.map(block => block.type)).toEqual(['text'])

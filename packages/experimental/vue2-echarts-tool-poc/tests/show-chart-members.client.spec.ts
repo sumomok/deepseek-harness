@@ -326,7 +326,10 @@ describe('per-member report route', () => {
   it('places a child session\'s call with the member its parent belongs to', async () => {
     const { ctx, logs } = await loadComposition({ perMember: true, members: MEMBERS })
     const sessions = createSessions(ctx)
+    const waits = vi.spyOn(PendingCharts.prototype, 'settle')
     const drawn = draw(ctx, CALL_CHILD, sessions.child)
+    // The call is waiting before B reports, so every report below names a call that is open.
+    await vi.waitFor(() => { expect(waits).toHaveBeenCalledTimes(1) })
     const answers: Answer[] = []
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const forged = await report(ctx, ASSERTION_B, CALL_CHILD, FORGED)
@@ -342,7 +345,10 @@ describe('per-member report route', () => {
   it('takes no member\'s report for a call made outside any agent', async () => {
     const { ctx, logs } = await loadComposition({ perMember: true, members: MEMBERS })
     const cancel = new AbortController()
+    const waits = vi.spyOn(PendingCharts.prototype, 'settle')
     const drawn = draw(ctx, CALL_NO_AGENT, undefined, cancel.signal)
+    // The call is waiting before either member reports, so every report below names a call that is open.
+    await vi.waitFor(() => { expect(waits).toHaveBeenCalledTimes(1) })
     const answers: Answer[] = []
     for (let attempt = 0; attempt < 20; attempt += 1) {
       for (const assertion of [ASSERTION_A, ASSERTION_B]) {
