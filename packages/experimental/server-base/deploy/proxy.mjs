@@ -1048,39 +1048,79 @@ const CLIENT_ERROR_STATUS = new Map([
 const CLIENT_LEFT = new Set(['ECONNRESET', 'EPIPE', 'HPE_INVALID_EOF_STATE'])
 
 /**
+ * @typedef {object} Responses
+ * @property {(socket: import('node:stream').Duplex) => import('node:http').ServerResponse[]} openOn - the responses on a client connection that have not ended.
+ * @property {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, onEnded: () => void) => void} whenEnded - run `onEnded` once, when `res` ends.
+ */
+
+/**
+ * Follow the responses on each client connection, from the server's
+ * `request` events, which this listener sees before any other. A response
+ * ends when it emits 'close', or when its connection closes first. Node
+ * emits 'close' for a response once it has finished or its connection has
+ * closed, except for one still queued behind an earlier response on the
+ * connection when the connection closes: that response has no socket of its
+ * own and emits nothing, so the connection's close is the only signal that
+ * its client left.
+ * @param {import('node:http').Server} server - the server whose responses are followed.
+ * @returns {Responses} the record.
+ */
+function followResponses(server) {
+  /** @type {WeakMap<import('node:stream').Duplex, Map<import('node:http').ServerResponse, Array<() => void>>>} each connection's responses that have not ended, with what runs when each ends. */
+  const connections = new WeakMap()
+  /**
+   * @param {Map<import('node:http').ServerResponse, Array<() => void>>} open - one connection's responses that have not ended.
+   * @param {import('node:http').ServerResponse} res - the response that ends.
+   */
+  const end = (open, res) => {
+    const callbacks = open.get(res) ?? []
+    open.delete(res)
+    for (const callback of callbacks) callback()
+  }
+  server.prependListener('request', (req, res) => {
+    const socket = req.socket
+    let open = connections.get(socket)
+    if (open === undefined) {
+      /** @type {Map<import('node:http').ServerResponse, Array<() => void>>} */
+      const created = new Map()
+      connections.set(socket, created)
+      socket.once('close', () => {
+        for (const response of [...created.keys()]) end(created, response)
+      })
+      open = created
+    }
+    const responses = open
+    responses.set(res, [])
+    res.once('close', () => { end(responses, res) })
+  })
+  return {
+    openOn: socket => [...(connections.get(socket)?.keys() ?? [])],
+    whenEnded: (req, res, onEnded) => { connections.get(req.socket)?.get(res)?.push(onEnded) },
+  }
+}
+
+/**
  * Install the `clientError` listener both modes use. A client that left is
  * sent nothing and logged nothing. Any other error is a request Node's parser
  * or its request deadlines refused, never an upstream failure, and is logged:
  * a header section over Node's size limit is answered 431, a request that did
  * not arrive within the server's headers or request timeout 408, and anything
  * else 400. A connection that is no longer writable, or on which a response
- * that has not closed has already sent its header, gets no status and is
+ * that has not ended has already sent its header, gets no status and is
  * destroyed: a status line written there would land inside that response's
  * body. Node's own listener, `socketOnError` in lib/_http_server.js, writes
  * its status under the same condition, read from the internal
  * `socket._httpMessage._headerSent`; this one reads the public `headersSent`
- * of the responses it records from the server's `request` events. That flag
- * is set by `writeHead`, before the header is flushed, so the status is
- * withheld wherever Node withholds it and also between `writeHead` and the
- * first flush.
+ * of every response `responses` reports open on the connection, queued ones
+ * included. That flag is set by `writeHead`, before the header is flushed,
+ * so the status is withheld wherever Node withholds it and also between
+ * `writeHead` and the first flush.
  * @param {import('node:http').Server} server - the server to install it on.
  * @param {Runtime} runtime - the log sink.
+ * @param {Responses} responses - the server's followed responses.
  * @returns {void}
  */
-function answerClientErrors(server, runtime) {
-  /** @type {WeakMap<import('node:stream').Duplex, Set<import('node:http').ServerResponse>>} the responses on each connection that have not closed. */
-  const responses = new WeakMap()
-  server.prependListener('request', (req, res) => {
-    let open = responses.get(req.socket)
-    if (open === undefined) {
-      open = new Set()
-      responses.set(req.socket, open)
-    }
-    open.add(res)
-    res.on('close', () => {
-      open.delete(res)
-    })
-  })
+function answerClientErrors(server, runtime, responses) {
   server.on('clientError', (error, socket) => {
     const code = String(error.code)
     if (CLIENT_LEFT.has(code)) {
@@ -1088,7 +1128,7 @@ function answerClientErrors(server, runtime) {
       return
     }
     runtime.log(`proxy: client error: ${String(error)}`)
-    if ([...(responses.get(socket) ?? [])].some(res => res.headersSent)) {
+    if (responses.openOn(socket).some(res => res.headersSent)) {
       socket.destroy()
       return
     }
@@ -1206,8 +1246,11 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
 /**
  * Build the PROXY_MODE=proxy server. It is returned unlistened; the caller
  * owns `listen` and `close`. A client that leaves before its request body is
- * complete, or before its response is completely written, has its upstream
- * request and response destroyed, and nothing is logged or answered for it.
+ * complete, or before its response is completely written while the upstream
+ * response has not ended, has its upstream request destroyed, which closes
+ * that upstream connection, and nothing is logged or answered for it; a
+ * response still queued behind an earlier one on the client's connection
+ * counts as not completely written.
  * @param {Settings} settings - validated settings with `mode` set to `proxy`.
  * @param {Runtime} runtime - the log sink and clock.
  * @returns {{ server: import('node:http').Server, gate: Gate }} the server and the gate whose sockets `gate.close()` releases.
@@ -1242,8 +1285,9 @@ export function createProxyServer(settings, runtime) {
     // upstream waiting on bytes its framing promised; one that leaves before
     // its response is completely written leaves the upstream response paused
     // on an open connection, which an event stream never ends. Either way the
-    // upstream request and response are destroyed, and any failure the
-    // upstream request then reports goes unlogged and unanswered.
+    // upstream request is destroyed, which closes its connection and discards
+    // its response, and any failure it then reports goes unlogged and
+    // unanswered.
     /** @type {import('node:http').ClientRequest | undefined} */
     let upstream
     /** @type {import('node:http').IncomingMessage | undefined} */
@@ -1252,15 +1296,14 @@ export function createProxyServer(settings, runtime) {
     const abandon = () => {
       abandoned = true
       upstream?.destroy()
-      upstreamRes?.destroy()
     }
     req.on('close', () => {
       if (!req.complete) abandon()
     })
-    res.on('close', () => {
-      // An upstream response that already ended holds nothing open, and its
+    responses.whenEnded(req, res, () => {
+      // An upstream response that has ended holds nothing open, and its
       // connection may already be back in the agent's pool.
-      if (!res.writableFinished && upstreamRes?.complete !== true) abandon()
+      if (!res.writableFinished && upstreamRes?.readableEnded !== true) abandon()
     })
     try {
       const remote = isRemote(pathname)
@@ -1323,6 +1366,7 @@ export function createProxyServer(settings, runtime) {
       res.end()
     }
   })
+  const responses = followResponses(server)
 
   server.on('upgrade', async (req, socket, head) => {
     // First statement on purpose: the server hands over a raw socket with no
@@ -1387,7 +1431,7 @@ export function createProxyServer(settings, runtime) {
     }
   })
 
-  answerClientErrors(server, runtime)
+  answerClientErrors(server, runtime, responses)
   server.on('close', () => {
     remoteAgent.destroy()
     dshAgent.destroy()
@@ -1434,7 +1478,7 @@ export function createVerifierServer(settings, runtime) {
       res.end()
     }
   })
-  answerClientErrors(server, runtime)
+  answerClientErrors(server, runtime, followResponses(server))
   return { server, gate }
 }
 

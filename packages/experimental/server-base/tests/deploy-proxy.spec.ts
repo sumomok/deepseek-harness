@@ -444,9 +444,10 @@ const FLOOD_PIECE = Buffer.alloc(16 * 1024, 'x')
  * How a streaming stand-in answers each request. `chunk` writes a 200 head
  * and FIRST_CHUNK and then holds the response open, as an idle event stream
  * does; `flood` writes the same and then keeps writing for as long as the
- * connection takes it.
+ * connection takes it; `silent` writes nothing, as a long poll that has
+ * nothing to report does.
  */
-type StreamingAnswer = 'chunk' | 'flood'
+type StreamingAnswer = 'chunk' | 'flood' | 'silent'
 
 /** A stand-in upstream that never ends a response. */
 interface StreamingStub {
@@ -494,6 +495,8 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
     req.resume()
     req.socket.once('close', () => { slot(closes, index).resolve(true) })
     res.on('error', () => { res.destroy() })
+    slot(arrivals, index).resolve(true)
+    if (answer === 'silent') return
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     res.write(FIRST_CHUNK)
     if (answer === 'flood') {
@@ -504,7 +507,6 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
       }
       flood()
     }
-    slot(arrivals, index).resolve(true)
   })
   return {
     port: await listen(server),
@@ -1107,6 +1109,35 @@ describe('a client that leaves while its response streams', () => {
     const { client } = await readUntil(w.port, `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
     client.destroy()
     await w[target].closed(0)
+    expect(w.logs).toEqual([])
+  })
+
+  it.each([
+    ['a verified dsh path', '/api/poll', 'dsh'],
+    ['a remote-application path', '/ini-web2/poll', 'remote'],
+  ] as const)('closes the upstream connection on %s when the upstream has not answered yet, and logs nothing', async (_label, path, target) => {
+    const w = await streamingWorld('silent')
+    const client = net.connect(w.port, '127.0.0.1', () => {
+      client.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`)
+    })
+    closers.push(async () => { client.destroy() })
+    client.on('error', () => { client.destroy() })
+    await w[target].arrived(0)
+    client.destroy()
+    await w[target].closed(0)
+    expect(w.logs).toEqual([])
+  })
+
+  it.each([
+    ['verified dsh paths', '/api/first', '/api/second', 'dsh'],
+    ['remote-application paths', '/ini-web2/first', '/ini-web2/second', 'remote'],
+  ] as const)('closes the upstream connection of a response queued behind the streaming one on %s, and logs nothing', async (_label, first, second, target) => {
+    const w = await streamingWorld('chunk')
+    const request = (path: string) => `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`
+    const { client } = await readUntil(w.port, request(first) + request(second), FIRST_CHUNK)
+    await w[target].arrived(1)
+    client.destroy()
+    await Promise.all([w[target].closed(0), w[target].closed(1)])
     expect(w.logs).toEqual([])
   })
 })
