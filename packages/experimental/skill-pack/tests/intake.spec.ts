@@ -10,8 +10,10 @@
  * The root write itself is the real `syncPackRoot`, and the read of the view
  * ids the root holds the real `readInstalledPacks`. A case that needs a call
  * to stop part-way holds the write behind a gate and waits for the write to
- * start, and the failure cases make the write or the read throw, through
- * `rootControl`, or make the organization root unreadable on disk.
+ * start, the failure cases make the write or the read throw, through
+ * `rootControl`, or make the organization root unreadable on disk, and a case
+ * that must not depend on the order a directory lists has the read hand its
+ * entries back in the reverse order as well.
  */
 
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -29,14 +31,16 @@ import type { DeliveredFile, IntakeResult, OrgPackInput, PackView, PackViewRefus
 
 /**
  * What the next root writes report as they start, what they wait for, and the
- * error they throw instead of writing; and the error a read of the
- * organization root throws instead of reading.
+ * error they throw instead of writing; the error a read of the organization
+ * root throws instead of reading, and whether that read hands its entries back
+ * in the reverse of the order it read them.
  */
 const rootControl = vi.hoisted(() => ({
   writing: (): void => undefined,
   gate: undefined as Promise<void> | undefined,
   failure: undefined as Error | undefined,
   readFailure: undefined as Error | undefined,
+  readReversed: false,
 }))
 
 vi.mock('../src/install.ts', async (importOriginal) => {
@@ -45,7 +49,8 @@ vi.mock('../src/install.ts', async (importOriginal) => {
     ...actual,
     async readInstalledPacks(...args: Parameters<typeof actual.readInstalledPacks>): ReturnType<typeof actual.readInstalledPacks> {
       if (rootControl.readFailure !== undefined) throw rootControl.readFailure
-      return await actual.readInstalledPacks(...args)
+      const installed = await actual.readInstalledPacks(...args)
+      return rootControl.readReversed ? { ...installed, packs: new Map([...installed.packs].reverse()) } : installed
     },
     async syncPackRoot(...args: Parameters<typeof actual.syncPackRoot>): ReturnType<typeof actual.syncPackRoot> {
       rootControl.writing()
@@ -113,6 +118,7 @@ afterEach(async () => {
   rootControl.gate = undefined
   rootControl.failure = undefined
   rootControl.readFailure = undefined
+  rootControl.readReversed = false
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
@@ -690,7 +696,11 @@ describe('view ids an organization set declares', () => {
     },
   )
 
-  it('holds an id on disk by the first entry declaring it in name@version order while no set is offered', async () => {
+  it.each([
+    { order: 'the order the directory lists them', reversed: false },
+    { order: 'the reverse of that order', reversed: true },
+  ])('holds an id on disk by the first entry declaring it in name@version order while no set is offered, with the entries read in $order', async ({ reversed }) => {
+    rootControl.readReversed = reversed
     const paths = await newWorld()
     for (const [name, title] of [['a-guide', 'OLD'], ['b-guide', 'NEW']] as const) {
       const directory = join(paths.organizationRoot, `${name}@1`)
