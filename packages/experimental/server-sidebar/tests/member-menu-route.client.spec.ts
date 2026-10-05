@@ -256,6 +256,9 @@ describe('per-member server-menu route', () => {
 
   it('keeps a save in the saving member\'s own store, and in neither the profile nor the other member\'s menu', async () => {
     const { ctx, profile, logs } = await bootMembers()
+    // A write through the settings service may land after the answer, so its
+    // call is watched as well as the profile patch it would change.
+    const update = vi.spyOn(ctx.settings, 'update')
     const posted = await postPatch(ctx, ASSERTION_A, { workflows: [WORKFLOW], workbenchSessionId: 'session-a' })
     expect(outcome(posted)).toEqual({ status: 200, body: document({ workflows: [WORKFLOW], workbenchSessionId: 'session-a' }) })
     const directory = directoryOf(ctx)
@@ -276,6 +279,7 @@ describe('per-member server-menu route', () => {
     expect((await postPatch(ctx, ASSERTION_B, { workflows: [other], groups: [GROUP] })).status).toBe(200)
     expect(outcome(await readMenu(ctx, ASSERTION_A))).toEqual({ status: 200, body: document({ workflows: [WORKFLOW], workbenchSessionId: 'session-a' }) })
     expect(directory.value(MEMBER_B, UNIT)).toEqual(document({ workflows: [other], groups: [GROUP] }))
+    expect(update).not.toHaveBeenCalled()
     expect(errorsOf(logs)).toEqual([])
   })
 
