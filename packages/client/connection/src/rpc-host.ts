@@ -19,6 +19,8 @@ import type {
   PeerAdmitter,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
+  ConnectionFetchCall,
+  ConnectionFetchMethod,
   ConnectionFetchRoute,
   ConnectionFetchHandler,
   HostConnectionFetch,
@@ -44,8 +46,16 @@ interface ConnectionRpcInterceptor {
 
 interface RegisteredFetchRoute {
   readonly methods: ReadonlySet<string>
+  /** The declared methods in registration order, as `fetch.list()` reports them. */
+  readonly declared: readonly ConnectionFetchMethod[]
   readonly requestBody: ConnectionFetchRoute['requestBody']
   readonly fetch: ConnectionFetchRoute['fetch']
+}
+
+/** One Response a `next()` of `connection/fetch` produced, and that Response once it has resolved. */
+interface DispatchedResponse {
+  readonly pending: Promise<Response>
+  settled: Response | undefined
 }
 
 interface ConnectionServerResponse {
@@ -67,7 +77,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
   readonly operator: PeerScope
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
   private readonly fetchRoutes = new Map<string, RegisteredFetchRoute>()
-  /** Connection plugin context; member Peer scopes hang under it whichever fiber opens them. */
+  /** Channels registered with `rpc.handle` whose disposer has not run. */
+  private readonly dedicatedChannels = new Set<string>()
+  /** Connection plugin context; member Peer scopes hang under it whichever fiber opens them, and Connection's events go through it. */
   private readonly peerOwner: Context
   private readonly members = new Map<PeerId, ConnectionPeer>()
   private admitter: PeerAdmitter | undefined
@@ -100,6 +112,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
       handle: (channel, handler) => this.register(owner, channel, handler),
       intercept: (channel, matches, handler) =>
         this.registerInterceptor(owner, channel, matches, handler),
+      channels: () => [...this.dedicatedChannels].sort(),
     }
   }
 
@@ -108,6 +121,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const owner = this.ctx
     return {
       register: route => this.registerFetchRoute(owner, route),
+      list: () => [...this.fetchRoutes]
+        .sort(([left], [right]) => left < right ? -1 : 1)
+        .map(([path, route]) => ({ path, methods: [...route.declared] })),
     }
   }
 
@@ -156,6 +172,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Compose one shared-channel Fetch handler from exact routes and its interceptor.
+   * A request an exact route owns passes through `connection/fetch` first.
    * @param channel - shared channel mounted by Connection.
    * @returns Fetch handler that selects one owner or returns 404.
    */
@@ -170,7 +187,10 @@ export class HostConnectionService extends Service implements HostConnectionHand
       fetch: (request, peer = this.operator) => {
         const pathname = new URL(request.url).pathname
         const route = this.fetchRoutes.get(pathname)
-        if (route?.methods.has(request.method) === true) return route.fetch(request, peer)
+        if (route?.methods.has(request.method) === true) {
+          const call: ConnectionFetchCall = { kind: 'exact-route', path: pathname, method: request.method, request, peer }
+          return this.guardFetch(call, () => route.fetch(request, peer))
+        }
         const endpoint = endpointFromPath(channel, pathname)
         const interceptor = this.interceptors.get(channel)
         if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
@@ -179,6 +199,34 @@ export class HostConnectionService extends Service implements HostConnectionHand
         return interceptor.fetchHandler.fetch(request, peer)
       },
     }
+  }
+
+  /**
+   * Run `connection/fetch` around one dispatch to a route or channel. Each Response a `next()` call
+   * produced that the caller does not receive has its body cancelled.
+   * @param call - the request as listeners see it.
+   * @param dispatch - hand the request to the route or channel.
+   * @returns the waterfall's Response; rejects with the waterfall's failure.
+   */
+  private async guardFetch(call: ConnectionFetchCall, dispatch: () => Promise<Response>): Promise<Response> {
+    // A listener may call next() more than once, so each call's Response is recorded.
+    const dispatched: DispatchedResponse[] = []
+    const next = (): Promise<Response> => {
+      const entry: DispatchedResponse = { pending: (async () => dispatch())(), settled: undefined }
+      void entry.pending.then((response) => { entry.settled = response }, swallowDiscardedRouteFailure)
+      dispatched.push(entry)
+      return entry.pending
+    }
+    let result: Response
+    try {
+      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
+      result = await this.peerOwner.waterfall('connection/fetch', call, next)
+    } catch (error) {
+      discardDispatched(dispatched, undefined)
+      throw error
+    }
+    discardDispatched(dispatched, result)
+    return result
   }
 
   private fenceRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
@@ -233,6 +281,7 @@ export class HostConnectionService extends Service implements HostConnectionHand
     assertFetchRoute(route)
     const registered: RegisteredFetchRoute = {
       methods: new Set(route.methods),
+      declared: [...route.methods],
       requestBody: route.requestBody,
       fetch: route.fetch,
     }
@@ -251,7 +300,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
     handler: ConnectionRpcHandler,
   ): () => Promise<void> {
     assertChannel(channel)
-    const fetchHandler = rpcFetchHandler(channel, handler, this.operator)
+    const decode = rpcFetchHandler(channel, handler, this.operator)
+    const fetchHandler: ConnectionFetchHandler = {
+      requestBodyMode: request => decode.requestBodyMode(request),
+      fetch: (request, peer = this.operator) => this.guardFetch(
+        { kind: 'channel', path: channel, method: request.method, request, peer },
+        () => decode.fetch(request, peer),
+      ),
+    }
     const route: WebRoute = {
       kind: 'prefix',
       path: channel,
@@ -265,10 +321,14 @@ export class HostConnectionService extends Service implements HostConnectionHand
         await bridge(req, res, fetchHandler, DEFAULT_MAX_REQUEST_BODY_BYTES, admission.peer)
       },
     }
-    return owner.effect(
-      () => owner.webServer.register(route),
-      `client-connection: ${channel} rpc channel`,
-    )
+    return owner.effect(() => {
+      const removeRoute = owner.webServer.register(route)
+      this.dedicatedChannels.add(channel)
+      return () => {
+        this.dedicatedChannels.delete(channel)
+        removeRoute()
+      }
+    }, `client-connection: ${channel} rpc channel`)
   }
 
   private registerInterceptor(
@@ -294,6 +354,46 @@ export class HostConnectionService extends Service implements HostConnectionHand
       }
     }, `client-connection: ${channel} rpc interceptor`)
   }
+}
+
+/**
+ * Cancel the body of each Response a `next()` of one `connection/fetch` dispatch produced that the
+ * caller does not receive: at once for one that has resolved, once it resolves for one still pending.
+ * @param dispatched - the Responses the dispatch's `next()` calls produced.
+ * @param result - the Response the caller receives, or `undefined` when the waterfall failed.
+ */
+function discardDispatched(dispatched: readonly DispatchedResponse[], result: Response | undefined): void {
+  for (const entry of dispatched) {
+    if (entry.settled !== undefined) void cancelUnreturnedBody(entry.settled, result)
+    else void entry.pending.then(response => cancelUnreturnedBody(response, result), swallowDiscardedRouteFailure)
+  }
+}
+
+/**
+ * Cancel one route Response's body unless the caller receives it.
+ * @param response - a Response one `next()` produced.
+ * @param result - the Response the caller receives, if any.
+ * @returns once the body is cancelled or left alone; never rejects.
+ */
+async function cancelUnreturnedBody(response: Response, result: Response | undefined): Promise<void> {
+  const body = response.body
+  // A Response built over the same body, such as one that adds headers, hands that body to the caller.
+  if (body === null || response === result || body === result?.body) return
+  try {
+    await body.cancel()
+  } catch (_cancelFailure) {
+    // A body a listener has locked belongs to the holder of its reader, and a failed cancel must not replace the
+    // caller's result.
+  }
+}
+
+/**
+ * Absorb the rejection of a route that a `next()` dispatched; the listener that called `next()` holds the same promise.
+ * @param _routeFailure - the route's rejection, which leaves no body to cancel.
+ */
+function swallowDiscardedRouteFailure(_routeFailure: unknown): void {
+  // The caller receives the waterfall's outcome; a route rejection no listener awaited must not become an unhandled
+  // rejection.
 }
 
 /**

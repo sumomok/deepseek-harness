@@ -4033,6 +4033,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.signal - optional compaction cancellation signal.' }, { name: 'next', description: 'delegate to the next recovery listener.' }],
   },
   {
+    name: 'connection/fetch',
+    mode: 'waterfall',
+    signature: '\'connection/fetch\'(call: ConnectionFetchCall, next: () => Promise<Response>): Promise<Response>',
+    summary: 'Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge\'s body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it.',
+    description: 'Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge\'s body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it. A listener refuses by returning its own Response without calling `next()`, or delegates with `next()`. All listeners share one `next()`, so a listener calls it at most once: a second call runs the next listener that has not yet run, or the route. A listener must not consume the request body; it reads `call.request.clone()`. When the result is not a Response `next()` produced, Connection cancels the body of each one `next()` produced, unless the result carries that body. A throwing listener rejects the dispatch as a throwing route does.',
+    parameters: [{ name: 'call', description: 'kind, registered path, method, Fetch request, and admitted Peer.' }, { name: 'next', description: 'hand the request to the route or channel; resolves to its Response.' }],
+  },
+  {
     name: 'connection/peer-closed',
     mode: 'emit',
     signature: '\'connection/peer-closed\'(peer: PeerScope): void',
@@ -4965,6 +4973,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
+    name: 'ConnectionFetchCall',
+    declaration: 'export interface ConnectionFetchCall {\n    readonly kind: \'exact-route\' | \'channel\';\n    readonly path: string;\n    readonly method: string;\n    readonly request: Request;\n    readonly peer: PeerScope;\n}',
+  },
+  {
     name: 'ConnectionFetchHandler',
     declaration: 'export interface ConnectionFetchHandler {\n    requestBodyMode(request: {\n        readonly method: string;\n        readonly url: URL;\n    }): ConnectionRequestBodyMode;\n    fetch(request: Request, peer?: PeerScope): Promise<Response>;\n}',
   },
@@ -4975,6 +4987,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ConnectionFetchRoute',
     declaration: 'export interface ConnectionFetchRoute {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n    readonly requestBody: ConnectionRequestBodyMode;\n    readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>;\n}',
+  },
+  {
+    name: 'ConnectionFetchRouteListing',
+    declaration: 'export interface ConnectionFetchRouteListing {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n}',
   },
   {
     name: 'ConnectionIndexRequest',
@@ -5510,7 +5526,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HostConnectionFetch',
-    declaration: 'export interface HostConnectionFetch {\n    register(route: ConnectionFetchRoute): () => Promise<void>;\n}',
+    declaration: 'export interface HostConnectionFetch {\n    register(route: ConnectionFetchRoute): () => Promise<void>;\n    list(): readonly ConnectionFetchRouteListing[];\n}',
   },
   {
     name: 'HostConnectionPeers',
@@ -5518,7 +5534,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HostConnectionRpc',
-    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: \'/api\', matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n}',
+    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: \'/api\', matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n    channels(): readonly string[];\n}',
   },
   {
     name: 'ImageAttachmentLimits',

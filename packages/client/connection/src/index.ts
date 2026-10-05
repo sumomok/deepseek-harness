@@ -12,14 +12,17 @@ import { assertTrustedAuthority } from './api-request-trust.ts'
 import { BrowserAuth } from './browser-auth.ts'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { HostConnectionService } from './rpc-host.ts'
+import type { ConnectionFetchCall } from './rpc.ts'
 import { ConnectionRecoveryConfigSchema, resolveConnectionConfig, type ConnectionRecoveryConfig } from './recovery-config.ts'
 
 export type {
   PeerAdmission,
   PeerAdmitter,
+  ConnectionFetchCall,
   ConnectionFetchMethod,
   ConnectionFetchHandler,
   ConnectionFetchRoute,
+  ConnectionFetchRouteListing,
   ConnectionIndexRequest,
   ConnectionIndexResponse,
   ConnectionRpcEndpointMatcher,
@@ -68,6 +71,25 @@ declare module '@deepseek-ai/cordis' {
      * @mode waterfall
      */
     'connection/request'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>
+
+    /**
+     * Wrap one request to an exact Fetch route or a dedicated RPC channel,
+     * after admission and the bridge's body handling, before the route runs
+     * or the channel decodes its envelope; `/api` requests the RPC
+     * interceptor dispatches do not pass through it. A listener refuses by
+     * returning its own Response without calling `next()`, or delegates with
+     * `next()`. All listeners share one `next()`, so a listener calls it at
+     * most once: a second call runs the next listener that has not yet run,
+     * or the route. A listener must not consume the request body; it reads
+     * `call.request.clone()`. When the result is not a Response `next()`
+     * produced, Connection cancels the body of each one `next()` produced,
+     * unless the result carries that body. A throwing listener rejects the
+     * dispatch as a throwing route does.
+     * @param call - kind, registered path, method, Fetch request, and admitted Peer.
+     * @param next - hand the request to the route or channel; resolves to its Response.
+     * @mode waterfall
+     */
+    'connection/fetch'(call: ConnectionFetchCall, next: () => Promise<Response>): Promise<Response>
 
     /**
      * A member Peer was opened through `connection.peers.open()`; emitted

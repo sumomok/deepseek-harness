@@ -32,9 +32,10 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `authorization/settled` | `emit` | [`packages/credentials/authorization/src/index.ts:57`](../packages/credentials/authorization/src/index.ts) | [`authorization`](../packages/credentials/authorization) (`events.dispatch`) | - |
 | `commands/change` | `emit` | [`packages/interaction/commands/src/types.ts:89`](../packages/interaction/commands/src/types.ts) | [`commands`](../packages/interaction/commands) (`events.dispatch`) | `remotes` |
 | `compaction/summary-error` | `waterfall` | [`packages/compaction/compaction/src/index.ts:124`](../packages/compaction/compaction/src/index.ts) | [`compaction-basic`](../packages/compaction/compaction-basic) (`waterfall`) | [`compaction-image-offload`](../packages/compaction/compaction-image-offload) |
-| `connection/peer-closed` | `emit` | [`packages/client/connection/src/index.ts:87`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
-| `connection/peer-opened` | `emit` | [`packages/client/connection/src/index.ts:78`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
-| `connection/request` | `waterfall` | [`packages/client/connection/src/index.ts:70`](../packages/client/connection/src/index.ts) | `connection` (`waterfall`) | - |
+| `connection/fetch` | `waterfall` | [`packages/client/connection/src/index.ts:92`](../packages/client/connection/src/index.ts) | `connection` (`waterfall`) | - |
+| `connection/peer-closed` | `emit` | [`packages/client/connection/src/index.ts:109`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
+| `connection/peer-opened` | `emit` | [`packages/client/connection/src/index.ts:100`](../packages/client/connection/src/index.ts) | `connection` (`emit`) | - |
+| `connection/request` | `waterfall` | [`packages/client/connection/src/index.ts:73`](../packages/client/connection/src/index.ts) | `connection` (`waterfall`) | - |
 | `cordis/dynamic-package` | `emit` | [`packages/extensions/cordis-host-runner/src/types.ts:383`](../packages/extensions/cordis-host-runner/src/types.ts) | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) (`emit`) | `remotes` |
 | `cordis/dynamic-retract` | `emit` | [`packages/extensions/cordis-host-runner/src/types.ts:389`](../packages/extensions/cordis-host-runner/src/types.ts) | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) (`emit`) | `remotes` |
 | `cordis/inspect-query` | `emit` | [`packages/extensions/cordis-host-runner/src/types.ts:395`](../packages/extensions/cordis-host-runner/src/types.ts) | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) (`emit`) | `remotes` |

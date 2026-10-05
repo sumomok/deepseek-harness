@@ -50,6 +50,10 @@ cookie 签名密钥是 `ctx.credentials` 中由 `client-connection/browser-sessi
 
 通过认证的共享 HTTP 请求在传输请求体之前经过 `connection/request` waterfall。监听器可以拒绝新请求，或等待 `next()` 直到响应完成；释放所属 fiber 会移除准入行为。Desktop 使用此扩展点，在已批准的安装期间锁住新的 API 工作，而不取消已接纳的工作。客户端断开会中止处理函数的信号；桥接器停止写入 socket，并排空剩余响应块。WebSocket 流仍由 API Gateway 负责。
 
+发往精确 Fetch 路由、或发往经 `rpc.handle` 登记的专用通道的每个请求，都在准入与桥接器处理请求体之后、路由运行或通道解码信封之前经过 `connection/fetch` waterfall。精确路由不拥有的请求（包括用它未声明的方法访问它的路径）照常分发、不经过这个 waterfall；RPC 拦截器分发的 `/api` 请求也不经过它，由 Gateway 的 `remote/invoke` waterfall 负责。监听器收到一个 `ConnectionFetchCall`——`kind`（`exact-route` 或 `channel`）、`path`（登记的路由路径或通道前缀；通道下的端点在 `request.url` 上）、`method`、Fetch `request`，以及准入的 `peer`（shell 自有的载体没有指明 Peer 时是 operator）——和 `next()`，后者把请求交给路由或通道，resolve 为它的 Response。监听器不调用 `next()`、直接返回自己的 Response 即为拒绝。通道前缀下的每个请求都会到达监听器，包括通道自己会答 404 的请求。监听器不得消费请求体，路由还要读它；监听器改读 `request.clone()`，读取流式请求的克隆会让请求体为路由缓存在内存里。
+
+Cordis 把同一个 `next()` 交给每个 `connection/fetch` 监听器：每次调用都运行下一个尚未运行的监听器，没有剩余时直接交给路由。所以监听器至多调用一次 `next()`；第二次调用（例如在它之后的监听器拒绝之后重试）会跳过所有已经运行过的监听器，一个监听器的拒绝只在它之前的每个监听器都调用一次 `next()` 时成立。结果不是 `next()` 产生的 Response 时，Connection 取消 `next()` 产生的每个 Response 的 body，除非结果带着同一个 body（例如为加响应头而以它构造的 Response）：已 resolve 的立即取消，仍未 resolve 的在 resolve 时取消，不推迟调用方。取消失败（例如监听器已锁住该 body）时忽略，没有监听器等待的路由 reject 也被吸收。监听器抛错，或 `next()` 交给的路由抛错，都让 Fetch 处理函数像路由抛错一样 reject，HTTP 载体答 400、body 为空并记一条 warning；专用通道对自己处理函数的抛错答 500，所以监听器在通道上抛错时的答复与之不同。没有监听器时每个请求直接交给它的路由或通道。`connection.fetch.list()` 返回当前生效的每个精确路由及其方法，`connection.rpc.channels()` 返回当前生效的每个专用通道，都按路径排序，供门禁测试逼每一项都有分类。
+
 <a id="connection-generation"></a>
 ## Connection generation
 

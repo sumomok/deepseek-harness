@@ -858,6 +858,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ConnectionRequestRejection: 'transport rejection status is owned by packages/client/connection/src/rpc.ts',
   ConnectionTrustRequest: 'transport authentication input is owned by packages/client/connection/src/rpc.ts',
   PeerAdmission: 'Peer admission outcome is owned by packages/client/connection/src/rpc.ts',
+  ConnectionFetchCall: 'request seen by connection/fetch listeners is owned by packages/client/connection/src/rpc.ts',
   RemoteSocketId: 'Remote stream socket identity is owned by packages/api/gateway/src/stream-server.ts',
   RemoteInvokeCall: 'Remote call seen by remote/invoke listeners is owned by packages/api/gateway/src/types.ts',
   RemoteInvokeOutcome: 'remote/invoke result union is owned by packages/api/gateway/src/types.ts',

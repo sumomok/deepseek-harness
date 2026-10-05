@@ -220,6 +220,34 @@ export interface ConnectionFetchRoute {
   readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>
 }
 
+/** One exact Fetch route in effect, as {@link HostConnectionFetch.list} reports it. */
+export interface ConnectionFetchRouteListing {
+  /** The route's absolute path below `/api`. */
+  readonly path: string
+  /** The methods the route owns, in registration order. */
+  readonly methods: readonly ConnectionFetchMethod[]
+}
+
+/**
+ * One request that `connection/fetch` listeners see before it reaches an
+ * exact Fetch route or a dedicated RPC channel.
+ */
+export interface ConnectionFetchCall {
+  /** `exact-route` for a route from {@link HostConnectionFetch.register}; `channel` for a channel from {@link HostConnectionRpc.handle}. */
+  readonly kind: 'exact-route' | 'channel'
+  /** The registered path: the exact route's path, or the channel prefix. The endpoint below a channel is on `request.url`. */
+  readonly path: string
+  /** The request's HTTP method. */
+  readonly method: string
+  /**
+   * The Fetch request the route or channel receives. A listener must not
+   * consume its body, which the route still reads; it reads `request.clone()`.
+   */
+  readonly request: Request
+  /** The Peer the request was admitted as; the operator when the carrier names none. */
+  readonly peer: PeerScope
+}
+
 /** Host registry for exact Fetch routes that cannot use JSON Remote invocation. */
 export interface HostConnectionFetch {
   /**
@@ -228,6 +256,12 @@ export interface HostConnectionFetch {
    * @returns asynchronous disposer removing this exact contribution.
    */
   register(route: ConnectionFetchRoute): () => Promise<void>
+
+  /**
+   * List the exact routes in effect.
+   * @returns fresh entries for every registered route whose disposer has not run, sorted by path.
+   */
+  list(): readonly ConnectionFetchRouteListing[]
 }
 
 /** Host registry for logical RPC channels carried by the current transport. */
@@ -255,6 +289,13 @@ export interface HostConnectionRpc {
     matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
   ): () => Promise<void>
+
+  /**
+   * List the dedicated channels in effect.
+   * @returns a fresh, sorted array of every channel registered with {@link handle} whose disposer has
+   * not run; the shared `/api` channel, which {@link intercept} serves, is never listed.
+   */
+  channels(): readonly string[]
 }
 
 /** Host `ctx.connection` members consumed by transport-independent adapters. */
