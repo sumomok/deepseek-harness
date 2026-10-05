@@ -16,7 +16,7 @@ Status: implemented
 
 **单人模式不变。** 不开 `perMember` 时，路由、它的回答和它的设置写入就是原先运行的代码，原样移进 `serveProfileMenu`，现有 spec 不改动全部通过。组合加载完成后，`perMember` 与是否有 `consoleMembers` 服务在运行不一致的行，两个方向都写一行错误日志：没有目录的按成员行对每位成员答 503，目录旁边的共用行把一份菜单交给每位成员。
 
-**保存不得点名另一位成员的对话。** 一次保存要存的各工作流 `homeSessionId` 与 `workbenchSessionId` 逐个交给 `principalOfSession`；目录判给另一位成员的，保存被拒绝，文案固定，既不点名那位成员，也不带 id。否则成员可以把别人的对话存进自己的菜单，再从菜单里打开它。宿主给每位成员的会话列表是第一道检查，这里是第二道。目录判给无人或不认识的对话照常保存，因为工作流对它的对话是弱引用，对话可能已经不在了。
+**保存不得点名另一位成员的对话。** 一次保存要存的各工作流 `homeSessionId` 与 `workbenchSessionId` 逐个交给 `principalOfSession`；目录判给另一位成员的，保存被拒绝，答 400，写出每个指向这类对话的字段路径，例如 `workflows[2].homeSessionId` 或 `workbenchSessionId`，既不点名那位成员，也不带 id。否则成员可以把别人的对话存进自己的菜单，再从菜单里打开它。宿主给每位成员的会话列表是第一道检查，这里是第二道。目录判给无人或不认识的对话照常保存，因为工作流对它的对话是弱引用，对话可能已经不在了。
 
 **身份路由仍是部署配置。** `/server-menu/identity` 只回答 `displayNameClaim`，对每位成员都一样，所以它不认成员，不论目录是否在运行都提供。
 
@@ -36,4 +36,4 @@ Status: implemented
 
 ## Testing
 
-`packages/experimental/server-sidebar/tests/member-menu-route.client.spec.ts` 用一个仅供测试的 `consoleMembers` 行（`tests/fixtures/console-members.client.ts`）经测试组合运行这一行。它用请求体永远发不完的请求钉住判断顺序，证明 401 与 503 在读请求体之前；保存只进保存者自己的存储，不进 profile 补丁，也不进另一位成员的菜单；拒绝点名另一位成员的工作流或工作台对话，且两者都不引用；目录不认识或判给无人的对话照常保存；读不懂的副本和被拒绝的写入答 500，文案与日志固定；同一成员的两次和三次并发保存都落地，排在目录抛错的那次保存后面的保存照样落地，而另一位成员的保存不等待；加载时的字段拒绝，包括菜单本身违反跨元素检查的情形；以及两行不一致日志。`workflow-api.client.spec.ts`、`workflow-store.client.spec.ts`、`server-sidebar-root.client.spec.tsx` 与 `browser-plugin.client.spec.ts` 钉住浏览器对被拒读取的处理。现有 `server-menu` spec 不改动，覆盖单人路径；`apps/web/tests/server-sidebar.e2e.ts` 运行出厂控制台组合。
+`packages/experimental/server-sidebar/tests/member-menu-route.client.spec.ts` 用一个仅供测试的 `consoleMembers` 行（`tests/fixtures/console-members.client.ts`）经测试组合运行这一行。它用请求体永远发不完的请求钉住判断顺序，证明 401 与 503 在读请求体之前；保存只进保存者自己的存储，不进 profile 补丁，也不进另一位成员的菜单；拒绝点名另一位成员的工作流或工作台对话（含旧引用），按字段路径指出每一处，且两者都不引用；目录不认识或判给无人的对话照常保存；读不懂的副本和被拒绝的写入答 500，文案与日志固定；同一成员的两次和三次并发保存都落地，排在目录抛错的那次保存后面的保存照样落地，而另一位成员的保存不等待；加载时的字段拒绝，包括菜单本身违反跨元素检查的情形；以及两行不一致日志。`workflow-api.client.spec.ts`、`workflow-store.client.spec.ts`、`server-sidebar-root.client.spec.tsx` 与 `browser-plugin.client.spec.ts` 钉住浏览器对被拒读取的处理。现有 `server-menu` spec 不改动，覆盖单人路径；`apps/web/tests/server-sidebar.e2e.ts` 运行出厂控制台组合。
