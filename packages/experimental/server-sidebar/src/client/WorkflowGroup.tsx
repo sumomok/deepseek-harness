@@ -135,6 +135,11 @@ export interface WorkflowGroupProps {
   newGroupId: () => string
   /** The last save's failure message, when one is pending. */
   error: string | undefined
+  /**
+   * Whether the page could not read the menu when it loaded, which the
+   * section reports in fixed copy above any save failure; absent reads as false.
+   */
+  unreadable?: boolean
   /** Locale seat. */
   t: (key: ServerSidebarKey, vars?: Record<string, string>) => string
 }
@@ -173,7 +178,7 @@ function nextSequence(
  */
 export function WorkflowGroup({
   workflows, groups, collapsed, onSetCollapsed, current, unreadHomeSessionIds,
-  onOpenWorkflow, onSaveMenu, newGroupId, error, t,
+  onOpenWorkflow, onSaveMenu, newGroupId, error, unreadable = false, t,
 }: WorkflowGroupProps) {
   const [edit, setEdit] = useState<EditState>({ mode: 'idle' })
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -497,6 +502,7 @@ export function WorkflowGroup({
           </button>
         </Tooltip>
       </div>
+      {unreadable && <p className={css.error} role="alert">{t('workflows.unreadable')}</p>}
       {error !== undefined && <p className={css.error} role="alert">{t('workflows.error', { message: error })}</p>}
       {edit.mode === 'creatingGroup' && (
         <input

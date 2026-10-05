@@ -185,6 +185,8 @@ async function bench(
     liveSessionIds?: readonly string[]
     /** Answer every dictionary lookup with its key, rather than with nothing. */
     echoLocale?: boolean
+    /** What this package's own menu route answers the first read, in place of one saved workflow. */
+    menuRead?: { ok?: boolean; status?: number; body: unknown }
   } = {},
 ): Promise<BenchResult> {
   stubFetch({
@@ -198,7 +200,7 @@ async function bench(
     [COMPONENT_SURFACE_VIEWS_ROUTE]: options.withoutComponentSurface === true
       ? { ok: false, body: {} }
       : { body: { views: COMPONENT_SURFACE_VIEWS, ...options.homeView === undefined ? {} : { homeView: options.homeView } } },
-    [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } },
+    [SERVER_MENU_ROUTE]: options.menuRead ?? { body: { workflows: [WORKFLOW] } },
     [SERVER_IDENTITY_ROUTE]: options.withoutIdentity === true
       ? { ok: false, body: {} }
       : { body: { displayNameClaim: 'login_uname' } },
@@ -858,6 +860,62 @@ describe('server-sidebar browser half: save-workflow header action', () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('failed to save workflow (sidebar not mounted)'), expect.any(Error),
     )
+    warn.mockRestore()
+  })
+})
+
+describe('server-sidebar browser half: a menu the page could not read', () => {
+  /** The store instance the sidebar entry renders from. */
+  function sidebarStore(ctx: Context) {
+    const [entry] = ctx.slots.entries('sidebar')
+    return (entry?.store as ReturnType<typeof createWorkflowStore>).create()
+  }
+
+  it('seeds the sidebar with the empty menu marked unreadable, and the title with no workbench', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = await bench({ menuRead: { ok: false, status: 503, body: { error: 'not running' } } })
+    expect(sidebarStore(ctx).getSnapshot()).toMatchObject({ workflows: [], groups: [], workbenchSessionId: undefined, unreadable: true })
+    expect(workbenchSourceOf(ctx).getSnapshot()).toBeUndefined()
+    warn.mockRestore()
+  })
+
+  it('seeds the empty menu, readable, where nothing serves the route', async () => {
+    const { ctx } = await bench({ menuRead: { ok: false, status: 404, body: {} } })
+    expect(sidebarStore(ctx).getSnapshot()).toMatchObject({ workflows: [], unreadable: false })
+  })
+
+  it('does not write back a workflow list it could not read when it repoints a degraded workflow', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx, uiWorkspace } = await bench({ recentWorkspaceId: 'workspace-1', echoLocale: true })
+    const { injected, actions } = injectSidebar(ctx)
+    const methods: (string | undefined)[] = []
+    vi.stubGlobal('fetch', vi.fn((_input: URL, init?: RequestInit) => {
+      methods.push(init?.method)
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'unreadable' }) })
+    }))
+    await injected.onOpenWorkflow(WORKFLOW, false)
+    expect(uiWorkspace.openSession).toHaveBeenCalledWith('new-session')
+    expect(methods).toEqual([undefined])
+    expect(actions.setError).toHaveBeenCalledWith('workflows.retry')
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not save a new workflow over a list it could not read, with the sidebar mounted or not', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const mounted of [true, false]) {
+      const { ctx } = await bench({ echoLocale: true })
+      const actions = mounted ? injectSidebar(ctx).actions : undefined
+      const methods: (string | undefined)[] = []
+      vi.stubGlobal('fetch', vi.fn((_input: URL, init?: RequestInit) => {
+        methods.push(init?.method)
+        return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ error: 'nobody' }) })
+      }))
+      await injectHeaderAction(ctx, 'session-b').onSave('session-b', 'New Flow', NAV_SNAPSHOT)
+      expect({ mounted, methods }).toEqual({ mounted, methods: [undefined] })
+      if (actions !== undefined) expect(actions.setError).toHaveBeenCalledWith('workflows.retry')
+    }
+    expect(warn).toHaveBeenLastCalledWith('server-sidebar: did not save the workflow (sidebar not mounted): the menu could not be read')
     warn.mockRestore()
   })
 })

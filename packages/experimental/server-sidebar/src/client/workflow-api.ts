@@ -46,7 +46,7 @@ export interface ServerMenuPatch {
   workbenchSessionId?: string
 }
 
-/** The empty document a failed or absent read answers. */
+/** The empty document a read answers where no route serves the menu. */
 const EMPTY_STATE: ServerMenuState = { workflows: [], groups: [], workbenchSessionId: undefined }
 
 /**
@@ -126,18 +126,39 @@ function readState(body: { workflows?: unknown; groups?: unknown; workbenchSessi
  * `nav-catalog.ts#readCatalog` contains its own: a deployment without the
  * settings capability composed (so this package's own node half never claims
  * the route) is an ordinary, expected composition, and the menu renders
- * empty rather than taking the sidebar down with it.
- * @returns the current document; the empty document when the route is
- * unreachable, answers non-200, or answers an unusable body.
+ * empty rather than taking the sidebar down with it. A route that is there
+ * and refuses — a request it places with no member, a member directory that
+ * is not running, a member's menu it cannot read — and a request that never
+ * reached it answer no document at all, reported to the browser console: a
+ * caller that read such a failure as the empty menu would create a workbench
+ * the menu already has, or write back a workflow list without the workflows
+ * it could not read.
+ * @returns the current document; the empty document when nothing serves the
+ * route (404) or the answer is no JSON object; undefined when the route
+ * answers any other non-200 or cannot be reached.
  */
-export async function readServerMenu(): Promise<ServerMenuState> {
+export async function readServerMenu(): Promise<ServerMenuState | undefined> {
+  let response: Response
   try {
-    const response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
-    if (!response.ok) return EMPTY_STATE
-    return readState(await response.json() as { workflows?: unknown; groups?: unknown; workbenchSessionId?: unknown })
-  } catch {
+    response = await fetch(new URL(SERVER_MENU_ROUTE.slice(1), document.baseURI), { cache: 'no-store' })
+  } catch (error) {
+    console.warn('server-sidebar: the menu could not be read:', error)
+    return undefined
+  }
+  if (response.status === 404) return EMPTY_STATE
+  if (!response.ok) {
+    console.warn(`server-sidebar: the menu could not be read: HTTP ${String(response.status)}`)
+    return undefined
+  }
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch (_notJson) {
+    // An answer that is no JSON document is a page served in place of a
+    // route nothing registered, which is the menu's absence.
     return EMPTY_STATE
   }
+  return typeof body === 'object' && body !== null ? readState(body) : EMPTY_STATE
 }
 
 /**

@@ -227,8 +227,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // automatic homes is a deployment mistake nothing downstream can resolve
   // (see `mergeNavCatalogs`).
   const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
+  // An unread menu seeds the store marked unreadable, which keeps the
+  // load-time landing from creating a workbench the menu may already have.
   const workflowStore = createWorkflowStore(initialMenu)
-  const workbench = createWorkbenchSource(initialMenu.workbenchSessionId)
+  const workbench = createWorkbenchSource(initialMenu?.workbenchSessionId)
   const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
@@ -281,8 +283,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
             // The degrade repoints one workflow's homeSessionId; the array
             // field is a whole-value replace within the patch (see
             // `src/index.ts`), so the current list is read fresh rather than
-            // trusted from this closure's own stale capture.
+            // trusted from this closure's own stale capture. A list that
+            // could not be read is not written back as an empty one.
             const current = await readServerMenu()
+            if (current === undefined) {
+              actions.setError(t('workflows.retry'))
+              return
+            }
             const next = current.workflows.map(candidate => (
               candidate.id === workflow.id ? { ...candidate, homeSessionId: outcome.sessionId } : candidate
             ))
@@ -347,6 +354,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
         navItems,
         onSave: async (sessionId, name, navSnapshot) => {
           const current = await readServerMenu()
+          // The new workflow joins the list as read; a list that could not
+          // be read is not replaced by one holding the new workflow alone.
+          if (current === undefined) {
+            if (sidebarActions !== undefined) sidebarActions.setError(t('workflows.retry'))
+            else console.warn('server-sidebar: did not save the workflow (sidebar not mounted): the menu could not be read')
+            return
+          }
           const workflow: ServerMenuWorkflow = {
             id: randomUUID(),
             name,

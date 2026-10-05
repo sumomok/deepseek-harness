@@ -46,6 +46,7 @@ describe('createWorkflowStore', () => {
       groups: initial.groups,
       workbenchSessionId: 'home-1',
       error: undefined,
+      unreadable: false,
       temporaryFailed: false,
       view: { collapsed: {}, temporaryExpanded: false },
     })
@@ -67,8 +68,22 @@ describe('createWorkflowStore', () => {
     const next: ServerMenuState = { workflows: [WORKFLOW], groups: [GROUP], workbenchSessionId: 'home-1' }
     instance.actions.setServerMenu(next)
     expect(instance.getSnapshot()).toEqual({
-      ...next, error: undefined, temporaryFailed: false, view: { collapsed: {}, temporaryExpanded: false },
+      ...next, error: undefined, unreadable: false, temporaryFailed: false, view: { collapsed: {}, temporaryExpanded: false },
     })
+  })
+
+  it('seeds a menu the page could not read as the empty menu marked unreadable, until a save answers the document', () => {
+    stubStorage(JSON.stringify({ collapsed: { g1: true }, temporaryExpanded: true }))
+    const instance = createWorkflowStore(undefined).create()
+    // The remembered folds are kept: no document says which groups are gone.
+    expect(instance.getSnapshot()).toEqual({
+      workflows: [], groups: [], workbenchSessionId: undefined, error: undefined, unreadable: true, temporaryFailed: false,
+      view: { collapsed: { g1: true }, temporaryExpanded: true },
+    })
+    instance.actions.setError('save failed')
+    expect(instance.getSnapshot().unreadable).toBe(true)
+    instance.actions.setServerMenu({ workflows: [WORKFLOW], groups: [GROUP], workbenchSessionId: 'home-1' })
+    expect(instance.getSnapshot()).toMatchObject({ unreadable: false, error: undefined, workflows: [WORKFLOW] })
   })
 
   it('setError records the message without touching the document', () => {
@@ -76,7 +91,7 @@ describe('createWorkflowStore', () => {
     const instance = createWorkflowStore(seeded).create()
     instance.actions.setError('network down')
     expect(instance.getSnapshot()).toEqual({
-      ...seeded, error: 'network down', temporaryFailed: false, view: { collapsed: {}, temporaryExpanded: false },
+      ...seeded, error: 'network down', unreadable: false, temporaryFailed: false, view: { collapsed: {}, temporaryExpanded: false },
     })
   })
 

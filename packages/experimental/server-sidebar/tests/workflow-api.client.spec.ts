@@ -85,19 +85,35 @@ describe('readServerMenu', () => {
     expect(await readServerMenu()).toEqual(EMPTY)
   })
 
-  it('answers the empty document when the route responds non-200', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, json: () => Promise.resolve({}) })))
+  it('answers the empty document where nothing serves the route', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) })))
     expect(await readServerMenu()).toEqual(EMPTY)
   })
 
-  it('answers the empty document when the body has no workflows array', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })))
-    expect(await readServerMenu()).toEqual(EMPTY)
+  it('answers no document for a route that refuses, and reports the status to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const status of [401, 500, 503]) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status, json: () => Promise.resolve({ error: 'refused' }) })))
+      expect(await readServerMenu()).toBeUndefined()
+      expect(warn).toHaveBeenLastCalledWith(`server-sidebar: the menu could not be read: HTTP ${String(status)}`)
+    }
+    warn.mockRestore()
   })
 
-  it('contains a transport failure to the empty document rather than throwing', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network down'))))
-    expect(await readServerMenu()).toEqual(EMPTY)
+  it('answers the empty document when the body has no workflows array, or is no JSON object', async () => {
+    for (const json of [() => Promise.resolve({}), () => Promise.resolve(null), () => Promise.resolve(7), () => Promise.reject(new SyntaxError('not JSON'))]) {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json })))
+      expect(await readServerMenu()).toEqual(EMPTY)
+    }
+  })
+
+  it('answers no document for a request that never reached the route, and reports it to the browser console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const failure = new Error('network down')
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(failure)))
+    expect(await readServerMenu()).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith('server-sidebar: the menu could not be read:', failure)
+    warn.mockRestore()
   })
 })
 
