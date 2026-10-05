@@ -10,9 +10,9 @@ Status: implemented
 
 ## Decision
 
-**每一行都多一个 Config 字段 `perMember`，默认 false，不是 volatile。** 为 false 时每条路由保持原样：每次投递都可作答每个调用，对应只服务一个人的进程。
+**每一行都多一个 Config 字段 `perMember`，默认 false，不是 volatile。** 为 false 时每条路由保持原样：每次投递都可作答每个调用，对应只服务一个人的进程。content-frame 在加载时拒绝设了它却没有 `pageAccess` 的行，因为只有页面读取路由读它，而那样的行一条都不注册。
 
-**设了 `perMember`，路由在读正文之前先认出发送者。** 它在请求到达时读 `ctx.get('consoleMembers')`，没有成员目录在运行时答 503，`principalOfRequest` 认不出任何成员时答 401。拒绝文案写明包名、路由和缺的那一样——`<包名>: the <路由> needs the consoleMembers service, which is not running` 与 `<包名>: the <路由> could not tell which member sent this request`——不带请求里的任何值。这两道检查排在方法、同站与 JSON 三道检查之后，与 auth-gate 的 token 路由一样。
+**设了 `perMember`，路由在读正文之前先认出发送者。** 它在请求到达时读 `ctx.get('consoleMembers')`，没有成员目录在运行时答 503，`principalOfRequest` 认不出任何成员时答 401。拒绝文案写明包名、路由和缺的那一样——`<包名>: the <路由> needs the consoleMembers service, which is not running` 与 `<包名>: the <路由> could not tell which member sent this request`——不带请求里的任何值。这两道检查排在方法、同站与 JSON 三道检查之后，与 auth-gate 的 token 路由一样。页面座位对这两个状态码的处理与对路由前面代理的答复一样——再出价、汇报再发一次——因为它们针对的是发送者而不是文档，所以不进 `ROUTE_REFUSAL_STATUSES`。
 
 **读完正文之后，路由拿发送者自己的会话核对这个调用。** `PendingCalls.sessionOf(callId)` 与 `PendingCharts.sessionOf(callId)` 答出调用是对着哪个会话开的，这个会话从 `exec.agent.session.header.id` 以 `SessionId` 带下来；content-frame 记着的最近已结算调用 id 也各自记下所属会话。路由再比较 `principalOfSession(那个会话)` 与发送者的成员；子会话归它的父会话所归的那位成员，这是成员目录的规则。
 
@@ -38,7 +38,9 @@ Status: implemented
 
 ## Consequences
 
-在两行都设了 `perMember` 的控制台里，别的成员的控制台既不能认领、汇报、往里存图片，也不能结算某位成员的会话或其子会话的图表调用，它得到的答复也不会告诉它这样的调用是否存在。座位见到 `unknown` 会再出价，但只针对它所展示的会话待办列表上的调用，所以把别的成员的 `settled` 改成 `unknown`，只改变列着这个调用的控制台的出价。
+在两行都设了 `perMember` 的控制台里，别的成员的控制台既不能认领、汇报、往里存图片，也不能结算某位成员的会话或其子会话的图表调用，它就某个调用得到的答复也不会告诉它那个调用是否存在。座位见到 `unknown` 会再出价，但只针对它所展示的会话待办列表上的调用，所以把别的成员的 `settled` 改成 `unknown`，只改变列着这个调用的控制台的出价。
+
+content-frame 有两张表仍是整个进程共用的：最近 64 个已结算的 callId，和最近读过的 64 个会话的首选标签页。一位成员看到自己已结算的调用变成 `unknown`，就能知道此后在所有成员的会话里大约又结算了 64 个调用；一位成员在超过 64 个会话里读取，会挤掉其他成员的标签页记录；两者都不说出任何调用或会话。按序号给调用编号的供应商可能让两位成员同时进行的调用同 id：content-frame 拒绝第二个等待，show-chart 的第二个等待顶掉第一个，第一个调用以未确认作答。两者都不让一位成员结算另一位成员的调用。
 
 不归任何人的调用没有控制台能作答：工作目录不在任何已登记根目录下的会话里的 `content_read` 或 `content_act` 在认领窗口到期时结束，在任何 agent 之外、或在这种会话里发起的 `show_chart` 以未确认作答。
 
