@@ -369,6 +369,32 @@ describe('WorkspaceRegistry after a relocation event it missed', () => {
     await restartsWith(w, target)
   })
 
+  it('lists a session moved back without an event in its old workspace again after a move whose queue slot failed before the move ran', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    await first.registry.create(w.to)
+    // A create whose record write and both rollback writes fail leaves a pending-mutation marker the next slot recovers first.
+    w.onPut = (table) => {
+      if (table !== 'workspaces') return
+      w.onPut = undefined
+      w.pool.failNextWrites = 3
+    }
+    await expect(first.registry.create(await directory(w.root, 'third'))).rejects.toBeInstanceOf(AggregateError)
+    w.pool.failNextWrites = 1
+    first.relocate(w.to)
+    await first.drain()
+    expect(first.warnings).toEqual([expect.stringContaining(`workspace: re-indexing relocated session '${SESSION}' failed: `)])
+    expect(first.view()).toEqual([[w.to, []], [w.from, []]])
+
+    // Another process moves the session back; this registry receives no event.
+    w.stored = headerAt(w.from)
+    // Archiving an unknown id lists every stored header.
+    await expect(first.registry.archiveSession(SessionId('unknown'))).rejects.toThrow('cannot archive session \'unknown\'')
+    expect(first.view()).toEqual([[w.to, []], [w.from, [SESSION]]])
+    expect(storedIn(w, origin)).toEqual([SESSION])
+  })
+
   it('keeps the sessions of a workspace whose stored path did not resolve at startup', async () => {
     const w = await world()
     const first = await start(w)
