@@ -164,15 +164,20 @@ async function readDelivery(delivery: PackDelivery): Promise<ReadDelivery> {
 }
 
 /** The pack root as it stands, and whether it holds anything a delivery would not have written. */
-interface InstalledRoot {
-  /** Pack directory name to pack-relative path to bytes. */
+export interface InstalledRoot {
+  /** Pack directory name to pack-relative path, with `/` separators, to bytes. */
   readonly packs: ReadonlyMap<string, ReadonlyMap<string, Buffer>>
   /** A loose file at the top of the root, or a symbolic link at any depth. Drift is always replaced. */
   readonly drift: boolean
 }
 
-/** Read the pack root as it stands. */
-async function readInstalledPacks(root: string): Promise<InstalledRoot> {
+/**
+ * Read a pack root as it stands, without judging it. A symbolic link is never
+ * followed, and a loose file at the top of the root is no pack.
+ * @param root - absolute path of the root; an absent root holds nothing.
+ * @returns every directory's files, and whether the root holds anything a delivery would not have written.
+ */
+export async function readInstalledPacks(root: string): Promise<InstalledRoot> {
   let entries
   try {
     entries = await readdir(root, { withFileTypes: true, encoding: 'utf8' })

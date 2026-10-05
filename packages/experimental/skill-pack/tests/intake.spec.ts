@@ -7,9 +7,11 @@
  * statuses and views `ctx.skillPacks` reports, the skill catalog, and the
  * organization root on disk.
  *
- * The root write itself is the real `syncPackRoot`. A case that needs a call
- * to stop part-way holds the write behind a gate, and the write-failure case
- * makes it throw, through `writeControl`.
+ * The root write itself is the real `syncPackRoot`, and the read of the view
+ * ids the root holds the real `readInstalledPacks`. A case that needs a call
+ * to stop part-way holds the write behind a gate and waits for the write to
+ * start, and the failure cases make the write or the read throw, through
+ * `rootControl`.
  */
 
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -25,23 +27,39 @@ import SkillPackRegistry from '../src/index.ts'
 import { readPackRoot } from '../src/scan.ts'
 import type { DeliveredFile, IntakeResult, OrgPackInput, PackView, PackViewRefusal, ProvidedPart, SkillPackIntake } from '../src/types.ts'
 
-/** What the next root writes wait for, and the error they throw instead of writing. */
-const writeControl = vi.hoisted(() => ({
+/**
+ * What the next root writes report as they start, what they wait for, and the
+ * error they throw instead of writing; and the error a read of the
+ * organization root throws instead of reading.
+ */
+const rootControl = vi.hoisted(() => ({
+  writing: (): void => undefined,
   gate: undefined as Promise<void> | undefined,
   failure: undefined as Error | undefined,
+  readFailure: undefined as Error | undefined,
 }))
 
 vi.mock('../src/install.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/install.ts')>()
   return {
     ...actual,
+    async readInstalledPacks(...args: Parameters<typeof actual.readInstalledPacks>): ReturnType<typeof actual.readInstalledPacks> {
+      if (rootControl.readFailure !== undefined) throw rootControl.readFailure
+      return await actual.readInstalledPacks(...args)
+    },
     async syncPackRoot(...args: Parameters<typeof actual.syncPackRoot>): ReturnType<typeof actual.syncPackRoot> {
-      await writeControl.gate
-      if (writeControl.failure !== undefined) throw writeControl.failure
+      rootControl.writing()
+      await rootControl.gate
+      if (rootControl.failure !== undefined) throw rootControl.failure
       return await actual.syncPackRoot(...args)
     },
   }
 })
+
+/** Resolves once the next root write starts. */
+function writeStarts(): Promise<void> {
+  return new Promise((resolve) => { rootControl.writing = resolve })
+}
 
 const PLATFORM_VERSION = '0.5.2'
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
@@ -91,8 +109,10 @@ let context: Context | undefined
 let logLines: string[] = []
 
 afterEach(async () => {
-  writeControl.gate = undefined
-  writeControl.failure = undefined
+  rootControl.writing = () => undefined
+  rootControl.gate = undefined
+  rootControl.failure = undefined
+  rootControl.readFailure = undefined
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
@@ -576,6 +596,77 @@ describe('view ids an organization set declares', () => {
     expect((await ctx.skillPacks.activeViews()).map(view => view.title)).toEqual(['图层'])
   })
 
+  /** A stable version holding a view, and a trial version changing that view's file. */
+  function stableAndTrial(): { stable: OrgPackInput; set: OrgPackInput[] } {
+    const stable = entry('layer-guide', '3', 'stable', { views: { 'layers.yml': viewText('layers', '图层') } })
+    const trial = entry('layer-guide', '4', 'trial', { packVersion: '1.1.0', views: { 'layers.yml': viewText('layers', '新图层') } })
+    return { stable, set: [stable, trial] }
+  }
+
+  /** The refusal of the trial version for the view id the organization root holds on disk. */
+  const HELD_ON_DISK = {
+    name: 'layer-guide',
+    version: '4',
+    code: 'view-id-conflict',
+    detail: 'the view id layers is held by the organization root with a different file',
+  }
+
+  it('judges a set the same way after the fiber holding the last one is reloaded, by what the organization root holds', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { stable, set } = stableAndTrial()
+    const before = await organization(ctx)
+    await before.intake.replace([stable])
+    expect(refusalsOf(await before.intake.replace(set))).toEqual([{ name: 'layer-guide', version: '4', code: 'view-id-conflict' }])
+    await before.fiber.dispose()
+
+    const { intake } = await organization(ctx)
+    const result = await intake.replace(set)
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([HELD_ON_DISK])
+    expect(intake.isActive('layer-guide', '3')).toBe(true)
+    expect(intake.isActive('layer-guide', '4')).toBe(false)
+    expect((await ctx.skillPacks.activeViews()).map(view => view.title)).toEqual(['图层'])
+    expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
+  })
+
+  it('judges a set the same way after a restart, by what the organization root holds', async () => {
+    const paths = await newWorld()
+    const { stable, set } = stableAndTrial()
+    const before = await boot(paths)
+    const { intake: running } = await organization(before)
+    await running.replace([stable])
+    expect(refusalsOf(await running.replace(set))).toEqual([{ name: 'layer-guide', version: '4', code: 'view-id-conflict' }])
+    await before.fiber.dispose()
+
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace(set)
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([HELD_ON_DISK])
+    expect(intake.isActive('layer-guide', '3')).toBe(true)
+    expect((await ctx.skillPacks.activeViews()).map(view => view.title)).toEqual(['图层'])
+    expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@3'])
+  })
+
+  it('reads the organization root the way the pack root is read while no set is offered: a directory that is no pack, and a view that does not read, hold no id', async () => {
+    const paths = await newWorld()
+    await mkdir(join(paths.organizationRoot, 'notes@1'), { recursive: true })
+    await writeFile(join(paths.organizationRoot, 'notes@1', 'README.md'), 'no skill here')
+    await mkdir(join(paths.organizationRoot, 'broken-guide@1', 'views'), { recursive: true })
+    await writeFile(join(paths.organizationRoot, 'broken-guide@1', 'SKILL.md'), skillText('broken-guide', { views: { 'layers.yml': '' } }))
+    await writeFile(join(paths.organizationRoot, 'broken-guide@1', 'views', 'layers.yml'), 'id: layers\n')
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('a-guide', '1', 'stable', { views: { 'layers.yml': viewText('layers', '图层 A') } }),
+      entry('b-guide', '1', 'stable', { views: { 'layers.yml': viewText('layers', '图层 B') } }),
+    ])
+    const sentence = 'another entry of this set declares the view id layers with a different file'
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([
+      { name: 'a-guide', version: '1', code: 'view-id-conflict', detail: sentence },
+      { name: 'b-guide', version: '1', code: 'view-id-conflict', detail: sentence },
+    ])
+  })
+
   it('replaces an offered version whose view the new set changes when the set no longer names it', async () => {
     const ctx = await boot(await newWorld())
     const { intake } = await organization(ctx)
@@ -644,12 +735,25 @@ describe('the calls themselves', () => {
     const ctx = await boot(paths)
     const { intake } = await organization(ctx)
     await intake.replace([entry('layer-guide', '1', 'stable')])
-    writeControl.failure = new Error('the disk is full')
+    rootControl.failure = new Error('the disk is full')
     const result = await intake.replace([entry('layer-guide', '2', 'stable')])
     expect(result).toEqual({ kind: 'failed', detail: 'skill-pack: the organization root was not replaced: Error: the disk is full' })
     expect(intake.isActive('layer-guide', '1')).toBe(true)
     expect(intake.isActive('layer-guide', '2')).toBe(false)
     expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@1'])
+  })
+
+  it('answers failed, writing nothing, when the organization root cannot be read for the view ids it holds', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    rootControl.readFailure = new Error('the disk is unreadable')
+    expect(await intake.replace([entry('layer-guide', '1', 'stable')])).toEqual({
+      kind: 'failed',
+      detail: 'skill-pack: the organization root was not read: Error: the disk is unreadable',
+    })
+    expect(intake.isActive('layer-guide', '1')).toBe(false)
+    await expect(readdir(paths.organizationRoot)).rejects.toThrow('ENOENT')
   })
 
   it('rejects with the signal\'s reason, changing nothing, when aborted before the call or while it waits for its turn', async () => {
@@ -658,7 +762,7 @@ describe('the calls themselves', () => {
     const { intake } = await organization(ctx)
     const reason = new Error('a newer set arrived')
     const write = gate()
-    writeControl.gate = write.promise
+    rootControl.gate = write.promise
     const first = intake.replace([entry('layer-guide', '1', 'stable')])
     // Refused at once, without waiting behind the call that is writing.
     await expect(intake.replace([entry('layer-guide', '9', 'stable')], { signal: AbortSignal.abort(reason) })).rejects.toBe(reason)
@@ -708,7 +812,7 @@ describe('the calls themselves', () => {
     const first = await organization(ctx)
     const second = await organization(ctx)
     const write = gate()
-    writeControl.gate = write.promise
+    rootControl.gate = write.promise
     const held = first.intake.replace([entry('layer-guide', '1', 'stable')])
     const queued = second.intake.replace([entry('layer-guide', '2', 'stable')])
     await second.fiber.dispose()
@@ -740,10 +844,11 @@ describe('the calls themselves', () => {
     await first.intake.replace([entry('layer-guide', '1', 'stable')])
 
     const write = gate()
-    writeControl.gate = write.promise
+    rootControl.gate = write.promise
     const newer = [entry('layer-guide', '2', 'stable')]
+    const started = writeStarts()
     const writing = second.intake.replace(newer)
-    await tick()
+    await started
     await second.fiber.dispose()
     write.open()
     expect(await writing).toEqual({
@@ -827,11 +932,12 @@ describe('the lifetime of the offered set', () => {
     const ctx = await boot(paths)
     const { intake } = await organization(ctx)
     const write = gate()
-    writeControl.gate = write.promise
+    rootControl.gate = write.promise
     const order: string[] = []
+    const started = writeStarts()
     const writing = intake.replace([entry('layer-guide', '1', 'stable')]).then((result) => { order.push('written'); return result })
     const queued = intake.replace([entry('layer-guide', '2', 'stable')])
-    await tick()
+    await started
     const disposed = rowFiber(ctx).dispose().then(() => { order.push('disposed') })
     await tick()
     expect(ctx.get('skillPackIntake')).toBeUndefined()

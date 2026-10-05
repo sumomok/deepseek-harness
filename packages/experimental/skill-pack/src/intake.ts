@@ -14,6 +14,8 @@
  * from it and from the parts registered at the moment of the call, so
  * `isActive` is synchronous and never older than its caller. Nothing but
  * `replace` writes the organization root, which is why it is not watched.
+ * While no set is offered, the entries the root holds on disk are what a set's
+ * view ids are judged against.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/intake
  */
 
@@ -21,11 +23,11 @@ import { join, resolve } from 'node:path'
 import { FiberState, Service, type Context, type Fiber } from '@deepseek-ai/cordis'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
 import { validatePacks } from './delivery.ts'
-import { syncPackRoot } from './install.ts'
+import { readInstalledPacks, syncPackRoot } from './install.ts'
 import { anchorFormatMissing, readsDeclaredViews, viewFormatMissing } from './manifest.ts'
 import { compareCodeUnits } from './order.ts'
 import { describeMissing, undrawableViews, type PackObservation } from './reconcile.ts'
-import { observePack } from './scan.ts'
+import { observePack, type PackSource } from './scan.ts'
 import type {
   ActivePackView,
   DeliveredFile,
@@ -87,6 +89,14 @@ interface HeldEntry {
   readonly viewBytes: ReadonlyMap<string, Buffer>
   /** The files to write. */
   readonly files: readonly DeliveredFile[]
+}
+
+/** The view ids a set is judged against, and what holds them. */
+interface HeldViewIds {
+  /** Each view id held, to the bytes of the first file declaring it in `name@version` order. */
+  readonly bytes: ReadonlyMap<string, Buffer>
+  /** What holds them, as a refusal names it. */
+  readonly holder: string
 }
 
 /** One entry judged on its own: accepted, or refused with its reason. */
@@ -211,7 +221,13 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
   private async run(packs: readonly OrgPackInput[], signal: AbortSignal | undefined, caller: Context): Promise<IntakeResult> {
     const stoppedBefore = this.stoppedBeforeWrite(signal, caller)
     if (stoppedBefore !== undefined) return stoppedBefore
-    const judged = await this.judgeSet(packs)
+    let held: HeldViewIds
+    try {
+      held = await this.heldViewIds()
+    } catch (error) {
+      return { kind: 'failed', detail: `skill-pack: the organization root was not read: ${String(error)}` }
+    }
+    const judged = await this.judgeSet(packs, held)
     // Judging calls the component surface, which can stop either fiber or
     // abort the signal before anything is written.
     const stoppedAfter = this.stoppedBeforeWrite(signal, caller)
@@ -242,8 +258,31 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     return undefined
   }
 
+  /**
+   * The view ids a set is judged against: the offered set's while a set is
+   * offered, and otherwise those of the entries the organization root holds on
+   * disk. Only a call whose entries passed these rules wrote those entries, so
+   * a set handed over again after the holding fiber reloads, or after a
+   * restart, is judged as it was while that set was offered.
+   * @throws the error reading the organization root failed with.
+   */
+  private async heldViewIds(): Promise<HeldViewIds> {
+    if (this.state.holder !== undefined) return { bytes: firstDeclared(this.state.offered), holder: 'the offered organization set' }
+    const installed = await readInstalledPacks(this.host.root)
+    const entries: { readonly viewBytes: ReadonlyMap<string, Buffer> }[] = []
+    for (const [name, files] of [...installed.packs].sort(([left], [right]) => compareCodeUnits(left, right))) {
+      const directory = join(this.host.root, name)
+      const { source, bytesAt } = await observeFiles(
+        directory,
+        new Map([...files].map(([path, content]) => [join(directory, ...path.split('/')), content])),
+      )
+      if (source !== undefined) entries.push({ viewBytes: declaredViewBytes(source, bytesAt) })
+    }
+    return { bytes: firstDeclared(entries), holder: 'the organization root' }
+  }
+
   /** Judge every entry of a set, and split it into what is written and what is refused, in the order the set names them. */
-  private async judgeSet(packs: readonly OrgPackInput[]): Promise<{ accepted: HeldEntry[]; refused: IntakeRefusal[] }> {
+  private async judgeSet(packs: readonly OrgPackInput[], held: HeldViewIds): Promise<{ accepted: HeldEntry[]; refused: IntakeRefusal[] }> {
     const keys = packs.map(keyOf)
     const duplicated = new Set(keys.filter((key, index) => keys.indexOf(key) !== index))
     const judgements: EntryJudgement[] = []
@@ -253,7 +292,7 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
         : await this.judgeEntry(pack))
     }
     const candidates = judgements.flatMap(judgement => judgement.kind === 'accepted' ? [judgement.entry] : [])
-    const clashes = viewIdClashes(candidates, this.state.offered)
+    const clashes = viewIdClashes(candidates, held)
     const accepted: HeldEntry[] = []
     const refused: IntakeRefusal[] = []
     for (const judgement of judgements) {
@@ -281,15 +320,10 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     const broken = packRuleBreach(directoryName, pack.files)
     if (broken !== undefined) return refusedAs(pack, 'pack-invalid', broken)
     const directory = join(this.host.root, directoryName)
-    const files = new Map(pack.files.map(file => [join(directory, ...file.path.split('/')), Buffer.from(file.content)]))
-    const fileAt = (path: string): Buffer => {
-      const content = files.get(path)
-      if (content === undefined) throw new Error(`${path} is not among the entry's files`)
-      return content
-    }
-    // Decoded as `readFile(path, 'utf8')` decodes, which keeps a byte-order
-    // mark; a missing file rejects, as it does on disk.
-    const source = await observePack(directory, path => new Promise((resolve) => { resolve(fileAt(path).toString('utf8')) }))
+    const { source, bytesAt } = await observeFiles(
+      directory,
+      new Map(pack.files.map(file => [join(directory, ...file.path.split('/')), Buffer.from(file.content)])),
+    )
     if (source === undefined) {
       return refusedAs(pack, 'pack-invalid', 'SKILL.md is missing, or its frontmatter states no skill name and description')
     }
@@ -303,11 +337,9 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     if (anchorFormat !== undefined) return refusedAs(pack, 'anchor-format', describeMissing(anchorFormat))
     if (!readsDeclaredViews(manifest)) return refusedAs(pack, 'view-format', describeMissing(viewFormatMissing(manifest)))
     const views: PackView[] = []
-    const declaring: [string, Buffer][] = []
     for (const view of source.views) {
       if (!view.ok) return refusedAs(pack, 'pack-invalid', `view ${view.path} is unreadable: ${view.reason}`)
       views.push(view.view)
-      declaring.push([view.view.id, fileAt(resolve(directory, view.path))])
     }
     const observation: PackObservation = { skill: source.skill, manifest: source.manifest, views: source.views }
     const [undrawable] = undrawableViews(this.host.judge(observation))
@@ -320,8 +352,7 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
         channel: pack.channel,
         observation,
         views,
-        // Reversed so the first file declaring an id is the one a Map keeps.
-        viewBytes: new Map(declaring.reverse()),
+        viewBytes: declaredViewBytes(source, bytesAt),
         files: pack.files,
       },
     }
@@ -362,17 +393,16 @@ function holdsSets(fiber: Fiber): boolean {
  * The entries of a set refused for a view id, with the sentence naming it.
  *
  * Only an id the set itself declares with files of different bytes is
- * contested. An id the offered set already holds keeps the bytes it holds, and
- * every entry declaring it with other bytes is refused; an id the offered set
- * does not hold is refused to every entry declaring it. Neither rule reads the
- * order the entries are named in. An id the set declares with one content is
- * no conflict, whatever the offered set holds, so a new version replaces an
- * old one that the set no longer names.
+ * contested. An id already held keeps the bytes it holds, and every entry
+ * declaring it with other bytes is refused; an id not held is refused to every
+ * entry declaring it. Neither rule reads the order the entries are named in.
+ * An id the set declares with one content is no conflict, whatever is held, so
+ * a new version replaces an old one that the set no longer names.
  * @param candidates - the entries no other rule refused.
- * @param offered - the set offered now, whose view ids are uncontested.
+ * @param held - the view ids held now, which are uncontested, and what holds them.
  * @returns each refused entry and the sentence naming its id.
  */
-function viewIdClashes(candidates: readonly HeldEntry[], offered: readonly HeldEntry[]): Map<HeldEntry, string> {
+function viewIdClashes(candidates: readonly HeldEntry[], held: HeldViewIds): Map<HeldEntry, string> {
   const first = new Map<string, Buffer>()
   const contested = new Set<string>()
   for (const entry of candidates) {
@@ -382,24 +412,67 @@ function viewIdClashes(candidates: readonly HeldEntry[], offered: readonly HeldE
       else if (!seen.equals(bytes)) contested.add(id)
     }
   }
-  const current = new Map(offered.flatMap(entry => [...entry.viewBytes]))
   const clashes = new Map<HeldEntry, string>()
   for (const entry of candidates) {
-    const clash = clashOf(entry, contested, current)
+    const clash = clashOf(entry, contested, held)
     if (clash !== undefined) clashes.set(entry, clash)
   }
   return clashes
 }
 
 /** The sentence refusing one entry for a contested view id, or `undefined` when it keeps every id it declares. */
-function clashOf(entry: HeldEntry, contested: ReadonlySet<string>, current: ReadonlyMap<string, Buffer>): string | undefined {
+function clashOf(entry: HeldEntry, contested: ReadonlySet<string>, held: HeldViewIds): string | undefined {
   for (const [id, bytes] of entry.viewBytes) {
     if (!contested.has(id)) continue
-    const kept = current.get(id)
+    const kept = held.bytes.get(id)
     if (kept === undefined) return `another entry of this set declares the view id ${id} with a different file`
-    if (!kept.equals(bytes)) return `the view id ${id} is held by the offered organization set with a different file`
+    if (!kept.equals(bytes)) return `the view id ${id} is held by ${held.holder} with a different file`
   }
   return undefined
+}
+
+/**
+ * Read one entry from its files in memory, by the reader the pack root is
+ * read with.
+ * @param directory - absolute path of the entry's directory in the organization root.
+ * @param files - each of the entry's files, by absolute path under `directory`, to its bytes.
+ * @returns what that reader makes of the entry, and how one of its files' bytes are looked up.
+ */
+async function observeFiles(
+  directory: string,
+  files: ReadonlyMap<string, Buffer>,
+): Promise<{ source: PackSource | undefined; bytesAt: (path: string) => Buffer }> {
+  const bytesAt = (path: string): Buffer => {
+    const content = files.get(path)
+    if (content === undefined) throw new Error(`${path} is not among the entry's files`)
+    return content
+  }
+  // Decoded as `readFile(path, 'utf8')` decodes, which keeps a byte-order
+  // mark; a missing file rejects, as it does on disk.
+  const source = await observePack(directory, path => new Promise((resolve) => { resolve(bytesAt(path).toString('utf8')) }))
+  return { source, bytesAt }
+}
+
+/**
+ * Each view id an entry declares in a view file that reads, to the bytes of
+ * the first file declaring it.
+ * @param source - the entry, as {@link observeFiles} read it.
+ * @param bytesAt - how one of its files' bytes are looked up.
+ * @returns the view ids and their bytes.
+ */
+function declaredViewBytes(source: PackSource, bytesAt: (path: string) => Buffer): Map<string, Buffer> {
+  const declaring = source.views.flatMap(view => view.ok ? [[view.view.id, bytesAt(resolve(source.directory, view.path))] as const] : [])
+  // Reversed so the first file declaring an id is the one a Map keeps.
+  return new Map(declaring.reverse())
+}
+
+/**
+ * Each view id some entry declares, to the bytes of the first entry declaring it.
+ * @param entries - the entries, in `name@version` order.
+ * @returns the view ids and their bytes.
+ */
+function firstDeclared(entries: readonly { readonly viewBytes: ReadonlyMap<string, Buffer> }[]): Map<string, Buffer> {
+  return new Map(entries.flatMap(entry => [...entry.viewBytes]).reverse())
 }
 
 /**
