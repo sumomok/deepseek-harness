@@ -147,6 +147,37 @@ class GuardService extends TypertRemoteService {
     }
   }
 
+  /** A stream whose iterator's `next()` never settles; its `return()` settles at once. */
+  @Remote({ mode: 'stream' })
+  stall(): AsyncIterable<string> {
+    this.observe('stall')
+    const { events } = probe
+    return {
+      [Symbol.asyncIterator]: () => {
+        events.push('stall:iterator')
+        return {
+          next: () => {
+            events.push('stall:next')
+            return new Promise<IteratorResult<string>>(() => undefined)
+          },
+          return: () => {
+            events.push('stall:return')
+            return Promise.resolve({ done: true as const, value: undefined })
+          },
+        }
+      },
+    }
+  }
+
+  /** A generator suspended for good on a promise that ignores its signal, so its `return()` never settles. */
+  @Remote({ mode: 'stream' })
+  async *hold(): AsyncGenerator<string> {
+    this.observe('hold')
+    probe.events.push('hold:next')
+    await new Promise<void>(() => undefined)
+    yield 'unreachable'
+  }
+
   private observe(method: string): void {
     probe.calls.push(method)
     probe.peers.push(this.ctx.invocation?.peer)
@@ -630,6 +661,102 @@ describe('remote/invoke', () => {
     expect(probe.calls).toEqual(['follow'])
   })
 
+  // The pull the listener discarded rejects with the caller's failure; the Gateway handles that rejection, then returns
+  // the uplink and the method's iterator without waiting for the method to settle the pull.
+  it.each(IN_PROCESS_ENTRIES.flatMap(entry => [
+    { ...entry, answer: 'throws', code: 'gateway/forbidden' },
+    { ...entry, answer: 'returns a value', code: 'gateway/result-invalid' },
+  ] as const))('fails at once when a listener $answer while a pull it discarded is pending, through $entry', async ({ open, uplink, answer, code }) => {
+    const ctx = await mount()
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused while a pull is pending', { endpoint: 'guard/stall' })
+    failWhilePulling(ctx, () => {
+      if (answer === 'returns a value') return { kind: 'value', value: 'answered' }
+      throw refusal
+    })
+
+    const unhandled = await unhandledRejections(async () => {
+      const failure = await settledWithin(open(ctx, 'stall'), 50)
+      expect(failure).toMatchObject({ code })
+      if (answer === 'throws') expect(failure).toBe(refusal)
+      await vi.waitFor(() => {
+        expect(probe.events).toEqual([
+          'stall:iterator', 'stall:next', ...uplink ? ['uplink:iterator', 'uplink:return'] : [], 'stall:return',
+        ])
+      })
+    })
+    expect(unhandled).toEqual([])
+    expect(probe.calls).toEqual(['stall'])
+  })
+
+  it.each([
+    { answer: 'throws a RemoteError', error: { code: 'gateway/forbidden', message: 'fixture: refused while a pull is pending' } },
+    { answer: 'throws an Error', error: { code: 'gateway/internal', message: 'fixture: failed while a pull is pending' } },
+    { answer: 'returns a value', error: { code: 'gateway/result-invalid' } },
+  ] as const)('sends the error frame at once when a listener $answer while a pull it discarded is pending', async ({ answer, error }) => {
+    const ctx = await mount()
+    failWhilePulling(ctx, () => {
+      if (answer === 'returns a value') return { kind: 'value', value: 'answered' }
+      if (answer === 'throws an Error') throw new Error('fixture: failed while a pull is pending')
+      throw new RemoteError('gateway/forbidden', 'fixture: refused while a pull is pending', { endpoint: 'guard/stall' })
+    })
+    const socket = await openSocket(ctx)
+
+    const unhandled = await unhandledRejections(async () => {
+      socket.open('s', 'guard/stall', {})
+      await socket.ended('s')
+      expect(socket.frames('s')).toMatchObject([{ type: 'error', streamId: 's', error }])
+      await vi.waitFor(() => { expect(probe.events).toEqual(['stall:iterator', 'stall:next', 'stall:return']) })
+    })
+    expect(unhandled).toEqual([])
+    await socket.close()
+  })
+
+  it('rejects a pending pull with the failure the caller receives, for a listener that awaits it', async () => {
+    const ctx = await mount()
+    const failure = new Error('fixture: failed while a pull is pending')
+    let pull: Promise<IteratorResult<unknown>> | undefined
+    ctx.on('remote/invoke', async (_call, next) => {
+      const outcome = await next()
+      if (outcome.kind === 'stream') pull = outcome.source[Symbol.asyncIterator]().next()
+      throw failure
+    })
+
+    await expect(settledWithin(ctx.typertGateway.stream({ namespace: 'guard', method: 'stall', args: {} }), 50)).resolves.toBe(failure)
+    await expect(pull).rejects.toBe(failure)
+  })
+
+  it('fails at once when a listener throws while a pull waits on a generator that never settles it', async () => {
+    const ctx = await mount()
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused while a pull is pending', { endpoint: 'guard/hold' })
+    failWhilePulling(ctx, () => { throw refusal })
+
+    await expect(settledWithin(ctx.typertGateway.stream({
+      namespace: 'guard', method: 'hold', args: {}, uplink: trackedUplink(),
+    }), 50)).resolves.toBe(refusal)
+    // The generator's `return()` waits behind its pending `next()`, so only the uplink is released.
+    await vi.waitFor(() => { expect(probe.events).toEqual(['hold:next', 'uplink:iterator', 'uplink:return']) })
+    expect(probe.calls).toEqual(['hold'])
+  })
+
+  it('returns a stream whose pulled item arrived before the caller receives the failure', async () => {
+    const ctx = await mount()
+    probe.slowReturn = true
+    const refusal = new RemoteError('gateway/forbidden', 'fixture: refused after a pull', { endpoint: 'guard/follow' })
+    ctx.on('remote/invoke', async (_call, next) => {
+      const outcome = await next()
+      if (outcome.kind === 'stream') await expect(outcome.source[Symbol.asyncIterator]().next()).resolves.toEqual({ done: false, value: 'x' })
+      throw refusal
+    })
+
+    await expect(ctx.typertGateway.stream({
+      namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
+    })).rejects.toBe(refusal)
+    probe.events.push('caller:failed')
+    expect(probe.events).toEqual([
+      'follow:iterator', 'follow:next', 'uplink:iterator', 'uplink:return', 'follow:return', 'follow:returned', 'caller:failed',
+    ])
+  })
+
   it('keeps the Gateway-owned $events stream and $events/result outside the waterfall', async () => {
     const ctx = await mount()
     const unregister = ctx.effect(() => ctx.typertGateway.registerRemoteEvents(signal => (async function* () {
@@ -740,8 +867,72 @@ describe('remote/invoke', () => {
 })
 
 const GUARD_ENDPOINTS = [
-  'guard/create', 'guard/fail', 'guard/feed', 'guard/follow', 'guard/passthrough', 'guard/read', 'guard/rename', 'guard/watch',
+  'guard/create', 'guard/fail', 'guard/feed', 'guard/follow', 'guard/hold', 'guard/passthrough', 'guard/read', 'guard/rename',
+  'guard/stall', 'guard/watch',
 ]
+
+/** The in-process stream entry points, opening a `guard` stream method that takes no arguments. */
+const IN_PROCESS_ENTRIES: readonly {
+  readonly entry: string
+  readonly uplink: boolean
+  readonly open: (ctx: Context, method: string) => Promise<AsyncIterable<unknown>>
+}[] = [
+  {
+    entry: 'stream() with an uplink',
+    uplink: true,
+    open: (ctx, method) => ctx.typertGateway.stream({ namespace: 'guard', method, args: {}, uplink: trackedUplink() }),
+  },
+  {
+    entry: 'stream() without an uplink',
+    uplink: false,
+    open: (ctx, method) => ctx.typertGateway.stream({ namespace: 'guard', method, args: {} }),
+  },
+  {
+    entry: 'wireStream.open()',
+    uplink: true,
+    open: (ctx, method) => ctx.typertGateway.wireStream.open(
+      `guard/${method}`, { args: {} }, trackedUplink(), undefined, new AbortController().signal,
+    ),
+  },
+]
+
+/** Answer each stream call by pulling one item of its stream outcome, discarding that pull, and then failing. */
+function failWhilePulling(ctx: Context, fail: () => RemoteInvokeOutcome): void {
+  ctx.on('remote/invoke', async (_call, next) => {
+    const outcome = await next()
+    if (outcome.kind === 'stream') void outcome.source[Symbol.asyncIterator]().next()
+    return fail()
+  })
+}
+
+/** Settle to the value or rejection reason of `promise`, or to `'pending'` once `ms` have passed. */
+async function settledWithin(promise: Promise<unknown>, ms: number): Promise<unknown> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise.then(value => value, (error: unknown) => error),
+      new Promise((resolve) => { timer = setTimeout(resolve, ms, 'pending') }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Run `use`, let two macrotasks pass, and collect each unhandled rejection the process reported meanwhile. */
+async function unhandledRejections(use: () => Promise<void>): Promise<unknown[]> {
+  const reasons: unknown[] = []
+  const record = (reason: unknown): void => { reasons.push(reason) }
+  process.on('unhandledRejection', record)
+  try {
+    await use()
+    // Node reports a rejection as unhandled once the microtask queue has drained after it.
+    await new Promise((resolve) => { setImmediate(resolve) })
+    await new Promise((resolve) => { setImmediate(resolve) })
+  } finally {
+    process.off('unhandledRejection', record)
+  }
+  return reasons
+}
 
 /** A strict definition whose Service is never mounted. */
 function strictOnly(namespace: string, method: string): InvocationDescriptor {

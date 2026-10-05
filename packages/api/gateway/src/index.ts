@@ -121,10 +121,13 @@ declare module '@deepseek-ai/cordis' {
      * that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the
      * call's uplink and opens and returns the method's iterator, or returns the one already open when items
      * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
-     * outcome is a value, the Gateway returns each stream that a `next()` called during the waterfall
-     * opened before the caller receives the failure, and each stream still opening once it opens. When the
-     * outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every
-     * stream the call opened, and a listener that discards one returns it.
+     * outcome is a value, a `next()` still pending on a stream that a `next()` called during the waterfall
+     * opened stops waiting for the method and rejects with the caller's failure once the method's iterator
+     * has returned, which an async generator method suspended in that `next()` may never do; the Gateway
+     * handles that rejection. It returns each such stream without a pending `next()` before the caller
+     * receives the failure, and each one with a pending `next()` or still opening without delaying the
+     * caller. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the
+     * listeners own every stream the call opened, and a listener that discards one returns it.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -507,32 +510,40 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const pending = this.pendingInvocation(request, 'stream')
     // Each `next()` that reaches the method opens one stream; a listener that calls `next()` again opens another.
     const streams: OpeningStream[] = []
+    // Ends a `next()` still pending on those streams when the call fails. Aborting `control` instead would cancel the
+    // carrier's stream, and an in-process call without an uplink does not observe `control` at all.
+    const release = new AbortController()
     let outcome: RemoteInvokeOutcome
     try {
       // A listener that throws synchronously makes `waterfall()` throw rather than reject.
       outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
-        const stream: OpeningStream = { opening: this.openPreparedStream(pending, control), opened: false }
+        const stream: OpeningStream = { opening: this.openPreparedStream(pending, control, release.signal), opened: undefined }
         streams.push(stream)
         const source = await stream.opening
-        stream.opened = true
+        stream.opened = source
         return { kind: 'stream', source }
       })
     } catch (error) {
-      await releaseStreams(streams)
+      await releaseStreams(streams, release, error)
       throw error
     }
     // A stream outcome may wrap the opened streams, so the call's listeners own their release.
     if (outcome.kind === 'stream') return outcome.source
-    await releaseStreams(streams)
-    throw new TypertGatewayError(
+    const failure = new TypertGatewayError(
       'gateway/result-invalid',
       pending.call.endpoint,
       'a remote/invoke listener returned a value for a stream call',
       { field: 'result' },
     )
+    await releaseStreams(streams, release, failure)
+    throw failure
   }
 
-  private async openPreparedStream(pending: PendingInvocation, control: AbortController): Promise<CancellableStream> {
+  private async openPreparedStream(
+    pending: PendingInvocation,
+    control: AbortController,
+    release: AbortSignal,
+  ): Promise<CancellableStream> {
     const prepared = await this.prepareInvocation(pending, control)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()
@@ -559,7 +570,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: 'result' },
       )
     }
-    return new CancellableStream(source, prepared.endpoint, prepared.invocation)
+    return new CancellableStream(source, prepared.endpoint, prepared.invocation, release)
   }
 
   private async dispatchRpc(
@@ -1339,25 +1350,32 @@ function methodIterator(source: Iterable<unknown> | AsyncIterable<unknown>): Asy
  * already open when items were pulled. After a `return()` before the first
  * `next()`, later `return()` and `next()` calls settle as done once that
  * release has finished, without repeating its failure, as calls queued on an
- * async generator do.
+ * async generator do. When the call that opened it fails, each `next()` still
+ * pending stops waiting for the method and rejects with that call's failure
+ * once the uplink is released and the method's iterator has returned; an async
+ * generator method returns only after it settles its own pending `next()`.
  */
 class CancellableStream implements AsyncIterableIterator<unknown> {
   private readonly pump: AsyncGenerator
   private started = false
   /** Settles, never rejecting, once a `return()` before the first `next()` has finished its release. */
   private released: Promise<void> | undefined
+  /** The `next()` results handed out that have not settled. */
+  private readonly pulls = new Set<Promise<IteratorResult<unknown>>>()
 
   /**
    * @param source - the iterable the stream method returned.
    * @param endpoint - canonical endpoint named by cancellation failures.
    * @param invocation - the call whose uplink the stream releases.
+   * @param release - aborted with the call's failure when the call that opened the stream fails.
    */
   constructor(
     private readonly source: Iterable<unknown> | AsyncIterable<unknown>,
     endpoint: string,
     private readonly invocation: GatewayInvocation,
+    release: AbortSignal,
   ) {
-    this.pump = pumpStream(source, endpoint, invocation)
+    this.pump = pumpStream(source, endpoint, invocation, release)
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {
@@ -1366,7 +1384,21 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
 
   next(): Promise<IteratorResult<unknown>> {
     this.started = true
-    return this.released === undefined ? this.pump.next() : this.released.then(() => this.pump.next())
+    const pull = this.released === undefined ? this.pump.next() : this.released.then(() => this.pump.next())
+    // The caller gets a derived promise, so a rejection it discards stays unhandled unless `abandonPulls()` handles it.
+    const pending = pull.finally(() => { this.pulls.delete(pending) })
+    this.pulls.add(pending)
+    return pending
+  }
+
+  /**
+   * Handle the rejection of each `next()` result still pending: the failure of the call that opened this stream ends
+   * it, and the listener that pulled it may have discarded it. A caller that awaits it still receives the rejection.
+   * @returns whether a `next()` result was pending.
+   */
+  abandonPulls(): boolean {
+    for (const pull of this.pulls) void pull.catch(() => undefined)
+    return this.pulls.size > 0
   }
 
   async return(value?: unknown): Promise<IteratorResult<unknown>> {
@@ -1394,21 +1426,32 @@ class CancellableStream implements AsyncIterableIterator<unknown> {
   }
 }
 
-/** One stream a stream call's `next()` opens; `opened` turns true once `opening` has resolved. */
+/** One stream a stream call's `next()` opens; `opened` holds it once `opening` has resolved. */
 interface OpeningStream {
   readonly opening: Promise<CancellableStream>
-  opened: boolean
+  opened: CancellableStream | undefined
 }
 
 /**
- * Return every stream a failed or value-answered stream call's `next()` opened or is still opening.
+ * Return every stream a failed or value-answered stream call's `next()` opened or is still opening, after ending each
+ * `next()` still pending on them with `failure`.
  * @param streams - the streams that call's `next()` calls opened or are opening.
- * @returns once each opened stream has been returned; a stream still opening is returned once it opens, later.
+ * @param release - the controller whose signal those streams race each pending `next()` against.
+ * @param failure - the failure the caller receives.
+ * @returns once each opened stream without a pending `next()` has been returned. A stream with one, or still opening, is
+ * returned later: the method's iterator may never settle that `next()`.
  */
-async function releaseStreams(streams: readonly OpeningStream[]): Promise<void> {
-  for (const stream of streams) {
+async function releaseStreams(
+  streams: readonly OpeningStream[],
+  release: AbortController,
+  failure: unknown,
+): Promise<void> {
+  // Every pending `next()` is handled before the abort rejects it and before any await lets it settle.
+  const releases = streams.map(stream => ({ stream, awaited: stream.opened?.abandonPulls() === false }))
+  release.abort(failure)
+  for (const { stream, awaited } of releases) {
     const released = returnWhenOpened(stream.opening)
-    if (stream.opened) await released
+    if (awaited) await released
   }
 }
 
@@ -1430,6 +1473,7 @@ async function *pumpStream(
   source: Iterable<unknown> | AsyncIterable<unknown>,
   endpoint: string,
   invocation: GatewayInvocation,
+  release: AbortSignal,
 ): AsyncGenerator {
   const { signal } = invocation
   const iterator = methodIterator(source)
@@ -1437,7 +1481,12 @@ async function *pumpStream(
   const onAbort = (): void => {
     rejectAbort?.(streamAbortFailure(endpoint, signal.reason))
   }
+  // The call that opened the stream failed: its failure, not a cancellation, ends the pending `next()`.
+  const onRelease = (): void => {
+    rejectAbort?.(release.reason)
+  }
   signal.addEventListener('abort', onAbort, { once: true })
+  release.addEventListener('abort', onRelease, { once: true })
   try {
     while (true) {
       if (signal.aborted) throw streamAbortFailure(endpoint, signal.reason)
@@ -1453,6 +1502,7 @@ async function *pumpStream(
   } finally {
     rejectAbort = undefined
     signal.removeEventListener('abort', onAbort)
+    release.removeEventListener('abort', onRelease)
     // The uplink closes first so a method blocked on `uplink.next()` unwinds
     // before its iterator is asked to return.
     await invocation.close()
