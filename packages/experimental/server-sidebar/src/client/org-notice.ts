@@ -22,7 +22,6 @@
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/org-notice
  */
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 /** One text in both languages the console ships. */
@@ -221,12 +220,16 @@ function readDisclosure(value: unknown): DisclosureText {
 }
 
 /**
+ * The longest delay `setTimeout` waits. Browsers hold the delay as a signed
+ * 32-bit integer and run a timer with a longer one at once.
+ */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/**
  * Check the organization plugin's answer to {@link OrgNoticePort.due}. Fields
  * the page does not read are ignored, and a `kind` it does not know reads as
  * nothing to show: the plugin's answers only grow by addition. A `pending`
- * wait longer than {@link MAX_TIMER_DELAY_MS} reads as that delay: browsers
- * hold a timer's delay in 32 bits, so a longer delay is truncated, wraps
- * around, and fires at a moment unrelated to the one asked for.
+ * wait longer than {@link MAX_TIMER_DELAY_MS} reads as that delay.
  * @param value - the answer as it arrived.
  * @param unknownKind - told the `kind` of an answer read as nothing to show for that reason.
  * @returns the answer.

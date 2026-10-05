@@ -75,9 +75,6 @@
       "path": "../../util/crypto"
     },
     {
-      "path": "../../util/timeout"
-    },
-    {
       "path": "../content-surface"
     },
     {

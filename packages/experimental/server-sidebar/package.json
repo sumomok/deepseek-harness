@@ -50,7 +50,6 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/dsh-timeout": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "clsx": "^2.0.0",
     "yaml": "^2.9.0"
