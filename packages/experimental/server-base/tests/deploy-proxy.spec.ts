@@ -351,6 +351,8 @@ function framedBody(framing: 'content-length' | 'chunked', body: string): string
 /** A raw TCP stand-in for an upstream and everything one connection sent it. */
 interface RawStub {
   port: number
+  /** Resolves with the stand-in's side of the first connection it accepts. */
+  accepted: Promise<Socket>
   /** Resolves with the bytes received once the connection's sender ends it. */
   ended: Promise<string>
   /**
@@ -373,8 +375,10 @@ interface RawStub {
 async function rawStub(reply: string | undefined): Promise<RawStub> {
   let received = ''
   const ended = Promise.withResolvers<string>()
+  const accepted = Promise.withResolvers<Socket>()
   const waiters: Array<{ text: string; resolve: (received: string) => void }> = []
   const server = net.createServer((connection) => {
+    accepted.resolve(connection)
     let answered = false
     connection.on('data', (chunk: Buffer) => {
       received += chunk.toString('latin1')
@@ -394,7 +398,7 @@ async function rawStub(reply: string | undefined): Promise<RawStub> {
     if (received.includes(text)) resolve(received)
     else waiters.push({ text, resolve })
   })
-  return { port: await listen(server), ended: ended.promise, until }
+  return { port: await listen(server), accepted: accepted.promise, ended: ended.promise, until }
 }
 
 /** A proxy-mode gate between stand-ins. */
@@ -435,14 +439,13 @@ async function gateBetween(dshPort: number, remotePort: number): Promise<GateBet
 /**
  * A proxy-mode gate whose dsh and remote application are raw stand-ins
  * answering `reply`.
- * @param reply - what both raw stand-ins answer the handshake with.
- * @returns the gate's port and the two raw stand-ins.
+ * @param reply - what both raw stand-ins answer the first request head with.
+ * @returns the gate and the two raw stand-ins.
  */
-async function rawWorld(reply: string | undefined): Promise<{ port: number; dsh: RawStub; remote: RawStub }> {
+async function rawWorld(reply: string | undefined): Promise<GateBetween & { dsh: RawStub; remote: RawStub }> {
   const dsh = await rawStub(reply)
   const remote = await rawStub(reply)
-  const { port } = await gateBetween(dsh.port, remote.port)
-  return { port, dsh, remote }
+  return { ...(await gateBetween(dsh.port, remote.port)), dsh, remote }
 }
 
 /** The one chunk a streaming stand-in writes after its response head. */
@@ -476,6 +479,12 @@ interface StreamingStub {
   arrived: (index: number) => Promise<Socket>
   /**
    * @param index - the request's position in arrival order, from 0.
+   * @returns a promise that resolves with the stand-in's response to that request once its head and
+   * FIRST_CHUNK are handed to the connection; never for `silent`.
+   */
+  responded: (index: number) => Promise<http.ServerResponse>
+  /**
+   * @param index - the request's position in arrival order, from 0.
    * @returns a promise that resolves once the connection that carried that request closes.
    */
   closed: (index: number) => Promise<true>
@@ -506,6 +515,7 @@ function slot<T>(slots: Map<number, PromiseWithResolvers<T>>, index: number): Pr
 async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
   const arrivals = new Map<number, PromiseWithResolvers<Socket>>()
   const closes = new Map<number, PromiseWithResolvers<true>>()
+  const responses = new Map<number, PromiseWithResolvers<http.ServerResponse>>()
   const switched = new Map<number, PromiseWithResolvers<Socket>>()
   let count = 0
   const server = http.createServer((req, res) => {
@@ -517,7 +527,7 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
     slot(arrivals, index).resolve(req.socket)
     if (answer === 'silent') return
     res.writeHead(200, { 'content-type': 'text/event-stream' })
-    res.write(FIRST_CHUNK)
+    res.write(FIRST_CHUNK, () => { slot(responses, index).resolve(res) })
     if (answer === 'flood') {
       const flood = (): void => {
         let more = true
@@ -539,6 +549,7 @@ async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
     upgrades,
     upgraded: index => slot(switched, index).promise,
     arrived: index => slot(arrivals, index).promise,
+    responded: index => slot(responses, index).promise,
     closed: index => slot(closes, index).promise,
   }
 }
@@ -1139,6 +1150,24 @@ describe('a client that leaves during the login check', () => {
     expect(w.dshConnections()).toBe(1)
     expect(w.dsh.upgrades).toHaveLength(1)
   })
+
+  it('causes no upstream request when an upgrade pipelined behind the request closes its connection', async () => {
+    const w = await heldWorld()
+    const client = net.connect(w.port, '127.0.0.1')
+    closers.push(async () => { client.destroy() })
+    client.on('data', () => {})
+    client.on('error', () => { client.destroy() })
+    // The gate closes the connection while parsing the upgrade, which can come before the check reaches the service.
+    const gateSide = await w.accepted
+    const closed = new Promise<void>((resolve) => { gateSide.once('close', () => { resolve() }) })
+    client.write(complete + handshake('/api/remote.mux'))
+    await Promise.all([w.checking, closed])
+    w.release()
+    expect((await send(w.port, '/api/rpc', LOGGED_IN)).status).toBe(200)
+    expect(w.dsh.requests).toHaveLength(1)
+    expect(w.dsh.upgrades).toEqual([])
+    expect(w.logs).toEqual(['proxy: refused upgrade: a response on its connection is in progress'])
+  })
 })
 
 describe('a client that leaves while its response streams', () => {
@@ -1196,12 +1225,14 @@ function after(ms: number): Promise<false> {
 }
 
 describe('an upstream that disconnects mid-response', () => {
+  const relayedChunk = `${FIRST_CHUNK.length.toString(16)}\r\n${FIRST_CHUNK}\r\n`
+
   it.each([
-    ['a verified dsh path', 'destroyed', '/api/events', 'dsh'],
-    ['a verified dsh path', 'reset', '/api/events', 'dsh'],
-    ['a remote-application path', 'destroyed', '/ini-web2/events', 'remote'],
-    ['a remote-application path', 'reset', '/ini-web2/events', 'remote'],
-  ] as const)('closes the client connection on %s when the upstream connection is %s, with no terminating chunk and one log line', async (_label, leave, path, target) => {
+    ['a verified dsh path', 'destroyed', '/api/events', 'dsh', ''],
+    ['a verified dsh path', 'reset', '/api/events', 'dsh', ': Error: read ECONNRESET'],
+    ['a remote-application path', 'destroyed', '/ini-web2/events', 'remote', ''],
+    ['a remote-application path', 'reset', '/ini-web2/events', 'remote', ': Error: read ECONNRESET'],
+  ] as const)('closes the client connection on %s when the upstream connection is %s, with no terminating chunk and one log line', async (_label, leave, path, target, cause) => {
     const w = await streamingWorld('chunk')
     const { received, closed } = await readUntil(w.port, `GET ${path}?since=42 HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
     const upstream = await w[target].arrived(0)
@@ -1210,8 +1241,42 @@ describe('an upstream that disconnects mid-response', () => {
     expect(await Promise.race([closed, after(2_000)])).toBe(true)
     const answer = received()
     expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
-    expect(answer.slice(answer.indexOf('\r\n\r\n') + 4)).toBe(`${FIRST_CHUNK.length.toString(16)}\r\n${FIRST_CHUNK}\r\n`)
-    expect(w.logs).toEqual([`proxy: ${target} GET ${path} -> upstream disconnected mid-response`])
+    expect(answer.slice(answer.indexOf('\r\n\r\n') + 4)).toBe(relayedChunk)
+    expect(w.logs).toEqual([`proxy: ${target} GET ${path} -> upstream disconnected mid-response${cause}`])
+  })
+
+  it.each([
+    ['a verified dsh path', '/api/events', 'dsh'],
+    ['a remote-application path', '/ini-web2/events', 'remote'],
+  ] as const)('closes the client connection on %s when the upstream sends a malformed chunk, with no terminating chunk and one log line naming the parse error', async (_label, path, target) => {
+    const w = await rawWorld(`HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n${relayedChunk}`)
+    const { received, closed } = await readUntil(w.port, `GET ${path}?since=42 HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
+    ;(await w[target].accepted).write('ZZZ\r\n')
+    expect(await Promise.race([closed, after(2_000)])).toBe(true)
+    const answer = received()
+    expect(answer.split('\r\n')[0]).toBe('HTTP/1.1 200 OK')
+    expect(answer.slice(answer.indexOf('\r\n\r\n') + 4)).toBe(relayedChunk)
+    expect(w.logs).toEqual([expect.stringMatching(new RegExp(`^proxy: ${target} GET ${path} -> upstream disconnected mid-response: Error: Parse Error: `))])
+  })
+
+  it.each([
+    ['verified dsh paths', '/api/first', '/api/second', 'dsh'],
+    ['remote-application paths', '/ini-web2/first', '/ini-web2/second', 'remote'],
+  ] as const)('closes the client connection on %s once the response ahead of a queued one completes, when the queued one\'s upstream connection closes mid-response, writing none of it and logging one line', async (_label, first, second, target) => {
+    const w = await streamingWorld('chunk')
+    const request = (path: string) => `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`
+    const { received, closed } = await readUntil(w.port, request(first) + request(`${second}?since=42`), FIRST_CHUNK)
+    await w[target].responded(1)
+    // A FIN follows the response bytes already handed to the connection, so the gate reads the queued response's head first.
+    ;(await w[target].arrived(1)).destroy()
+    // Logged as the queued response is destroyed, which must come before the response ahead of it completes.
+    await vi.waitFor(() => { expect(w.logs).toHaveLength(1) })
+    ;(await w[target].responded(0)).end()
+    expect(await Promise.race([closed, after(2_000)])).toBe(true)
+    const answer = received()
+    expect(answer.match(/HTTP\/1\.[01] \d{3}/g)).toEqual(['HTTP/1.1 200'])
+    expect(answer.slice(answer.indexOf('\r\n\r\n') + 4)).toBe(`${relayedChunk}0\r\n\r\n`)
+    expect(w.logs).toEqual([`proxy: ${target} GET ${second} -> upstream disconnected mid-response`])
   })
 
   it.each([
@@ -1259,6 +1324,22 @@ describe('upgrades', () => {
     expect(received).not.toContain('forged-by-the-client')
     const assertion = /^x-dsh-member: (.*)$/m.exec(received)?.[1]?.trim()
     expect(memberOf(assertion, { now: 1_800_000_000_000 })).toBe(path === '/api/remote.mux' ? MEMBER : undefined)
+  })
+
+  it.each(paths)('close the gate\'s side once an answer other than 101 is relayed and the upstream ends its connection, though the client keeps its side open, on %s, and log nothing', async (_label, path) => {
+    const w = await rawWorld('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n')
+    const client = net.connect({ port: w.port, host: '127.0.0.1', allowHalfOpen: true }, () => { client.write(handshake(path)) })
+    closers.push(async () => { client.destroy() })
+    client.on('error', () => { client.destroy() })
+    let received = ''
+    const ended = new Promise<true>((resolve) => { client.once('end', () => { resolve(true) }) })
+    client.on('data', (chunk: Buffer) => { received += chunk.toString('latin1') })
+    const gateSide = await w.accepted
+    const gateClosed = new Promise<true>((resolve) => { gateSide.once('close', () => { resolve(true) }) })
+    await ended
+    expect(received).toBe('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n')
+    expect(await Promise.race([gateClosed, after(2_000)])).toBe(true)
+    expect(w.logs).toEqual([])
   })
 
   it('splice both directions once the upstream switches protocols', async () => {

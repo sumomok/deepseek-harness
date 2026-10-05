@@ -1261,10 +1261,12 @@ async function admitToDsh(settings, gate, runtime, req, pathname) {
  * counts as not completely written. An upstream response that stops before it
  * is complete, after its head was relayed, has the client response destroyed,
  * which closes the client connection with no terminating chunk, and logs one
- * line naming the upstream, the method, and the path without its query;
- * nothing is logged when the client had already left. An upgrade that arrives
- * on a connection whose earlier response has not ended is logged and closed
- * with nothing written.
+ * line naming the upstream, the method, the path without its query, and the
+ * error the upstream connection reported, if any; nothing is logged when the
+ * client had already left. An upgrade that arrives on a connection whose
+ * earlier response has not ended is logged and closes that connection with
+ * nothing written, which counts as the client of each response on it leaving;
+ * a request still in the login check there is never sent upstream.
  * @param {Settings} settings - validated settings with `mode` set to `proxy`.
  * @param {Runtime} runtime - the log sink and clock.
  * @returns {{ server: import('node:http').Server, gate: Gate }} the server and the gate whose sockets `gate.close()` releases.
@@ -1306,6 +1308,8 @@ export function createProxyServer(settings, runtime) {
     let upstream
     /** @type {import('node:http').IncomingMessage | undefined} */
     let upstreamRes
+    /** @type {Error | undefined} */
+    let upstreamFailure
     let abandoned = false
     const abandon = () => {
       abandoned = true
@@ -1324,9 +1328,12 @@ export function createProxyServer(settings, runtime) {
       let assertion
       if (!remote) {
         const decision = await admitToDsh(settings, gate, runtime, req, pathname)
-        // Node destroys the request when its connection closes, so a client
-        // that left during the check gets no upstream request at all.
-        if (req.destroyed) return
+        // A request whose connection closed during the check gets no upstream
+        // request at all. Node destroys the request when its connection
+        // closes, except once an upgrade pipelined behind it has taken the
+        // connection over; a connection closed for that upgrade shows only as
+        // `abandoned`.
+        if (req.destroyed || abandoned) return
         if (decision.outcome !== 'admitted') {
           if (decision.outcome === 'refused') runtime.log(`proxy: gate ${req.method ?? '?'} ${pathname} -> 401`)
           denyRequest(res, decision.outcome)
@@ -1359,17 +1366,27 @@ export function createProxyServer(settings, runtime) {
         // body before the response is complete closes `response` with
         // `complete` unset. Ending `res` then would send the terminating chunk
         // of a response the upstream never finished, so the client connection
-        // is destroyed instead; an event-stream client reconnects on it.
+        // is destroyed instead; an event-stream client reconnects on it. The
+        // destroy discards what the client socket has not yet flushed, as Node
+        // already discarded what `response` had not yet relayed, and it frees
+        // the connection of a client that has stopped reading.
         response.once('close', () => {
           if (response.complete || abandoned) return
-          runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> upstream disconnected mid-response`)
+          const cause = upstreamFailure === undefined ? '' : `: ${String(upstreamFailure)}`
+          runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} ${req.method ?? '?'} ${pathname} -> upstream disconnected mid-response${cause}`)
           res.destroy()
         })
         response.pipe(res)
       })
       upstream.on('error', (error) => {
-        // Once the response head has arrived, the response's own 'close' decides.
-        if (abandoned || upstreamRes !== undefined) return
+        if (abandoned) return
+        // Once the response head has arrived, the response's own 'close'
+        // decides, and logs this error as its cause: Node reports a reset or a
+        // malformed body here before it closes `response`.
+        if (upstreamRes !== undefined) {
+          upstreamFailure = error
+          return
+        }
         runtime.log(`proxy: ${remote ? 'remote' : 'dsh'} request ${req.method ?? '?'} ${pathname} failed: ${String(error)}`)
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
         res.end('bad gateway')
