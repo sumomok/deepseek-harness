@@ -14,7 +14,7 @@
  * not the face under test.
  */
 
-import { createServer, IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, IncomingMessage, request, type Server, type ServerResponse } from 'node:http'
 import { Socket, type AddressInfo } from 'node:net'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -246,6 +246,48 @@ function documentOf(answer: Answer): unknown {
   return document
 }
 
+/**
+ * POST to the token route a body that is never finished: its declared length
+ * is longer than what is sent, and the request stays open. A route that read
+ * the body before answering would wait for the rest, so an answer at all
+ * shows it answered without reading.
+ * @param ctx - the composition.
+ * @param assertion - what stands in for the member assertion; absent sends none.
+ * @returns the answer, or a rejection when none arrives within two seconds.
+ */
+async function postUnfinished(ctx: Context, assertion: string | undefined): Promise<Answer> {
+  const sent = '{"token":"'
+  const req = request(`${origin(ctx)}${AUTH_GATE_TOKEN_ROUTE}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(sent.length + 64),
+      ...assertion === undefined ? {} : { [MEMBER_HEADER]: assertion },
+    },
+  })
+  try {
+    return await new Promise<Answer>((resolveAnswer, reject) => {
+      const timer = setTimeout(() => { reject(new Error('the token route waited for the rest of the body')) }, 2000)
+      req.on('error', reject)
+      req.on('response', (response) => {
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk: string) => { body += chunk })
+        response.on('end', () => {
+          clearTimeout(timer)
+          resolveAnswer({ status: response.statusCode ?? 0, body })
+        })
+      })
+      req.write(sent)
+    })
+  } finally {
+    req.destroy()
+  }
+}
+
+/** A body longer than any token document the route accepts. */
+const OVERSIZED_TOKEN_POST = JSON.stringify({ token: 'x'.repeat(9000) })
+
 /** POST one token document for a member. */
 function postToken(ctx: Context, assertion: string | undefined, token: string): Promise<Answer> {
   return post(ctx, AUTH_GATE_TOKEN_ROUTE, assertion, JSON.stringify({ token }))
@@ -440,6 +482,20 @@ describe('per-member token route', () => {
     }
     expect(answers.map(answer => answer.status)).toEqual([401, 401, 401, 401])
     expect(readerOf(ctx).read(brandString<PrincipalKey>(MEMBER_A))).toBeUndefined()
+    expectNothingQuoted(answers, logs)
+  })
+
+  it('answers 401 without waiting for the body of a request it places with nobody, whatever that body is', async () => {
+    const { ctx, logs } = await loadComposition({ members: MEMBERS })
+    const refusal = { error: 'auth-gate: the token route could not tell which member sent this request' }
+    const answers: Answer[] = []
+    for (const assertion of [undefined, ASSERTION_NOBODY]) {
+      const unfinished = await postUnfinished(ctx, assertion)
+      const oversized = await post(ctx, AUTH_GATE_TOKEN_ROUTE, assertion, OVERSIZED_TOKEN_POST)
+      answers.push(unfinished, oversized)
+      expect([unfinished, oversized].map(answer => ({ status: answer.status, body: documentOf(answer) })))
+        .toEqual([{ status: 401, body: refusal }, { status: 401, body: refusal }])
+    }
     expectNothingQuoted(answers, logs)
   })
 
@@ -640,6 +696,18 @@ describe('per-member holding without a member directory', () => {
     expect(service.subjectOfRequest(new IncomingMessage(new Socket()))).toBeUndefined()
     expect(backend.presented).toEqual([])
     expectNothingQuoted(answers, logs)
+  })
+
+  it('answers 503 without waiting for the body, whatever that body is', async () => {
+    const { ctx } = await loadComposition({})
+    const refusal = { error: 'auth-gate: the token route needs the consoleMembers service, which is not running' }
+    const answers = [
+      await postUnfinished(ctx, ASSERTION_A),
+      await post(ctx, AUTH_GATE_TOKEN_ROUTE, ASSERTION_A, 'not json at all'),
+      await post(ctx, AUTH_GATE_TOKEN_ROUTE, ASSERTION_A, OVERSIZED_TOKEN_POST),
+    ]
+    expect(answers.map(answer => ({ status: answer.status, body: documentOf(answer) })))
+      .toEqual([{ status: 503, body: refusal }, { status: 503, body: refusal }, { status: 503, body: refusal }])
   })
 
   it('logs nothing about a directory that is running', async () => {
