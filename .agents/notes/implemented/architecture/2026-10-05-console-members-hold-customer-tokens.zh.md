@@ -16,7 +16,7 @@ Status: implemented
 
 **单点登录闸按成员各持一枚客户 token。** 开了 `perMember` 后，auth-gate 的 node 半边在内存里保存一个 `Map<PrincipalKey, string>`。token 路由在读正文之前经 `consoleMembers` 认出发送者——没有成员目录在跑时答 503，认不出是谁时答 401——并且只有当投递的 token 的 `principalClaim` 声明（toy-core 写 `login_uid`）点名的正是这位成员时才持有它，否则答 409。声明按签名代理的规则读出，于是 19 位的数字 id 按数字串比对。[登出路由 Note](2026-09-04-auth-gate-bearer-scheme-and-sign-out-route.zh.md) 里的那条登出路由丢掉发送者自己的那一枚。`ctx.bizBackend` 经同一个成员目录解析每次读取的主体，成员目录归不到任何人的主体解析不到任何槽，绝不会解析到别的成员的槽，也不会解析到替整个进程持有的那一个。`perMember` 下 MCP 转发在加载时被拒，因为转发请求来自进程内的 MCP 客户端，点不出是哪位成员。缺省的 `perMember: false` 仍为整个进程持有一枚 token。
 
-**成员目录可以读这些 token，由一项显式 Config 决定。** `shareWithMemberDirectory` 经 `consoleMembers` 服务的 `attachCustomerCredentials` 把一个读取器借给它，这个服务每启动一次借一次。读取器读一位成员的 token，报告 `set` 与 `dropped` 两种变化，不列出任何人。这个服务只收一个读取器，第二次就抛错；拒收会让 token 路由以 503 关闭。服务停下或这一行被释放时，读取器被作废；它不注册到任何上下文上，因为上下文上的服务，进程里每个插件都读得到。
+**成员目录可以读这些 token，由一项显式 Config 决定。** `shareWithMemberDirectory` 经 `consoleMembers` 服务的 `attachCustomerCredentials` 把一个读取器借给它，这个服务每启动一次借一次。读取器读一位成员的 token，报告 `set` 与 `dropped` 两种变化，不列出任何人。这个服务同一时刻只收一个读取器，再来一个就抛错，前一个收回之后再收一个新的，这一行才能在成员目录一直运行时重启；拒收会让 token 路由以 503 关闭。服务停下或这一行被释放时，读取器被作废，作废发生在服务自己的收回之前，所以收回抛错也不会让它继续有效，经它读过 token 的一方要把每位成员的 token 都当作已丢弃。它不注册到任何上下文上，因为上下文上的服务，进程里每个插件都读得到。
 
 在按成员持有的进程里，这推翻了[浏览器单点登录 Note](2026-08-28-browser-single-sign-on-and-mcp-token-injection.zh.md) 的两条规则：一个进程服务一位登录用户，以及进程里没有别的东西读得到 token。成员目录，以及它把 token 交给的任何东西——拿它去交换的组织凭据来源——读得到每一位成员的 token。
 

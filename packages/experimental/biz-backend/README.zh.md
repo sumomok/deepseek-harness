@@ -66,7 +66,7 @@ const forRequest: BizSubject | undefined = backend.subjectOfRequest(req)
 
 `PrincipalKey`（主体键）是 `@deepseek-ai/dsh-brand` 的 `Branded<'PrincipalKey'>`：一个不透明的键，不进模型、不进日志、不上传。它归控制台成员目录 `@deepseek-ai/dsh-experimental-console-members` 所有，那边把它声明成这个品牌，值是这个人的 `login_uid`（那个包还没进这条线）；这里导出的是同一个类型，因为 `dsh-brand` 给每个键打品牌都用同一个符号，于是成员目录发出的键这个服务直接收，不必转换。
 
-一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人。按控制台成员各握一个槽的解析器，必须把 `principalOfRequest` 委托给 `consoleMembers.principalOfRequest(req)` 来答，这样「一个请求点名的是谁」就只有成员目录这一个来源：路由不自己读身份头，也不自己调 `connection.admit`，只经由 `subjectOfRequest` 拿到成员。
+一个主体花哪个槽，只由解析器回答。`resolve(subject)` 答这个主体自己的槽，或者 `undefined`；`undefined` 和一个没有令牌的槽都答 `unauthenticated`，请求根本不发，也不会拿别的槽的令牌顶上。每次读取只解析一次主体，后端拒绝时丢掉的就是它解析到的那个槽，别的槽一个都不碰。`principalOfRequest(req)` 是解析器对「这个浏览器请求是以谁的身份被放进来的」的回答，`subjectOfRequest` 把它包成一个 principal 主体。auth-gate 的解析器缺省每个进程只握一个槽，所以每个主体都解析到它，每个请求都点名这个进程服务的那一个人；开了它的 `perMember` 字段时，它按控制台成员各握一个槽，见[它的 README](../auth-gate/README.zh.md#holding-one-token-per-console-member)。按控制台成员各握一个槽的解析器，必须把 `principalOfRequest` 委托给 `consoleMembers.principalOfRequest(req)` 来答，这样「一个请求点名的是谁」就只有成员目录这一个来源：路由不自己读身份头，也不自己调 `connection.admit`，只经由 `subjectOfRequest` 拿到成员。
 
 <a id="the-six-reads"></a>
 ## 这六次读取
