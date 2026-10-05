@@ -50,7 +50,8 @@
  * and the organization notice card: clear of the identity row, its settings
  * button, and the composer on wide and narrow frames, covered by an open
  * drawer, recorded as read or agreed through the fixture, shown again for a
- * new version, and after 稍后 (Later) shown again on the next load.
+ * new version, and after 稍后 (Later) shown again on the next load. Inside the
+ * open drawer an Escape on the identity menu closes only the menu.
  *
  * The last describe block owns the `console-auto-compact` Web snapshot: it
  * replays an authored conversation through the same composition and checks
@@ -2368,6 +2369,29 @@ describe('web e2e: the product-console sidebar with the organization plugin', ()
       await resize(1680, 1000)
     }
   }, 90_000)
+
+  it('closes only the identity menu on Escape inside the open drawer, and the drawer on the next Escape', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-drawer-menu-escape'))
+    try {
+      await resize(390, 844)
+      await page.locator('[data-shell-drawer-toggle]').click()
+      const drawer = page.locator('[data-shell-drawer]')
+      await drawer.waitFor({ timeout: 10_000 })
+      const trigger = drawer.locator('[data-server-sidebar-action="identity-menu"]')
+      await trigger.waitFor({ timeout: 10_000 })
+      await trigger.click()
+      const item = page.getByRole('menuitem', { name: 'Organization' })
+      await item.waitFor({ timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await item.waitFor({ state: 'detached', timeout: 10_000 })
+      expect(await drawer.count()).toBe(1)
+      await expect(trigger.evaluate(element => element === document.activeElement)).resolves.toBe(true)
+      await page.keyboard.press('Escape')
+      await drawer.waitFor({ state: 'detached', timeout: 10_000 })
+    } finally {
+      await resize(1680, 1000)
+    }
+  }, 60_000)
 
   it('records the notice as read on Got it, and shows it again only for a new version', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-org-notice-read'))
