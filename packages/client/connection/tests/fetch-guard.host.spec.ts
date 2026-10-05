@@ -142,14 +142,21 @@ function endlessResponse(): { readonly response: Response; readonly cancelled: (
 
 /**
  * Stand in for a Response that another copy of undici built: it carries a Response's status, status text, headers,
- * and body, but `instanceof Response` is false for it in this realm.
+ * and body, but `instanceof Response` is false for it in this realm, and so is `instanceof Headers` for its headers.
  */
 function foreignResponse(body: ReadableStream<Uint8Array<ArrayBuffer>>, init: ResponseInit = {}): Response {
   const local = new Response(null, init)
+  const headers = new Proxy(local.headers, {
+    getPrototypeOf: () => Object.prototype,
+    get: (target, key) => {
+      const member: unknown = Reflect.get(target, key)
+      return typeof member === 'function' ? (member as (...args: unknown[]) => unknown).bind(target) : member
+    },
+  })
   const foreign: Pick<Response, 'status' | 'statusText' | 'headers' | 'body'> = {
     status: local.status,
     statusText: local.statusText,
-    headers: local.headers,
+    headers,
     body,
   }
   return foreign as Response
@@ -343,7 +350,7 @@ describe('connection/fetch', () => {
   it('returns a route Response that another undici copy built as it is, body untouched, when no listener is registered', async () => {
     const tracked = trackedResponse()
     const foreign = foreignResponse(tracked.response.body!)
-    expect(foreign instanceof Response).toBe(false)
+    expect([foreign instanceof Response, foreign.headers instanceof Headers]).toEqual([false, false])
     const route = await bareRoute(async () => foreign)
 
     const response = await route.fetch()
@@ -502,10 +509,14 @@ describe('connection/fetch', () => {
     it('and waits for the caller in the same way when the listener returns a Response that another undici copy built', async () => {
       const endless = endlessResponse()
       const route = await bareRoute(async () => endless.response)
-      route.ctx.on('connection/fetch', async (_call, next) => foreignResponse(streamFrom((await next()).body!), { status: 203 }))
+      route.ctx.on('connection/fetch', async (_call, next) => foreignResponse(
+        streamFrom((await next()).body!),
+        { status: 203, statusText: 'Relayed', headers: { 'x-relay': 'yes' } },
+      ))
 
       const response = await route.fetch()
-      expect(response.status).toBe(203)
+      expect(response.headers instanceof Headers).toBe(true)
+      expect([response.status, response.statusText, response.headers.get('x-relay')]).toEqual([203, 'Relayed', 'yes'])
       await new Promise(resolve => setTimeout(resolve, 10))
       expect(endless.cancelled()).toBe(false)
       const reader = response.body!.getReader()
