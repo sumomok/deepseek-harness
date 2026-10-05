@@ -2,9 +2,9 @@
  * Test-only `consoleMembers` row: a member directory that places requests and
  * sessions from tables in its own config and keeps each member's store in
  * memory. A test reaches the row's instance to seed a store, to hold the next
- * write until it is released, or to make writes fail. Mounted by file URL or
- * as a Loader builtin from a test-only composition; no shipped profile names
- * it.
+ * write until it is released, to make writes fail, or to make placing one
+ * session throw. Mounted by file URL or as a Loader builtin from a test-only
+ * composition; no shipped profile names it.
  *
  * A request is placed by its `x-test-member` header, which stands in for the
  * deployment's signed member assertion. A session is placed through its parent
@@ -78,6 +78,8 @@ export class ConsoleMembersFixture implements ConsoleMemberDirectory {
   held = 0
   /** Make every write reject. */
   failWrites = false
+  /** Session ids whose placement throws. */
+  readonly failingSessions = new Set<string>()
   private hold: Promise<void> | undefined
 
   constructor(private readonly config: Config) {}
@@ -120,6 +122,7 @@ export class ConsoleMembersFixture implements ConsoleMemberDirectory {
   }
 
   principalOfSession(sessionId: SessionId): PrincipalKey | undefined {
+    if (this.failingSessions.has(sessionId)) throw new Error('console-members fixture: the session could not be placed')
     let current: string = sessionId
     const visited = new Set<string>()
     while (Object.hasOwn(this.config.parents, current)) {

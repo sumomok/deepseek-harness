@@ -229,6 +229,23 @@ describe('per-member configuration', () => {
     }
   })
 
+  it('names the fields, not their values, for a menu that would also fail the schema\'s cross-element constraints', () => {
+    const cases: [ServerSidebar.ConfigInput, string][] = [
+      [{ displayNameClaim: 'login_uname', perMember: true, workflows: [WORKFLOW as never, WORKFLOW as never] }, 'workflows'],
+      [{
+        displayNameClaim: 'login_uname', perMember: true,
+        workflows: [{ ...WORKFLOW, groupId: 'g-secret' } as never], groups: [],
+      }, 'workflows'],
+    ]
+    for (const [input, fields] of cases) {
+      const refusal = refusalOf(input)
+      expect(refusal).toBe(
+        `Error: server-sidebar: ${fields} must be empty when perMember is set, because each member's menu is kept in that member's own store`,
+      )
+      for (const value of ['w1', 'g-secret']) expect(refusal).not.toContain(value)
+    }
+  })
+
   it('takes an empty menu with perMember, and an empty workflow list is empty', () => {
     expect(() => {
       ServerSidebar.apply(new Context(), ServerSidebar.Config({ displayNameClaim: 'login_uname', perMember: true, workflows: [], groups: [] }))
@@ -440,6 +457,47 @@ describe('per-member server-menu route', () => {
     expect((await Promise.all([first, second])).map(answer => answer.status)).toEqual([200, 200])
     expect(directory.value(MEMBER_A, UNIT)).toEqual(document({ workflows: [WORKFLOW], groups: [GROUP] }))
     expect(outcome(await readMenu(ctx, ASSERTION_A))).toEqual({ status: 200, body: document({ workflows: [WORKFLOW], groups: [GROUP] }) })
+  })
+
+  it('keeps a third save behind the second while the second is being written, so no save loses another\'s field', async () => {
+    const { ctx } = await bootMembers()
+    const directory = directoryOf(ctx)
+    const releaseFirst = directory.holdNextWrite()
+    const first = postPatch(ctx, ASSERTION_A, { workflows: [WORKFLOW] })
+    await until(() => directory.held === 1)
+    const second = postPatch(ctx, ASSERTION_A, { groups: [GROUP] })
+    await until(() => directory.placements === 2)
+    const releaseSecond = directory.holdNextWrite()
+    releaseFirst()
+    expect((await first).status).toBe(200)
+    // The second save has read what the first wrote and is now being written.
+    await until(() => directory.held === 1 && directory.reads === 2)
+    const third = postPatch(ctx, ASSERTION_A, { workbenchSessionId: 'session-a' })
+    await until(() => directory.placements === 3)
+    // Long enough for the third save to read the store, had it not waited.
+    await new Promise((resolveWait) => { setTimeout(resolveWait, 100) })
+    expect(directory.reads).toBe(2)
+    releaseSecond()
+    expect((await Promise.all([second, third])).map(answer => answer.status)).toEqual([200, 200])
+    expect(directory.value(MEMBER_A, UNIT)).toEqual(document({ workflows: [WORKFLOW], groups: [GROUP], workbenchSessionId: 'session-a' }))
+  })
+
+  it('applies the saves queued behind one whose member directory threw', async () => {
+    const { ctx } = await bootMembers()
+    const directory = directoryOf(ctx)
+    directory.failingSessions.add('session-unplaceable')
+    const release = directory.holdNextWrite()
+    const first = postPatch(ctx, ASSERTION_A, { workflows: [WORKFLOW] })
+    await until(() => directory.held === 1)
+    const failing = postPatch(ctx, ASSERTION_A, { workbenchSessionId: 'session-unplaceable' })
+    await until(() => directory.placements === 2)
+    const third = postPatch(ctx, ASSERTION_A, { groups: [GROUP] })
+    await until(() => directory.placements === 3)
+    release()
+    const answers = await Promise.all([first, failing, third])
+    // The middle save's rejection is the webserver's to answer.
+    expect(answers.map(answer => answer.status)).toEqual([200, 400, 200])
+    expect(directory.value(MEMBER_A, UNIT)).toEqual(document({ workflows: [WORKFLOW], groups: [GROUP] }))
   })
 
   it('does not make one member\'s save wait on another member\'s', async () => {

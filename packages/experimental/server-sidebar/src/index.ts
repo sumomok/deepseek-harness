@@ -251,10 +251,11 @@ export function apply(ctx: Context, config: Config): void {
   // nothing out of on every page, with no diagnostic tying the anonymous
   // footer back to the composition.
   const identity: ServerIdentitySettings = { displayNameClaim: requireDisplayNameClaim(config.displayNameClaim) }
-  // Loud at load as well: a profile edited by hand can carry a menu the
-  // route would never have written.
-  validateServerMenu(readMenu(config))
+  // Loud at load as well: a per-member row carries no menu at all, and is
+  // refused by field name before any check that would quote a value; a
+  // profile edited by hand can carry a menu the route would never have written.
   requireMemberMenuFields(config)
+  validateServerMenu(readMenu(config))
   const logger = ctx.logger('server-sidebar')
   reportDirectoryMismatch(ctx, config.perMember, logger)
 
