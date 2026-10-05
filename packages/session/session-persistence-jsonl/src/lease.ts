@@ -22,13 +22,18 @@
  * unmaterialized session has no filesystem footprint. Release never removes
  * the POSIX lock file: every acquired lock belongs to a materialized or
  * materializing session, and the surviving file keeps the stable inode later
- * lockers verify against. Relocation alone removes one: after publishing the
- * session at its target it unlinks the source directory's lock file while
- * still holding that lock, then removes the directory. A writer that resolved
- * the old directory may then recreate it and lock a fresh file there, so a
- * write open resolves the session again after locking; when the session no
- * longer lives in the locked directory it unlinks the lock file it created
- * there while still holding it, releases, and retries once. Precondition:
+ * lockers verify against. Only a holder of the lock removes one, and only to
+ * remove the session directory with it: a relocation retiring its source
+ * directory after publishing the session at its target, and the relocation,
+ * recovery, startup cleanup, and write-open paths that discard a directory
+ * holding nothing but the lock file (a target that a failed or rolled-back
+ * relocation created, a directory that a relocation which died before
+ * recording its intent left, or a directory the remover's own locking
+ * recreated). A writer that resolved a directory before its removal may then
+ * recreate it and lock a fresh file there, so a write open resolves the
+ * session again after locking; when the session no longer lives in the
+ * locked directory it discards the directory it recreated while still
+ * holding its lock, releases, and retries once. Precondition:
  * every process that writes the root runs a build with this re-resolution. A
  * write open in a build without it locks the recreated directory, then
  * appends to the session at its new location while a writer there holds that
@@ -97,8 +102,8 @@ export class SessionWriteLease {
    * @param id - the session the lock guards, for error identities.
    * @returns the held lock.
    * @throws {SessionAlreadyOwnedError} while another holder keeps the lock.
-   * @throws an ENOENT error when the directory is removed while the lock file
-   *   is created.
+   * @throws an ENOENT error on POSIX when the directory is removed while the
+   *   lock file is created; Windows creates no lock file.
    */
   static async acquire(dir: string, id: SessionId): Promise<SessionWriteLease> {
     const path = join(dir, LEASE_FILENAME)
@@ -149,8 +154,8 @@ export class SessionWriteLease {
   }
 
   /**
-   * Release the kernel lock by closing its descriptor or handle. The POSIX
-   * lock file is never removed: every acquired lock belongs to a
+   * Release the kernel lock by closing its descriptor or handle. Release
+   * never removes the POSIX lock file: every acquired lock belongs to a
    * materialized or materializing session, and keeping the file preserves
    * the stable inode later lockers verify against. Idempotent.
    */

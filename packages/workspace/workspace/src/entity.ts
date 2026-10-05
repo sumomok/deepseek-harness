@@ -135,6 +135,8 @@ export class WorkspaceEntity implements Workspace {
   }
 
   async attachSession(sessionId: SessionId): Promise<void> {
+    // Unlike the other entity writes, this waits for the registry's mutation
+    // queue, so a detach issued before it settles can land first.
     await this.host.enqueue(() => this.attachQueued(sessionId))
   }
 

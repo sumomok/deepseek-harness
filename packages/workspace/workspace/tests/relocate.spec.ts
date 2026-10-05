@@ -207,6 +207,8 @@ interface World {
   readonly pool: MemoryMediaPool
   /** The header session persistence lists. */
   stored: SessionHeader
+  /** Other sessions session persistence lists before it. */
+  ahead?: readonly SessionHeader[] | undefined
   /** Other sessions session persistence lists after it. */
   others?: readonly SessionHeader[] | undefined
   /** Runs inside each record write before it reaches the medium. */
@@ -241,7 +243,7 @@ async function start(w: World, before?: (ctx: Context) => void) {
   ctx.storage.mount('domain', facility)
   ctx.provide('storageDomain', facility)
   const list = vi.fn(async (): Promise<SessionPersistenceSnapshot[]> =>
-    [w.stored, ...w.others ?? []].map(header => ({ header, revision: SessionPersistenceRevision('stored') })))
+    [...w.ahead ?? [], w.stored, ...w.others ?? []].map(header => ({ header, revision: SessionPersistenceRevision('stored') })))
   ctx.provide('sessionPersistence', { list } as never)
   const written: string[] = []
   ctx.on('domain/changed', (change) => {
@@ -451,6 +453,65 @@ describe('WorkspaceRegistry attaches on its mutation queue', () => {
     await first.drain()
     expect(storedIn(w, origin)).toEqual([other])
     expect(storedIn(w, target)).toEqual([SESSION])
+  })
+
+  it('keeps a moved session out of its old workspace when a listing read before the move indexes it after the event', async () => {
+    const w = await world()
+    const listedFirst = SessionId('listed-first')
+    w.ahead = [{ ...headerAt(w.from), id: listedFirst }]
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    const other = SessionId('other')
+    w.others = [{ ...headerAt(w.from), id: other }]
+    let moved = false
+    const listedMeanwhile: Array<readonly SessionId[]> = []
+    hooks.onStat = (path) => {
+      if (path !== w.from) return
+      // The move lands while the session listed ahead of the moved one resolves.
+      if (moved) listedMeanwhile.push(origin.sessionIds)
+      else first.relocate(w.to)
+      moved = true
+    }
+
+    await origin.attachSession(other)
+    expect(listedMeanwhile.length).toBeGreaterThan(0)
+    expect(listedMeanwhile.filter(ids => ids.includes(SESSION))).toEqual([])
+    await first.drain()
+    expect(storedIn(w, origin)).toEqual([other, listedFirst])
+    expect(storedIn(w, target)).toEqual([SESSION])
+  })
+
+  it('validates attaches queued before a move against the moved header when a listing read before the move indexes it after the event', async () => {
+    const w = await world()
+    const listedFirst = SessionId('listed-first')
+    w.ahead = [{ ...headerAt(w.from), id: listedFirst }]
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    await origin.detachSession(SESSION)
+    first.written.length = 0
+    hooks.onStat = (path) => {
+      if (path !== w.from) return
+      hooks.onStat = undefined
+      first.relocate(w.to)
+    }
+
+    // Archiving an unknown id lists every stored header; both attaches queue behind it, before the event.
+    const archived = first.registry.archiveSession(SessionId('unknown'))
+    const toOrigin = origin.attachSession(SESSION)
+    const toTarget = target.attachSession(SESSION)
+    await expect(archived).rejects.toThrow('cannot archive session \'unknown\'')
+    await expect(toOrigin).rejects.toThrow(`its cwd resolves to '${w.to}'`)
+    expect(origin.sessionIds).toEqual([listedFirst])
+    await toTarget
+    expect(target.sessionIds).toEqual([SESSION])
+    await first.drain()
+    expect(first.written).toEqual([target.id])
+    await first.stop()
+    const again = await start(w)
+    expect(again.view()).toEqual([[w.to, [SESSION]], [w.from, [listedFirst]]])
+    expect(again.warnings).toEqual([])
   })
 
   it('skips a queued move that a later relocation of the session superseded', async () => {

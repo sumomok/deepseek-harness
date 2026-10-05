@@ -956,7 +956,8 @@ describe('startup repair of a session listed by several workspaces', () => {
     const reason = {
       'session header is missing': 'session header is missing',
       'cwd does not resolve': `cwd '${cwd}' does not resolve`,
-      'cwd is elsewhere': `canonical cwd '${cwd}' is no listing workspace's path`,
+      'cwd is elsewhere': `canonical cwd '${cwd}' is no listing workspace's path; `
+        + `this start then detaches it from '${bId}' too unless the path of '${bId}' was kept as stored`,
     }[situation]
     expect(result.warnings).toContain(
       `workspace: session 'dup' was accounted by workspaces '${bId}', '${aId}'; kept in '${bId}', `
@@ -965,6 +966,61 @@ describe('startup repair of a session listed by several workspaces', () => {
     expect(storedRecord(pool, aId).sessionIds).toEqual([])
     // A cwd that resolves elsewhere then leaves the workspace that kept it as well.
     expect(storedRecord(pool, bId).sessionIds).toEqual(situation === 'cwd is elsewhere' ? [] : ['dup'])
+  })
+
+  it('leaves a session whose cwd is elsewhere in the workspace that kept it when that workspace\'s path was kept as stored', async () => {
+    const [a, b] = [await makeDir('stored-a'), await makeDir('stored-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [bId, aId] },
+    )
+    await rm(b, { recursive: true })
+    await repaired(pool, [header('dup', await makeDir('stored-elsewhere'))])
+    expect(storedRecord(pool, aId).sessionIds).toEqual([])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+  })
+
+  it('keeps the first occurrence of a session a workspace lists more than once', async () => {
+    const a = await makeDir('repeat-a')
+    const [aId] = ids as [WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only', 'dup', 'a-only', 'dup'])]],
+      { initialized: true, workspaceIds: [aId] },
+    )
+    const sessions = [header('dup', a), header('a-only', a)]
+    const result = await repaired(pool, sessions)
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['dup', 'a-only'])
+    expect(result.written).toEqual([aId])
+    expect(result.warnings).toEqual([
+      `workspace '${aId}' listed sessions 'dup', 'a-only' more than once; kept the first occurrence of each`,
+    ])
+    expect(result.registry.list().map(workspace => workspace.sessionIds)).toEqual([['dup', 'a-only']])
+    await result.ctx.fiber.dispose()
+
+    const again = await repaired(pool, sessions)
+    expect(again.written).toEqual([])
+    expect(again.warnings).toEqual([])
+  })
+
+  it('writes a workspace once when it lists a session twice that another workspace also lists', async () => {
+    const [a, b] = [await makeDir('both-a'), await makeDir('both-b')]
+    const [aId, bId] = ids as [WorkspaceId, WorkspaceId]
+    const pool = storedPool(
+      [[aId, record(a, ['dup', 'a-only', 'dup'])], [bId, record(b, ['dup'])]],
+      { initialized: true, workspaceIds: [aId, bId] },
+    )
+    const result = await repaired(pool, [header('dup', b), header('a-only', a)])
+    expect(storedRecord(pool, aId).sessionIds).toEqual(['a-only'])
+    expect(storedRecord(pool, bId).sessionIds).toEqual(['dup'])
+    expect(result.written).toEqual([aId])
+    expect(result.warnings).toEqual([
+      `workspace '${aId}' listed sessions 'dup' more than once; kept the first occurrence of each`,
+    ])
+    expect(result.infos).toEqual([
+      `workspace: session 'dup' was accounted by workspaces '${aId}', '${bId}'; kept in '${bId}', `
+      + `whose path is its canonical cwd, and detached from '${aId}'`,
+    ])
   })
 })
 

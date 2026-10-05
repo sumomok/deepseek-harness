@@ -113,7 +113,10 @@ export interface Workspace {
    * first durably detached from every other workspace that lists it, and
    * every operation that adds a session runs on that one queue, so no two
    * workspaces account one session; registry startup repairs a store that an
-   * earlier build left with one session in several workspaces.
+   * earlier build left with one session in several workspaces. A detach does
+   * not wait for that queue: a {@link detachSession} issued before this call
+   * settles can land first and leave the session attached, so a caller that
+   * detaches the session afterwards awaits this call first.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */
