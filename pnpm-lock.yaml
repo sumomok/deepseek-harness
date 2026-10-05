@@ -8066,12 +8066,18 @@ importers:
       '@deepseek-ai/dsh-experimental-component-surface':
         specifier: workspace:*
         version: link:../component-surface
+      '@deepseek-ai/dsh-experimental-console-members':
+        specifier: workspace:*
+        version: link:../console-members
       '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
         specifier: workspace:*
         version: link:../vue2-echarts-poc
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:*
+        version: link:../../core/session
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31

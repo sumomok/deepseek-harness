@@ -17,6 +17,7 @@
     "packages/experimental/vue2-echarts-poc/src/css-modules.d.ts",
     "packages/experimental/component-kit/tests/**/*.client.spec.ts",
     "packages/experimental/component-kit/tests/**/*.client.spec.tsx",
+    "packages/experimental/component-kit/tests/fixtures/*.client.ts",
     "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.ts",
     "packages/experimental/vue2-echarts-poc/tests/**/*.client.spec.tsx",
     "packages/experimental/component-surface/tests/browser-plugin.client.spec.ts",
