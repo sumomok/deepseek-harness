@@ -13,7 +13,7 @@ import {
   appendFile, link, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -64,6 +64,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }) as F
   return {
     ...actual,
+    link: guard('link', actual.link),
     unlink: guard('unlink', actual.unlink),
     readdir: guard('readdir', actual.readdir),
     readFile: guard('readFile', actual.readFile),
@@ -236,8 +237,17 @@ function inProcessVerifier(): NonNullable<JsonlRelocationRuntimeOverrides['verif
   return (path, compression, expectedId, expectedEventCount) => generation.verify(path, compression, expectedId, expectedEventCount)
 }
 
-/** A Win32 no-replace publish over POSIX rename, refusing an existing destination like MoveFileExW. */
+/**
+ * A Win32 no-replace publish over POSIX rename, with MoveFileExW's error order.
+ * MoveFileExW opens the source and renames that open file
+ * (`NtSetInformationFile(FileRenameInformation)` with `ReplaceIfExists` unset;
+ * Wine's `MoveFileWithProgressW` in `dlls/kernelbase/file.c` follows the same
+ * order), so a missing source fails with `ERROR_FILE_NOT_FOUND` (ENOENT) even
+ * when the destination exists, and only an open source meets an existing
+ * destination (`ERROR_ALREADY_EXISTS`, EEXIST).
+ */
 async function publishNewSimulated(existing: string, replacement: string): Promise<void> {
+  if (!await exists(existing)) throw errno('ENOENT')
   if (await exists(replacement)) throw errno('EEXIST')
   await rename(existing, replacement)
 }
@@ -669,15 +679,96 @@ async function crash(f: Seeded, platform: Platform, phase: JsonlRelocationPhase,
   }
 }
 
+/** One session directory as a build without relocation support reads it. */
+interface UnpatchedRow {
+  readonly dir: string
+  /** Format version of the generation the build selects. */
+  readonly version: number
+  readonly header: SessionHeader
+  /** Decoded events; absent when the selected generation is historical. */
+  readonly events?: readonly SessionEvent[]
+}
+
+/**
+ * List the root the way the JSONL backend before relocation support lists it:
+ * every session directory under every project directory, each directory's
+ * highest canonical generation chosen by filename alone (that backend's `resolveGenerationInDirectory`, which also refuses the
+ * other encoding's names), the selected header checked against the directory
+ * it sits in (its `assertStoredIdentity`, without the alias comparison the
+ * matrix never needs), one directory per id (its `listArtifacts` duplicate
+ * refusal), and the events decoded by the current-format scanner its read path
+ * uses. Relocation changed none of these read paths. A historical selected
+ * generation is returned undecoded instead of migrated; the matrix stores the
+ * events only in the current generation, so selecting a historical one already
+ * fails its event comparison.
+ */
+async function unpatchedListing(root: string, compression: JsonlCompression): Promise<UnpatchedRow[]> {
+  const other = compression === 'zstd' ? 'none' : 'zstd'
+  const rows: UnpatchedRow[] = []
+  for (const project of await readdir(root, { withFileTypes: true })) {
+    if (!project.isDirectory()) continue
+    for (const session of await readdir(join(root, project.name), { withFileTypes: true })) {
+      if (!session.isDirectory()) continue
+      const dir = join(root, project.name, session.name)
+      const names = await readdir(dir)
+      const opposite = names.find(name => parseGenerationLogFilename(name, other) !== undefined)
+      if (opposite !== undefined) throw new Error(`"${join(dir, opposite)}" belongs to the other encoding`)
+      const [highest] = names
+        .flatMap((name) => {
+          const version = parseGenerationLogFilename(name, compression)
+          return version === undefined ? [] : [{ name, version }]
+        })
+        .sort((left, right) => right.version - left.version)
+      if (highest === undefined) continue
+      const bytes = await readFile(join(dir, highest.name))
+      const frames = compression === 'zstd' ? scanZstdFrames(bytes).frames : []
+      const plain = compression === 'zstd'
+        ? Buffer.concat(await Promise.all(frames.map(frame => decompressZstdFrame(bytes.subarray(frame.start, frame.end)))))
+        : bytes
+      const header = JSON.parse(plain.subarray(0, plain.indexOf(0x0A)).toString('utf8')) as SessionHeader
+      if (sessionDir(root, header.cwd, header.id) !== dir) throw new Error(`"${dir}" holds a header naming another directory`)
+      if (rows.some(row => row.header.id === header.id)) throw new Error(`session "${header.id}" appears in two directories`)
+      rows.push(highest.version === SESSION_FORMAT_VERSION
+        ? { dir, version: highest.version, header, events: scanLog(plain).events }
+        : { dir, version: highest.version, header })
+    }
+  }
+  return rows
+}
+
+/**
+ * Assert that a build without relocation support lists the root, and lists the
+ * seeded session with its original events unless the move left it absent.
+ */
+async function assertUnpatchedReads(f: Seeded, listed = true): Promise<void> {
+  const rows = await unpatchedListing(f.root, f.plan.compression)
+  expect(rows).toHaveLength(listed ? 1 : 0)
+  for (const row of rows) {
+    expect(row.version).toBe(SESSION_FORMAT_VERSION)
+    expect(row.events).toEqual(f.events)
+  }
+}
+
+/** Recover every intent with the runtime of `platform`, as a backend's first operation does, and require no warning. */
+async function recoverOn(f: Seeded, platform: Platform): Promise<void> {
+  const warn = vi.fn()
+  await createJsonlRelocationTestRuntime({ ...platformOverrides(platform), verify: inProcessVerifier() })
+    .sweep(f.root, f.plan.compression, warn)
+  expect(warn).not.toHaveBeenCalled()
+}
+
 describe.each(['none', 'zstd'] as const)('relocation crash matrix (%s)', (compression) => {
   describe.each(['posix', 'win32'] as const)('%s namespace operations', (platform) => {
     it.each(CROSS_PHASES)('recovers a cross-directory move that died after %s %s', async (phase, index, published) => {
       const f = await seed(compression)
       await crash(f, platform, phase, index)
       await assertInvariants(f, published)
+      await assertUnpatchedReads(f, phase !== 'current-hidden')
+      await recoverOn(f, platform)
       const recovered = await mount(f.root, compression)
       if (published) await assertMoved(f, recovered.sessionPersistence)
       else await assertRolledBack(f, recovered.sessionPersistence)
+      await assertUnpatchedReads(f)
     })
 
     it.each(SAME_PHASES)('recovers a same-directory move that died after %s', async (phase, replaced) => {
@@ -685,6 +776,8 @@ describe.each(['none', 'zstd'] as const)('relocation crash matrix (%s)', (compre
       expect(f.plan.sameDirectory).toBe(true)
       await crash(f, platform, phase)
       await assertInvariants(f, false)
+      await assertUnpatchedReads(f)
+      await recoverOn(f, platform)
       const recovered = await mount(f.root, compression)
       if (replaced) {
         await assertMoved(f, recovered.sessionPersistence)
@@ -703,6 +796,61 @@ describe.each(['none', 'zstd'] as const)('relocation crash matrix (%s)', (compre
       await release()
       await assertMoved(f, (await mount(f.root, compression)).sessionPersistence)
     })
+  })
+})
+
+describe('Win32 namespace order and hidden-file restoration', () => {
+  it('simulates MoveFileExW reporting a missing source before an existing destination', async () => {
+    const root = await freshRoot()
+    const [present, existing, missing] = ['present', 'existing', 'missing'].map(name => join(root, name)) as [string, string, string]
+    await writeFile(present, 'present')
+    await writeFile(existing, 'existing')
+    await expect(publishNewSimulated(missing, existing)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(publishNewSimulated(present, existing)).rejects.toMatchObject({ code: 'EEXIST' })
+  })
+
+  it.each(['posix', 'win32'] as const)('counts a hidden prior generation removed after a refused restoration as restored (%s)', async (platform) => {
+    const f = await seed('none')
+    await crash(f, platform, 'published')
+    const intent = JSON.parse(await readFile(relocationIntentPath(f.root, f.header.id), 'utf8')) as { token: string }
+    const hidden = join(f.targetDir, relocationHiddenName(f.prior[0]!, intent.token))
+    await link(hidden, join(f.targetDir, f.prior[0]!))
+    const warn = vi.fn()
+    await createJsonlRelocationTestRuntime({
+      ...platformOverrides(platform),
+      verify: inProcessVerifier(),
+      fs: {
+        readFile: async (path: string) => {
+          // Another backend finishes this restoration between the refused move and the comparison.
+          if (path === hidden) await unlink(hidden)
+          return readFile(path)
+        },
+      },
+    }).sweep(f.root, 'none', warn)
+    expect(warn).not.toHaveBeenCalled()
+    await assertMoved(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
+
+  it('keeps the intent when a hidden prior generation cannot be read for the comparison', async () => {
+    const f = await seed('none')
+    await crash(f, 'posix', 'published')
+    const intentPath = relocationIntentPath(f.root, f.header.id)
+    const intent = JSON.parse(await readFile(intentPath, 'utf8')) as { token: string }
+    const hidden = join(f.targetDir, relocationHiddenName(f.prior[0]!, intent.token))
+    await link(hidden, join(f.targetDir, f.prior[0]!))
+    const warn = vi.fn()
+    await createJsonlRelocationTestRuntime({
+      verify: inProcessVerifier(),
+      fs: {
+        readFile: async (path: string) => {
+          if (path === hidden) throw errno('EACCES')
+          return readFile(path)
+        },
+      },
+    }).sweep(f.root, 'none', warn)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('EACCES'))
+    expect(await exists(intentPath)).toBe(true)
+    expect(await exists(hidden)).toBe(true)
   })
 })
 
@@ -1181,7 +1329,7 @@ describe('startup recovery', () => {
     for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
   })
 
-  it('proceeds when another backend settles the intent it found before reading it', async () => {
+  it('keeps another backend\'s recovery off an intent whose source directory this relocation holds', async () => {
     const f = await crashed('staged')
     const intentPath = relocationIntentPath(f.root, f.header.id)
     let settledElsewhere: Array<string | undefined> = []
@@ -1199,7 +1347,7 @@ describe('startup recovery', () => {
     const f = await seed('none')
     const intentPath = relocationIntentPath(f.root, f.header.id)
     let listedElsewhere: Array<string | undefined> = []
-    interleave('rename', path => path.startsWith(`${intentPath}.`), async () => {
+    interleave('link', path => path.startsWith(`${intentPath}.`), async () => {
       listedElsewhere = (await (await mount(f.root, 'none')).sessionPersistence.list()).map(row => row.header.cwd)
     })
     const snapshot = await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)
@@ -1247,6 +1395,112 @@ describe('startup recovery', () => {
     const absent = vi.fn()
     await createJsonlRelocationTestRuntime().sweep(join(await freshRoot(), 'absent'), 'none', absent)
     expect(absent).not.toHaveBeenCalled()
+  })
+})
+
+/** Another process's relocation of the seeded session to `cwd` that dies after `phase` and releases its locks. */
+async function deadRelocation(f: Seeded, cwd: string, phase: JsonlRelocationPhase, index?: number): Promise<void> {
+  const targetDir = sessionDir(f.root, cwd, f.header.id)
+  const headerLine = `${JSON.stringify(toHeaderLine({ ...f.header, cwd }))}\n`
+  await crash({ ...f, targetDir, plan: { ...f.plan, targetDir, toCwd: cwd, headerLine } }, 'posix', phase, index)
+}
+
+/** A runtime whose `n`th read of the file at `path` returns `rewrite(bytes, n)` instead of the stored bytes. */
+function rereading(path: string, rewrite: (bytes: Buffer, read: number) => Buffer) {
+  let reads = 0
+  return createJsonlRelocationTestRuntime({
+    fs: {
+      readFile: async (file: string) => {
+        const bytes = await readFile(file)
+        if (file !== path) return bytes
+        reads += 1
+        return rewrite(bytes, reads)
+      },
+    },
+  })
+}
+
+function retokened(bytes: Buffer): Buffer {
+  return Buffer.from(`${JSON.stringify({ ...JSON.parse(bytes.toString('utf8')) as object, token: 'ffffffffffff' })}\n`)
+}
+
+describe('intents left by an earlier relocation of the same session', () => {
+  it.each(([THIRD_CWD, TARGET_CWD] as const).flatMap(cwd => ([
+    ['intent-written', undefined], ['staged', undefined], ['prior-hidden', 0], ['prior-hidden', 1],
+  ] as const).map(([phase, index]) => [cwd, phase, index] as const)))(
+    'settles a move to %s that died after %s %s between this relocation\'s lookup and its lock, then moves every generation',
+    async (cwd, phase, index) => {
+      const f = await seed('none')
+      let raced = false
+      // The seeded backend already recovered the root, so its next root listing is the relocation's lookup.
+      interleave('readdir', path => path === f.root, async () => {
+        raced = true
+        await deadRelocation(f, cwd, phase, index)
+      })
+      expect((await f.ctx.sessionPersistence.relocate!(f.header.id, TARGET_CWD)).header.cwd).toBe(TARGET_CWD)
+      expect(raced).toBe(true)
+      await assertMoved(f, f.ctx.sessionPersistence)
+    },
+  )
+
+  it.each(['posix', 'win32'] as const)('refuses to record its intent over another relocation\'s intent and leaves that intent (%s)', async (platform) => {
+    const f = await seed('none')
+    await deadRelocation(f, THIRD_CWD, 'prior-hidden', 0)
+    const intentPath = relocationIntentPath(f.root, f.header.id)
+    const left = await readFile(intentPath)
+    const error = await relocateWith(f, platformOverrides(platform)).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(SessionPersistenceCorruptionError)
+    expect((error as Error).message).toContain(intentPath)
+    expect(await readFile(intentPath)).toEqual(left)
+    expect((await readdir(f.root)).filter(name => name.startsWith('.relocate.'))).toEqual([basename(intentPath)])
+    expect(await exists(f.targetDir)).toBe(false)
+    await assertRolledBack(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
+
+  it.each(['posix', 'win32'] as const)('removes its intent temporary and target directory when its intent cannot be published (%s)', async (platform) => {
+    const f = await seed('none')
+    const intentPath = relocationIntentPath(f.root, f.header.id)
+    const refuse = async (from: string, to: string): Promise<void> => {
+      if (to === intentPath) throw errno('EIO')
+      await (platform === 'win32' ? publishNewSimulated(from, to) : link(from, to))
+    }
+    const overrides: JsonlRelocationRuntimeOverrides = platform === 'win32'
+      ? { ...platformOverrides(platform), publishNewWin32: refuse }
+      : { ...platformOverrides(platform), fs: { link: refuse } }
+    await expect(relocateWith(f, overrides)).rejects.toMatchObject({ code: 'EIO' })
+    expect((await readdir(f.root)).filter(name => name.startsWith('.relocate.'))).toEqual([])
+    await assertRolledBack(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
+
+  it('settles an intent once it reads the same intent under the locks', async () => {
+    const f = await crashed('staged')
+    const path = relocationIntentPath(f.root, f.header.id)
+    const runtime = rereading(path, (bytes, read) => read === 2 ? retokened(bytes) : bytes)
+    expect(await runtime.settle(f.root, 'none', f.header.id)).toBe(true)
+    await assertRolledBack(f, (await mount(f.root, 'none')).sessionPersistence)
+  })
+
+  it('leaves an intent that changes between every read and its locks', async () => {
+    const f = await crashed('staged')
+    const path = relocationIntentPath(f.root, f.header.id)
+    const runtime = rereading(path, (bytes, read) => read % 2 === 0 ? retokened(bytes) : bytes)
+    await expect(runtime.settle(f.root, 'none', f.header.id)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+    const warn = vi.fn()
+    await runtime.sweep(f.root, 'none', warn)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${path}" stays: another holder`))
+    for (const [name, print] of f.before) expect(await fingerprint(join(f.sourceDir, name))).toEqual(print)
+    expect(await exists(path)).toBe(true)
+  })
+
+  it.each([1, 2])('counts an intent another backend removes before read %i as settled', async (gone) => {
+    const f = await crashed('staged')
+    const path = relocationIntentPath(f.root, f.header.id)
+    const runtime = rereading(path, (bytes, read) => {
+      if (read === gone) throw errno('ENOENT')
+      return bytes
+    })
+    expect(await runtime.settle(f.root, 'none', f.header.id)).toBe(true)
+    expect(await exists(path)).toBe(true)
   })
 })
 

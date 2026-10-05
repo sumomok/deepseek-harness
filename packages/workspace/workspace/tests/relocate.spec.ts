@@ -1,7 +1,9 @@
 /**
  * Registry behavior on `session-persistence/relocated`: the header index swaps
  * before the listener returns, and queued work moves durable membership from
- * workspaces at other paths to the workspace at the new cwd.
+ * workspaces at other paths to the workspace at the new cwd. A move whose
+ * event the registry missed is detached at the next start, and an attach at
+ * the new path detaches the session from any workspace still listing it.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -168,5 +170,137 @@ describe('WorkspaceRegistry on session-persistence/relocated', () => {
     expect(run.storedIds(run.origin)).toEqual([SESSION])
     const later = await run.registry.create(await directory(run.root, 'later'))
     expect(run.registry.get(later.id)).toBe(later)
+  })
+})
+
+/** Durable state shared by registry instances started one after another, as by Host restarts. */
+interface World {
+  readonly root: string
+  readonly pool: MemoryMediaPool
+  /** The header session persistence lists. */
+  stored: SessionHeader
+}
+
+async function world(): Promise<World & { readonly from: string; readonly to: string }> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-workspace-missed-')))
+  roots.push(root)
+  const from = await directory(root, 'old')
+  return { root, pool: new MemoryMediaPool(), stored: headerAt(from), from, to: await directory(root, 'new') }
+}
+
+/** Start one registry over `world`; `before` composes listeners that run ahead of the registry's. */
+async function start(w: World, before?: (ctx: Context) => void) {
+  const ctx = new Context()
+  contexts.push(ctx)
+  await ctx.plugin(Storage)
+  ctx.storage.backend.register('memory', new MemoryStorageBackend(w.pool))
+  const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+  ctx.storage.mount('domain', facility)
+  ctx.provide('storageDomain', facility)
+  const list = vi.fn(async (): Promise<SessionPersistenceSnapshot[]> =>
+    [{ header: w.stored, revision: SessionPersistenceRevision('stored') }])
+  ctx.provide('sessionPersistence', { list } as never)
+  const warnings: string[] = []
+  const infos: string[] = []
+  vi.spyOn(ctx.logger, 'warn').mockImplementation((message: unknown) => { warnings.push(String(message)) })
+  vi.spyOn(ctx.logger, 'info').mockImplementation((message: unknown) => { infos.push(String(message)) })
+  before?.(ctx)
+  await ctx.plugin(WorkspaceRegistry)
+  const registry = ctx.workspaceRegistry
+  const view = (): Array<[string, readonly SessionId[]]> => registry.list().map(workspace => [workspace.path, workspace.sessionIds])
+  /** Emit the event a backend sends after moving the session to `cwd`. */
+  const relocate = (cwd: string): void => {
+    const previous = w.stored
+    w.stored = headerAt(cwd)
+    ctx.emit('session-persistence/relocated', SESSION, previous, { header: w.stored, revision: SessionPersistenceRevision('moved') })
+  }
+  const stop = (): Promise<void> => ctx.fiber.dispose()
+  return { ctx, registry, warnings, infos, view, relocate, stop }
+}
+
+function storedIn(w: World, workspace: Workspace): readonly SessionId[] {
+  return (w.pool.media.get('workspace')!.tables.get('workspaces')!.get(workspace.id) as WorkspaceRecord).sessionIds
+}
+
+/** Restart once more and require the registry to start with the session in `expected` alone. */
+async function restartsWith(w: World & { readonly from: string }, expected: Workspace): Promise<void> {
+  const again = await start(w)
+  expect(again.view()).toEqual([[expected.path, [SESSION]], [w.from, []]])
+  expect(again.warnings).toEqual([])
+}
+
+describe('WorkspaceRegistry after a relocation event it missed', () => {
+  it('detaches a session that moved while the registry was not running at its next start, and the target can attach it', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    await first.stop()
+
+    w.stored = headerAt(w.to)
+    const second = await start(w)
+    expect(storedIn(w, origin)).toEqual([])
+    expect(second.infos).toEqual([
+      `workspace '${origin.id}' detached session '${SESSION}': its canonical cwd '${w.to}' differs from workspace path '${w.from}'`,
+    ])
+    expect(second.view()).toEqual([[w.to, []], [w.from, []]])
+    await second.registry.get(target.id)!.attachSession(SESSION)
+    expect(storedIn(w, target)).toEqual([SESSION])
+    await second.stop()
+    await restartsWith(w, target)
+  })
+
+  it('detaches at the next start when a listener ahead of the registry threw', async () => {
+    const w = await world()
+    const first = await start(w, (ctx) => {
+      ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') })
+    })
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    expect(() => { first.relocate(w.to) }).toThrow('listener failed')
+    await first.registry.unarchiveSession(SessionId('drain'))
+    expect(storedIn(w, origin)).toEqual([SESSION])
+    expect(storedIn(w, target)).toEqual([])
+    // Until the next start the index keeps the header from before the move.
+    await expect(target.attachSession(SESSION)).rejects.toThrow(`its cwd resolves to '${w.from}'`)
+    await first.stop()
+
+    const second = await start(w)
+    expect(storedIn(w, origin)).toEqual([])
+    await second.registry.get(target.id)!.attachSession(SESSION)
+    await second.stop()
+    await restartsWith(w, target)
+  })
+
+  it('detaches the session from its old workspace when a caller attaches it after the queued detach failed', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    w.pool.failNextWrites = 1
+    first.relocate(w.to)
+    await first.registry.unarchiveSession(SessionId('drain'))
+    expect(first.warnings).toEqual([expect.stringContaining(`workspace: re-indexing relocated session '${SESSION}' failed: `)])
+    expect(storedIn(w, origin)).toEqual([SESSION])
+
+    await target.attachSession(SESSION)
+    expect(storedIn(w, origin)).toEqual([])
+    expect(storedIn(w, target)).toEqual([SESSION])
+    await first.stop()
+    await restartsWith(w, target)
+  })
+
+  it('keeps the sessions of a workspace whose stored path did not resolve at startup', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    await first.stop()
+
+    await rm(w.from, { recursive: true })
+    w.stored = headerAt(w.to)
+    const second = await start(w)
+    expect(storedIn(w, origin)).toEqual([SESSION])
+    expect(second.infos).toEqual([])
+    expect(second.warnings).toContainEqual(expect.stringContaining(`workspace '${origin.id}' path '${w.from}' kept as stored`))
   })
 })

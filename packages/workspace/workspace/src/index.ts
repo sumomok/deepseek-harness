@@ -188,6 +188,7 @@ export class WorkspaceRegistry extends Service {
       this.sessionPaths.set(id, path)
       this.invalidSessionPaths.delete(id)
     },
+    detachElsewhere: (id, keep) => this.detachElsewhere(id, keep),
   }
 
   constructor(ctx: Context) {
@@ -204,7 +205,7 @@ export class WorkspaceRegistry extends Service {
 
     await this.recoverPendingMutation()
     this.validateStoredState(this.state)
-    await this.recanonicalizeRecordPaths()
+    const canonicalRecords = await this.recanonicalizeRecordPaths()
     if (!this.state.initialized) {
       const headers = await this.listStoredHeaders()
       await this.replaceHeaderIndex(headers)
@@ -214,6 +215,7 @@ export class WorkspaceRegistry extends Service {
     }
 
     await this.indexLiveSessions()
+    await this.detachMovedSessions(canonicalRecords)
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
@@ -663,11 +665,13 @@ export class WorkspaceRegistry extends Service {
    * later startup retries it. Each rewrite is one atomic record write that keeps paths
    * unique, so an interrupted pass leaves a valid registry and needs no
    * pending-mutation marker; a write failure rejects startup.
+   * @returns the records whose stored path is canonical after the pass: unchanged or replaced.
    */
-  private async recanonicalizeRecordPaths(): Promise<void> {
+  private async recanonicalizeRecordPaths(): Promise<ReadonlySet<WorkspaceId>> {
     const table = this.requireTable()
     const records = [...table.entries()]
     const targets = new Map<WorkspaceId, string>()
+    const canonicalRecords = new Set<WorkspaceId>()
     for (const [id, record] of records) {
       let canonical: string
       let directory = true
@@ -680,7 +684,10 @@ export class WorkspaceRegistry extends Service {
         )
         continue
       }
-      if (canonical === record.path) continue
+      if (canonical === record.path) {
+        canonicalRecords.add(id)
+        continue
+      }
       if (!directory) {
         this.ctx.logger.warn(
           `workspace '${id}' path '${record.path}' kept as stored: it resolves to '${canonical}', which is not a directory`,
@@ -706,6 +713,43 @@ export class WorkspaceRegistry extends Service {
         continue
       }
       await table.update(id, record => ({ ...record, path: canonical, updatedAt: new Date().toISOString() }))
+      canonicalRecords.add(id)
+    }
+    return canonicalRecords
+  }
+
+  /**
+   * Durably detach every session whose indexed canonical cwd is an existing
+   * directory other than the path of the workspace record listing it. A
+   * relocation whose `session-persistence/relocated` event never reached this
+   * registry (it was not running, recovery finished the move, or an earlier
+   * listener threw) leaves the session listed at its old path; detaching it
+   * here keeps an `attachSession` at the new path from accounting one session
+   * in two workspaces. Only records whose stored path is canonical this start
+   * are checked, and an id whose cwd does not resolve stays for the read
+   * filter. Each record is one write; a write failure rejects startup.
+   * @param canonicalRecords - records whose stored path is canonical after re-resolution.
+   */
+  private async detachMovedSessions(canonicalRecords: ReadonlySet<WorkspaceId>): Promise<void> {
+    const table = this.requireTable()
+    for (const [id, record] of [...table.entries()]) {
+      if (!canonicalRecords.has(id)) continue
+      const moved = record.sessionIds.filter((sessionId) => {
+        const path = this.sessionPaths.get(sessionId)
+        return path !== undefined && path !== record.path
+      })
+      if (moved.length === 0) continue
+      await table.update(id, current => ({
+        ...current,
+        sessionIds: current.sessionIds.filter(sessionId => !moved.includes(sessionId)),
+        updatedAt: new Date().toISOString(),
+      }))
+      for (const sessionId of moved) {
+        this.ctx.logger.info(
+          `workspace '${id}' detached session '${sessionId}': its canonical cwd `
+          + `'${this.sessionPaths.get(sessionId) as string}' differs from workspace path '${record.path}'`,
+        )
+      }
     }
   }
 
@@ -910,16 +954,18 @@ export class WorkspaceRegistry extends Service {
         `workspace: relocated session '${header.id}' joins no workspace: ${this.invalidSessionPaths.get(header.id) as string}`,
       )
     }
-    let target: WorkspaceEntity | undefined
-    for (const entity of this.entities.values()) {
-      if (entity.path === path) {
-        target = entity
-        continue
-      }
-      const record = this.requireTable().get(entity.id) as WorkspaceRecord
-      if (record.sessionIds.includes(header.id)) await entity.detachSession(header.id)
-    }
+    const target = [...this.entities.values()].find(entity => entity.path === path)
+    await this.detachElsewhere(header.id, target?.id)
     await target?.attachSession(header.id)
+  }
+
+  /** Durably detach a session from every workspace record that lists it, except `keep`. */
+  private async detachElsewhere(sessionId: SessionId, keep?: WorkspaceId): Promise<void> {
+    for (const entity of this.entities.values()) {
+      if (entity.id === keep) continue
+      const record = this.requireTable().get(entity.id) as WorkspaceRecord
+      if (record.sessionIds.includes(sessionId)) await entity.detachSession(sessionId)
+    }
   }
 
   /** Every stored session's header, projected from the persistence snapshot listing. */

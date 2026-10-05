@@ -60,6 +60,14 @@ export interface WorkspaceEntityHost {
    * @param path - Canonical existing directory from the stored header cwd.
    */
   rememberSessionPath(id: SessionId, path: string): void
+
+  /**
+   * Durably detach a session from every other workspace record that lists it.
+   * @param id - Session about to be accounted by `keep`.
+   * @param keep - The workspace that keeps or gains the session.
+   * @returns resolution after every detach is durable.
+   */
+  detachElsewhere(id: SessionId, keep: WorkspaceId): Promise<void>
 }
 
 /** Chain-slot abort sentinel thrown by the update fn when the record needs no change; only `mutate` observes it. */
@@ -146,6 +154,10 @@ export class WorkspaceEntity implements Workspace {
         )
       }
       this.host.rememberSessionPath(sessionId, cwd)
+      // Workspace paths are unique, so every other record listing the session
+      // names a stale location. Detaching first keeps each session in at most
+      // one record even when this process dies between the two writes.
+      await this.host.detachElsewhere(sessionId, this.id)
     }
     await this.mutate(record => record.sessionIds.includes(sessionId)
       ? record

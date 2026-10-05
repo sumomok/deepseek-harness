@@ -427,7 +427,8 @@ abstract list(options?: SessionPersistenceListOptions): Promise<readonly Session
  * 'function'` first. A write handle held by this or another process, or a
  * pending create in this process, refuses the move; read handles may stay
  * open. Success emits `session-persistence/relocated` after write ownership
- * is released.
+ * is released. A listener that throws does not fail the move: the backend
+ * logs a warning, and the listeners after it miss the event.
  * @param id - the stored session to move.
  * @param cwd - the absolute working directory the session moves to.
  * @param options - optional cancellation, observed until the target
@@ -464,14 +465,20 @@ Source: [`packages/session/session-persistence/src/index.ts`](../../packages/ses
 
 #### `session-persistence/relocated` — emit
 
-A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership. Not emitted by startup recovery. Listeners run synchronously, must not throw, and must catch their own asynchronous failures.
+A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership; recovery of an interrupted move emits nothing. Listeners run synchronously in registration order, must not throw, and must catch their own asynchronous failures. Cordis `emit` does not isolate listeners: one that throws stops the dispatch, and every listener after it misses the event. The relocation still succeeds and the backend logs a warning. A consumer that tracks sessions by cwd therefore reconciles from the stored headers when it starts; the workspace registry detaches a session listed at its old path then.
 
 ```ts cordis-catalog
 /**
  * A stored session moved to another storage location and its header cwd
  * changed. Emitted once per successful relocate, after the backend released
- * its write ownership. Not emitted by startup recovery. Listeners run
- * synchronously, must not throw, and must catch their own asynchronous failures.
+ * its write ownership; recovery of an interrupted move emits nothing.
+ * Listeners run synchronously in registration order, must not throw, and
+ * must catch their own asynchronous failures. Cordis `emit` does not
+ * isolate listeners: one that throws stops the dispatch, and every
+ * listener after it misses the event. The relocation still succeeds and
+ * the backend logs a warning. A consumer that tracks sessions by cwd
+ * therefore reconciles from the stored headers when it starts; the
+ * workspace registry detaches a session listed at its old path then.
  * @mode emit
  * @param id - the relocated session.
  * @param previous - the stored header before the move.

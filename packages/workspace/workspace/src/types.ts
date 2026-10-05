@@ -87,8 +87,10 @@ export interface Workspace {
    * prepended at attach, explicit reordering goes through
    * `insertSessionBefore`, and activity never reorders. The durable candidate
    * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
+   * and canonical cwd mismatches are never returned. Registry startup
+   * durably removes an id whose cwd resolves to an existing directory other
+   * than {@link path}; a subsequent workspace mutation prunes the other
+   * filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -106,7 +108,8 @@ export interface Workspace {
    * live or persisted
    * header cwd must resolve to an existing directory equal to {@link path};
    * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
+   * writing. A validated new id is first durably detached from every other
+   * workspace that lists it, so no two workspaces account one session.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */

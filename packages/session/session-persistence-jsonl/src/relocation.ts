@@ -7,7 +7,9 @@
  * source directory holds none. Prior generations move into the target under
  * non-canonical names, the source current generation is hidden, and
  * publishing the rewritten current generation in the target is the commit
- * point. A root-level intent record names both directories; recovery rolls
+ * point. A root-level intent record names both directories; it is published
+ * without replacing another intent, and only a holder of both directories'
+ * leases recovers or deletes it. Recovery rolls
  * the move back while the target current generation is absent and completes
  * it when that generation continues the moved log. Between hiding the source
  * and publishing the target the Session is absent, so another process may
@@ -217,27 +219,35 @@ export interface JsonlRelocationRuntime {
   execute(plan: JsonlRelocationPlan, signal?: AbortSignal): Promise<JsonlRelocationOutcome>
   /**
    * Run the relocation steps and recover in place from a failure: before the
-   * commit point the move rolls back and the failure rethrows; after it the
-   * move completes and the failure returns in the outcome.
+   * intent stands, the call removes its intent temporary and a lock-only
+   * target directory, leaves any intent already at the intent path, and
+   * rethrows; before the commit point the move rolls back and the failure
+   * rethrows; after it the move completes and the failure returns in the
+   * outcome. An intent already at the intent path refuses the move with
+   * `SessionPersistenceCorruptionError` naming it.
    * @param plan - the prepared relocation; the caller holds its leases.
    * @param signal - cancellation observed until the commit point.
    * @returns the settled outcome.
    */
   relocate(plan: JsonlRelocationPlan, signal?: AbortSignal): Promise<JsonlRelocationOutcome>
   /**
-   * Settle an intent left for one Session by an earlier relocation, taking and
-   * releasing its leases. An intent another backend removes before it is read
-   * counts as settled.
+   * Settle an intent left for one Session by an earlier relocation while
+   * holding the leases of both directories it names: the caller's lease on
+   * `held` counts for the intent directory that names the same physical
+   * directory, and this call takes and releases the others. The intent is read
+   * again under those leases and settled only when unchanged. An intent
+   * another backend removes before it is read counts as settled.
    * @param root - resolved backend root.
    * @param compression - configured encoding.
    * @param id - the Session about to be relocated.
-   * @returns resolution once no intent remains for `id`.
+   * @param held - a Session directory whose lease the caller holds.
+   * @returns whether an intent for `id` existed; resolution means none remains.
    * @throws {SessionAlreadyOwnedError} while another holder keeps either directory.
    * @throws {SessionPersistenceCorruptionError} when the intent is malformed
    *   or contradicts the storage, including a Session of the same id stored
    *   while the moved one was absent; the message names the intent file.
    */
-  settle(root: string, compression: JsonlCompression, id: SessionId): Promise<void>
+  settle(root: string, compression: JsonlCompression, id: SessionId, held?: string): Promise<boolean>
   /**
    * Recover every intent under the root. Intent temporaries stay: one may
    * belong to a relocation still running in another process, and the next
@@ -431,7 +441,11 @@ async function storedElsewhere(paths: RelocationPaths, x: RelocationInternals): 
 
 const STORED_ELSEWHERE = 'another project directory holds a stored log of the session'
 
-/** Move a hidden file back to a canonical name without replacing an existing file. */
+/**
+ * Move a hidden file back to a canonical name without replacing an existing
+ * file. A hidden file that is gone, whether before the move or between a
+ * refused move and the comparison, counts as absent.
+ */
 async function restoreHidden(from: string, to: string, x: RelocationInternals): Promise<'absent' | 'restored' | 'conflict'> {
   try {
     if (x.platform === 'win32') {
@@ -446,12 +460,28 @@ async function restoreHidden(from: string, to: string, x: RelocationInternals): 
     if (hasCode(error, 'ENOENT')) return 'absent'
     if (!hasCode(error, 'EEXIST')) throw error
   }
-  if (!(await x.fs.readFile(from)).equals(await x.fs.readFile(to))) return 'conflict'
+  let hidden: Buffer
+  try {
+    hidden = await x.fs.readFile(from)
+  } catch (error: unknown) {
+    if (hasCode(error, 'ENOENT')) return 'absent'
+    throw error
+  }
+  if (!hidden.equals(await x.fs.readFile(to))) return 'conflict'
   await x.fs.unlink(from)
   return 'restored'
 }
 
-async function writeIntent(paths: RelocationPaths, x: RelocationInternals): Promise<void> {
+/**
+ * Publish the intent without replacing one already at its path: an intent of
+ * an earlier relocation of the same id names hidden files that only it can
+ * restore. Sets `progress.intentPublished` once the intent stands at its path.
+ */
+async function writeIntent(
+  paths: RelocationPaths,
+  progress: { intentPublished: boolean },
+  x: RelocationInternals,
+): Promise<void> {
   const { intent } = paths
   const handle = await x.fs.open(paths.intentTemporary, 'wx', 0o600)
   try {
@@ -460,11 +490,21 @@ async function writeIntent(paths: RelocationPaths, x: RelocationInternals): Prom
   } finally {
     await handle.close()
   }
-  if (x.platform === 'win32') {
-    await x.publishNewWin32(paths.intentTemporary, paths.intentPath)
-  } else {
-    await x.fs.rename(paths.intentTemporary, paths.intentPath)
+  try {
+    if (x.platform === 'win32') {
+      await x.publishNewWin32(paths.intentTemporary, paths.intentPath)
+    } else {
+      await x.fs.link(paths.intentTemporary, paths.intentPath)
+    }
+  } catch (error: unknown) {
+    if (!hasCode(error, 'EEXIST')) throw error
+    throw new SessionPersistenceCorruptionError(
+      `session "${intent.id}": an earlier relocation's intent "${paths.intentPath}" remains, so this relocation cannot record its own`,
+      { cause: error },
+    )
   }
+  progress.intentPublished = true
+  if (x.platform !== 'win32') await x.fs.unlink(paths.intentTemporary)
   await syncDirectory(paths.root, x)
 }
 
@@ -817,37 +857,63 @@ async function recoverHeld(paths: RelocationPaths, x: RelocationInternals): Prom
   return decision
 }
 
-/** Recover one intent file, taking the leases of its existing directories. */
+/** Read one intent file; `undefined` when it is gone. */
+async function readIntentIfPresent(
+  root: string,
+  compression: JsonlCompression,
+  path: string,
+  x: RelocationInternals,
+): Promise<RelocationIntent | undefined> {
+  try {
+    return await readIntent(root, compression, path, x)
+  } catch (error: unknown) {
+    if (hasCode(error, 'ENOENT')) return undefined
+    throw error
+  }
+}
+
+/** Attempts at one intent file whose content changes between its read and its locks before it counts as busy. */
+const INTENT_READ_ATTEMPTS = 3
+
+/**
+ * Recover one intent file while holding the leases of its existing
+ * directories; the caller's lease on `held` counts for the directory naming
+ * the same physical directory. An intent changes only under the lease of the
+ * directory its Session occupies, so the intent read before locking is read
+ * again under the leases and recovered only when unchanged.
+ */
 async function recoverFile(
   root: string,
   compression: JsonlCompression,
   path: string,
   x: RelocationInternals,
+  held?: string,
 ): Promise<Settlement> {
-  let intent: RelocationIntent
-  try {
-    intent = await readIntent(root, compression, path, x)
-  } catch (error: unknown) {
-    if (hasCode(error, 'ENOENT')) return { kind: 'gone' }
-    throw error
-  }
-  const paths = pathsOf(root, compression, intent)
-  const leases: SessionWriteLease[] = []
-  try {
-    for (const dir of intent.sameDirectory ? [paths.sourceDir] : [paths.sourceDir, paths.targetDir]) {
-      // Locking an absent directory would recreate it through the lease's mkdir.
-      if (!await pathExists(dir, x)) continue
-      try {
-        leases.push(await SessionWriteLease.acquire(dir, makeSessionId(intent.id)))
-      } catch (error: unknown) {
-        if (error instanceof SessionAlreadyOwnedError) return { kind: 'busy' }
-        throw error
+  for (let attempt = 0; attempt < INTENT_READ_ATTEMPTS; attempt += 1) {
+    const intent = await readIntentIfPresent(root, compression, path, x)
+    if (intent === undefined) return { kind: 'gone' }
+    const paths = pathsOf(root, compression, intent)
+    const leases: SessionWriteLease[] = []
+    try {
+      for (const dir of intent.sameDirectory ? [paths.sourceDir] : [paths.sourceDir, paths.targetDir]) {
+        if (held !== undefined && await relateDirectories(dir, held, x) === 'same') continue
+        // Locking an absent directory would recreate it through the lease's mkdir.
+        if (!await pathExists(dir, x)) continue
+        try {
+          leases.push(await SessionWriteLease.acquire(dir, makeSessionId(intent.id)))
+        } catch (error: unknown) {
+          if (error instanceof SessionAlreadyOwnedError) return { kind: 'busy' }
+          throw error
+        }
       }
+      const locked = await readIntentIfPresent(root, compression, path, x)
+      if (locked === undefined) return { kind: 'gone' }
+      if (isDeepStrictEqual(locked, intent)) return await recoverHeld(paths, x)
+    } finally {
+      for (const lease of leases.reverse()) await lease.release()
     }
-    return await recoverHeld(paths, x)
-  } finally {
-    for (const lease of leases.reverse()) await lease.release()
   }
+  return { kind: 'busy' }
 }
 
 function conflictError(paths: RelocationPaths, reason: string, cause: unknown): SessionPersistenceCorruptionError {
@@ -857,17 +923,23 @@ function conflictError(paths: RelocationPaths, reason: string, cause: unknown): 
   )
 }
 
+/** How far one relocation call got: whether its intent stands, and whether it reached the commit point. */
+interface RelocationProgress {
+  intentPublished: boolean
+  committed: boolean
+}
+
 /** Run the steps for one prepared intent; a thrown failure leaves the disk exactly as it stands. */
 async function run(
   plan: JsonlRelocationPlan,
   prepared: PreparedRelocation,
-  progress: { committed: boolean },
+  progress: RelocationProgress,
   signal: AbortSignal | undefined,
   x: RelocationInternals,
 ): Promise<JsonlRelocationOutcome> {
   const { paths } = prepared
   const { intent } = paths
-  await writeIntent(paths, x)
+  await writeIntent(paths, progress, x)
   await x.barrier('intent-written')
   signal?.throwIfAborted()
   await stage(plan, prepared, signal, x)
@@ -910,7 +982,7 @@ async function run(
 /** Settle a failure raised inside one relocation call while its leases are still held. */
 async function recoverInCall(
   paths: RelocationPaths,
-  progress: { readonly committed: boolean },
+  progress: Readonly<RelocationProgress>,
   failure: unknown,
   x: RelocationInternals,
 ): Promise<JsonlRelocationOutcome> {
@@ -982,27 +1054,26 @@ export function createJsonlRelocationRuntime(
   const x = withOverrides(overrides)
   return {
     async execute(plan, signal) {
-      return run(plan, await prepareIntent(plan, signal, x), { committed: false }, signal, x)
+      return run(plan, await prepareIntent(plan, signal, x), { intentPublished: false, committed: false }, signal, x)
     },
     async relocate(plan, signal) {
-      let prepared: PreparedRelocation
+      let prepared: PreparedRelocation | undefined
+      const progress: RelocationProgress = { intentPublished: false, committed: false }
       try {
         prepared = await prepareIntent(plan, signal, x)
-      } catch (error: unknown) {
-        if (!plan.sameDirectory) await discardDirectory(plan.targetDir, x)
-        throw error
-      }
-      const progress = { committed: false }
-      try {
         return await run(plan, prepared, progress, signal, x)
       } catch (failure: unknown) {
-        return recoverInCall(prepared.paths, progress, failure, x)
+        if (prepared !== undefined && progress.intentPublished) return recoverInCall(prepared.paths, progress, failure, x)
+        // Nothing moved and no intent of this call stands; an intent already at its path belongs to another relocation.
+        if (prepared !== undefined) await removeIfPresent(prepared.paths.intentTemporary, x)
+        if (!plan.sameDirectory) await discardDirectory(plan.targetDir, x)
+        throw failure
       }
     },
-    async settle(root, compression, id) {
+    async settle(root, compression, id, held) {
       const path = relocationIntentPath(root, id)
-      if (!await pathExists(path, x)) return
-      const settled = await recoverFile(root, compression, path, x)
+      if (!await pathExists(path, x)) return false
+      const settled = await recoverFile(root, compression, path, x, held)
       if (settled.kind === 'busy') throw new SessionAlreadyOwnedError(id)
       if (settled.kind === 'conflict') {
         throw new SessionPersistenceCorruptionError(
@@ -1010,6 +1081,7 @@ export function createJsonlRelocationRuntime(
           { cause: new Error(settled.reason) },
         )
       }
+      return true
     },
     async sweep(root, compression, warn) {
       let names: string[]

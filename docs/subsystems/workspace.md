@@ -56,8 +56,10 @@ interface Workspace {
    * prepended at attach, explicit reordering goes through
    * `insertSessionBefore`, and activity never reorders. The durable candidate
    * account is filtered synchronously: missing headers, invalid cwd values,
-   * and canonical cwd mismatches are never returned. A subsequent workspace
-   * mutation prunes those filtered candidates durably.
+   * and canonical cwd mismatches are never returned. Registry startup
+   * durably removes an id whose cwd resolves to an existing directory other
+   * than {@link path}; a subsequent workspace mutation prunes the other
+   * filtered candidates durably.
    */
   readonly sessionIds: readonly SessionId[]
 
@@ -75,7 +77,8 @@ interface Workspace {
    * live or persisted
    * header cwd must resolve to an existing directory equal to {@link path};
    * unknown ids, missing or invalid cwd values, and mismatches reject without
-   * writing.
+   * writing. A validated new id is first durably detached from every other
+   * workspace that lists it, so no two workspaces account one session.
    * @param sessionId - The session to record.
    * @returns resolution after durability.
    */
@@ -123,7 +126,7 @@ Ownership truth is the record's ordered `sessionIds`, never derived from session
 
 Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
 
-A stored header cwd changes only through `SessionPersistence.relocate`. On `session-persistence/relocated` the registry replaces the session's indexed header and drops its indexed path before any await, so the old workspace stops listing the session at once and an `attachSession` issued right after the move validates against the new cwd. Its mutation queue then resolves the new cwd, durably detaches the session from every workspace at another path, and attaches it to the workspace whose path is the new canonical cwd, when one exists; a failure there is logged. Recovery of an interrupted move emits no event, so a caller that moves a session attaches it to the target workspace itself, idempotently.
+A stored header cwd changes only through `SessionPersistence.relocate`. On `session-persistence/relocated` the registry replaces the session's indexed header and drops its indexed path before any await, so the old workspace stops listing the session at once and an `attachSession` issued right after the move validates against the new cwd. Its mutation queue then resolves the new cwd, durably detaches the session from every workspace at another path, and attaches it to the workspace whose path is the new canonical cwd, when one exists; a failure there is logged. Recovery of an interrupted move emits no event, and a listener that throws ahead of the registry's keeps the event from it. At its next start the registry therefore durably detaches every session whose canonical cwd is an existing directory other than the path of the workspace listing it, checking only workspaces whose stored path resolved at that start, and `attachSession` first detaches a validated session from every other workspace that lists it, so no two workspaces account one session. Until that start, after a listener ahead of the registry threw, the old workspace still lists the session and an attach at the new path is refused. A caller that moves a session attaches it to the target workspace itself, idempotently.
 
 ## Default Workspace initialization
 

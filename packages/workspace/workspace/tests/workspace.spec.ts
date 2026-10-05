@@ -787,7 +787,8 @@ describe('header-validated membership projection', () => {
     expect(workspace.sessionIds).toEqual(['good'])
     expect(result.registry.list()[0]!.sessionIds).toEqual(['good'])
     expect(result.list).toHaveBeenCalledTimes(1)
-    expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'mismatch', 'missing'])
+    // Startup durably detaches a cwd that resolves to another directory; an unresolved id waits for the next mutation.
+    expect(storedRecord(pool, id).sessionIds).toEqual(['good', 'missing'])
 
     await workspace.setTitle('pruned')
     expect(storedRecord(pool, id).sessionIds).toEqual(['good'])

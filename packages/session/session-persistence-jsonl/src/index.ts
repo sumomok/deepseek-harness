@@ -587,9 +587,11 @@ class JsonlSessionPersistence extends SessionPersistence {
     leases: SessionWriteLease[],
     signal?: AbortSignal,
   ): Promise<{ readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }> {
-    await this.relocation.settle(this.root, this.compression, id)
-    const source = await this.lockStoredDirectory(id, signal)
+    const source = await this.lockRelocationSource(id, signal)
     leases.push(source.lease)
+    // Only a holder of the directory the session occupies writes an intent for it,
+    // so one settled under this lease cannot be replaced before this move records its own.
+    await this.relocation.settle(this.root, this.compression, id, source.dir)
     let stored = await this.requireStoredLog(id, signal)
     signal?.throwIfAborted()
     if (stored.meta.cwd === cwd) return { current: await this.snapshotOf(id) }
@@ -624,6 +626,25 @@ class JsonlSessionPersistence extends SessionPersistence {
       this.ctx.logger.warn(`${this.name}: session "${id}" relocated; its source directory "${source.dir}" holds other files and stays`)
     }
     return { previous: stored.meta, current: await this.snapshotOf(id) }
+  }
+
+  /**
+   * Lock the directory holding the session for a relocation. A move that died
+   * between its two locations leaves the session absent, or after outside
+   * edits in two directories, until its intent settles; when locking fails and
+   * an intent for the id exists, it settles under the leases of the
+   * directories it names and locking runs once more.
+   */
+  private async lockRelocationSource(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ readonly lease: SessionWriteLease; readonly dir: string }> {
+    try {
+      return await this.lockStoredDirectory(id, signal)
+    } catch (error: unknown) {
+      if (!await this.relocation.settle(this.root, this.compression, id)) throw error
+    }
+    return await this.lockStoredDirectory(id, signal)
   }
 
   /** Stat a session whose log the caller keeps in place under its write lease. */
