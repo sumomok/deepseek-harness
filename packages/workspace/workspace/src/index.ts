@@ -1031,6 +1031,8 @@ export class WorkspaceRegistry extends Service {
     this.sessionPaths.delete(id)
     this.relocations.set(id, header)
     void this.enqueueOperation(() => this.moveRelocatedSession(header)).catch((error: unknown) => {
+      // A slot rejected before the move ran leaves the entry, which would keep every later listing of the session unindexed.
+      if (this.relocations.get(id) === header) this.relocations.delete(id)
       this.ctx.logger.warn(`workspace: re-indexing relocated session '${id}' failed: ${String(error)}`)
     })
   }

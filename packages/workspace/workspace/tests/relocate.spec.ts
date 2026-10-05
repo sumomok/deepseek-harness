@@ -341,6 +341,34 @@ describe('WorkspaceRegistry after a relocation event it missed', () => {
     await restartsWith(w, target)
   })
 
+  it('logs a move whose queue slot fails before the move runs, and a later attach still moves the session', async () => {
+    const w = await world()
+    const first = await start(w)
+    const origin = first.registry.list()[0]!
+    const target = await first.registry.create(w.to)
+    // A create whose record write and both rollback writes fail leaves a pending-mutation marker the next slot recovers first.
+    w.onPut = (table) => {
+      if (table !== 'workspaces') return
+      w.onPut = undefined
+      w.pool.failNextWrites = 3
+    }
+    await expect(first.registry.create(await directory(w.root, 'third'))).rejects.toBeInstanceOf(AggregateError)
+    w.pool.failNextWrites = 1
+    first.relocate(w.to)
+    await first.drain()
+    expect(first.warnings).toEqual([expect.stringContaining(`workspace: re-indexing relocated session '${SESSION}' failed: `)])
+    expect(storedIn(w, origin)).toEqual([SESSION])
+    expect(first.view()).toEqual([[w.to, []], [w.from, []]])
+
+    // Session persistence lists a fresh header object, as a real backend does.
+    w.stored = { ...w.stored }
+    await target.attachSession(SESSION)
+    expect(first.view()).toEqual([[w.to, [SESSION]], [w.from, []]])
+    expect(storedIn(w, origin)).toEqual([])
+    await first.stop()
+    await restartsWith(w, target)
+  })
+
   it('keeps the sessions of a workspace whose stored path did not resolve at startup', async () => {
     const w = await world()
     const first = await start(w)
