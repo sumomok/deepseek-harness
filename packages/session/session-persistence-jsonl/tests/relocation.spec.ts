@@ -657,7 +657,6 @@ describe('JsonlSessionPersistence.relocate refusals', () => {
     const f = await seed('none')
     const warn = vi.spyOn(f.ctx.logger, 'warn').mockImplementation(() => undefined)
     f.ctx.on('session-persistence/relocated', () => { throw new Error('listener failed') })
-    // oxlint-disable-next-line typescript/no-misused-promises -- exercises rejected-listener containment
     f.ctx.on('session-persistence/relocated', () => Promise.reject(new Error('async listener failed')))
     const later = vi.fn()
     f.ctx.on('session-persistence/relocated', later)

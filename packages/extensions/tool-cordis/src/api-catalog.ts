@@ -4307,7 +4307,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'session-persistence/relocated',
     mode: 'parallel',
-    signature: '\'session-persistence/relocated\'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): void',
+    signature: '\'session-persistence/relocated\'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): Promise<void> | void',
     summary: 'A stored session moved to another storage location and its header cwd changed.',
     description: 'A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Every listener starts in the same tick, in registration order, and `relocate` resolves after every listener and the promise it returns have settled. A listener that throws or rejects does not stop the others: the backend logs a warning for each failure and `relocate` still resolves. A process that is not running when a move happens misses the event, so a consumer that tracks sessions by cwd reconciles from the stored headers when it starts; the workspace registry then detaches a session that a workspace whose stored path resolves lists at its old path.',
     parameters: [{ name: 'id', description: 'the relocated session.' }, { name: 'previous', description: 'the stored header before the move.' }, { name: 'current', description: 'the snapshot after the move (new cwd, new revision).' }],

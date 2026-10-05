@@ -500,7 +500,7 @@ A stored session moved to another storage location and its header cwd changed. E
  * @param previous - the stored header before the move.
  * @param current - the snapshot after the move (new cwd, new revision).
  */
-'session-persistence/relocated'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): void
+'session-persistence/relocated'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): Promise<void> | void
 ```
 
 Types: [SessionId](core.md)
