@@ -925,8 +925,11 @@ describe('member assertion', () => {
   it('verifies with the matching public key under the documented format', () => {
     const assertion = signAssertion(MEMBER, DEPLOYMENT, keys.privateKey, now)
     expect(assertion.startsWith('v1.')).toBe(true)
-    expect(JSON.parse(Buffer.from(assertion.split('.')[1] ?? '', 'base64url').toString('utf8'))).toEqual({ p: MEMBER, aud: DEPLOYMENT, exp: now + ASSERTION_LIFETIME_SECONDS })
-    expect(verifyAssertion(assertion, keys.publicKey, DEPLOYMENT, now + ASSERTION_LIFETIME_SECONDS - 1)).toBe(MEMBER)
+    // The lifetime is part of the format the member directory verifies: 120 seconds, written out.
+    expect(ASSERTION_LIFETIME_SECONDS).toBe(120)
+    expect(JSON.parse(Buffer.from(assertion.split('.')[1] ?? '', 'base64url').toString('utf8'))).toEqual({ p: MEMBER, aud: DEPLOYMENT, exp: now + 120 })
+    expect(verifyAssertion(assertion, keys.publicKey, DEPLOYMENT, now + 119)).toBe(MEMBER)
+    expect(verifyAssertion(assertion, keys.publicKey, DEPLOYMENT, now + 120)).toBeUndefined()
   })
 
   it('is refused once expired, under another audience, under another key, or altered', () => {
