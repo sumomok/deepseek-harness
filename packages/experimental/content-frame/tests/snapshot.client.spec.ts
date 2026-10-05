@@ -2117,6 +2117,24 @@ describe('an icon a table cell or a repeated item draws', () => {
     ].join('\n'))
   })
 
+  it('reads an icon in a row of a layout table, whatever role the page gives the row', () => {
+    // A `tr` the page marks as presentation or none has no row role left, and
+    // is still one of the rows the page repeats.
+    const refs = page('<table role="presentation"><tr role="presentation"><td>丙<i class="c"></i></td></tr></table>'
+      + '<table role="none"><tbody><tr role="none"><td role="none">丁<i class="d"></i></td></tr></tbody></table>')
+    expect(read(refs).text).toBe(['text "丙"', 'e1 icon {class: c}', 'text "丁"', 'e2 icon {class: d}'].join('\n'))
+  })
+
+  it('reads an icon in an option when a read is scoped inside that option', () => {
+    // A whole-page read prints the option as one named row; a read scoped
+    // inside it reads what it holds, and the option around the scope holds the
+    // icon.
+    const refs = page('<div role="listbox" aria-label="选项"><div role="option">'
+      + '<span id="inside">甲<i class="o"></i></span></div></div>')
+    expect(read(refs).text).toBe(['e1 listbox "选项"', '  e2 option "甲" (in listbox "选项")'].join('\n'))
+    expect(read(refs, { scope: refOf(refs, '#inside') }).text).toBe(['text "甲"', 'e4 icon {class: o}'].join('\n'))
+  })
+
   it('reads an icon whatever cursor the page draws over it', () => {
     // The role is the structure's, not the cursor's: a pointer over one of the
     // commands and not over its neighbour would otherwise print two kinds of
