@@ -14,11 +14,11 @@
  * (its track solves to 0) and the session list is reached through an off-canvas
  * drawer the frame draws into its own overlay layer: a top-left hamburger opens
  * it, a scrim and an Escape that no layer inside it handled close it, and the
- * same `sidebar` slot fills it at {@link SIDEBAR_DRAWER} width. The occupant is unchanged — it renders full
- * content against whatever width it is handed, in the grid column or the
- * drawer. The drawer is forced closed as the frame widens back past the
- * breakpoint (stores.ts `setNarrow`) so no stale overlay survives onto a wide
- * layout.
+ * same `sidebar` slot fills it at {@link SIDEBAR_DRAWER} width. The occupant is
+ * unchanged — it renders full content against whatever width it is handed, in
+ * the grid column or the drawer. The drawer is forced closed as the frame
+ * widens back past the breakpoint (stores.ts `setNarrow`) so no stale overlay
+ * survives onto a wide layout.
  *
  * The content column additionally collapses to zero width while the current
  * session's content surface has shown nothing — read defensively off the
