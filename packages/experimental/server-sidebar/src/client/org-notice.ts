@@ -78,7 +78,10 @@ export type OrgNoticeDue =
   | { kind: 'none' }
   | {
     kind: 'pending'
-    /** How long to wait before asking again, in milliseconds. */
+    /**
+     * How long to wait before asking again, in milliseconds: zero or more,
+     * and at most {@link MAX_TIMER_DELAY_MS}.
+     */
     retryAfterMs: number
   }
   | ShownDue
@@ -104,8 +107,9 @@ export type ConfirmAnswer = { kind: 'accepted' } | { kind: 'stale' }
  * cannot read. The plugin refuses with the Remote codes
  * `sumomokOrg/caller-unknown` (it cannot tell which member called) and, from
  * {@link OrgNoticePort.confirm} only, `sumomokOrg/unavailable` (the
- * organization could not be reached); the page handles every rejection of
- * one method the same way.
+ * organization could not be reached); the card treats every rejection of one
+ * method the same way, and only the console report tells an answer the page
+ * cannot read from the other rejections.
  */
 export interface OrgNoticePort {
   /**
@@ -216,9 +220,16 @@ function readDisclosure(value: unknown): DisclosureText {
 }
 
 /**
+ * The longest delay `setTimeout` waits. Browsers hold the delay as a signed
+ * 32-bit integer and run a timer with a longer one at once.
+ */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/**
  * Check the organization plugin's answer to {@link OrgNoticePort.due}. Fields
  * the page does not read are ignored, and a `kind` it does not know reads as
- * nothing to show: the plugin's answers only grow by addition.
+ * nothing to show: the plugin's answers only grow by addition. A `pending`
+ * wait longer than {@link MAX_TIMER_DELAY_MS} reads as that delay.
  * @param value - the answer as it arrived.
  * @param unknownKind - told the `kind` of an answer read as nothing to show for that reason.
  * @returns the answer.
@@ -233,7 +244,7 @@ export function parseOrgNoticeDue(value: unknown, unknownKind: (kind: unknown) =
     if (typeof retryAfterMs !== 'number' || !Number.isFinite(retryAfterMs) || retryAfterMs < 0) {
       throw new OrgNoticeAnswerError('retryAfterMs')
     }
-    return { kind, retryAfterMs }
+    return { kind, retryAfterMs: Math.min(retryAfterMs, MAX_TIMER_DELAY_MS) }
   }
   if (kind !== 'notice' && kind !== 'consent') {
     unknownKind(kind)
@@ -269,8 +280,21 @@ export function parseConfirmAnswer(value: unknown): ConfirmAnswer {
   return { kind }
 }
 
-/** What the notice reports to the browser console about. */
-export type OrgNoticeTopic = 'due' | 'kind' | 'markSeen' | 'confirm'
+/** A method of {@link OrgNoticePort} whose failure the page reports. */
+export type OrgNoticeMethod = 'due' | 'markSeen' | 'confirm'
+
+/**
+ * How a call failed: `unreadable` when the plugin answered something the page
+ * cannot read ({@link OrgNoticeAnswerError}), `refused` for any other
+ * rejection, which is the plugin's refusal or a call that did not reach it.
+ */
+export type OrgNoticeFailure = 'refused' | 'unreadable'
+
+/**
+ * What the notice reports to the browser console about: one method's failure
+ * of one kind, or a `due()` answer whose `kind` the page does not know.
+ */
+export type OrgNoticeTopic = `${OrgNoticeMethod} ${OrgNoticeFailure}` | 'kind'
 
 /**
  * Report a failure to the browser console.
@@ -282,7 +306,8 @@ export type OrgNoticeReport = (topic: OrgNoticeTopic, message: string, cause?: u
 
 /**
  * Report each topic once: an answer that cannot be read, or a refusal,
- * repeats on every later ask.
+ * repeats on every later ask, while a refusal and an unreadable answer of
+ * the same method are two topics.
  * @param warn - where a report goes; the browser console's `console.warn` in the product.
  * @returns the reporter.
  */
@@ -294,6 +319,22 @@ export function reportOncePerTopic(warn: (...line: unknown[]) => void): OrgNotic
     if (cause === undefined) warn(message)
     else warn(message, cause)
   }
+}
+
+/**
+ * Report a call that failed: an answer the page cannot read by the field that
+ * did not read, and any other rejection with the given line and the rejection.
+ * @param report - where the failure is reported.
+ * @param method - the method that failed.
+ * @param refused - the line for a rejection other than an unreadable answer.
+ * @param error - the rejection.
+ */
+function reportFailure(report: OrgNoticeReport, method: OrgNoticeMethod, refused: string, error: unknown): void {
+  if (error instanceof OrgNoticeAnswerError) {
+    report(`${method} unreadable`, `server-sidebar: the organization notice answer to ${method}() is unusable at ${error.field}`)
+    return
+  }
+  report(`${method} refused`, refused, error)
 }
 
 /** What the card shows: nothing, or one answer and where the member's agreement stands. */
@@ -402,7 +443,7 @@ export function createOrgNoticeStore(port: OrgNoticePort, report: OrgNoticeRepor
         due = await port.due()
       } catch (error) {
         if (!latest(ask)) return
-        report('due', 'server-sidebar: the organization notice could not be read:', error)
+        reportFailure(report, 'due', 'server-sidebar: the organization notice could not be read:', error)
         // An agreement on its way keeps its card until it settles.
         if (view.shown !== undefined && view.confirming) return
         hide()
@@ -433,7 +474,7 @@ export function createOrgNoticeStore(port: OrgNoticePort, report: OrgNoticeRepor
           if (answer.kind === 'stale') await store.refresh()
         },
         (error: unknown) => {
-          report('markSeen', 'server-sidebar: the organization notice was not recorded as read:', error)
+          reportFailure(report, 'markSeen', 'server-sidebar: the organization notice was not recorded as read:', error)
         },
       )
     },
@@ -447,7 +488,7 @@ export function createOrgNoticeStore(port: OrgNoticePort, report: OrgNoticeRepor
       try {
         answer = await port.confirm(shown.version)
       } catch (error) {
-        report('confirm', 'server-sidebar: the organization did not record the agreement:', error)
+        reportFailure(report, 'confirm', 'server-sidebar: the organization did not record the agreement:', error)
         if (showing(shown)) set({ shown, confirming: false, failed: true })
         return
       }

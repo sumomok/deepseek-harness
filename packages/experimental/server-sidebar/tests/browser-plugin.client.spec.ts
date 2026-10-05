@@ -1096,10 +1096,7 @@ describe('server-sidebar browser half: organization notice', () => {
     await settled()
     // The answer has no readable disclosure: nothing shows, and the field is named once.
     expect(noticeFace(ctx).hooks.orgNotice.getSnapshot().shown).toBeUndefined()
-    expect(warn).toHaveBeenCalledWith(
-      'server-sidebar: the organization notice could not be read:',
-      expect.objectContaining({ field: 'disclosure.categories' }),
-    )
+    expect(warn.mock.calls).toEqual([['server-sidebar: the organization notice answer to due() is unusable at disclosure.categories']])
   })
 
   it('shows what the namespace answers, and sends what the member does with it', async () => {

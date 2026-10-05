@@ -1,12 +1,13 @@
 /**
  * The notice namespace as the card's port: each method's `RemoteResult`
  * envelope unwrapped and its answer checked, a refusal turned into a
- * rejection carrying the plugin's code, and a namespace without one of the
- * three methods refused before any call.
+ * rejection carrying the plugin's code, a namespace without one of the
+ * three methods refused before any call, and a `pending` wait the card's
+ * timer can hold.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { ORG_NOTICE_NAMESPACE, OrgNoticeRefusal, remotePort } from '../src/client/org-notice-remote.ts'
-import { OrgNoticeAnswerError, type OrgNoticePort } from '../src/client/org-notice.ts'
+import { createOrgNoticeStore, OrgNoticeAnswerError, type OrgNoticePort } from '../src/client/org-notice.ts'
 
 /**
  * A namespace whose three methods resolve to the given envelopes.
@@ -97,5 +98,19 @@ describe('remotePort', () => {
   it('rejects an answer it cannot read, naming the field', async () => {
     const port = portOver(namespace({ markSeen: { ok: true, value: { kind: 'accepted' } } }))
     await expect(port.markSeen(1)).rejects.toBeInstanceOf(OrgNoticeAnswerError)
+  })
+
+  it('has the card wait out a wait longer than a timer can hold instead of asking again at once', async () => {
+    vi.useFakeTimers()
+    try {
+      const service = namespace({ due: { ok: true, value: { kind: 'pending', retryAfterMs: Number.MAX_SAFE_INTEGER } } })
+      const store = createOrgNoticeStore(portOver(service), vi.fn())
+      await store.refresh()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(service.due).toHaveBeenCalledOnce()
+      store.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

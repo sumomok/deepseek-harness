@@ -46,6 +46,13 @@ describe('parseOrgNoticeDue', () => {
     expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 0 }, vi.fn())).toEqual({ kind: 'pending', retryAfterMs: 0 })
   })
 
+  it('reads a wait longer than a timer can hold as the longest one it can', () => {
+    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: 2_147_483_647 }, vi.fn()))
+      .toEqual({ kind: 'pending', retryAfterMs: 2_147_483_647 })
+    expect(parseOrgNoticeDue({ kind: 'pending', retryAfterMs: Number.MAX_SAFE_INTEGER }, vi.fn()))
+      .toEqual({ kind: 'pending', retryAfterMs: 2_147_483_647 })
+  })
+
   it('reads a notice and a disclosure to agree to, keeping only the fields the card reads', () => {
     expect(parseOrgNoticeDue({ kind: 'notice', version: 3, orgName: 'Acme', disclosure: WIRE_DISCLOSURE }, vi.fn()))
       .toEqual({ kind: 'notice', version: 3, orgName: 'Acme', disclosure: DISCLOSURE })
@@ -112,12 +119,16 @@ describe('reportOncePerTopic', () => {
     const warn = vi.fn()
     const report = reportOncePerTopic(warn)
     const cause = new Error('refused')
-    report('due', 'first due', cause)
-    report('due', 'second due', cause)
+    report('due refused', 'first due refusal', cause)
+    report('due refused', 'second due refusal', cause)
+    report('due unreadable', 'first unreadable due')
+    report('due unreadable', 'second unreadable due')
     report('kind', 'first kind')
     report('kind', 'second kind')
-    report('confirm', 'first confirm', cause)
-    expect(warn.mock.calls).toEqual([['first due', cause], ['first kind'], ['first confirm', cause]])
+    report('confirm refused', 'first confirm refusal', cause)
+    expect(warn.mock.calls).toEqual([
+      ['first due refusal', cause], ['first unreadable due'], ['first kind'], ['first confirm refusal', cause],
+    ])
   })
 })
 
@@ -206,6 +217,29 @@ describe('createOrgNoticeStore', () => {
     await settled()
     expect(warn.mock.calls).toEqual([['server-sidebar: the organization notice was not recorded as read:', CALLER_UNKNOWN]])
     expect(fake.due).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports an answer to markSeen it cannot read once by its field, apart from a refusal', async () => {
+    const warn = vi.fn()
+    const fake = fakeOrgNoticePort([shownDue('notice', 2), shownDue('notice', 3), shownDue('notice', 4), shownDue('notice', 5)])
+    fake.markSeenStep = { reject: CALLER_UNKNOWN }
+    const store = createOrgNoticeStore(fake.port, reportOncePerTopic(warn))
+    const acknowledgeNext = async (): Promise<void> => {
+      await store.refresh()
+      store.acknowledge()
+      await settled()
+    }
+    await acknowledgeNext()
+    fake.markSeenStep = { reject: new OrgNoticeAnswerError('kind') }
+    await acknowledgeNext()
+    await acknowledgeNext()
+    fake.markSeenStep = { reject: CALLER_UNKNOWN }
+    await acknowledgeNext()
+    expect(fake.markSeen.mock.calls).toEqual([[2], [3], [4], [5]])
+    expect(warn.mock.calls).toEqual([
+      ['server-sidebar: the organization notice was not recorded as read:', CALLER_UNKNOWN],
+      ['server-sidebar: the organization notice answer to markSeen() is unusable at kind'],
+    ])
   })
 
   it('acknowledges only a notice, and defers only a disclosure to agree to', async () => {
@@ -297,6 +331,26 @@ describe('createOrgNoticeStore', () => {
     }
   })
 
+  it('shows an agreement whose answer it cannot read as not recorded, and reports that once by its field, apart from a refusal', async () => {
+    const warn = vi.fn()
+    const fake = fakeOrgNoticePort([shownDue('consent', 4)])
+    fake.confirmStep = { reject: UNAVAILABLE }
+    const store = createOrgNoticeStore(fake.port, reportOncePerTopic(warn))
+    await store.refresh()
+    await store.consent()
+    fake.confirmStep = { reject: new OrgNoticeAnswerError('kind') }
+    await store.consent()
+    expect(card(store.getSnapshot())).toBe('consent:4 failed')
+    await store.consent()
+    fake.confirmStep = { reject: CALLER_UNKNOWN }
+    await store.consent()
+    expect(fake.confirm).toHaveBeenCalledTimes(4)
+    expect(warn.mock.calls).toEqual([
+      ['server-sidebar: the organization did not record the agreement:', UNAVAILABLE],
+      ['server-sidebar: the organization notice answer to confirm() is unusable at kind'],
+    ])
+  })
+
   it('asks again when the plugin answers that the agreement it was sent is stale', async () => {
     const fake = fakeOrgNoticePort([shownDue('consent', 4), shownDue('consent', 5)])
     fake.confirmStep = { kind: 'stale' }
@@ -332,16 +386,25 @@ describe('createOrgNoticeStore', () => {
     }
   })
 
-  it('shows nothing when the plugin refuses or answers what the page cannot read, reporting it once for the page', async () => {
+  it('shows nothing when the plugin refuses or answers what the page cannot read, reporting each once for the page and the unreadable answer by its field', async () => {
     const warn = vi.fn()
-    const fake = fakeOrgNoticePort([shownDue('notice', 2), { reject: CALLER_UNKNOWN }, { reject: new OrgNoticeAnswerError('version') }])
+    const fake = fakeOrgNoticePort([
+      shownDue('notice', 2), { reject: CALLER_UNKNOWN }, { reject: new OrgNoticeAnswerError('version') },
+      { reject: CALLER_UNKNOWN }, { reject: new OrgNoticeAnswerError('disclosure') },
+    ])
     const store = createOrgNoticeStore(fake.port, reportOncePerTopic(warn))
     await store.refresh()
     expect(card(store.getSnapshot())).toBe('notice:2')
     await store.refresh()
     expect(card(store.getSnapshot())).toBeUndefined()
     await store.refresh()
-    expect(warn.mock.calls).toEqual([['server-sidebar: the organization notice could not be read:', CALLER_UNKNOWN]])
+    await store.refresh()
+    await store.refresh()
+    expect(fake.due).toHaveBeenCalledTimes(5)
+    expect(warn.mock.calls).toEqual([
+      ['server-sidebar: the organization notice could not be read:', CALLER_UNKNOWN],
+      ['server-sidebar: the organization notice answer to due() is unusable at version'],
+    ])
   })
 
   it('keeps a card whose agreement is travelling when an ask fails meanwhile', async () => {
@@ -408,7 +471,9 @@ describe('createOrgNoticeStore', () => {
     const fake = fakeOrgNoticePort([{ kind: 'pending', retryAfterMs: 2000 }])
     const store = createOrgNoticeStore(fake.port, vi.fn())
     await store.refresh()
+    expect(vi.getTimerCount()).toBe(1)
     store.dispose()
+    expect(vi.getTimerCount()).toBe(0)
     await vi.advanceTimersByTimeAsync(5000)
     await store.refresh()
     expect(fake.due).toHaveBeenCalledTimes(1)

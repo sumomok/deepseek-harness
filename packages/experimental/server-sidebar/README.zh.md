@@ -164,7 +164,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 组合了组织插件时，需要阅读组织告知的成员会看到一次告知卡片；组织设为 `member` 确认方式时，需要确认的成员看到的卡片带确认按钮。这里没有任何东西进模型：卡片不读会话，也不写会话事件。
 
-**插件判断，页面只显示与回报。** 组织插件的浏览器半边挂载 Remote 命名空间 `sumomokOrgNotice`，它的三个方法都按调用的那位成员作答。`due()` 答 `none`；或答 `pending` 并带 `retryAfterMs`；或答 `notice`、`consent`，并带版本号、插件知道时的组织名称、以及告知正文。`markSeen(version)` 答 `recorded` 或 `stale`，`confirm(version)` 答 `accepted` 或 `stale`。只有这个命名空间存在时，卡片才以 `server-sidebar.org-notice` 注册进 `shell.overlay`（`client/org-notice-remote.ts`）；这个命名空间不在本包的 `inject` 列表里，所以没有组织插件的组合里侧栏照常启动，也不出现卡片。每个应答到达时都会校验（`client/org-notice.ts`）：页面不读的字段一律忽略，不认识的 `kind` 按「没有要显示的」处理，页面要读的字段读不出来时整个应答不可用。页面不存任何与告知有关的东西。成员读过或确认过哪一版由插件保存：控制台的设置由全体成员共用，浏览器存储由用同一个浏览器的所有人共用。
+**插件判断，页面只显示与回报。** 组织插件的浏览器半边挂载 Remote 命名空间 `sumomokOrgNotice`，它的三个方法都按调用的那位成员作答。`due()` 答 `none`；或答 `pending` 并带 `retryAfterMs`（超过 2147483647 毫秒，即浏览器定时器能等的最长时间，按这个值处理）；或答 `notice`、`consent`，并带版本号、插件知道时的组织名称、以及告知正文。`markSeen(version)` 答 `recorded` 或 `stale`，`confirm(version)` 答 `accepted` 或 `stale`。只有这个命名空间存在时，卡片才以 `server-sidebar.org-notice` 注册进 `shell.overlay`（`client/org-notice-remote.ts`）；这个命名空间不在本包的 `inject` 列表里，所以没有组织插件的组合里侧栏照常启动，也不出现卡片。每个应答到达时都会校验（`client/org-notice.ts`）：页面不读的字段一律忽略，不认识的 `kind` 按「没有要显示的」处理，页面要读的字段读不出来时整个应答不可用。页面不存任何与告知有关的东西。成员读过或确认过哪一版由插件保存：控制台的设置由全体成员共用，浏览器存储由用同一个浏览器的所有人共用。
 
 **页面何时询问。** 卡片注册时、与宿主的连接重新建立时（`connection/reset`）、页面重新变为可见时，以及 `pending` 应答给出的延时到期时。没有任何推送。
 
@@ -174,7 +174,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | `consent` | 稍后（Later） | 只在本页隐藏卡片，不调用任何方法；下次加载时再次出现。 |
 | `consent` | 同意（I agree） | 调用 `confirm(version)`，应答之前两个按钮都禁用。`accepted` 隐藏卡片，`stale` 重新询问；被拒绝（`sumomokOrg/unavailable` 或 `sumomokOrg/caller-unknown`）时卡片保留，并在卡内显示「没有记下你的同意，请稍后再试」（Your agreement wasn’t recorded. Try again shortly.）。 |
 
-成员收起的卡片，在本页不会再出现，直到插件答出另一个版本。`due()` 或 `markSeen` 被拒绝、以及读不出的应答，都不显示任何东西；每一类失败在每个页面里只向浏览器控制台报告一次，读不出的应答会写明是哪个字段。
+成员收起的卡片，在本页不会再出现，直到插件答出另一个版本。`due()` 或 `markSeen` 被拒绝、以及读不出的应答，都不显示任何东西。每个方法在每个页面里最多向浏览器控制台报告两次：第一次不属于读不出应答的失败（插件拒绝了调用，或调用没有到达插件），附上这次失败；第一次读不出的应答，写明读不出的字段（`the organization notice answer to due() is unusable at version`）。
 
 **卡片放在哪里。** 卡片不是模态的：出现时不抢焦点，下面的页面照常可用，也没有关闭按钮。宽框时，它在侧栏这一列之内，左右各缩进 8px，底边在该列底部区域（底栏动作与带设置按钮的身份行）上方 8px。侧栏在挂载时和每次尺寸变化时测量这一带的上边缘与整列的位置并发布出来（`client/foot-placement.ts`），因此卡片盖住的是这一列下部的行，不盖身份行、它的设置按钮，也不盖这一列旁边的输入框；卡片向上长高，超过 520px 后正文在卡内滚动。窄框时，它距顶部 56px，在抽屉按钮下方，左右各留 12px，底边止于 `50vh - 14px` 上方 12px——空对话居中的输入框就从那里开始；打开的抽屉和它的遮罩会像盖住页面其余部分一样盖住它。告知的标题、正文与分类名是组织自己的文字，按页面语言显示为纯文本并保留换行；政策地址只在是 `https:` 地址时才画成链接。
 

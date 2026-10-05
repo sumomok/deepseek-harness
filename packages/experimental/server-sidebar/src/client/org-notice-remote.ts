@@ -18,8 +18,9 @@
  * connection to the Host is established again (`connection/reset`), when the
  * page becomes visible again, and when the delay a `pending` answer names has
  * passed: nothing pushes a change, so a version the organization confirms
- * while the page is open shows at the next of these. Each kind of failure is
- * reported to the browser console once for the page.
+ * while the page is open shows at the next of these. A method's rejections
+ * and its answers the page cannot read are reported to the browser console
+ * once each for the page, an unreadable answer by the field that did not read.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/org-notice-remote
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
