@@ -964,6 +964,29 @@ describe('the lifetime of the offered set', () => {
     expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@1'])
   })
 
+  it('answers failed when the row stops while the set is written, for a caller whose own fiber outlives the row', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    // Read without an inject, so the calling fiber is the root's and stays active.
+    const intake = ctx.get('skillPackIntake')
+    if (intake === undefined) throw new Error('the organization intake is not provided')
+    const write = gate()
+    rootControl.gate = write.promise
+    const started = writeStarts()
+    const writing = intake.replace([entry('layer-guide', '1', 'stable')])
+    await started
+    const disposed = rowFiber(ctx).dispose()
+    await tick()
+    write.open()
+    await disposed
+    expect(await writing).toEqual({
+      kind: 'failed',
+      detail: 'skill-pack: the row stopped while the set was written; the organization root holds it, and it is not offered',
+    })
+    expect(intake.isActive('layer-guide', '1')).toBe(false)
+    expect(await readdir(paths.organizationRoot)).toEqual(['layer-guide@1'])
+  })
+
   it('stops calling a watcher once the fiber that asked for it is disposed', async () => {
     const ctx = await boot(await newWorld())
     const { intake } = await organization(ctx)

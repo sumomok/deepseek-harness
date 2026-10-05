@@ -351,9 +351,9 @@ export type IntakeResult =
   /**
    * The new set is not offered: the offered organization set is the one
    * offered before the call. The organization root is as it was too, except
-   * where the calling fiber stopped while the set was being written; then the
-   * root already holds the new set, and a later call handing over the same
-   * files writes nothing.
+   * where the calling fiber or the row stopped while the set was being
+   * written; then the root already holds the new set, and a later call
+   * handing over the same files writes nothing.
    */
   | { readonly kind: 'failed'; readonly detail: string }
 
@@ -390,8 +390,10 @@ export interface SkillPackIntake {
    * new set, and every `onChange` listener has been called after it was
    * offered. Calls run one at a time in the order they arrive, and the last
    * one offered is the set offered. A call that reaches its turn after this
-   * row has stopped, or whose calling fiber is no longer active when its turn
-   * comes or when its write finishes, answers `failed` and offers nothing new.
+   * row has stopped, whose calling fiber is no longer active when its turn
+   * comes or when its write finishes, whose row stops while its set is
+   * written, or whose read or write of the organization root fails, answers
+   * `failed` and offers nothing new.
    * @param packs - every entry to offer, keyed by name and version.
    * @param options - `signal` rejects the call with its `reason`, changing
    *   nothing, while the call waits for its turn or before it writes; once the

@@ -16,7 +16,7 @@ Status: implemented
 
 **逐条判断，一起写盘。** 每个条目从内存里的文件经 `observePack` 读出——这正是读技能包根目录的那个读法，它和 `readFile(path, 'utf8')` 一样保留字节顺序标记——再按技能包规则、frontmatter 名字、能作目录名的版本、清单、锚点格式与视图格式、读得出的视图以及组合好的表面对视图的判断逐项检查。违反其中一项的条目被拒，带一个来自开放列表 `IntakeRefusalCode` 的码和一句给运维看的英文 `detail`；重复出现的 `name@version` 每一次出现都被拒，因为没有办法判断哪一份是想要的。通过的条目一起交给 `syncPackRoot`，所以根目录要么全装上要么一个不装，盘上已经逐字节一致的集合不再写一遍。`replace([])` 撤下集合并清空根目录。`IntakeResult` 是封闭的：带拒收列表的 `ok`，或者 `failed`。
 
-**已提供的集合由调用方 fiber 持有。** Cordis 交给每个服务读取方的是绑在它读取时所在 context 上的代理，Service 的方法把那个 context 看作 `this.ctx`，所以调用方读取接收接缝时所在 context 的 fiber——`inject` 回调自己的 fiber 也算——在加载中或已加载期间持有这份集合。那个 fiber 一停下，集合就撤下，文件留着；之后同样文件的 `replace` 不写盘。写盘之前停下的调用方答 `failed`，写盘期间停下的也答 `failed`，此时根目录已经放着这份集合。调用按到达顺序执行；一次调用答 `ok` 时，`isActive` 已经按新集合回答，每个 `onChange` listener 都已在它之后调用过。从启动到第一次 `replace` 之间什么都不提供。
+**已提供的集合由调用方 fiber 持有。** Cordis 交给每个服务读取方的是绑在它读取时所在 context 上的代理，Service 的方法把那个 context 看作 `this.ctx`，所以调用方读取接收接缝时所在 context 的 fiber——`inject` 回调自己的 fiber 也算——在加载中或已加载期间持有这份集合。那个 fiber 一停下，集合就撤下，文件留着；之后同样文件的 `replace` 不写盘。写盘之前停下的调用方答 `failed`；写盘期间调用方或这一行停下的调用也答 `failed`，此时根目录已经放着这份集合。调用按到达顺序执行；一次调用答 `ok` 时，`isActive` 已经按新集合回答，每个 `onChange` listener 都已在它之后调用过。从启动到第一次 `replace` 之间什么都不提供。
 
 **组织技能包对技能包根目录保有视图 id。** 激活的组织条目声明的视图 id，会扣下根目录里声明它的技能包，`view-id-conflict` 以 `origin: 'organization'` 点出那个组织技能包；[reconciler 那篇 Note](2026-09-18-skill-pack-reconciler.zh.md) 里「两个根目录技能包占一个 id 就都扣下」的规则，现在只在技能包根目录内部成立。在组织集内部，用字节相同的文件声明的同一个视图 id 是一个视图；字节不同时，已经被持有的 id 保留它的字节，改了它的每个条目都被拒，没有被持有的 id 则拒收声明它的每个条目。两条规则都不看条目的顺序。有组织集在提供时，持有这些 id 的是它；没有时——进程刚启动，或者持有上一份集合的 fiber 已经停下——持有它们的是组织包根盘上现有的条目。只有条目通过了这些规则的 `replace` 才写这个根目录，所以重载或重启之后再交来同一份集合，判断结果和之前一样。
 
@@ -47,7 +47,7 @@ Status: implemented
 
 ## Testing
 
-`packages/experimental/skill-pack/tests/intake.spec.ts` 经 vendor 进来的 Loader 启动技能注册表和这一行，由一个替身组织插件从它自己的 `inject` fiber 读取接收接缝。它钉住：没有 `organizationRoot` 时不提供这个键；重叠根目录在加载时被拒；stable 版与 trial 版并排；不报给 `ctx.skills`；部件到达时不用重启就激活，且监听者看得到；resolve 时的 `isActive` 与集合提供之后才调用的 listener；字节与文本按交来的样子写下；字节顺序标记的判断与盘上一致；`replace([])`；每个拒收码；集合内部和对根目录的视图 id 规则；持有集合的 fiber 重载前后、重启前后，同一份集合按盘上的条目得到同样的判断，其中不是技能包的目录和读不出的视图不持有 id；读组织包根失败、写盘失败、调用前、排队中和判断中的中止；到达顺序；调用方在轮到之前、判断期间和写盘期间停下；重启后不提供、未变的集合不重写；随调用方和随这一行撤下；监听随自己的 fiber 结束。失败和闸门经一个模块 mock 拦住真实的 `syncPackRoot` 和 `readInstalledPacks`。`skill-pack.spec.ts` 覆盖状态路由上的组织条目和按成员作答；`reconcile.spec.ts`、`manifest.spec.ts` 和 `install.spec.ts` 覆盖保有 id 的规则和锚点格式；`skill-pack-components/tests/views.client.spec.ts` 跟着一个组织技能包的视图进出侧栏。还没有测试安装由 point-anchor 自己写出的发放包。
+`packages/experimental/skill-pack/tests/intake.spec.ts` 经 vendor 进来的 Loader 启动技能注册表和这一行，由一个替身组织插件从它自己的 `inject` fiber 读取接收接缝。它钉住：没有 `organizationRoot` 时不提供这个键；重叠根目录在加载时被拒；stable 版与 trial 版并排；不报给 `ctx.skills`；部件到达时不用重启就激活，且监听者看得到；resolve 时的 `isActive` 与集合提供之后才调用的 listener；字节与文本按交来的样子写下；字节顺序标记的判断与盘上一致；`replace([])`；每个拒收码；集合内部和对根目录的视图 id 规则；持有集合的 fiber 重载前后、重启前后，同一份集合按盘上的条目得到同样的判断，其中不是技能包的目录和读不出的视图不持有 id；读组织包根失败、写盘失败、调用前、排队中和判断中的中止；到达顺序；调用方在轮到之前、判断期间和写盘期间停下，以及比这一行活得久的调用方写盘期间这一行停下；重启后不提供、未变的集合不重写；随调用方和随这一行撤下；监听随自己的 fiber 结束。失败和闸门经一个模块 mock 拦住真实的 `syncPackRoot` 和 `readInstalledPacks`。`skill-pack.spec.ts` 覆盖状态路由上的组织条目和按成员作答；`reconcile.spec.ts`、`manifest.spec.ts` 和 `install.spec.ts` 覆盖保有 id 的规则和锚点格式；`skill-pack-components/tests/views.client.spec.ts` 跟着一个组织技能包的视图进出侧栏。还没有测试安装由 point-anchor 自己写出的发放包。
 
 ## Alternatives considered
 

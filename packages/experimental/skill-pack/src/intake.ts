@@ -133,6 +133,12 @@ const CALLER_STOPPED_WRITING: IntakeResult = {
   detail: 'skill-pack: the fiber that called replace stopped while the set was written; the organization root holds it, and it is not offered',
 }
 
+/** The answer of a call whose row stopped while its set was being written. */
+const ROW_STOPPED_WRITING: IntakeResult = {
+  kind: 'failed',
+  detail: 'skill-pack: the row stopped while the set was written; the organization root holds it, and it is not offered',
+}
+
 /**
  * The fiber states that may hold the offered set: a fiber running its plugin
  * callback, which includes an `apply` awaiting `replace`, and a loaded one. A
@@ -240,9 +246,11 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     } catch (error) {
       return { kind: 'failed', detail: `skill-pack: the organization root was not replaced: ${String(error)}` }
     }
-    // The root is written; a caller that stopped meanwhile holds nothing, and
-    // the next call handing over the same files finds them already there.
+    // The root is written; a caller or a row that stopped meanwhile offers
+    // nothing, and the next call handing over the same files finds them
+    // already there.
     if (!holdsSets(caller.fiber)) return CALLER_STOPPED_WRITING
+    if (this.state.stopped) return ROW_STOPPED_WRITING
     this.commit(judged.accepted, caller)
     return { kind: 'ok', refused: judged.refused }
   }

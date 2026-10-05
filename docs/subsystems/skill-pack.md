@@ -64,8 +64,10 @@ The plugin handing the packs over is their only skill provider: this package rep
  * new set, and every `onChange` listener has been called after it was
  * offered. Calls run one at a time in the order they arrive, and the last
  * one offered is the set offered. A call that reaches its turn after this
- * row has stopped, or whose calling fiber is no longer active when its turn
- * comes or when its write finishes, answers `failed` and offers nothing new.
+ * row has stopped, whose calling fiber is no longer active when its turn
+ * comes or when its write finishes, whose row stops while its set is
+ * written, or whose read or write of the organization root fails, answers
+ * `failed` and offers nothing new.
  * @param packs - every entry to offer, keyed by name and version.
  * @param options - `signal` rejects the call with its `reason`, changing
  *   nothing, while the call waits for its turn or before it writes; once the
