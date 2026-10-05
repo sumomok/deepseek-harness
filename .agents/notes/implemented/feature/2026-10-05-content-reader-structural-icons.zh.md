@@ -50,4 +50,4 @@ Status: implemented
 
 ## Testing
 
-`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、精灵图标记、每一种重复条目、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取，以及空的包装元素。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。
+`tests/snapshot.client.spec.ts` 钉住了操作列、格子和条目以外的情形、装着文字或元素的元素、不带 class 的元素、精灵图标记、每一种重复条目、光标、`label` 的例外、装着链接的画、字段的打开者、穿过 shadow root 和 frame 的限定读取，以及空的包装元素。`tests/content-act-executor.client.spec.tsx` 读一个操作列，再凭读取打出的 ref 和标记点其中两个图标，并在一个有名字的图标上守住「一个名字」的不变量；`tests/content-act-tool.client.spec.ts` 钉住按标记点名图标的步骤所发出的审批请求。`apps/web/tests/content-read.e2e.ts` 重放一段录制的会话，它的夹具页在操作列里画了一个图标，列出的那一行带着它。
