@@ -437,37 +437,90 @@ async function rawWorld(reply: string | undefined): Promise<{ port: number; dsh:
 
 /** The one chunk a streaming stand-in writes after its response head. */
 const FIRST_CHUNK = 'first-chunk'
+/** What a flooding stand-in keeps writing after FIRST_CHUNK. */
+const FLOOD_PIECE = Buffer.alloc(16 * 1024, 'x')
 
-/** A stand-in upstream that starts every response and never ends one. */
+/**
+ * How a streaming stand-in answers each request. `chunk` writes a 200 head
+ * and FIRST_CHUNK and then holds the response open, as an idle event stream
+ * does; `flood` writes the same and then keeps writing for as long as the
+ * connection takes it.
+ */
+type StreamingAnswer = 'chunk' | 'flood'
+
+/** A stand-in upstream that never ends a response. */
 interface StreamingStub {
   port: number
-  /** Resolves once the connection that carried the first started response closes. */
-  closed: Promise<true>
+  /**
+   * @param index - the request's position in arrival order, from 0.
+   * @returns a promise that resolves once that request has arrived.
+   */
+  arrived: (index: number) => Promise<true>
+  /**
+   * @param index - the request's position in arrival order, from 0.
+   * @returns a promise that resolves once the connection that carried that request closes.
+   */
+  closed: (index: number) => Promise<true>
 }
 
 /**
- * A stand-in upstream that answers each request with a 200 head and
- * FIRST_CHUNK, then holds the response open, as an event stream does.
+ * The resolvers kept for one request position, created on first use from
+ * either side.
+ * @param slots - the resolvers by position.
+ * @param index - the position.
+ * @returns the resolvers at `index`.
+ */
+function slot(slots: Map<number, PromiseWithResolvers<true>>, index: number): PromiseWithResolvers<true> {
+  let entry = slots.get(index)
+  if (entry === undefined) {
+    entry = Promise.withResolvers<true>()
+    slots.set(index, entry)
+  }
+  return entry
+}
+
+/**
+ * A stand-in upstream that answers each request as `answer` says.
+ * @param answer - how each request is answered.
  * @returns the stub.
  */
-async function streamingStub(): Promise<StreamingStub> {
-  const closed = Promise.withResolvers<true>()
+async function streamingStub(answer: StreamingAnswer): Promise<StreamingStub> {
+  const arrivals = new Map<number, PromiseWithResolvers<true>>()
+  const closes = new Map<number, PromiseWithResolvers<true>>()
+  let count = 0
   const server = http.createServer((req, res) => {
+    const index = count
+    count += 1
     req.resume()
-    req.socket.once('close', () => { closed.resolve(true) })
+    req.socket.once('close', () => { slot(closes, index).resolve(true) })
+    res.on('error', () => { res.destroy() })
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     res.write(FIRST_CHUNK)
+    if (answer === 'flood') {
+      const flood = (): void => {
+        let more = true
+        while (more && !res.destroyed) more = res.write(FLOOD_PIECE)
+        if (!res.destroyed) res.once('drain', flood)
+      }
+      flood()
+    }
+    slot(arrivals, index).resolve(true)
   })
-  return { port: await listen(server), closed: closed.promise }
+  return {
+    port: await listen(server),
+    arrived: index => slot(arrivals, index).promise,
+    closed: index => slot(closes, index).promise,
+  }
 }
 
 /**
  * A proxy-mode gate whose dsh and remote application are streaming stand-ins.
+ * @param answer - how both stand-ins answer each request.
  * @returns the gate's port, the lines it logged, and the two stand-ins.
  */
-async function streamingWorld(): Promise<{ port: number; logs: string[]; dsh: StreamingStub; remote: StreamingStub }> {
-  const dsh = await streamingStub()
-  const remote = await streamingStub()
+async function streamingWorld(answer: StreamingAnswer = 'chunk'): Promise<{ port: number; logs: string[]; dsh: StreamingStub; remote: StreamingStub }> {
+  const dsh = await streamingStub(answer)
+  const remote = await streamingStub(answer)
   return { ...(await gateBetween(dsh.port, remote.port)), dsh, remote }
 }
 
@@ -1045,13 +1098,15 @@ describe('a client that leaves during the login check', () => {
 
 describe('a client that leaves while its response streams', () => {
   it.each([
-    ['a verified dsh path', '/api/events', 'dsh'],
-    ['a remote-application path', '/ini-web2/events', 'remote'],
-  ] as const)('closes the upstream connection on %s and logs nothing', async (_label, path, target) => {
-    const w = await streamingWorld()
+    ['an idle stream on a verified dsh path', 'chunk', '/api/events', 'dsh'],
+    ['an idle stream on a remote-application path', 'chunk', '/ini-web2/events', 'remote'],
+    ['a flowing stream on a verified dsh path', 'flood', '/api/events', 'dsh'],
+    ['a flowing stream on a remote-application path', 'flood', '/ini-web2/events', 'remote'],
+  ] as const)('closes the upstream connection of %s and logs nothing', async (_label, answer, path, target) => {
+    const w = await streamingWorld(answer)
     const { client } = await readUntil(w.port, `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: accessToken=${TOKEN}\r\n\r\n`, FIRST_CHUNK)
     client.destroy()
-    await w[target].closed
+    await w[target].closed(0)
     expect(w.logs).toEqual([])
   })
 })

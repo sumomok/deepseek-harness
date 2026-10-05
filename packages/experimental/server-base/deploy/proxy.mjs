@@ -1040,8 +1040,12 @@ const CLIENT_ERROR_STATUS = new Map([
   ['HPE_HEADER_OVERFLOW', '431 Request Header Fields Too Large'],
   ['ERR_HTTP_REQUEST_TIMEOUT', '408 Request Timeout'],
 ])
-/** `clientError` codes that mean the client left: a reset, or a connection that ended before its request was complete. */
-const CLIENT_LEFT = new Set(['ECONNRESET', 'HPE_INVALID_EOF_STATE'])
+/**
+ * `clientError` codes that mean the client left: a reset, a write to a
+ * connection the client already closed, or a connection that ended before its
+ * request was complete.
+ */
+const CLIENT_LEFT = new Set(['ECONNRESET', 'EPIPE', 'HPE_INVALID_EOF_STATE'])
 
 /**
  * Install the `clientError` listener both modes use. A client that left is
