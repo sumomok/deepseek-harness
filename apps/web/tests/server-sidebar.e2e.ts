@@ -17,8 +17,8 @@
  * the Settings entries the console withholds (`ui-chat`'s busy-compaction row,
  * the vendored `@haoran/dsh-auto-compact` row, and the Settings header's
  * configuration-file action) while both console presets reach the compaction
- * engine the plugin drives, the `ui-workspace` keyboard shortcuts the shortcut
- * reference leaves out and the one it lists under the console's label,
+ * engine the plugin drives, the keyboard shortcuts the shortcut reference
+ * leaves out and whose keys do nothing in a real browser,
  * the Host administration Remote methods the console bundle disables, which
  * answer 404 to a request the login cookie admits while the console's own
  * Remote calls answer,
@@ -499,13 +499,28 @@ const WITHHELD_GENERAL_TITLES = [
 ] as const
 
 /**
- * The English labels `dsh-client-ui-workspace` gives the five keyboard
- * shortcuts `server-sidebar` withholds on the console, and the one it keeps
- * under another label (`console-shortcuts.ts`).
+ * The English labels `dsh-client-ui-workspace` and `dsh-client-ui-sidebar-files`
+ * give the seven keyboard shortcuts `server-sidebar` withholds on the console
+ * (`console-shortcuts.ts`).
  */
-const WORKSPACE_SHORTCUT_LABELS = [
-  'New Session', 'Search sessions', 'Add workspace', 'Rename session', 'Fork session', 'Archive session',
+const WITHHELD_SHORTCUT_LABELS = [
+  'New Session', 'Search sessions', 'Add workspace', 'Rename session', 'Fork session', 'Archive session', 'Workspace files',
 ] as const
+
+/**
+ * Each withheld command's Web default on this device, as Playwright names the
+ * keys: `primary` is Meta on macOS and Control on Windows. A Linux browser
+ * has no Web default for any of them, so it has no key to press.
+ */
+const WITHHELD_SHORTCUT_KEYS = process.platform === 'darwin' || process.platform === 'win32'
+  ? (() => {
+    const primary = process.platform === 'darwin' ? 'Meta' : 'Control'
+    return {
+      new: `${primary}+Alt+KeyN`, search: `${primary}+Alt+KeyK`, add: `${primary}+Alt+KeyO`, rename: `${primary}+Alt+KeyG`,
+      fork: `${primary}+Shift+KeyF`, archive: `${primary}+Alt+KeyA`, files: `${primary}+Alt+KeyP`, reference: `${primary}+Slash`,
+    }
+  })()
+  : undefined
 
 /**
  * One settings write per namespace the console's lock holds, each to a valid
@@ -1049,7 +1064,7 @@ describe('web e2e: the product-console sidebar', () => {
     expect(forms.find(form => form.ns === 'ui-settings')?.value).toMatchObject({ enabled: false })
   }, 30_000)
 
-  it('lists none of ui-workspace\'s shortcuts in the shortcut reference but the one it keeps, as Remove from list', async () => {
+  it('lists in the shortcut reference none of the shortcuts the console withholds, and no row in its vocabulary', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-shortcut-reference'))
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const settings = page.getByRole('dialog', { name: 'Settings' })
@@ -1062,20 +1077,68 @@ describe('web e2e: the product-console sidebar', () => {
     await settings.waitFor({ timeout: 10_000 })
     await settings.getByRole('button', { name: 'Edit shortcuts', exact: true }).click()
     await reference.waitFor({ timeout: 10_000 })
-    // Both halves: the reference lists its rows — the kept one among them,
-    // under the console's label — and none of the withheld ones. Absence
-    // alone would pass on a reference that drew no rows at all.
+    // Both halves: the reference lists its rows — the shell's own among them —
+    // and none of the withheld ones. Absence alone would pass on a reference
+    // that drew no rows at all.
     const labels = reference.locator('[class*="commandLabel"]')
-    await expect.poll(() => labels.allInnerTexts(), { timeout: 10_000 }).toContain('Remove from list')
+    await expect.poll(() => labels.allInnerTexts(), { timeout: 10_000 }).toContain('Open keyboard shortcuts')
     const listed = await labels.allInnerTexts()
-    for (const label of WORKSPACE_SHORTCUT_LABELS) {
+    for (const label of [...WITHHELD_SHORTCUT_LABELS, 'Remove from list']) {
       expect({ label, listed: listed.includes(label) }).toEqual({ label, listed: false })
+    }
+    for (const label of listed) {
+      for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /\barchive\b/i, /会话/, /工作区/, /归档/]) {
+        expect(label, `banned text matched ${String(banned)}`).not.toMatch(banned)
+      }
     }
     await page.keyboard.press('Escape')
     await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
     await page.keyboard.press('Escape')
     await expect.poll(() => settings.count(), { timeout: 10_000 }).toBe(0)
   }, 30_000)
+
+  it.skipIf(WITHHELD_SHORTCUT_KEYS === undefined)(
+    'runs none of the withheld commands for its key in a real browser, while the shell\'s own keys still run',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-withheld-keys'))
+      const keys = WITHHELD_SHORTCUT_KEYS!
+      // The page rests on "My Workflow"'s own conversation, which has run a
+      // turn: every withheld command has a target here, so a key that reached
+      // the registry would act on it.
+      const workflowRow = workflowsSection(page).getByRole('button', { name: /My Workflow/ })
+      await expect(workflowRow.getAttribute('data-active')).resolves.toBe('true')
+      await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      const temporaryRows = sidebar(page).locator('[data-server-sidebar-section="temporary"] li')
+      const temporaryBefore = await temporaryRows.count()
+      const archivedBefore = [...scaffold.ctx.workspaceRegistry.archivedSessionIds]
+      const menuBefore = readServerMenu(scaffold)
+
+      for (const key of [keys.new, keys.search, keys.add, keys.rename, keys.fork, keys.archive, keys.files]) {
+        await page.keyboard.press(key)
+      }
+      // The registry runs a command synchronously on the press; a fork or an
+      // archive it started would land within this wait.
+      await page.waitForTimeout(1_000)
+      expect(await page.getByRole('dialog').count()).toBe(0)
+      expect(await page.getByText(/removed from the list/).count()).toBe(0)
+      expect(await page.getByRole('tab', { name: 'Files' }).count()).toBe(0)
+      expect(await page.getByText(LEAKED_PLACEHOLDER).count()).toBe(0)
+      await expect(workflowRow.getAttribute('data-active')).resolves.toBe('true')
+      await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 5_000 })
+      expect(await temporaryRows.count()).toBe(temporaryBefore)
+      expect([...scaffold.ctx.workspaceRegistry.archivedSessionIds]).toEqual(archivedBefore)
+      expect(readServerMenu(scaffold)).toEqual(menuBefore)
+
+      // The shell's own key still reaches the registry: the presses above were
+      // delivered, and consumed only where a withheld command held them.
+      await page.keyboard.press(keys.reference)
+      const reference = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+      await reference.waitFor({ timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await expect.poll(() => reference.count(), { timeout: 10_000 }).toBe(0)
+    },
+    30_000,
+  )
 
   it('refuses a settings write to the pinned preset, while the sidebar\'s own menu fields save', async () => {
     // `remote.settings` answers any browser the deployment admits, so the
