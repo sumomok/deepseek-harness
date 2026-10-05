@@ -16,7 +16,7 @@ A subagent or fork can run in a working directory outside its parent's roots, so
 
 ## The directory is not a path to customer tokens
 
-Any plugin in the process can inject `ctx.consoleMembers`, so the directory hands none of them a customer token: the token holder attaches a read-only reader, no method returns the reader or a token, and the one reader the directory accepts for its lifetime cannot be replaced by a plugin loaded later. Any plugin holding the directory can open any member's store under any unit name, so per-member storage holds non-secret data only, and a member's directory id does not contain the principal key, so a storage path does not carry the member's `login_uid`.
+Any plugin in the process can inject `ctx.consoleMembers`, so the directory hands none of them a customer token: the token holder attaches a read-only reader, no method returns the reader or a token, and the directory holds one reader at a time, so while the holder's reader is attached no other plugin can attach one. When the holder detaches its reader — its plugin restarting — every member's token counts as dropped and a new reader may attach; a reader another plugin attaches in that gap can supply only tokens that plugin already has, and reads none of the holder's. Any plugin holding the directory can open any member's store under any unit name, so per-member storage holds non-secret data only, and a member's directory id does not contain the principal key, so a storage path does not carry the member's `login_uid`.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -118,11 +118,16 @@ onChange(listener: (event: { principal: PrincipalKey; kind: 'opened' | 'closed' 
 memberStore(principal: PrincipalKey, unit: string): MemberStore
 
 /**
- * Accept the reader of members' customer tokens. The directory accepts one
- * reader for its lifetime.
+ * Attach the reader of members' customer tokens. The directory holds one
+ * reader at a time: attaching while a reader is attached throws, and once
+ * the returned disposer has run a new reader may be attached, as the token
+ * holder's plugin does when it restarts. Running the disposer counts as
+ * every member's token being dropped: the directory stops reading the
+ * reader, and whatever was derived from those tokens is discarded; the
+ * reader emits no `dropped` for it.
  * @param reader - the read-only customer-token reader.
  * @returns the disposer that detaches the reader.
- * @throws Error when a reader has already been attached.
+ * @throws Error when a reader is already attached.
  */
 attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 ```

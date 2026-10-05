@@ -14,7 +14,7 @@
 
 import type { IncomingMessage } from 'node:http'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { PeerScope } from '@deepseek-ai/dsh-client-connection'
+import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
@@ -110,11 +110,16 @@ export interface ConsoleMemberDirectory {
    */
   memberStore(principal: PrincipalKey, unit: string): MemberStore
   /**
-   * Accept the reader of members' customer tokens. The directory accepts one
-   * reader for its lifetime.
+   * Attach the reader of members' customer tokens. The directory holds one
+   * reader at a time: attaching while a reader is attached throws, and once
+   * the returned disposer has run a new reader may be attached, as the token
+   * holder's plugin does when it restarts. Running the disposer counts as
+   * every member's token being dropped: the directory stops reading the
+   * reader, and whatever was derived from those tokens is discarded; the
+   * reader emits no `dropped` for it.
    * @param reader - the read-only customer-token reader.
    * @returns the disposer that detaches the reader.
-   * @throws Error when a reader has already been attached.
+   * @throws Error when a reader is already attached.
    */
   attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 }
