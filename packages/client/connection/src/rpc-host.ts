@@ -399,23 +399,24 @@ function discardDispatched(dispatched: readonly DispatchedResponse[], result: Re
 
 /**
  * Select the body of one route Response that the caller does not receive.
- * @param response - a Response one `next()` produced.
+ * @param response - the value one `next()` resolved to; a route in untyped code can resolve to `undefined`, `null`, or
+ * another value without a body against its declared Response, and such a value has no body to cancel.
  * @param result - the Response the caller receives, if any.
  * @returns the body of `response`, or `undefined` when it has none or the caller receives `response` or its body.
  */
-function unreturnedBody(response: Response, result: Response | undefined): ReadableStream<Uint8Array> | undefined {
-  const body = response.body
+function unreturnedBody(response: Response | null | undefined, result: Response | undefined): ReadableStream<Uint8Array> | undefined {
+  const body = response?.body ?? null
   // A Response built over the same body, such as one that adds headers, hands that body to the caller.
   return body === null || response === result || body === result?.body ? undefined : body
 }
 
 /**
  * Cancel one route Response's body unless the caller receives it.
- * @param response - a Response one `next()` produced.
+ * @param response - the value one `next()` resolved to, which may be a value without a body; see `unreturnedBody`.
  * @param result - the Response the caller receives, if any.
  * @returns once the body is cancelled or left alone; never rejects.
  */
-async function cancelUnreturnedBody(response: Response, result: Response | undefined): Promise<void> {
+async function cancelUnreturnedBody(response: Response | null | undefined, result: Response | undefined): Promise<void> {
   const body = unreturnedBody(response, result)
   if (body === undefined) return
   try {

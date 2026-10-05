@@ -359,6 +359,40 @@ describe('connection/fetch', () => {
     expect(tracked.cancelled()).toBe(false)
   })
 
+  it('answers 400 without an unhandled rejection when no listener is registered and a route resolves to undefined', async () => {
+    const mounted = await mount()
+    mounted.ctx.connection.fetch.register({
+      path: `${API_PATH}/guard.undefined`,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      // A route in untyped code can break its declared result.
+      fetch: async () => undefined as never,
+    })
+
+    expect(await unhandledRejectionsDuring(async () => {
+      expect(await send(mounted, `${API_PATH}/guard.undefined`, 'GET')).toEqual({ status: 400, body: '' })
+    })).toEqual([])
+    expect(mounted.warnings).toHaveLength(1)
+  })
+
+  it('passes over route results without a body, settled or pending, and cancels the unreturned body after them without an unhandled rejection', async () => {
+    const tracked = trackedResponse()
+    // `undefined` leaves its record pending and `null` settles it; neither carries a body.
+    const answers: Array<Response | null | undefined> = [undefined, null, tracked.response]
+    const route = await bareRoute(async () => answers.shift() as Response)
+    route.ctx.on('connection/fetch', async (_call, next) => {
+      await next()
+      await next()
+      await next()
+      return new Response(null, { status: 403 })
+    })
+
+    expect(await unhandledRejectionsDuring(async () => {
+      expect((await route.fetch()).status).toBe(403)
+    })).toEqual([])
+    expect(tracked.cancelled()).toBe(true)
+  })
+
   it('cancels the body of a route Response the listener did not return: at once when its answer has no body', async () => {
     const tracked = trackedResponse()
     const route = await bareRoute(async () => tracked.response)
