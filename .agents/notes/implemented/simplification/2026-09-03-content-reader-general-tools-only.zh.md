@@ -29,7 +29,7 @@ Status: implemented
 ### 退役了什么
 
 1. **固定列整套子系统。** 每一个 `<table>`、`grid`、`treegrid` 都按页面写下的样子打出来。既不合并成文档里不存在的那张表，也不把任何一张当作另一张的副本丢掉，更不因为「画在另一个东西上面」而丢掉任何元素：`splitPartner`、`neighbourTable`、`repeatsTable`、`tablePieces`、`mergeCells`、`pickCells`、`duplicate`、`rectsMeet`、`rectsOverlap` 与注入的几何（`rectOf`）全部删除。
-2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 在表格格子和重复条目里取代了这一条：在那里具有图标结构的元素是一行 `icon`，只按结构读；精灵图用它的 class 词元、后面跟上它 `<use href>` 的符号 id 作标记。从 class 词元里读出一个词、再拿它给一行命名，这两件事仍然删除着。
+2. **图标命名，以及「图形所在的位置使它成为命令」这个概念。** `ICON_TOKEN`、`classIconWord`、`iconPart`、`<use href>` 的 symbol id、`isIcon`、`namesIcon` 与 `icon` 这个角色全部删除。图形和别的东西一样按可访问名读：页面写下的 role、`aria-label`、`svg` 自己的 `title`；页面标成可点却没给名字的元素，是一行 `clickable`。[结构图标 note](../feature/2026-10-05-content-reader-structural-icons.zh.md) 在表格格子和重复条目里取代了这一条：在那里具有图标结构、并且画出了图形的元素是一行 `icon`，只按结构和算出来的样式读；精灵图用它的 class 词元、后面跟上它 `<use href>` 的符号 id 作标记。从 class 词元里读出一个词、再拿它给一行命名，这两件事仍然删除着。
 3. **分页条与面包屑。** `PAGINATION_MARKER`、`BREADCRUMB_MARKER`、分隔符正则、`pagination:` 行、`rows on this page` 的措辞，以及读取头部的 `breadcrumb` 字段，全部删除。这两样部件按页面把它们画成的那段文字打出来。`role="navigation"` 与别的容器无异。
 4. **画出来的必填星。** `(required)` 只跟随 `required` 与 `aria-required`，别的一概不跟；`REQUIRED_MARKS` 与注入的 `drawnAround`（读 `::before`/`::after`）删除。
 5. **消息观察器。** 盯着「文字变得能读到」的 `MutationObserver`，连同 `message` 这一事件种类一起删除。一次动手上报的是浏览器替页面做的事——对话框、跳转、想开的窗口——这些是任何读取都找不回来的；页面画出来的东西在收尾那次读取里。
@@ -41,7 +41,7 @@ Status: implemented
 
 页面提供出来供人操作、却没给名字的行，在名字的位置上打这个元素的 class token：`e17 clickable {class: el-tooltip operation-modify el-icon-edit}`——元素携带的全部 token，按它自己携带的顺序；元素没有 class 就什么都不打；只对 `OFFERED_ROLES` 里的角色打：可点目标、按钮、链接、可填的框。这些 token 一个字都不解读，这一行的名字仍然是空的。`el-icon-edit` 是什么意思，由技能去说。
 
-这串 token 同时也是步骤点名这一行的方式，即这一行的**标记**：`label: ""` 加上 `mark`——那次读取为它印出的那串 token；两边由同一个函数（[`elementMark`](../../../../packages/experimental/content-frame/src/client/access/dom.ts)）算出，清单照它打，座位重算一遍并逐字比对——这就是「一个名字」的不变量落在「没有名字的行」上的形状。点名无名行却不带标记的步骤会被拒，有名字却又带标记的同样被拒：一行只有一个身份，让座位在两个字段里挑一个来核对，就是两个。一个字都不裁，理由和名字不裁一样：裁短了的标记什么都对不上。两边各一个花括号，因为两个花括号是这些控制台所用框架写插值的方式，打成 `{{class: ...}}` 会被读成一段没人渲染的模板。
+这串 token 同时也是步骤点名这一行的方式，即这一行的**标记**：`label: ""` 加上 `mark`——那次读取为它印出的那串 token；两边由同一个函数（[`rowMark`](../../../../packages/experimental/content-frame/src/client/access/dom.ts)）算出，清单照它打，座位重算一遍并逐字比对；原文树为同一个元素打出的 class 词元（`elementMark`），座位也认——这就是「一个名字」的不变量落在「没有名字的行」上的形状。点名无名行却不带标记的步骤会被拒，有名字却又带标记的同样被拒：一行只有一个身份，让座位在两个字段里挑一个来核对，就是两个。一个字都不裁，理由和名字不裁一样：裁短了的标记什么都对不上。两边各一个花括号，因为两个花括号是这些控制台所用框架写插值的方式，打成 `{{class: ...}}` 会被读成一段没人渲染的模板。
 
 ## Alternatives considered
 
