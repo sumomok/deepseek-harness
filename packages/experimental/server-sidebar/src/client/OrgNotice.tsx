@@ -20,7 +20,7 @@
 import { useId, type CSSProperties } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DisclosureText, LocalizedText, OrgNoticeView } from './org-notice.ts'
+import type { BilingualText, DisclosureText, OrgNoticeView } from './org-notice.ts'
 import type { FootPlacement } from './foot-placement.ts'
 import css from './OrgNotice.module.css'
 
@@ -95,7 +95,7 @@ export function OrgNotice({ useOrgNotice, useFootPlacement, useLanguage, acknowl
   const titleId = useId()
   if (view.shown === undefined) return null
   const { kind, disclosure } = view.shown
-  const text = (value: LocalizedText): string => value[language]
+  const text = (value: BilingualText): string => value[language]
   const named = view.shown.orgName?.trim()
   const org = named === undefined || named.length === 0 ? undefined : named
   const days = disclosure.retentionDays

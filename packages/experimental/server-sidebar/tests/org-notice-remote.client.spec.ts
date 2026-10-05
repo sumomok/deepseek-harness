@@ -90,7 +90,7 @@ describe('remotePort', () => {
     }
     for (const error of [undefined, { code: 7, message: null }]) {
       await expect(portOver(namespace({ markSeen: { ok: false, error } })).markSeen(1))
-        .rejects.toMatchObject({ code: undefined, message: 'server-sidebar: sumomokOrgNotice.markSeen was refused: no reason given' })
+        .rejects.toMatchObject({ code: undefined, message: 'server-sidebar: sumomokOrgNotice.markSeen was refused' })
     }
   })
 

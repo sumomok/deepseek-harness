@@ -50,10 +50,11 @@ export class OrgNoticeRefusal extends Error {
   /**
    * @param method - the method that was refused.
    * @param code - the refusal's code, when it carried one.
-   * @param message - the refusal's message.
+   * @param reason - the refusal's own message, when it carried one.
    */
-  constructor(readonly method: string, readonly code: string | undefined, message: string) {
-    super(`server-sidebar: ${ORG_NOTICE_NAMESPACE}.${method} was refused: ${message}`)
+  constructor(readonly method: string, readonly code: string | undefined, reason: string | undefined) {
+    const refused = `server-sidebar: ${ORG_NOTICE_NAMESPACE}.${method} was refused`
+    super(reason === undefined ? refused : `${refused}: ${reason}`)
     this.name = 'OrgNoticeRefusal'
   }
 }
@@ -71,8 +72,8 @@ function unwrap(method: string, result: unknown): unknown {
   if (result.ok) return result.value
   const { error } = result
   const code = isRecord(error) && typeof error.code === 'string' ? error.code : undefined
-  const message = isRecord(error) && typeof error.message === 'string' ? error.message : 'no reason given'
-  throw new OrgNoticeRefusal(method, code, message)
+  const reason = isRecord(error) && typeof error.message === 'string' ? error.message : undefined
+  throw new OrgNoticeRefusal(method, code, reason)
 }
 
 /**

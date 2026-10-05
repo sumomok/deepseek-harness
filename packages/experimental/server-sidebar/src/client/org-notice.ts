@@ -25,7 +25,7 @@ import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 /** One text in both languages the console ships. */
-export interface LocalizedText {
+export interface BilingualText {
   zh: string
   en: string
 }
@@ -35,7 +35,7 @@ export interface DisclosureCategory {
   /** The organization's id for the category. */
   id: string
   /** What the category is called. */
-  label: LocalizedText
+  label: BilingualText
 }
 
 /**
@@ -46,9 +46,9 @@ export type DisclosureViewers = 'self' | 'self_and_admins'
 
 /** The parts of the organization's disclosure the card shows. */
 export interface DisclosureText {
-  title: LocalizedText
+  title: BilingualText
   /** The disclosure's own text, shown as plain text with its line breaks. */
-  body: LocalizedText
+  body: BilingualText
   categories: readonly DisclosureCategory[]
   /** How many days uploaded data is kept; a positive whole number. */
   retentionDays: number
@@ -185,7 +185,7 @@ function readCount(value: unknown, field: string): number {
  * @param field - the field's path, for the error.
  * @returns the two texts.
  */
-function readLocalized(value: unknown, field: string): LocalizedText {
+function readBilingual(value: unknown, field: string): BilingualText {
   if (!isRecord(value)) throw new OrgNoticeAnswerError(field)
   return { zh: readString(value.zh, `${field}.zh`), en: readString(value.en, `${field}.en`) }
 }
@@ -201,12 +201,12 @@ function readDisclosure(value: unknown): DisclosureText {
   if (!Array.isArray(categories)) throw new OrgNoticeAnswerError('disclosure.categories')
   if (viewers !== 'self' && viewers !== 'self_and_admins') throw new OrgNoticeAnswerError('disclosure.viewers')
   return {
-    title: readLocalized(value.title, 'disclosure.title'),
-    body: readLocalized(value.body, 'disclosure.body'),
+    title: readBilingual(value.title, 'disclosure.title'),
+    body: readBilingual(value.body, 'disclosure.body'),
     categories: categories.map((category: unknown, index) => {
       const field = `disclosure.categories[${String(index)}]`
       if (!isRecord(category)) throw new OrgNoticeAnswerError(field)
-      return { id: readString(category.id, `${field}.id`), label: readLocalized(category.label, `${field}.label`) }
+      return { id: readString(category.id, `${field}.id`), label: readBilingual(category.label, `${field}.label`) }
     }),
     retentionDays: readCount(value.retentionDays, 'disclosure.retentionDays'),
     viewers,

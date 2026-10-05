@@ -70,7 +70,8 @@ export type SettingsOpenerSeatProps = Pick<PropsRuntime<'settings.trigger.action
  * @param props - the owner's `openSection` and the injected `publish`.
  * @returns nothing; the seat draws no element.
  */
-export function SettingsOpenerSeat({ openSection, publish }: SettingsOpenerSeatProps): null {
+export function SettingsOpenerSeat(props: SettingsOpenerSeatProps): null {
+  const { openSection, publish } = props
   useEffect(() => {
     publish(openSection)
     return () => { publish(undefined) }
