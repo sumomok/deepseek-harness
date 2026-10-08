@@ -17,7 +17,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only: resolves ctx.loader, whose settling is when a mismatched composition is reported.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 // Type-only: resolves ctx.consoleMembers, which places each request.
-import type {} from '@deepseek-ai/dsh-experimental-console-members'
+import type {} from '@deepseek-ai/dsh-experimental-console-members/types'
 
 /** Why a status request is refused before it is answered. */
 export interface RequestRefusal {
@@ -47,7 +47,7 @@ export const admitEveryRequest: PlaceRequest = () => undefined
  */
 export function placeRequestByMember(ctx: Context): PlaceRequest {
   return (req) => {
-    const members = ctx.get('consoleMembers')
+    const members: Context['consoleMembers'] | undefined = ctx.get('consoleMembers')
     if (members === undefined) {
       return { status: 503, error: 'skill-pack: the pack status route needs the consoleMembers service, which is not running' }
     }
