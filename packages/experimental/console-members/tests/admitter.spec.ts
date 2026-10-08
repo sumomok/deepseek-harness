@@ -47,6 +47,11 @@ function rejectionOf(row: MountedRow, assertion: string | readonly string[] | un
   return 'rejection' in admission ? admission.rejection : undefined
 }
 
+/** Whether Connection still holds a Peer under this id; a boolean keeps a failing assertion from printing the Peer's Cordis scope. */
+function isOpen(row: MountedRow, peer: PeerScope): boolean {
+  return row.ctx.connection.peers.get(peer.id) !== undefined
+}
+
 function directory(row: MountedRow): ConsoleMemberDirectory {
   return row.ctx.consoleMembers
 }
@@ -261,7 +266,7 @@ describe('principalOfCaller', () => {
     expect(members.principalOfCaller({ id: peer.id, ctx: peer.ctx } as PeerScope)).toBeUndefined()
 
     const closing = peer.dispose()
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(isOpen(row, peer)).toBe(false)
     expect(members.principalOfCaller(peer)).toBeUndefined()
     await closing
     expect(members.principalOfCaller(peer)).toBeUndefined()
@@ -397,7 +402,7 @@ describe('idle close', () => {
     await vi.advanceTimersByTimeAsync(IDLE - 1)
     expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
     await vi.advanceTimersByTimeAsync(1)
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(isOpen(row, peer)).toBe(false)
     expect(directory(row).principals()).toEqual([])
   })
 
@@ -415,7 +420,7 @@ describe('idle close', () => {
     await vi.advanceTimersByTimeAsync(IDLE - 1)
     expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
     await vi.advanceTimersByTimeAsync(1)
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(isOpen(row, peer)).toBe(false)
   })
 
   it('closes an idle Peer peerIdleMs after its last admission when the system clock is set back, checking once', async () => {
@@ -426,7 +431,7 @@ describe('idle close', () => {
     expect(row.ctx.connection.peers.get(peer.id)).toBe(peer)
     expect(vi.getTimerCount()).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(isOpen(row, peer)).toBe(false)
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -468,7 +473,7 @@ describe('idle close', () => {
     }
     row.ctx.emit('connection/peer-closed', row.ctx.connection.operator)
     await vi.advanceTimersByTimeAsync(IDLE)
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
+    expect(isOpen(row, peer)).toBe(false)
     expect(row.ctx.connection.peers.get(foreign.id)).toBe(foreign)
   })
 
@@ -488,7 +493,7 @@ describe('idle close', () => {
     expect(second).not.toBe(first)
     row.ctx.emit('remote-stream/socket-opened', first, socket('socket-3'))
     await vi.advanceTimersByTimeAsync(IDLE)
-    expect(row.ctx.connection.peers.get(second.id)).toBeUndefined()
+    expect(isOpen(row, second)).toBe(false)
     expect(directory(row).principals()).toEqual([])
   })
 })
@@ -501,8 +506,8 @@ describe('unloading the row', () => {
     const foreign = row.ctx.connection.peers.open()
     await row.fiber!.dispose()
     expect(row.ctx.connection.peers.list()).toEqual([foreign])
-    expect(row.ctx.connection.peers.get(alice.id)).toBeUndefined()
-    expect(row.ctx.connection.peers.get(bob.id)).toBeUndefined()
+    expect(isOpen(row, alice)).toBe(false)
+    expect(isOpen(row, bob)).toBe(false)
     expect(row.ctx.get('consoleMembers')).toBeUndefined()
     expect(rejectionOf(row, assertionFor(ALICE))).toBe(401)
 
@@ -526,10 +531,12 @@ describe('unloading during a default-workspace step', () => {
     let unloaded = false
     const unloading = row.fiber!.dispose().then(() => { unloaded = true })
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(row.ctx.connection.peers.get(peer.id)).toBeUndefined()
-    expect(unloaded).toBe(false)
+    const openBeforeSettled = isOpen(row, peer)
+    const unloadedBeforeSettled = unloaded
     finishCreate!()
     await unloading
+    expect(openBeforeSettled).toBe(false)
+    expect(unloadedBeforeSettled).toBe(false)
     expect(unloaded).toBe(true)
   })
 
