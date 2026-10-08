@@ -102,7 +102,7 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - 成员准入开启而没有安装 Remote Event 过滤器时，`$events` 照常打开并发出 ready frame，但没有 Client 收到任何事件：这段时间里发出的通知到不了任何 Client，与没有 Client 连接时相同，也不会重放；pending 的 waterfall 要等装上过滤器、或被接受的 Client 下次连上时才投给它。关闭成员准入不会补投这段时间扣下的事件：这样的 waterfall 要等装上接受它的过滤器、或 Client 重新连接，才投给已连接的 Client。
 - 过滤器只看得到事件名与其 JSON 载荷；判断事件关乎哪位成员（例如 `agentId` 指向的会话归谁）由安装它的插件负责。
 - `remote/invoke` 只覆盖 Remote 方法调用：Gateway 自有的 `$events` 流与 `$events/result`、Connection 的精确 Fetch 路由及其专用 RPC 通道都不经过它。
-- Gateway 不再核对 Peer：Connection 核对之后、`remote/invoke` 监听器或参数解析 await 期间被释放的成员 Peer，仍作为 `ctx.invocation.peer` 到达方法。在 `next()` 之前 await、又需要成员仍然存活的监听器，在调用 `next()` 之前立即比较 `connection.peers.get(call.peer.id)` 与 `call.peer`。
+- Gateway 不重新核对 Peer：Connection 核对之后、`remote/invoke` 监听器或参数解析 await 期间被释放的成员 Peer，仍作为 `ctx.invocation.peer` 到达方法。在 `next()` 之前 await、又需要成员仍然存活的监听器，在调用 `next()` 之前立即比较 `connection.peers.get(call.peer.id)` 与 `call.peer`。
 - `remote/invoke` 没有上行钩子：`RemoteInvokeCall` 不暴露上行，Client 的上行项不经过监听器。
 - `RemoteInvokeCall` 不带载体的取消信号，监听器看不到客户端断开：监听器在调用 `next()` 之前的 await 期间载体中止时，`next()` 仍调用方法，方法读到的 `ctx.invocation.signal` 已经中止。一元调用随后以方法的结果完成，不以取消失败，不检查 signal 的一元方法在客户端断开之后照常运行。流调用在被读取时仍以取消失败，async generator 方法体不会运行。
 
