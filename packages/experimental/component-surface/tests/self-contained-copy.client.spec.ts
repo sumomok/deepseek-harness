@@ -41,8 +41,10 @@
  * name of every family, every named tool and every quoted word, beside two
  * ordinary phrases that must not match; a name appended to one purpose, read
  * through the description and the catalog lines; and a name in each kind of
- * literal of two files written for the control. A reader that stopped
- * matching fails there instead of letting every walk pass.
+ * literal of two files written for the control. The first control's names are
+ * written out apart from the lists the readers match, so a name dropped from a
+ * list fails it. A reader that stopped matching fails there instead of letting
+ * every walk pass.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -504,11 +506,33 @@ const FAMILY_SAMPLES: readonly string[] = [
   'team_task_create', 'list_mcp_resources', 'mcp__github__create_issue', 'stagehand_act',
 ]
 
+/**
+ * Every tool {@link NAMED_TOOLS} lists, written out again so that a name dropped
+ * from that list is still planted, and the control reading it fails.
+ */
+const NAMED_SAMPLES: readonly string[] = [
+  'ask_user_question', 'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'exit_plan_mode', 'get_goal',
+  'interrupt_agent', 'list_agents', 'list_subagent_models', 'load_workspace_dependencies', 'plugin_manager',
+  'read_image', 'run_code', 'send_message', 'show_chart', 'spawn_teammate', 'str_replace_editor',
+  'structured_output', 'todo_write', 'update_goal', 'wait_agent', 'web_fetch', 'web_search',
+]
+
+/**
+ * Every word {@link WORD_TOOLS} lists, written out again for the same reason as
+ * {@link NAMED_SAMPLES}.
+ */
+const WORD_SAMPLES: readonly string[] = [
+  'bash', 'edit', 'glob', 'grep', 'lsp', 'present', 'pwsh', 'ralph', 'read', 'skill', 'subagent', 'workflow', 'write',
+]
+
 describe('the gate itself', () => {
   it('reads a name of every family, every named tool and every quoted word, and not the words in ordinary prose', () => {
-    // A family no sample matches is a family this control does not check.
+    // A list entry no sample stands for is an entry this control does not check.
     expect(TOOL_FAMILIES.filter(family => !FAMILY_SAMPLES.some(name => family.test(name))).map(String)).toEqual([])
-    const names = [...FAMILY_SAMPLES, ...NAMED_TOOLS, ...WORD_TOOLS.flatMap(word => [`\`${word}\``, `"${word}"`])]
+    expect(NAMED_TOOLS.filter(name => !NAMED_SAMPLES.includes(name))).toEqual([])
+    expect(WORD_TOOLS.filter(word => !WORD_SAMPLES.includes(word))).toEqual([])
+    const quoted = WORD_SAMPLES.flatMap(word => [`\`${word}\``, `"${word}"`, `'${word}'`])
+    const names = [...FAMILY_SAMPLES, ...NAMED_SAMPLES, ...quoted]
     expect(names.filter(name => toolNameIn(`Then call ${name} on the same rows.`) !== name)).toEqual([])
     const prose = ['read-only', '\'read-only\'', 'written down', '\'written down\'', 'a view written down for this deployment']
     expect(prose.filter(sentence => toolNameIn(sentence) !== undefined)).toEqual([])
