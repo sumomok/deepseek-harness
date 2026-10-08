@@ -32,6 +32,8 @@ import {
 } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   InvokeRemoteRequest,
+  RemoteEventDelivery,
+  RemoteEventFilter,
   RemoteInvokeCall,
   RemoteInvokeOutcome,
   TypertGateway,
@@ -69,6 +71,8 @@ import {
 
 export type {
   InvokeRemoteRequest,
+  RemoteEventDelivery,
+  RemoteEventFilter,
   RemoteInvokeCall,
   RemoteInvokeOutcome,
   TypertGateway,
@@ -191,6 +195,8 @@ interface RegisteredRemoteEventSource {
 
 interface RemoteEventClient {
   readonly id: RemoteEventClientId
+  /** Peer that opened the stream; only it may answer the waterfalls delivered here. */
+  readonly peer: PeerScope
   readonly queue: RemoteEventQueue
   readonly signal: AbortSignal
   readonly deliveries: Map<RemoteEventId, PendingRemoteEvent>
@@ -200,6 +206,8 @@ interface PendingRemoteEvent {
   readonly id: RemoteEventId
   readonly source: TypertRemoteEventInvocation
   readonly frame: RemoteEventInvocationFrame
+  /** What the Remote Event filter receives for this waterfall, on first delivery and on each replay. */
+  readonly delivery: RemoteEventDelivery
   readonly deliveries: Set<RemoteEventClient>
   releaseContext: () => void
   releaseSignal: () => void
@@ -288,6 +296,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private srcClaims: ReadonlySet<string> | undefined
   private inProcessOperator: PeerScope | undefined
   private remoteEvents: RegisteredRemoteEventSource | undefined
+  private remoteEventFilter: RemoteEventFilter | undefined
+  /** Gateway plugin context; `this.ctx` is the caller's Context when a method is reached through it. */
+  private readonly gatewayCtx: Context
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
 
@@ -300,6 +311,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'typertGateway')
+    this.gatewayCtx = ctx
     const resolved = config as ResolvedConfig
     ctx.on('internal/service', () => {
       this.srcClaims = undefined
@@ -398,6 +410,26 @@ export class TypertGatewayService extends Service implements TypertGateway {
       }
       await registration.done
     }
+  }
+
+  /**
+   * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
+   * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
+   * to a connecting Client reaches that Client; a filter that throws withholds the event and is logged.
+   * @param filter - synchronous decision per event and Client.
+   * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+   * @throws Error when another filter is installed.
+   */
+  filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void> {
+    return this.ctx.effect(() => {
+      if (this.remoteEventFilter !== undefined) {
+        throw new Error('typert gateway: a Remote event filter is already installed')
+      }
+      this.remoteEventFilter = filter
+      return () => {
+        this.remoteEventFilter = undefined
+      }
+    }, 'api-gateway: Remote event filter')
   }
 
   private claimsEndpoint(endpoint: string): boolean {
@@ -609,6 +641,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
         if (client === undefined) {
           throw new Error('typert gateway: Remote event result identifies no active event stream')
         }
+        if (client.peer !== peer) {
+          throw new TypertGatewayError(
+            'gateway/forbidden',
+            REMOTE_EVENT_RESULT_ENDPOINT,
+            'Remote event result comes from a Peer other than the one that opened its event stream',
+          )
+        }
         this.receiveRemoteEventResult(client, result)
         return { ok: true, value: undefined }
       } catch (error) {
@@ -629,7 +668,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {
       // A Gateway-owned stream reads no uplink: releasing it now keeps its items out of the bounded inbox.
       releaseUplink(uplink)
-      return this.openRemoteEvents(payload, signal)
+      return this.openRemoteEvents(payload, signal, peer)
     }
     return this.openStream({ ...remoteRequest(endpoint, payload, signal, peer), uplink }, control)
   }
@@ -650,6 +689,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async *openRemoteEvents(
     payload: unknown,
     signal: AbortSignal,
+    peer: PeerScope | undefined,
   ): AsyncGenerator<
     RemoteEventEmitFrame | RemoteEventInvocationFrame | RemoteEventCancellationFrame
     | RemoteEventReadyFrame
@@ -680,12 +720,15 @@ export class TypertGatewayService extends Service implements TypertGateway {
     while (this.remoteEventClients.has(clientId)) clientId = randomUUID() as RemoteEventClientId
     const client: RemoteEventClient = {
       id: clientId,
+      peer: peer ?? this.operatorPeer(),
       queue: new RemoteEventQueue(),
       signal: lifetime,
       deliveries: new Map(),
     }
     this.remoteEventClients.set(clientId, client)
-    for (const pending of this.pendingRemoteEvents.values()) this.deliverRemoteEvent(pending, client)
+    for (const pending of this.pendingRemoteEvents.values()) {
+      if (this.admitsRemoteEvent(pending.delivery, client)) this.deliverRemoteEvent(pending, client)
+    }
     try {
       yield { ...REMOTE_EVENT_STREAM_READY, clientId, host: registration.host }
       yield* client.queue.iterate(lifetime)
@@ -718,7 +761,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
       event: frame.event,
       args: frame.args,
     }
-    for (const client of this.remoteEventClients.values()) client.queue.push(wire)
+    const delivery: RemoteEventDelivery = { kind: 'emit', event: frame.event, args: frame.args }
+    for (const client of this.remoteEventClients.values()) {
+      if (this.admitsRemoteEvent(delivery, client)) client.queue.push(wire)
+    }
   }
 
   private startRemoteEvent(source: TypertRemoteEventInvocation): void {
@@ -765,6 +811,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
           agentId: source.context.agentId,
           request: projected.request,
         },
+        delivery: {
+          kind: 'waterfall',
+          event: source.event,
+          agentId: source.context.agentId,
+          request: projected.request,
+        },
         deliveries: new Set(),
         releaseContext,
         releaseSignal: () => {
@@ -774,9 +826,28 @@ export class TypertGatewayService extends Service implements TypertGateway {
       this.pendingRemoteEvents.set(id, pending)
       for (const signal of signals) signal.addEventListener('abort', abort, { once: true })
       if ([...signals].some(signal => signal.aborted)) abort()
-      else for (const client of this.remoteEventClients.values()) this.deliverRemoteEvent(pending, client)
+      else {
+        for (const client of this.remoteEventClients.values()) {
+          if (this.admitsRemoteEvent(pending.delivery, client)) this.deliverRemoteEvent(pending, client)
+        }
+      }
     } catch (error) {
       source.reject(error)
+    }
+  }
+
+  /** Ask the installed filter whether `client` receives `delivery`; a throwing filter withholds it. */
+  private admitsRemoteEvent(delivery: RemoteEventDelivery, client: RemoteEventClient): boolean {
+    const filter = this.remoteEventFilter
+    if (filter === undefined) return true
+    try {
+      return filter(delivery, client.peer)
+    } catch (error) {
+      this.gatewayCtx.logger.warn(
+        `api-gateway: the Remote event filter threw for ${JSON.stringify(delivery.event)}; the event is withheld`,
+        error,
+      )
+      return false
     }
   }
 

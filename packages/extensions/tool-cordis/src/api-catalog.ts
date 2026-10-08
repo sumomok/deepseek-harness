@@ -3460,6 +3460,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'disposer removing this source and cancelling its active streams.',
       },
       {
+        signature: 'filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>',
+        description: 'Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall to a connecting Client reaches that Client; a filter that throws withholds the event and is logged.',
+        parameters: [{ name: 'filter', description: 'synchronous decision per event and Client.' }],
+        returns: 'asynchronous disposer removing the filter; it also leaves with the installing fiber.',
+        throws: ['Error when another filter is installed.'],
+      },
+      {
         signature: 'async invoke(request: InvokeRemoteRequest): Promise<unknown>',
         description: 'Invoke one live Remote method through strict generated reflection or SRC markers.',
         parameters: [{ name: 'request', description: 'decoded endpoint and exact named wire arguments.' }],
@@ -6483,6 +6490,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RemoteErrorDetailsMap',
     declaration: 'export interface RemoteErrorDetailsMap {\n    \'gateway/bad-request\': {\n        readonly issues?: readonly object[];\n    };\n    \'gateway/cancelled\': {};\n    \'gateway/internal\': {};\n}',
+  },
+  {
+    name: 'RemoteEventAgentId',
+    declaration: 'export type RemoteEventAgentId = Branded<\'RemoteEventAgentId\'>;',
+  },
+  {
+    name: 'RemoteEventDelivery',
+    declaration: 'export type RemoteEventDelivery = {\n    readonly kind: \'emit\';\n    readonly event: string;\n    readonly args: readonly unknown[];\n} | {\n    readonly kind: \'waterfall\';\n    readonly event: string;\n    readonly agentId: RemoteEventAgentId;\n    readonly request: Readonly<Record<string, unknown>>;\n};',
+  },
+  {
+    name: 'RemoteEventFilter',
+    declaration: 'export type RemoteEventFilter = (delivery: RemoteEventDelivery, peer: PeerScope) => boolean;',
   },
   {
     name: 'RemoteEventHostInfo',

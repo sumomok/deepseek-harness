@@ -332,6 +332,17 @@ interface TypertGateway {
     host: RemoteEventHostInfo,
   ): () => Promise<void>
   /**
+   * Install the sole Remote Event filter. From then on a forwarded notification reaches, and a scoped waterfall
+   * is delivered to, only the `$events` Clients whose opening Peer the filter accepts, both when the event arrives
+   * and when a Client connects while a waterfall is pending. A filter that throws counts as `false` and is logged.
+   * A waterfall that no Client receives stays pending. Installing or removing the filter does not revisit events
+   * already queued or withheld. Without a filter every Client receives every event.
+   * @param filter - synchronous decision per event and Client.
+   * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+   * @throws Error when another filter is installed.
+   */
+  filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>
+  /**
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
    * @returns the business result without output decoding.
@@ -472,6 +483,16 @@ hasLiveClient(): boolean
  * @returns disposer removing this source and cancelling its active streams.
  */
 registerRemoteEvents( source: TypertRemoteEventSource, host: RemoteEventHostInfo, ): () => Promise<void>
+
+/**
+ * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
+ * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
+ * to a connecting Client reaches that Client; a filter that throws withholds the event and is logged.
+ * @param filter - synchronous decision per event and Client.
+ * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+ * @throws Error when another filter is installed.
+ */
+filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>
 
 /**
  * Invoke one live Remote method through strict generated reflection or SRC markers.

@@ -5,7 +5,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvocationDescriptor, PeerScope } from '@deepseek-ai/dsh-typert-protocol'
-import type { RemoteEventHostInfo } from './stream-protocol.ts'
+import type { RemoteEventAgentId, RemoteEventHostInfo } from './stream-protocol.ts'
 
 /** One Remote method request after a carrier has decoded its envelope. */
 export interface InvokeRemoteRequest {
@@ -102,6 +102,38 @@ export interface TypertRemoteEventInvocation {
 export type TypertRemoteEventDispatch = TypertRemoteEventFrame | TypertRemoteEventInvocation
 
 /**
+ * One forwarded event as the Remote Event filter sees it before the Gateway
+ * queues it for one `$events` Client. Every field carries data the Gateway has
+ * already validated as lossless JSON, and the Client receives the same values.
+ */
+export type RemoteEventDelivery =
+  | {
+    readonly kind: 'emit'
+    /** Original Host Cordis event name. */
+    readonly event: string
+    /** Event argument list. */
+    readonly args: readonly unknown[]
+  }
+  | {
+    readonly kind: 'waterfall'
+    /** Original Host Cordis event name. */
+    readonly event: string
+    /** Identity of the Agent the waterfall is scoped to, as the Client frame carries it. */
+    readonly agentId: RemoteEventAgentId
+    /** Request fields without the Agent object and the cancellation signal. */
+    readonly request: Readonly<Record<string, unknown>>
+  }
+
+/**
+ * Decide whether one `$events` Client receives one forwarded event. The Gateway
+ * calls the filter synchronously, once per Client, and never awaits it.
+ * @param delivery - the forwarded event.
+ * @param peer - the Peer that opened the Client's `$events` stream.
+ * @returns `true` to deliver the event to this Client; `false` to withhold it.
+ */
+export type RemoteEventFilter = (delivery: RemoteEventDelivery, peer: PeerScope) => boolean
+
+/**
  * Open the application-selected event stream for one Client carrier. The
  * factory must attach all incremental Host listeners before it returns; the
  * Gateway publishes its readiness item immediately afterward.
@@ -188,6 +220,18 @@ export interface TypertGateway {
     source: TypertRemoteEventSource,
     host: RemoteEventHostInfo,
   ): () => Promise<void>
+
+  /**
+   * Install the sole Remote Event filter. From then on a forwarded notification reaches, and a scoped waterfall
+   * is delivered to, only the `$events` Clients whose opening Peer the filter accepts, both when the event arrives
+   * and when a Client connects while a waterfall is pending. A filter that throws counts as `false` and is logged.
+   * A waterfall that no Client receives stays pending. Installing or removing the filter does not revisit events
+   * already queued or withheld. Without a filter every Client receives every event.
+   * @param filter - synchronous decision per event and Client.
+   * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+   * @throws Error when another filter is installed.
+   */
+  filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>
 
   /**
    * Invoke one live Remote method without assuming a carrier or response envelope.

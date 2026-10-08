@@ -6,8 +6,8 @@
   en: f13f63417e51d434
   zh: dda72028bc02ef6b
 /agent-note-one-host-serving-several-members/problem:
-  en: 0b620ac9d11adb34
-  zh: a39f04e9accbb764
+  en: 9fb7bf8927ad2002
+  zh: 57e7f4cb3be07f70
 /agent-note-one-host-serving-several-members/decision:
   en: a15c7c13f167e5ac
   zh: 63bcc2ef60c2f344
@@ -32,15 +32,18 @@
 /agent-note-one-host-serving-several-members/decision/fetch-routes-and-channels-pass-through-connection-fetch:
   en: 088dd2bd0f2f5732
   zh: 05f3f41e9d580c1d
+/agent-note-one-host-serving-several-members/decision/forwarded-events-pass-through-one-delivery-filter:
+  en: 6efb2e2cdf38d0db
+  zh: 3e7a3167b3f42805
 /agent-note-one-host-serving-several-members/decision/without-an-admitter:
-  en: bed20f35a5cac3ca
-  zh: c68f5c8d6d0e6b14
+  en: 0865857da35bdbe5
+  zh: b829fcb44e025dcb
 /agent-note-one-host-serving-several-members/decision/retirement:
-  en: 2182183c4f870186
-  zh: 56503b8003be4d19
+  en: 17046d3c94f33368
+  zh: 423c2b4b732647fd
 /agent-note-one-host-serving-several-members/alternatives-considered:
-  en: 8acba83d3f586471
-  zh: d6035fcb71ac8638
+  en: 748b7ffd134f9c06
+  zh: 4639940d9d6f9b69
 /agent-note-one-host-serving-several-members/consequences:
-  en: 484fa7c290d787ad
-  zh: 167223e53f7ba75b
+  en: 6703e461cd683e8d
+  zh: a863035f86159131
