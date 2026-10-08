@@ -68,7 +68,9 @@ Gateway 先解析描述符，再把一个 `RemoteInvokeCall` 交给监听器：e
 
 监听器通过抛出 `RemoteError` 拒绝调用，`gateway/forbidden` 是 Gateway 为访问被拒提供的码。拒绝会跳过 `next()`；仓库「waterfall 监听器必须调用 `next()`」的规则管的是委托，拒绝或代替方法作答是监听器自己的决定。监听器赋给 `call.args` 的参数与 Client 发来的参数经过同样的校验，因为 `next()` 在运行时才读这个字段。改写后的一元值与方法结果一样经过 `/api` 编码器，Gateway 对二者都不按 result codec 校验。返回另一种模式的结果时，调用以 `gateway/result-invalid` 失败。
 
-监听器共用一个 `next()`，它运行下一个尚未运行的监听器，所以一个监听器的拒绝或检查只在它之前的每个监听器都调用一次 `next()` 时成立，它看到的 `call.args` 是它之后的监听器替换之前的值（[Gateway README](../../../../packages/api/gateway/README.zh.md#host-service-typertgatewayservice-ctx-key-typertgateway)）。因此多人控制台的组合把全部规则放在一个 `remote/invoke` 监听器里，不注册别的。
+Cordis 的 `waterfall()` 把同一个 `next()` 交给每个监听器，第二次调用会运行下一个尚未运行的监听器，所以拒绝之后的重试会跳过拒绝的监听器、直达方法。因此 Gateway 用 `events.dispatch()` 解析监听器，它的上下文过滤与 `waterfall()` 相同，并且只发一次 `internal/dispatch`，再自己组装调用链：每个监听器的 `next()` 在一次调用里至多运行一次其后的调用链，之后的每次调用都拿到第一次调用的结果，所以再次调用 `next()` 绕不过拒绝，方法至多运行一次。`internal/dispatch` 监听器收到的是调用链的第一个位置，它发起的调用按顺序经过每个监听器。方法以 Gateway 构造调用时固定下来的 Peer 运行，Gateway 读的是这个值、从不读 `call.peer`，所以写入 `call.peer` 的监听器改变不了方法以谁的身份运行。监听器看到的 `call.args` 仍是它之后的监听器替换之前的值（[Gateway README](../../../../packages/api/gateway/README.zh.md#host-service-typertgatewayservice-ctx-key-typertgateway)），所以多人控制台的组合把全部规则放在一个 `remote/invoke` 监听器里，不注册别的。
+
+成员准入开启而没有注册 `remote/invoke` 监听器时，调用在描述符解析之后以 `gateway/service-unavailable` 失败，方法不运行，所有入口与载体都如此，Host 自己的进程内调用也一样。因此守卫插件仍在加载、正在重启或 apply 失败时，每个 Remote 方法都是关着的。Gateway 从 Connection 的 `peers.memberAdmission` 读取成员准入；没有 Connection 的 Host 上成员准入是关闭的。
 
 `next()` 同步开始分发，校验与方法调用在同一异步上下文里继续，所以在 `AsyncLocalStorage.run()` 里调用 `next()` 的监听器能让方法读取到的东西看见调用方。流方法的正文在载体拉取项时才运行，那时 waterfall 已经返回，所以需要在那里保留上下文的监听器，要在它返回的 source 每次被拉取时重新进入该上下文。
 
@@ -159,5 +161,5 @@ Connection 在每个精确 Fetch 路由与每个经 `rpc.handle` 登记的通道
 - **一个过滤器为每个 Client 裁决每个转发事件**：控制台的事件表可以只把每个会话的事件与审批发给它的归属人，成员也只能答复投给自己 Client 的 waterfall。
 - **归属人离线时审批等待**：它保持 pending，直到归属人重新连上，或它的 Agent Context 或信号结束它，除非过滤器所在的插件另作选择。
 - **改变过滤器不回头处理已入队的事件**：被过滤器跳过的 Client 要重连之后才收到仍然 pending 的 waterfall。
-- **`remote/invoke` 也看到 Host 自己的进程内调用**，它们带的是操作者 Peer；限制成员的监听器要放行操作者的调用。
-- **流调用以流作答时，监听器自己 return 它丢弃的每条流**：对 source 的 iterator 调用 `return()` 会释放这次调用的上行，再打开并 return 方法的 iterator（拉取过项时 return 已打开的那个；该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）。只有监听器抛错或返回 value 时，Gateway 才 return 本次调用中 `next()` 已打开或正在打开的流；这时调用方立即收到错误，Gateway 中止方法的 `signal`，让这些流上仍在等待方法的 `next()` 以一个错误完成并为它挂上处理，在后台 return 这些流，所以流方法必须在 `signal` 中止时结束。方法自身的失败在这次释放之前结束的 `next()` 归监听器，丢弃它会让 `dsh` profile 启动的宿主退出，所以监听器不得丢弃这些流上的 `next()`。Gateway 收到瀑布结果之后调用的 `next()` 直接 reject，不执行方法；除非最外层监听器同步抛错，在它返回或抛错之前排入 microtask 的 `next()` 仍会执行方法。结果是流时，它可能包着这些流，Gateway 一条都不 return，所以监听器捕获在它之后的监听器的错误、再调用一次 `next()` 时，第一次打开的流若没有监听器 return 就一直保持打开。
+- **`remote/invoke` 也看到 Host 自己的进程内调用**，它们带的是操作者 Peer；限制成员的监听器要放行操作者的调用，而成员准入开启且没有注册监听器时，这些调用同样以 `gateway/service-unavailable` 失败。
+- **流调用以流作答时，监听器自己 return 它丢弃的每条流**：对 source 的 iterator 调用 `return()` 会释放这次调用的上行，再打开并 return 方法的 iterator（拉取过项时 return 已打开的那个；该 iterator 上有尚未完成的 `next()` 时在它完成之后进行）。只有监听器抛错或返回 value 时，Gateway 才 return 本次调用中 `next()` 已打开或正在打开的那条流；这时调用方立即收到错误，Gateway 中止方法的 `signal`，让这条流上仍在等待方法的 `next()` 以一个错误完成并为它挂上处理，在后台 return 这条流，所以流方法必须在 `signal` 中止时结束。方法自身的失败在这次释放之前结束的 `next()` 归监听器，丢弃它会让 `dsh` profile 启动的宿主退出，所以监听器不得丢弃这条流上的 `next()`。Gateway 收到瀑布结果之后，监听器第一次调用的 `next()` 直接 reject，不执行方法，重复调用的则返回该监听器第一次得到的结果；除非最外层监听器同步抛错，在它返回或抛错之前排入 microtask 的 `next()` 仍会执行方法。结果是流时，它可能包着方法的流，Gateway 一条都不 return，所以监听器捕获在它之后的监听器的错误、再以自己的流作答时，方法的流若没有监听器 return 就一直保持打开。

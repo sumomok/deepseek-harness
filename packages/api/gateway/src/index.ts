@@ -114,10 +114,13 @@ declare module '@deepseek-ai/cordis' {
      * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
      * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
      * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
-     * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
-     * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
-     * method when none remains. A listener's refusal or check therefore holds only while every listener
-     * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+     * `call.args`, then return a rewritten value or a wrapped stream. Each listener's `next()` runs the
+     * listeners after it and the method at most once per call: a repeated call returns the first call's
+     * promise, or throws its synchronous error, so after a later listener refuses, every later `next()` of
+     * that listener returns the refusal, and the method runs at most once. A listener sees `call.args` before
+     * any listener after it replaces them. The method runs as the Peer the call was built with, whatever a
+     * listener writes to `call.peer`. While `connection.peers.memberAdmission` is true and no listener is
+     * registered, the call fails with `gateway/service-unavailable` and the method does not run.
      * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
      * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
      * calling `next()` answers in the method's place. The method runs in the async context that called
@@ -126,7 +129,7 @@ declare module '@deepseek-ai/cordis' {
      * call's uplink and opens and returns the method's iterator, or returns the one already open when items
      * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
      * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
-     * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
+     * with it and returns, in the background, the stream that a `next()` called during the waterfall opened
      * or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles
      * with a failure once the method's iterator has returned, so a stream method must end when its `signal`
      * aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway
@@ -136,10 +139,11 @@ declare module '@deepseek-ai/cordis' {
      * rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a
      * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
      * none of them: the listeners own every stream the call opened, and a listener that discards one returns
-     * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
-     * the method. The Gateway receives the outermost listener's outcome at once when that listener throws
-     * synchronously, and otherwise only after the microtasks it queued before returning or throwing have
-     * run, so a `next()` called from one of them still runs the method.
+     * it. A first `next()` of a listener called after the Gateway has received the waterfall's outcome rejects
+     * without running the method; a repeated one returns that listener's first outcome. The Gateway receives
+     * the outermost listener's outcome at once when that listener throws synchronously, and otherwise only
+     * after the microtasks it queued before returning or throwing have run, so a `next()` called from one of
+     * them still runs the method.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -164,7 +168,15 @@ interface PendingInvocation {
   readonly descriptor: InvocationDescriptor
   /** The object `remote/invoke` listeners receive; the end of the waterfall reads its `args`. */
   readonly call: RemoteInvokeCall
+  /** The Peer the call speaks for, fixed when the call is built; the method runs as it whatever `call.peer` holds. */
+  readonly peer: PeerScope
 }
+
+/** One position of a `remote/invoke` chain: the listeners from that position on, then the method. */
+type InvokeStep = () => Promise<RemoteInvokeOutcome>
+
+/** One `remote/invoke` listener as Cordis resolves it for a dispatch. */
+type InvokeListener = (call: RemoteInvokeCall, next: InvokeStep) => Promise<RemoteInvokeOutcome>
 
 interface PreparedInvocation {
   readonly endpoint: string
@@ -488,23 +500,62 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private pendingInvocation(request: InvokeRemoteRequest, mode: RemoteInvokeCall['mode']): PendingInvocation {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
+    const peer = request.peer ?? this.operatorPeer()
     const call: RemoteInvokeCall = {
       endpoint,
       mode,
-      peer: request.peer ?? this.operatorPeer(),
+      peer,
       invocation: descriptor.invocation,
       ...(descriptor.scope === undefined ? {} : { scope: descriptor.scope }),
       parameters: descriptor.parameters,
       args: request.args,
     }
-    return { request, descriptor, call }
+    return { request, descriptor, call, peer }
+  }
+
+  /**
+   * Run the `remote/invoke` listeners around `method` for one call. The listeners are the ones `waterfall()` would
+   * run: the event has no `this` argument, so Cordis applies no context filter, and resolving them here emits
+   * `internal/dispatch` once with the call and the chain's first position. Each listener receives the next position,
+   * which runs the rest of the chain at most once and hands every later call the first call's outcome.
+   * @param call - the call the listeners receive.
+   * @param method - the end of the chain, which validates `call.args` and calls the method.
+   * @returns the outermost listener's outcome, or the method's when no listener is registered.
+   * @throws {@link TypertGatewayError} `gateway/service-unavailable` when member admission is on and no listener is
+   * registered; the method does not run. A listener's synchronous throw is thrown as it is.
+   */
+  private runInvokeChain(call: RemoteInvokeCall, method: InvokeStep): Promise<RemoteInvokeOutcome> {
+    let head: InvokeStep | undefined
+    // An `internal/dispatch` listener may call the first position before the chain exists; it then runs once the
+    // chain does, as the second call of that position.
+    const entry: InvokeStep = () => head === undefined ? Promise.resolve().then(entry) : head()
+    const listeners: InvokeListener[] = this.ctx.events.dispatch('waterfall', ['remote/invoke', call, entry])
+    if (listeners.length === 0 && this.isMemberAdmission()) {
+      const refusal = new TypertGatewayError(
+        'gateway/service-unavailable',
+        call.endpoint,
+        'no remote/invoke listener is registered while member admission is on',
+      )
+      head = () => Promise.reject(refusal)
+      throw refusal
+    }
+    head = listeners.reduceRight<InvokeStep>((below, listener) => atMostOnce(() => listener(call, below)), atMostOnce(method))
+    return head()
+  }
+
+  /**
+   * Report whether member admission is on.
+   * @returns Connection's `peers.memberAdmission`, or `false` on a Host without Connection.
+   */
+  private isMemberAdmission(): boolean {
+    return this.ctx.get('connection')?.peers.memberAdmission ?? false
   }
 
   private async invokeUnary(pending: PendingInvocation): Promise<unknown> {
     let ended = false
     let outcome: RemoteInvokeOutcome
     try {
-      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+      outcome = await this.runInvokeChain(pending.call, async () => {
         if (ended) throw nextAfterWaterfall(pending.call.endpoint)
         return {
           kind: 'value',
@@ -559,7 +610,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
     const pending = this.pendingInvocation(request, 'stream')
     const { endpoint } = pending.call
-    // Each `next()` that reaches the method opens one stream; a listener that calls `next()` again opens another.
+    // The method runs at most once per call, so at most one stream opens.
     const streams: OpeningStream[] = []
     // Aborted when the call fails, which aborts the signal of each method those streams run. Aborting `control` instead
     // would cancel the carrier's stream, so the WebSocket mux would send no error frame.
@@ -567,8 +618,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
     let ended = false
     let outcome: RemoteInvokeOutcome
     try {
-      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
-      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+      // A listener that throws synchronously makes `runInvokeChain()` throw rather than reject.
+      outcome = await this.runInvokeChain(pending.call, async () => {
         if (ended) throw nextAfterWaterfall(endpoint)
         const stream: OpeningStream = { opening: this.openPreparedStream(pending, control, release.signal), opened: undefined }
         streams.push(stream)
@@ -969,7 +1020,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const invocation = new GatewayInvocation(
       { namespace: request.namespace, method: request.method, args: wire },
       descriptor.service,
-      call.peer,
+      pending.peer,
       signal,
       {
         source: request.uplink ?? EMPTY_ASYNC_ITERABLE,
@@ -1579,6 +1630,32 @@ function releaseReason(endpoint: string, failure: unknown): unknown {
  * @param endpoint - canonical endpoint of the call.
  * @returns the failure.
  */
+/**
+ * Wrap one position of a `remote/invoke` chain so that it runs at most once.
+ * @param step - the listener at that position, called with the next position, or the method.
+ * @returns a step whose first call runs `step` and whose every later call returns the first call's promise, or throws
+ * the first call's synchronous error; a call made while the first is still running synchronously settles with the
+ * first call's outcome.
+ */
+function atMostOnce(step: InvokeStep): InvokeStep {
+  let first: { readonly outcome: Promise<RemoteInvokeOutcome> } | { readonly error: unknown } | undefined
+  let running = false
+  const run: InvokeStep = () => {
+    if (first === undefined) {
+      if (running) return Promise.resolve().then(run)
+      running = true
+      try {
+        first = { outcome: step() }
+      } catch (error) {
+        first = { error }
+      }
+    }
+    if ('error' in first) throw first.error
+    return first.outcome
+  }
+  return run
+}
+
 function nextAfterWaterfall(endpoint: string): Error {
   return new Error(`remote/invoke: next() for ${endpoint} was called after the waterfall ended`)
 }

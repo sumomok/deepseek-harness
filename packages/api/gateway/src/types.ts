@@ -38,7 +38,10 @@ export interface RemoteInvokeCall {
    * stream carriers. A method whose descriptor has the other mode fails inside `next()` with `gateway/signature-invalid`.
    */
   readonly mode: 'unary' | 'stream'
-  /** Peer the call speaks for: the Peer Connection admitted, or the operator for an in-process carrier that names none. */
+  /**
+   * Peer the call speaks for: the Peer Connection admitted, or the operator for an in-process carrier that names none.
+   * The Gateway fixes it when it builds the call; the method runs as that Peer whatever a listener writes here.
+   */
   readonly peer: PeerScope
   /** Receiver selection: `direct`, or `context` with its Context kind and the wire field carrying its identity. */
   readonly invocation: InvocationDescriptor['invocation']
