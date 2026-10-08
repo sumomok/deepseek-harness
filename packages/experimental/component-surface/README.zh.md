@@ -116,7 +116,7 @@ component-surface: views[0] "site-overview" — spec.nodes[0].component — name
 
 被贡献的视图还可以带 `params`，于是它 `spec` 里任何一处写成 `{"$param": "<名字>"}` 的属性都代表 params 里的那一项。替换发生在读取视图的时候，而不是展示的时候，所以组件目录判的就是将要画出来的东西，下游看到的也只是一份普通的 spec。视图没有声明的名字、值不是文本/数字/是否的参数，以及站在列表某一项位置上的引用，都会按它所在的路径被拒绝。`{"$from": …}` 原样保留：那条引用是在页面里、从另一块当前报告的内容中解析出来的，而那是任何宿主都没有的值。
 
-包根导出组件目录以外判视图文件用到的东西：id、标题、节点、布局和 spec 大小的上限，`$from` 与 `$param` 两个键和绑定写法，`describeSchema`，`DATA_PAGE_ID`，`withheldComponents`，以及 `unbindableReason`。`withheldComponents` 列出一套组合注册了但不交出的组件；`unbindableReason` 说明组件自己的某个属性为什么不能从别的块读取。[`skill-pack-components`](../skill-pack-components/README.zh.md#the-component-catalog-file) 用它们写组件目录文件。
+包根导出组件目录以外判视图文件用到的东西：id、标题、节点、布局和 spec 大小的上限，spec、节点、stack 和放进布局的块各自能带的键，`$from` 与 `$param` 两个键和绑定写法，`describeSchema`，`DATA_PAGE_ID`，`withheldComponents`，以及 `unbindableReason`。`withheldComponents` 列出一套组合注册了但不交出的组件；`unbindableReason` 说明组件自己的某个属性为什么不能从别的块读取。[`skill-pack-components`](../skill-pack-components/README.zh.md#the-component-catalog-file) 用它们写组件目录文件。
 
 有两处注册只在配了视图时才存在。`GET /component-surface/views` 回的是导航菜单据以搭建的目录——`{"views":[{"id","title"},…],"homeView"?}`——除此之外别无他物：spec 从不走这条路由，所以页面无法索取部署没有配置过的视图。`/show-content-view <id>` 是一次点击真正执行的东西；它追加下面那条事件，对宿主接住的点击在对话里什么也不画，对点名不到视图的点击只回一句 `没有这个视图。`——那也是它那行对话唯一会画的东西。点击已经在屏幕上的那个视图会再追加一次，这正是让那条条目回到切换条最前面、而不是什么都不发生的原因。该命令声明了 `engages: false`，所以它的 `command/run` 不动 Session 列表的 `blank` 标记：一个草稿如果只是显示过视图，就仍然可以作为工作台的空白草稿被复用。
 

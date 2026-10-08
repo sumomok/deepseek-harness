@@ -101,11 +101,11 @@ export type ComponentSpecResult =
   | { readonly ok: true; readonly spec: ComponentSpec }
   | { readonly ok: false; readonly failure: ComponentCallFailure }
 
-/** The property names a node object may carry. */
-const NODE_KEYS: readonly string[] = ['id', 'component', 'props']
+/** The property names a node object may carry; a node carrying any other is refused, naming the key. */
+export const NODE_KEYS: readonly string[] = ['id', 'component', 'props']
 
-/** The property names a spec document may carry. */
-const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
+/** The property names a spec document may carry; a spec carrying any other is refused, naming the key. */
+export const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
 
 /**
  * Build one refusal.

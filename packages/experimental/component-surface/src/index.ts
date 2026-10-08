@@ -122,7 +122,7 @@ export {
 } from './component-call.ts'
 export { PARAM_KEY } from './params.ts'
 export { withheldComponents } from './tool.ts'
-export { unbindableReason } from './validate.ts'
+export { NODE_KEYS, SPEC_KEYS, unbindableReason } from './validate.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-component'
