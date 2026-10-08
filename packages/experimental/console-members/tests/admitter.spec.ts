@@ -236,6 +236,26 @@ describe('principals and onChange', () => {
     expect(changes).toEqual([{ principal: ALICE, kind: 'opened' }, { principal: ALICE, kind: 'closed' }])
   })
 
+  it('keeps one Peer for a member whose first admission is re-entered from a connection/peer-opened listener', async () => {
+    const row = await mountMembers()
+    const assertion = assertionFor(ALICE)
+    const changes: unknown[] = []
+    directory(row).onChange((change) => { changes.push(change) })
+    let reentered = false
+    let inner: PeerScope | undefined
+    row.ctx.on('connection/peer-opened', () => {
+      if (reentered) return
+      reentered = true
+      inner = peerOf(row, assertion)
+    })
+    const outer = peerOf(row, assertion)
+    expect(outer === inner).toBe(true)
+    await vi.waitFor(() => { expect(row.ctx.connection.peers.list()).toEqual([outer]) })
+    expect(directory(row).principals()).toEqual([ALICE])
+    expect(directory(row).principalOfCaller(outer)).toBe(ALICE)
+    expect(changes).toEqual([{ principal: ALICE, kind: 'opened' }])
+  })
+
   it('keeps notifying the other listeners when one throws, and logs neither its error nor the member', async () => {
     const row = await mountMembers()
     const seen: string[] = []

@@ -212,13 +212,22 @@ export class MemberPeers {
 
   /**
    * Register the member's root, then open and record a Peer for them.
+   * Connection emits `connection/peer-opened` inside `peers.open()`, so a
+   * listener that admits the same member records an entry first; the Peer
+   * opened here is then disposed and that entry answered, which keeps one
+   * Peer per member.
    * @param principal - the member.
-   * @returns the new entry.
+   * @returns the member's entry.
    * @throws {Error} when registering the member's root fails; no Peer is opened then.
    */
   private open(principal: PrincipalKey): MemberEntry {
     this.options.ensureMember(principal)
     const peer = this.options.peers.open()
+    const recorded = this.byPrincipal.get(principal)
+    if (recorded !== undefined) {
+      void peer.dispose()
+      return recorded
+    }
     const entry: MemberEntry = { principal, peer, sockets: new Set(), lastActive: Date.now(), idleTimer: undefined }
     this.byPrincipal.set(principal, entry)
     this.byPeer.set(peer.id, entry)
