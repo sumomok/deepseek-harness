@@ -117,6 +117,7 @@ describe('admitting a request', () => {
   it('answers principalOfRequest undefined for a refused request', async () => {
     const row = await mountMembers()
     expect(directory(row).principalOfRequest({ headers: requestHeaders(undefined) } as never)).toBeUndefined()
+    expect(directory(row).principalOfRequest({ headers: requestHeaders(assertionFor(ALICE, nowSeconds() - 1)) } as never)).toBeUndefined()
     expect(directory(row).principalOfRequest({ headers: { 'x-dsh-member': assertionFor(ALICE) } } as never)).toBeUndefined()
     expect(row.ctx.connection.peers.list()).toEqual([])
   })

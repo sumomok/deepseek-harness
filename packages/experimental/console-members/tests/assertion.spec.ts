@@ -80,6 +80,11 @@ describe('verifyAssertion', () => {
     expect(verifyValue(`${version}.${payload}.${signature}`)).toEqual({ refusal: 'signature' })
   })
 
+  it('checks the signature before the payload', () => {
+    const other = generateKeyPairSync('ed25519').privateKey
+    expect(verifyValue(signPayload('not json', other))).toEqual({ refusal: 'signature' })
+  })
+
   it('refuses a signature of the wrong length', () => {
     const [version, payload] = assertionFor(ALICE, EXP).split('.')
     expect(verifyValue(`${version}.${payload}.AAAA`)).toEqual({ refusal: 'signature' })
@@ -114,6 +119,10 @@ describe('verifyAssertion', () => {
 
   it('refuses another deployment\'s assertion', () => {
     expect(verifyValue(signFields({ p: ALICE, aud: 'deployment-other', exp: EXP }))).toEqual({ refusal: 'audience' })
+  })
+
+  it('refuses an aud that differs from the deployment id only in letter case', () => {
+    expect(verifyValue(signFields({ p: ALICE, aud: DEPLOYMENT_ID.toUpperCase(), exp: EXP }))).toEqual({ refusal: 'audience' })
   })
 
   it('answers no refusal that carries any part of the header value', () => {
