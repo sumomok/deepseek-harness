@@ -11,6 +11,6 @@
 /console-members/a-child-session-follows-its-parent-not-its-own-cwd:
   en: 39a6f949e4b05a9b
   zh: 9da412b58b1d85df
-/console-members/the-directory-is-not-a-path-to-customer-tokens:
-  en: dedb32f4e7d5f877
-  zh: 622341d9f99d555f
+/console-members/no-directory-method-returns-a-customer-token:
+  en: 19d6f0ec704f7890
+  zh: f26adcdca479d08f

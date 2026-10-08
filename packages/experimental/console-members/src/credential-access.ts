@@ -3,15 +3,23 @@
  * console line's organization credential source: members' customer tokens
  * through the attached reader, and every member in the root registry.
  *
- * Neither function is reachable through `ctx.consoleMembers` or
- * {@link ConsoleMemberDirectory}; a plugin reaches them by importing this
- * subpath and passing its `ctx.consoleMembers`. Both read the row's state
- * through the symbol the package root's directory holds it under, so this
- * entry and the package root must share one copy of that module.
+ * Neither function is a method of {@link ConsoleMemberDirectory}; a plugin
+ * calls them by importing this subpath and passing its `ctx.consoleMembers`.
+ * Both read the row's state through the symbol the package root's directory
+ * holds it under, so this entry and the package root must share one copy of
+ * that module. This entry is a typed access path, not a confidentiality
+ * boundary: any plugin holding `ctx.consoleMembers` can reach the same state.
+ * Its source imports Host modules, so only Host plugins import it; Client
+ * programs import `./types`.
  *
  * Every `onChange`, `onDetached` and `onAdded` returns a plain disposer and
  * belongs to no fiber; register it inside the calling plugin's `ctx.effect`
- * so it ends when that plugin unloads.
+ * so it ends when that plugin unloads. An access object is bound to the row
+ * instance it was created from, so create it in the scope that injects
+ * `consoleMembers`. When the row unloads, that scope is disposed before the
+ * token holder's disposer runs, so an `onDetached` listener registered in it
+ * is not called; the scope's own cleanup counts as every token being
+ * dropped.
  * @module @deepseek-ai/dsh-experimental-console-members/credential-access
  */
 

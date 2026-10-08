@@ -52,9 +52,9 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 ### 客户 token 与已登记成员
 
-token 持有方（开了 `shareWithMemberDirectory` 的 auth-gate）在自己的 `ctx.effect` 里调 `ctx.consoleMembers.attachCustomerCredentials(reader)`，并在这个 effect 的清理里执行返回的 disposer。插件行同一时刻只持有一个读取器：已挂着时再挂抛错，disposer 执行之后可以挂另一个。执行 disposer 等于每位成员的 token 都已丢弃，读取器不为此报 `dropped`。disposer 只生效一次：先停止读取和转发这个读取器，再同步调用每个 `onDetached` 监听者，然后才腾出位置，所以在 `onDetached` 监听者里挂读取器会被拒。同一个 disposer 重复调用或迟到调用都不再通知任何人，也不动在那之后挂上的读取器。
+token 持有方（开了 `shareWithMemberDirectory` 的 auth-gate）在自己的 `ctx.effect` 里调 `ctx.consoleMembers.attachCustomerCredentials(reader)`，并在这个 effect 的清理里执行返回的 disposer。插件行同一时刻只持有一个读取器：已挂着时再挂抛错，disposer 执行之后可以挂另一个。执行 disposer 等于每位成员的 token 都已丢弃，读取器不为此报 `dropped`。disposer 只生效一次：先停止读取和转发这个读取器，再同步调用每个 `onDetached` 监听者，然后才腾出位置，所以在 `onDetached` 监听者里挂读取器会被拒。同一个 disposer 重复调用或迟到调用都不再通知任何人，也不动在那之后挂上的读取器。读取器在 `onChange` 订阅过程中报告的变化不转发，因为 `onChange` 返回之后读取器才算挂上。
 
-控制台线的凭据来源经 `@deepseek-ai/dsh-experimental-console-members/credential-access` 读取 token，`ctx.consoleMembers` 不提供这些：
+控制台线的凭据来源经 `@deepseek-ai/dsh-experimental-console-members/credential-access` 读取 token。它的源码导入 Host 模块，所以只有 Host 插件导入它；Client 程序导入 `/types`：
 
 ```ts
 import type { Context } from '@deepseek-ai/cordis'
@@ -69,7 +69,9 @@ ctx.effect(() => registry.onAdded((member) => { void member }), 'credential sour
 const everyMember = registry.principals()
 ```
 
-`read(principal)` 答已挂读取器里的 token；没有读取器挂着，或它的 disposer 已经开始时答 `undefined`。`onChange` 转发已挂读取器的 `set` 与 `dropped`，跨越撤下与重挂一直有效。`onDetached` 监听者不得读取 token：持有方可能在执行 disposer 之前已经吊销了读取器，而且 `read` 此时已经答 `undefined`。`principals()` 列出至少准入过一次的每位成员，包括当前没有打开 Peer 的成员；只被某条 `rootSeeds` 点名的主体在首次准入时加入。`onAdded` 报告这次首次准入，同步发生在这位成员的 Peer 打开之前，之后不再为这位成员报告；登记表没有移除。每个 `onChange`、`onDetached` 与 `onAdded` 都返回普通的 disposer，所以调用方在自己的 `ctx.effect` 里注册。抛错的监听者被记入日志，但不记它的错误或成员，其余监听者照常调用。
+`read(principal)` 答已挂读取器里的 token；没有读取器挂着，或它的 disposer 已经开始时答 `undefined`。`onChange` 转发已挂读取器的 `set` 与 `dropped`，跨越撤下与重挂一直有效；某个读取器的 disposer 一开始，就没有监听者再收到这个读取器的变化，正在转发的那一次也一样。`onDetached` 监听者不得读取 token：持有方可能在执行 disposer 之前已经吊销了读取器，而且 `read` 此时已经答 `undefined`。`principals()` 列出至少准入过一次的每位成员，包括当前没有打开 Peer 的成员；只被某条 `rootSeeds` 点名的主体在首次准入时加入。`onAdded` 报告这次首次准入，同步发生在这位成员的 Peer 打开之前，之后不再为这位成员报告；登记表没有移除。每个 `onChange`、`onDetached` 与 `onAdded` 都返回普通的 disposer，所以调用方在自己的 `ctx.effect` 里注册；已经在进行的一次通知仍会调用在通知过程中被移除的监听者。抛错的监听者被记入日志，但不记它的错误或成员，其余监听者照常调用。
+
+访问对象绑定在创建它的那个插件行实例上，所以在注入 `consoleMembers` 的那个作用域里创建它；插件行重新加载之后要重新创建访问对象。插件行卸载时，这个作用域先于持有方的 disposer 被释放，所以在其中注册的 `onDetached` 监听者不会被调用；这个作用域自己的清理就算每位成员的 token 都已丢弃。`/credential-access` 是读取 token 的带类型途径，不是保密边界：目录把插件行的状态（包括读取器）挂在一个 symbol 下，`ctx.consoleMembers` 会把它原样透过，所以握有目录的任何插件都能拿到 token，也能替换这份状态。同一进程里的插件是受信任的；只挂一个读取器的规则决定由哪个读取器提供 token，不决定谁能经它读取。
 
 ### 配置插件行
 
