@@ -812,7 +812,7 @@ describe('connection/fetch', () => {
     expect(mounted.reached).toEqual([])
   })
 
-  it('emits internal/dispatch once per guarded request, with the call and the dispatching next()', async () => {
+  it('emits internal/dispatch once per guarded request, with the call and the waterfall\'s first position', async () => {
     const route = vi.fn(async () => new Response('route body'))
     const guarded = await bareRoute(route)
     const dispatched: unknown[][] = []
@@ -828,7 +828,49 @@ describe('connection/fetch', () => {
     expect(route).toHaveBeenCalledTimes(1)
   })
 
-  it('dispatches nothing for an internal/dispatch call of next() when the request is answered 503', async () => {
+  it('settles an internal/dispatch step with the waterfall\'s outcome, so the step meets a refusing listener', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    let step: (() => Promise<Response>) | undefined
+    const steps: Promise<Response>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name !== 'connection/fetch') return
+      step = args.at(-1) as () => Promise<Response>
+      steps.push(step())
+    }, { global: true })
+    const refusal = vi.fn(async () => {
+      await new Promise(resolve => setImmediate(resolve))
+      if (step !== undefined) steps.push(step())
+      return new Response('refused', { status: 403 })
+    })
+    guarded.ctx.on('connection/fetch', refusal)
+
+    const answer = await guarded.fetch()
+    if (step !== undefined) steps.push(step())
+
+    expect(answer.status).toBe(403)
+    expect(steps).toHaveLength(3)
+    for (const settled of await Promise.all(steps)) expect(settled).toBe(answer)
+    expect(refusal).toHaveBeenCalledTimes(1)
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('rejects an internal/dispatch step with the error a listener throws synchronously', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const thrown = new Error('fixture: refused synchronously')
+    const steps: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'connection/fetch') steps.push((args.at(-1) as () => Promise<Response>)().catch((error: unknown) => error))
+    }, { global: true })
+    guarded.ctx.on('connection/fetch', () => { throw thrown })
+
+    await expect(guarded.fetch()).rejects.toBe(thrown)
+    expect(await Promise.all(steps)).toEqual([thrown])
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('dispatches nothing through an internal/dispatch step when the request is answered 503', async () => {
     const route = vi.fn(async () => new Response('route body'))
     const guarded = await bareRoute(route)
     const member = guarded.ctx.connection.peers.open()
@@ -849,7 +891,7 @@ describe('connection/fetch', () => {
     expect(route).not.toHaveBeenCalled()
   })
 
-  it('dispatches nothing for an internal/dispatch call of next() when another internal/dispatch listener throws', async () => {
+  it('dispatches nothing through an internal/dispatch step when another internal/dispatch listener throws', async () => {
     const route = vi.fn(async () => new Response('route body'))
     const guarded = await bareRoute(route)
     const veto = new Error('fixture: vetoed by internal/dispatch')

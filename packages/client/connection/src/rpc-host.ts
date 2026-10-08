@@ -217,8 +217,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Run `connection/fetch` around one dispatch to a route or channel. While member admission is on and no listener
-   * is registered, answer 503 without dispatching. An `internal/dispatch` listener receives a step that calls the
-   * dispatching `next()` once the listeners are resolved, skipping them. The body of each Response the
+   * is registered, answer 503 without dispatching. An `internal/dispatch` listener receives a step that, once the
+   * listeners are resolved, settles with the waterfall's own outcome, so it meets every listener's refusal; after a
+   * 503 or an `internal/dispatch` listener's throw it rejects. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
    * caller receives that Response or its body: once the waterfall ends when the waterfall's result has
    * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
@@ -245,10 +246,26 @@ export class HostConnectionService extends Service implements HostConnectionHand
       dispatched.push(entry)
       return entry.pending
     }
-    // An `internal/dispatch` listener receives `entry`, which calls `next()` only once the listeners are resolved, so
-    // a request answered 503 or failed by that listener's throw has ended first and `next()` dispatches nothing.
+    // The waterfall's first position: the first call runs the listeners, and every call returns that outcome or
+    // throws the error a listener threw synchronously. A request answered 503 or failed by an `internal/dispatch`
+    // listener's throw ends before any call, so later calls reject without running a listener.
+    let first: { readonly outcome: Promise<Response> } | { readonly error: unknown } | undefined
+    const start = (): Promise<Response> => {
+      if (first === undefined) {
+        if (ended) return Promise.reject(new Error('connection/fetch: next() was called after the waterfall ended'))
+        try {
+          first = { outcome: run() }
+        } catch (error) {
+          first = { error }
+        }
+      }
+      if ('error' in first) throw first.error
+      return first.outcome
+    }
+    // An `internal/dispatch` listener receives `entry`, which enters the first position only once the listeners are
+    // resolved, so it meets the same listeners as the waterfall and dispatches nothing the waterfall did not.
     const resolved = Promise.withResolvers<void>()
-    const entry = (): Promise<Response> => resolved.promise.then(() => next())
+    const entry = (): Promise<Response> => resolved.promise.then(start)
     let listeners: FetchListener[]
     try {
       // The listeners `waterfall()` would run: the event has no `this` argument, so Cordis applies no context filter.
@@ -269,8 +286,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const run = (): Promise<Response> => (listeners.shift() ?? next)(call, run)
     let result: Response
     try {
-      // A listener that throws synchronously makes `run()` throw rather than reject.
-      result = await run()
+      // A listener that throws synchronously makes `start()` throw rather than reject.
+      result = await start()
     } catch (error) {
       ended = true
       discardDispatched(dispatched, undefined)
