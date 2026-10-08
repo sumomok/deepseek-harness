@@ -14,7 +14,7 @@ In v0.2.1-alpha.1, on a deployment with `dataPage: true`, a view that places a `
 A view written in the `views` config of `@deepseek-ai/dsh-experimental-component-surface` fails that row at error level, and the deployment comes up with no components, no views and no `show_component` tool:
 
 ```
-component-surface: views[0] "layers" — spec.nodes[0].props.regions.addForm — is false while the page keeps its add button, and no toy.form-page in this view reads editing of "page": the button would open nothing.
+component-surface: views[0] "layers" — spec.nodes[0].props.regions.addForm — is false while the page keeps its add button, and no toy.form-page in this view reads editing of "page": the button would open nothing.; this deployment comes up with no components, no views and no show_component tool until that view is corrected or removed
 ```
 
 A skill pack carrying such a view becomes inactive, and `GET /skill-pack/status` names the file, the value and the same sentence.

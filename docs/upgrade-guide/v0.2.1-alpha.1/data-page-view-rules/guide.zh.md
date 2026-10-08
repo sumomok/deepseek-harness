@@ -14,7 +14,7 @@ description: "数据页视图关掉页面自己的新增或修改表单、却保
 写在 `@deepseek-ai/dsh-experimental-component-surface` 的 `views` 配置里的视图会让这一行以 error 级别失败，部署起来后没有组件、没有视图，也没有 `show_component` 工具：
 
 ```
-component-surface: views[0] "layers" — spec.nodes[0].props.regions.addForm — is false while the page keeps its add button, and no toy.form-page in this view reads editing of "page": the button would open nothing.
+component-surface: views[0] "layers" — spec.nodes[0].props.regions.addForm — is false while the page keeps its add button, and no toy.form-page in this view reads editing of "page": the button would open nothing.; this deployment comes up with no components, no views and no show_component tool until that view is corrected or removed
 ```
 
 带着这种视图的技能包变为未激活，`GET /skill-pack/status` 会点名那个文件、那个值和同一句话。
