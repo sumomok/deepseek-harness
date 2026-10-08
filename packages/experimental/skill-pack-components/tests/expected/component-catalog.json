@@ -9,7 +9,7 @@
       "package": "@sumomok/toy-crud-kit",
       "version": "0.4.5"
     },
-    "bodySha256": "690646c5cd2128b3d692c03207ac27cd4f4159a79219bd912ff28380fad59bbc",
+    "bodySha256": "65da484e609a61fe8f4a02ce5a2ba477a7bd47ccbea85dbb4739bb35a47aee4b",
     "exampleViewSha256": null
   },
   "body": {
@@ -1325,8 +1325,8 @@
           1
         ],
         "rules": [
-          "pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.",
-          "pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld."
+          "pack.viewFormat is required when views lists any file, and is one of viewFormats. A .dshpack delivery carrying a pack that lists views without it, or with another format, is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.",
+          "pack.anchorFormat may be left out; when stated, it is one of anchorFormats. A .dshpack delivery carrying a pack that states another format is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds."
         ]
       },
       "packFiles": {

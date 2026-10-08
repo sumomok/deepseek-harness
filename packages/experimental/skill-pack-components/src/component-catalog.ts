@@ -13,7 +13,8 @@
  * children and of `flex`, that `flex` is a whole number, the root kind of a
  * layout, the `otherKeys` words, and the `rules` sentences, which restate how
  * the two packages judge a view and a manifest. The tests pin each sentence's
- * text and check the judgement it states.
+ * text and check the judgement it states, apart from the clauses the README
+ * names.
  *
  * The file is versioned by {@link COMPONENT_CATALOG_FORMAT} and carries the
  * versions of the two packages its components come from. It carries no commit
@@ -347,8 +348,8 @@ function catalogRules(): CatalogObject {
       viewFormats: [...PACK_VIEW_FORMATS],
       anchorFormats: [...PACK_ANCHOR_FORMATS],
       rules: [
-        'pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.',
-        'pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld.',
+        'pack.viewFormat is required when views lists any file, and is one of viewFormats. A .dshpack delivery carrying a pack that lists views without it, or with another format, is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',
+        'pack.anchorFormat may be left out; when stated, it is one of anchorFormats. A .dshpack delivery carrying a pack that states another format is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',
       ],
     },
     packFiles: {

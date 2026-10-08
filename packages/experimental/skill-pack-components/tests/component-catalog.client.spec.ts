@@ -7,8 +7,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   COMPONENT_KIT_ENTRIES,
   DATA_PAGE_ID,
@@ -19,8 +21,14 @@ import {
 } from '@deepseek-ai/dsh-experimental-component-surface'
 import { validateComponentCall } from '@deepseek-ai/dsh-experimental-component-surface/src/validate.ts'
 import { judgeView } from '@deepseek-ai/dsh-experimental-component-surface/src/views.ts'
-import { PACK_MANIFEST_FIELDS, parsePackManifest, parsePackView } from '@deepseek-ai/dsh-experimental-skill-pack'
-import { anchorFormatMissing, readsDeclaredViews } from '@deepseek-ai/dsh-experimental-skill-pack/src/manifest.ts'
+import {
+  PACK_MANIFEST_FIELDS,
+  parsePackManifest,
+  parsePackView,
+  reconcilePacks,
+  syncPackRoot,
+  type DeliveredFile,
+} from '@deepseek-ai/dsh-experimental-skill-pack'
 import {
   COMPONENT_CATALOG_FORMAT,
   componentCatalogText,
@@ -171,6 +179,40 @@ function viewRefusedAt(spec: unknown, params: Readonly<Record<string, unknown>> 
   const result = judgeView(catalog, true, { id: 'v', title: 't', spec, params })
   return result.ok ? undefined : result.refusal.path
 }
+
+/** Where a pack's one view file sits. */
+const VIEW_PATH = 'views/v.yml'
+
+/** A view file the pack root reads. */
+const VIEW_TEXT = 'id: v\ntitle: V\nspec: []\n'
+
+/** One pack's format fields, and what a pack root and a delivery hold against it. */
+interface FormatCase {
+  /** The format fields `metadata.pack` states beside its version. */
+  readonly pack: Readonly<Record<string, number>>
+  /** Whether the pack lists a view. */
+  readonly views: boolean
+  /** The unmet requirement the pack is withheld for; absent where nothing withholds it. */
+  readonly refused?: 'view-format' | 'anchor-format'
+}
+
+/**
+ * The files of pack `p`, its manifest written as the given metadata.
+ * @param metadata - the `metadata` its `SKILL.md` frontmatter carries.
+ * @param views - whether it carries the view file at {@link VIEW_PATH}.
+ * @returns the files.
+ */
+function packFiles(metadata: Readonly<Record<string, unknown>>, views: boolean): DeliveredFile[] {
+  const skill = ['---', 'name: p', 'description: d', `metadata: ${JSON.stringify(metadata)}`, '---', 'Body.'].join('\n')
+  return [{ path: 'SKILL.md', content: skill }, ...views ? [{ path: VIEW_PATH, content: VIEW_TEXT }] : []]
+}
+
+let world: string | undefined
+
+afterEach(async () => {
+  if (world !== undefined) await rm(world, { recursive: true, force: true })
+  world = undefined
+})
 
 describe('the component catalog file', () => {
   it('is byte for byte what generating it from this tree writes', async () => {
@@ -388,32 +430,42 @@ describe('the component catalog file', () => {
       .toEqual([undefined, { $from: 'node:t.selectionDetail' }, 'orders'])
   })
 
-  it('states the manifest key and the conditions on the two format fields as the pack root reads them', async () => {
+  it('states the manifest key, the conditions on the two format fields, and what a delivery and the pack root do with a pack breaking one', async () => {
     const { file } = await checkedIn()
     expect(file.body.rules.manifest.rules).toEqual([
-      'pack.viewFormat is required when views lists any file, and is one of viewFormats; a pack that lists views without it, or with another format, is withheld.',
-      'pack.anchorFormat is stated by a pack exported with element anchors, and is one of anchorFormats; a pack stating another format is withheld.',
+      'pack.viewFormat is required when views lists any file, and is one of viewFormats. A .dshpack delivery carrying a pack that lists views without it, or with another format, is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',
+      'pack.anchorFormat may be left out; when stated, it is one of anchorFormats. A .dshpack delivery carrying a pack that states another format is refused whole; an organization set refuses that pack alone; a pack root withholds such a pack it already holds.',
     ])
     expect(parsePackManifest({ pack: { version: '1.0.0' }, notes: 'x' }))
       .toMatchObject({ ok: false, field: `${file.body.rules.manifest.key}.notes` })
     expect(PACK_MANIFEST_FIELDS.map(field => field.path)).toEqual(expect.arrayContaining(['pack.viewFormat', 'pack.anchorFormat', 'views']))
-    const read = (pack: Readonly<Record<string, unknown>>, views?: readonly string[]): ReturnType<typeof parsePackManifest> =>
-      parsePackManifest({ pack: { version: '1.0.0', ...pack }, ...views === undefined ? {} : { views } })
-    const views = (pack: Readonly<Record<string, unknown>>, listed?: readonly string[]): boolean | undefined => {
-      const result = read(pack, listed)
-      return result.ok ? readsDeclaredViews(result.manifest) : undefined
+    const base = await mkdtemp(join(tmpdir(), 'dsh-skill-pack-components-catalog-'))
+    world = base
+    const cases: readonly FormatCase[] = [
+      { pack: {}, views: false },
+      { pack: {}, views: true, refused: 'view-format' },
+      { pack: { viewFormat: 1 }, views: true },
+      { pack: { viewFormat: 2 }, views: true, refused: 'view-format' },
+      { pack: { anchorFormat: 1 }, views: false },
+      { pack: { anchorFormat: 2 }, views: false, refused: 'anchor-format' },
+    ]
+    for (const [index, one] of cases.entries()) {
+      const metadata = { pack: { version: '1.0.0', ...one.pack }, ...one.views ? { views: [VIEW_PATH] } : {} }
+      const [status] = reconcilePacks([{
+        skill: 'p',
+        manifest: parsePackManifest(metadata),
+        views: one.views ? [parsePackView(VIEW_PATH, VIEW_TEXT)] : [],
+      }], [], '0.5.2')
+      expect(status?.missing.map(missing => missing.kind)).toEqual(one.refused === undefined ? [] : [one.refused])
+      const root = join(base, `packs-${String(index)}`)
+      const delivery = syncPackRoot(root, { kind: 'packs', packs: [{ name: 'p', files: packFiles(metadata, one.views) }] })
+      if (one.refused === undefined) {
+        await expect(delivery).resolves.toMatchObject({ changed: true, packs: ['p'] })
+      } else {
+        await expect(delivery).rejects.toMatchObject({ refusal: `pack-${one.refused}`, entry: 'p/SKILL.md' })
+        await expect(stat(root)).rejects.toThrow('ENOENT')
+      }
     }
-    expect(views({})).toBe(true)
-    expect(views({}, ['v.yml'])).toBe(false)
-    expect(views({ viewFormat: 1 }, ['v.yml'])).toBe(true)
-    expect(views({ viewFormat: 2 }, ['v.yml'])).toBe(false)
-    const anchors = (pack: Readonly<Record<string, unknown>>): string | undefined => {
-      const result = read(pack)
-      return result.ok ? anchorFormatMissing(result.manifest)?.kind : 'refused'
-    }
-    expect(anchors({})).toBeUndefined()
-    expect(anchors({ anchorFormat: 1 })).toBeUndefined()
-    expect(anchors({ anchorFormat: 2 })).toBe('anchor-format')
   })
 
   it('says what the pack root does with a key it does not read, as the pack root does it', async () => {
