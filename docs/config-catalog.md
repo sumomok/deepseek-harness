@@ -1185,7 +1185,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-component-surface`
 
 - `inject`: `tools`
-- `source`: [`packages/experimental/component-surface/src/index.ts:115`](../packages/experimental/component-surface/src/index.ts)
+- `source`: [`packages/experimental/component-surface/src/index.ts:125`](../packages/experimental/component-surface/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
@@ -1228,9 +1228,10 @@ export interface Config {
   dataDefaultPageSize?: number
   /**
    * Whether a call may open this deployment's own full data page for one
-   * table (`toy.data-page`) in the panel. Off by default, because the page reads
-   * its table from the browser with the signed-in visitor's own credential and
-   * a deployment has to say that it wants that.
+   * table (`toy.data-page`) in the panel, and whether a view may place the
+   * page and the form page and info card beside it. Off by default, because the
+   * page reads its table from the browser with the signed-in visitor's own
+   * credential and a deployment has to say that it wants that.
    *
    * Where it is on, the tool is offered only once `approval` is composed —
    * every page is put to the user before it opens, and a component nobody can

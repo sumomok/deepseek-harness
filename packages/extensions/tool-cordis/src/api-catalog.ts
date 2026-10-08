@@ -5341,7 +5341,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ComponentCatalogEntry',
-    declaration: 'export interface ComponentCatalogEntry {\n    readonly id: CatalogId;\n    readonly label: string;\n    readonly purpose: string;\n    readonly propsSchema: PropsSchema;\n    readonly actions: readonly ComponentActionDefinition[];\n    readonly outputs: readonly ComponentOutput[];\n    readonly sanitize?: SanitizeRules;\n}',
+    declaration: 'export interface ComponentCatalogEntry {\n    readonly id: CatalogId;\n    readonly label: string;\n    readonly purpose: string;\n    readonly placement?: \'view\';\n    readonly propsSchema: PropsSchema;\n    readonly actions: readonly ComponentActionDefinition[];\n    readonly outputs: readonly ComponentOutput[];\n    readonly sanitize?: SanitizeRules;\n}',
   },
   {
     name: 'ComponentContribution',
@@ -5353,7 +5353,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ComponentOutput',
-    declaration: 'export interface ComponentOutput {\n    readonly id: string;\n    readonly shape: PropsFieldSchema;\n}',
+    declaration: 'export interface ComponentOutput {\n    readonly id: string;\n    readonly shape: PropsFieldSchema;\n    readonly readers?: \'view\';\n}',
   },
   {
     name: 'ComponentSource',
@@ -6901,11 +6901,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PropsField',
-    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n    readonly viewOnly?: string;\n}',
+    declaration: 'export interface PropsField {\n    readonly required: boolean;\n    readonly schema: PropsFieldSchema;\n    readonly unbindable?: string;\n    readonly viewOnly?: string;\n    readonly bindsFrom?: PropsFieldSource;\n}',
   },
   {
     name: 'PropsFieldSchema',
     declaration: 'export type PropsFieldSchema = StringFieldSchema | NumberFieldSchema | BooleanFieldSchema | ScalarFieldSchema | EnumFieldSchema | ObjectFieldSchema | RecordFieldSchema | ArrayFieldSchema;',
+  },
+  {
+    name: 'PropsFieldSource',
+    declaration: 'export interface PropsFieldSource {\n    readonly component: CatalogId;\n    readonly output: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'PropsSchema',
