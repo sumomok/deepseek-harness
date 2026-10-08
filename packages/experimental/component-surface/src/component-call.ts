@@ -465,6 +465,32 @@ export interface PropsField {
    * skill pack's — and what they wrote there is theirs rather than the model's.
    */
   readonly viewOnly?: string
+  /**
+   * The one output this property reads; absent for a property that takes a
+   * written-out value or any output whose form it accepts.
+   *
+   * A view must write the property as a binding to that output of a block of
+   * the same view, and a value written out, a binding to anything else, or no
+   * value at all is refused where the view is judged. It is judged there and
+   * not with the rest of the property, because the browser seat judges a block
+   * after it has put the resolved value where the binding was. Declared only on
+   * a component a view alone places, so no call reaches a property carrying one.
+   */
+  readonly bindsFrom?: PropsFieldSource
+}
+
+/** The output a {@link PropsField.bindsFrom} property reads, and why it reads nothing else. */
+export interface PropsFieldSource {
+  /** The component whose block the binding must name. */
+  readonly component: CatalogId
+  /** The output of that block the binding must name. */
+  readonly output: string
+  /**
+   * Why no other value may stand in the property, spliced into the refusal
+   * after the path it names. Read by whoever wrote the view; states what the
+   * property is and names nothing to do instead.
+   */
+  readonly reason: string
 }
 
 /** A component's declared properties, keyed by property name. */
@@ -577,6 +603,18 @@ export interface ComponentOutput {
    * call bound it to.
    */
   readonly shape: PropsFieldSchema
+  /**
+   * `'view'` where every property that accepts this output belongs to a
+   * component only a view places; absent where a component a call may place
+   * has one.
+   *
+   * The tool's description leaves such an output out for the reason it leaves
+   * out the components that read it: an output the model can bind into nothing
+   * it may place is an offer every binding to it is refused for.
+   * `layout-binding.client.spec.ts` holds the declaration to the properties
+   * that accept the output.
+   */
+  readonly readers?: 'view'
 }
 
 /**
@@ -600,14 +638,27 @@ export function catalogId(id: string): CatalogId {
   return brandString<CatalogId>(id)
 }
 
-/** One component a call may place. */
+/** One component a call or a written-down view may place. */
 export interface ComponentCatalogEntry {
   /** Stable id the model writes in `spec.nodes[i].component`. */
   readonly id: CatalogId
   /** The name the end user reads. Chinese, because it is user-facing copy rather than model-facing text. */
   readonly label: string
-  /** One model-facing sentence saying when the component is worth using; spliced into the tool description. */
+  /**
+   * One model-facing sentence saying when the component is worth using;
+   * spliced into the tool description wherever a call may place the component.
+   */
   readonly purpose: string
+  /**
+   * `'view'` for a component only a view written down for this deployment may
+   * place; absent for one a call and a view may both place.
+   *
+   * A call naming such a component is refused before anything is asked or
+   * recorded, the column draws one only out of the `content-component/shown`
+   * record a click on a view writes, and the tool's description leaves it out.
+   * {@link placedOnlyByViews} is the one reading of this field.
+   */
+  readonly placement?: 'view'
   /** The only properties this component accepts. */
   readonly propsSchema: PropsSchema
   /** The only actions this component reports back; empty for a component nothing comes back from. */
@@ -2552,6 +2603,42 @@ export function catalogOutput(component: ComponentCatalogEntry, outputId: unknow
 }
 
 /**
+ * Whether only a view written down for this deployment may place one component.
+ * @param entry - the catalog entry.
+ * @returns true when a call naming it is refused and only a view's click draws it.
+ */
+export function placedOnlyByViews(entry: ComponentCatalogEntry): boolean {
+  return entry.placement === 'view'
+}
+
+/**
+ * Whether only components a view alone places read one output.
+ * @param output - the output, as its component declares it.
+ * @returns true when no component a call may place has a property that accepts it.
+ */
+export function readByViewsOnly(output: ComponentOutput): boolean {
+  return output.readers === 'view'
+}
+
+/**
+ * The blocks of one spec whose component only a view may place.
+ *
+ * Read off the validated spec by every place that decides what a call may put
+ * on screen — the tool before it asks or records anything, and the extractor
+ * deciding which logged record becomes an entry — so the two cannot disagree
+ * about which specs only a view may carry.
+ * @param catalog - the components this deployment offers.
+ * @param spec - the spec, as validation accepted it.
+ * @returns those nodes, in the order the spec wrote them.
+ */
+export function viewPlacedNodes(catalog: ComponentCatalog, spec: ComponentSpec): readonly ComponentNode[] {
+  return spec.nodes.filter((node) => {
+    const entry = catalogEntry(catalog, node.component)
+    return entry !== undefined && placedOnlyByViews(entry)
+  })
+}
+
+/**
  * Whether one reported gesture is the answer its block was placed for — the
  * gesture the block draws a line about and refuses a second of.
  *
@@ -2752,14 +2839,24 @@ function describeOutputs(outputs: readonly ComponentOutput[]): string {
  * reports and in what form, for the same reason: a binding is refused unless
  * the output exists and the property accepts its form, and both of those are
  * facts of this table.
- * @param entries - the components a call may place.
+ *
+ * Two things are left out, because the reader of these lines is a model
+ * writing a call. A component only a view places is not listed: a call naming
+ * it is refused. An output only such a component reads is not on any
+ * `outputs:` line, and a component left with no other output carries no third
+ * line: nothing a call may place has a property that accepts it.
+ * @param entries - the components to state; the ones only a view places are skipped.
  * @returns two lines per component — `- id — label — purpose`, then its properties — and a third for its outputs.
  */
 export function describeCatalog(entries: readonly ComponentCatalogEntry[]): string {
   return entries
-    .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
-      + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`
-      + (entry.outputs.length === 0 ? '' : `\n  outputs: ${describeOutputs(entry.outputs)}`))
+    .filter(entry => !placedOnlyByViews(entry))
+    .map((entry) => {
+      const outputs = entry.outputs.filter(output => !readByViewsOnly(output))
+      return `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
+        + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`
+        + (outputs.length === 0 ? '' : `\n  outputs: ${describeOutputs(outputs)}`)
+    })
     .join('\n')
 }
 

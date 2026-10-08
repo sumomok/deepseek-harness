@@ -14,6 +14,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ComponentCatalogRegistry, trackCatalog, type ComponentSource } from '../src/catalog.ts'
 import {
+  catalogId,
   CONFIRM_BAR_ID,
   COMPONENT_KIT_ENTRIES,
   DATA_PAGE_ID,
@@ -44,6 +45,17 @@ const TWO: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES
 
 /** One entry of the six, for the cases about a second package claiming a claimed id. */
 const ONE: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(entry => entry.id === CONFIRM_BAR_ID)
+
+/** A component only a written-down view may place. */
+const VIEW_PROBE: ComponentCatalogEntry = {
+  id: catalogId('toy.view-probe'),
+  label: '视图探针',
+  purpose: 'Placed by views alone.',
+  placement: 'view',
+  propsSchema: {},
+  actions: [],
+  outputs: [],
+}
 
 /** A registry on its own context. */
 async function registry(): Promise<Context> {
@@ -274,6 +286,21 @@ describe('the tool the registry decides', () => {
     // `crud` is off, so the data page is left out of the offer — and nothing
     // else is registered, so there is no component left to place.
     expect(offered(ctx)).toBeUndefined()
+  })
+
+  it('is not offered where every registered component is placed only by views, and never lists one', async () => {
+    const ctx = await row()
+    ctx.componentCatalog.register({ entries: [VIEW_PROBE], source: OTHER_SOURCE })
+    // A call naming the component is refused, so a tool offering nothing else
+    // would be a tool every call to is refused.
+    expect(offered(ctx)).toBeUndefined()
+    // A reader asking what this deployment can draw is still told it is there:
+    // a view is what draws it.
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual([VIEW_PROBE.id])
+
+    ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
+    expect(offered(ctx)?.description).toContain(describeCatalog(TWO))
+    expect(offered(ctx)?.description).not.toContain(VIEW_PROBE.id)
   })
 })
 

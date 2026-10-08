@@ -54,6 +54,7 @@ import {
   MAX_SPEC_BYTES,
   MAX_TABLE_ROWS,
   MAX_TITLE_LENGTH,
+  placedOnlyByViews,
   SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
   TOKEN_HINT,
@@ -246,17 +247,21 @@ export function withheldComponents(options: ShowComponentOptions): readonly stri
 }
 
 /**
- * The components one composition offers.
+ * The components one call of this composition may place.
+ *
+ * A composition whose registered components are all withheld or placed only
+ * by views has none, and the tool is then not offered at all.
  * @param catalog - every component registered into this deployment.
  * @param options - what this composition offers.
- * @returns the registered components with the ones this composition cannot honour left out.
+ * @returns the registered components with the ones this composition cannot honour, and the ones only a view
+ *   places, left out.
  */
 export function offeredEntries(
   catalog: ComponentCatalog,
   options: ShowComponentOptions,
 ): readonly ComponentCatalogEntry[] {
   const withheld = new Set(withheldComponents(options))
-  return catalog.entries.filter(entry => !withheld.has(entry.id))
+  return catalog.entries.filter(entry => !withheld.has(entry.id) && !placedOnlyByViews(entry))
 }
 
 /**

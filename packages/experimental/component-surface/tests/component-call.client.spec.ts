@@ -28,13 +28,17 @@ import {
   maxSpecDepthOf,
   METRIC_ID,
   parseBindingReference,
+  placedOnlyByViews,
   RECORD_DETAIL_ID,
   parseComponentCall,
   readBinding,
+  readByViewsOnly,
+  readCatalog,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
   TABLE_SELECTION_DETAIL_OUTPUT,
+  viewPlacedNodes,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 import { KIT_CATALOG } from './kit-catalog.client.ts'
@@ -304,6 +308,63 @@ describe('component catalog', () => {
     // `resolve` deliberately consults no catalog, so a stored spec can outlive
     // the table the call was accepted against.
     expect(catalogLabels(KIT_CATALOG, [{ id: 'a', component: 'toy.chart', props: {} }])).toBe('toy.chart')
+  })
+})
+
+describe('components only a view places', () => {
+  /** A component only a written-down view may place. */
+  const VIEW_PROBE: ComponentCatalogEntry = {
+    id: catalogId('toy.view-probe'),
+    label: '视图探针',
+    purpose: 'Placed by views alone.',
+    placement: 'view',
+    propsSchema: { note: { required: false, schema: { kind: 'string', maxLength: 8 } } },
+    actions: [],
+    outputs: [],
+  }
+
+  /** The one output of {@link SOURCE_PROBE} only a view-placed component reads. */
+  const VIEW_READ = { id: 'state', shape: { kind: 'string', maxLength: 8 }, readers: 'view' } as const
+
+  /** A component a call may place, reporting one output a call can bind and one only a view-placed block reads. */
+  const SOURCE_PROBE: ComponentCatalogEntry = {
+    id: catalogId('toy.source-probe'),
+    label: '源探针',
+    purpose: 'Placed by calls and views.',
+    propsSchema: { note: { required: false, schema: { kind: 'string', maxLength: 8 } } },
+    actions: [],
+    outputs: [VIEW_READ, { id: 'count', shape: { kind: 'number', min: 0, max: 9 } }],
+  }
+
+  it('reads the placement and the readers off the declaration, and nothing the kit offers is placed by views alone', () => {
+    expect(placedOnlyByViews(VIEW_PROBE)).toBe(true)
+    expect(placedOnlyByViews(SOURCE_PROBE)).toBe(false)
+    expect(COMPONENT_KIT_ENTRIES.filter(placedOnlyByViews)).toEqual([])
+    expect(SOURCE_PROBE.outputs.map(readByViewsOnly)).toEqual([true, false])
+  })
+
+  it('finds the blocks of a spec only a view may place, in the order the spec wrote them', () => {
+    const catalog = readCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE, SOURCE_PROBE])
+    const nodes = [
+      { id: 'a', component: VIEW_PROBE.id, props: {} },
+      { id: 'b', component: SOURCE_PROBE.id, props: {} },
+      { id: 'c', component: 'toy.not-here', props: {} },
+      { id: 'd', component: VIEW_PROBE.id, props: {} },
+    ]
+    expect(viewPlacedNodes(catalog, { nodes }).map(node => node.id)).toEqual(['a', 'd'])
+    expect(viewPlacedNodes(KIT_CATALOG, { nodes })).toEqual([])
+  })
+
+  it('leaves such a component, and an output only it reads, out of the lines a model reads', () => {
+    // A call naming the component is refused, and nothing a call may place has
+    // a property the output fits, so either line would be an offer every call
+    // taking it up is refused for.
+    expect(describeCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE])).toBe(describeCatalog(COMPONENT_KIT_ENTRIES))
+    expect(describeCatalog([SOURCE_PROBE])).toBe(
+      '- toy.source-probe — 源探针 — Placed by calls and views. Nothing comes back from it.\n  props: note?\n  outputs: count number',
+    )
+    // A component left with no output a call can bind carries no third line.
+    expect(describeCatalog([{ ...SOURCE_PROBE, outputs: [VIEW_READ] }]).split('\n')).toHaveLength(2)
   })
 })
 
