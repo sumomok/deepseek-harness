@@ -12,7 +12,7 @@ Status: implemented
 
 **配置了 `organizationRoot` 时，skill-pack 行提供 `ctx.skillPackIntake`。** `replace(packs, { signal })` 安装一个组织的技能包，`isActive(name, version)` 同步回答一个条目此刻能不能提供，`onChange(listener)` 报告这个回答的变化。组织插件仍是这些技能唯一的技能提供方，它问 `isActive` 哪些版本可以报；这一行安装、判断它们，并把激活条目的视图交给 `ctx.skillPacks.activeViews()`，[`skill-pack-components`](../../../../packages/experimental/skill-pack-components/README.zh.md) 再像摆放根目录里的技能包那样摆放它们。没有 `organizationRoot` 就不提供这个键，组织插件也就不提供这些技能。
 
-**组织包根是一个单独的目录，里面的东西都不报给 `ctx.skills`。** 每个条目装在 `<organizationRoot>/<name>@<version>` 下，`version` 是组织清单条目的版本，所以同一技能的 stable 版和 trial 版可以并排放着；它不和只用于显示和追溯的 `metadata.pack.version` 比对。这个根目录是这个包内部的布局，不进入任何模型可见的路径：组织插件把每个技能的 `resourceBase` 指向它自己的技能缓存。`organizationRoot` 是相对路径，或者与 `root`、`deliveries.directory` 在任一方向上重叠时，加载即被拒绝，因为替换其中一个会把另一个的内容一起替换掉。只有 `replace` 写它，所以不监视它。
+**组织包根是一个单独的目录，里面的东西都不报给 `ctx.skills`。** 每个条目装在 `<organizationRoot>/<name>@<version>` 下，`version` 是组织清单条目的版本，所以同一技能的 stable 版和 trial 版可以并排放着；它不和只用于显示和追溯的 `metadata.pack.version` 比对。这个根目录是这个包内部的布局，不进入任何模型可见的路径：组织插件把每个技能的 `resourceBase` 指向它自己的技能缓存。`organizationRoot` 是相对路径时加载即被拒绝；`root`、`deliveries.directory`、`organizationRoot` 中任意两个是同一个目录或者一个在另一个里面时也被拒绝，因为替换其中一个会写进另一个；比较时按文件系统读它们的方式，跟随每一个符号链接，并在 macOS 和 Windows 上折叠大小写和 Unicode 规范化形式。只有 `replace` 写它，所以不监视它。
 
 **逐条判断，一起写盘。** 每个条目从内存里的文件经 `observePack` 读出——这正是读技能包根目录的那个读法，它和 `readFile(path, 'utf8')` 一样保留字节顺序标记——再按技能包规则、frontmatter 名字、能作目录名的版本、清单、锚点格式与视图格式、读得出的视图以及组合好的表面对视图的判断逐项检查。违反其中一项的条目被拒，带一个来自开放列表 `IntakeRefusalCode` 的码和一句给运维看的英文 `detail`；重复出现的 `name@version` 每一次出现都被拒，因为没有办法判断哪一份是想要的。通过的条目一起交给 `syncPackRoot`，所以根目录要么全装上要么一个不装，盘上已经逐字节一致的集合不再写一遍。`replace([])` 撤下集合并清空根目录。`IntakeResult` 是封闭的：带拒收列表的 `ok`，或者 `failed`。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 | 关 | 答 |
 |---|---|
-| 0. 哪条已定原则已经决定了这件事？ | **插件，而不是改循环**：全部改动都在这个 experimental 行里，不动任何核心包。**模型可见 ⟺ 有日志**：这一侧不新增模型可见的输入，因为组织技能只经组织插件报告的目录条目到达模型，`anchorFormat` 带在候选条目的 `metadata` 里，没有工具渲染它。**注册即 effect**：集合经调用方 fiber 上的一个 effect 持有。**显式优于隐式**：组织包根没有默认值，没有就没有接收接缝。**配置错误要响亮地失败**：重叠的组织包根在加载时被拒。**插件里不写死可调项**：读得懂的锚点格式是构建的协议常量，不是部署之间的选择。**跨边界的不透明 id 要加 brand**：`name` 是技能注册表的普通 `string`，`version` 是清单原文，组织插件又按自己的结构类型编译，两边没有能共享的 brand。 |
+| 0. 哪条已定原则已经决定了这件事？ | **插件，而不是改循环**：全部改动都在这个 experimental 行里，不动任何核心包。**模型可见 ⟺ 有日志**：这一侧不新增模型可见的输入，因为组织技能只经组织插件报告的目录条目到达模型，`anchorFormat` 带在候选条目的 `metadata` 里，没有工具渲染它。**注册即 effect**：集合经调用方 fiber 上的一个 effect 持有。**显式优于隐式**：组织包根没有默认值，没有就没有接收接缝。**配置错误要响亮地失败**：互相重叠的配置目录在加载时被拒。**插件里不写死可调项**：读得懂的锚点格式是构建的协议常量，不是部署之间的选择。**跨边界的不透明 id 要加 brand**：`name` 是技能注册表的普通 `string`，`version` 是清单原文，组织插件又按自己的结构类型编译，两边没有能共享的 brand。 |
 | 1. 新增多少个永久面？（先数，再列） | **13 个。** 服务键 `ctx.skillPackIntake` 及其三个方法；Config `organizationRoot` 与 `perMember`；盘上布局 `<organizationRoot>/<name>@<version>`；清单键 `metadata.pack.anchorFormat`；常量 `PACK_ANCHOR_FORMATS`；`PackMissing` 的成员 `anchor-format`；`view-id-conflict` 上的 `origin`；拒收 `pack-anchor-format`；`PackStatus` 上的 `origin`、`entryVersion` 与 `channel`；`perMember` 下状态路由的 401 与 503；依赖边 skill-pack → console-members；导出类型 `OrgPackInput`、`IntakeResult`、`IntakeRefusal` 与 `IntakeRefusalCode`。不新增工具、会话事件、路由和审批闸。 |
 | 2. 能证明它对的最小版本 | 再开一个根目录，用读技能包根目录的那些代码来读——`validatePacks`、`observePack`、`parsePackManifest`、`parsePackView`、单包判断和 `syncPackRoot`——逐条判断、整份写盘。它满足控制台的要求：带视图、`requires` 或锚点格式的组织技能包画得出来才提供，部件注册后不用重启就出现，锚点格式读不了就一直扣着，视图 id 冲突就被拒。 |
 | 3. 缝还是写死？ | **一个服务键**，因为有两样东西会变：组织插件在另一个仓库构建和发版，北冥和官方客户端不组合 skill-pack 行，那里就没有这个键；技能包的部件晚于技能包到达。**读得懂的锚点格式写死**：今天写锚点文件的只有 point-anchor 一家。 |
@@ -41,7 +41,7 @@ Status: implemented
 | 邻居 | 同名优先级、保留名、按成员选 trial 版和 `skill.usage` 都留在组织插件里；这个包不把任何组织技能包报给 `ctx.skills`。 | 一个技能在注册表里出现两次，两个 rank 争一个名字。 | 永久 |
 | 契约 | 逐条判断、整份写盘；`isActive` 同步，并且按调用那一刻作答；集合只在最后一个调用方 fiber 活跃期间提供；拒收码会增加。 | 组织插件已被停用，它的视图还挂在侧栏里。 | 永久（pre-stable） |
 | 诱惑 | 这里不按成员过滤，它没有试装名单；不开上传路由；从不读锚点文件。 | 这个包接手组织插件的选择，以及一条不鉴权的写入口。 | 按成员过滤 暂缓 — 触发条件：`ctx.componentViews` 支持按成员提供视图。 |
-| 红线 | 组织包根绝不等于、也不和 `root` 或 `deliveries.directory` 重叠。 | `syncPackRoot` 整个替换 `root` 时把组织包根一起删掉。 | 永久 |
+| 红线 | 按文件系统读它们的方式，`root`、`deliveries.directory` 和组织包根中没有任何两个是同一个目录或互相重叠。 | `syncPackRoot` 整个替换 `root` 时把组织包根一起删掉。 | 永久 |
 | 天花板 | 除组织契约的上限外不另设字节上限；组织包根不监视；trial 版的视图对整个进程可见。 | — | 暂缓 — 触发条件：契约上限变化，或要求按成员提供视图。 |
 | 假设 | 组织插件只交它按组织签名和摘要核对过的文件；`PACK_ANCHOR_FORMATS` 等于 vendor 进来的 point-anchor 的 `ANCHOR_FORMATS_READ`。 | 一个这里读不懂的锚点格式被激活。 | 第二条 暂缓 — 触发条件：point-anchor 被 vendor 进控制台组合，等价测试随它一起来。 |
 

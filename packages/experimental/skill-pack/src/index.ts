@@ -41,7 +41,7 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack
  */
 
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import chokidar from 'chokidar'
 import { Service, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -55,6 +55,7 @@ import type {
 // Type-only: resolves ctx.webServer for the optional status route.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installDelivery, type DeliveryDirectory } from './deliveries.ts'
+import { refuseSharedDirectories } from './directories.ts'
 import type { StagedPack, StagedPackRefusal } from './install.ts'
 import { NO_ORGANIZATION_SET, OrganizationPackIntake } from './intake.ts'
 import { admitEveryRequest, placeRequestByMember, reportDirectoryMismatch } from './members.ts'
@@ -233,7 +234,7 @@ export class SkillPackRegistry extends Service {
    * @param config - the pack root, the platform version, whether to watch, where a delivery arrives, the
    *   organization root, and whether the status route answers per member.
    * @throws {Error} when `root`, `deliveries.directory` or `organizationRoot` is not an absolute path,
-   *   `organizationRoot` is `root` or `deliveries.directory` or lies inside or around either, or
+   *   two of them are one directory or one lies inside the other as the file system reads them, or
    *   `platformVersion` is not an exact semantic version.
    */
   constructor(ctx: Context, config: Config) {
@@ -246,10 +247,14 @@ export class SkillPackRegistry extends Service {
     this.root = root
     this.platformVersion = config.platformVersion
     this.deliveries = resolveDeliveries(config.deliveries)
-    const organizationRoot = resolveOrganizationRoot(config.organizationRoot, [
-      ['root', root],
-      ...this.deliveries === undefined ? [] : [['deliveries.directory', this.deliveries.directory] as const],
-    ])
+    const organizationRoot = config.organizationRoot === undefined
+      ? undefined
+      : absoluteDirectory('organizationRoot', config.organizationRoot)
+    refuseSharedDirectories([
+      ...organizationRoot === undefined ? [] : [{ field: 'organizationRoot', path: organizationRoot }],
+      { field: 'root', path: root },
+      ...this.deliveries === undefined ? [] : [{ field: 'deliveries.directory', path: this.deliveries.directory }],
+    ], process.platform)
     this.intake = organizationRoot === undefined ? undefined : new OrganizationPackIntake(ctx, {
       root: organizationRoot,
       judge: observation => this.judgeAlone(observation),
@@ -545,7 +550,7 @@ function labelOf(status: PackStatus): string {
 }
 
 /**
- * Read one configured directory as the one path every comparison and write
+ * Read one configured directory as the one path every write and every refusal
  * uses: a trailing separator, `.` and `..` are resolved away, so a write
  * staged beside the directory never lands inside it.
  * @param field - the configuration field, as a refusal names it.
@@ -556,41 +561,6 @@ function labelOf(status: PackStatus): string {
 function absoluteDirectory(field: string, path: string): string {
   if (!isAbsolute(path)) throw new Error(`skill-pack: ${field} must be an absolute path, received ${JSON.stringify(path)}`)
   return resolve(path)
-}
-
-/**
- * Read the organization root, refusing one that would share a directory with
- * a root this row replaces wholesale.
- * @param configured - the configured organization root, or `undefined` where none is configured.
- * @param neighbours - each resolved directory this row replaces or reads wholesale, with the field naming it.
- * @returns the resolved organization root, or `undefined` where none is configured.
- * @throws {Error} when the organization root is not an absolute path, or is one of `neighbours`,
- *   lies inside one, or contains one: replacing the one would replace the other's contents.
- */
-function resolveOrganizationRoot(
-  configured: string | undefined,
-  neighbours: readonly (readonly [string, string])[],
-): string | undefined {
-  if (configured === undefined) return undefined
-  const organizationRoot = absoluteDirectory('organizationRoot', configured)
-  for (const [field, path] of neighbours) {
-    if (within(organizationRoot, path) || within(path, organizationRoot)) {
-      throw new Error(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and ${field} ${JSON.stringify(path)} `
-        + 'must be separate directories, neither inside the other, because replacing one would replace the other\'s contents')
-    }
-  }
-  return organizationRoot
-}
-
-/**
- * Whether one absolute path is another, or lies inside it.
- * @param outer - the containing path.
- * @param inner - the path that may be inside it.
- * @returns `true` when `inner` is `outer` or a descendant of it.
- */
-function within(outer: string, inner: string): boolean {
-  const path = relative(outer, inner)
-  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
 }
 
 /**

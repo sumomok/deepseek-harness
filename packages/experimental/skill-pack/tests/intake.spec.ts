@@ -16,7 +16,7 @@
  * entries back in the reverse order as well.
  */
 
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -67,6 +67,9 @@ function writeStarts(): Promise<void> {
 }
 
 const PLATFORM_VERSION = '0.5.2'
+
+/** Whether this platform's default file systems ignore letter case, so the row compares directories with names folded. */
+const FOLDS_NAMES = process.platform === 'darwin' || process.platform === 'win32'
 const KIT = '@deepseek-ai/dsh-experimental-component-kit'
 const CRUD: ProvidedPart = { id: 'toy.data-page', plugin: KIT, version: '0.4.0' }
 
@@ -328,6 +331,45 @@ describe('the organization root configuration', () => {
       expect(() => new SkillPackRegistry(new Context(), { root, platformVersion: PLATFORM_VERSION, deliveries, organizationRoot }))
         .toThrow(`and deliveries.directory ${JSON.stringify(deliveries.directory)} must be separate directories`)
     }
+  })
+
+  it.skipIf(!FOLDS_NAMES)('refuses at load an organization root naming the pack root in other letter case, where the platform ignores case', async () => {
+    const paths = await newWorld()
+    await mkdir(paths.root, { recursive: true })
+    const organizationRoot = join(world!, 'PACKS')
+    expect(() => new SkillPackRegistry(new Context(), { root: paths.root, platformVersion: PLATFORM_VERSION, organizationRoot }))
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and root ${JSON.stringify(paths.root)} must be separate directories`)
+  })
+
+  it.skipIf(FOLDS_NAMES)('loads an organization root naming the pack root in other letter case, where the platform tells the two apart', async () => {
+    const paths = await newWorld()
+    const organizationRoot = join(world!, 'PACKS')
+    const ctx = await boot({ ...paths, organizationRoot })
+    const { intake } = await organization(ctx)
+    expect(await intake.replace([entry('layer-guide', '1', 'stable')])).toEqual({ kind: 'ok', refused: [] })
+    expect(await readdir(organizationRoot)).toEqual(['layer-guide@1'])
+    await expect(readdir(paths.root)).rejects.toThrow('ENOENT')
+  })
+
+  // Creating a symbolic link on Windows needs the create-symbolic-link
+  // privilege or Developer Mode, which a test cannot count on.
+  it.skipIf(process.platform === 'win32')('refuses at load an organization root that is a symbolic link to the pack root', async () => {
+    const paths = await newWorld()
+    await mkdir(paths.root, { recursive: true })
+    const organizationRoot = join(world!, 'organization-link')
+    await symlink(paths.root, organizationRoot)
+    expect(() => new SkillPackRegistry(new Context(), { root: paths.root, platformVersion: PLATFORM_VERSION, organizationRoot }))
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and root ${JSON.stringify(paths.root)} must be separate directories`)
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses at load an organization root under a symbolic link to the pack root', async () => {
+    const paths = await newWorld()
+    await mkdir(paths.root, { recursive: true })
+    const link = join(world!, 'root-link')
+    await symlink(paths.root, link)
+    const organizationRoot = join(link, 'organization')
+    expect(() => new SkillPackRegistry(new Context(), { root: paths.root, platformVersion: PLATFORM_VERSION, organizationRoot }))
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and root ${JSON.stringify(paths.root)} must be separate directories`)
   })
 
   it('replaces an organization root configured with a trailing separator', async () => {

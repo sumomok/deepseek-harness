@@ -639,6 +639,17 @@ describe('a delivery archive copied into the delivery directory', () => {
       deliveries: { directory: 'deliveries', maxArchiveBytes: 1, maxFileBytes: 1, maxFiles: 1 },
     })).toThrow('skill-pack: deliveries.directory must be an absolute path, received "deliveries"')
   })
+
+  it('refuses a delivery directory that is the pack root, or lies inside or around it', () => {
+    const root = join(tmpdir(), 'dsh-skill-pack-config', 'packs')
+    for (const directory of [root, join(root, 'deliveries'), join(root, '..')]) {
+      expect(() => new SkillPackRegistry(new Context(), {
+        root,
+        platformVersion: PLATFORM_VERSION,
+        deliveries: { directory, maxArchiveBytes: 1, maxFileBytes: 1, maxFiles: 1 },
+      })).toThrow(`skill-pack: root ${JSON.stringify(root)} and deliveries.directory ${JSON.stringify(directory)} must be separate directories`)
+    }
+  })
 })
 
 describe('disposal and configuration', () => {

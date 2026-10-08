@@ -31,6 +31,17 @@ const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The form two names are compared in to find the ones a file system ignoring
+ * letter case and Unicode normalization reads as one name: Unicode NFC, then
+ * lower case.
+ * @param name - a name or a path.
+ * @returns the folded form; two names with equal forms collide.
+ */
+export function collisionKey(name: string): string {
+  return name.normalize('NFC').toLowerCase()
+}
+
+/**
  * Hold a delivered set to the pack rules, whatever read produced it.
  * @param packs - the packs as the delivery names them.
  * @returns the same packs, once every name and every path has passed.
