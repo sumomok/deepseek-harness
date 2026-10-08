@@ -1345,7 +1345,7 @@ export interface ServerAuthRequest {
 ## `@deepseek-ai/dsh-experimental-console-members`
 
 - `inject`: `connection` · `workspaceRegistry`
-- `source`: [`packages/experimental/console-members/src/config.ts:41`](../packages/experimental/console-members/src/config.ts)
+- `source`: [`packages/experimental/console-members/src/config.ts:42`](../packages/experimental/console-members/src/config.ts)
 
 ```ts config-catalog
 /** The console member directory row's configuration. */
@@ -1372,7 +1372,7 @@ export interface Config {
   hostReadPaths: string[]
   /** Absolute path prefixes a write may reach while no member is current. */
   hostWritePaths: string[]
-  /** Milliseconds a member Peer with no socket and no HTTP request stays open. */
+  /** Milliseconds a member Peer with no socket and no HTTP request stays open; at most 2147483647, the longest `setTimeout` delay. */
   peerIdleMs: number
 }
 
