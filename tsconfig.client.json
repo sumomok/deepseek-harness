@@ -37,7 +37,10 @@
     // Client packages outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/experimental/client-ui-agent-team/src/css-modules.d.ts",
+    "packages/experimental/client-ui-claude-code-mods/src/css-modules.d.ts",
     "packages/experimental/client-ui-voice-input/src/css-modules.d.ts",
+    "packages/experimental/inspector/src/css-modules.d.ts",
+    "packages/experimental/session-inspector/src/css-modules.d.ts",
     "packages/experimental/content-frame/src/css-modules.d.ts",
     "packages/experimental/component-kit/src/css-modules.d.ts",
     "packages/experimental/component-surface/src/css-modules.d.ts",
