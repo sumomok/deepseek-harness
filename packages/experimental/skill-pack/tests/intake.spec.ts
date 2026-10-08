@@ -386,6 +386,14 @@ describe('the organization root configuration', () => {
       .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} and root ${JSON.stringify(paths.root)} must be separate directories`)
   })
 
+  it.skipIf(process.platform === 'win32')('refuses at load an organization root that is a symbolic link whose target does not exist', async () => {
+    const paths = await newWorld()
+    const organizationRoot = join(world!, 'organization-link')
+    await symlink(paths.root, organizationRoot)
+    expect(() => new SkillPackRegistry(new Context(), { root: paths.root, platformVersion: PLATFORM_VERSION, organizationRoot }))
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} resolves through the symbolic link ${JSON.stringify(organizationRoot)}, whose target does not exist`)
+  })
+
   it('replaces an organization root configured with a trailing separator', async () => {
     const paths = await newWorld()
     const ctx = await boot({ ...paths, organizationRoot: `${paths.organizationRoot}${sep}` })

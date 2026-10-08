@@ -234,8 +234,9 @@ export class SkillPackRegistry extends Service {
    * @param config - the pack root, the platform version, whether to watch, where a delivery arrives, the
    *   organization root, and whether the status route answers per member.
    * @throws {Error} when `root`, `deliveries.directory` or `organizationRoot` is not an absolute path,
-   *   two of them are one directory or one lies inside the other as the file system reads them, or
-   *   `platformVersion` is not an exact semantic version.
+   *   is reached through a symbolic link whose target does not exist, or two of them are one directory or
+   *   one lies inside the other as the file system reads them; or when `platformVersion` is not an exact
+   *   semantic version.
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'skillPacks')

@@ -1,10 +1,12 @@
 /**
  * The form configured directories are compared in, per platform: names folded
  * by `collisionKey` where the platform's file systems ignore letter case, and
- * compared as written where they do not, whichever platform runs the test.
+ * compared as written where they do not, whichever platform runs the test;
+ * and the refusal of a directory reached through a symbolic link whose target
+ * does not exist, on every platform.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -80,5 +82,49 @@ describe('configured directories compared per platform', () => {
         { field: 'double', path: join(missing, 'strasse') },
       ], 'linux')
     }).not.toThrow()
+  })
+})
+
+// Creating a symbolic link on Windows needs the create-symbolic-link
+// privilege or Developer Mode, which a test cannot count on.
+describe.skipIf(process.platform === 'win32')('configured directories reached through a symbolic link whose target does not exist', () => {
+  /** The refusal naming one configured directory and the link it is reached through. */
+  const dangling = (field: string, path: string, link: string): string =>
+    `skill-pack: ${field} ${JSON.stringify(path)} resolves through the symbolic link ${JSON.stringify(link)}, whose target does not exist`
+
+  it.each(['darwin', 'linux', 'win32'] as const)('refuses a directory under a link to a missing directory inside the pack root on %s', async (platform) => {
+    const base = await newWorld()
+    const link = join(base, 'later-link')
+    await symlink(join(base, 'packs', 'later'), link)
+    const organizationRoot = join(link, 'org')
+    expect(() => {
+      refuseSharedDirectories([
+        { field: 'organizationRoot', path: organizationRoot },
+        { field: 'root', path: join(base, 'packs') },
+      ], platform)
+    }).toThrow(dangling('organizationRoot', organizationRoot, link))
+  })
+
+  it.each(['darwin', 'linux', 'win32'] as const)('refuses a directory that is itself a link to the missing pack root on %s', async (platform) => {
+    const base = await newWorld()
+    const root = join(base, 'absent-packs')
+    const organizationRoot = join(base, 'organization-link')
+    await symlink(root, organizationRoot)
+    expect(() => {
+      refuseSharedDirectories([
+        { field: 'organizationRoot', path: organizationRoot },
+        { field: 'root', path: root },
+      ], platform)
+    }).toThrow(dangling('organizationRoot', organizationRoot, organizationRoot))
+  })
+
+  it('refuses a directory under a link that points at itself', async () => {
+    const base = await newWorld()
+    const loop = join(base, 'loop')
+    await symlink(loop, loop)
+    const root = join(loop, 'packs')
+    expect(() => {
+      refuseSharedDirectories([{ field: 'root', path: root }], 'linux')
+    }).toThrow(dangling('root', root, loop))
   })
 })
