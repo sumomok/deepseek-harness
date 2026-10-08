@@ -504,6 +504,21 @@ describe('Connection member Peer admission', () => {
       expect(mounted.ctx.connection.peers.memberAdmission).toBe(false)
     })
 
+    it('refuses a Peer carrying the operator\'s id and scope that is not connection.operator', async () => {
+      const mounted = await mount()
+      const { connection } = mounted.ctx
+      const forged: PeerScope = { id: connection.operator.id, ctx: connection.operator.ctx, dispose: () => connection.operator.dispose() }
+      const shared = connection.createSharedFetchHandler(API_PATH)
+      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), forged)
+      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
+      }), forged)
+
+      expect([exact.status, intercepted.status]).toEqual([401, 401])
+      expect(mounted.seen).toEqual([])
+      expect(connection.peers.memberAdmission).toBe(false)
+    })
+
     it('lets a live member and the operator through on the same paths', async () => {
       const { mounted, member } = await mountMember()
       const headers = { cookie: mounted.cookie, 'content-type': 'application/json' }
