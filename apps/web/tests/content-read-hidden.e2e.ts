@@ -215,13 +215,15 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-hidden'))
     const input = page.locator(COMPOSER).first()
     await writeComposerDraft(page, input, PROMPT)
+    // The closing line is the second scripted answer, and teardown asserts the
+    // script was consumed whole, so the turn has to end before the test does.
+    const turnEnded = scaffold.whenTurnSettled(60_000)
     asked = Date.now()
     await page.keyboard.press('Enter')
 
-    const settled = (): SessionEvent | undefined => sessionEvents.find(event =>
+    expect(await turnEnded).toBe(seeded)
+    const result = sessionEvents.find(event =>
       event.type === 'tool/result' && event.data.message.source.callId === CALL_ID)
-    await expect.poll(() => settled() !== undefined, { timeout: 60_000 }).toBe(true)
-    const result = settled()
     if (result?.type !== 'tool/result') throw new Error('the read settled with no result')
     const text = result.data.message.content
       .map(block => (block.type === 'text' ? block.text : ''))
