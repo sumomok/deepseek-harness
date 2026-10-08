@@ -52,9 +52,9 @@
  * the placement package supersedes a block's unclaimed note with that same
  * block's next one.
  *
- * Twelve things come back, each a `context` gesture of the placement package's
- * catalog and each bounded the way that catalog bounds it — `data-page-read.ts`
- * holds the readings and the ceilings: on `access-denied`, which of the two
+ * Twelve of the fourteen `context` gestures the placement package's catalog
+ * declares come back, each bounded the way that catalog bounds it —
+ * `data-page-read.ts` holds the readings and the ceilings: on `access-denied`, which of the two
  * judgements refused this table, and nothing else; on `auth-failed`, the answer
  * this deployment refused the visitor's credential with; on `load`, the table, the first drawn
  * columns and the rights this deployment answered with for this user; on
@@ -66,7 +66,8 @@
  * `modify-save-success`, that a record was saved and the fields that name it;
  * on `export-task-created`, which of the two toolbar exports the page submitted
  * to this deployment's backend and in which file type — the task number the
- * backend answered with goes no further than the page. A
+ * backend answered with goes no further than the page. `deleted` and
+ * `batch-modified` are the two this renderer does not report. A
  * load or a query identical to the one this block last reported for the same
  * placing call is not reported again, which is what keeps a tab switch — the
  * column drops and redraws a block, and the page loads and queries afresh —
