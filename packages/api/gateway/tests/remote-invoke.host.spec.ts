@@ -519,8 +519,13 @@ describe('remote/invoke', () => {
         return next()
       })
       const written: boolean[] = []
+      const redefined: boolean[] = []
+      const deleted: boolean[] = []
       ctx.on('remote/invoke', (call, next) => {
-        written.push(Reflect.set(call, 'peer', call.peer === operator ? member : operator))
+        const other = call.peer === operator ? member : operator
+        written.push(Reflect.set(call, 'peer', other))
+        redefined.push(Reflect.defineProperty(call, 'peer', { value: other }))
+        deleted.push(Reflect.deleteProperty(call, 'peer'))
         call.args = { value: 'replaced' }
         return next()
       }, { prepend: true })
@@ -532,6 +537,8 @@ describe('remote/invoke', () => {
       await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 'judged' } }))
         .resolves.toBe('replaced')
       expect(written).toEqual([false, false])
+      expect(redefined).toEqual([false, false])
+      expect(deleted).toEqual([false, false])
       expect(seen).toEqual([member, operator])
       expect(probe.peers).toEqual([operator])
       expect(probe.wireArgs).toEqual([{ value: 'replaced' }])
