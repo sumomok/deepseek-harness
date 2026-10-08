@@ -63,10 +63,11 @@ export function collisionKey(name: string): string {
  * @returns the same packs, once every name and every path has passed.
  * @throws {PackInstallError} when a pack name is not one directory name, a pack or a path is
  *   delivered twice — two names or two paths of one pack whose {@link collisionKey} forms are equal
- *   count as one — a path leaves its pack, a pack name or a path segment holds a lone UTF-16
- *   surrogate or is over {@link NAME_BYTES_MAX} bytes of UTF-8, either of which some file system
- *   cannot hold as written, or a file carries an extension a pack may not carry. A name a file
- *   system refuses for another reason passes, and writing it fails.
+ *   count as one, and so does a path one pack uses both as a file and as the directory of another
+ *   path, by the same comparison — a path leaves its pack, a pack name or a path segment holds a
+ *   lone UTF-16 surrogate or is over {@link NAME_BYTES_MAX} bytes of UTF-8, either of which some
+ *   file system cannot hold as written, or a file carries an extension a pack may not carry. A
+ *   name a file system refuses for another reason passes, and writing it fails.
  */
 export function validatePacks(packs: readonly DeliveredPack[]): DeliveredPack[] {
   const names = new Set<string>()
@@ -77,16 +78,37 @@ export function validatePacks(packs: readonly DeliveredPack[]): DeliveredPack[] 
     }
     names.add(collisionKey(name))
     const paths = new Set<string>()
+    const directories = new Set<string>()
     const files = pack.files.map((file) => {
       const checked = checkFile(name, file)
-      if (paths.has(collisionKey(checked.path))) {
+      const key = collisionKey(checked.path)
+      if (paths.has(key)) {
         throw new PackInstallError('duplicate-entry', `${name}/${checked.path}`, 'a pack carries each path once when paths are folded the way skill-pack compares them')
       }
-      paths.add(collisionKey(checked.path))
+      const ancestors = directoriesOf(key)
+      if (directories.has(key) || ancestors.some(directory => paths.has(directory))) {
+        throw new PackInstallError(
+          'duplicate-entry',
+          `${name}/${checked.path}`,
+          'a pack uses no path as both a file and a directory when paths are folded the way skill-pack compares them',
+        )
+      }
+      paths.add(key)
+      for (const directory of ancestors) directories.add(directory)
       return checked
     })
     return { name, files }
   })
+}
+
+/**
+ * The directories a pack-relative path lies in, inside its pack.
+ * @param path - a pack-relative path, `/`-separated; a {@link collisionKey} form keeps every `/` of the path.
+ * @returns each leading part of the path short of the whole, shortest first: `a/b/c.md` gives `a` and `a/b`.
+ */
+function directoriesOf(path: string): string[] {
+  const segments = path.split('/')
+  return segments.slice(1).map((_, index) => segments.slice(0, index + 1).join('/'))
 }
 
 /**

@@ -317,7 +317,8 @@ export type IntakeRefusalCode =
   /**
    * A file, path, extension, frontmatter, manifest or view file breaks the
    * pack rules, two paths that fold to one name, as `duplicate` states for
-   * versions, among them, and a path segment or `<name>@<version>` that holds
+   * versions, or a path used both as a file and as the directory of another
+   * path, among them, and a path segment or `<name>@<version>` that holds
    * a lone UTF-16 surrogate or is over 255 bytes of UTF-8; or the frontmatter
    * `name` is not the entry's name, or the version is not one directory name.
    * A name the file system refuses for another reason, such as one holding a

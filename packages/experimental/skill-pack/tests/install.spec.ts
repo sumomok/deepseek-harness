@@ -232,6 +232,30 @@ describe('replacing a pack root', () => {
     expect(await readdir(base)).toEqual(['packs'])
   })
 
+  it('refuses a path one pack uses both as a file and as the directory of another, in either order and once folded, and leaves the root as it was', async () => {
+    const base = await workspace()
+    const root = join(base, 'packs')
+    await syncPackRoot(root, { kind: 'packs', packs: [pack('a', 'A.')] })
+    for (const [first, second] of [
+      ['notes/x.md', 'notes/x.md/y.md'],
+      ['notes/x.md', 'notes/X.md/y.md'],
+      ['notes/x.md', 'notes/x.md/deeper/y.md'],
+      ['notes/x.md/y.md', 'notes/x.md'],
+      ['notes/X.md/y.md', 'notes/x.md'],
+      ['notes/stra\u00dfe.md', 'notes/strasse.md/y.md'],
+    ] as const) {
+      const files = [...pack('b', 'B.').files, { path: first, content: 'x' }, { path: second, content: 'y' }]
+      await expect(syncPackRoot(root, { kind: 'packs', packs: [{ name: 'b', files }] }))
+        .rejects.toMatchObject({
+          refusal: 'duplicate-entry',
+          entry: `b/${second}`,
+          message: `skill-pack: refused b/${second} \u2014 a pack uses no path as both a file and a directory when paths are folded the way skill-pack compares them`,
+        })
+    }
+    expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
+    expect(await readdir(base)).toEqual(['packs'])
+  })
+
   it('refuses a link inside a delivered pack rather than copying what it points at', async () => {
     const base = await workspace()
     const source = join(base, 'delivery')

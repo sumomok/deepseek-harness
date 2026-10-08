@@ -26,9 +26,10 @@ export type PackInstallRefusal =
   /** The delivered set holds an entry that is not a pack directory. */
   | 'not-a-pack'
   /**
-   * The delivery names one pack twice, or one path twice inside a pack; two
-   * names that are equal after Unicode NFC, lower case, upper case, lower case
-   * again and NFC again count as one.
+   * The delivery names one pack twice, or one path twice inside a pack, or
+   * uses one path of a pack both as a file and as the directory of another
+   * path; two names that are equal after Unicode NFC, lower case, upper case,
+   * lower case again and NFC again count as one.
    */
   | 'duplicate-entry'
   /** The archive's bytes are not an archive this installer can read. */

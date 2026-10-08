@@ -822,6 +822,32 @@ describe('an entry refused', () => {
   })
 })
 
+describe('an entry using one path as a file and as a directory', () => {
+  /** The detail a `pack-invalid` refusal states for a path of an entry used both as a file and as a directory. */
+  const FILE_AND_DIRECTORY = (path: string): string =>
+    `PackInstallError: skill-pack: refused ${path} \u2014 a pack uses no path as both a file and a directory when paths are folded the way skill-pack compares them`
+
+  it('refuses the entry as pack-invalid, in either order and once folded, and writes the rest of the set', async () => {
+    const paths = await newWorld()
+    const ctx = await boot(paths)
+    const { intake } = await organization(ctx)
+    const result = await intake.replace([
+      entry('a-guide', '1', 'stable', { extra: [{ path: 'notes/x.md', content: 'x' }, { path: 'notes/x.md/y.md', content: 'y' }] }),
+      entry('b-guide', '1', 'stable', { extra: [{ path: 'notes/x.md', content: 'x' }, { path: 'notes/X.md/y.md', content: 'y' }] }),
+      entry('c-guide', '1', 'stable', { extra: [{ path: 'notes/X.md/y.md', content: 'y' }, { path: 'notes/x.md', content: 'x' }] }),
+      entry('kept-guide', '1', 'stable', { views: { 'kept.yml': viewText('kept', 'KEPT') } }),
+    ])
+    expect(result.kind === 'ok' ? result.refused : result).toEqual([
+      { name: 'a-guide', version: '1', code: 'pack-invalid', detail: FILE_AND_DIRECTORY('a-guide@1/notes/x.md/y.md') },
+      { name: 'b-guide', version: '1', code: 'pack-invalid', detail: FILE_AND_DIRECTORY('b-guide@1/notes/X.md/y.md') },
+      { name: 'c-guide', version: '1', code: 'pack-invalid', detail: FILE_AND_DIRECTORY('c-guide@1/notes/x.md') },
+    ])
+    expect(await readdir(paths.organizationRoot)).toEqual(['kept-guide@1'])
+    expect(intake.isActive('kept-guide', '1')).toBe(true)
+    expect(await viewIds(ctx)).toEqual(['kept-guide:kept'])
+  })
+})
+
 describe('view ids an organization set declares', () => {
   it('refuses every entry declaring one id with different files when the offered set holds none of them', async () => {
     const paths = await newWorld()
