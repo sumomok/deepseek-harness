@@ -13,7 +13,7 @@
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import type { ConsoleMemberDirectory, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory, PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import z from '@deepseek-ai/schemastery'
 

@@ -15,7 +15,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { BizSubject, PrincipalKey } from '@deepseek-ai/dsh-experimental-biz-backend'
 import { holdMemberCredentials, memberSlotResolver, tokenClaim } from '../src/members.ts'
-import type { ConsoleMemberDirectory } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory } from '@deepseek-ai/dsh-experimental-console-members/types'
 import { UNCALLED_MEMBERS } from './fixtures/console-members.client.ts'
 
 /** The subject a tool call's reads name. */

@@ -33,7 +33,7 @@ import {
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as AuthGate from '../src/index.ts'
 import { AUTH_GATE_LOGOUT_ROUTE, AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE } from '../src/route.ts'
-import type { CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members'
+import type { CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members/types'
 import { ConsoleMembersFixture, MEMBER_HEADER, type Config as FixtureConfig } from './fixtures/console-members.client.ts'
 
 /** The subject a tool call's reads name. */

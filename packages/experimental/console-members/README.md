@@ -31,12 +31,12 @@ Import these types in a Host plugin that acts for one console member: a webServe
 
 ### Entry point
 
-Importing any type from the package root loads the `Context` declaration, so `ctx.consoleMembers` and `ctx.get('consoleMembers')` type-check:
+Import the types from `@deepseek-ai/dsh-experimental-console-members/types`. Importing anything from that entry, including `import type {}`, loads the `Context` declaration, so `ctx.consoleMembers` and `ctx.get('consoleMembers')` type-check:
 
 ```ts
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members'
+import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-console-members/types'
 
 declare const ctx: Context
 declare const req: IncomingMessage
@@ -44,7 +44,9 @@ declare const req: IncomingMessage
 const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(req)
 ```
 
-`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/index.ts`](src/index.ts) states every method's contract.
+The `/types` entry imports no Host entry point, so Host plugins and Client programs both import it. The package root re-exports the same types, but it is reserved for the plugin that will provide the directory; a Client program never imports the package root.
+
+`principalOfRequest` is the only way a fork webServer route obtains a request's member: the route reads no identity header and calls no `connection.admit` of its own. `principalOfSession` follows a child Session's parent chain to the topmost Session, and `attachCustomerCredentials` holds one customer-token reader at a time, which no method returns. The [subsystem page](../../../docs/subsystems/console-members.md) explains these three rules; [`src/types.ts`](src/types.ts) states every method's contract.
 
 `PrincipalKey` is `Branded<'PrincipalKey'>` from `@deepseek-ai/dsh-brand`, and its value is the member's `login_uid`. A consumer treats it as opaque, and it reaches no model request, log line, or upload.
 
@@ -56,12 +58,13 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The package root holds type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`. The compiled `lib/index.js` exports nothing, and no `cordis.yml` row can name the package.
+`src/types.ts` holds the type declarations and one `declare module '@deepseek-ai/cordis'` merge that adds `consoleMembers: ConsoleMemberDirectory` to `Context`; the package root re-exports those types. The compiled `lib/index.js` and `lib/types/types.js` export nothing, and no `cordis.yml` row can name the package.
 
 | File | Contents |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `PrincipalKey`, `ConsoleMemberDirectory`, `MemberStore`, `CustomerCredentialReader`, and the `Context` merge |
-| [`tests/types.spec.ts`](tests/types.spec.ts) | Type assertions on the `Context` key and the principal-key brand |
+| [`src/types.ts`](src/types.ts) | `PrincipalKey`, `ConsoleMemberDirectory`, `MemberStore`, `CustomerCredentialReader`, and the `Context` merge; the `/types` entry |
+| [`src/index.ts`](src/index.ts) | The package root: a type-only re-export of `src/types.ts` |
+| [`tests/types.spec.ts`](tests/types.spec.ts) | Type assertions on the `Context` key, the principal-key brand, and the root's re-exports |
 
 </details>
 
@@ -87,7 +90,7 @@ Type declarations add no model input, so provider cache reuse is unaffected.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **No provider in this repository.** No package provides `ctx.consoleMembers`. A plugin that injects it never starts, and `ctx.get('consoleMembers')` answers `undefined`. The method contracts in [`src/index.ts`](src/index.ts) bind whichever plugin provides the directory; no test exercises them, because the package's spec checks declarations only.
+- **No provider in this repository.** No package provides `ctx.consoleMembers`. A plugin that injects it never starts, and `ctx.get('consoleMembers')` answers `undefined`. The method contracts in [`src/types.ts`](src/types.ts) bind whichever plugin provides the directory; no test exercises them, because the package's spec checks declarations only.
 
 <a id="dev-note"></a>
 ### Dev Note

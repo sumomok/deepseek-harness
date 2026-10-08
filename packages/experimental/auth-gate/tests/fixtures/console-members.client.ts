@@ -18,7 +18,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PrincipalKey } from '@deepseek-ai/dsh-experimental-biz-backend'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import z from '@deepseek-ai/schemastery'
-import type { ConsoleMemberDirectory, CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members'
+import type { ConsoleMemberDirectory, CustomerCredentialReader } from '@deepseek-ai/dsh-experimental-console-members/types'
 
 /** The header this fixture places a request by. */
 export const MEMBER_HEADER = 'x-test-member'

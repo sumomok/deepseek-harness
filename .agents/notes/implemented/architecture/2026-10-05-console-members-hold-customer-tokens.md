@@ -46,6 +46,6 @@ The trust premise moved to the deployment. Its login gate verifies the token and
 
 A per-member console has no MCP forwarding, so a write an MCP tool makes — an iot write among them — is recorded under the console-mcp service account rather than under the member who asked. A per-member process with no directory running answers 503 on the token and sign-out routes; the error line that reports it is written when the Loader tree settles, because Cordis has no host-ready event.
 
-auth-gate imports the directory's types from `@deepseek-ai/dsh-experimental-console-members`, which declares `Context.consoleMembers`. Until a plugin provides that service, a `perMember` row answers 503 on its token and sign-out routes.
+auth-gate imports the directory's types from `@deepseek-ai/dsh-experimental-console-members/types`, which declares `Context.consoleMembers`. Until a plugin provides that service, a `perMember` row answers 503 on its token and sign-out routes.
 
 No shipped profile sets `perMember`, so no recorded-session snapshot covers it. `packages/experimental/auth-gate/tests/per-member.client.spec.ts` boots the gate through the Loader with a test-only member directory row and covers both members' tokens, child sessions, the 401, 409, and 503 refusals, the reader handover and its refusal, and disposal.
