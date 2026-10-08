@@ -52,7 +52,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 ### 客户 token 与已登记成员
 
-token 持有方（开了 `shareWithMemberDirectory` 的 auth-gate）在自己的 `ctx.effect` 里调 `ctx.consoleMembers.attachCustomerCredentials(reader)`，并在这个 effect 的清理里执行返回的 disposer。插件行同一时刻只持有一个读取器：已挂着时再挂抛错，disposer 执行之后可以挂另一个。执行 disposer 等于每位成员的 token 都已丢弃，读取器不为此报 `dropped`。disposer 只生效一次：先停止读取和转发这个读取器，再同步调用每个 `onDetached` 监听者，然后才腾出位置，所以在 `onDetached` 监听者里挂读取器会被拒。同一个 disposer 重复调用或迟到调用都不再通知任何人，也不动在那之后挂上的读取器。读取器在 `onChange` 订阅过程中报告的变化不转发，因为 `onChange` 返回之后读取器才算挂上。
+token 持有方（开了 `shareWithMemberDirectory` 的 auth-gate）在自己的 `ctx.effect` 里调 `ctx.consoleMembers.attachCustomerCredentials(reader)`，并在这个 effect 的清理里执行返回的 disposer。插件行同一时刻只持有一个读取器：已挂着时再挂抛错，disposer 执行之后可以挂另一个。执行 disposer 等于每位成员的 token 都已丢弃，读取器不为此报 `dropped`。disposer 只生效一次：先停止读取和转发这个读取器，再同步调用每个 `onDetached` 监听者，然后才腾出位置，所以在 `onDetached` 监听者里挂读取器会被拒。同一个 disposer 重复调用或迟到调用都不再通知任何人，也不动在那之后挂上的读取器。读取器在 `onChange` 订阅过程中报告的变化不转发，因为 `onChange` 返回之后读取器才算挂上；在这次 `onChange` 调用里再挂读取器会抛错，因为位置已经被占住。
 
 控制台线的凭据来源经 `@deepseek-ai/dsh-experimental-console-members/credential-access` 读取 token。它的源码导入 Host 模块，所以只有 Host 插件导入它；Client 程序导入 `/types`：
 

@@ -133,6 +133,33 @@ describe('attaching the customer credential reader', () => {
     expect(holder.subscribers()).toBe(0)
   })
 
+  it('refuses an attach from inside a reader\'s onChange subscription, and attaches the subscribing reader', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    let detached = 0
+    access.onDetached(() => { detached += 1 })
+    const outer = fakeReader([[ALICE, ALICE_TOKEN]])
+    const inner = fakeReader([[ALICE, BOB_TOKEN]])
+    const refusals: string[] = []
+    const reentering: CustomerCredentialReader = {
+      read: member => outer.reader.read(member),
+      onChange: (listener) => {
+        refusals.push(thrown(() => directory(row).attachCustomerCredentials(inner.reader)).message)
+        return outer.reader.onChange(listener)
+      },
+    }
+    const release = directory(row).attachCustomerCredentials(reentering)
+    expect(refusals).toEqual([ATTACHED])
+    expect(inner.subscribers()).toBe(0)
+    expect(outer.subscribers()).toBe(1)
+    expect(access.read(ALICE)).toBe(ALICE_TOKEN)
+    release()
+    expect(detached).toBe(1)
+    expect(outer.subscribers()).toBe(0)
+    directory(row).attachCustomerCredentials(inner.reader)
+    expect(access.read(ALICE)).toBe(BOB_TOKEN)
+  })
+
   it('leaves the slot free when the reader\'s onChange throws', async () => {
     const row = await mountMembers()
     const broken: CustomerCredentialReader = {

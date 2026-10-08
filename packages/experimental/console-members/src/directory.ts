@@ -120,7 +120,8 @@ export class ConsoleMembersDirectory extends Service implements ConsoleMemberDir
    * @param reader - the customer-token reader.
    * @returns the disposer that detaches the reader.
    * @throws {Error} when a reader is attached, including inside an `onDetached` listener of
-   *   `./credential-access`, which runs before the slot is free.
+   *   `./credential-access`, which runs before the slot is free, and inside the `onChange` subscription of a reader
+   *   being attached.
    */
   attachCustomerCredentials(reader: CustomerCredentialReader): () => void {
     return this[DIRECTORY_STATE].credentials.attach(reader)

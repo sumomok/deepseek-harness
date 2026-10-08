@@ -6,9 +6,10 @@
  * stops forwarding the reader's changes, including to the listeners a
  * change being forwarded has not reached yet, and stops reading it, then calls
  * every detach listener synchronously, then frees the slot; until the slot
- * is free, attaching throws. The disposer acts once, and only for its own
- * attachment, so a repeated or late call neither notifies again nor detaches
- * a reader attached since.
+ * is free, attaching throws. The slot is also held while a reader's
+ * `onChange` is subscribing, so an attach from inside that call throws. The
+ * disposer acts once, and only for its own attachment, so a repeated or late
+ * call neither notifies again nor detaches a reader attached since.
  *
  * No log line or error text of this module carries a principal key or a
  * token.
@@ -18,6 +19,9 @@
 import type { Logger } from '@deepseek-ai/cordis'
 import { Listeners } from './listeners.ts'
 import type { CustomerCredentialReader, PrincipalKey } from './types.ts'
+
+/** The slot's holder while a reader's `onChange` is subscribing, before its {@link Attachment} exists. */
+const SUBSCRIBING: unique symbol = Symbol('console-members customer credential reader subscribing')
 
 /** One attached reader and its `onChange` subscription. */
 class Attachment {
@@ -37,8 +41,12 @@ class Attachment {
 
 /** The customer-token reader slot. */
 export class CustomerCredentials {
-  /** The attachment that holds the slot, from attach until its disposer has notified every detach listener. */
-  private holder: Attachment | undefined
+  /**
+   * What holds the slot: {@link SUBSCRIBING} while a reader's `onChange` runs
+   * inside attach, then its attachment until the disposer has notified every
+   * detach listener.
+   */
+  private holder: Attachment | typeof SUBSCRIBING | undefined
   /** The attachment whose reader is read and forwarded: the holder until its disposer starts. */
   private live: Attachment | undefined
   /** The `onChange` listeners, each called with the attachment the change came from. */
@@ -59,14 +67,22 @@ export class CustomerCredentials {
    * forwarded, because the reader is not attached until `onChange` returns.
    * @param reader - the token holder's reader.
    * @returns the disposer that detaches this reader.
-   * @throws {Error} when a reader holds the slot, including while its disposer is notifying detach listeners, and
-   *   with the reader's own error when its `onChange` throws; the slot is unchanged then.
+   * @throws {Error} when a reader holds the slot, including while its disposer is notifying detach listeners and
+   *   while a reader's `onChange` is subscribing inside attach, and with the reader's own error when its `onChange`
+   *   throws; the slot is free again then.
    */
   attach(reader: CustomerCredentialReader): () => void {
     if (this.holder !== undefined) {
       throw new Error('console-members: a customer credential reader is already attached; its disposer must run before another reader attaches')
     }
-    const attachment = new Attachment(reader, (source, principal, kind) => { this.changed.emit(principal, kind, source) })
+    this.holder = SUBSCRIBING
+    let attachment: Attachment
+    try {
+      attachment = new Attachment(reader, (source, principal, kind) => { this.changed.emit(principal, kind, source) })
+    } catch (failure) {
+      this.holder = undefined
+      throw failure
+    }
     this.holder = attachment
     this.live = attachment
     return () => { this.detach(attachment) }

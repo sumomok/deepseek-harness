@@ -135,7 +135,8 @@ memberStore(principal: PrincipalKey, unit: string): MemberStore
  * a reader attached since in place.
  * @param reader - the read-only customer-token reader.
  * @returns the disposer that detaches the reader.
- * @throws Error when a reader is already attached, including while its disposer calls the detach listeners.
+ * @throws Error when a reader is already attached, including while its disposer calls the detach listeners and
+ *   while the `onChange` of a reader being attached is subscribing.
  */
 attachCustomerCredentials(reader: CustomerCredentialReader): () => void
 ```

@@ -979,7 +979,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Attach the reader of members\' customer tokens. The directory holds one reader at a time: attaching while a reader is attached throws, and once the returned disposer has run a new reader may be attached, as the token holder\'s plugin does when it restarts. The holder calls this inside its own `ctx.effect` and runs the disposer from that effect\'s cleanup. Running the disposer counts as every member\'s token being dropped: the directory stops reading and forwarding the reader, calls every detach listener synchronously, and only then accepts another reader; the reader emits no `dropped` for it. The disposer acts once, and a late call leaves a reader attached since in place.',
         parameters: [{ name: 'reader', description: 'the read-only customer-token reader.' }],
         returns: 'the disposer that detaches the reader.',
-        throws: ['Error when a reader is already attached, including while its disposer calls the detach listeners.'],
+        throws: ['Error when a reader is already attached, including while its disposer calls the detach listeners and while the `onChange` of a reader being attached is subscribing.'],
       },
     ],
   },
