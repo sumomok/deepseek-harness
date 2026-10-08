@@ -599,7 +599,7 @@ describe('an entry refused', () => {
   })
 
   it('refuses as pack-invalid a version that is a Windows device name in any letter case, with or without an extension, and writes the rest', async () => {
-    const reserved = ['CON', 'prn', 'Aux', 'nul', 'COM0', 'COM1', 'com9', 'lpt0', 'LPT1', 'lpt9', 'con.txt', 'NUL.tar.gz']
+    const reserved = ['CON', 'prn', 'Aux', 'nul', 'COM0', 'COM1', 'com9', 'lpt0', 'LPT1', 'lpt9', 'COM\u00b9', 'Com\u00b2', 'lpt\u00b3', 'con.txt', 'NUL.tar.gz']
     const near = ['COM10', 'LPT10', 'CONSOLE', 'con-1', 'aux1.0']
     expect(await versionsRefused([...reserved, ...near])).toEqual({
       refused: reserved,

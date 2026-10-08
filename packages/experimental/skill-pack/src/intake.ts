@@ -69,7 +69,7 @@ const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]
  * A name Windows reserves for a device, in any letter case and with or
  * without an extension, which a version may not be.
  */
-const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?$/iu
+const WINDOWS_DEVICE_NAME = /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(?:\..*)?$/iu
 
 /** What the intake reads from the row that provides it. */
 export interface IntakeHost {

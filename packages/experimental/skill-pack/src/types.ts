@@ -289,7 +289,8 @@ export interface OrgPackInput {
    * Linux, macOS and Windows: no `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`
    * or control character U+0000 to U+001F, no `.` or space at its end, and
    * not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`,
-   * `LPT0` to `LPT9`) in any letter case, with or without an extension. It
+   * `LPT0` to `LPT9`, and `COM` or `LPT` followed by a superscript one, two or
+   * three) in any letter case, with or without an extension. It
    * holds no lone UTF-16 surrogate, and `<name>@<version>` is at most 255
    * bytes of UTF-8. It need not equal the pack's own `metadata.pack.version`,
    * and nothing here compares the two.
