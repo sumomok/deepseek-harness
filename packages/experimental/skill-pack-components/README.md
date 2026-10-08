@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Two packages that must not depend on each other meet here. [`component-surface`](../component-surface/README.md) owns `ctx.componentCatalog` — which components a deployment registered and which of them it offers — and knows nothing about skill packs. [`skill-pack`](../skill-pack/README.md) withholds a pack until the component parts its views place exist, declares the service key that answers what exists, and reaches into no component package to answer it. This row is what a deployment composes to connect the two, and it is the only place the edge runs in both directions.
+Two packages that must not depend on each other meet here. [`component-surface`](../component-surface/README.md) owns `ctx.componentCatalog` — which components a deployment registered and which of them it offers — and knows nothing about skill packs. [`skill-pack`](../skill-pack/README.md) withholds a pack until the component parts its views place exist, declares the service key that answers what exists, and reaches into no component package to answer it. This row is what a deployment composes to connect the two, and it is the only place the edge runs in both directions. The package also writes the [component catalog file](#the-component-catalog-file) a pack author composes views from.
 
 ## Table of Contents
 
@@ -18,6 +18,7 @@ Two packages that must not depend on each other meet here. [`component-surface`]
 - [Offered, not registered](#offered-not-registered)
 - [Judging a pack's views](#judging-a-packs-views)
 - [Placing them](#placing-them)
+- [The component catalog file](#the-component-catalog-file)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -85,6 +86,30 @@ Everything the packs do offer is registered into `ctx.componentViews` as one sou
 
 From there the path is the one a configured view already takes — the sidebar lists it off `GET /component-surface/views`, a click runs `/show-content-view`, and what lands in the column is the same session event a configured view's click writes.
 
+<a id="the-component-catalog-file"></a>
+## The component catalog file
+
+`tests/expected/component-catalog.json` is what someone writing a skill pack away from any deployment composes views from: every component the component kit registers, the rules a view file is judged by, and the rules a pack and its `.dshpack` archive are read under. Regenerate it after any change to a catalog entry, to the component surface's limits or to the pack rules, and after any change to the version of the component kit or of the kit it vendors. `scripts/release/bump.ts` changes the component kit's version with every other private package's, so a version bump needs a regeneration too:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-catalog
+```
+
+A test generates the file again and fails when the checked-in copy differs by one byte, so a change that moves the catalog cannot pass with a stale file.
+
+| Key | What it holds |
+|---|---|
+| `header.catalogFormat` | `1`, the file format. Format `1` is not frozen until the first Beiming release that reads the file ships; from then on the number changes whenever a key is renamed, removed or given another meaning. A reader that does not know the number does not read the file. |
+| `header.componentKit`, `header.toyCrudKit` | The npm name and installed version of the component kit, which a pack's `requires.components` range is matched against, and of the kit it vendors to draw the data page. |
+| `header.bodySha256` | SHA-256, in lowercase hexadecimal, of the UTF-8 bytes of `JSON.stringify(body)`: no whitespace, keys in file order. A reader recomputes it from the parsed file; outside JavaScript, the serializer must write exactly what `JSON.stringify` writes, non-ASCII characters unescaped included, or the digest does not match. |
+| `header.exampleViewSha256` | `null`, because the file ships no example view yet. |
+| `body.components` | Per component: `id`, `label` (the Chinese name the user reads), `purpose`, `placement`, `deploymentSwitches`, `props`, `outputs` (`id`, `readers` where only a component a view places reads the output, `summary`, `shape`), `actions` (`id`, `report`), and `sanitize` where the component reads a string as a path, a color or a renderer name. |
+| `body.rules` | `view` (the id, the title, the spec size, the keys a spec and a node may carry, the node count and node id, and the rules a spec, its nodes and its data page are judged by), `layout` (the root kind, directions, gaps, depth, the children of one stack, `flex`, the keys a stack and a placed block may carry, and the rules they and the placement are judged by), `binding` (`$from`), `param` (`$param`), `viewFile` (the keys a view file is read for), `manifest` (the frontmatter key, the fields, the values `pack.viewFormat` and `pack.anchorFormat` may take and when the first must be stated, and what a `.dshpack` delivery, an organization set and the pack root do with a pack breaking either), `packFiles` (the extensions a pack may carry) and `archive` (the `.dshpack` format and the limits it is read under by default). |
+
+Each property states `summary`, the notation the tool description writes for it; `required`; `viewOnly`, true where only a view file may set it; `unbindable`, true where it cannot be written as a `$from` reference, read from the component surface's `unbindableReason`, so a property the component reads as a path, a color or a renderer name is unbindable even where it is not declared so; and `schema`, its kind with every bound, list and alphabet, an alphabet written as a regular-expression literal with its flags. A field inside an object property states `summary`, `required` and `schema` only: a `$from` inside an object property is refused, and `viewOnly` is judged on a component's own properties alone. Each field of `viewFile.fields` and `manifest.fields` states its `path`, `required`, and `summary`, the pack root's own words for what the value must be. `deploymentSwitches` names the `show_component` switches that must be on before a deployment offers the component, read from the component surface's `withheldComponents`; whether a given deployment has turned them on is not in the file. `placement` is the entry's own placement, `view` for a component only a view written down for the deployment may place and `call` for one a call may place too. `readers` is `view` on an output only such a component reads, which no property of a component a call places accepts. A test checks every component of the file against the catalog entry it comes from: the same `id`, `label`, `purpose` and `placement`, the same property names, the same output ids and `readers`, the same actions by `id` and `report`, and the same `sanitize`, or none where the entry has none. It keeps one check per key of the entry in a record typed over the entry, so a key added to the entry fails the typecheck until a check for that key is written.
+
+The components, every upper limit, list and key are read from the module that enforces them. The generator writes the rest itself, because no module exports them as values: the lower bounds of `view.nodes`, `layout.children` and `layout.flex`, `layout.flex.integer`, `layout.root`, the `otherKeys` words, and the `rules` sentences, which restate how the component surface judges a view and how the pack root reads a manifest. Tests check each of those values against the judgement it restates, and pin the exact text of every `rules` sentence beside a check of the judgement it states, so changing either fails a test. Three clauses are pinned without a check in this package: how a spec without a layout is drawn and how the page resolves a bound value, which happen in the page rather than in a judgement, and what an organization set does with a pack breaking a format rule, which the pack root's own tests check. A fourth, `an index takes one item of a list output`, is checked only where a binding is refused, because no output declared today has an item that a property accepts.
+
 ## Model Experience
 
 Indirectly, through [`skill-pack`](../skill-pack/README.md#model-experience): this row registers no prompt, schema, tool or result of its own, and what it changes is which packs answer their requirements — a pack this row can answer for becomes an ordinary skill in the merged catalog, and a pack it cannot stays absent.
@@ -99,6 +124,7 @@ Through the skill registry's consumer only. A component plugin mounted or withdr
 - **A part is a component, and nothing smaller.** A pack requires `toy.data-page` and is told whether that component exists; it cannot require a property of one, an action of one, or a version of the component itself. The component's version is its package's, so two components shipped by one package can never be required at different versions.
 - **The version a range is matched against is the package's, not the component's.** A plugin that renamed or dropped a component in a patch release still satisfies `>=0.4.0`, and the pack activates onto a component that changed under it. What stops that today is `requires.parts`, which names the id and is checked for presence.
 - **A pack that loses an id collision to the deployment's own views learns it from the status route and nowhere else.** The refusal names the id and says it is already offered; it does not name which configured view holds it, because the judgement runs before the index is built and only the index knows the holder. What the operator has is the two documents side by side. A collision between two packs is named on both sides, by the pack root, which can see both.
+- **No example view.** The catalog file's header carries `exampleViewSha256: null`, and no test judges an example view. The example places a data page and an information card bound to the page's `opened` output, and neither the card nor that output is in the catalog yet. Once both are, the example goes under `tests/expected/examples/`, its digest goes into the header, and a test substitutes its `params` and judges it with the component surface's `judgeView`.
 - **Not covered by an assembled snapshot** — the row is exercised by its own real-composition spec; the snapshot lanes replay the shipped composition, which composes no experimental row.
 
 <a id="dev-note"></a>

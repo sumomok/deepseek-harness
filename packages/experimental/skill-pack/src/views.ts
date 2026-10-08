@@ -13,8 +13,20 @@
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/views
  */
 
-import type { PackViewResult } from './types.ts'
+import type { PackDocumentField, PackViewResult } from './types.ts'
 import { parseYamlMapping } from './yaml.ts'
+
+/**
+ * The keys {@link parsePackView} reads, in the order it reads them: `id` and
+ * `title` must be non-empty text, `spec` must be present, and `params`, where
+ * written, must be a mapping. Any other key in a view file is ignored.
+ */
+export const PACK_VIEW_FIELDS: readonly PackDocumentField[] = [
+  { path: 'id', required: true, summary: 'a non-empty string' },
+  { path: 'title', required: true, summary: 'a non-empty string' },
+  { path: 'spec', required: true, summary: 'any value, carried as written for the component catalog to judge' },
+  { path: 'params', required: false, summary: 'a mapping from a parameter name to its value' },
+]
 
 /**
  * Parse one view file's text.

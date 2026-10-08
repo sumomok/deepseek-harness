@@ -110,11 +110,11 @@ export type ComponentSpecResult =
   | { readonly ok: true; readonly spec: ComponentSpec }
   | { readonly ok: false; readonly failure: ComponentCallFailure }
 
-/** The property names a node object may carry. */
-const NODE_KEYS: readonly string[] = ['id', 'component', 'props']
+/** The property names a node object may carry; a node carrying any other is refused, naming the key. */
+export const NODE_KEYS: readonly string[] = ['id', 'component', 'props']
 
-/** The property names a spec document may carry. */
-const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
+/** The property names a spec document may carry; a spec carrying any other is refused, naming the key. */
+export const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
 
 /**
  * Build one refusal.
@@ -619,6 +619,26 @@ export function acceptsOutput(source: PropsFieldSchema, target: PropsFieldSchema
   }
 }
 
+/**
+ * Why one of a component's own properties cannot be read from another block.
+ *
+ * Three things refuse a binding on it: the component's `sanitize` names the
+ * property, something nested in it is read as something narrower than text,
+ * or it is declared {@link PropsField.unbindable}. A
+ * property that is both read as something narrower than text and declared
+ * unbindable is refused with the first, which names what it is read as.
+ * @param entry - the component.
+ * @param key - the property's name.
+ * @param field - the property as the component declares it, `entry.propsSchema[key]`.
+ * @returns the reason a binding on the property is refused with, or `undefined` where it may be bound.
+ */
+export function unbindableReason(entry: ComponentCatalogEntry, key: string, field: PropsField): string | undefined {
+  return entry.sanitize?.[key] !== undefined || carriesReading(field.schema, entry.sanitize)
+    ? 'this component reads part of it as something narrower than text — a path, a color, or the name of a cell '
+      + 'renderer — and that reading is done over the value a call writes out.'
+    : field.unbindable
+}
+
 /** One property of one node read from another block, as the node's own pass collected it. */
 interface NodeBinding {
   /** Parameter path of the reference, which every refusal about it names. */
@@ -712,12 +732,7 @@ function collectBindings(
     // properties pass right after, which names the spelling and lists what the
     // component accepts.
     if (field === undefined) continue
-    // A property that is both read as something narrower than text and declared
-    // unbindable is refused with the first, which names what it is read as.
-    const unbindable = entry.sanitize?.[key] !== undefined || carriesReading(field.schema, entry.sanitize)
-      ? 'this component reads part of it as something narrower than text — a path, a color, or the name of a cell '
-        + 'renderer — and that reading is done over the value a call writes out.'
-      : field.unbindable
+    const unbindable = unbindableReason(entry, key, field)
     if (unbindable !== undefined) {
       return { ok: false, failure: refuse(propPath, `cannot be read from another block: ${unbindable}`) }
     }

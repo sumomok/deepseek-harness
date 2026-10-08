@@ -20,7 +20,7 @@
  */
 
 /** The key whose presence makes an object a parameter reference rather than a value. */
-const PARAM_KEY = '$param'
+export const PARAM_KEY = '$param'
 
 /** One refused reference: where it sits in the spec, and what is wrong with it. */
 export interface ViewParamFailure {

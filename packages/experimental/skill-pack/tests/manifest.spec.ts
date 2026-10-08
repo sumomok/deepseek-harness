@@ -5,7 +5,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  anchorFormatMissing, PACK_ANCHOR_FORMATS, PACK_VIEW_FORMATS, parsePackManifest, readsDeclaredViews, viewFormatMissing,
+  anchorFormatMissing,
+  PACK_ANCHOR_FORMATS,
+  PACK_MANIFEST_FIELDS,
+  PACK_VIEW_FORMATS,
+  parsePackManifest,
+  readsDeclaredViews,
+  viewFormatMissing,
 } from '../src/manifest.ts'
 import { describeMissing } from '../src/reconcile.ts'
 import type { PackManifest } from '../src/types.ts'
@@ -79,6 +85,91 @@ describe('pack manifest', () => {
       .toMatchObject({ ok: false, field: 'metadata.pack.platfrom' })
     expect(parsePackManifest({ pack: { version: '1.0.0' }, requires: { part: ['toy.data-page'] } }))
       .toMatchObject({ ok: false, field: 'metadata.requires.part' })
+  })
+})
+
+describe('the manifest fields a pack may state', () => {
+  /** A value each listed field accepts. */
+  const VALUES: Readonly<Record<string, unknown>> = {
+    'pack.version': '1.0.0',
+    'pack.platform': '>=0.5.0',
+    'pack.viewFormat': 1,
+    'pack.anchorFormat': 1,
+    'requires.components': { '@deepseek-ai/dsh-experimental-component-kit': '>=0.2.0' },
+    'requires.parts': ['toy.data-page'],
+    views: ['views/a.yml'],
+  }
+
+  /** The manifest object stating exactly the given dotted fields. */
+  function stating(paths: readonly string[]): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {}
+    const objects: Record<string, Record<string, unknown>> = {}
+    for (const path of paths) {
+      const [head, leaf] = path.split('.') as [string, string | undefined]
+      if (leaf === undefined) {
+        metadata[head] = VALUES[path]
+      } else {
+        objects[head] = { ...objects[head], [leaf]: VALUES[path] }
+        metadata[head] = objects[head]
+      }
+    }
+    return metadata
+  }
+
+  it('lists every key the manifest schema reads, with the two that must be present and what each value must be', () => {
+    expect(PACK_MANIFEST_FIELDS).toEqual([
+      { path: 'pack.version', required: true, summary: 'an exact semantic version, such as 1.0.0' },
+      { path: 'pack.platform', required: false, summary: 'a semantic-version range, such as >=0.2.0' },
+      { path: 'pack.viewFormat', required: false, summary: 'an integer' },
+      { path: 'pack.anchorFormat', required: false, summary: 'an integer' },
+      {
+        path: 'requires.components',
+        required: false,
+        summary: 'a mapping from a package name, a non-empty string, to a semantic-version range',
+      },
+      { path: 'requires.parts', required: false, summary: 'a list of part ids, each a non-empty string' },
+      { path: 'views', required: false, summary: 'a list of view file paths inside the pack, each a non-empty string' },
+    ])
+  })
+
+  it('refuses a value of another kind than each field\'s summary states, naming the field', () => {
+    /** A manifest stating the required version and the given dotted field set to the value. */
+    const setting = (path: string, value: unknown): Record<string, unknown> => {
+      const [head, leaf] = path.split('.') as [string, string | undefined]
+      const pack = { version: '1.0.0' }
+      if (head === 'pack' && leaf !== undefined) return { pack: { ...pack, [leaf]: value } }
+      return leaf === undefined ? { pack, [head]: value } : { pack, [head]: { [leaf]: value } }
+    }
+    const refusing: Readonly<Record<string, readonly unknown[]>> = {
+      'pack.version': ['1.0', '>=1.0.0', 1],
+      'pack.platform': ['not a range', 1],
+      'pack.viewFormat': [1.5, '1'],
+      'pack.anchorFormat': [1.5, '1'],
+      'requires.components': [['@a/b'], { '': '>=1.0.0' }, { '@a/b': 'not a range' }],
+      'requires.parts': ['toy.data-page', [''], [1]],
+      views: ['views/a.yml', [''], [1]],
+    }
+    expect(Object.keys(refusing)).toEqual(PACK_MANIFEST_FIELDS.map(field => field.path))
+    for (const [path, values] of Object.entries(refusing)) {
+      expect(parsePackManifest(setting(path, VALUES[path])), path).toMatchObject({ ok: true })
+      for (const value of values) {
+        const result = parsePackManifest(setting(path, value))
+        expect(!result.ok && result.field.startsWith(`metadata.${path}`), `${path}: ${JSON.stringify(value)}`).toBe(true)
+      }
+    }
+  })
+
+  it('accepts a manifest stating every listed field, and one stating only the required ones', () => {
+    expect(parsePackManifest(stating(PACK_MANIFEST_FIELDS.map(field => field.path)))).toMatchObject({ ok: true })
+    expect(parsePackManifest(stating(PACK_MANIFEST_FIELDS.filter(field => field.required).map(field => field.path))))
+      .toMatchObject({ ok: true })
+  })
+
+  it('refuses a manifest leaving out a required field, naming it', () => {
+    for (const field of PACK_MANIFEST_FIELDS.filter(one => one.required)) {
+      const others = PACK_MANIFEST_FIELDS.map(one => one.path).filter(path => path !== field.path)
+      expect(parsePackManifest(stating(others))).toMatchObject({ ok: false, field: `metadata.${field.path}` })
+    }
   })
 })
 

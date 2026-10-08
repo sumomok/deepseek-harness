@@ -95,6 +95,7 @@ export {
   DATA_PAGE_DELETED_ID,
   DATA_PAGE_EDITING_OUTPUT,
   DATA_PAGE_GATED_IDS,
+  DATA_PAGE_ID,
   DATA_PAGE_INFO_CARD_TABS,
   DATA_PAGE_MODEL_PROP_NAMES,
   DATA_PAGE_OPENED_OUTPUT,
@@ -110,6 +111,29 @@ export {
   type ComponentCatalog,
   type ComponentCatalogEntry,
 } from './component-call.ts'
+export {
+  BINDING_HINT,
+  BINDING_KEY,
+  BLOCK_KEYS,
+  describeSchema,
+  LAYOUT_DIRECTIONS,
+  LAYOUT_GAPS,
+  MAX_ENTRY_ID_LENGTH,
+  MAX_FLEX,
+  MAX_LAYOUT_CHILDREN,
+  MAX_LAYOUT_DEPTH,
+  MAX_NODE_ID_LENGTH,
+  MAX_NODES,
+  MAX_OUTPUT_ID_LENGTH,
+  MAX_SPEC_BYTES,
+  MAX_TITLE_LENGTH,
+  STACK_KEYS,
+  TOKEN_CHARSET,
+  TOKEN_HINT,
+} from './component-call.ts'
+export { PARAM_KEY } from './params.ts'
+export { withheldComponents } from './tool.ts'
+export { NODE_KEYS, SPEC_KEYS, unbindableReason } from './validate.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-component'

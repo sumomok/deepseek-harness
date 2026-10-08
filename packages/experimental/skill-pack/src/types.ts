@@ -1,8 +1,8 @@
 /**
  * The values this package hands across its own edges: what a pack's manifest
  * says, what a component plugin has registered, what reconciliation answered,
- * what the status route publishes, what a delivery is made of, and what the
- * organization intake takes and answers.
+ * what the status route publishes, what a delivery is made of and what reading
+ * one did, and what the organization intake takes and answers.
  *
  * Runtime code lives in the modules that own each value — `manifest.ts` parses
  * a manifest, `views.ts` parses a view file, `reconcile.ts` judges a pack,
@@ -115,6 +115,16 @@ export interface PackManifest {
   readonly views: readonly string[]
 }
 
+/** One key a manifest or a view file may carry, whether a file that leaves it out is refused, and what its value must be. */
+export interface PackDocumentField {
+  /** The key's dotted path, from inside `metadata` for a manifest and from the top of the file for a view file. */
+  readonly path: string
+  /** Whether a file that leaves the key out is refused. */
+  readonly required: boolean
+  /** What the value must be, in words: its kind and the form it is read in. A value of another kind refuses the file. */
+  readonly summary: string
+}
+
 /** A manifest that parsed, or the field that stopped it. */
 export type PackManifestResult =
   | { readonly ok: true; readonly manifest: PackManifest }
@@ -218,7 +228,56 @@ export interface PackStatusDocument {
    * offered organization set in `name@version` order, active and inactive alike.
    */
   readonly packs: readonly PackStatus[]
+  /**
+   * What the last read of the delivery directory that found an archive did
+   * with it. Held in memory: absent where no delivery directory is
+   * configured, and after a start until a read finds an archive.
+   */
+  readonly lastDelivery?: DeliveryRecord
 }
+
+/**
+ * What one read of the delivery directory did with the archive it found.
+ * The union is closed: a consumer switches on `result` and ends in `assertNever`.
+ */
+export type DeliveryRecord =
+  | {
+    /**
+     * `installed`: the pack root now holds the set, and did not before this
+     * read. `unchanged`: the root already held every pack, path and byte of
+     * the set, and nothing was written.
+     */
+    readonly result: 'installed' | 'unchanged'
+    /** The one archive the directory held. */
+    readonly archives: readonly [string]
+    /** The set the archive's manifest states. */
+    readonly set: PackSetIdentity
+    /** When the read finished, as an ISO 8601 timestamp in UTC. */
+    readonly at: string
+  }
+  | {
+    /** Nothing was written, and the pack root holds what it held before this read. */
+    readonly result: 'refused'
+    /**
+     * Every archive the directory held, in name order: one, except on a read
+     * refused for holding more than one.
+     */
+    readonly archives: readonly string[]
+    /** The set the archive's manifest states; present once the archive verified against that manifest. */
+    readonly set?: PackSetIdentity
+    /**
+     * The line the process log carries for the refusal, naming the archive and
+     * what refused it. Where a path in it begins with the pack root, a
+     * directory above the pack root other than the file-system root, or the
+     * delivery directory, each as configured or as its real path, that much of
+     * the path is written `<pack root>`, `<pack root>/..`, `<pack root>/../..`
+     * and so on, or `<delivery directory>`, with the host's path separator.
+     * The process log keeps the paths in full.
+     */
+    readonly reason: string
+    /** When the read finished, as an ISO 8601 timestamp in UTC. */
+    readonly at: string
+  }
 
 /** One file inside a delivered pack. */
 export interface DeliveredFile {

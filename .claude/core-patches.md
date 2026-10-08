@@ -812,12 +812,13 @@
 
 ## agent-team-css-face-in-client-aggregate — Client 聚合加载上游实验 client 包的 CSS 模块声明
 
-- **改了什么**：`tsconfig.client.json` 的 `include` 加 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 与 `packages/experimental/client-ui-voice-input/src/css-modules.d.ts` 两行。
+- **改了什么**：`tsconfig.client.json` 的 `include` 加 `packages/experimental/` 下 `client-ui-agent-team`、`client-ui-claude-code-mods`、`client-ui-voice-input`、`inspector`、`session-inspector` 五个包的 `src/css-modules.d.ts`，共五行。
 - **为什么**：上游自己的缺口：`client-ui-agent-team` 只在聚合里加了 project 引用，没有把 CSS 模块声明写进 `include`；上游 `scripts/client-tsconfig.spec.ts` 只查 `client` 与 `extensions` 两组，看不到它，本线把检查扩到 `experimental` 后照出来。
 - **要达到的效果**：`experimental` 组的 client 包在同一条规则下受检，不为过门禁豁免上游包。
-- **退役条件**：上游自己把这两行写进 `tsconfig.client.json`。
+- **退役条件**：上游自己把这五行写进 `tsconfig.client.json`。
 - **状态**：在役（`product/server-console`）。核实依据：`dsh-v0.2.1-alpha.1` 的 `include` 里 `packages/client` 之外的 CSS 模块声明仍只有 `ui-cordis` 一行。
 - **本轮适配（`dsh-v0.1.7-rc.2`）**：上游新增的 `client-ui-voice-input` 同样只有 project 引用、没有 CSS 模块声明的 `include` 行，`scripts/client-tsconfig.spec.ts` 照出后补上第二行。
+- **本轮适配（`dsh-v0.2.1-alpha.1`）**：上游新增的 `client-ui-claude-code-mods`、`inspector`、`session-inspector` 同样只有 project 引用、没有 CSS 模块声明的 `include` 行；并入 `dsh-v0.2.1-alpha.1` 时没有补，`scripts/client-tsconfig.spec.ts` 在 `product/server-console` 上答 62 对 65，补上这三行。
 - **路径**：`tsconfig.client.json`
 
 ## vue2-jsx-trajectory-cell-wrapper — trajectory 单元格测试包装改用 createElement

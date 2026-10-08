@@ -31,7 +31,7 @@
  * same way: ops copies one archive in, this plugin verifies it against the
  * archive's own manifest and makes the pack root equal to what it carries. The
  * directory names the delivery the deployment holds, and nothing here ever
- * writes into it.
+ * writes into it. The status route says what the last read of it did.
  *
  * A deployment that configures an organization root also provides
  * `ctx.skillPackIntake` (`intake.ts`): the plugin handing over an
@@ -54,7 +54,7 @@ import type {
 } from '@deepseek-ai/dsh-skill'
 // Type-only: resolves ctx.webServer for the optional status route.
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { installDelivery, type DeliveryDirectory } from './deliveries.ts'
+import { installDelivery, keepDelivery, type DeliveryDirectory } from './deliveries.ts'
 import { refuseSharedDirectories } from './directories.ts'
 import type { StagedPack, StagedPackRefusal } from './install.ts'
 import { NO_ORGANIZATION_SET, OrganizationPackIntake } from './intake.ts'
@@ -62,7 +62,16 @@ import { admitEveryRequest, placeRequestByMember, reportDirectoryMismatch } from
 import { describeMissing, judgePackAlone, reconcilePacks, undrawableViews, type PackObservation } from './reconcile.ts'
 import { packStatusRoute } from './route.ts'
 import { readPackRoot, type PackSource } from './scan.ts'
-import type { ActivePackView, PackManifest, PackStatus, PartsSource, SkillPackIntake } from './types.ts'
+import type {
+  ActivePackView,
+  DeliveryRecord,
+  PackArchiveLimits,
+  PackManifest,
+  PackStatus,
+  PackStatusDocument,
+  PartsSource,
+  SkillPackIntake,
+} from './types.ts'
 
 export type * from './types.ts'
 export { buildPackArchive, PACK_ARCHIVE_EXTENSION, PACK_ARCHIVE_FORMAT } from './archive.ts'
@@ -71,8 +80,9 @@ export type { PackInstallRefusal } from './refusal.ts'
 export { syncPackRoot } from './install.ts'
 export type { PackArchiveSyncResult, StagedPack, StagedPackRefusal, SyncPackRootResult, VerifyStagedPacks } from './install.ts'
 export { describeMissing, reconcilePacks, type PackObservation } from './reconcile.ts'
-export { PACK_ANCHOR_FORMATS, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
-export { parsePackView } from './views.ts'
+export { PACK_FILE_EXTENSIONS } from './delivery.ts'
+export { PACK_ANCHOR_FORMATS, PACK_MANIFEST_FIELDS, PACK_MANIFEST_KEY, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
+export { PACK_VIEW_FIELDS, parsePackView } from './views.ts'
 export { SKILL_PACK_STATUS_ROUTE } from './route.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -109,24 +119,23 @@ const DELIVERY_SETTLE_MS = 300
 const DELIVERY_POLL_MS = 50
 
 /**
- * Largest delivery archive a deployment reads by default. A set of packs is
- * instructions, view files and pictures; 32 MiB carries a large one, and a
- * file over it is something other than the delivery this root installs.
+ * The limits a delivery archive is read under where the `deliveries` block
+ * sets none of its own.
+ *
+ * - `maxArchiveBytes`, 32 MiB: a set of packs is instructions, view files and
+ *   pictures; 32 MiB carries a large one, and a file over it is something
+ *   other than the delivery this root installs.
+ * - `maxFileBytes`, 4 MiB: enough for an illustrated instruction page, far
+ *   below what any view file or manifest is.
+ * - `maxFiles`, 512: a pack is a `SKILL.md` with its views and pictures beside
+ *   it, so this is room for dozens of packs and a ceiling on what one archive
+ *   can make a deployment write.
  */
-const DEFAULT_MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
-
-/**
- * Largest single file inside a delivery archive by default: enough for an
- * illustrated instruction page, far below what any view file or manifest is.
- */
-const DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024
-
-/**
- * Most entries a delivery archive may carry by default. A pack is a `SKILL.md`
- * with its views and pictures beside it, so this is room for dozens of packs
- * and a ceiling on what one archive can make a deployment write.
- */
-const DEFAULT_MAX_FILES = 512
+export const DEFAULT_PACK_ARCHIVE_LIMITS: PackArchiveLimits = {
+  maxArchiveBytes: 32 * 1024 * 1024,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxFiles: 512,
+}
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
 export interface PackDeliveryDirectory {
@@ -194,9 +203,9 @@ export class SkillPackRegistry extends Service {
     // value of the block's own type, which is what the cast says.
     deliveries: z.object({
       directory: z.string().required(),
-      maxArchiveBytes: z.natural().min(1).default(DEFAULT_MAX_ARCHIVE_BYTES),
-      maxFileBytes: z.natural().min(1).default(DEFAULT_MAX_FILE_BYTES),
-      maxFiles: z.natural().min(1).default(DEFAULT_MAX_FILES),
+      maxArchiveBytes: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxArchiveBytes),
+      maxFileBytes: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxFileBytes),
+      maxFiles: z.natural().min(1).default(DEFAULT_PACK_ARCHIVE_LIMITS.maxFiles),
     }).default(undefined as never),
     organizationRoot: z.string(),
     perMember: z.boolean().default(false),
@@ -220,6 +229,8 @@ export class SkillPackRegistry extends Service {
   private installing: Promise<void> = Promise.resolve()
   /** Whether the delivery watch has been given up, so a queued install does not run after it. */
   private stopped = false
+  /** What the status route reports about the delivery directory; absent until a read finds an archive. */
+  private lastDelivery: DeliveryRecord | undefined
 
   /** Subscribers, in registration order, which is the order a change reaches them in. */
   private readonly watchers = new Set<() => void>()
@@ -335,7 +346,7 @@ export class SkillPackRegistry extends Service {
     const place = perMember ? placeRequestByMember(ctx) : admitEveryRequest
     ctx.inject(['webServer'], (serverCtx: Context) => {
       serverCtx.effect(
-        () => serverCtx.webServer.register(packStatusRoute(() => this.statuses(), place)),
+        () => serverCtx.webServer.register(packStatusRoute(() => this.statusDocument(), place)),
         'skill-pack: the pack status route',
       )
     })
@@ -401,11 +412,23 @@ export class SkillPackRegistry extends Service {
       /* v8 ignore next -- only an event dispatched while the watcher was closing reaches a stopped
          row, and no in-process test can make chokidar emit one during close(). */
       if (this.stopped) return
-      const changed = await installDelivery(this.root, delivery, (level, text) => {
+      const read = await installDelivery(this.root, delivery, (level, text) => {
         this.ctx.logger[level](text)
       }, packs => this.refuseUndrawable(packs))
-      if (changed) this.moved()
+      this.lastDelivery = keepDelivery(this.lastDelivery, read)
+      if (read?.result === 'installed') this.moved()
     })
+  }
+
+  /**
+   * The status route's document: every pack's status, and what the last read
+   * of the delivery directory that found an archive did with it.
+   * @returns the document, with no `lastDelivery` until a read has found an archive.
+   */
+  private async statusDocument(): Promise<PackStatusDocument> {
+    const packs = await this.statuses()
+    const lastDelivery = this.lastDelivery
+    return lastDelivery === undefined ? { packs } : { packs, lastDelivery }
   }
 
   /**

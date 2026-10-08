@@ -14,10 +14,10 @@
 
 import semver from 'semver'
 import { z } from 'zod'
-import type { PackManifest, PackManifestResult, PackMissing } from './types.ts'
+import type { PackDocumentField, PackManifest, PackManifestResult, PackMissing } from './types.ts'
 
-/** The `metadata` key under which a pack manifest is read, and the prefix every refused field carries. */
-const MANIFEST_FIELD = 'metadata'
+/** The SKILL.md frontmatter key under which a pack manifest is read, and the prefix every refused field carries. */
+export const PACK_MANIFEST_KEY = 'metadata'
 
 /**
  * The view-file format versions this build reads.
@@ -52,19 +52,50 @@ const versionRange = z.string().refine(value => semver.validRange(value) !== nul
   message: 'must be a semantic-version range',
 })
 
+// Each leaf's `describe` text is the `summary` PACK_MANIFEST_FIELDS states for it.
 const manifestSchema = z.strictObject({
   pack: z.strictObject({
-    version: exactVersion,
-    platform: versionRange.optional(),
-    viewFormat: z.int().optional(),
-    anchorFormat: z.int().optional(),
+    version: exactVersion.describe('an exact semantic version, such as 1.0.0'),
+    platform: versionRange.describe('a semantic-version range, such as >=0.2.0').optional(),
+    viewFormat: z.int().describe('an integer').optional(),
+    anchorFormat: z.int().describe('an integer').optional(),
   }),
   requires: z.strictObject({
-    components: z.record(z.string().min(1), versionRange).optional(),
-    parts: z.array(z.string().min(1)).optional(),
+    components: z.record(z.string().min(1), versionRange)
+      .describe('a mapping from a package name, a non-empty string, to a semantic-version range')
+      .optional(),
+    parts: z.array(z.string().min(1)).describe('a list of part ids, each a non-empty string').optional(),
   }).optional(),
-  views: z.array(z.string().min(1)).optional(),
+  views: z.array(z.string().min(1)).describe('a list of view file paths inside the pack, each a non-empty string').optional(),
 })
+
+/**
+ * List the leaf keys of one object of the manifest schema.
+ * @param shape - the object's keys and their schemas.
+ * @param prefix - the dotted path of the object, with its trailing dot; empty at the top.
+ * @param required - whether the object itself must be present.
+ * @returns one field per leaf key, in declaration order; a key inside an optional object is optional.
+ * @throws {Error} when a leaf carries no `describe` text, which would leave its field without a summary.
+ */
+function manifestFields(shape: z.core.$ZodShape, prefix: string, required: boolean): PackDocumentField[] {
+  return Object.entries(shape).flatMap(([key, field]) => {
+    const optional = field instanceof z.ZodOptional
+    const inner = field instanceof z.ZodOptional ? field.unwrap() : field
+    const path = `${prefix}${key}`
+    if (inner instanceof z.ZodObject) return manifestFields(inner.shape, `${path}.`, required && !optional)
+    const summary = z.globalRegistry.get(inner)?.description
+    /* v8 ignore next -- every leaf of manifestSchema is described; one added without a description stops this module loading. */
+    if (summary === undefined) throw new Error(`skill-pack: the manifest field ${path} has no description`)
+    return [{ path, required: required && !optional, summary }]
+  })
+}
+
+/**
+ * Every key a manifest may carry inside `metadata`, read off the schema a
+ * manifest is parsed with. A key outside this list refuses the manifest, and
+ * so does a manifest leaving out a required one.
+ */
+export const PACK_MANIFEST_FIELDS: readonly PackDocumentField[] = manifestFields(manifestSchema.shape, '', true)
 
 /**
  * Name the refused field the way a person reading the status route finds it in
@@ -79,7 +110,7 @@ const manifestSchema = z.strictObject({
 function fieldName(issue: z.core.$ZodIssue): string {
   const path = issue.path.map(String)
   if (issue.code === 'unrecognized_keys') path.push(...issue.keys.slice(0, 1))
-  return [MANIFEST_FIELD, ...path].join('.')
+  return [PACK_MANIFEST_KEY, ...path].join('.')
 }
 
 /**
@@ -93,7 +124,7 @@ export function parsePackManifest(metadata: unknown): PackManifestResult {
     const issue = read.error.issues.at(0)
     /* v8 ignore next 2 -- zod reports at least one issue for every failed parse; the fallback
        keeps a refusal from being reported with no field at all. */
-    if (issue === undefined) return { ok: false, field: MANIFEST_FIELD, reason: 'is not a pack manifest' }
+    if (issue === undefined) return { ok: false, field: PACK_MANIFEST_KEY, reason: 'is not a pack manifest' }
     return { ok: false, field: fieldName(issue), reason: issue.message }
   }
   const { pack, requires, views } = read.data

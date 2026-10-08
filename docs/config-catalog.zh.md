@@ -1187,7 +1187,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-component-surface`
 
 - `inject`: `tools`
-- `source`: [`packages/experimental/component-surface/src/index.ts:126`](../packages/experimental/component-surface/src/index.ts)
+- `source`: [`packages/experimental/component-surface/src/index.ts:150`](../packages/experimental/component-surface/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
@@ -1912,7 +1912,7 @@ export type NavSnapshotKind = 'page' | 'view'
 ## `@deepseek-ai/dsh-experimental-skill-pack`
 
 - `inject`: `skills`
-- `source`: [`packages/experimental/skill-pack/src/index.ts:148`](../packages/experimental/skill-pack/src/index.ts)
+- `source`: [`packages/experimental/skill-pack/src/index.ts:157`](../packages/experimental/skill-pack/src/index.ts)
 
 ```ts config-catalog
 /**

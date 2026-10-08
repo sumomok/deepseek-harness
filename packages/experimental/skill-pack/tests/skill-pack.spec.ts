@@ -4,7 +4,10 @@
  * over a real pack root, and every assertion reads what the composition
  * actually offers — the merged skill catalog a model-facing consumer reads,
  * the body a load returns, the status route, the views of the active packs,
- * and what all four answer as the parts source arrives and goes away.
+ * and what all four answer as the parts source arrives and goes away. The
+ * delivery reader is the real one, wrapped only to record each read it
+ * finishes, because a read that changes nothing writes no line a test could
+ * wait for.
  */
 
 import { createHash } from 'node:crypto'
@@ -13,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { zipSync } from 'fflate'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, Logger, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -24,6 +27,7 @@ import SkillPackRegistry, { buildPackArchive, SKILL_PACK_STATUS_ROUTE } from '..
 import { reportDirectoryMismatch } from '../src/members.ts'
 import type {
   DeliveredPack,
+  DeliveryRecord,
   PackStatusDocument,
   PackView,
   PackViewRefusal,
@@ -31,6 +35,21 @@ import type {
   SkillPackIntake,
 } from '../src/types.ts'
 import * as MembersFixture from './fixtures/console-members.ts'
+
+/** Every delivery read the running composition has finished, in the order it finished. */
+const deliveryReads = vi.hoisted(() => ({ finished: [] as (DeliveryRecord | undefined)[] }))
+
+vi.mock('../src/deliveries.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/deliveries.ts')>()
+  return {
+    ...actual,
+    async installDelivery(...args: Parameters<typeof actual.installDelivery>): ReturnType<typeof actual.installDelivery> {
+      const read = await actual.installDelivery(...args)
+      deliveryReads.finished.push(read)
+      return read
+    },
+  }
+})
 
 const PLATFORM_VERSION = '0.5.2'
 
@@ -94,6 +113,7 @@ afterEach(async () => {
   if (world !== undefined) await rm(world, { recursive: true, force: true })
   world = undefined
   logLines = []
+  deliveryReads.finished = []
 })
 
 /** The withholding reports written at one level, in order. */
@@ -241,6 +261,24 @@ async function settlesOn<T>(read: () => Promise<T>, done: (value: T) => boolean)
   return value
 }
 
+/**
+ * Poll the status route until its last delivery names these archives with
+ * this result; the assertion reads the record it found. A read that starts
+ * while the next archive is still being written records a refusal naming that
+ * archive until the copy finishes, so the names alone do not show that the
+ * awaited read has finished.
+ */
+async function lastDeliverySettlesOn(
+  ctx: Context,
+  archives: string[],
+  result: DeliveryRecord['result'],
+): Promise<DeliveryRecord | undefined> {
+  return await settlesOn(
+    async () => ((await (await fetchStatus(ctx)).json()) as PackStatusDocument).lastDelivery,
+    record => record !== undefined && record.result === result && record.archives.join('\n') === archives.join('\n'),
+  )
+}
+
 /** Poll the process log until a line carries the fragment; the assertion reads the lines it found. */
 async function logSettlesOn(fragment: string): Promise<string[]> {
   return await settlesOn(
@@ -328,6 +366,8 @@ describe('a pack root whose parts nothing has registered', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
     const document = await response.json() as PackStatusDocument
+    // No delivery directory is configured, so the document says nothing about one.
+    expect(Object.keys(document)).toEqual(['packs'])
     expect(document.packs).toEqual([
       {
         skill: 'broken-pack',
@@ -533,6 +573,12 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('holds 2 archives (v1.dshpack, v2.dshpack)'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
+    expect(await lastDeliverySettlesOn(ctx, ['v1.dshpack', 'v2.dshpack'], 'refused')).toEqual({
+      result: 'refused',
+      archives: ['v1.dshpack', 'v2.dshpack'],
+      reason: 'skill-pack: the delivery directory holds 2 archives (v1.dshpack, v2.dshpack); it names one delivery at a time',
+      at: expect.any(String) as string,
+    })
   }, WATCHED_MS)
 
   it('leaves the root as it was when the archive does not verify against its own manifest', async () => {
@@ -568,6 +614,63 @@ describe('a delivery archive copied into the delivery directory', () => {
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
     expect((await ctx.skillPacks.statuses()).map(status => status.skill)).toEqual(['plain-note'])
+    // The route carries the refusal in the words the process log does, with the set the archive states.
+    const refusal = 'skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
+      + 'space-data-page/views/space-layer.yml — names no component of this deployment'
+    expect(logLines.map(line => line.text)).toEqual(expect.arrayContaining([expect.stringContaining(refusal)]))
+    expect(await lastDeliverySettlesOn(ctx, ['v2.dshpack'], 'refused')).toEqual({
+      result: 'refused',
+      archives: ['v2.dshpack'],
+      set: { id: 'space-console', version: '1.0.0' },
+      reason: refusal,
+      at: expect.any(String) as string,
+    })
+  }, WATCHED_MS)
+
+  it('says on its route what the last delivery did, and that one carrying what the root holds changed nothing', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    expect(Object.keys(await (await fetchStatus(ctx)).json() as PackStatusDocument)).toEqual(['packs'])
+
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    expect(await lastDeliverySettlesOn(ctx, ['v1.dshpack'], 'installed')).toEqual({
+      result: 'installed',
+      archives: ['v1.dshpack'],
+      set: { id: 'space-console', version: '1.0.0' },
+      at: expect.any(String) as string,
+    })
+
+    // The same packs exported again under a new name and a new set version.
+    await deliver(deliveries, 'v1-again.dshpack', deliverySet(), '1.0.1')
+    expect(await lastDeliverySettlesOn(ctx, ['v1-again.dshpack'], 'unchanged')).toEqual({
+      result: 'unchanged',
+      archives: ['v1-again.dshpack'],
+      set: { id: 'space-console', version: '1.0.1' },
+      at: expect.any(String) as string,
+    })
+    expect((await readdir(root)).sort()).toEqual(['plain-note', 'space-data-page'])
+  }, WATCHED_MS)
+
+  it('keeps reporting an install when a note written beside the archive makes the directory be read again', async () => {
+    const { ctx, deliveries } = await loadDeliveryComposition()
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    const installed = await lastDeliverySettlesOn(ctx, ['v1.dshpack'], 'installed')
+    expect(installed).toMatchObject({ result: 'installed', archives: ['v1.dshpack'] })
+
+    const before = deliveryReads.finished.length
+    await writeFile(join(deliveries, 'note.txt'), 'delivered by ops\n')
+    await writeFile(join(deliveries, '.DS_Store'), 'finder state\n')
+    // The note's event reads the directory again and finds the archive the root already holds.
+    const reads = await settlesOn(
+      () => Promise.resolve(deliveryReads.finished.slice(before)),
+      found => found.some(read => read?.result === 'unchanged'),
+    )
+    expect(reads).toContainEqual({
+      result: 'unchanged',
+      archives: ['v1.dshpack'],
+      set: { id: 'space-console', version: '1.0.0' },
+      at: expect.any(String) as string,
+    })
+    expect(((await (await fetchStatus(ctx)).json()) as PackStatusDocument).lastDelivery).toEqual(installed)
   }, WATCHED_MS)
 
   it('installs a pack that is waiting for a plugin, whatever this surface makes of the views it cannot draw yet', async () => {
