@@ -151,7 +151,10 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
 
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
-    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)
+    // Replay paces every chunk by 15 ms, and the four steps on the vision route
+    // stream about 17,000 characters of reasoning: about 85 s of turn on an
+    // idle machine.
+    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 180_000)
     await input.fill(PROMPT)
     await input.press('Enter')
 
