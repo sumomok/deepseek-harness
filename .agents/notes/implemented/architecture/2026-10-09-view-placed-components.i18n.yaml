@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-09-view-placed-components.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-09-view-placed-components.md
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page:
+  en: cab157e13cdfc0eb
+  zh: 4f5316c30fb6e004
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/problem:
+  en: 40165200f904e63e
+  zh: 32d030e8ffcd9462
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/decision:
+  en: c9472d54056a1a7d
+  zh: 59d5ad14012b5311
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/the-decision-gate:
+  en: dbdd9d7baf915d1e
+  zh: da7681425b4c58de
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/the-decision-gate/boundaries:
+  en: e91f477801a03c7e
+  zh: 7447f07d5e81dbb8
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/alternatives-considered:
+  en: 7d88f61266ff72b9
+  zh: 39bdaa85a8b196de
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/consequences:
+  en: aa2ae061ba5fe30a
+  zh: af32ea65822a745e
+/agent-note-components-only-a-written-down-view-places-and-the-two-outputs-that-wire-them-to-a-data-page/testing:
+  en: c787dcda6302229c
+  zh: 5b2edd1576e2d46d
