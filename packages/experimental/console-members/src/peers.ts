@@ -114,11 +114,16 @@ export class MemberPeers {
   }
 
   /**
-   * The members whose Peer is in the table.
+   * The members whose Peer is in the table and not released. A Peer is
+   * released as soon as its disposal starts, before Connection reports it
+   * closed, so a member leaves this list at the moment {@link principalOf}
+   * stops answering for their Peer.
    * @returns their keys, in the order their Peers opened.
    */
   principals(): readonly PrincipalKey[] {
-    return [...this.byPrincipal.keys()]
+    return [...this.byPrincipal.values()]
+      .filter(entry => this.options.peers.get(entry.peer.id) === entry.peer)
+      .map(entry => entry.principal)
   }
 
   /**

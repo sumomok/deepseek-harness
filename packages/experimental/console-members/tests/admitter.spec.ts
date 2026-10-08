@@ -296,6 +296,20 @@ describe('principals and onChange', () => {
     expect(changes).toEqual([{ principal: ALICE, kind: 'opened' }, { principal: ALICE, kind: 'closed' }])
   })
 
+  it('lists no member whose Peer is released, before Connection reports it closed', async () => {
+    const row = await mountMembers()
+    const changes: string[] = []
+    directory(row).onChange((change) => { changes.push(change.kind) })
+    const alice = peerOf(row, assertionFor(ALICE))
+    peerOf(row, assertionFor(BOB))
+    const closing = alice.dispose()
+    expect(directory(row).principals()).toEqual([BOB])
+    expect(directory(row).principalOfCaller(alice)).toBeUndefined()
+    await closing
+    expect(directory(row).principals()).toEqual([BOB])
+    expect(changes).toEqual(['opened', 'opened', 'closed'])
+  })
+
   it('keeps one Peer for a member whose first admission is re-entered from a connection/peer-opened listener', async () => {
     const row = await mountMembers()
     const assertion = assertionFor(ALICE)
