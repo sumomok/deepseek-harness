@@ -14,25 +14,27 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { open, lstat, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
+  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
+  type SessionPersistenceRelocateOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
-import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
+import { JsonlBackendTracker, JsonlSessionHandle, VANISHED_LOG_ATTEMPTS, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
+import { createJsonlRelocationRuntime, type JsonlSessionDirectory } from './relocation.ts'
 import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
@@ -73,6 +75,11 @@ const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
  */
 const ZSTD_DECODE_YIELD_INTERVAL_MS = 500
 
+/** Why a write claim in this process refuses a relocation, and how the relocation can succeed. */
+const RELOCATE_WHILE_OWNED = 'a relocation needs every handle that writes the session closed, and a live Agent keeps '
+  + 'its session open for writing until its host stops; restart the host, then relocate the session before anything '
+  + 'resumes it or opens it for writing'
+
 /** Assert that the independently decodable first frame contains only the header record. */
 function assertZstdHeaderFrame(plaintext: Buffer): void {
   if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
@@ -94,6 +101,8 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under human-readable project
    * directories, then per-session directories. An existing root must be a
    * readable directory; an absent root is created on first materialization.
+   * Plain files directly under the root whose names start with `.relocate.`
+   * record relocations in progress.
    */
   root: string
   /** Physical encoding; defaults to checksummed Zstandard frames. */
@@ -208,6 +217,16 @@ function abortError(signal: AbortSignal): Error {
     : new Error('session migration preparation aborted', { cause: signal.reason })
 }
 
+/**
+ * The failure a cancelled call reports: the signal's reason itself, as
+ * `throwIfAborted` throws it, when `error` carries that reason as its cause —
+ * Node's file-system `AbortError`, {@link abortError}, and the migration
+ * verifier's wrapper all do. Every other failure stays as it is.
+ */
+function cancellationOf(error: unknown, signal: AbortSignal | undefined): unknown {
+  return signal?.aborted === true && error instanceof Error && error.cause === signal.reason ? signal.reason : error
+}
+
 /** Let one caller stop waiting without transferring cancellation ownership to shared work. */
 function waitWithAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (signal === undefined) return operation
@@ -266,6 +285,7 @@ class JsonlSessionPersistence extends SessionPersistence {
   private readonly coldLogMemo = new Map<SessionId, StoredLog>()
   /** One joinable decode/migration operation per selected historical Session file revision. */
   private readonly migrationPreparations = new Map<SessionId, MigrationPreparation>()
+  private readonly relocation = createJsonlRelocationRuntime()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -350,10 +370,10 @@ class JsonlSessionPersistence extends SessionPersistence {
       }
       let stored: StoredLog
       try {
-        stored = await this.requireStoredLog(id, options?.signal)
+        stored = await this.requireMovableLog(id, options?.signal)
       } catch (error: unknown) {
         if (!(error instanceof JsonlGenerationSourceChangedError)) throw error
-        stored = await this.requireStoredLog(id, options?.signal)
+        stored = await this.requireMovableLog(id, options?.signal)
       }
       let state: StorageHandleState
       if (stored.status === 'prepared') {
@@ -377,9 +397,7 @@ class JsonlSessionPersistence extends SessionPersistence {
     this.tracker.claimWrite(id)
     let lease: SessionWriteLease | undefined
     try {
-      const resolved = await this.findLog(id, options?.signal)
-      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
-      lease = await this.acquireLease(id, undefined, dirname(resolved.currentPath))
+      lease = (await this.lockStoredDirectory(id, options?.signal)).lease
       const prepared = await this.requireStoredLog(id, options?.signal)
       options?.signal?.throwIfAborted()
       let stored: CurrentStoredLog
@@ -415,6 +433,44 @@ class JsonlSessionPersistence extends SessionPersistence {
         throw new AggregateError([failure, releaseFailure], `session "${id}": write open failed and its lock release failed`)
       }
       throw failure
+    }
+  }
+
+  /**
+   * Lock the directory holding the session's selected generation. A relocation
+   * removes its source directory together with the lock file it holds, so a
+   * writer that resolved that directory may recreate it and lock a fresh file
+   * there, or find it removed while creating the lock; resolving again after
+   * locking detects the move, and the writer discards what it recreated and
+   * retries once.
+   */
+  private async lockStoredDirectory(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ readonly lease: SessionWriteLease; readonly dir: string }> {
+    for (let attempt = 0; ; attempt += 1) {
+      const resolved = await this.findLog(id, signal)
+      if (resolved === undefined) throw new SessionPersistenceNotFoundError(id)
+      const dir = dirname(resolved.currentPath)
+      const lease = await this.acquireLease(id, undefined, dir).catch((error: unknown) => {
+        if (isENOENT(error)) return undefined
+        throw error
+      })
+      if (lease !== undefined) {
+        try {
+          const current = await this.findLog(id, signal)
+          if (current !== undefined && dirname(current.currentPath) === dir) return { lease, dir }
+          await this.relocation.discardDirectory(dir)
+        } catch (error: unknown) {
+          await lease.release()
+          throw error
+        }
+        await lease.release()
+      }
+      if (attempt > 0) {
+        if (await this.findLog(id, signal) === undefined) throw new SessionPersistenceNotFoundError(id)
+        throw new SessionAlreadyOwnedError(id)
+      }
     }
   }
 
@@ -508,7 +564,238 @@ class JsonlSessionPersistence extends SessionPersistence {
     return snapshots
   }
 
+  override async relocate(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot> {
+    const signal = options?.signal
+    signal?.throwIfAborted()
+    if (!isAbsolute(cwd)) throw new TypeError(`relocate cwd must be an absolute path, got ${JSON.stringify(cwd)}`)
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    if (this.tracker.isClaimed(id)) throw new SessionAlreadyOwnedError(id, RELOCATE_WHILE_OWNED)
+    this.tracker.claimWrite(id)
+    const leases: SessionWriteLease[] = []
+    let moved: { readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }
+    try {
+      moved = await this.relocateOwned(id, cwd, leases, signal)
+    } catch (error: unknown) {
+      const failure = cancellationOf(error, signal)
+      const releaseFailure = await this.releaseRelocation(id, leases)
+      if (releaseFailure !== undefined) {
+        throw new AggregateError([failure, releaseFailure], `session "${id}": relocation failed and its lock release failed`)
+      }
+      throw failure
+    }
+    const releaseFailure = await this.releaseRelocation(id, leases)
+    if (releaseFailure !== undefined) {
+      this.ctx.logger.warn(`${this.name}: session "${id}" relocated, but releasing its write locks failed: ${String(releaseFailure)}`)
+    }
+    if (moved.previous !== undefined) {
+      try {
+        await this.ctx.parallel('session-persistence/relocated', id, moved.previous, moved.current)
+      } catch (error: unknown) {
+        // ctx.parallel settles every listener and rejects with one AggregateError.
+        /* v8 ignore next -- the plain arm guards a rethrowing dispatcher. */
+        const failures = error instanceof AggregateError ? error.errors : [error]
+        for (const failure of failures) {
+          this.ctx.logger.warn(`${this.name}: a session-persistence/relocated listener for session "${id}" failed: ${String(failure)}`)
+        }
+      }
+    }
+    return moved.current
+  }
+
+  /**
+   * Move one session while this process holds its write claim; every acquired
+   * lease joins `leases` so the caller releases it. A session already at `cwd`
+   * returns its snapshot without `previous`.
+   */
+  private async relocateOwned(
+    id: SessionId,
+    cwd: string,
+    leases: SessionWriteLease[],
+    signal?: AbortSignal,
+  ): Promise<{ readonly previous?: SessionHeader; readonly current: SessionPersistenceSnapshot }> {
+    const source = await this.lockRelocationSource(id, signal)
+    leases.push(source.lease)
+    // Only a holder of the directory the session occupies writes an intent for it,
+    // so one settled under this lease cannot be replaced before this move records its own.
+    await this.relocation.settle(this.root, this.compression, id, source.dir)
+    let stored = await this.requireStoredLog(id, signal)
+    signal?.throwIfAborted()
+    if (stored.meta.cwd === cwd) return { current: await this.snapshotOf(id) }
+    if (stored.status === 'prepared') stored = await this.publishStoredMigration(id, stored)
+    signal?.throwIfAborted()
+    const targetDir = sessionDir(this.root, cwd, id)
+    const sameDirectory = await this.relocation.isSameDirectory(targetDir, source.dir)
+    const header: SessionHeader = { ...stored.meta, cwd }
+    const recoveredBatch = stored.recoveredTail.length > 0 ? await this.encodeEventBatch(stored.recoveredTail) : ''
+    if (!sameDirectory) {
+      await this.assertListedTarget(id, targetDir)
+      leases.push(await this.lockRelocationTarget(id, targetDir))
+      await this.ensureTargetDirectory(targetDir)
+    }
+    const outcome = await this.relocation.relocate({
+      root: this.root,
+      id,
+      compression: this.compression,
+      sourceDir: source.dir,
+      targetDir,
+      sameDirectory,
+      fromCwd: stored.meta.cwd,
+      toCwd: cwd,
+      headerLine: JSON.stringify(toHeaderLine(header, header.isSeeded ? stored.inheritedEventCount : undefined)) + '\n',
+      sourceEnd: stored.tornTruncateTo,
+      recoveredBatch,
+      eventCount: stored.events.length,
+    }, signal)
+    if (outcome.failure !== undefined) {
+      this.ctx.logger.warn('%s: session "%s" relocated, but a later relocation step failed: %s', this.name, id, outcome.failure)
+    }
+    if (outcome.sourceRetained) {
+      this.ctx.logger.warn(`${this.name}: session "${id}" relocated; its source directory "${source.dir}" holds other files and stays`)
+    }
+    return { previous: stored.meta, current: await this.movedSnapshot(id, header) }
+  }
+
+  /**
+   * Refuse a target that discovery would not list. Discovery lists project
+   * and session directories, not symbolic links to them, so a session moved
+   * under a link would vanish for this and every other build; resolving the
+   * link instead would store the session in a directory its header cwd does
+   * not name.
+   */
+  private async assertListedTarget(id: SessionId, targetDir: string): Promise<void> {
+    for (const dir of [dirname(targetDir), targetDir]) {
+      let isDirectory: boolean
+      try {
+        isDirectory = (await lstat(dir)).isDirectory()
+      } catch (error: unknown) {
+        if (isENOENT(error)) return
+        throw error
+      }
+      if (!isDirectory) {
+        throw new Error(`cannot relocate session "${id}": "${dir}" is a symbolic link or another non-directory, which session discovery does not list`)
+      }
+    }
+  }
+
+  /**
+   * Stat a session this relocation moved past its commit point. The move
+   * stands even when the stat fails, so the snapshot then carries the moved
+   * header and a revision no stat returns, which a cache treats as a change.
+   */
+  private async movedSnapshot(id: SessionId, header: SessionHeader): Promise<SessionPersistenceSnapshot> {
+    let failure: unknown = 'no stored log found'
+    try {
+      const snapshot = await this.stat(id)
+      if (snapshot !== undefined) return snapshot
+    } catch (error: unknown) {
+      failure = error
+    }
+    this.ctx.logger.warn(`${this.name}: session "${id}" relocated, but its new location could not be read: ${String(failure)}`)
+    return { header, revision: SessionPersistenceRevision(`relocated:${this.name}:${randomUUID()}`) }
+  }
+
+  /**
+   * Lock the directory holding the session for a relocation. A move that died
+   * between its two locations leaves the session absent, or after outside
+   * edits in two directories, until its intent settles; when locking fails and
+   * an intent for the id exists, it settles under the leases of the
+   * directories it names and locking runs once more.
+   */
+  private async lockRelocationSource(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ readonly lease: SessionWriteLease; readonly dir: string }> {
+    try {
+      return await this.lockStoredDirectory(id, signal)
+    } catch (error: unknown) {
+      if (!await this.relocation.settle(this.root, this.compression, id)) throw error
+    }
+    return await this.lockStoredDirectory(id, signal)
+  }
+
+  /** Stat a session whose log the caller keeps in place under its write lease. */
+  private async snapshotOf(id: SessionId): Promise<SessionPersistenceSnapshot> {
+    const snapshot = await this.stat(id)
+    /* v8 ignore next -- the caller's write lease keeps the stored log in place */
+    if (snapshot === undefined) throw new SessionPersistenceNotFoundError(id)
+    return snapshot
+  }
+
+  /** Release a relocation's leases and in-process claim, then drop cached state keyed by its old location. */
+  private async releaseRelocation(id: SessionId, leases: readonly SessionWriteLease[]): Promise<Error | undefined> {
+    const failures: unknown[] = []
+    for (const lease of [...leases].reverse()) {
+      try {
+        await lease.release()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+    }
+    this.tracker.releaseClaim(id)
+    this.coldLogMemo.delete(id)
+    const preparation = this.migrationPreparations.get(id)
+    this.migrationPreparations.delete(id)
+    preparation?.controller.abort()
+    return failures.length > 0 ? new AggregateError(failures, `session "${id}": relocation could not release its write locks`) : undefined
+  }
+
+  /**
+   * Lock the target session directory, creating it through the lease. Another
+   * backend's first operation removes a session directory that holds nothing
+   * but its lock file, as a relocation that died before recording its intent
+   * leaves one, so it can remove this directory between the lease's `mkdir`
+   * and its lock-file creation. Like a write open, the relocation then
+   * creates and locks the directory once more, and refuses with
+   * `SessionAlreadyOwnedError` when it vanishes again. As for a created
+   * session's first write, the directory is made durable after it is locked.
+   */
+  private async lockRelocationTarget(id: SessionId, targetDir: string): Promise<SessionWriteLease> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.acquireLease(id, undefined, targetDir)
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+        if (attempt > 0) throw new SessionAlreadyOwnedError(id)
+      }
+    }
+  }
+
+  /**
+   * Make the locked target session directory and its project directory
+   * durable. The caller holds the directory's lock, so no remainder cleanup
+   * removes it between its creation and this sync.
+   */
+  private async ensureTargetDirectory(dir: string): Promise<void> {
+    /* v8 ignore start -- native Windows coverage exercises this platform branch; POSIX covers the peer */
+    if (process.platform === 'win32') {
+      await ensureDurableDirectoryWin32(dir)
+      return
+    }
+    /* v8 ignore stop */
+    await mkdir(dirname(dir), { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(this.root)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(dirname(dir))
+  }
+
   // --- handle-facing storage internals (package-private via the handle class below) ---
+
+  /**
+   * Resolve and read one stored log without holding its lease. A relocation
+   * can move the log between its resolution and its read, so a file that
+   * vanishes resolves the session again: at its new location, or as absent
+   * while the move is between its two locations.
+   */
+  private async requireMovableLog(id: SessionId, signal?: AbortSignal): Promise<StoredLog> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.requireStoredLog(id, signal)
+      } catch (error: unknown) {
+        if (!isENOENT(error) || attempt === VANISHED_LOG_ATTEMPTS) throw error
+      }
+    }
+  }
 
   /** Resolve and read one stored log, refusing loudly when the artifact is absent. */
   private async requireStoredLog(id: SessionId, signal?: AbortSignal): Promise<StoredLog> {
@@ -1603,19 +1890,36 @@ class JsonlSessionPersistence extends SessionPersistence {
     return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
-  /** Reject a root that already belongs to the other physical encoding. */
+  /**
+   * Settle relocations left by earlier processes, then reject a root that
+   * already belongs to the other physical encoding. Runs once, at this
+   * backend's first operation; relocation recovery never rejects.
+   */
   private ensureRootEncoding(): Promise<void> {
-    this.rootEncodingCheck ??= this.checkRootEncoding()
+    this.rootEncodingCheck ??= this.initializeRoot()
     return this.rootEncodingCheck
   }
 
-  private async checkRootEncoding(): Promise<void> {
+  private async initializeRoot(): Promise<void> {
+    const warn = (message: string): void => {
+      this.ctx.logger.warn(`${this.name}: ${message}`)
+    }
+    await this.relocation.sweep(this.root, this.compression, warn)
+    await this.relocation.discardRemainders(this.root, await this.checkRootEncoding(), warn)
+  }
+
+  /** Reject a root holding the other encoding's generations, and return every session directory with its entry names. */
+  private async checkRootEncoding(): Promise<JsonlSessionDirectory[]> {
+    const directories: JsonlSessionDirectory[] = []
     for (const project of await this.listProjectDirs()) {
       for (const dir of await this.listSessionDirs(project)) {
-        const incompatible = await this.findOppositeGenerationInDirectory(dir)
+        const names = await this.entryNames(dir)
+        const incompatible = this.oppositeGeneration(dir, names)
         if (incompatible !== undefined) throw this.encodingMismatch(incompatible)
+        directories.push({ dir, names })
       }
     }
+    return directories
   }
 
   private async rejectLegacyFlatArtifact(
@@ -1640,17 +1944,25 @@ class JsonlSessionPersistence extends SessionPersistence {
 
   /** Return the highest canonical generation encoded with the other configured suffix. */
   private async findOppositeGenerationInDirectory(dir: string): Promise<string | undefined> {
-    let entries: Dirent[]
+    return this.oppositeGeneration(dir, await this.entryNames(dir))
+  }
+
+  /** Entry names of one directory; an absent directory has none. */
+  private async entryNames(dir: string): Promise<string[]> {
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      return await readdir(dir)
     } catch (error: unknown) {
-      if (isENOENT(error)) return undefined
+      if (isENOENT(error)) return []
       throw error
     }
+  }
+
+  /** The highest generation among `names` encoded with the other configured suffix, as a path in `dir`. */
+  private oppositeGeneration(dir: string, names: readonly string[]): string | undefined {
     const generations: Array<{ readonly name: string; readonly version: number }> = []
-    for (const entry of entries) {
-      const version = parseGenerationLogFilename(entry.name, this.oppositeCompression())
-      if (version !== undefined) generations.push({ name: entry.name, version })
+    for (const name of names) {
+      const version = parseGenerationLogFilename(name, this.oppositeCompression())
+      if (version !== undefined) generations.push({ name, version })
     }
     const latest = generations.sort((left, right) => right.version - left.version)[0]
     return latest === undefined ? undefined : join(dir, latest.name)

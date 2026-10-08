@@ -775,7 +775,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'readonly operator: PeerScope',
-        description: 'The operator Peer every admitted request speaks for; its scope lives as long as Connection.',
+        description: 'The operator Peer, which every admitted request speaks for while no admitter is installed and `requireAdmitter` is false; its scope lives as long as Connection.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly peers: HostConnectionPeers',
+        description: 'Member Peer admission and lifetime.',
         parameters: [],
       },
       {
@@ -786,15 +791,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection',
-        description: 'Apply Connection\'s Host/Origin checks and browser authentication to another Web route.',
+        description: 'Apply admit to another Web route and keep only its verdict: Connection\'s Host/Origin checks, browser authentication, and the installed Peer admitter\'s refusal all reject.',
         parameters: [{ name: 'request', description: 'request headers from the HTTP or upgrade request.' }],
         returns: 'rejection status, or undefined when the route may accept the request.',
       },
       {
         signature: 'admit(request: ConnectionTrustRequest): PeerAdmission',
-        description: 'Admit one request: it passes requestRejection and speaks for the operator, or it is refused with that status.',
+        description: 'Admit one request. A failed Host/Origin check is refused with 403 and a missing browser session with 401, before any admitter runs. Without an admitter the request speaks for the operator, or is refused with 401 when HostConnectionPeers.requireAdmitter is true. With one, it speaks for the live member Peer the admitter returns; 401 and 403 from the admitter refuse it, and `undefined` or a Peer that is released or was not opened by HostConnectionPeers.open refuses it with 401 and logs one error. Synchronous; repeated calls for the same headers agree while the admitter does.',
         parameters: [{ name: 'request', description: 'request headers from the HTTP or upgrade request.' }],
-        returns: 'the operator Peer, or the rejection status.',
+        returns: 'the admitted Peer, or the rejection status.',
       },
       {
         signature: 'authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean',
@@ -2131,7 +2136,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'sessionPersistence',
     summary: 'Durable append-only session storage addressed through per-session handles.',
-    description: 'Durable append-only session storage addressed through per-session handles.\n\nStorage semantics shared by every backend: events are contiguous from seq 0 and never rewritten; a torn physical tail is never returned to a reader and is truncated by the write path before its first append; reads validate current-format records only and refuse unknown vocabulary fail-closed. `append` persists best-effort; `flush` — per handle or service-wide — is the durability barrier.\n\nVisibility: a created session is observable through `stat`/`list`/`open` in this process from the moment `create` resolves, even while a backend defers physical materialization (a pure optimization); other processes see the session only once it materializes, and a session that never materialized before a crash never existed. `SessionHandle.flush` forces materialization.\n\nFreshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.',
+    description: 'Durable append-only session storage addressed through per-session handles.\n\nStorage semantics shared by every backend: events are contiguous from seq 0 and never rewritten; a torn physical tail is never returned to a reader and is truncated by the write path before its first append; reads validate current-format records only and refuse unknown vocabulary fail-closed. `append` persists best-effort; `flush` — per handle or service-wide — is the durability barrier.\n\nVisibility: a created session is observable through `stat`/`list`/`open` in this process from the moment `create` resolves, even while a backend defers physical materialization (a pure optimization); other processes see the session only once it materializes, and a session that never materialized before a crash never existed. `SessionHandle.flush` forces materialization.\n\nFreshness: once an `append` or `flush` resolves, reads started afterwards on this backend instance observe at least that prefix.\n\nRelocation: a backend may implement the optional `relocate`, which moves a stored session to the storage location of another cwd. Other processes see the session at its old location, then at neither while the move is between the two, then at its new one; a move interrupted between the two leaves the session absent until the backend recovers that move. While the session is absent, `stat` returns `undefined`, `list` omits it, and an `open` or a handle read that consults storage rejects with `SessionPersistenceNotFoundError`. An `open` or a handle read that located the old storage just before the move locates the session again: it reads the new location, or rejects with `SessionPersistenceNotFoundError` while the session is absent. A read handle may stay open across the move: later reads observe the new location, and its `header` keeps the value it had at open.',
     methods: [
       {
         signature: 'readonly identity: symbol = Symbol(\'sessionPersistence\')',
@@ -2141,7 +2146,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract create(header: SessionHeader, options?: SessionPersistenceCreateOptions): Promise<SessionHandle>',
         description: 'Create a new stored session and take its write ownership.',
-        parameters: [{ name: 'header', description: 'the immutable header (id, version, cwd, lineage) to store.' }, { name: 'options', description: 'optional cancellation.' }],
+        parameters: [{ name: 'header', description: 'the header (id, version, cwd, lineage) to store; only `relocate` later replaces its cwd.' }, { name: 'options', description: 'optional cancellation.' }],
         returns: 'a `write` handle owned by the caller; close it to release ownership.',
         throws: ['{SessionAlreadyExistsError} when the id already exists.'],
       },
@@ -2171,12 +2176,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'options', description: 'optional cancellation.' }],
         returns: 'one snapshot per stored session.',
       },
+      {
+        signature: 'relocate?(id: SessionId, cwd: string, options?: SessionPersistenceRelocateOptions): Promise<SessionPersistenceSnapshot>',
+        description: 'Move a stored session to the storage location of `cwd` and replace its header cwd. The id, `createdAt`, lineage, `isSeeded`, inherited cut, events, and seqs stay unchanged; the returned snapshot carries a new revision. When the stored cwd already equals `cwd` (exact string comparison) nothing changes, no event fires, and the current snapshot returns, so a caller that crashed may repeat the call. Pass exactly the cwd later resumes will pass: resume compares cwd strings exactly.\n\nOptional: callers test `typeof ctx.sessionPersistence.relocate === \'function\'` first. A write handle held by this or another process, or a pending create in this process, refuses the move; read handles may stay open. Success dispatches `session-persistence/relocated` after write ownership is released and resolves after every listener settles. A listener that throws or rejects does not fail the move or stop the other listeners: `relocate` resolves and the backend logs a warning for each failure. Once the new location is published the move stands: a later cleanup failure is logged, and so is a failed read of the moved session\'s snapshot, which then returns the moved header with a revision no `stat` returns.',
+        parameters: [{ name: 'id', description: 'the stored session to move.' }, { name: 'cwd', description: 'the absolute working directory the session moves to.' }, { name: 'options', description: 'optional cancellation, observed until the target generation is published; a cancelled move rolls back.' }],
+        returns: 'the snapshot after the move.',
+        throws: ['{TypeError} when `cwd` is not absolute.', 'the signal reason when `options.signal` aborts before the target generation is published.', '{SessionPersistenceNotFoundError} when the session does not exist.', '{SessionAlreadyOwnedError} while a write handle or pending create holds the session, or another holder keeps the source or target location, including an unfinished earlier move of the same session; for a write handle in this process the message says when a move can succeed.', '{SessionFormatUnsupportedError} when the stored log is newer than this build.', '{SessionPersistenceCorruptionError} when the stored log cannot be decoded, the target location already holds a log, another location gained a session with the same id while this one was absent during the move, or an unfinished earlier move of the same session is malformed or contradicts the storage; when a move stays unfinished, the message names the backend\'s record of it.', '{Error} when the source and target locations are on different filesystems, when the target location is one the backend\'s discovery does not list (for the JSONL backend, a symbolic link), or when the verification of the rewritten log fails without judging it.'],
+      },
     ],
   },
   {
     key: 'sessionProjectionCache',
     summary: 'The persisted projection cache service.',
-    description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.',
+    description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. A `session-persistence/relocated` event rebinds the moved session\'s record to its new cwd. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.',
     methods: [
       {
         signature: 'cachedSnapshot( meta: SessionHeader, keys?: readonly Extract<keyof SessionProjectionMap, string>[], ): ProjectionSnapshot | undefined',
@@ -3455,6 +3467,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['{@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.'],
       },
       {
+        signature: 'claimedEndpoints(): readonly string[]',
+        description: 'List the method endpoints the `/api` carrier claims.',
+        parameters: [],
+        returns: 'sorted live strict and SRC endpoints, without `$events/result` and withdrawn strict endpoints.',
+      },
+      {
         signature: 'async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>',
         description: 'Open one live stream Remote method without assuming a physical carrier.',
         parameters: [{ name: 'request', description: 'decoded endpoint, named wire arguments, and the Client uplink when the carrier has one.' }],
@@ -3568,6 +3586,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Claim the fallback seat: the handler answering every request no named route matches (the SPA dist server in the shipped Web composition). One owner only — a second registration throws, because two fallbacks cannot compose.',
         parameters: [{ name: 'handler', description: 'owns the full response lifecycle of unmatched requests.' }],
         returns: 'the disposer releasing the seat.',
+      },
+      {
+        signature: 'routes(): readonly WebRouteListing[]',
+        description: 'List the registrations in effect: `exact`, `prefix`, and `upgrade` routes, each kind sorted by path, then the fallback seat while it is claimed. A registration whose disposer has run is absent. Read-only: listing changes no matching.',
+        parameters: [],
+        returns: 'fresh entries; `kind` and `path` together identify a named route.',
       },
       {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
@@ -3742,7 +3766,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'workspaceRegistry',
     summary: 'Durable workspace registry.',
-    description: 'Durable workspace registry. Startup waits for `sessionPersistence`, re-resolves every stored workspace path, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.',
+    description: 'Durable workspace registry. Startup waits for `sessionPersistence`, re-resolves every stored workspace path, builds one canonical-cwd header index, completes the one-time history bootstrap, and leaves each session listed once in at most one workspace record before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.',
     methods: [
       {
         signature: 'async create(path: string, title?: string): Promise<Workspace>',
@@ -4009,6 +4033,30 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'payload', description: '.signal - optional compaction cancellation signal.' }, { name: 'next', description: 'delegate to the next recovery listener.' }],
   },
   {
+    name: 'connection/fetch',
+    mode: 'waterfall',
+    signature: '\'connection/fetch\'(call: ConnectionFetchCall, next: () => Promise<Response>): Promise<Response>',
+    summary: 'Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge\'s body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it.',
+    description: 'Wrap one request to an exact Fetch route or a dedicated RPC channel, after admission and the bridge\'s body handling, before the route runs or the channel decodes its envelope; `/api` requests the RPC interceptor dispatches do not pass through it. A listener refuses by returning its own Response without calling `next()`, or delegates with `next()`. All listeners share one `next()`, so a listener calls it at most once: a second call runs the next listener that has not yet run, or the route. A listener must not consume the request body; it reads `call.request.clone()`. After a listener consumes the body, a route that reads it throws, which the HTTP carrier answers with 400, or answers its own error, and a channel answers 400 `body is not JSON`. An exact route unregistered while a listener waits does not run; `next()` resolves to 404. The waterfall ends when Connection takes the outermost listener\'s result; after that, a `next()` that reaches the route or channel dispatches nothing and rejects. Connection cancels the body of each Response the route or channel produced for an earlier `next()` unless the caller receives that Response or its body: when the waterfall ends if the waterfall\'s result has no body or a locked one, otherwise once the caller has read its body to the end, cancelled it, or reading it failed. In that last case the caller receives a new Response that relays the listener\'s. A throwing listener rejects the dispatch as a throwing route does.',
+    parameters: [{ name: 'call', description: 'kind, registered path, method, Fetch request, and admitted Peer.' }, { name: 'next', description: 'hand the request to the route or channel; resolves to its Response.' }],
+  },
+  {
+    name: 'connection/peer-closed',
+    mode: 'emit',
+    signature: '\'connection/peer-closed\'(peer: PeerScope): void',
+    summary: 'A member Peer\'s first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race.',
+    description: 'A member Peer\'s first `dispose()` call has quiesced its scope; emitted once per Peer, however many `dispose()` calls race. The operator never emits it.',
+    parameters: [{ name: 'peer', description: 'the released member Peer.' }],
+  },
+  {
+    name: 'connection/peer-opened',
+    mode: 'emit',
+    signature: '\'connection/peer-opened\'(peer: PeerScope): void',
+    summary: 'A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it.',
+    description: 'A member Peer was opened through `connection.peers.open()`; emitted before `open()` returns it. The operator never emits it.',
+    parameters: [{ name: 'peer', description: 'the new member Peer.' }],
+  },
+  {
     name: 'connection/request',
     mode: 'waterfall',
     signature: '\'connection/request\'(request: IncomingMessage, response: ServerResponse, next: () => Promise<void>): Promise<void>',
@@ -4225,12 +4273,44 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'progress', description: 'the installation\'s request id and phase, with the attempt while installing.' }],
   },
   {
+    name: 'remote-stream/socket-closed',
+    mode: 'emit',
+    signature: '\'remote-stream/socket-closed\'(peer: PeerScope, socketId: RemoteSocketId): void',
+    summary: 'A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.',
+    description: 'A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.',
+    parameters: [{ name: 'peer', description: 'Peer admitted at upgrade.' }, { name: 'socketId', description: 'identity from the matching `remote-stream/socket-opened`.' }],
+  },
+  {
+    name: 'remote-stream/socket-opened',
+    mode: 'emit',
+    signature: '\'remote-stream/socket-opened\'(peer: PeerScope, socketId: RemoteSocketId): void',
+    summary: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
+    description: 'A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.',
+    parameters: [{ name: 'peer', description: 'Peer admitted at upgrade.' }, { name: 'socketId', description: 'Host-minted socket identity, repeated by `remote-stream/socket-closed`.' }],
+  },
+  {
+    name: 'remote/invoke',
+    mode: 'waterfall',
+    signature: '\'remote/invoke\'(call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>): Promise<RemoteInvokeOutcome>',
+    summary: 'Wrap one Remote method call.',
+    description: 'Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a listener calls it at most once: calling it again runs the next listener that has not yet run, or the method when none remains. A listener\'s refusal or check therefore holds only while every listener before it calls `next()` once, and it sees `call.args` before any listener after it replaces them. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method\'s `RemoteError`. A listener that returns without calling `next()` answers in the method\'s place. The method runs in the async context that called `next()`; a stream method\'s items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the call\'s uplink and opens and returns the method\'s iterator, or returns the one already open when items were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its outcome is a value, the caller receives the failure at once; the Gateway aborts the method\'s `signal` with it and returns, in the background, each stream that a `next()` called during the waterfall opened or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles with a failure once the method\'s iterator has returned, so a stream method must end when its `signal` aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and of no other: a `next()` that the method\'s own failure ends before the release belongs to the listener, even when its promise settles after the release. A listener that discards it leaves an unhandled rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call opened, and a listener that discards one returns it. A `next()` called after the Gateway has received the waterfall\'s outcome rejects without running the method. The Gateway receives the outermost listener\'s outcome at once when that listener throws synchronously, and otherwise only after the microtasks it queued before returning or throwing have run, so a `next()` called from one of them still runs the method.',
+    parameters: [{ name: 'call', description: 'endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.' }, { name: 'next', description: 'validate `call.args`, resolve the receiver and lookups, and call the method.' }],
+  },
+  {
     name: 'schedule/changed',
     mode: 'emit',
     signature: '\'schedule/changed\'(): void',
     summary: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     description: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     parameters: [],
+  },
+  {
+    name: 'session-persistence/relocated',
+    mode: 'parallel',
+    signature: '\'session-persistence/relocated\'(id: SessionId, previous: SessionHeader, current: SessionPersistenceSnapshot): Promise<void> | void',
+    summary: 'A stored session moved to another storage location and its header cwd changed.',
+    description: 'A stored session moved to another storage location and its header cwd changed. Emitted once per successful relocate, after the backend released its write ownership, including a move whose cleanup or snapshot read failed after the new location was published. No recovery emits it: neither the recovery a backend runs at its first operation nor a later relocate of the same session that settles a move a dead process left. Every listener starts in the same tick, in registration order, and `relocate` resolves after every listener and the promise it returns have settled. A listener that throws or rejects does not stop the others: the backend logs a warning for each failure and `relocate` still resolves. A process that is not running when a move happens misses the event, so a consumer that tracks sessions by cwd reconciles from the stored headers when it starts; the workspace registry then detaches a session that a workspace whose stored path resolves lists at its old path.',
+    parameters: [{ name: 'id', description: 'the relocated session.' }, { name: 'previous', description: 'the stored header before the move.' }, { name: 'current', description: 'the snapshot after the move (new cwd, new revision).' }],
   },
   {
     name: 'session-telemetry/record',
@@ -4453,7 +4533,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'waterfall',
     signature: '\'workspace/session-activity\'( request: SessionActivityRequest, next: () => Promise<readonly SessionActivity[]>, ): Promise<readonly SessionActivity[]>',
     summary: 'Ask the composed providers what still runs for a session before it is archived.',
-    description: 'Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry\'s innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write.',
+    description: 'Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry\'s innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write. The archive holds the registry\'s mutation queue while it asks, so a listener that awaits another registry mutation, an attach included, never settles.',
     parameters: [{ name: 'request', description: 'the session about to be archived.' }, { name: 'next', description: 'delegate to the remaining providers.' }],
   },
   {
@@ -4461,7 +4541,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     mode: 'parallel',
     signature: '\'workspace/session-stop\'(request: SessionActivityRequest): Promise<void> | void',
     summary: 'Stop a session\'s running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches.',
-    description: 'Stop a session\'s running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches. Each provider stops its own families — cancelling a turn, its subagent descendants, owned jobs, or active schedules — through the same cancel paths the user\'s own stop actions use, so the session log ends every open turn regularly and a later unarchive can continue the conversation. Listeners issue their stop requests without waiting for running work to settle; a listener may await its own durability barrier. A rejection is logged by the registry and does not undo the archive.',
+    description: 'Stop a session\'s running work because the caller archived it with `stopActivity`; the archive set is durable when this dispatches. Each provider stops its own families — cancelling a turn, its subagent descendants, owned jobs, or active schedules — through the same cancel paths the user\'s own stop actions use, so the session log ends every open turn regularly and a later unarchive can continue the conversation. Listeners issue their stop requests without waiting for running work to settle; a listener may await its own durability barrier, but not another registry mutation, an attach included: the archive holds the registry\'s mutation queue until the dispatch settles. A rejection is logged by the registry and does not undo the archive.',
     parameters: [{ name: 'request', description: 'the session being archived.' }],
   },
 ]
@@ -4893,8 +4973,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ConfinedSandboxMode = Exclude<SandboxMode, \'danger-full-access\'>;',
   },
   {
+    name: 'ConnectionFetchCall',
+    declaration: 'export interface ConnectionFetchCall {\n    readonly kind: \'exact-route\' | \'channel\';\n    readonly path: string;\n    readonly method: string;\n    readonly request: Request;\n    readonly peer: PeerScope;\n}',
+  },
+  {
     name: 'ConnectionFetchHandler',
-    declaration: 'export interface ConnectionFetchHandler {\n    requestBodyMode(request: {\n        readonly method: string;\n        readonly url: URL;\n    }): ConnectionRequestBodyMode;\n    fetch(request: Request): Promise<Response>;\n}',
+    declaration: 'export interface ConnectionFetchHandler {\n    requestBodyMode(request: {\n        readonly method: string;\n        readonly url: URL;\n    }): ConnectionRequestBodyMode;\n    fetch(request: Request, peer?: PeerScope): Promise<Response>;\n}',
   },
   {
     name: 'ConnectionFetchMethod',
@@ -4902,7 +4986,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConnectionFetchRoute',
-    declaration: 'export interface ConnectionFetchRoute {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n    readonly requestBody: ConnectionRequestBodyMode;\n    readonly fetch: (request: Request) => Promise<Response>;\n}',
+    declaration: 'export interface ConnectionFetchRoute {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n    readonly requestBody: ConnectionRequestBodyMode;\n    readonly fetch: (request: Request, peer: PeerScope) => Promise<Response>;\n}',
+  },
+  {
+    name: 'ConnectionFetchRouteListing',
+    declaration: 'export interface ConnectionFetchRouteListing {\n    readonly path: string;\n    readonly methods: readonly ConnectionFetchMethod[];\n}',
   },
   {
     name: 'ConnectionIndexRequest',
@@ -5438,11 +5526,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HostConnectionFetch',
-    declaration: 'export interface HostConnectionFetch {\n    register(route: ConnectionFetchRoute): () => Promise<void>;\n}',
+    declaration: 'export interface HostConnectionFetch {\n    register(route: ConnectionFetchRoute): () => Promise<void>;\n    list(): readonly ConnectionFetchRouteListing[];\n}',
+  },
+  {
+    name: 'HostConnectionPeers',
+    declaration: 'export interface HostConnectionPeers {\n    readonly requireAdmitter: boolean;\n    admitWith(admitter: PeerAdmitter): () => Promise<void>;\n    open(): PeerScope;\n    get(id: PeerId): PeerScope | undefined;\n    list(): readonly PeerScope[];\n}',
   },
   {
     name: 'HostConnectionRpc',
-    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: \'/api\', matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n}',
+    declaration: 'export interface HostConnectionRpc {\n    handle(channel: string, handler: ConnectionRpcHandler): () => Promise<void>;\n    intercept(channel: \'/api\', matches: ConnectionRpcEndpointMatcher, handler: ConnectionRpcHandler): () => Promise<void>;\n    channels(): readonly string[];\n}',
   },
   {
     name: 'ImageAttachmentLimits',
@@ -6061,6 +6153,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PeerAdmission = {\n    readonly peer: PeerScope;\n} | {\n    readonly rejection: 401 | 403;\n};',
   },
   {
+    name: 'PeerAdmitter',
+    declaration: 'export type PeerAdmitter = (request: ConnectionTrustRequest) => PeerScope | 401 | 403 | undefined;',
+  },
+  {
     name: 'PeerId',
     declaration: 'export type PeerId = Branded<\'PeerId\'>;',
   },
@@ -6391,6 +6487,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RemoteEventHostInfo',
     declaration: 'export interface RemoteEventHostInfo {\n    readonly home: string;\n}',
+  },
+  {
+    name: 'RemoteInvokeCall',
+    declaration: 'export interface RemoteInvokeCall {\n    readonly endpoint: string;\n    readonly mode: \'unary\' | \'stream\';\n    readonly peer: PeerScope;\n    readonly invocation: InvocationDescriptor[\'invocation\'];\n    readonly scope?: InvocationDescriptor[\'scope\'];\n    readonly parameters: InvocationDescriptor[\'parameters\'];\n    args: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'RemoteInvokeOutcome',
+    declaration: 'export type RemoteInvokeOutcome = {\n    readonly kind: \'value\';\n    readonly value: unknown;\n} | {\n    readonly kind: \'stream\';\n    readonly source: AsyncIterable<unknown>;\n};',
+  },
+  {
+    name: 'RemoteSocketId',
+    declaration: 'export type RemoteSocketId = Branded<\'RemoteSocketId\'>;',
   },
   {
     name: 'RenderedDocumentBytes',
@@ -6939,6 +7047,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceOpenOptions',
     declaration: 'export interface SessionPersistenceOpenOptions {\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionPersistenceRelocateOptions',
+    declaration: 'export interface SessionPersistenceRelocateOptions {\n    readonly signal?: AbortSignal;\n}',
   },
   {
     name: 'SessionPersistenceRevision',
@@ -8235,6 +8347,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebRouteKind',
     declaration: 'export type WebRouteKind = \'exact\' | \'prefix\';',
+  },
+  {
+    name: 'WebRouteListing',
+    declaration: 'export type WebRouteListing = {\n    readonly kind: WebRouteKind | \'upgrade\';\n    readonly path: string;\n} | {\n    readonly kind: \'fallback\';\n};',
   },
   {
     name: 'WebSearchProvider',

@@ -223,7 +223,7 @@ interface RemoteInvocation {
   readonly service: string
   /** Peer the call speaks for; an in-process carrier speaks for the operator. */
   readonly peer: PeerScope
-  /** Carrier cancellation: Client cancel, socket close, or an uplink failure. */
+  /** Cancellation: Client cancel, socket close, an uplink failure, or a stream call that `remote/invoke` fails. */
   readonly signal: AbortSignal
   /**
    * The Client's uplink items for this call. Available once; a second call
@@ -296,6 +296,7 @@ type TypertGatewayErrorCode =
   | 'gateway/context-not-found'
   | 'gateway/context-unavailable'
   | 'gateway/definition-unavailable'
+  | 'gateway/forbidden'
   | 'gateway/input-invalid'
   | 'gateway/invocation-unavailable'
   | 'gateway/lookup-failed'
@@ -343,6 +344,13 @@ interface TypertGateway {
    * @returns a cancellation-aware iterable over the business results.
    */
   stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+  /**
+   * List the method endpoints the `/api` carrier claims: every live strict definition and every SRC
+   * marker on an active Service, each a `<namespace>/<method>` the carrier accepts. The carrier also
+   * claims `$events/result` and withdrawn strict endpoints, which no method serves; neither is listed.
+   * @returns sorted endpoints, read from the registry and Services at call time.
+   */
+  claimedEndpoints(): readonly string[]
 }
 ```
 
@@ -474,11 +482,111 @@ registerRemoteEvents( source: TypertRemoteEventSource, host: RemoteEventHostInfo
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 
 /**
+ * List the method endpoints the `/api` carrier claims.
+ * @returns sorted live strict and SRC endpoints, without `$events/result` and withdrawn strict endpoints.
+ */
+claimedEndpoints(): readonly string[]
+
+/**
  * Open one live stream Remote method without assuming a physical carrier.
  * @param request - decoded endpoint, named wire arguments, and the Client uplink when the carrier has one.
  * @returns a cancellation-aware iterable over the business results.
  */
 async stream(request: InvokeRemoteRequest): Promise<AsyncIterable<unknown>>
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-events"></a>
+
+### `remote/*` events
+
+<a id="remoteinvoke--waterfall"></a>
+
+#### `remote/invoke` — waterfall
+
+Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a listener calls it at most once: calling it again runs the next listener that has not yet run, or the method when none remains. A listener's refusal or check therefore holds only while every listener before it calls `next()` once, and it sees `call.args` before any listener after it replaces them. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without calling `next()` answers in the method's place. The method runs in the async context that called `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the call's uplink and opens and returns the method's iterator, or returns the one already open when items were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal` with it and returns, in the background, each stream that a `next()` called during the waterfall opened or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles with a failure once the method's iterator has returned, so a stream method must end when its `signal` aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and of no other: a `next()` that the method's own failure ends before the release belongs to the listener, even when its promise settles after the release. A listener that discards it leaves an unhandled rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call opened, and a listener that discards one returns it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running the method. The Gateway receives the outermost listener's outcome at once when that listener throws synchronously, and otherwise only after the microtasks it queued before returning or throwing have run, so a `next()` called from one of them still runs the method.
+
+```ts cordis-catalog
+/**
+ * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
+ * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
+ * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
+ * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
+ * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
+ * method when none remains. A listener's refusal or check therefore holds only while every listener
+ * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+ * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
+ * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
+ * calling `next()` answers in the method's place. The method runs in the async context that called
+ * `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener
+ * that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the
+ * call's uplink and opens and returns the method's iterator, or returns the one already open when items
+ * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
+ * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
+ * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
+ * or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles
+ * with a failure once the method's iterator has returned, so a stream method must end when its `signal`
+ * aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway
+ * handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and
+ * of no other: a `next()` that the method's own failure ends before the release belongs to the listener,
+ * even when its promise settles after the release. A listener that discards it leaves an unhandled
+ * rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a
+ * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
+ * none of them: the listeners own every stream the call opened, and a listener that discards one returns
+ * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
+ * the method. The Gateway receives the outermost listener's outcome at once when that listener throws
+ * synchronously, and otherwise only after the microtasks it queued before returning or throwing have
+ * run, so a `next()` called from one of them still runs the method.
+ * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
+ * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
+ * @mode waterfall
+ */
+'remote/invoke'(call: RemoteInvokeCall, next: () => Promise<RemoteInvokeOutcome>): Promise<RemoteInvokeOutcome>
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-stream-events"></a>
+
+### `remote-stream/*` events
+
+<a id="remote-streamsocket-closed--emit"></a>
+
+#### `remote-stream/socket-closed` — emit
+
+A socket announced by `remote-stream/socket-opened` has closed and every logical stream it carried has finished, whether the Client closed it, its Peer was disposed (close code 1001), or the Gateway unloaded.
+
+```ts cordis-catalog
+/**
+ * A socket announced by `remote-stream/socket-opened` has closed and every
+ * logical stream it carried has finished, whether the Client closed it,
+ * its Peer was disposed (close code 1001), or the Gateway unloaded.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - identity from the matching `remote-stream/socket-opened`.
+ * @mode emit
+ */
+'remote-stream/socket-closed'(peer: PeerScope, socketId: RemoteSocketId): void
+```
+
+Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)
+
+<a id="remote-streamsocket-opened--emit"></a>
+
+#### `remote-stream/socket-opened` — emit
+
+A `/api/remote.mux` WebSocket was accepted and bound to the Peer Connection admitted at upgrade; every logical stream it carries speaks for that Peer.
+
+```ts cordis-catalog
+/**
+ * A `/api/remote.mux` WebSocket was accepted and bound to the Peer
+ * Connection admitted at upgrade; every logical stream it carries speaks
+ * for that Peer.
+ * @param peer - Peer admitted at upgrade.
+ * @param socketId - Host-minted socket identity, repeated by `remote-stream/socket-closed`.
+ * @mode emit
+ */
+'remote-stream/socket-opened'(peer: PeerScope, socketId: RemoteSocketId): void
 ```
 
 Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/index.ts)

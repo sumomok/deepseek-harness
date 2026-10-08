@@ -56,6 +56,8 @@ kind: "package-reference"
 
 三个必写点总是写入：会话创建保存由种子派生的切面，`turn/end` 保存列表读取所需的轮次终值，会话释放保存活会话的最终切面。其间，配置的条数与间隔节流随事件累积写入。每次写入通过领域写入链以原子方式替换该会话的完整记录；失败会记录警告并让缓存保持陈旧，后续写入会自行修复。
 
+`session-persistence/relocated` 事件会再触发一次写入：已存记录的生命周期（`createdAt`、`cwd`、`isSeeded`）与搬迁前的 header 一致时，不论它是当前格式代还是前代，记录改用新 cwd 并保留各行，因为搬迁不改变任何事件。因此被搬迁会话的列表读取仍能拿到缓存值。这次写入同样 fail-soft。
+
 ### 读取缓存值
 
 `cachedSnapshot(meta, keys?)` 是只读面：以零 I/O 从存储域的内存表同步提供客户端值。它接受生命周期身份（`formatVersion`、`createdAt`、`cwd`、`isSeeded`）与 header 匹配的记录，把其中版本和 schema 均匹配的 key 作为一个 block 提供，其 `asOfSeq` 是所服务各行中最低的水位。这个水位是存储记录自己的：header 作证不了 inherited cut，也作证不了行序号与消费者稍后打开的日志可比，因此 Session list 把该 block 标为 `cached`，客户端让建连后的 Session 产出的任何值覆盖它。在同一格式代内，cut 在 fork 时写死，不能区分其他字段区分不了的生命周期，而只读视图也从不播种 fold，所以 seeded（fork 出来的）会话与 unseeded 会话被同样地提供。`cachedPredecessorTitle(meta)` 是跨 Session 格式 edge 的更窄列表专用例外：生命周期匹配且已通过结构准入的 predecessor record 只能公开与当前版本兼容的 `title` row，因为 title 文本在相邻 edge 之间保持不变。其他 predecessor row 仍不可用。`coldSnapshot(meta, inheritedEventCount, events)` 是 fold 面：接受精确切点与完整有序日志，在折叠时跳过已检查点化的前缀，并在自身不读取持久化层的情况下刷新记录。
@@ -82,13 +84,13 @@ kind: "package-reference"
 
 ### 读写所有权
 
-缓存在 `session_projcache` 领域中为每个会话保存一份带版本戳的文档。它不依赖会话持久化后端，不调用 `locate`，也不检查逐会话目录。畸形或陈旧的记录读作不存在；需要冷值的消费方负责提供日志以重新折叠。
+缓存在 `session_projcache` 领域中为每个会话保存一份带版本戳的文档。它不调用会话持久化后端，从不调用 `locate`，也不检查逐会话目录；它只经 `session-persistence/relocated` 事件得知会话被搬迁。畸形或陈旧的记录读作不存在；需要冷值的消费方负责提供日志以重新折叠。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
-| [`src/index.ts`](src/index.ts) | 插件入口：`SessionProjectionCache` 服务、后台写入监听器、缓存读取 |
+| [`src/index.ts`](src/index.ts) | 插件入口：`SessionProjectionCache` 服务、后台写入与搬迁监听器、缓存读取 |
 | [`src/spec.ts`](src/spec.ts) | `session_projcache` 域 spec 与记录身份类型 |
 
 </details>

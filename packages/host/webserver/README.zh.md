@@ -44,6 +44,8 @@ kind: "package-reference"
 
 `register(route)` 添加具名的 `exact`／`prefix` HTTP route，`registerUpgrade(route)` 为精确 pathname 添加 upgrade route，两者返回的 disposer 都会移除注册。同一张表内的重复路径会抛错——route 模式是组合层约定，冲突即配置错误。HTTP 匹配先在整张表中匹配精确 route，再匹配最长前缀，最后交给回退 handler；upgrade 只做精确匹配，未命中连接直接关闭。
 
+`routes()` 列出当前生效的登记：每条 `exact`、`prefix`、`upgrade` route 一项 `{ kind, path }`，同一种类内按路径排序，回退座位被占用时最后再列一项 `{ kind: 'fallback' }`。disposer 已执行的登记不在其中。登记不声明 HTTP 方法，所以各项不带方法；列举不改变任何匹配。直接登记在 webserver 上的 route 不经过 Connection 的任何钩子；列表里也有 Connection 自己登记的 `/api` 前缀与各通道前缀，它们经过 Connection 的钩子。组合的门禁测试读这份列表，逼每一项都有分类。
+
 ### 回退席位
 
 `registerFallback(handler)` 认领所有未被具名 route 命中的请求的唯一一个 handler。第二次注册会抛错；没有注册回退时服务器回答 404。在随附的 Web 组合中，[SPA dist 服务器](../frontend-static/README.zh.md)拥有该席位，并对其渲染的每个 index 响应调用 `renderIndex`。
