@@ -16,8 +16,8 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_COLUMN_REFUSAL, notAPageRefusal } from '../src/access/text.ts'
 import {
   actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason,
-  navigationLine, noOptionReason, occludedReason, ranSummary, refGoneReason, stepClause, stepRefusal,
-  stepRefusalText, tooLongRefusal, tooManyStepsRefusal, unverifiedRefusal, waitedReason, windowLine,
+  namedHereReason, navigationLine, noOptionReason, occludedReason, ranSummary, refGoneReason, stepClause,
+  stepRefusal, stepRefusalText, tooLongRefusal, tooManyStepsRefusal, unverifiedRefusal, waitedReason, windowLine,
 } from '../src/access/act-text.ts'
 import type { ActStep } from '../src/access/wire.ts'
 
@@ -132,6 +132,7 @@ describe('what the model reads when one step stops the call', () => {
   it('pins each failure verbatim', () => {
     expect(labelChangedReason('e5', '重置', '查询'))
       .toBe('e5 is now "重置", not "查询" — the page changed.')
+    expect(namedHereReason('e22', '勾')).toBe('e22 is named "勾" here; a step names it by label "勾".')
     expect(refGoneReason('e3')).toBe('e3 is no longer on the page.')
     expect(occludedReason('e7', '编辑设备')).toBe('e7 is behind the open dialog "编辑设备".')
     expect(disabledReason('e4', '保存')).toBe('e4 "保存" is disabled.')

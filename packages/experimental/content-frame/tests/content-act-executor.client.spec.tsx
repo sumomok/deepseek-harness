@@ -481,6 +481,61 @@ describe('what stops a call', () => {
     }])
   })
 
+  /**
+   * An icon a list item holds and a button, each named by what the page wrote
+   * on it and marked by its class: what a markup read prints a line for with
+   * no name.
+   */
+  const NAMED_BY_PAGE = '<main><ul><li>'
+    + '<i id="held" class="el-icon-edit" aria-label="编辑" style="background-image: url(edit.svg)"></i>'
+    + '</li></ul><button id="go" class="el-button">查询</button></main>'
+
+  it('refuses an element the page names, reached by an empty label and its class tokens, by saying what it is named', async () => {
+    // A markup tree prints an element's tag and class tokens and no name, so a
+    // step copied out of it carries an empty label and those tokens. The
+    // element is the one the step meant, and the step names it by its name.
+    mount(NAMED_BY_PAGE)
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    const request = { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('main')) } } as const
+    const tree = markup(doc(), request, options).text
+    const icon = /(e\d+) i#held \{class: el-icon-edit\}/.exec(tree)?.[1] ?? ''
+    const button = /(e\d+) button#go \{class: el-button\}/.exec(tree)?.[1] ?? ''
+    expect({ icon: refs.resolve(icon), button: refs.resolve(button) }).toEqual({ icon: at('#held'), button: at('#go') })
+    const edited = listen(at('#held'), ['click'])
+    const queried = listen(at('#go'), ['click'])
+    const byIcon = await run([{ action: 'click', ref: icon, label: '', mark: 'el-icon-edit' }])
+    expect(byIcon.steps).toEqual([
+      { index: 1, status: 'failed', message: `${icon} is named "编辑" here; a step names it by label "编辑".` },
+    ])
+    posted = []
+    cleanup()
+    const byButton = await run([{ action: 'click', ref: button, label: '', mark: 'el-button' }])
+    expect(byButton.steps).toEqual([
+      { index: 1, status: 'failed', message: `${button} is named "查询" here; a step names it by label "查询".` },
+    ])
+    expect({ edited, queried }).toEqual({ edited: [], queried: [] })
+    posted = []
+    cleanup()
+    const byName = await run([
+      { action: 'click', ref: icon, label: '编辑' },
+      { action: 'click', ref: button, label: '查询' },
+    ])
+    expect(byName.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
+    expect({ edited, queried }).toEqual({ edited: ['click'], queried: ['click'] })
+  })
+
+  it('refuses an element the page names as a page that changed, where the step\'s mark is not one it carries', async () => {
+    mount(NAMED_BY_PAGE)
+    const held = ref('#held')
+    const seen = listen(at('#held'), ['click'])
+    at('#held').className = 'el-icon-delete'
+    const outcome = await run([{ action: 'click', ref: held, label: '', mark: 'el-icon-edit' }])
+    expect(seen).toEqual([])
+    expect(outcome.steps).toEqual([
+      { index: 1, status: 'failed', message: `${held} is now "编辑", not "" — the page changed.` },
+    ])
+  })
+
   it('reports every step after the failure as skipped, and runs none of them', async () => {
     mount('<main><button id="go">查询</button><button id="save">保存</button></main>')
     const seen = listen(at('#save'), ['click'])
