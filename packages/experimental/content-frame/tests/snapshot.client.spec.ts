@@ -2104,6 +2104,31 @@ const WRAPPED_ICONS = '<div role="listbox" aria-label="选项"><div role="option
 const CLICKABLE_TICK = tableOf('<label><input type="checkbox" aria-label="选中">'
   + `<i id="lt" class="x" aria-label="勾" data-pointer ${GLYPH}></i></label>`)
 
+/**
+ * Icons named `勾`, each held directly by what a whole-page read prints as one
+ * row or reads as a control's name: a button in a table's header, a button in
+ * a cell of a treegrid a cell holds, a `label` in a cell naming a tick box, a
+ * button in an article of a feed, a menu item named by its words, an item of
+ * a menu another item holds, an option named by nothing but the icon, and an
+ * option named by its words.
+ */
+const HELD_DIRECTLY = '<table aria-label="设备"><thead><tr><th>名称</th>'
+  + `<th>操作<button aria-label="排序"><i id="th" class="x" aria-label="勾" ${GLYPH}></i></button></th></tr></thead>`
+  + '<tbody><tr><td>东风站</td><td><div role="treegrid" aria-label="子表"><div role="row"><div role="gridcell">'
+  + `<button aria-label="展开"><i id="tg" class="x" aria-label="勾" ${GLYPH}></i></button></div></div></div>`
+  + `<label><input type="checkbox" aria-label="选中"><i id="lc" class="x" aria-label="勾" ${GLYPH}></i></label>`
+  + '</td></tr></tbody></table>'
+  + '<div role="feed" aria-label="动态"><article aria-label="第一条">'
+  + `<button aria-label="点赞"><i id="fa" class="x" aria-label="勾" ${GLYPH}></i></button></article></div>`
+  + '<ul><li><div role="menu" aria-label="菜单">'
+  + `<div role="menuitem">打开<i id="mc" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + '<div role="menuitem" aria-label="更多">更多<div role="menu" aria-label="子菜单">'
+  + `<div role="menuitem" aria-label="复制"><i id="ms" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + '</div></div></div></li></ul>'
+  + '<div role="listbox" aria-label="选项">'
+  + `<div role="option"><i id="on" class="x" aria-label="勾" ${GLYPH}></i></div>`
+  + `<div role="option">乙<i id="ot" class="x" aria-label="勾" ${GLYPH}></i></div></div>`
+
 /** A table drawing an icon in its header and one in each of its two rows. */
 const HEADED_ICONS = '<table aria-label="设备"><thead><tr><th>名称</th>'
   + `<th>操作<i id="h1" class="el-icon-setting" aria-label="设置" ${GLYPH}></i></th></tr></thead><tbody>`
@@ -2209,8 +2234,9 @@ function printedNames(text: string, refs: RefTable, el: Element): string[] {
 /**
  * The icons whose names disagree: one that two reads print two names for, one
  * printed under a name `itemName` does not answer, and one no read prints a
- * row for that `itemName` names anything. The reads asked are the whole page
- * and one scoped at each element around the icon.
+ * row for that `itemName` names anything. The reads asked are one scoped at
+ * the icon itself, the whole page, and one scoped at each element around the
+ * icon.
  * @param label - what the page is called in the answer.
  * @param icons - the icons on the page.
  * @param ask - how the page is read.
@@ -2220,7 +2246,7 @@ function disagreements(label: string, icons: readonly Element[], ask: Ask): stri
   const refs = new RefTable()
   const options = { refs, budgetChars: 100_000, isVisible, computedStyle, ...ask }
   return icons.flatMap((icon) => {
-    const printed = [undefined, ...around(icon)].flatMap(scope => printedNames(
+    const printed = [icon, undefined, ...around(icon)].flatMap(scope => printedNames(
       snapshot(document, scope === undefined ? options : { ...options, scope: refs.ref(scope) }).text, refs, icon))
     const named = itemName(icon, options, document)
     if (printed.every(name => name === named) && (printed.length > 0 || named === '')) return []
@@ -2489,11 +2515,11 @@ describe('an icon a table cell or a repeated item draws', () => {
     expect(rowOf(refs, { isClickable: pointer })).toBe('  row 1: 东风站 | e3 clickable "详情"')
   })
 
-  it('names an icon a label naming a control holds nothing, as the walk that prints no row for it', () => {
+  it('names an icon a label naming a control holds by what the page wrote on it, where the listing prints no row for it', () => {
     // The listing prints the box and not the glyph beside it, and a step that
-    // reaches the glyph through a markup read is held to the nothing the
-    // listing calls it. A group inside the label starts names of its own, as
-    // it does in the walk.
+    // reaches the glyph through a markup read is held to the name a read
+    // scoped at the glyph prints for it. A group inside the label starts names
+    // of its own, as it does in the walk.
     const refs = page(LABELLED_ICONS)
     const listing = read(refs).text
     expect(listing.split('\n').filter(line => line.includes(' icon '))).toEqual([
@@ -2503,16 +2529,16 @@ describe('an icon a table cell or a repeated item draws', () => {
     const options = { refs, budgetChars: 4000, isVisible, computedStyle }
     expect(['#tick', '#drawn', '#grouped', '#loose']
       .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
-      .toEqual(['', '', '勾', '勾'])
+      .toEqual(['勾', '勾', '勾', '勾'])
   })
 
-  it('names an icon nothing inside a named node, an option or a control the walk reads no row inside', () => {
+  it('names an icon inside a named node, an option or a control the walk reads no row inside by what the page wrote on it', () => {
     // The label area of a named node holding a group is that node's name, and
     // a named single-row node, an option and a button in a cell are one row
     // each, read no further, as they are in a read scoped at one of them. A
     // step reaching an icon one of them holds directly through a markup read
-    // is held to the nothing every read prints for it; the icon in a node the
-    // page named nothing is the row the listing prints.
+    // is held to the name a read scoped at the icon prints for it; the icon in
+    // a node the page named nothing is the row the listing prints.
     const refs = page(UNREAD_ICONS)
     expect(read(refs).text).toBe([
       'e1 tree "区域"',
@@ -2531,7 +2557,7 @@ describe('an icon a table cell or a repeated item draws', () => {
     const options = { refs, budgetChars: 4000, isVisible, computedStyle }
     expect(['#t1', '#t2', '#t3', '#o1', '#b1', '#c1']
       .map(selector => itemName(document.querySelector(selector) as Element, options, document)))
-      .toEqual(['', '', '勾', '', '', '编辑'])
+      .toEqual(['勾', '勾', '勾', '勾', '勾', '编辑'])
   })
 
   it('names an icon a read scoped inside an option, a named node, a button or a label prints by the name it prints', () => {
@@ -2548,7 +2574,7 @@ describe('an icon a table cell or a repeated item draws', () => {
       .toEqual(['勾', '勾', '勾', '勾'])
   })
 
-  it('names an icon only the listed row of its table prints by the name that row prints', () => {
+  it('names an icon a listed row of its table prints by the name that row prints', () => {
     // A listed row names a click target inside a `label` as a control of its
     // own, where a read scoped at the cell prints the tick box the label names
     // and no row for the target.
@@ -2561,14 +2587,16 @@ describe('an icon a table cell or a repeated item draws', () => {
     expect(itemName(found(document.querySelector('#lt')), options, document)).toBe('勾')
   })
 
-  it('names an icon what every read printing a row for it prints, and nothing where no read prints one', () => {
-    // Each page is read whole and scoped at every element around each icon it
-    // draws, through shadow roots and frames: wherever a row is printed for an
-    // icon, it carries the one name a step naming that icon is held to.
+  it('names an icon what every read printing a row for it prints, the read scoped at the icon itself among them', () => {
+    // Each page is read whole, scoped at each icon it draws, and scoped at
+    // every element around each icon, through shadow roots and frames:
+    // wherever a row is printed for an icon, it carries the one name a step
+    // naming that icon is held to.
     const probes: ReadonlyArray<readonly [string, () => readonly Element[], Ask]> = [
       ['unread', () => shown(UNREAD_ICONS, 'i'), {}],
       ['wrapped', () => shown(WRAPPED_ICONS, 'i'), {}],
       ['headed', () => shown(HEADED_ICONS, 'i'), {}],
+      ['held directly', () => shown(HELD_DIRECTLY, 'i'), {}],
       ['option', () => shown(OPTION_SCOPED, 'i'), {}],
       ['operations', () => shown(tableOf(OPERATIONS), 'i'), {}],
       ['commands', () => shown(NAMED_COMMANDS, 'i, svg'), {}],

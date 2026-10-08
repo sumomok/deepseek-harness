@@ -280,7 +280,7 @@ function treeParent(el: Element): Element | undefined {
  * @param root - the document the read started from.
  * @returns the element around it, or undefined at the top of that document.
  */
-export function composedParent(el: Element, root: Document): Element | undefined {
+function composedParent(el: Element, root: Document): Element | undefined {
   const parent = treeParent(el)
   if (parent !== undefined) return parent
   if (el.ownerDocument === root) return undefined

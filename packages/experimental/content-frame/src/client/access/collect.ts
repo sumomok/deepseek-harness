@@ -19,16 +19,15 @@
  */
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES, OFFERED_ROLES,
-  QUANTITY_ROLES, childHost, clip, clipTo, collapse, composedParent, computedStyleOf, containerName, drawsNothing,
-  fieldValue, frameDocument, headingText, heldByItem, insideOpaque, isChecked, isDisabled, isIconShape, isInline,
-  isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
-  quantityValue, queryInOrder, roleOf, visibleText, type ComputedStyleOf,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, computedStyleOf, containerName, drawsNothing, fieldValue,
+  frameDocument, headingText, heldByItem, insideOpaque, isChecked, isDisabled, isIconShape, isInline, isNameable,
+  isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf, quantityValue,
+  queryInOrder, roleOf, visibleText, type ComputedStyleOf,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
   Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
-import { RefTable } from './refs.ts'
 
 /** How much of its own text names a click target the page has not labelled. */
 const CLICK_NAME_LIMIT = 40
@@ -1268,50 +1267,6 @@ function marksIcon(el: Element, walk: Walk, place: Place): boolean {
 }
 
 /**
- * The name one read prints for an element, from what its walk collected: the
- * name of the row it prints for the element, or of the control a table cell
- * holds it as. A table prints the controls of its header wherever it prints,
- * and the controls of its rows only where the read is scoped at the table,
- * because everywhere else it prints one sample row without refs.
- * @param items - what the read's walk collected.
- * @param el - the element to name.
- * @param scope - the element the read is scoped at, or undefined for the whole page.
- * @returns the printed name, or undefined where the read prints no row for the element.
- */
-function printedIn(items: readonly Item[], el: Element, scope: Element | undefined): string | undefined {
-  for (const item of items) {
-    if (item.kind === 'element' && item.el === el) return item.name
-    if (item.kind !== 'table') continue
-    const cells = item.el === scope ? [item.header, ...item.rows.map(row => row.cells)].flat() : item.header
-    const control = cells.flatMap(cell => cell.controls).find(held => held.el === el)
-    if (control !== undefined) return control.name
-  }
-  return undefined
-}
-
-/**
- * The name the reads that can print a row for an element print for it: a read
- * scoped at each element it is drawn inside, nearest first, through shadow
- * roots and frames up to `walk.root`, and then a read of the whole page. The
- * first read that prints a row for it gives the name, and the empty string
- * stands where none does. Each walk numbers what it collects in a ref table of
- * its own, so the read's numbering is left as it was.
- * @param el - the element to name.
- * @param walk - the walk in progress, for the read's injections and its root.
- * @returns the printed name, or the empty string.
- */
-function printedName(el: Element, walk: Walk): string {
-  const scopes: Array<Element | undefined> = []
-  for (let at = composedParent(el, walk.root); at !== undefined; at = composedParent(at, walk.root)) scopes.push(at)
-  scopes.push(undefined)
-  for (const scope of scopes) {
-    const name = printedIn(collect(walk.root, { ...walk.options, refs: new RefTable() }, scope), el, scope)
-    if (name !== undefined) return name
-  }
-  return ''
-}
-
-/**
  * Where the walk stands inside an element, which turns the suppression of text
  * already printed as a name on at a `label` and off again inside the group a
  * tree node holds its nodes in.
@@ -1476,24 +1431,9 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
  * carries no ref, so no step can name it and no answer here is asked for.
  *
  * An icon a repeated item holds — an element {@link isIconShape} accepts that
- * {@link heldByItem} finds an item around, up to `root` — is the exception,
- * because a markup read gives every element a ref, and where a read starts
- * decides whether it prints a row for the icon. A whole-page read prints none
- * inside a `label` naming a control, in the label area of a tree node or menu
- * item the page named, or inside an element it prints as one row without
- * reading into it — a named single-row tree node, an option, a button in a
- * cell — while a read scoped at an element inside one of those starts there
- * and prints the icon. Such an icon is named by what the reads print for it,
- * as a row of its own or as a control in a table's header or in a table row
- * the read lists: the whole-page read and a read scoped at each element around
- * the icon, through shadow roots and frames up to `root`. Each of them that prints a row for it prints the
- * name the page wrote on it, and an icon none of them prints a row for — one
- * such a `label`, node, option or button holds directly — is named nothing.
- * The reads are walked nearest scope first and the whole page last, stopping
- * at the first that prints a row, so a step naming such an icon costs one walk
- * of the element around it where that walk prints it, and at most one walk per
- * element around it plus one of the whole page. An icon outside every item is
- * named nothing, as a listing that prints no row for it would call it.
+ * {@link heldByItem} finds an item around, up to `root` — is named by what the
+ * page wrote on it wherever it stands, and every read that prints a row for it
+ * prints that name.
  * @param el - the element to name.
  * @param options - the read's own options, for the injections it is computed under.
  * @param root - the document the read that printed the element started from.
@@ -1502,7 +1442,7 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
 export function itemName(el: Element, options: SnapshotOptions, root: Document): string {
   const walk = newWalk(options, undefined, root)
   if (isSkipped(el, walk.isVisible)) return ''
-  if (heldIcon(el, walk)) return printedName(el, walk)
+  if (heldIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
   if (isOpaque(el)) {
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) return namedAs(el, drawn, walk).name
