@@ -75,7 +75,7 @@ export async function installDelivery(
     // refused without this deployment holding its bytes.
     const { size } = await stat(path)
     if (size > delivery.limits.maxArchiveBytes) {
-      return refused(undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
+      return await refused(undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
         + `over the ${String(delivery.limits.maxArchiveBytes)} it is read under`)
     }
     const archive = readPackArchive(name, await readFile(path), delivery.limits)
