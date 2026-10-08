@@ -56,7 +56,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 
 | 字段 | 默认 | 含义 |
 |---|---|---|
-| `assertionHeader` | `'x-dsh-member'` | 携带签名成员断言的请求头；按小写比较 |
+| `assertionHeader` | `'x-dsh-member'` | 携带签名成员断言的请求头；按小写比较。必须是部署代理从客户端请求中剥掉并签上的那个头名；server-base 的代理用的是 `x-dsh-member` |
 | `assertionPublicKey` | 必填 | SPKI PEM 形式的 Ed25519 公钥（`-----BEGIN PUBLIC KEY-----`） |
 | `deploymentId` | 必填 | 断言的 `aud` 必须等于的值 |
 | `admins` | `[]` | 每位管理员的 `login_uid` |

@@ -56,7 +56,7 @@ The row is `name: '@deepseek-ai/dsh-experimental-console-members'` and injects `
 
 | Field | Default | Meaning |
 |---|---|---|
-| `assertionHeader` | `'x-dsh-member'` | Request header carrying the signed member assertion; compared in lower case |
+| `assertionHeader` | `'x-dsh-member'` | Request header carrying the signed member assertion; compared in lower case. It must be the name the deployment proxy strips from client requests and signs; for the server-base proxy that is `x-dsh-member` |
 | `assertionPublicKey` | required | Ed25519 public key in SPKI PEM form (`-----BEGIN PUBLIC KEY-----`) |
 | `deploymentId` | required | The value an assertion's `aud` must equal |
 | `admins` | `[]` | `login_uid` of each administrator |
