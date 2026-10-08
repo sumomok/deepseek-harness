@@ -210,7 +210,8 @@ function sameOwner(left: RegisteredRoot, right: RegisteredRoot): boolean {
  * Read and check `roots.json`. A missing file is an empty registry.
  * @param file - the registry file.
  * @returns the recorded roots.
- * @throws {Error} naming the file, not its content, when it is not valid JSON or not a registry.
+ * @throws {Error} naming the file, not its content, when it is not valid JSON or not a registry, or when two
+ *   member records name one member or one directory id.
  */
 function readRoots(file: string): RegisteredRoot[] {
   let text: string
@@ -233,12 +234,15 @@ function readRoots(file: string): RegisteredRoot[] {
     throw new Error(`console-members: ${file} is not a version ${ROOTS_FILE_VERSION} root registry`)
   }
   const members = new Set<string>()
+  const directories = new Set<string>()
   return entries.map((entry: unknown, index) => {
     const root = readRoot(entry)
     if (root === undefined) throw new Error(`console-members: entry ${index} in ${file} is not a root record`)
     if (root.kind === 'member') {
       if (members.has(root.principal)) throw new Error(`console-members: entry ${index} in ${file} registers a second root for one member`)
+      if (directories.has(root.directory)) throw new Error(`console-members: entry ${index} in ${file} reuses a directory id`)
       members.add(root.principal)
+      directories.add(root.directory)
     }
     return root
   })

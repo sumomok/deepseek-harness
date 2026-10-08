@@ -376,6 +376,17 @@ describe('reading roots.json', () => {
     expect(error.message).toBe(`console-members: entry 1 in ${rootsFile()} registers a second root for one member`)
   })
 
+  it('refuses two member records with one directory id, so no two members share a store', () => {
+    const directoryId = '00000000-0000-4000-8000-000000000009'
+    const entry = (member: string, parent: string): string =>
+      `{"kind":"member","path":"${join(temp.base, parent, directoryId)}","principal":"${member}","directory":"${directoryId}"}`
+    store(`{"version":1,"roots":[${entry(`${MARKER}-a`, 'one')},${entry(`${MARKER}-b`, 'two')}]}`)
+
+    const error = thrown(() => open())
+    expect(error.message).toBe(`console-members: entry 1 in ${rootsFile()} reuses a directory id`)
+    expect(error.message).not.toContain(MARKER)
+  })
+
   it('refuses recorded roots that overlap each other or membersRoot', () => {
     const outer = join(temp.base, 'outer')
     store(`{"version":1,"roots":[{"kind":"none","path":"${outer}"},{"kind":"none","path":"${join(outer, 'inner')}"}]}`)
