@@ -161,7 +161,7 @@ A composition with no provider of that key sees an empty part list, which is the
 <a id="reading-what-a-deployment-holds"></a>
 ## Reading what a deployment holds
 
-`ctx.skillPacks` answers two questions, and `GET /skill-pack/status` answers the first over HTTP as `{ "packs": [...] }`, adding [`lastDelivery`](#the-directory-a-delivery-arrives-in) where a delivery directory is configured.
+`ctx.skillPacks` answers two questions, and `GET /skill-pack/status` answers the first over HTTP as `{ "packs": [...] }`, adding [`lastDelivery`](#the-directory-a-delivery-arrives-in) where a delivery directory is configured and a read of it has found an archive since the process started.
 
 | Read | Answers |
 |---|---|

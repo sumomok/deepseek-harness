@@ -161,7 +161,7 @@ interface PartsSource {
 <a id="reading-what-a-deployment-holds"></a>
 ## 读一套部署手里有什么
 
-`ctx.skillPacks` 回答两个问题，`GET /skill-pack/status` 把其中第一个以 `{ "packs": [...] }` 的形式答在 HTTP 上；配了发放目录时，还多一项 [`lastDelivery`](#the-directory-a-delivery-arrives-in)。
+`ctx.skillPacks` 回答两个问题，`GET /skill-pack/status` 把其中第一个以 `{ "packs": [...] }` 的形式答在 HTTP 上；配了发放目录、而且本次启动以来有一次读取找到过发放包时，还多一项 [`lastDelivery`](#the-directory-a-delivery-arrives-in)。
 
 | 读法 | 回答 |
 |---|---|
