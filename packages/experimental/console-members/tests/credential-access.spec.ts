@@ -1,6 +1,7 @@
 /** The customer-token reader slot, `./credential-access`, and the registry's members, driven through a loaded row. */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { inspect } from 'node:util'
 import { symbols, type Context } from '@deepseek-ai/cordis'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -522,6 +523,22 @@ describe('reaching the row through ctx.consoleMembers and the instance', () => {
     const refusal = 'console-members: the value is not a console member directory this package\'s plugin row provided'
     expect(() => customerCredentialAccess(imitation)).toThrow(refusal)
     expect(() => memberRegistryAccess(imitation)).toThrow(refusal)
+  })
+})
+
+describe('inspecting the directory', () => {
+  it('prints no member key and no token through ctx.consoleMembers or the instance behind it', async () => {
+    const row = await mountMembers()
+    peerOf(row, ALICE)
+    directory(row).attachCustomerCredentials(fakeReader([[ALICE, ALICE_TOKEN]]).reader)
+    const proxy = directory(row)
+    const instance: unknown = Reflect.get(proxy, symbols.original)
+    for (const value of [proxy, instance]) {
+      const printed = inspect(value, { depth: 20, showHidden: true })
+      expect(printed).toBe('ConsoleMembersDirectory')
+      expect(printed).not.toContain(ALICE)
+      expect(printed).not.toContain(ALICE_TOKEN)
+    }
   })
 })
 

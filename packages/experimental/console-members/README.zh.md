@@ -99,7 +99,7 @@ const everyMember = registry.principals()
 
 一位成员在 Peer 活着时只有这一个 Peer，所以这位成员的每个请求、同一请求的每次重复准入，都经同一个 Peer。成员的 Peer 自最后一次请求或最后一条 socket 关闭起 `peerIdleMs` 内没有绑定 Remote 流 socket，插件行就释放它，这段时间按单调时钟计，所以把系统时钟往回或往前调都不会推迟或提前释放；这位成员的下一个请求开一个新 Peer。卸载插件行时撤下准入器，释放它开过的全部 Peer（这些 Peer 的 socket 以 1001 关闭），并等所有进行中的默认工作区登记落定之后才完成；`requireAdmitter: true` 下，Connection 在插件行再次加载之前答 401。
 
-`principalOfCaller` 对 operator、不是本插件行开出的 Peer、已释放的成员 Peer 都答 `undefined`；是否已释放按 `ctx.connection.peers.get(peer.id) === peer` 判定。插件只能用 `peer === ctx.connection.operator` 认出 operator；成员为 `undefined` 从不表示 operator。插件行的日志与错误文本不带主体键、断言或头值：准入失败的日志至多带一个系统错误码，抛错的 `onChange` 监听者既不记它的错误，也不记成员。
+`principalOfCaller` 对 operator、不是本插件行开出的 Peer、已释放的成员 Peer 都答 `undefined`；是否已释放按 `ctx.connection.peers.get(peer.id) === peer` 判定。插件只能用 `peer === ctx.connection.operator` 认出 operator；成员为 `undefined` 从不表示 operator。插件行的日志与错误文本不带主体键、断言或头值：准入失败的日志至多带一个系统错误码，抛错的 `onChange` 监听者既不记它的错误，也不记成员。对 `ctx.consoleMembers` 或它背后的实例做 `util.inspect`，不论深度、开不开 `showHidden`，都只打印 `ConsoleMembersDirectory`；只有 `customInspect: false` 能绕过。
 
 -----
 

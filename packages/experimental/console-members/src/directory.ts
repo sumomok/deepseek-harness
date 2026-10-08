@@ -4,6 +4,7 @@
  * Every method reads the row's state through {@link DIRECTORY_STATE}, so it
  * works when called through the traceable proxy another plugin receives.
  * `principalOfSession` is not implemented in this build and throws.
+ * `util.inspect` prints the class name only, never the state.
  * @module @deepseek-ai/dsh-experimental-console-members/src/directory
  */
 
@@ -125,5 +126,16 @@ export class ConsoleMembersDirectory extends Service implements ConsoleMemberDir
    */
   attachCustomerCredentials(reader: CustomerCredentialReader): () => void {
     return this[DIRECTORY_STATE].credentials.attach(reader)
+  }
+
+  /**
+   * What `util.inspect` prints for the directory and its proxy: the class
+   * name only, so a deep or `showHidden` inspection prints no principal key,
+   * root path or token from the state. An inspection with
+   * `customInspect: false` bypasses it.
+   * @returns `'ConsoleMembersDirectory'`.
+   */
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return 'ConsoleMembersDirectory'
   }
 }
