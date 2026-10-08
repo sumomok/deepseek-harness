@@ -15,7 +15,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
-import { parsePackManifest } from './manifest.ts'
+import { PACK_MANIFEST_KEY, parsePackManifest } from './manifest.ts'
 import { compareCodeUnits } from './order.ts'
 import type { PackObservation } from './reconcile.ts'
 import type { PackViewResult } from './types.ts'
@@ -103,7 +103,7 @@ export async function observePack(directory: string, readText: PackTextReader): 
   const skill = stringField(frontmatter.data, 'name')
   const description = stringField(frontmatter.data, 'description')
   if (skill === undefined || description === undefined || !isSkillName(skill)) return undefined
-  const manifest = parsePackManifest(frontmatter.data.metadata)
+  const manifest = parsePackManifest(frontmatter.data[PACK_MANIFEST_KEY])
   const views = manifest.ok ? await readViews(directory, manifest.manifest.views, readText) : []
   const whenToUse = stringField(frontmatter.data, 'whenToUse')
   return {

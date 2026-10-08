@@ -81,7 +81,7 @@ export { syncPackRoot } from './install.ts'
 export type { PackArchiveSyncResult, StagedPack, StagedPackRefusal, SyncPackRootResult, VerifyStagedPacks } from './install.ts'
 export { describeMissing, reconcilePacks, type PackObservation } from './reconcile.ts'
 export { PACK_FILE_EXTENSIONS } from './delivery.ts'
-export { PACK_ANCHOR_FORMATS, PACK_MANIFEST_FIELDS, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
+export { PACK_ANCHOR_FORMATS, PACK_MANIFEST_FIELDS, PACK_MANIFEST_KEY, PACK_VIEW_FORMATS, parsePackManifest } from './manifest.ts'
 export { PACK_VIEW_FIELDS, parsePackView } from './views.ts'
 export { SKILL_PACK_STATUS_ROUTE } from './route.ts'
 

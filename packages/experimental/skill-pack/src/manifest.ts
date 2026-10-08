@@ -16,8 +16,8 @@ import semver from 'semver'
 import { z } from 'zod'
 import type { PackDocumentField, PackManifest, PackManifestResult, PackMissing } from './types.ts'
 
-/** The `metadata` key under which a pack manifest is read, and the prefix every refused field carries. */
-const MANIFEST_FIELD = 'metadata'
+/** The SKILL.md frontmatter key under which a pack manifest is read, and the prefix every refused field carries. */
+export const PACK_MANIFEST_KEY = 'metadata'
 
 /**
  * The view-file format versions this build reads.
@@ -104,7 +104,7 @@ export const PACK_MANIFEST_FIELDS: readonly PackDocumentField[] = manifestFields
 function fieldName(issue: z.core.$ZodIssue): string {
   const path = issue.path.map(String)
   if (issue.code === 'unrecognized_keys') path.push(...issue.keys.slice(0, 1))
-  return [MANIFEST_FIELD, ...path].join('.')
+  return [PACK_MANIFEST_KEY, ...path].join('.')
 }
 
 /**
@@ -118,7 +118,7 @@ export function parsePackManifest(metadata: unknown): PackManifestResult {
     const issue = read.error.issues.at(0)
     /* v8 ignore next 2 -- zod reports at least one issue for every failed parse; the fallback
        keeps a refusal from being reported with no field at all. */
-    if (issue === undefined) return { ok: false, field: MANIFEST_FIELD, reason: 'is not a pack manifest' }
+    if (issue === undefined) return { ok: false, field: PACK_MANIFEST_KEY, reason: 'is not a pack manifest' }
     return { ok: false, field: fieldName(issue), reason: issue.message }
   }
   const { pack, requires, views } = read.data
