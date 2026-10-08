@@ -828,6 +828,44 @@ describe('connection/fetch', () => {
     expect(route).toHaveBeenCalledTimes(1)
   })
 
+  it('dispatches nothing for an internal/dispatch call of next() when the request is answered 503', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const member = guarded.ctx.connection.peers.open()
+    guarded.ctx.connection.peers.admitWith(() => member)
+    let entry: (() => Promise<Response>) | undefined
+    const early: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name !== 'connection/fetch') return
+      entry = args.at(-1) as () => Promise<Response>
+      early.push(entry().catch((error: unknown) => error))
+    }, { global: true })
+
+    expect(await guarded.fetch()).toMatchObject({ status: 503 })
+    const late = await entry?.().catch((error: unknown) => error)
+    const ended = { message: 'connection/fetch: next() was called after the waterfall ended' }
+    expect(await Promise.all(early)).toMatchObject([ended])
+    expect(late).toMatchObject(ended)
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('dispatches nothing for an internal/dispatch call of next() when another internal/dispatch listener throws', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const veto = new Error('fixture: vetoed by internal/dispatch')
+    const early: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'connection/fetch') early.push((args.at(-1) as () => Promise<Response>)().catch((error: unknown) => error))
+    }, { global: true })
+    guarded.ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'connection/fetch') throw veto
+    }, { global: true })
+
+    await expect(guarded.fetch()).rejects.toBe(veto)
+    expect(await Promise.all(early)).toMatchObject([{ message: 'connection/fetch: next() was called after the waterfall ended' }])
+    expect(route).not.toHaveBeenCalled()
+  })
+
   it('answers a listener throw the way the carrier answers a throwing route: 400 with an empty body', async () => {
     const throwing = await mount()
     throwing.ctx.on('connection/fetch', () => { throw new Error('listener threw') })

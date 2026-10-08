@@ -216,7 +216,8 @@ export class HostConnectionService extends Service implements HostConnectionHand
 
   /**
    * Run `connection/fetch` around one dispatch to a route or channel. While member admission is on and no listener
-   * is registered, answer 503 without dispatching. The body of each Response the
+   * is registered, answer 503 without dispatching. An `internal/dispatch` listener receives a step that calls the
+   * dispatching `next()` once the listeners are resolved, skipping them. The body of each Response the
    * route or channel produced for a `next()` called before the waterfall ended is cancelled unless the
    * caller receives that Response or its body: once the waterfall ends when the waterfall's result has
    * no body or a locked one, otherwise once the caller has read that body to its end, cancelled it, or
@@ -243,10 +244,26 @@ export class HostConnectionService extends Service implements HostConnectionHand
       dispatched.push(entry)
       return entry.pending
     }
-    // The listeners `waterfall()` would run: the event has no `this` argument, so Cordis applies no context filter.
-    // Resolving them here emits `internal/dispatch` once, as `waterfall()` does, with the same arguments.
-    const listeners: FetchListener[] = this.peerOwner.events.dispatch('waterfall', ['connection/fetch', call, next])
-    if (listeners.length === 0 && this.isMemberAdmission()) return unguardedResponse()
+    // An `internal/dispatch` listener receives `entry`, which calls `next()` only once the listeners are resolved, so
+    // a request answered 503 or failed by that listener's throw has ended first and `next()` dispatches nothing.
+    const resolved = Promise.withResolvers<void>()
+    const entry = (): Promise<Response> => resolved.promise.then(() => next())
+    let listeners: FetchListener[]
+    try {
+      // The listeners `waterfall()` would run: the event has no `this` argument, so Cordis applies no context filter.
+      // Resolving them here emits `internal/dispatch` once, as `waterfall()` does.
+      listeners = this.peerOwner.events.dispatch('waterfall', ['connection/fetch', call, entry])
+    } catch (error) {
+      ended = true
+      resolved.resolve()
+      throw error
+    }
+    if (listeners.length === 0 && this.isMemberAdmission()) {
+      ended = true
+      resolved.resolve()
+      return unguardedResponse()
+    }
+    resolved.resolve()
     // Cordis's waterfall: every listener receives the same `next()`, which runs the next listener not yet run.
     const run = (): Promise<Response> => (listeners.shift() ?? next)(call, run)
     let result: Response
