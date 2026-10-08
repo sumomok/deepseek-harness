@@ -48,9 +48,14 @@ Every method is synchronous; a MemberStore it returns reads and writes asynchron
 principalOfRequest(req: IncomingMessage): PrincipalKey | undefined
 
 /**
- * The member a Remote method's caller acts for.
+ * The member a Remote method's caller acts for. A member Peer that is
+ * released, which `ctx.connection.peers.get(peer.id) === peer` decides,
+ * acts for no member. The operator is recognised only by
+ * `peer === ctx.connection.operator`: an `undefined` answer never means the
+ * operator.
  * @param peer - the caller's Peer, `this.ctx.invocation.peer` inside a Remote method.
- * @returns that member's key, or `undefined` for the operator Peer and for a Peer this directory did not open for a member.
+ * @returns that member's key, or `undefined` for the operator Peer, for a Peer this directory did not open for a member,
+ *   and for a released member Peer.
  */
 principalOfCaller(peer: PeerScope): PrincipalKey | undefined
 
