@@ -82,7 +82,7 @@ function comparedPath(directory: ConfiguredDirectory, platform: NodeJS.Platform)
   }
   if (entry !== undefined && entry.isSymbolicLink() && !existsSync(existing)) {
     throw new Error(`skill-pack: ${field} ${JSON.stringify(path)} resolves through the symbolic link ${JSON.stringify(existing)}, `
-      + 'whose target does not exist, so the directory it names cannot be compared with the other configured directories')
+      + 'whose target does not exist, so the real path of the directory it names cannot be read')
   }
   const real = join(realpathSync.native(existing), relative(existing, path))
   return FOLDING_PLATFORMS.has(platform) ? collisionKey(real) : real

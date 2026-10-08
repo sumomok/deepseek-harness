@@ -391,7 +391,8 @@ describe('the organization root configuration', () => {
     const organizationRoot = join(world!, 'organization-link')
     await symlink(paths.root, organizationRoot)
     expect(() => new SkillPackRegistry(new Context(), { root: paths.root, platformVersion: PLATFORM_VERSION, organizationRoot }))
-      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} resolves through the symbolic link ${JSON.stringify(organizationRoot)}, whose target does not exist`)
+      .toThrow(`skill-pack: organizationRoot ${JSON.stringify(organizationRoot)} resolves through the symbolic link ${JSON.stringify(organizationRoot)}, `
+        + 'whose target does not exist, so the real path of the directory it names cannot be read')
   })
 
   it('replaces an organization root configured with a trailing separator', async () => {

@@ -90,7 +90,8 @@ describe('configured directories compared per platform', () => {
 describe.skipIf(process.platform === 'win32')('configured directories reached through a symbolic link whose target does not exist', () => {
   /** The refusal naming one configured directory and the link it is reached through. */
   const dangling = (field: string, path: string, link: string): string =>
-    `skill-pack: ${field} ${JSON.stringify(path)} resolves through the symbolic link ${JSON.stringify(link)}, whose target does not exist`
+    `skill-pack: ${field} ${JSON.stringify(path)} resolves through the symbolic link ${JSON.stringify(link)}, whose target does not exist, `
+    + 'so the real path of the directory it names cannot be read'
 
   it.each(['darwin', 'linux', 'win32'] as const)('refuses a directory under a link to a missing directory inside the pack root on %s', async (platform) => {
     const base = await newWorld()
