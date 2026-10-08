@@ -3,10 +3,12 @@
  * or a skill pack in a file beside its instructions.
  *
  * One judgement for both, and it is the tool's own — the same catalog, the same
- * ceilings, the same alphabet for an id — so what a person may write is exactly
- * what the model may send and neither can drift from the other. What differs is
- * what a refusal costs: a deployment's own view is a load failure, and a pack's
- * view holds that pack back.
+ * ceilings, the same alphabet for an id — so a view meets every ceiling a call
+ * meets and neither can drift from the other. A view is judged differently from
+ * a call only where {@link judgeView} says so: the arrangement a person wrote
+ * down, and the blocks only a view places beside a data page. What differs
+ * between the two writers is what a refusal costs: a deployment's own view is a
+ * load failure, and a pack's view holds that pack back.
  *
  * A view is judged before anyone clicks it rather than at the click, so a
  * deployment learns about a broken view when the row loads.
@@ -14,7 +16,7 @@
  */
 
 import type { ComponentCall, ComponentCatalog } from './component-call.ts'
-import { judgeDataPageNodes } from './data-page.ts'
+import { judgeDataPageNodes, judgeDataPageParts } from './data-page.ts'
 import { applyViewParams } from './params.ts'
 import type { ContentView } from './types.ts'
 import { validateComponentCall, type ComponentCallFailure } from './validate.ts'
@@ -72,7 +74,11 @@ function refusalDetail(failure: ComponentCallFailure): string {
  * a view placing one by name, a view placing two is refused at the second, and
  * a sort naming both directions is refused either way. The one rule a view is
  * exempt from is the arrangement: a view is a page a person wrote down, so the
- * regions, buttons, paging and read-only flag in it are that person's.
+ * regions, buttons, paging and read-only flag in it are that person's. Last
+ * come the rules no call ever meets, because only a view places a form page or
+ * an info card: each reads the data page of the same view through its one
+ * declared output, and the page's arrangement agrees with the blocks placed
+ * beside it ({@link judgeDataPageParts}).
  * @param catalog - the components this deployment offers.
  * @param offersDataPage - whether this deployment offers the data page at all.
  * @param view - the view as its writer wrote it.
@@ -88,8 +94,10 @@ export function judgeView(catalog: ComponentCatalog, offersDataPage: boolean, vi
   // The refusals a call placing a page gets, but for the one a view is exempt
   // from: the arrangement in a view is the arrangement its writer wrote. A view
   // may place a page at all because the click that shows it is the user's own,
-  // so it opens on that click (`view-command.ts`).
+  // so it opens on that click (`view-command.ts`). The rules for the blocks
+  // beside the page follow, and only a view meets them.
   const failure = judgeDataPageNodes(catalog, result.call.spec, offersDataPage, true)
+    ?? judgeDataPageParts(catalog, result.call.spec)
   if (failure !== undefined) return { ok: false, refusal: { path: failure.path, reason: refusalDetail(failure) } }
   return { ok: true, call: result.call }
 }

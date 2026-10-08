@@ -55,6 +55,7 @@ import {
   DATA_PAGE_NOT_APPROVED,
   DATA_PAGE_NO_SESSION,
   judgeDataPageNodes,
+  judgeDataPageParts,
   PendingLoads,
   type DataPageLoadReport,
 } from '../src/data-page.ts'
@@ -62,6 +63,7 @@ import * as ShowComponent from '../src/index.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { validateComponentSpec } from '../src/validate.ts'
 import { indexViews } from '../src/views.ts'
+import { CRUD_CARD, CRUD_FORM, CRUD_PAGE, CRUD_VIEW, crudSpec, rewritten } from './crud-view.client.ts'
 import { installKitCatalog, KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 const contexts: Context[] = []
@@ -92,23 +94,6 @@ const CARD_BLOCK = { id: 'card', component: INFO_CARD_ID, props: { record: { $fr
 
 /** A form page on its own, reading nothing. */
 const LONE_FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device' } }
-
-/**
- * The three blocks a written-down view places together: the page opened writable
- * with its own forms and card left out, the form page, and the info card.
- */
-const CRUD_VIEW = {
-  nodes: [
-    { ...PAGE, props: { ...PAGE.props, readOnly: false, regions: { addForm: false, modifyForm: false, infoCard: false } } },
-    FORM,
-    CARD_BLOCK,
-  ],
-  layout: {
-    node: 'stack',
-    dir: 'row',
-    children: [{ node: 'component', id: 'page' }, { node: 'component', id: 'form' }, { node: 'component', id: 'card' }],
-  },
-}
 
 /**
  * What a refusal of a withheld component lists as offered: the kit's six less
@@ -634,10 +619,44 @@ describe('a configured view', () => {
     expect(() => indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '设备管理', spec: CRUD_VIEW }], undefined, false)).toThrow(
       'component-surface: views[0] "crud" — spec.nodes[0].component — names toy.data-page, which this deployment does not offer.',
     )
-    const formFirst = { ...CRUD_VIEW, nodes: [FORM, ...CRUD_VIEW.nodes.filter(node => node.id !== 'form')] }
+    const formFirst = crudSpec(CRUD_FORM, CRUD_PAGE, CRUD_CARD)
     expect(() => indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '设备管理', spec: formFirst }], undefined, false)).toThrow(
       `component-surface: views[0] "crud" — spec.nodes[0].component — names toy.form-page, which this deployment does not offer. ${OFFERED_WITHOUT_PAGE}`,
     )
+  })
+
+  it('may not leave a button of the page opening nothing, and fails to load naming the region', () => {
+    // A view is judged when the row loads, so a page whose add button would
+    // open no form is a startup failure rather than a dead button.
+    const orphaned = crudSpec(rewritten(CRUD_PAGE, { regions: { addForm: false } }))
+    expect(() => indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '图层管理', spec: orphaned }], undefined, true)).toThrow(
+      'component-surface: views[0] "crud" — spec.nodes[0].props.regions.addForm — is false while the page keeps its add '
+      + 'button, and no toy.form-page in this view reads editing of "page": the button would open nothing.',
+    )
+  })
+})
+
+describe('judging the blocks a view places beside its data page', () => {
+  it('lets a view through whose blocks agree, and one placing no data page', () => {
+    expect(judgeDataPageParts(KIT_VIEW_CATALOG, validateSpec(CRUD_VIEW, KIT_VIEW_CATALOG))).toBeUndefined()
+    expect(judgeDataPageParts(KIT_VIEW_CATALOG, validateSpec({ nodes: [{ id: 'f', component: 'toy.record', props: { dataList: [{ label: 'a', display: 'b' }] } }] })))
+      .toBeUndefined()
+  })
+
+  it('refuses in the sentence the rest of the page\'s refusals take, which a view\'s judgement shortens', () => {
+    const readOnly = validateSpec(crudSpec(rewritten(CRUD_PAGE, { readOnly: true }), CRUD_FORM), KIT_VIEW_CATALOG)
+    expect(judgeDataPageParts(KIT_VIEW_CATALOG, readOnly)).toEqual({
+      path: 'spec.nodes[1].props.request',
+      text: 'show_component: spec.nodes[1].props.request — reads editing of "page", which is read-only because its '
+        + 'readOnly is not false: it draws no add or modify button, so the form never has a record to save.',
+      oversize: false,
+    })
+  })
+
+  it('lets a page through that draws its own forms and has nothing beside it', () => {
+    // Every rule here is about a form page or an info card, or about a page
+    // leaving one of its own forms out; a page left to its defaults meets none.
+    expect(judgeDataPageParts(KIT_VIEW_CATALOG, validateSpec(SPEC))).toBeUndefined()
   })
 })
 
