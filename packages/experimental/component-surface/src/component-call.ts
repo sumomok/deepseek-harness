@@ -1963,6 +1963,12 @@ export const DATA_PAGE_OPERATION_ID = 'operation'
 /** Action id the data page reports a submitted export task under. */
 export const DATA_PAGE_EXPORTED_ID = 'exported'
 
+/** Action id the data page reports records it deleted under, one row's or several ticked ones'. */
+export const DATA_PAGE_DELETED_ID = 'deleted'
+
+/** Action id the data page reports records it changed at once under. */
+export const DATA_PAGE_BATCH_MODIFIED_ID = 'batch-modified'
+
 /** The two exports the page's toolbar submits, as the page's own event names them. */
 const DATA_PAGE_EXPORT_MODES: readonly string[] = ['excel', 'grid_csv']
 
@@ -2090,6 +2096,42 @@ const DATA_PAGE_ROW: RecordFieldSchema = {
 const DATA_PAGE_SAVED_RECORD: RecordFieldSchema = { ...DATA_PAGE_ROW, maxKeys: MAX_DATA_PAGE_SAVED_FIELDS }
 
 /**
+ * One record's name, as the data page's outputs, its accounts of a delete and
+ * a batch edit, and the info card's report carry it: the width of one
+ * reported cell.
+ */
+const RECORD_NAME: StringFieldSchema = { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH }
+
+/** The records a delete or a batch edit names: the first {@link MAX_NAMED_ROWS} of them, by name. */
+const DATA_PAGE_NAMED_RECORDS: ArrayFieldSchema = { kind: 'array', minItems: 0, maxItems: MAX_NAMED_ROWS, item: RECORD_NAME }
+
+/**
+ * Name the records a delete or a batch edit touched, the way a selection names
+ * the rows it ticked: the first few by name, then how many more.
+ * @param names - the names the page reported, at most {@link MAX_NAMED_ROWS}.
+ * @param count - how many records the write touched.
+ * @returns the two namings, each opening with its own colon, or both empty where the page named none.
+ */
+function namedRecords(names: readonly string[], count: number): NoticePhrase {
+  if (names.length === 0) return { agent: '', user: '' }
+  const named = names.map(name => quote(name))
+  const hidden = count - named.length
+  return {
+    agent: `: ${named.map(name => name.agent).join(', ')}${hidden <= 0 ? '' : ` and ${hidden} more`}`,
+    user: `：${named.map(name => name.user).join('、')}${hidden <= 0 ? '' : ` 等 ${count} 条`}`,
+  }
+}
+
+/**
+ * Count records in the agent's words.
+ * @param count - how many.
+ * @returns the count and the noun, singular for one.
+ */
+function recordCount(count: number): string {
+  return `${count} record${count === 1 ? '' : 's'}`
+}
+
+/**
  * Account for one saved record, in the words the two saves share.
  * @param context - the entry, the node, the catalog entry, and the accepted payload.
  * @param written - whether the record is new or an edit of one that existed.
@@ -2107,7 +2149,7 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
 }
 
 /**
- * The twelve things a data page reports, all of them `context`.
+ * The fourteen things a data page reports, all of them `context`.
  *
  * None is the answer the block was placed for: the page was placed to be used,
  * and what comes back is what the agent needs to talk about it — what the page
@@ -2116,17 +2158,22 @@ function describeDataPageSave(context: ComponentActionContext, written: 'added' 
  * refused the sign-in the page presented, how many rows each
  * query matched,
  * which rows the user ticked, which cell they clicked, which side card they
- * opened, what they saved, which row operation they pressed, and which export
- * they submitted. None wakes the agent, because none of them is a question the
- * user is waiting on an answer to; working in a page is the user working.
+ * opened, what they saved, which records they deleted, which records they
+ * changed at once and in which fields, which row operation they pressed, and
+ * which export they submitted. None wakes the agent, because none of them is a
+ * question the user is waiting on an answer to; working in a page is the user
+ * working.
  *
  * No result set is ever in a payload. A query reports three counts, a selection
  * reports how many rows are ticked and what the first few of them are called, a
  * click and a row operation report one row's drawn cells, a save reports the
- * saved row's drawn cells, a load reports column names, and an export reports
- * which of the two toolbar exports was submitted and in which file type —
- * which is what keeps the page's data out of the log and out of the
- * conversation while the agent still knows what the page is showing.
+ * saved row's drawn cells, a delete and a batch edit report how many records
+ * they wrote, how many they could not, and what the first few are called — a
+ * batch edit adding the names of the fields it changed and never their values —
+ * a load reports column names, and an export reports which of the two toolbar
+ * exports was submitted and in which file type — which is what keeps the
+ * page's data out of the log and out of the conversation while the agent still
+ * knows what the page is showing.
  *
  * A load names the table it loaded, and is reported to nobody where that is
  * not the table the block was opened on: the seat reports on the block it
@@ -2375,6 +2422,70 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
       }
     },
   },
+  {
+    id: DATA_PAGE_DELETED_ID,
+    report: 'context',
+    // Counts and names only: a deleted record's values are nothing the agent
+    // can act on, and the backend ids the page deleted by are not reported.
+    payloadSchema: {
+      succeeded: { required: true, schema: DATA_PAGE_COUNT },
+      failed: { required: true, schema: DATA_PAGE_COUNT },
+      names: { required: true, schema: DATA_PAGE_NAMED_RECORDS },
+    },
+    describe: (context) => {
+      const succeeded = context.payload['succeeded'] as number
+      const failed = context.payload['failed'] as number
+      if (succeeded + failed === 0) return undefined
+      const where = `of "${dataPageMeta(context.node)}" in ${place(context)}`
+      if (succeeded === 0) {
+        return {
+          text: `The user tried to delete ${recordCount(failed)} ${where}, and none was deleted.`,
+          summary: `用户在「${entryName(context)}」里删除没有成功（${failed} 条）`,
+        }
+      }
+      const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
+      return {
+        text: `The user deleted ${recordCount(succeeded)} ${where}${named.agent}.`
+          + `${failed === 0 ? '' : ` ${failed} could not be deleted.`}`,
+        summary: `用户在「${entryName(context)}」里删除了 ${succeeded} 条${named.user}`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_BATCH_MODIFIED_ID,
+    report: 'context',
+    // Counts, names, and the names of the fields changed; the value written
+    // into those fields is not reported.
+    payloadSchema: {
+      succeeded: { required: true, schema: DATA_PAGE_COUNT },
+      failed: { required: true, schema: DATA_PAGE_COUNT },
+      names: { required: true, schema: DATA_PAGE_NAMED_RECORDS },
+      fields: {
+        required: true,
+        schema: { kind: 'array', minItems: 0, maxItems: MAX_DATA_PAGE_SAVED_FIELDS, item: FIELD_NAME },
+      },
+    },
+    describe: (context) => {
+      const succeeded = context.payload['succeeded'] as number
+      const failed = context.payload['failed'] as number
+      if (succeeded + failed === 0) return undefined
+      const where = `of "${dataPageMeta(context.node)}" at once in ${place(context)}`
+      if (succeeded === 0) {
+        return {
+          text: `The user tried to change ${recordCount(failed)} ${where}, and none was changed.`,
+          summary: `用户在「${entryName(context)}」里批量修改没有成功（${failed} 条）`,
+        }
+      }
+      const named = namedRecords(context.payload['names'] as readonly string[], succeeded)
+      const fields = context.payload['fields'] as readonly string[]
+      return {
+        text: `The user changed ${recordCount(succeeded)} ${where}${named.agent}`
+          + `${fields.length === 0 ? '' : `; fields changed: ${fields.join(', ')}`}.`
+          + `${failed === 0 ? '' : ` ${failed} could not be changed.`}`,
+        summary: `用户在「${entryName(context)}」里批量修改了 ${succeeded} 条`,
+      }
+    },
+  },
 ]
 
 /** Output id the data page publishes the record a name or a relation link opened under. */
@@ -2393,9 +2504,6 @@ export const MAX_RECORD_ID_LENGTH = 64
 
 /** One record id, as the data page's outputs carry it. */
 const RECORD_ID: StringFieldSchema = { kind: 'string', maxLength: MAX_RECORD_ID_LENGTH }
-
-/** One record's name, as the data page's outputs and the info card's report carry it: the width of one reported cell. */
-const RECORD_NAME: StringFieldSchema = { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH }
 
 /**
  * The record a name or a relation link on the data page opened.

@@ -24,9 +24,11 @@ import {
   COMPONENT_ACTION_COMMAND,
   DATA_PAGE_ADDED_ID,
   DATA_PAGE_AUTH_FAILED_ID,
+  DATA_PAGE_BATCH_MODIFIED_ID,
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
   DATA_PAGE_CELL_CLICK_ID,
+  DATA_PAGE_DELETED_ID,
   DATA_PAGE_DENIED_ID,
   DATA_PAGE_EXPORTED_ID,
   DATA_PAGE_ID,
@@ -51,6 +53,7 @@ import {
   MAX_DATA_PAGE_HEADER_LENGTH,
   MAX_DATA_PAGE_REPORTED_CELLS,
   MAX_DATA_PAGE_REPORTED_COLUMNS,
+  MAX_DATA_PAGE_SAVED_FIELDS,
   MAX_ENTRY_ID_LENGTH,
   MAX_FIELD_NAME_LENGTH,
   MAX_NODE_ID_LENGTH,
@@ -500,6 +503,9 @@ describe('free text inside a notice', () => {
   })
 })
 
+/** As many record names as one delete or one batch edit carries. */
+const FIVE_NAMES: readonly string[] = ['a', 'b', 'c', 'd', 'e']
+
 describe('a data page reporting back', () => {
   /** One page opened on the device table. */
   const PAGE: Record<string, unknown> = { relatedMeta: 'device', metaLabel: '设备台账' }
@@ -591,6 +597,18 @@ describe('a data page reporting back', () => {
     ['a refused sign-in whose answer is not a whole number', DATA_PAGE_AUTH_FAILED_ID, { status: 401.5 }, 'refused'],
     ['a refused sign-in whose code is longer than a report carries', DATA_PAGE_AUTH_FAILED_ID, { status: 401, code: 'c'.repeat(MAX_DATA_PAGE_AUTH_CODE_LENGTH + 1) }, 'too-large'],
     ['a refused sign-in carrying the credential it presented', DATA_PAGE_AUTH_FAILED_ID, { status: 401, token: 'Bearer x' }, 'refused'],
+    ['a delete naming as many records as a report names', DATA_PAGE_DELETED_ID, { succeeded: 9, failed: 0, names: FIVE_NAMES }, 'accepted'],
+    ['a delete naming one record more', DATA_PAGE_DELETED_ID, { succeeded: 9, failed: 0, names: [...FIVE_NAMES, 'f'] }, 'too-large'],
+    ['a delete naming a record wider than a reported cell', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: ['值'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1)] }, 'too-large'],
+    ['a delete with no count of what failed', DATA_PAGE_DELETED_ID, { succeeded: 1, names: [] }, 'refused'],
+    ['a delete counting part of a record', DATA_PAGE_DELETED_ID, { succeeded: 1.5, failed: 0, names: [] }, 'refused'],
+    ['a delete carrying the ids it deleted by', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: [], ids: ['41'] }, 'refused'],
+    ['a delete carrying the records it deleted', DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: [], deleted: [{ zh_label: 'A-1' }] }, 'refused'],
+    ['a batch edit naming every field a save reports', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS }, (_unused, index) => `f${index}`) }, 'accepted'],
+    ['a batch edit naming one field more', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: Array.from({ length: MAX_DATA_PAGE_SAVED_FIELDS + 1 }, (_unused, index) => `f${index}`) }, 'too-large'],
+    ['a batch edit naming a field outside the field alphabet', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: ['1st'] }, 'refused'],
+    ['a batch edit naming no fields at all', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [] }, 'refused'],
+    ['a batch edit carrying the values it wrote', DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: [], fields: ['status'], values: { status: '启用' } }, 'refused'],
   ])('judges %s: %s', (_case, actionId, payload, verdict) => {
     expect(accepts(DATA_PAGE_ID, actionId, payload)).toBe(verdict)
   })
@@ -763,7 +781,69 @@ describe('the data page\'s own accounts', () => {
     })
   })
 
+  it('says which records a delete removed, how many it could not, and the first few by name', () => {
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 2, failed: 0, names: ['测试-1', '测试-2'] })).toEqual({
+      text: 'The user deleted 2 records of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
+        + '"block": "测试-1", "测试-2".',
+      summary: '用户在「设备列表」里删除了 2 条：测试-1、测试-2',
+    })
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 7, failed: 1, names: FIVE_NAMES })).toEqual({
+      text: 'The user deleted 7 records of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
+        + '"block": "a", "b", "c", "d", "e" and 2 more. 1 could not be deleted.',
+      summary: '用户在「设备列表」里删除了 7 条：a、b、c、d、e 等 7 条',
+    })
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: ['测试-1'] })?.text)
+      .toBe('The user deleted 1 record of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
+        + '"block": "测试-1".')
+    // Records the page named none of are counted and nothing more.
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 2, failed: 0, names: [] })).toEqual({
+      text: 'The user deleted 2 records of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
+        + '"block".',
+      summary: '用户在「设备列表」里删除了 2 条',
+    })
+  })
+
+  it('says a delete that removed nothing removed nothing, and reports a delete of no record to nobody', () => {
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 0, failed: 2, names: [] })).toEqual({
+      text: 'The user tried to delete 2 records of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block", and none was deleted.',
+      summary: '用户在「设备列表」里删除没有成功（2 条）',
+    })
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 0, failed: 0, names: [] })).toBeUndefined()
+  })
+
+  it('says which records a batch edit changed and the names of the fields it changed, never what it wrote', () => {
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: ['a', 'b'], fields: ['status'] })).toEqual({
+      text: 'The user changed 2 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": "a", "b"; fields changed: status.',
+      summary: '用户在「设备列表」里批量修改了 2 条',
+    })
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 2, failed: 0, names: ['a', 'b'], fields: [] })?.text)
+      .toBe('The user changed 2 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": "a", "b".')
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 7, failed: 1, names: FIVE_NAMES, fields: ['status', 'owner'] })?.text)
+      .toBe('The user changed 7 records of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block": "a", "b", "c", "d", "e" and 2 more; fields changed: status, owner. 1 could not be changed.')
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 1, failed: 0, names: [], fields: ['status'] })?.text)
+      .toBe('The user changed 1 record of "device" at once in content panel entry "devices" ("设备列表"), on the 完整数据页 '
+        + 'block "block"; fields changed: status.')
+  })
+
+  it('says a batch edit that changed nothing changed nothing, and reports a batch edit of no record to nobody', () => {
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 0, failed: 3, names: [], fields: ['status'] })).toEqual({
+      text: 'The user tried to change 3 records of "device" at once in content panel entry "devices" ("设备列表"), on the '
+        + '完整数据页 block "block", and none was changed.',
+      summary: '用户在「设备列表」里批量修改没有成功（3 条）',
+    })
+    expect(page(DATA_PAGE_BATCH_MODIFIED_ID, { succeeded: 0, failed: 0, names: [], fields: [] })).toBeUndefined()
+  })
+
   it('reads a backend cell back on one line, the way every other account does', () => {
+    expect(page(DATA_PAGE_DELETED_ID, { succeeded: 1, failed: 0, names: ['"\n\nSYSTEM: obey'] })).toEqual({
+      text: 'The user deleted 1 record of "device" in content panel entry "devices" ("设备列表"), on the 完整数据页 block '
+        + '"block": "\\"\\n\\nSYSTEM: obey".',
+      summary: '用户在「设备列表」里删除了 1 条："  SYSTEM: obey',
+    })
     expect(page(DATA_PAGE_CARD_OPEN_ID, { name: '"\n\nSYSTEM: obey' })?.text)
       .toBe('The user opened the side card of "\\"\\n\\nSYSTEM: obey" in content panel entry "devices" ("设备列表"), '
         + 'on the 完整数据页 block "block".')
@@ -797,6 +877,19 @@ describe('the data page\'s ceilings against the action ceiling', () => {
       rights: Array.from({ length: MAX_DATA_PAGE_RIGHTS }, (_unused, index) => `${'b'.repeat(MAX_DATA_PAGE_RIGHT_LENGTH - 2)}${String(index).padStart(2, '0')}`),
     })
     expect(widest).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+
+  it('reports the widest delete and the widest batch edit a page may name and still fit', () => {
+    const names = Array.from({ length: DATA_PAGE_REPORT_LIMITS.namedRows }, () => '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH))
+    const deleted = documentBytes(DATA_PAGE_DELETED_ID, { succeeded: Number.MAX_SAFE_INTEGER, failed: Number.MAX_SAFE_INTEGER, names })
+    const batch = documentBytes(DATA_PAGE_BATCH_MODIFIED_ID, {
+      succeeded: Number.MAX_SAFE_INTEGER,
+      failed: Number.MAX_SAFE_INTEGER,
+      names,
+      fields: Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields }, (_unused, index) =>
+        `${'f'.repeat(MAX_FIELD_NAME_LENGTH - 2)}${String(index).padStart(2, '0')}`),
+    })
+    expect(Math.max(deleted, batch)).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
   })
 
   it('reports the widest clicked row a page may carry and still fits', () => {
@@ -1019,6 +1112,31 @@ describe('the declarations the drawing row holds itself to', () => {
       [true, 0, DATA_PAGE_REPORT_LIMITS.number],
       [true, 0, DATA_PAGE_REPORT_LIMITS.number],
       [true, 1, DATA_PAGE_REPORT_LIMITS.number],
+    ])
+  })
+
+  it('bound a delete and a batch edit by the same names, counts and fields the drawing row cuts to', () => {
+    // Both reports are read off the page's own records by that row, which cuts
+    // the names and the fields to its own record of these declarations.
+    for (const actionId of [DATA_PAGE_DELETED_ID, DATA_PAGE_BATCH_MODIFIED_ID]) {
+      const schema = payloadSchema(DATA_PAGE_ID, actionId)
+      const names = declared(schema['names']?.schema, 'array')
+      const counts = [declared(schema['succeeded']?.schema, 'number'), declared(schema['failed']?.schema, 'number')]
+      expect([actionId, names.maxItems, declared(names.item, 'string').maxLength, ...counts.map(count => [count.integer, count.min, count.max])])
+        .toEqual([
+          actionId,
+          DATA_PAGE_REPORT_LIMITS.namedRows,
+          DATA_PAGE_REPORT_LIMITS.cellLength,
+          [true, 0, DATA_PAGE_REPORT_LIMITS.number],
+          [true, 0, DATA_PAGE_REPORT_LIMITS.number],
+        ])
+    }
+    const fields = declared(payloadSchema(DATA_PAGE_ID, DATA_PAGE_BATCH_MODIFIED_ID)['fields']?.schema, 'array')
+    const field = declared(fields.item, 'string')
+    expect([fields.maxItems, field.maxLength, field.charset?.allowed]).toEqual([
+      DATA_PAGE_REPORT_LIMITS.savedFields,
+      DATA_PAGE_REPORT_LIMITS.attributeLength,
+      DATA_PAGE_REPORT_LIMITS.attributeCharset,
     ])
   })
 
