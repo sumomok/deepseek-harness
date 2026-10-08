@@ -39,6 +39,9 @@
       "path": "../../util/home-paths"
     },
     {
+      "path": "../../util/timeout"
+    },
+    {
       "path": "../../util/values"
     }
   ]

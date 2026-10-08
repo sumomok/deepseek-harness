@@ -15,6 +15,7 @@ import { createPublicKey, type KeyObject } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { HostConnectionPeers } from '@deepseek-ai/dsh-client-connection'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import z from '@deepseek-ai/schemastery'
 import type { PrincipalKey } from './types.ts'
 
@@ -61,7 +62,7 @@ export interface Config {
   hostReadPaths: string[]
   /** Absolute path prefixes a write may reach while no member is current. */
   hostWritePaths: string[]
-  /** Milliseconds a member Peer with no socket and no HTTP request stays open. */
+  /** Milliseconds a member Peer with no socket and no HTTP request stays open; at most 2147483647, the longest `setTimeout` delay. */
   peerIdleMs: number
 }
 
@@ -75,7 +76,7 @@ export const Config: z<Config> = z.object({
   rootSeeds: z.any().default([]),
   hostReadPaths: z.array(z.string()).default([]),
   hostWritePaths: z.array(z.string()).default([]),
-  peerIdleMs: z.natural().min(1).default(600_000),
+  peerIdleMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(600_000),
 })
 
 /** One migration seed after {@link readSettings} checked it. */

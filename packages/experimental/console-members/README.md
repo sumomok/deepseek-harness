@@ -64,7 +64,7 @@ The row is `name: '@deepseek-ai/dsh-experimental-console-members'` and injects `
 | `sharedReadRoots` | `[]` | Absolute paths every member may read |
 | `rootSeeds` | `[]` | `{ path, principal }` or `{ path, owner: 'none' }`, merged into the root registry |
 | `hostReadPaths`, `hostWritePaths` | `[]` | Absolute prefixes a read or write may reach while no member is current |
-| `peerIdleMs` | `600000` | Milliseconds a member Peer with no Remote stream socket stays open after its last request or socket close; a positive whole number |
+| `peerIdleMs` | `600000` | Milliseconds a member Peer with no Remote stream socket stays open after its last request or socket close; a whole number from 1 to 2147483647, the longest `setTimeout` delay |
 
 The load fails at the first check that does not pass, before the row registers anything: the fields above (absolute paths, a header name, `admins` and `rootSeeds` given as lists, non-empty `login_uid` strings, each seed in exactly one form); the key, which must be exactly one Ed25519 public key block, so a private key, alone or after the public key, is refused; Connection's `requireAdmitter`, which must be `true`; and the seed merge into the root registry. No load error quotes a `login_uid` or the key.
 

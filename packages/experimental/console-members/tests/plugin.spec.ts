@@ -100,6 +100,11 @@ describe('console-members plugin row', () => {
       expect(messageOf(loaded.error)).toContain('$.peerIdleMs')
     }
   })
+
+  it('refuses a peerIdleMs longer than the longest setTimeout delay and accepts that delay', async () => {
+    expect(messageOf((await load(config({ peerIdleMs: 2_147_483_648 }))).error)).toContain('$.peerIdleMs')
+    expect((await load(config({ peerIdleMs: 2_147_483_647 }))).error).toBeUndefined()
+  })
 })
 
 describe('the Config fields', () => {

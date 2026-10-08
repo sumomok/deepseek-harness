@@ -64,7 +64,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | `sharedReadRoots` | `[]` | 所有成员都可读的绝对路径 |
 | `rootSeeds` | `[]` | `{ path, principal }` 或 `{ path, owner: 'none' }`，并入根目录登记表 |
 | `hostReadPaths`、`hostWritePaths` | `[]` | 没有当前成员时，读或写可以到达的绝对路径前缀 |
-| `peerIdleMs` | `600000` | 没有 Remote 流 socket 的成员 Peer 在最后一次请求或最后一条 socket 关闭之后保持打开的毫秒数；正整数 |
+| `peerIdleMs` | `600000` | 没有 Remote 流 socket 的成员 Peer 在最后一次请求或最后一条 socket 关闭之后保持打开的毫秒数；1 到 2147483647 之间的整数，上限是 `setTimeout` 能接受的最长延迟 |
 
 加载在第一项没通过的核对处失败，此时插件行还没有注册任何东西：上表的字段（绝对路径、请求头名、`admins` 与 `rootSeeds` 写成列表、非空的 `login_uid` 字符串、每个种子恰好是一种形式）；密钥，必须恰好是一个 Ed25519 公钥块，所以私钥被拒，无论单独写还是跟在公钥之后；Connection 的 `requireAdmitter`，必须是 `true`；以及种子并入根目录登记表。加载错误不引用任何 `login_uid`，也不引用密钥。
 
