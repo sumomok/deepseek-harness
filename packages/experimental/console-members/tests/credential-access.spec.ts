@@ -258,6 +258,20 @@ describe('the disposer', () => {
     expect(changes).toEqual([])
   })
 
+  it('calls one function registered twice as onDetached twice, and one disposer removes one registration', async () => {
+    const row = await mountMembers()
+    const access = customerCredentialAccess(directory(row))
+    let calls = 0
+    const listener = (): void => { calls += 1 }
+    const stopFirst = access.onDetached(listener)
+    access.onDetached(listener)
+    directory(row).attachCustomerCredentials(fakeReader().reader)()
+    expect(calls).toBe(2)
+    stopFirst()
+    directory(row).attachCustomerCredentials(fakeReader().reader)()
+    expect(calls).toBe(3)
+  })
+
   it('stops calling an onDetached listener once its own disposer has run', async () => {
     const row = await mountMembers()
     const access = customerCredentialAccess(directory(row))
@@ -518,6 +532,14 @@ describe('the registry\'s members', () => {
     peerOf(reloaded, ALICE)
     expect(afterReload).toEqual([])
     expect(memberRegistryAccess(directory(reloaded)).principals()).toEqual([ALICE, BOB])
+  })
+
+  it('lists members in the order they were first admitted, not in key order', async () => {
+    const row = await mountMembers()
+    const registry = memberRegistryAccess(directory(row))
+    peerOf(row, BOB)
+    peerOf(row, ALICE)
+    expect(registry.principals()).toEqual([BOB, ALICE])
   })
 
   it('admits the member when an onAdded listener throws, logs neither its error nor the member, and stops a removed listener', async () => {
