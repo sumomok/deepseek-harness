@@ -1245,15 +1245,17 @@ export function validateComponentCall(catalog: ComponentCatalog, args: Component
  *
  * Kept out of {@link validateComponentCall}, because a view is judged by that
  * same pass and is the one source allowed to place such a block. It reads the
- * spec as the call wrote it, so the tool runs it before that pass, and again
- * over the spec the pass accepted, on every call before it asks the user
- * anything or appends a record of its own: judged after the pass, such a block
- * would be refused for its properties first, in a sentence listing what the
- * component accepts. A spec, a node or a component of any other form is passed
- * over and left to the pass to refuse. The sentence is the same whether or not
- * the deployment offers the component: either way a call cannot place it.
+ * spec as the call wrote it, so the tool runs it once, before that pass, on
+ * every call before it asks the user anything or appends a record of its own:
+ * judged after the pass, such a block would be refused for its properties
+ * first, in a sentence listing what the component accepts. The pass keeps
+ * every node's component as the call wrote it, so the spec it accepts places
+ * nothing this run did not see. A spec, a node or a component of any other
+ * form is passed over and left to the pass to refuse. The sentence is the
+ * same whether or not the deployment offers the component: either way a call
+ * cannot place it.
  * @param catalog - the components this deployment offers.
- * @param spec - the spec as the call wrote it, however malformed, or as validation accepted it.
+ * @param spec - the spec as the call wrote it, however malformed.
  * @returns the refusal, or `undefined` when no block names a component only a view places.
  */
 export function refuseViewPlaced(catalog: ComponentCatalog, spec: unknown): ComponentCallFailure | undefined {
