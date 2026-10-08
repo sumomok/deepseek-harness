@@ -332,6 +332,20 @@ interface TypertGateway {
     host: RemoteEventHostInfo,
   ): () => Promise<void>
   /**
+   * Install the sole Remote Event filter. From then on a forwarded notification reaches, and a scoped waterfall
+   * is delivered to, only the `$events` Clients whose opening Peer the filter accepts, both when the event arrives
+   * and when a Client connects while a waterfall is pending. A filter that throws counts as `false` and is logged.
+   * A waterfall that no Client receives stays pending. Installing the filter delivers each pending waterfall to each
+   * connected Client it accepts that has not received it; notifications are not replayed, and removing the filter
+   * withdraws nothing already queued. Without a filter, every Client receives every event while
+   * `connection.peers.memberAdmission` is false or no Connection is mounted, and no Client receives any while it is
+   * true.
+   * @param filter - synchronous decision per event and Client.
+   * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+   * @throws Error when another filter is installed.
+   */
+  filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>
+  /**
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
    * @returns the business result without output decoding.
@@ -474,6 +488,18 @@ hasLiveClient(): boolean
 registerRemoteEvents( source: TypertRemoteEventSource, host: RemoteEventHostInfo, ): () => Promise<void>
 
 /**
+ * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
+ * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
+ * to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event
+ * and is logged. Installing it delivers each pending waterfall to each connected Client it accepts that has not
+ * received it.
+ * @param filter - synchronous decision per event and Client.
+ * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+ * @throws Error when another filter is installed.
+ */
+filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void>
+
+/**
  * Invoke one live Remote method through strict generated reflection or SRC markers.
  * @param request - decoded endpoint and exact named wire arguments.
  * @returns the business result without output decoding.
@@ -505,17 +531,21 @@ Source: [`packages/api/gateway/src/index.ts`](../../packages/api/gateway/src/ind
 
 #### `remote/invoke` — waterfall
 
-Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a listener calls it at most once: calling it again runs the next listener that has not yet run, or the method when none remains. A listener's refusal or check therefore holds only while every listener before it calls `next()` once, and it sees `call.args` before any listener after it replaces them. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without calling `next()` answers in the method's place. The method runs in the async context that called `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the call's uplink and opens and returns the method's iterator, or returns the one already open when items were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal` with it and returns, in the background, each stream that a `next()` called during the waterfall opened or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles with a failure once the method's iterator has returned, so a stream method must end when its `signal` aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and of no other: a `next()` that the method's own failure ends before the release belongs to the listener, even when its promise settles after the release. A listener that discards it leaves an unhandled rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call opened, and a listener that discards one returns it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running the method. The Gateway receives the outermost listener's outcome at once when that listener throws synchronously, and otherwise only after the microtasks it queued before returning or throwing have run, so a `next()` called from one of them still runs the method.
+Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement `call.args`, then return a rewritten value or a wrapped stream. Each listener's `next()` runs the listeners after it and the method at most once per call: a repeated call returns the first call's promise, or throws its synchronous error, so after a later listener refuses, every later `next()` of that listener returns the refusal, and the method runs at most once. A listener sees `call.args` before any listener after it replaces them. `call.peer` is a non-writable property fixed when the call is built, so every listener and the method see the same Peer. While `connection.peers.memberAdmission` is true and no listener is registered, the call fails with `gateway/service-unavailable` and the method does not run. A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without calling `next()` answers in the method's place. The method runs in the async context that called `next()`; a stream method's items are pulled later by the carrier, outside that context. A listener that discards the stream outcome of `next()` calls `return()` on its iterator, which releases the call's uplink and opens and returns the method's iterator, or returns the one already open when items were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal` with it and returns, in the background, the stream that a `next()` called during the waterfall opened or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles with a failure once the method's iterator has returned, so a stream method must end when its `signal` aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway handles the rejection of each such `next()` and of each `next()` called on the stream afterwards, and of no other: a `next()` that the method's own failure ends before the release belongs to the listener, even when its promise settles after the release. A listener that discards it leaves an unhandled rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns none of them: the listeners own every stream the call opened, and a listener that discards one returns it. A first `next()` of a listener called after the Gateway has received the waterfall's outcome rejects without running the method; a repeated one returns that listener's first outcome. The Gateway receives the outermost listener's outcome at once when that listener throws synchronously, and otherwise only after the microtasks it queued before returning or throwing have run, so a `next()` called from one of them still runs the method.
 
 ```ts cordis-catalog
 /**
  * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
  * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
  * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
- * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
- * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
- * method when none remains. A listener's refusal or check therefore holds only while every listener
- * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+ * `call.args`, then return a rewritten value or a wrapped stream. Each listener's `next()` runs the
+ * listeners after it and the method at most once per call: a repeated call returns the first call's
+ * promise, or throws its synchronous error, so after a later listener refuses, every later `next()` of
+ * that listener returns the refusal, and the method runs at most once. A listener sees `call.args` before
+ * any listener after it replaces them. `call.peer` is a non-writable property fixed when the call is
+ * built, so every listener and the method see the same Peer. While `connection.peers.memberAdmission`
+ * is true and no listener is registered, the call fails with `gateway/service-unavailable` and the
+ * method does not run.
  * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
  * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
  * calling `next()` answers in the method's place. The method runs in the async context that called
@@ -524,7 +554,7 @@ Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RP
  * call's uplink and opens and returns the method's iterator, or returns the one already open when items
  * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
  * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
- * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
+ * with it and returns, in the background, the stream that a `next()` called during the waterfall opened
  * or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles
  * with a failure once the method's iterator has returned, so a stream method must end when its `signal`
  * aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway
@@ -534,10 +564,11 @@ Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RP
  * rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a
  * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
  * none of them: the listeners own every stream the call opened, and a listener that discards one returns
- * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
- * the method. The Gateway receives the outermost listener's outcome at once when that listener throws
- * synchronously, and otherwise only after the microtasks it queued before returning or throwing have
- * run, so a `next()` called from one of them still runs the method.
+ * it. A first `next()` of a listener called after the Gateway has received the waterfall's outcome rejects
+ * without running the method; a repeated one returns that listener's first outcome. The Gateway receives
+ * the outermost listener's outcome at once when that listener throws synchronously, and otherwise only
+ * after the microtasks it queued before returning or throwing have run, so a `next()` called from one of
+ * them still runs the method.
  * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
  * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
  * @mode waterfall

@@ -6,8 +6,8 @@
   en: f13f63417e51d434
   zh: dda72028bc02ef6b
 /agent-note-one-host-serving-several-members/problem:
-  en: 0b620ac9d11adb34
-  zh: a39f04e9accbb764
+  en: 9fb7bf8927ad2002
+  zh: 57e7f4cb3be07f70
 /agent-note-one-host-serving-several-members/decision:
   en: a15c7c13f167e5ac
   zh: 63bcc2ef60c2f344
@@ -15,32 +15,35 @@
   en: f23023c48913360b
   zh: b8039b5f71dab9aa
 /agent-note-one-host-serving-several-members/decision/admission-and-default-deny:
-  en: 8f282a8a205b96a5
-  zh: 6114001b01e6c11a
+  en: 8738be2b4bad2b46
+  zh: 048225e3886c79ae
 /agent-note-one-host-serving-several-members/decision/admit-stays-synchronous:
   en: ab14e30b4e2d36d4
   zh: 2436e7e683a63256
 /agent-note-one-host-serving-several-members/decision/lifecycle-events:
-  en: b4984ab35339fd8e
-  zh: 515c060140f96775
+  en: 6fcfd5aae7b8634d
+  zh: 7dcebf8e5a8218a0
 /agent-note-one-host-serving-several-members/decision/the-peer-carries-no-identity:
   en: afbb2f177bcd3136
   zh: 5bdaa203ae43da57
 /agent-note-one-host-serving-several-members/decision/remote-calls-pass-through-remote-invoke:
-  en: 68f26e3b64852f01
-  zh: 43484279b185b474
+  en: b781f93dceb8fa77
+  zh: 33bd3eb1a358f3d3
 /agent-note-one-host-serving-several-members/decision/fetch-routes-and-channels-pass-through-connection-fetch:
-  en: 088dd2bd0f2f5732
-  zh: 05f3f41e9d580c1d
+  en: 6505f8079acb98c4
+  zh: 886ea01c0d8f75de
+/agent-note-one-host-serving-several-members/decision/forwarded-events-pass-through-one-delivery-filter:
+  en: 85cf5365373ec958
+  zh: d2b59af04a584d9d
 /agent-note-one-host-serving-several-members/decision/without-an-admitter:
-  en: bed20f35a5cac3ca
-  zh: c68f5c8d6d0e6b14
+  en: 6a2073ab99380fea
+  zh: 204796e4bc443f79
 /agent-note-one-host-serving-several-members/decision/retirement:
-  en: 2182183c4f870186
-  zh: 56503b8003be4d19
+  en: 17046d3c94f33368
+  zh: 423c2b4b732647fd
 /agent-note-one-host-serving-several-members/alternatives-considered:
-  en: 8acba83d3f586471
-  zh: d6035fcb71ac8638
+  en: 748b7ffd134f9c06
+  zh: 4639940d9d6f9b69
 /agent-note-one-host-serving-several-members/consequences:
-  en: 484fa7c290d787ad
-  zh: 167223e53f7ba75b
+  en: 79a99b20c678ab83
+  zh: 505c69d7880fabaf

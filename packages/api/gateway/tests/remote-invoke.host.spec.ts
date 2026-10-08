@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket, { type RawData } from 'ws'
 import { z } from 'zod'
 import { Context } from '@deepseek-ai/cordis'
-import { apply as applyConnection, inject as connectionInject } from '@deepseek-ai/dsh-client-connection'
+import { apply as applyConnection, inject as connectionInject, type ConnectionConfig } from '@deepseek-ai/dsh-client-connection'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import {
   Remote,
@@ -394,6 +394,219 @@ describe('remote/invoke', () => {
     expect(probe.peers).toEqual([admitted, admitted, ctx.connection.operator])
   })
 
+  it('refuses every carrier with gateway/service-unavailable while member admission is on and nothing listens', async () => {
+    const ctx = await mount()
+    const member = ctx.connection.peers.open()
+    const removeAdmitter = ctx.connection.peers.admitWith(() => member)
+    const unavailable = { code: 'gateway/service-unavailable', details: { endpoint: 'guard/passthrough' } }
+
+    await expect(rpc(ctx, 'guard/passthrough', { value: 1 })).resolves.toMatchObject({ ok: false, error: unavailable })
+    await expectRemoteCode(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } }),
+      'gateway/service-unavailable')
+    await expectRemoteCode(ctx.typertGateway.stream({ namespace: 'guard', method: 'feed', args: { count: 1 } }),
+      'gateway/service-unavailable')
+    await expectRemoteCode(ctx.typertGateway.wireStream.open(
+      'guard/feed', { args: { count: 1 } }, empty(), undefined, new AbortController().signal,
+    ), 'gateway/service-unavailable')
+    const socket = await openSocket(ctx)
+    socket.open('feed', 'guard/feed', { count: 1 })
+    await socket.ended('feed')
+    expect(socket.frames('feed')).toMatchObject([{ type: 'error', error: { code: 'gateway/service-unavailable' } }])
+    await socket.close()
+    // Descriptor failures still precede the refusal.
+    await expectRemoteCode(ctx.typertGateway.invoke({ namespace: 'guard', method: 'absent', args: {} }),
+      'gateway/invocation-unavailable')
+    expect(probe.calls).toEqual([])
+
+    await removeAdmitter()
+    await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 2 } })).resolves.toBe(2)
+    expect(probe.calls).toEqual(['passthrough'])
+  })
+
+  it('answers a call with gateway/service-unavailable on a Host whose requireAdmitter is set and nothing listens', async () => {
+    const ctx = await mount({ requireAdmitter: true })
+    const side: Promise<unknown>[] = []
+    const stop = ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'remote/invoke') side.push((args.at(-1) as () => Promise<unknown>)().catch((error: unknown) => error))
+    }, { global: true })
+    await expectRemoteCode(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } }),
+      'gateway/service-unavailable')
+    // A call through the chain's first position meets the same refusal.
+    expect(await Promise.all(side)).toMatchObject([{ code: 'gateway/service-unavailable' }])
+    stop()
+    ctx.on('remote/invoke', (_call, next) => next())
+    await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 2 } })).resolves.toBe(2)
+    expect(probe.calls).toEqual(['passthrough'])
+  })
+
+  describe('runs the chain below each listener at most once per call', () => {
+    /** Refuse member `refused` on every endpoint and let every other Peer through. */
+    const authorizer = (refused: PeerScope): InvokeListener => (call, next) => {
+      if (call.peer === refused) throw new RemoteError('gateway/forbidden', 'fixture: member refused', { endpoint: call.endpoint })
+      return next()
+    }
+
+    it('hands a retry after a refusal the refusal again, and the method never runs', async () => {
+      const ctx = await mount()
+      const member = ctx.connection.peers.open()
+      ctx.connection.peers.admitWith(() => member)
+      ctx.on('remote/invoke', authorizer(member))
+      const caught: unknown[] = []
+      ctx.on('remote/invoke', async (_call, next) => {
+        try {
+          return await next()
+        } catch (error) {
+          caught.push(error)
+          return await next()
+        }
+      }, { prepend: true })
+
+      await expect(rpc(ctx, 'guard/passthrough', { value: 'write' })).resolves.toMatchObject({
+        ok: false, error: { code: 'gateway/forbidden' },
+      })
+      expect(caught).toHaveLength(1)
+      expect(caught[0]).toMatchObject({ code: 'gateway/forbidden' })
+      expect(probe.calls).toEqual([])
+    })
+
+    it('hands every call of one next() the first call\'s outcome, and runs the method once', async () => {
+      const ctx = await mount()
+      const outcomes: Promise<RemoteInvokeOutcome>[] = []
+      ctx.on('remote/invoke', async (_call, next) => {
+        outcomes.push(next(), next())
+        await outcomes[0]
+        outcomes.push(next())
+        return next()
+      })
+
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } })).resolves.toBe(1)
+      expect(new Set(outcomes).size).toBe(1)
+      expect(probe.calls).toEqual(['passthrough'])
+    })
+
+    it('throws the first synchronous throw of a position again on every later call', async () => {
+      const ctx = await mount()
+      const refusal = new RemoteError('gateway/forbidden', 'fixture: thrown synchronously', { endpoint: 'guard/passthrough' })
+      const thrown: unknown[] = []
+      ctx.on('remote/invoke', (_call, next) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            void next()
+          } catch (error) {
+            thrown.push(error)
+          }
+        }
+        return next()
+      })
+      ctx.on('remote/invoke', () => { throw refusal })
+
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } })).rejects.toBe(refusal)
+      expect(thrown).toEqual([refusal, refusal])
+      expect(probe.calls).toEqual([])
+    })
+
+    it('keeps call.peer fixed, so a listener before an authorizer cannot hand it another Peer', async () => {
+      const ctx = await mount()
+      const member = ctx.connection.peers.open()
+      ctx.connection.peers.admitWith(() => member)
+      const { operator } = ctx.connection
+      const seen: PeerScope[] = []
+      ctx.on('remote/invoke', (call, next) => {
+        seen.push(call.peer)
+        if (call.peer !== operator) {
+          throw new RemoteError('gateway/forbidden', 'fixture: operator only', { endpoint: call.endpoint })
+        }
+        return next()
+      })
+      const written: boolean[] = []
+      const redefined: boolean[] = []
+      const deleted: boolean[] = []
+      ctx.on('remote/invoke', (call, next) => {
+        const other = call.peer === operator ? member : operator
+        written.push(Reflect.set(call, 'peer', other))
+        redefined.push(Reflect.defineProperty(call, 'peer', { value: other }))
+        deleted.push(Reflect.deleteProperty(call, 'peer'))
+        call.args = { value: 'replaced' }
+        return next()
+      }, { prepend: true })
+
+      await expect(rpc(ctx, 'guard/passthrough', { value: 'write' })).resolves.toMatchObject({
+        ok: false, error: { code: 'gateway/forbidden' },
+      })
+      expect(probe.calls).toEqual([])
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 'judged' } }))
+        .resolves.toBe('replaced')
+      expect(written).toEqual([false, false])
+      expect(redefined).toEqual([false, false])
+      expect(deleted).toEqual([false, false])
+      expect(seen).toEqual([member, operator])
+      expect(probe.peers).toEqual([operator])
+      expect(probe.wireArgs).toEqual([{ value: 'replaced' }])
+    })
+
+    it('settles a call of the first position with an internal/dispatch listener\'s throw, and the method never runs', async () => {
+      const ctx = await mount()
+      const veto = new Error('fixture: vetoed by internal/dispatch')
+      const entries: (() => Promise<unknown>)[] = []
+      const early: Promise<unknown>[] = []
+      const stopCapture = ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+        if (name !== 'remote/invoke') return
+        const entry = args.at(-1) as () => Promise<unknown>
+        entries.push(entry)
+        early.push(entry().catch((error: unknown) => error))
+      }, { global: true })
+      const stopVeto = ctx.on('internal/dispatch', (_mode, name) => {
+        if (name === 'remote/invoke') throw veto
+      }, { global: true })
+      ctx.on('remote/invoke', (_call, next) => next())
+
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } }))
+        .rejects.toBe(veto)
+      stopCapture()
+      stopVeto()
+      expect(await Promise.all(early)).toEqual([veto])
+      await expect(entries[0]?.()).rejects.toBe(veto)
+      expect(probe.calls).toEqual([])
+    })
+
+    it('hands an internal/dispatch listener the whole chain, so its call meets the refusal and the method never runs', async () => {
+      const ctx = await mount()
+      const member = ctx.connection.peers.open()
+      ctx.connection.peers.admitWith(() => member)
+      ctx.on('remote/invoke', authorizer(member))
+      const side: Promise<unknown>[] = []
+      ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+        if (name !== 'remote/invoke') return
+        const entry = args.at(-1) as () => Promise<unknown>
+        side.push(entry().catch((error: unknown) => error))
+      }, { global: true })
+
+      await expect(rpc(ctx, 'guard/passthrough', { value: 'write' })).resolves.toMatchObject({
+        ok: false, error: { code: 'gateway/forbidden' },
+      })
+      expect(await Promise.all(side)).toMatchObject([{ code: 'gateway/forbidden' }])
+      expect(probe.calls).toEqual([])
+    })
+
+    it('settles a call a position receives while its first call still runs with that first call\'s outcome', async () => {
+      const ctx = await mount()
+      let outer: (() => Promise<unknown>) | undefined
+      ctx.on('remote/invoke', (_call, next) => {
+        outer = next
+        return next()
+      })
+      let reentered: Promise<unknown> | undefined
+      ctx.on('remote/invoke', (_call, next) => {
+        reentered = outer?.()
+        return next()
+      })
+
+      await expect(ctx.typertGateway.invoke({ namespace: 'guard', method: 'passthrough', args: { value: 1 } })).resolves.toBe(1)
+      await expect(reentered).resolves.toEqual({ kind: 'value', value: 1 })
+      expect(probe.calls).toEqual(['passthrough'])
+    })
+  })
+
   it('refuses on every carrier when a listener throws before next(), as a method failure would', async () => {
     const ctx = await mount()
     const refusal = (call: RemoteInvokeCall): RemoteError => call.mode === 'unary'
@@ -679,21 +892,21 @@ describe('remote/invoke', () => {
     expect(probe.events.slice(5).sort()).toEqual(['settled:first', 'settled:next', 'settled:second'])
   })
 
-  // Each next() that reaches the method opens one stream. The caller receives the listener's outcome, never the release
-  // failure, without waiting for the method iterator's return(), which settles after a timer.
+  // The method opens one stream however often next() is called. The caller receives the listener's outcome, never the
+  // release failure, without waiting for the method iterator's return(), which settles after a timer.
   it.each([
-    { answer: 'throws', opens: 1, releaseFails: undefined, code: 'gateway/forbidden' },
-    { answer: 'returns a value', opens: 1, releaseFails: undefined, code: 'gateway/result-invalid' },
-    { answer: 'throws', opens: 2, releaseFails: undefined, code: 'gateway/forbidden' },
-    { answer: 'throws', opens: 1, releaseFails: 'return', code: 'gateway/forbidden' },
-    { answer: 'returns a value', opens: 1, releaseFails: 'return', code: 'gateway/result-invalid' },
-    { answer: 'throws', opens: 1, releaseFails: 'iterator', code: 'gateway/forbidden' },
-  ] as const)('returns each stream next() opened when a listener $answer after next() (opens: $opens, release fails at: $releaseFails)', async ({ answer, opens, releaseFails, code }) => {
+    { answer: 'throws', nexts: 1, releaseFails: undefined, code: 'gateway/forbidden' },
+    { answer: 'returns a value', nexts: 1, releaseFails: undefined, code: 'gateway/result-invalid' },
+    { answer: 'throws', nexts: 2, releaseFails: undefined, code: 'gateway/forbidden' },
+    { answer: 'throws', nexts: 1, releaseFails: 'return', code: 'gateway/forbidden' },
+    { answer: 'returns a value', nexts: 1, releaseFails: 'return', code: 'gateway/result-invalid' },
+    { answer: 'throws', nexts: 1, releaseFails: 'iterator', code: 'gateway/forbidden' },
+  ] as const)('returns the stream next() opened when a listener $answer after next() (next() calls: $nexts, release fails at: $releaseFails)', async ({ answer, nexts, releaseFails, code }) => {
     const ctx = await mount()
     probe.slowReturn = true
     if (releaseFails !== undefined) probe.followFailure = { at: releaseFails, error: new Error('fixture: follow failed') }
     ctx.on('remote/invoke', async (call, next): Promise<RemoteInvokeOutcome> => {
-      for (let opened = 0; opened < opens; opened++) await next()
+      for (let called = 0; called < nexts; called++) await next()
       if (answer === 'returns a value') return { kind: 'value', value: 'answered' }
       throw new RemoteError('gateway/forbidden', 'fixture: refused after next', { endpoint: call.endpoint })
     })
@@ -708,17 +921,12 @@ describe('remote/invoke', () => {
         namespace: 'guard', method: 'follow', args: { label: 'x' }, uplink: trackedUplink(),
       }), code)
       expect(probe.events).not.toContain('follow:returned')
-      // The streams are returned concurrently, so only each stream's own steps keep their order.
       await vi.waitFor(() => {
-        expect(opens === 1 ? probe.events : [...probe.events].sort())
-          .toEqual(opens === 1 ? ['uplink:iterator', 'uplink:return', ...returned] : Array.from(
-            { length: opens },
-            () => ['uplink:iterator', 'uplink:return', ...returned],
-          ).flat().sort())
+        expect(probe.events).toEqual(['uplink:iterator', 'uplink:return', ...returned])
       })
     })
     expect(unhandled).toEqual([])
-    expect(probe.calls).toEqual(Array.from({ length: opens }, () => 'follow'))
+    expect(probe.calls).toEqual(['follow'])
   })
 
   // A stream still opening when the call fails is returned once it opens; the caller does not wait for that return,
@@ -1053,22 +1261,25 @@ describe('remote/invoke', () => {
     expect(probe.signals[0]?.reason).toBe(failure)
   })
 
-  // A `next()` called once the caller has the waterfall's outcome reaches neither the method nor a stream to release.
+  // A `next()` called once the caller has the waterfall's outcome reaches neither the method nor a stream to release:
+  // a first call rejects, and a repeated call returns the outcome of the listener's first call.
   it.each([
     { mode: 'unary', ends: 'refuses', calls: [] },
     { mode: 'unary', ends: 'answers', calls: ['passthrough'] },
     { mode: 'stream', ends: 'refuses', calls: [] },
     { mode: 'stream', ends: 'answers', calls: ['watch'] },
-  ] as const)('rejects a next() called after a $mode waterfall that $ends has ended, without running the method', async ({ mode, ends, calls }) => {
+  ] as const)('answers a next() called after a $mode waterfall that $ends has ended without running the method', async ({ mode, ends, calls }) => {
     const ctx = await mount()
     const refusal = new RemoteError('gateway/forbidden', 'fixture: refused before a late next()', {
       endpoint: `guard/${mode === 'unary' ? 'passthrough' : 'watch'}`,
     })
     const late = Promise.withResolvers<unknown>()
+    let first: RemoteInvokeOutcome | undefined
     ctx.on('remote/invoke', async (_call, next) => {
       setTimeout(() => { next().then(late.resolve, late.resolve) })
       if (ends === 'refuses') throw refusal
-      return next()
+      first = await next()
+      return first
     })
 
     const caller = mode === 'unary'
@@ -1076,26 +1287,29 @@ describe('remote/invoke', () => {
       : ctx.typertGateway.stream({ namespace: 'guard', method: 'watch', args: { label: 'w' } }).then(collect)
     if (ends === 'refuses') await expect(caller).rejects.toBe(refusal)
     else await expect(caller).resolves.toEqual(mode === 'unary' ? 'p' : ['w'])
-    await expect(late.promise).resolves.toMatchObject({
-      message: `remote/invoke: next() for guard/${mode === 'unary' ? 'passthrough' : 'watch'} was called after the waterfall ended`,
-    })
+    if (ends === 'refuses') {
+      await expect(late.promise).resolves.toMatchObject({
+        message: `remote/invoke: next() for guard/${mode === 'unary' ? 'passthrough' : 'watch'} was called after the waterfall ended`,
+      })
+    } else {
+      expect(await late.promise).toBe(first)
+    }
     expect(probe.calls).toEqual(calls)
   })
 
-  it('rejects a next() a method abort listener calls while the Gateway releases the failed call', async () => {
+  it('answers a next() a method abort listener calls while the Gateway releases the failed call with the first outcome', async () => {
     const ctx = await mount()
     const failure = new Error('fixture: failed before a reentrant next()')
     const late = Promise.withResolvers<unknown>()
+    let first: RemoteInvokeOutcome | undefined
     ctx.on('remote/invoke', async (_call, next) => {
-      await next()
+      first = await next()
       probe.onAbort = () => { next().then(late.resolve, late.resolve) }
       throw failure
     })
 
     await expect(ctx.typertGateway.stream({ namespace: 'guard', method: 'relay', args: {} })).rejects.toBe(failure)
-    await expect(late.promise).resolves.toMatchObject({
-      message: 'remote/invoke: next() for guard/relay was called after the waterfall ended',
-    })
+    expect(await late.promise).toBe(first)
     expect(probe.calls).toEqual(['relay'])
   })
 
@@ -1380,7 +1594,7 @@ function freshProbe(): Probe {
   }
 }
 
-async function mount(): Promise<Context> {
+async function mount(connectionConfig?: ConnectionConfig): Promise<Context> {
   probe = freshProbe()
   const ctx = new Context()
   roots.push(ctx)
@@ -1388,7 +1602,7 @@ async function mount(): Promise<Context> {
   provideBrowserCredentials(ctx)
   await ctx.plugin(TypertRegistry)
   await ctx.plugin(TypertGatewayService, {})
-  await ctx.plugin({ inject: [...connectionInject], apply: applyConnection })
+  await ctx.plugin({ inject: [...connectionInject], apply: applyConnection }, connectionConfig)
   await ctx.plugin(GuardService)
   ctx.typert.lookups.register('remoteInvokeAgent', {
     parameter: 'agent',

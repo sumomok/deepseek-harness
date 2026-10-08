@@ -32,6 +32,8 @@ import {
 } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   InvokeRemoteRequest,
+  RemoteEventDelivery,
+  RemoteEventFilter,
   RemoteInvokeCall,
   RemoteInvokeOutcome,
   TypertGateway,
@@ -69,6 +71,8 @@ import {
 
 export type {
   InvokeRemoteRequest,
+  RemoteEventDelivery,
+  RemoteEventFilter,
   RemoteInvokeCall,
   RemoteInvokeOutcome,
   TypertGateway,
@@ -110,10 +114,14 @@ declare module '@deepseek-ai/cordis' {
      * Wrap one Remote method call. Calls through `invoke()`, `stream()`, the `/api` RPC carrier, and the
      * stream carriers run this waterfall once their descriptor resolves; the Gateway-owned `$events` stream
      * and `$events/result` do not. A listener delegates with `next()`, and may first assign a replacement
-     * `call.args`, then return a rewritten value or a wrapped stream. All listeners share one `next()`, so a
-     * listener calls it at most once: calling it again runs the next listener that has not yet run, or the
-     * method when none remains. A listener's refusal or check therefore holds only while every listener
-     * before it calls `next()` once, and it sees `call.args` before any listener after it replaces them.
+     * `call.args`, then return a rewritten value or a wrapped stream. Each listener's `next()` runs the
+     * listeners after it and the method at most once per call: a repeated call returns the first call's
+     * promise, or throws its synchronous error, so after a later listener refuses, every later `next()` of
+     * that listener returns the refusal, and the method runs at most once. A listener sees `call.args` before
+     * any listener after it replaces them. `call.peer` is a non-writable property fixed when the call is
+     * built, so every listener and the method see the same Peer. While `connection.peers.memberAdmission`
+     * is true and no listener is registered, the call fails with `gateway/service-unavailable` and the
+     * method does not run.
      * A listener refuses the call by throwing a `RemoteError`, such as `gateway/forbidden`, without calling
      * `next()`; the caller receives it as it would a method's `RemoteError`. A listener that returns without
      * calling `next()` answers in the method's place. The method runs in the async context that called
@@ -122,7 +130,7 @@ declare module '@deepseek-ai/cordis' {
      * call's uplink and opens and returns the method's iterator, or returns the one already open when items
      * were pulled, after any pending `next()` on that iterator settles. When a stream call fails or its
      * outcome is a value, the caller receives the failure at once; the Gateway aborts the method's `signal`
-     * with it and returns, in the background, each stream that a `next()` called during the waterfall opened
+     * with it and returns, in the background, the stream that a `next()` called during the waterfall opened
      * or is opening. A `next()` still waiting on the method when the Gateway releases such a stream settles
      * with a failure once the method's iterator has returned, so a stream method must end when its `signal`
      * aborts: an async generator suspended on a promise that ignores the signal never returns. The Gateway
@@ -132,10 +140,11 @@ declare module '@deepseek-ai/cordis' {
      * rejection, which exits a host a `dsh` profile launched, so a listener must not discard a `next()` on a
      * stream that `next()` returned. When the outcome is a stream, which may wrap them, the Gateway returns
      * none of them: the listeners own every stream the call opened, and a listener that discards one returns
-     * it. A `next()` called after the Gateway has received the waterfall's outcome rejects without running
-     * the method. The Gateway receives the outermost listener's outcome at once when that listener throws
-     * synchronously, and otherwise only after the microtasks it queued before returning or throwing have
-     * run, so a `next()` called from one of them still runs the method.
+     * it. A first `next()` of a listener called after the Gateway has received the waterfall's outcome rejects
+     * without running the method; a repeated one returns that listener's first outcome. The Gateway receives
+     * the outermost listener's outcome at once when that listener throws synchronously, and otherwise only
+     * after the microtasks it queued before returning or throwing have run, so a `next()` called from one of
+     * them still runs the method.
      * @param call - endpoint, entry mode, calling Peer, receiver selection, parameter descriptors, and the replaceable wire arguments.
      * @param next - validate `call.args`, resolve the receiver and lookups, and call the method.
      * @mode waterfall
@@ -160,7 +169,15 @@ interface PendingInvocation {
   readonly descriptor: InvocationDescriptor
   /** The object `remote/invoke` listeners receive; the end of the waterfall reads its `args`. */
   readonly call: RemoteInvokeCall
+  /** The Peer the call speaks for, fixed when the call is built; `call.peer` is the same Peer and not writable. */
+  readonly peer: PeerScope
 }
+
+/** One position of a `remote/invoke` chain: the listeners from that position on, then the method. */
+type InvokeStep = () => Promise<RemoteInvokeOutcome>
+
+/** One `remote/invoke` listener as Cordis resolves it for a dispatch. */
+type InvokeListener = (call: RemoteInvokeCall, next: InvokeStep) => Promise<RemoteInvokeOutcome>
 
 interface PreparedInvocation {
   readonly endpoint: string
@@ -191,6 +208,8 @@ interface RegisteredRemoteEventSource {
 
 interface RemoteEventClient {
   readonly id: RemoteEventClientId
+  /** Peer that opened the stream; only it may answer the waterfalls delivered here. */
+  readonly peer: PeerScope
   readonly queue: RemoteEventQueue
   readonly signal: AbortSignal
   readonly deliveries: Map<RemoteEventId, PendingRemoteEvent>
@@ -200,7 +219,12 @@ interface PendingRemoteEvent {
   readonly id: RemoteEventId
   readonly source: TypertRemoteEventInvocation
   readonly frame: RemoteEventInvocationFrame
+  /** What the Remote Event filter receives for this waterfall, on first delivery and on each replay. */
+  readonly delivery: RemoteEventDelivery
+  /** Clients holding this waterfall unanswered. */
   readonly deliveries: Set<RemoteEventClient>
+  /** Connected Clients this waterfall was ever delivered to, including those that answered with `next()`. */
+  readonly received: Set<RemoteEventClient>
   releaseContext: () => void
   releaseSignal: () => void
 }
@@ -288,6 +312,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private srcClaims: ReadonlySet<string> | undefined
   private inProcessOperator: PeerScope | undefined
   private remoteEvents: RegisteredRemoteEventSource | undefined
+  private remoteEventFilter: RemoteEventFilter | undefined
+  /** Gateway plugin context; `this.ctx` is the caller's Context when a method is reached through it. */
+  private readonly gatewayCtx: Context
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
 
@@ -300,6 +327,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    */
   constructor(ctx: Context, config: Config) {
     super(ctx, 'typertGateway')
+    this.gatewayCtx = ctx
     const resolved = config as ResolvedConfig
     ctx.on('internal/service', () => {
       this.srcClaims = undefined
@@ -400,6 +428,36 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
   }
 
+  /**
+   * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
+   * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
+   * to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event
+   * and is logged. Installing it delivers each pending waterfall to each connected Client it accepts that has not
+   * received it.
+   * @param filter - synchronous decision per event and Client.
+   * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
+   * @throws Error when another filter is installed.
+   */
+  filterRemoteEvents(filter: RemoteEventFilter): () => Promise<void> {
+    return this.ctx.effect(() => {
+      if (this.remoteEventFilter !== undefined) {
+        throw new Error('typert gateway: a Remote event filter is already installed')
+      }
+      this.remoteEventFilter = filter
+      // A waterfall the previous decisions withheld reaches each connected Client the new filter admits.
+      for (const pending of [...this.pendingRemoteEvents.values()]) {
+        for (const client of this.remoteEventClients.values()) {
+          if (!pending.received.has(client) && this.admitsRemoteEvent(pending.delivery, client)) {
+            this.deliverRemoteEvent(pending, client)
+          }
+        }
+      }
+      return () => {
+        this.remoteEventFilter = undefined
+      }
+    }, 'api-gateway: Remote event filter')
+  }
+
   private claimsEndpoint(endpoint: string): boolean {
     if (endpoint === REMOTE_EVENT_RESULT_ENDPOINT) return true
     const segments = endpoint.split('/')
@@ -455,23 +513,84 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private pendingInvocation(request: InvokeRemoteRequest, mode: RemoteInvokeCall['mode']): PendingInvocation {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
+    const peer = request.peer ?? this.operatorPeer()
     const call: RemoteInvokeCall = {
       endpoint,
       mode,
-      peer: request.peer ?? this.operatorPeer(),
+      peer,
       invocation: descriptor.invocation,
       ...(descriptor.scope === undefined ? {} : { scope: descriptor.scope }),
       parameters: descriptor.parameters,
       args: request.args,
     }
-    return { request, descriptor, call }
+    // A listener reads the Peer to authorize the call, so none may replace it for the listeners after it.
+    Object.defineProperty(call, 'peer', { writable: false, configurable: false })
+    return { request, descriptor, call, peer }
+  }
+
+  /**
+   * Run the `remote/invoke` listeners around `method` for one call. The listeners are the ones `waterfall()` would
+   * run: the event has no `this` argument, so Cordis applies no context filter, and resolving them here emits
+   * `internal/dispatch` once with the call and the chain's first position. Each listener receives the next position,
+   * which runs the rest of the chain at most once and hands every later call the first call's outcome.
+   * @param call - the call the listeners receive.
+   * @param method - the end of the chain, which validates `call.args` and calls the method.
+   * @returns the outermost listener's outcome, or the method's when no listener is registered.
+   * @throws {@link TypertGatewayError} `gateway/service-unavailable` when member admission is on and no listener is
+   * registered; the method does not run. A listener's synchronous throw, and an `internal/dispatch` listener's throw,
+   * are thrown as they are.
+   */
+  private runInvokeChain(call: RemoteInvokeCall, method: InvokeStep): Promise<RemoteInvokeOutcome> {
+    // An `internal/dispatch` listener receives the first position before the chain exists; a call it makes runs once
+    // the chain does, and settles with this call's failure when the chain is never built.
+    const chain = Promise.withResolvers<InvokeStep>()
+    const entry: InvokeStep = () => chain.promise.then(head => head())
+    let head: InvokeStep
+    try {
+      head = this.composeInvokeChain(call, method, entry)
+    } catch (error) {
+      // Thrown inside the `then()` of `entry`, so a call through it rejects with this call's failure.
+      chain.resolve(() => { throw error })
+      throw error
+    }
+    chain.resolve(head)
+    return head()
+  }
+
+  /**
+   * Resolve the `remote/invoke` listeners for one call and compose them around `method`.
+   * @param call - the call the listeners receive.
+   * @param method - the end of the chain.
+   * @param entry - the first position as `internal/dispatch` listeners receive it.
+   * @returns the chain's first position.
+   * @throws {@link TypertGatewayError} `gateway/service-unavailable` when member admission is on and no listener is
+   * registered.
+   */
+  private composeInvokeChain(call: RemoteInvokeCall, method: InvokeStep, entry: InvokeStep): InvokeStep {
+    const listeners: InvokeListener[] = this.ctx.events.dispatch('waterfall', ['remote/invoke', call, entry])
+    if (listeners.length === 0 && this.isMemberAdmission()) {
+      throw new TypertGatewayError(
+        'gateway/service-unavailable',
+        call.endpoint,
+        'no remote/invoke listener is registered while member admission is on',
+      )
+    }
+    return listeners.reduceRight<InvokeStep>((below, listener) => atMostOnce(() => listener(call, below)), atMostOnce(method))
+  }
+
+  /**
+   * Report whether member admission is on.
+   * @returns Connection's `peers.memberAdmission`, or `false` on a Host without Connection.
+   */
+  private isMemberAdmission(): boolean {
+    return this.ctx.get('connection')?.peers.memberAdmission ?? false
   }
 
   private async invokeUnary(pending: PendingInvocation): Promise<unknown> {
     let ended = false
     let outcome: RemoteInvokeOutcome
     try {
-      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+      outcome = await this.runInvokeChain(pending.call, async () => {
         if (ended) throw nextAfterWaterfall(pending.call.endpoint)
         return {
           kind: 'value',
@@ -526,7 +645,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
     const pending = this.pendingInvocation(request, 'stream')
     const { endpoint } = pending.call
-    // Each `next()` that reaches the method opens one stream; a listener that calls `next()` again opens another.
+    // The method runs at most once per call, so at most one stream opens.
     const streams: OpeningStream[] = []
     // Aborted when the call fails, which aborts the signal of each method those streams run. Aborting `control` instead
     // would cancel the carrier's stream, so the WebSocket mux would send no error frame.
@@ -534,8 +653,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
     let ended = false
     let outcome: RemoteInvokeOutcome
     try {
-      // A listener that throws synchronously makes `waterfall()` throw rather than reject.
-      outcome = await this.ctx.waterfall('remote/invoke', pending.call, async () => {
+      // A listener that throws synchronously makes `runInvokeChain()` throw rather than reject.
+      outcome = await this.runInvokeChain(pending.call, async () => {
         if (ended) throw nextAfterWaterfall(endpoint)
         const stream: OpeningStream = { opening: this.openPreparedStream(pending, control, release.signal), opened: undefined }
         streams.push(stream)
@@ -609,6 +728,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
         if (client === undefined) {
           throw new Error('typert gateway: Remote event result identifies no active event stream')
         }
+        if (client.peer !== peer) {
+          throw new TypertGatewayError(
+            'gateway/forbidden',
+            REMOTE_EVENT_RESULT_ENDPOINT,
+            'Remote event result comes from a Peer other than the one that opened its event stream',
+          )
+        }
         this.receiveRemoteEventResult(client, result)
         return { ok: true, value: undefined }
       } catch (error) {
@@ -629,7 +755,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     if (endpoint === REMOTE_EVENT_STREAM_ENDPOINT) {
       // A Gateway-owned stream reads no uplink: releasing it now keeps its items out of the bounded inbox.
       releaseUplink(uplink)
-      return this.openRemoteEvents(payload, signal)
+      return this.openRemoteEvents(payload, signal, peer)
     }
     return this.openStream({ ...remoteRequest(endpoint, payload, signal, peer), uplink }, control)
   }
@@ -650,6 +776,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async *openRemoteEvents(
     payload: unknown,
     signal: AbortSignal,
+    peer: PeerScope | undefined,
   ): AsyncGenerator<
     RemoteEventEmitFrame | RemoteEventInvocationFrame | RemoteEventCancellationFrame
     | RemoteEventReadyFrame
@@ -680,12 +807,15 @@ export class TypertGatewayService extends Service implements TypertGateway {
     while (this.remoteEventClients.has(clientId)) clientId = randomUUID() as RemoteEventClientId
     const client: RemoteEventClient = {
       id: clientId,
+      peer: peer ?? this.operatorPeer(),
       queue: new RemoteEventQueue(),
       signal: lifetime,
       deliveries: new Map(),
     }
     this.remoteEventClients.set(clientId, client)
-    for (const pending of this.pendingRemoteEvents.values()) this.deliverRemoteEvent(pending, client)
+    for (const pending of this.pendingRemoteEvents.values()) {
+      if (this.admitsRemoteEvent(pending.delivery, client)) this.deliverRemoteEvent(pending, client)
+    }
     try {
       yield { ...REMOTE_EVENT_STREAM_READY, clientId, host: registration.host }
       yield* client.queue.iterate(lifetime)
@@ -718,7 +848,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
       event: frame.event,
       args: frame.args,
     }
-    for (const client of this.remoteEventClients.values()) client.queue.push(wire)
+    const delivery: RemoteEventDelivery = { kind: 'emit', event: frame.event, args: frame.args }
+    for (const client of this.remoteEventClients.values()) {
+      if (this.admitsRemoteEvent(delivery, client)) client.queue.push(wire)
+    }
   }
 
   private startRemoteEvent(source: TypertRemoteEventInvocation): void {
@@ -765,7 +898,14 @@ export class TypertGatewayService extends Service implements TypertGateway {
           agentId: source.context.agentId,
           request: projected.request,
         },
+        delivery: {
+          kind: 'waterfall',
+          event: source.event,
+          agentId: source.context.agentId,
+          request: projected.request,
+        },
         deliveries: new Set(),
+        received: new Set(),
         releaseContext,
         releaseSignal: () => {
           for (const signal of signals) signal.removeEventListener('abort', abort)
@@ -774,13 +914,37 @@ export class TypertGatewayService extends Service implements TypertGateway {
       this.pendingRemoteEvents.set(id, pending)
       for (const signal of signals) signal.addEventListener('abort', abort, { once: true })
       if ([...signals].some(signal => signal.aborted)) abort()
-      else for (const client of this.remoteEventClients.values()) this.deliverRemoteEvent(pending, client)
+      else {
+        for (const client of this.remoteEventClients.values()) {
+          if (this.admitsRemoteEvent(pending.delivery, client)) this.deliverRemoteEvent(pending, client)
+        }
+      }
     } catch (error) {
       source.reject(error)
     }
   }
 
+  /**
+   * Ask the installed filter whether `client` receives `delivery`; any return other than `true`, or a throw, withholds
+   * it. Without a filter every Client receives every event while member admission is off, and none while it is on.
+   */
+  private admitsRemoteEvent(delivery: RemoteEventDelivery, client: RemoteEventClient): boolean {
+    const filter = this.remoteEventFilter
+    if (filter === undefined) return !this.isMemberAdmission()
+    try {
+      // A filter installed from untyped code may return a truthy non-boolean, which withholds; only `true` delivers.
+      return Object.is(filter(delivery, client.peer), true)
+    } catch (error) {
+      this.gatewayCtx.logger.warn(
+        `api-gateway: the Remote event filter threw for ${JSON.stringify(delivery.event)}; the event is withheld`,
+        error,
+      )
+      return false
+    }
+  }
+
   private deliverRemoteEvent(pending: PendingRemoteEvent, client: RemoteEventClient): void {
+    pending.received.add(client)
     pending.deliveries.add(client)
     client.deliveries.set(pending.id, pending)
     client.queue.push(pending.frame)
@@ -814,6 +978,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
   private removeRemoteEventClient(client: RemoteEventClient): void {
     this.remoteEventClients.delete(client.id)
+    for (const pending of this.pendingRemoteEvents.values()) pending.received.delete(client)
     for (const pending of [...client.deliveries.values()]) this.removeRemoteEventDelivery(pending, client)
     client.queue.end()
   }
@@ -896,7 +1061,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const invocation = new GatewayInvocation(
       { namespace: request.namespace, method: request.method, args: wire },
       descriptor.service,
-      call.peer,
+      pending.peer,
       signal,
       {
         source: request.uplink ?? EMPTY_ASYNC_ITERABLE,
@@ -1497,6 +1662,32 @@ function releaseReason(endpoint: string, failure: unknown): unknown {
   return failure === undefined
     ? new Error(`typert gateway: ${endpoint}: a remote/invoke listener failed the call with undefined`)
     : failure
+}
+
+/**
+ * Wrap one position of a `remote/invoke` chain so that it runs at most once.
+ * @param step - the listener at that position, called with the next position, or the method.
+ * @returns a step whose first call runs `step` and whose every later call returns the first call's promise, or throws
+ * the first call's synchronous error; a call made while the first is still running synchronously settles with the
+ * first call's outcome.
+ */
+function atMostOnce(step: InvokeStep): InvokeStep {
+  let first: { readonly outcome: Promise<RemoteInvokeOutcome> } | { readonly error: unknown } | undefined
+  let running = false
+  const run: InvokeStep = () => {
+    if (first === undefined) {
+      if (running) return Promise.resolve().then(run)
+      running = true
+      try {
+        first = { outcome: step() }
+      } catch (error) {
+        first = { error }
+      }
+    }
+    if ('error' in first) throw first.error
+    return first.outcome
+  }
+  return run
 }
 
 /**

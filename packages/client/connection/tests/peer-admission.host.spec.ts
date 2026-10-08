@@ -54,6 +54,8 @@ async function mount(config?: ConnectionConfig): Promise<Mounted> {
   provideBrowserCredentials(ctx)
   const connectionFiber = ctx.plugin({ inject: [...inject], apply }, config)
   await connectionFiber
+  // Stands in for the deployment's route guard: with member admission on, an unguarded exact route or channel answers 503.
+  ctx.on('connection/fetch', (_call, next) => next())
   const seen: Mounted['seen'][number][] = []
   const answer = async (path: ProbePath, peer: PeerScope): Promise<{ ok: true; value: null }> => {
     seen.push({ path, peer })
@@ -373,5 +375,162 @@ describe('Connection member Peer admission', () => {
       'client-connection: a connection/peer-opened listener threw',
       'client-connection: a connection/peer-closed listener threw',
     ])
+  })
+
+  it('reports member admission on while an admitter is installed or requireAdmitter is set, read at each access', async () => {
+    const open = await mount()
+    const peers = open.ctx.connection.peers
+    expect(peers.memberAdmission).toBe(false)
+    const remove = peers.admitWith(() => undefined)
+    expect(peers.memberAdmission).toBe(true)
+    await remove()
+    expect(peers.memberAdmission).toBe(false)
+
+    const required = await mount({ requireAdmitter: true })
+    expect(required.ctx.connection.peers.memberAdmission).toBe(true)
+  })
+
+  describe('refuses with 401, without running the target, a request whose member Peer is released after admission', () => {
+    const UPLOAD = `${API_PATH}/peer.upload`
+    const envelope: ClientRequest = { type: 'client-request', rpcId: RpcId('probe'), method: PROBE_ENDPOINT, payload: {} }
+
+    /** Mount with a buffered POST exact route and a member admitter; returns the member. */
+    interface MemberMount {
+      readonly mounted: Mounted
+      readonly member: PeerScope
+      readonly admitter: ReturnType<typeof vi.fn<PeerAdmitter>>
+    }
+
+    async function mountMember(): Promise<MemberMount> {
+      const mounted = await mount()
+      mounted.ctx.connection.fetch.register({
+        path: UPLOAD,
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (_request, peer) => {
+          mounted.seen.push({ path: 'exact', peer })
+          return new Response('uploaded')
+        },
+      })
+      const member = mounted.ctx.connection.peers.open()
+      const admitter = vi.fn<PeerAdmitter>(() => member)
+      mounted.ctx.connection.peers.admitWith(admitter)
+      return { mounted, member, admitter }
+    }
+
+    /** Send the first half of a POST body, then the rest once `finish()` is called. */
+    function startPartial(
+      port: number,
+      path: string,
+      cookie: string,
+      body: string,
+    ): { readonly status: Promise<number>; readonly finish: () => void } {
+      let request!: ReturnType<typeof httpRequest>
+      const status = new Promise<number>((resolve, reject) => {
+        request = httpRequest({
+          host: '127.0.0.1',
+          port,
+          path,
+          method: 'POST',
+          headers: { cookie, 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)) },
+        }, (response) => {
+          response.resume()
+          response.on('end', () => { resolve(response.statusCode ?? 0) })
+        })
+        request.on('error', reject)
+      })
+      const half = Math.floor(body.length / 2)
+      request.write(body.slice(0, half))
+      return { status, finish: () => { request.end(body.slice(half)) } }
+    }
+
+    it.each([
+      { path: 'exact', url: UPLOAD, body: JSON.stringify({ fill: 'x'.repeat(4096) }) },
+      { path: 'channel', url: `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
+      { path: 'interceptor', url: `${API_PATH}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
+    ] as const)('$path: released while the bridge buffers the body', async ({ url, body }) => {
+      const { mounted, member, admitter } = await mountMember()
+      const pending = startPartial(mounted.port, url, mounted.cookie, body)
+      await vi.waitFor(() => { expect(admitter).toHaveBeenCalledTimes(1) })
+      await member.dispose()
+      pending.finish()
+
+      expect(await pending.status).toBe(401)
+      expect(mounted.seen).toEqual([])
+    })
+
+    it('exact route: released while a connection/request listener awaits before next()', async () => {
+      const { mounted, member } = await mountMember()
+      mounted.ctx.on('connection/request', async (_request, _response, next) => {
+        await member.dispose()
+        await next()
+      })
+
+      expect(await send(mounted.port, UPLOAD, 'POST', { cookie: mounted.cookie, 'content-type': 'application/json' }, '{}')).toBe(401)
+      expect(mounted.seen).toEqual([])
+    })
+
+    it.each([
+      { path: 'exact', url: UPLOAD, body: '{}' },
+      { path: 'channel', url: `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, body: JSON.stringify(envelope) },
+    ] as const)('$path: released while a connection/fetch listener awaits before next()', async ({ url, body }) => {
+      const { mounted, member } = await mountMember()
+      const answers: number[] = []
+      mounted.ctx.on('connection/fetch', async (_call, next) => {
+        await member.dispose()
+        const response = await next()
+        answers.push(response.status)
+        return response
+      })
+
+      expect(await send(mounted.port, url, 'POST', { cookie: mounted.cookie, 'content-type': 'application/json' }, body)).toBe(401)
+      expect(answers).toEqual([401])
+      expect(mounted.seen).toEqual([])
+    })
+
+    it('refuses a Peer that Connection did not create, with no admitter installed', async () => {
+      const mounted = await mount()
+      const member = mounted.ctx.connection.peers.open()
+      // Same id as a live member, but not the object `peers.open()` returned.
+      const foreign: PeerScope = { id: member.id, ctx: member.ctx, dispose: () => member.dispose() }
+      const shared = mounted.ctx.connection.createSharedFetchHandler(API_PATH)
+      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), foreign)
+      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
+      }), foreign)
+
+      expect([exact.status, intercepted.status]).toEqual([401, 401])
+      expect(mounted.seen).toEqual([])
+      expect(mounted.ctx.connection.peers.memberAdmission).toBe(false)
+    })
+
+    it('refuses a Peer carrying the operator\'s id and scope that is not connection.operator', async () => {
+      const mounted = await mount()
+      const { connection } = mounted.ctx
+      const forged: PeerScope = { id: connection.operator.id, ctx: connection.operator.ctx, dispose: () => connection.operator.dispose() }
+      const shared = connection.createSharedFetchHandler(API_PATH)
+      const exact = await shared.fetch(new Request(`http://127.0.0.1${PROBE_EXACT}`), forged)
+      const intercepted = await shared.fetch(new Request(`http://127.0.0.1${API_PATH}/${PROBE_ENDPOINT}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(envelope),
+      }), forged)
+
+      expect([exact.status, intercepted.status]).toEqual([401, 401])
+      expect(mounted.seen).toEqual([])
+      expect(connection.peers.memberAdmission).toBe(false)
+    })
+
+    it('lets a live member and the operator through on the same paths', async () => {
+      const { mounted, member } = await mountMember()
+      const headers = { cookie: mounted.cookie, 'content-type': 'application/json' }
+      expect(await send(mounted.port, UPLOAD, 'POST', headers, '{}')).toBe(200)
+      expect(await send(mounted.port, `${PROBE_CHANNEL}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
+      expect(await send(mounted.port, `${API_PATH}/${PROBE_ENDPOINT}`, 'POST', headers, JSON.stringify(envelope))).toBe(200)
+      expect(mounted.seen.map(entry => entry.peer)).toEqual([member, member, member])
+      // A shell-owned carrier naming no Peer speaks for the operator, which Connection releases only when it unloads.
+      const direct = await mounted.ctx.connection.createSharedFetchHandler(API_PATH)
+        .fetch(new Request(`http://127.0.0.1${UPLOAD}`, { method: 'POST', body: '{}' }))
+      expect(direct.status).toBe(200)
+      expect(mounted.seen.at(-1)?.peer).toBe(mounted.ctx.connection.operator)
+    })
   })
 })

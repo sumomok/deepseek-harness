@@ -10,6 +10,7 @@ import {
   apply,
   inject,
   type ClientRequest,
+  type ConnectionConfig,
   type ConnectionFetchCall,
   type ConnectionRpcHandler,
   type PeerScope,
@@ -36,7 +37,7 @@ interface Mounted {
   readonly warnings: string[]
 }
 
-async function mount(channelHandler?: ConnectionRpcHandler): Promise<Mounted> {
+async function mount(channelHandler?: ConnectionRpcHandler, config?: ConnectionConfig): Promise<Mounted> {
   const ctx = new Context()
   roots.push(ctx)
   const warnings: string[] = []
@@ -46,7 +47,7 @@ async function mount(channelHandler?: ConnectionRpcHandler): Promise<Mounted> {
   })
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
   provideBrowserCredentials(ctx)
-  await ctx.plugin({ inject: [...inject], apply })
+  await ctx.plugin({ inject: [...inject], apply }, config)
   const reached: Mounted['reached'][number][] = []
   ctx.connection.fetch.register({
     path: EXACT,
@@ -292,6 +293,43 @@ describe('connection/fetch', () => {
     // A carrier that dispatches the shared handler directly, naming no Peer, speaks for the operator.
     await connection.createSharedFetchHandler(API_PATH).fetch(new Request(`http://127.0.0.1${EXACT}`))
     expect(seen.at(-1)).toEqual(['exact-route', connection.operator])
+  })
+
+  it('keeps call.peer fixed, so no listener can change the Peer the listeners after it see', async () => {
+    const mounted = await mount()
+    const { connection } = mounted.ctx
+    const member = connection.peers.open()
+    connection.peers.admitWith(() => member)
+    const seen: Array<readonly [ConnectionFetchCall['kind'], PeerScope]> = []
+    mounted.ctx.on('connection/fetch', (call, next) => {
+      seen.push([call.kind, call.peer])
+      return next()
+    })
+    const written: boolean[] = []
+    const redefined: boolean[] = []
+    const deleted: boolean[] = []
+    const thrown: unknown[] = []
+    mounted.ctx.on('connection/fetch', (call, next) => {
+      written.push(Reflect.set(call, 'peer', connection.operator))
+      redefined.push(Reflect.defineProperty(call, 'peer', { value: connection.operator }))
+      deleted.push(Reflect.deleteProperty(call, 'peer'))
+      try {
+        Object.assign(call, { peer: connection.operator })
+      } catch (assignment) {
+        thrown.push(assignment)
+      }
+      return next()
+    }, { prepend: true })
+
+    expect((await send(mounted, EXACT, 'GET')).status).toBe(200)
+    expect((await callChannel(mounted)).status).toBe(200)
+
+    expect(written).toEqual([false, false])
+    expect(redefined).toEqual([false, false])
+    expect(deleted).toEqual([false, false])
+    expect(thrown).toEqual([expect.any(TypeError), expect.any(TypeError)])
+    expect(seen).toEqual([['exact-route', member], ['channel', member]])
+    expect(mounted.reached.map(entry => entry.peer)).toEqual([member, member])
   })
 
   it('leaves the request body to the route when a listener reads a clone', async () => {
@@ -738,6 +776,173 @@ describe('connection/fetch', () => {
     })
     expect(await (await doubled.fetch()).text()).toBe('two')
     expect(twice.map(entry => entry.cancelled())).toEqual([true, false])
+  })
+
+  it('answers 503 without dispatching to an exact route or channel that no listener guards while member admission is on', async () => {
+    const mounted = await mount()
+    const { ctx } = mounted
+    const member = ctx.connection.peers.open()
+    const removeAdmitter = ctx.connection.peers.admitWith(() => member)
+
+    expect(await send(mounted, EXACT, 'GET')).toEqual({ status: 503, body: 'service unavailable' })
+    expect(await callChannel(mounted)).toEqual({ status: 503, body: 'service unavailable' })
+    // The /api interceptor does not pass through connection/fetch.
+    expect((await send(mounted, `${API_PATH}/${INTERCEPTED}`, 'POST', JSON_HEADERS, envelope(INTERCEPTED))).status).toBe(200)
+    expect(mounted.reached.map(entry => entry.kind)).toEqual(['interceptor'])
+
+    const guard = ctx.plugin({ inject: ['connection'], apply: (guardCtx: Context) => { guardCtx.on('connection/fetch', (_call, next) => next()) } })
+    await guard
+    expect((await send(mounted, EXACT, 'GET')).status).toBe(200)
+    expect((await callChannel(mounted)).status).toBe(200)
+    await guard.dispose()
+    expect((await send(mounted, EXACT, 'GET')).status).toBe(503)
+
+    // With member admission off, an unguarded route runs as upstream.
+    await removeAdmitter()
+    expect((await send(mounted, EXACT, 'GET')).status).toBe(200)
+    expect(mounted.reached.map(entry => [entry.kind, entry.peer])).toEqual([
+      ['interceptor', member],
+      ['exact-route', member],
+      ['channel', member],
+      ['exact-route', ctx.connection.operator],
+    ])
+  })
+
+  it('answers 503 to the operator of an in-process carrier while requireAdmitter is set and no listener guards the route', async () => {
+    const mounted = await mount(undefined, { requireAdmitter: true })
+    const shared = mounted.ctx.connection.createSharedFetchHandler(API_PATH)
+    const response = await shared.fetch(new Request(`http://127.0.0.1${EXACT}`))
+    expect(response.status).toBe(503)
+    expect(mounted.reached).toEqual([])
+  })
+
+  it('answers 503 to a buffered upload whose guard unloaded while the bridge read its body', async () => {
+    const mounted = await mount()
+    const { ctx } = mounted
+    const member = ctx.connection.peers.open()
+    const admitter = vi.fn(() => member)
+    ctx.connection.peers.admitWith(admitter)
+    const guard = ctx.plugin({ inject: ['connection'], apply: (guardCtx: Context) => { guardCtx.on('connection/fetch', (_call, next) => next()) } })
+    await guard
+
+    const body = JSON.stringify({ fill: 'x'.repeat(4096) })
+    let request!: ReturnType<typeof httpRequest>
+    const answer = new Promise<number>((resolve, reject) => {
+      request = httpRequest({
+        host: '127.0.0.1',
+        port: mounted.port,
+        path: EXACT,
+        method: 'POST',
+        headers: { cookie: mounted.cookie, ...JSON_HEADERS, 'content-length': String(Buffer.byteLength(body)) },
+      }, (response) => {
+        response.resume()
+        response.on('end', () => { resolve(response.statusCode ?? 0) })
+      })
+      request.on('error', reject)
+    })
+    request.write(body.slice(0, 100))
+    await vi.waitFor(() => { expect(admitter).toHaveBeenCalledTimes(1) })
+    await guard.dispose()
+    request.end(body.slice(100))
+
+    expect(await answer).toBe(503)
+    expect(mounted.reached).toEqual([])
+  })
+
+  it('emits internal/dispatch once per guarded request, with the call and the waterfall\'s first position', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const dispatched: unknown[][] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'connection/fetch') dispatched.push([...args])
+    }, { global: true })
+    guarded.ctx.on('connection/fetch', (_call, next) => next())
+
+    expect((await guarded.fetch()).status).toBe(200)
+    expect(dispatched).toHaveLength(1)
+    expect(dispatched[0]?.[0]).toMatchObject({ kind: 'exact-route', path: EXACT })
+    expect(typeof dispatched[0]?.[1]).toBe('function')
+    expect(route).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles an internal/dispatch step with the waterfall\'s outcome, so the step meets a refusing listener', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    let step: (() => Promise<Response>) | undefined
+    const steps: Promise<Response>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name !== 'connection/fetch') return
+      step = args.at(-1) as () => Promise<Response>
+      steps.push(step())
+    }, { global: true })
+    const refusal = vi.fn(async () => {
+      await new Promise(resolve => setImmediate(resolve))
+      if (step !== undefined) steps.push(step())
+      return new Response('refused', { status: 403 })
+    })
+    guarded.ctx.on('connection/fetch', refusal)
+
+    const answer = await guarded.fetch()
+    if (step !== undefined) steps.push(step())
+
+    expect(answer.status).toBe(403)
+    expect(steps).toHaveLength(3)
+    for (const settled of await Promise.all(steps)) expect(settled).toBe(answer)
+    expect(refusal).toHaveBeenCalledTimes(1)
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('rejects an internal/dispatch step with the error a listener throws synchronously', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const thrown = new Error('fixture: refused synchronously')
+    const steps: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'connection/fetch') steps.push((args.at(-1) as () => Promise<Response>)().catch((error: unknown) => error))
+    }, { global: true })
+    guarded.ctx.on('connection/fetch', () => { throw thrown })
+
+    await expect(guarded.fetch()).rejects.toBe(thrown)
+    expect(await Promise.all(steps)).toEqual([thrown])
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('dispatches nothing through an internal/dispatch step when the request is answered 503', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const member = guarded.ctx.connection.peers.open()
+    guarded.ctx.connection.peers.admitWith(() => member)
+    let entry: (() => Promise<Response>) | undefined
+    const early: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name !== 'connection/fetch') return
+      entry = args.at(-1) as () => Promise<Response>
+      early.push(entry().catch((error: unknown) => error))
+    }, { global: true })
+
+    expect(await guarded.fetch()).toMatchObject({ status: 503 })
+    const late = await entry?.().catch((error: unknown) => error)
+    const ended = { message: 'connection/fetch: next() was called after the waterfall ended' }
+    expect(await Promise.all(early)).toMatchObject([ended])
+    expect(late).toMatchObject(ended)
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('dispatches nothing through an internal/dispatch step when another internal/dispatch listener throws', async () => {
+    const route = vi.fn(async () => new Response('route body'))
+    const guarded = await bareRoute(route)
+    const veto = new Error('fixture: vetoed by internal/dispatch')
+    const early: Promise<unknown>[] = []
+    guarded.ctx.on('internal/dispatch', (_mode, name, args: readonly unknown[]) => {
+      if (name === 'connection/fetch') early.push((args.at(-1) as () => Promise<Response>)().catch((error: unknown) => error))
+    }, { global: true })
+    guarded.ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'connection/fetch') throw veto
+    }, { global: true })
+
+    await expect(guarded.fetch()).rejects.toBe(veto)
+    expect(await Promise.all(early)).toMatchObject([{ message: 'connection/fetch: next() was called after the waterfall ended' }])
+    expect(route).not.toHaveBeenCalled()
   })
 
   it('answers a listener throw the way the carrier answers a throwing route: 400 with an empty body', async () => {
