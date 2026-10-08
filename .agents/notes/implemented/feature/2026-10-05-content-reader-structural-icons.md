@@ -44,13 +44,13 @@ The retired rule read the word `icon` inside a token and named the row after wha
 
 **Accept only inline elements** (`i`, `span`, `svg`), which would leave out the empty `<div class="cell">` a library draws for an empty value. Not taken: a list of tags is a guess of the same kind as a list of classes, and a tree table's indent is a `span` all the same. Whether the leaf draws a picture leaves out both.
 
-**Read structure alone**, with no drawing condition. The empty value cell and a tree table's indent and placeholder have the structure of an icon, so a cell printed an icon or nothing depending on the record, and the key line a pointing tool copies from this walk changed with it. The product's first review of the anchors found it on 2026-10-05; reading the rendering is what tells a glyph from an empty wrapper without a class list.
+**Read structure alone**, with no drawing condition. The empty value cell and a tree table's indent and placeholder have the structure of an icon, so a cell printed an icon or nothing depending on the record, and the key line a pointing tool copies from this walk changed with it. Reading the rendering is what tells a glyph from an empty wrapper without a class list.
 
 **Take no mark from a sprite reference.** A sprite icon set writes its identity only in `use href`, so a class-less sprite icon would have no mark and be no icon. The symbol id is the page's own word, printed unread, which is what a class is.
 
 **Mark a sprite drawing that carries a class by its class alone.** Every command a sprite sheet draws carries the same class, so the edit and the delete icon of one cell would print one mark and a step could not tell them apart.
 
-**Count any generated content other than `none`, `normal` and `""`.** A page that draws an empty value's placeholder with `.cell:empty::before { content: "--" }` then printed that empty cell as an icon, so a column printed an icon or nothing depending on the record. The third review of the rule found it on 2026-10-06. Icon fonts map their glyphs into the private use areas and placeholders are ordinary text, so the private use areas tell the two apart; an icon a page draws with an ordinary symbol is what that costs.
+**Count any generated content other than `none`, `normal` and `""`.** A page that draws an empty value's placeholder with `.cell:empty::before { content: "--" }` then printed that empty cell as an icon, so a column printed an icon or nothing depending on the record. Icon fonts map their glyphs into the private use areas and placeholders are ordinary text, so the private use areas tell the two apart; an icon a page draws with an ordinary symbol is what that costs.
 
 **Read icons everywhere, not just in cells and items.** Every glyph a page header draws as decoration would print a row and spend the budget this read exists to protect; cells and items are where a page draws the commands that act on a record.
 
