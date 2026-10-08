@@ -5,9 +5,9 @@
  * Every field is ordinary Config, none of them `.volatile()`: a deployment
  * writes them in its lock layer, and the settings service offers no form for
  * them. `admins` and each `rootSeeds[].principal` hold `login_uid` values, so
- * the schema accepts any value for those two lists and {@link readSettings}
- * checks them with errors that name the field and index only: the schema's
- * own errors would quote the rejected value.
+ * the schema accepts any value for those two fields and {@link readSettings}
+ * checks them, the list itself included, with errors that name the field and
+ * index only: the schema's own errors would quote the rejected value.
  * @module @deepseek-ai/dsh-experimental-console-members/src/config
  */
 
@@ -69,10 +69,10 @@ export const Config: z<Config> = z.object({
   assertionHeader: z.string().default('x-dsh-member'),
   assertionPublicKey: z.string().required(),
   deploymentId: z.string().required(),
-  admins: z.array(z.any()).default([]),
+  admins: z.any().default([]),
   membersRoot: z.string().required(),
   sharedReadRoots: z.array(z.string()).default([]),
-  rootSeeds: z.array(z.any()).default([]),
+  rootSeeds: z.any().default([]),
   hostReadPaths: z.array(z.string()).default([]),
   hostWritePaths: z.array(z.string()).default([]),
   peerIdleMs: z.natural().min(1).default(600_000),
@@ -132,10 +132,10 @@ export function readSettings(config: Config): MemberSettings {
   return {
     assertionHeader: config.assertionHeader.toLowerCase(),
     deploymentId: config.deploymentId,
-    admins: config.admins.map((admin: unknown, index) => principalAt(`admins[${index}]`, admin)),
+    admins: listAt('admins', config.admins).map((admin, index) => principalAt(`admins[${index}]`, admin)),
     membersRoot: config.membersRoot,
     sharedReadRoots: config.sharedReadRoots,
-    rootSeeds: config.rootSeeds.map((seed: unknown, index) => checkSeed(index, seed)),
+    rootSeeds: listAt('rootSeeds', config.rootSeeds).map((seed, index) => checkSeed(index, seed)),
     hostReadPaths: config.hostReadPaths,
     hostWritePaths: config.hostWritePaths,
     peerIdleMs: config.peerIdleMs,
@@ -150,6 +150,18 @@ export function readSettings(config: Config): MemberSettings {
  */
 function requireAbsolute(field: string, path: string): void {
   if (!isAbsolute(path)) throw new Error(`console-members: ${field} must be an absolute path`)
+}
+
+/**
+ * Read a field the schema accepts with any value as a list.
+ * @param field - the field the error names.
+ * @param value - the configured value.
+ * @returns the list's elements, unchecked.
+ * @throws {Error} naming the field, not the value, when the value is not a list.
+ */
+function listAt(field: 'admins' | 'rootSeeds', value: unknown): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`console-members: ${field} must be a list`)
+  return value
 }
 
 /**

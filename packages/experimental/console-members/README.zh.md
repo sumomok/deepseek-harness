@@ -66,7 +66,7 @@ const member: PrincipalKey | undefined = ctx.consoleMembers.principalOfRequest(r
 | `hostReadPaths`、`hostWritePaths` | `[]` | 没有当前成员时，读或写可以到达的绝对路径前缀 |
 | `peerIdleMs` | `600000` | 空闲的成员 Peer 保持打开的毫秒数；正整数 |
 
-加载在第一项没通过的核对处失败，此时插件行还没有注册任何东西：上表的字段（绝对路径、请求头名、非空的 `login_uid` 字符串、每个种子恰好是一种形式）；密钥，必须是 Ed25519 公钥，所以私钥被拒；Connection 的 `requireAdmitter`，必须是 `true`；以及种子并入根目录登记表。加载错误不引用任何 `login_uid`，也不引用密钥。
+加载在第一项没通过的核对处失败，此时插件行还没有注册任何东西：上表的字段（绝对路径、请求头名、`admins` 与 `rootSeeds` 写成列表、非空的 `login_uid` 字符串、每个种子恰好是一种形式）；密钥，必须是 Ed25519 公钥，所以私钥被拒；Connection 的 `requireAdmitter`，必须是 `true`；以及种子并入根目录登记表。加载错误不引用任何 `login_uid`，也不引用密钥。
 
 根目录登记表是 `$DSH_HOME/console-members` 下的 `roots.json`，把每个已登记的根目录对应到一位成员或「无人」。根目录按文件系统读它的方式比较：每个路径最长的已存在前段换成它的真实路径，在 macOS 与 Windows 上再忽略大小写与 Unicode 规范形式。任意两个根目录既不是同一目录、也不互相包含，种子不与 `membersRoot` 重叠，种子点名的目录已登记给别的所有者时加载失败。成员的根目录是 `<membersRoot>/<随机 UUID>`，以 0700 权限创建，并在这位成员的准入继续之前记下；按成员的数据存在 `$DSH_HOME/console-members/<目录 id>/<unit>.json`，所以没有路径带主体键。
 
