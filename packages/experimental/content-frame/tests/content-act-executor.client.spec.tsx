@@ -524,6 +524,33 @@ describe('what stops a call', () => {
     expect({ edited, queried }).toEqual({ edited: ['click'], queried: ['click'] })
   })
 
+  it('refuses a sprite drawing the page names, reached by an empty label and the class a markup tree printed, by saying what it is named', async () => {
+    // A markup tree prints a sprite drawing's `class` attribute alone, and the
+    // listing marks it by its class tokens and the symbol it points at, so a
+    // step copied out of the tree carries a mark the listing never printed.
+    mount('<main><ul><li>'
+      + '<svg id="sprite" class="svg-icon" aria-label="编辑"><use href="#icon-edit"></use></svg>'
+      + '</li></ul></main>')
+    const options = { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
+    const request = { callId: 'call_0', tool: 'content_read_dom', args: { scope: refs.ref(at('main')) } } as const
+    const tree = markup(doc(), request, options).text
+    const drawing = /(e\d+) svg#sprite \{class: svg-icon\}/.exec(tree)?.[1] ?? ''
+    expect(refs.resolve(drawing)).toBe(at('#sprite'))
+    const clicked = listen(at('#sprite'), ['click'])
+    const byTree = await run([{ action: 'click', ref: drawing, label: '', mark: 'svg-icon' }])
+    expect(byTree.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: `${drawing} is named "编辑" here; a step names it by label "编辑" and no mark.`,
+    }])
+    expect(clicked).toEqual([])
+    posted = []
+    cleanup()
+    const byName = await run([{ action: 'click', ref: drawing, label: '编辑' }])
+    expect(byName.steps).toEqual([{ index: 1, status: 'ok' }])
+    expect(clicked).toEqual(['click'])
+  })
+
   it('refuses an element the page names as a page that changed, where the step\'s mark is not one it carries', async () => {
     mount(NAMED_BY_PAGE)
     const held = ref('#held')
