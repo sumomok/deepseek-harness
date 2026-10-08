@@ -58,7 +58,17 @@ import { en, NS, zh } from './locales.ts'
 import { ComponentRendererRegistry } from './registry.ts'
 import { ViewCommandRow } from './ViewCommandRow.tsx'
 
-export { COMPONENT_KIT_ENTRIES } from '../component-call.ts'
+export {
+  COMPONENT_KIT_ENTRIES,
+  COMPONENT_KIT_VIEW_ENTRIES,
+  DATA_PAGE_EDITING_OUTPUT,
+  DATA_PAGE_GATED_IDS,
+  DATA_PAGE_OPENED_OUTPUT,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
+  MAX_RECORD_ID_LENGTH,
+  placedOnlyByViews,
+} from '../component-call.ts'
 export { NS } from './locales.ts'
 export { ComponentRendererRegistry } from './registry.ts'
 export type { ContentComponentKey } from './locales.ts'

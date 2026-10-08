@@ -14,11 +14,14 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ComponentCatalogRegistry, trackCatalog, type ComponentSource } from '../src/catalog.ts'
 import {
-  catalogId,
   CONFIRM_BAR_ID,
   COMPONENT_KIT_ENTRIES,
+  COMPONENT_KIT_VIEW_ENTRIES,
+  DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
   describeCatalog,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
   LAYOUT_SPEC_DEPTH,
   METRIC_ID,
   readCatalog,
@@ -45,17 +48,6 @@ const TWO: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES
 
 /** One entry of the six, for the cases about a second package claiming a claimed id. */
 const ONE: readonly ComponentCatalogEntry[] = COMPONENT_KIT_ENTRIES.filter(entry => entry.id === CONFIRM_BAR_ID)
-
-/** A component only a written-down view may place. */
-const VIEW_PROBE: ComponentCatalogEntry = {
-  id: catalogId('toy.view-probe'),
-  label: '视图探针',
-  purpose: 'Placed by views alone.',
-  placement: 'view',
-  propsSchema: {},
-  actions: [],
-  outputs: [],
-}
 
 /** A registry on its own context. */
 async function registry(): Promise<Context> {
@@ -225,15 +217,24 @@ describe('the component catalog registry', () => {
     // Registering a component is the contributing plugin's act and offering it
     // is the deployment's: a row installed with the data page withheld
     // registers it, judges a call against it, and answers every reader outside
-    // this package that it is not there.
+    // this package that it is not there — and the two blocks a view places
+    // beside a data page go with it.
     const ctx = new Context()
     contexts.push(ctx)
-    await ctx.plugin(ComponentCatalogRegistry, { withheld: [DATA_PAGE_ID] }).await()
-    ctx.componentCatalog.register({ entries: COMPONENT_KIT_ENTRIES, source: KIT_SOURCE })
-    expect(ctx.componentCatalog.components.map(one => one.entry.id)).toContain(DATA_PAGE_ID)
-    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).not.toContain(DATA_PAGE_ID)
+    await ctx.plugin(ComponentCatalogRegistry, { withheld: [...DATA_PAGE_GATED_IDS] }).await()
+    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    expect(ctx.componentCatalog.components.map(one => one.entry.id)).toEqual(expect.arrayContaining([...DATA_PAGE_GATED_IDS]))
     expect(ctx.componentCatalog.offered.map(one => one.entry.id))
       .toEqual(COMPONENT_KIT_ENTRIES.map(entry => entry.id).filter(id => id !== DATA_PAGE_ID))
+  })
+
+  it('answers that a deployment offering the data page offers the two blocks a view places beside it', async () => {
+    // A pack requiring either is judged against this list, and a view is what
+    // draws them, so the tool's own description leaving them out is no reason
+    // to answer that they are absent.
+    const ctx = await registry()
+    ctx.componentCatalog.register({ entries: [...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES], source: KIT_SOURCE })
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual(expect.arrayContaining([...DATA_PAGE_GATED_IDS]))
   })
 
   it('offers every registered component where the deployment withholds none', async () => {
@@ -289,18 +290,24 @@ describe('the tool the registry decides', () => {
   })
 
   it('is not offered where every registered component is placed only by views, and never lists one', async () => {
-    const ctx = await row()
-    ctx.componentCatalog.register({ entries: [VIEW_PROBE], source: OTHER_SOURCE })
-    // A call naming the component is refused, so a tool offering nothing else
-    // would be a tool every call to is refused.
+    // The deployment offers the data page and can ask the user, so nothing
+    // withholds the two components: what keeps them out of the tool is that
+    // only a view places them.
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    ctx.provide('approval', { request: () => Promise.resolve('allowed-once') } as never)
+    await ctx.plugin(ShowComponent, { dataPage: true })
+    ctx.componentCatalog.register({ entries: COMPONENT_KIT_VIEW_ENTRIES, source: OTHER_SOURCE })
+    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual([FORM_PAGE_ID, INFO_CARD_ID])
+    // A call naming either is refused, so a tool offering nothing else would
+    // be a tool every call to is refused.
     expect(offered(ctx)).toBeUndefined()
-    // A reader asking what this deployment can draw is still told it is there:
-    // a view is what draws it.
-    expect(ctx.componentCatalog.offered.map(one => one.entry.id)).toEqual([VIEW_PROBE.id])
 
     ctx.componentCatalog.register({ entries: TWO, source: KIT_SOURCE })
     expect(offered(ctx)?.description).toContain(describeCatalog(TWO))
-    expect(offered(ctx)?.description).not.toContain(VIEW_PROBE.id)
+    for (const entry of COMPONENT_KIT_VIEW_ENTRIES) expect(offered(ctx)?.description).not.toContain(entry.id)
   })
 })
 

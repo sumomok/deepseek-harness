@@ -90,10 +90,18 @@ export type {
 export {
   catalogId,
   COMPONENT_KIT_ENTRIES,
+  COMPONENT_KIT_VIEW_ENTRIES,
+  DATA_PAGE_EDITING_OUTPUT,
+  DATA_PAGE_GATED_IDS,
   DATA_PAGE_MODEL_PROP_NAMES,
+  DATA_PAGE_OPENED_OUTPUT,
   DATA_PAGE_ROW_OPERATIONS,
   DATA_PAGE_TOOLBAR_BUTTONS,
   DATA_PAGE_VIEW_PROP_NAMES,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
+  MAX_RECORD_ID_LENGTH,
+  placedOnlyByViews,
   readCatalog,
   type CatalogId,
   type ComponentCatalog,
@@ -151,9 +159,10 @@ export interface Config {
   dataDefaultPageSize?: number
   /**
    * Whether a call may open this deployment's own full data page for one
-   * table (`toy.data-page`) in the panel. Off by default, because the page reads
-   * its table from the browser with the signed-in visitor's own credential and
-   * a deployment has to say that it wants that.
+   * table (`toy.data-page`) in the panel, and whether a view may place the
+   * page and the form page and info card beside it. Off by default, because the
+   * page reads its table from the browser with the signed-in visitor's own
+   * credential and a deployment has to say that it wants that.
    *
    * Where it is on, the tool is offered only once `approval` is composed —
    * every page is put to the user before it opens, and a component nobody can

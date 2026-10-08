@@ -51,8 +51,9 @@ export interface ComponentViewOptions {
   readonly homeView?: string
   /**
    * Whether this deployment offers the data page at all, which decides whether
-   * a view may place one: a view that opens a page the deployment did not turn
-   * on is refused by name, exactly as a call for it is.
+   * a view may place one, or the form page or info card beside one: a view
+   * placing any of the three on a deployment that did not turn it on is refused
+   * by name, exactly as a call for the page is.
    */
   readonly dataPage: boolean
 }

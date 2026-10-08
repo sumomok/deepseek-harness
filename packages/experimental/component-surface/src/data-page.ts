@@ -20,6 +20,7 @@
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   catalogEntry,
+  DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
   dataPageColumnPhrase,
   dataPageMeta,
@@ -197,22 +198,38 @@ export const DATA_PAGE_NOT_APPROVED
   = `${SHOW_COMPONENT_TOOL_NAME}: the user did not open the data page, so nothing was drawn. Nothing on the panel changed.`
 
 /**
- * Refusal for a data page a deployment does not offer.
- *
- * The one refusal every path that meets a page has to reach first, because a
- * deployment that does not offer the page cannot open it for any other reason
- * either: telling the model to move the page into a call of its own would send
- * it to write a second call this deployment refuses in the same words.
- * @param catalog - the components this deployment offers.
- * @param spec - the spec, as validation accepted it, carrying at least one data page.
- * @returns the refusal, naming the first page and the components this deployment does offer.
+ * Whether one block names a component this deployment's `dataPage` setting
+ * turns on.
+ * @param node - the block, as validation accepted it.
+ * @returns true for the data page and the two blocks a view places beside one.
  */
-export function dataPageNotOffered(catalog: ComponentCatalog, spec: ComponentSpec): ComponentCallFailure {
-  const first = dataPageNodes(spec)[0] as ComponentNode
-  const others = catalog.entries.map(entry => entry.id as string).filter(id => id !== (DATA_PAGE_ID as string)).join(', ')
+function dataPageGated(node: ComponentNode): boolean {
+  return DATA_PAGE_GATED_IDS.some(id => id === node.component)
+}
+
+/**
+ * Refusal for a block naming a component the deployment's `dataPage` setting
+ * left off: the data page, or a block a view places beside one.
+ *
+ * The one refusal every path that meets such a block has to reach first,
+ * because a deployment that does not offer the component cannot place it for
+ * any other reason either: telling the model to move a page into a call of its
+ * own would send it to write a second call this deployment refuses in the same
+ * words. The components it lists are the registered ones that setting does not
+ * govern.
+ * @param catalog - the components this deployment registers.
+ * @param spec - the spec, as validation accepted it.
+ * @param node - the block refused, one of that spec's nodes.
+ * @returns the refusal, naming the block's component and the components this deployment does offer.
+ */
+export function componentNotOffered(catalog: ComponentCatalog, spec: ComponentSpec, node: ComponentNode): ComponentCallFailure {
+  const others = catalog.entries
+    .map(entry => entry.id)
+    .filter(id => !DATA_PAGE_GATED_IDS.includes(id))
+    .join(', ')
   return refuse(
-    `spec.nodes[${spec.nodes.indexOf(first)}].component`,
-    `names ${DATA_PAGE_ID}, which this deployment does not offer. Offered components: ${others}.`,
+    `spec.nodes[${spec.nodes.indexOf(node)}].component`,
+    `names ${node.component}, which this deployment does not offer. Offered components: ${others}.`,
   )
 }
 
@@ -249,15 +266,17 @@ function refuseArrangement(
  *
  * Four things end a call here, each named by the path that has to change. A
  * deployment that does not offer the page refuses it by name, with the
- * components it does offer. A second page in one call is refused, because a
- * call asks one question and a page is a whole table's worth of screen. A sort
- * naming both directions is refused the way a `dataSource` sort is. And a
- * property only a written page may set is refused for a call and accepted for
- * a view, which is the one judgement the two sources do not share: a view is a
- * file a person wrote, and the arrangement in it is that person's.
+ * components it does offer, and refuses a form page or an info card the same
+ * way, at whichever of the three the spec places first. A second page in one
+ * call is refused, because a call asks one question and a page is a whole
+ * table's worth of screen. A sort naming both directions is refused the way a
+ * `dataSource` sort is. And a property only a written page may set is refused
+ * for a call and accepted for a view, which is the one judgement the two
+ * sources do not share: a view is a file a person wrote, and the arrangement in
+ * it is that person's.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
- * @param offered - whether this deployment offers the data page at all.
+ * @param offered - whether this deployment offers the data page and the two blocks a view places beside one.
  * @param written - whether the spec is a page somebody wrote down, which may carry its own arrangement.
  * @returns the refusal, or `undefined` when the call may proceed to the question.
  */
@@ -267,10 +286,13 @@ export function judgeDataPageNodes(
   offered: boolean,
   written: boolean,
 ): ComponentCallFailure | undefined {
+  if (!offered) {
+    const gated = spec.nodes.find(dataPageGated)
+    if (gated !== undefined) return componentNotOffered(catalog, spec, gated)
+  }
   const pages = dataPageNodes(spec)
   const first = pages[0]
   if (first === undefined) return undefined
-  if (!offered) return dataPageNotOffered(catalog, spec)
   const second = pages[1]
   if (second !== undefined) {
     return refuse(

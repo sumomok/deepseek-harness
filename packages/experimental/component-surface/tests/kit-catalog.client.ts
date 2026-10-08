@@ -14,6 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { ComponentCatalogRegistry, type ComponentSource } from '../src/catalog.ts'
 import {
   COMPONENT_KIT_ENTRIES,
+  COMPONENT_KIT_VIEW_ENTRIES,
   readCatalog,
   type ComponentCatalog,
   type ComponentCatalogEntry,
@@ -21,6 +22,13 @@ import {
 
 /** The component row's six components, as a catalog. */
 export const KIT_CATALOG: ComponentCatalog = readCatalog(COMPONENT_KIT_ENTRIES)
+
+/**
+ * The six and the two components only a view places beside a data page, as a
+ * catalog: what a deployment judges against once the component row registers
+ * those two as well.
+ */
+export const KIT_VIEW_CATALOG: ComponentCatalog = readCatalog([...COMPONENT_KIT_ENTRIES, ...COMPONENT_KIT_VIEW_ENTRIES])
 
 /** The contributing package these specs register the six under; the real row reads its own manifest. */
 export const KIT_SOURCE: ComponentSource = {

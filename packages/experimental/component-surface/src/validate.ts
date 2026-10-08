@@ -56,7 +56,9 @@ import {
   MAX_NODES,
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
+  placedOnlyByViews,
   readBinding,
+  readByViewsOnly,
   STACK_KEYS,
   TOKEN_CHARSET,
   TOKEN_HINT,
@@ -1029,6 +1031,10 @@ function validateLayout(value: unknown, nodes: readonly ComponentNode[]): Layout
  * Resolve one bound property against the block it reads: that the block is
  * placed by this call, that it reports what the reference names, and that what
  * it reports is a value the property accepts.
+ *
+ * A refusal naming what the block reports lists, for a property of a component
+ * a call may place, only the outputs the tool's description lists: an output
+ * only a view-placed component reads is one no such property accepts.
  * @param bound - the binding, and the property it is read into.
  * @param placed - the catalog entry of every node of this call, by node id.
  * @returns the refusal, or `undefined` when the binding is accepted.
@@ -1048,8 +1054,12 @@ function resolveBinding(
   }
   const output = catalogOutput(source, outputId)
   if (output === undefined) {
+    // The receiving node is in `placed` by construction: every binding was
+    // collected off one of this spec's own accepted nodes.
+    const receiver = placed.get(bound.nodeId) as ComponentCatalogEntry
+    const listed = placedOnlyByViews(receiver) ? source.outputs : source.outputs.filter(one => !readByViewsOnly(one))
     return refuse(bound.path, `reads ${JSON.stringify(outputId)} from the ${source.label} block ${JSON.stringify(sourceId)}, `
-      + `which reports ${source.outputs.length === 0 ? 'nothing' : source.outputs.map(one => one.id).join(', ')}.`)
+      + `which reports ${listed.length === 0 ? 'nothing' : listed.map(one => one.id).join(', ')}.`)
   }
   let read = output.shape
   if (index !== undefined) {

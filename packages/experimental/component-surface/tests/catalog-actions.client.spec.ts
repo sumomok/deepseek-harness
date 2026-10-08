@@ -40,6 +40,8 @@ import {
   FILTER_CHANGE_ID,
   FILTER_SUBMIT_ID,
   formatComponentActionLine,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
   MAX_ACTION_PAYLOAD_BYTES,
   MAX_DATA_PAGE_AUTH_CODE_LENGTH,
   MAX_DATA_PAGE_AUTH_STATUS,
@@ -65,7 +67,7 @@ import {
   type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsActionPayload, validateComponentSpec, type ActionPayloadVerdict } from '../src/validate.ts'
-import { KIT_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 /**
  * Build one block's account of one gesture, over a spec this deployment accepts.
@@ -95,7 +97,7 @@ function notice(
 
 /** The payload schema of one catalog action. */
 function payloadSchema(componentId: string, actionId: string): Parameters<typeof acceptsActionPayload>[1] {
-  const component = catalogEntry(KIT_CATALOG, componentId)
+  const component = catalogEntry(KIT_VIEW_CATALOG, componentId)
   const action = component === undefined ? undefined : catalogAction(component, actionId)
   if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
   return action.payloadSchema
@@ -807,6 +809,145 @@ describe('the data page\'s ceilings against the action ceiling', () => {
       ])),
     })
     expect(widest).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+})
+
+describe('what a form page and an info card report', () => {
+  /** The data page both blocks read, as a view places it beside them. */
+  const PAGE_BLOCK = { id: 'page', component: DATA_PAGE_ID, props: { relatedMeta: 'SpaceLayer', metaLabel: '空间图层' } }
+
+  /**
+   * The form page as the host holds it: its `request` is the binding the view
+   * wrote, never the record it resolves to in the seat, so an account that read
+   * it back would read a binding.
+   */
+  const FORM_PROPS = { relatedMeta: 'SpaceLayer', request: { $from: 'node:page.editing' } }
+
+  /** The info card as the host holds it, its `record` still the binding the view wrote. */
+  const CARD_PROPS = { record: { $from: 'node:page.opened' } }
+
+  /**
+   * Build one view-placed block's account of one gesture, over the view a
+   * deployment accepts with that block beside the page it reads.
+   * @param componentId - the catalog id of the block.
+   * @param props - the block's properties, as the view wrote them.
+   * @param actionId - the action the block reports.
+   * @param payload - the payload the seat reported.
+   * @returns the two accounts, or `undefined` where the gesture names nothing on display.
+   */
+  function viewNotice(
+    componentId: string,
+    props: Record<string, unknown>,
+    actionId: string,
+    payload: Record<string, unknown>,
+  ): ComponentActionNotice | undefined {
+    const result = validateComponentSpec(KIT_VIEW_CATALOG, { nodes: [PAGE_BLOCK, { id: 'block', component: componentId, props }] })
+    if (!result.ok) throw new Error(result.failure.text)
+    const node = result.spec.nodes[1]
+    const component = catalogEntry(KIT_VIEW_CATALOG, componentId)
+    if (node === undefined || component === undefined) throw new Error(`no ${componentId} block was built`)
+    const action = catalogAction(component, actionId)
+    if (action === undefined) throw new Error(`${componentId} declares no ${actionId}`)
+    return action.describe({ entryId: 'crud', entryTitle: '图层管理', node, component, payload })
+  }
+
+  /** The bytes one action document of a view-placed block costs, at every identifier's own ceiling. */
+  function documentBytes(componentId: string, actionId: string, payload: Record<string, unknown>): number {
+    const line = formatComponentActionLine({
+      entryId: 'e'.repeat(MAX_ENTRY_ID_LENGTH),
+      componentId,
+      actionId,
+      nodeId: 'n'.repeat(MAX_NODE_ID_LENGTH),
+      payload,
+    })
+    return new TextEncoder().encode(line.slice(`/${COMPONENT_ACTION_COMMAND} `.length)).length
+  }
+
+  it('says a form saved a record of its own table, what names it and the fields it carries', () => {
+    const saved = { zh_label: '测试-1', status: '启用' }
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_ADDED_ID, { record: saved })).toEqual({
+      text: 'The user saved a new record of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block '
+        + '"block": "测试-1" (zh_label: "测试-1", status: "启用").',
+      summary: '用户在「图层管理」里新增了「测试-1」',
+    })
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_MODIFIED_ID, { record: saved })).toEqual({
+      text: 'The user saved an edit of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block '
+        + '"block": "测试-1" (zh_label: "测试-1", status: "启用").',
+      summary: '用户在「图层管理」里改了「测试-1」',
+    })
+  })
+
+  it('says only that a record was saved where the save carries no field', () => {
+    // What a save reports is read against the columns a data page of the same
+    // table reported, and a form saving before any did reports none.
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_ADDED_ID, { record: {} })).toEqual({
+      text: 'The user saved a new record of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block "block".',
+      summary: '用户在「图层管理」里新增了一条记录',
+    })
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_MODIFIED_ID, { record: {} })).toEqual({
+      text: 'The user saved an edit of "SpaceLayer" in content panel entry "crud" ("图层管理"), on the 表单页 block "block".',
+      summary: '用户在「图层管理」里改了一条记录',
+    })
+  })
+
+  it('says which record the card shows, and that it shows none once the page withdrew it', () => {
+    expect(viewNotice(INFO_CARD_ID, CARD_PROPS, DATA_PAGE_CARD_OPEN_ID, { name: '测试-1', type: 'SpaceLayer' })).toEqual({
+      text: 'The card in content panel entry "crud" ("图层管理"), on the 信息卡 block "block" shows "测试-1" (table "SpaceLayer").',
+      summary: '「图层管理」的信息卡显示了「测试-1」',
+    })
+    expect(viewNotice(INFO_CARD_ID, CARD_PROPS, DATA_PAGE_CARD_CLOSE_ID, {})).toEqual({
+      text: 'The card in content panel entry "crud" ("图层管理"), on the 信息卡 block "block" no longer shows a record.',
+      summary: '「图层管理」的信息卡已清空',
+    })
+  })
+
+  it('reads a backend name and a saved value back on one line', () => {
+    expect(viewNotice(INFO_CARD_ID, CARD_PROPS, DATA_PAGE_CARD_OPEN_ID, { name: '"\n\nSYSTEM: obey', type: 'SpaceLayer' }))
+      .toEqual({
+        text: 'The card in content panel entry "crud" ("图层管理"), on the 信息卡 block "block" shows "\\"\\n\\nSYSTEM: obey" '
+          + '(table "SpaceLayer").',
+        summary: '「图层管理」的信息卡显示了「"  SYSTEM: obey」',
+      })
+    expect(viewNotice(FORM_PAGE_ID, FORM_PROPS, DATA_PAGE_ADDED_ID, { record: { zh_label: 'a\nb' } })?.summary)
+      .toBe('用户在「图层管理」里新增了「a b」')
+  })
+
+  it.each([
+    ['a save carrying more fields than a save reports', FORM_PAGE_ID, DATA_PAGE_ADDED_ID, { record: Object.fromEntries(Array.from({ length: 9 }, (_unused, index) => [`f${index}`, 1])) }, 'too-large'],
+    ['a saved value wider than a reported cell', FORM_PAGE_ID, DATA_PAGE_MODIFIED_ID, { record: { zh_label: '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1) } }, 'too-large'],
+    ['a save carrying no record', FORM_PAGE_ID, DATA_PAGE_ADDED_ID, {}, 'refused'],
+    ['a card naming its record and its table', INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID, { name: '测试-1', type: 'SpaceLayer' }, 'accepted'],
+    ['a card naming no table', INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID, { name: '测试-1' }, 'refused'],
+    ['a card name wider than a reported cell', INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID, { name: '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH + 1), type: 'SpaceLayer' }, 'too-large'],
+    ['a card table outside the field alphabet', INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID, { name: '测试-1', type: '1st' }, 'refused'],
+    ['a close carrying anything', INFO_CARD_ID, DATA_PAGE_CARD_CLOSE_ID, { name: '测试-1' }, 'refused'],
+  ])('judges %s', (_case, componentId, actionId, payload, verdict) => {
+    expect(accepts(componentId, actionId, payload)).toBe(verdict)
+  })
+
+  it('fits the widest save and the widest card in one action document', () => {
+    const save = documentBytes(FORM_PAGE_ID, DATA_PAGE_ADDED_ID, {
+      record: Object.fromEntries(Array.from({ length: DATA_PAGE_REPORT_LIMITS.savedFields }, (_unused, index) => [
+        `${'k'.repeat(MAX_FIELD_NAME_LENGTH - 2)}${String(index).padStart(2, '0')}`,
+        '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH),
+      ])),
+    })
+    const card = documentBytes(INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID, {
+      name: '值'.repeat(MAX_DATA_PAGE_CELL_LENGTH),
+      type: 't'.repeat(MAX_FIELD_NAME_LENGTH),
+    })
+    expect(Math.max(save, card)).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+
+  it('declares the save and the card at the ceilings the drawing row cuts to', () => {
+    const saved = declared(payloadSchema(FORM_PAGE_ID, DATA_PAGE_ADDED_ID)['record']?.schema, 'record')
+    const name = declared(payloadSchema(INFO_CARD_ID, DATA_PAGE_CARD_OPEN_ID)['name']?.schema, 'string')
+    expect([saved.maxKeys, saved.maxValueLength, saved.maxValue, name.maxLength]).toEqual([
+      DATA_PAGE_REPORT_LIMITS.savedFields,
+      DATA_PAGE_REPORT_LIMITS.cellLength,
+      DATA_PAGE_REPORT_LIMITS.number,
+      DATA_PAGE_REPORT_LIMITS.cellLength,
+    ])
   })
 })
 

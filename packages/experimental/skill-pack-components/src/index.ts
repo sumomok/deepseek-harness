@@ -14,9 +14,10 @@
  *
  * What it publishes is the components this deployment *offers* rather than the
  * ones it registered. A component the deployment did not turn on cannot be
- * drawn, so a pack requiring it must stay inactive — the data page on a
- * deployment that left `crud` off is that case, and it is why the catalog
- * registry answers an offer rather than a registration.
+ * drawn, so a pack requiring it must stay inactive — the data page, the form
+ * page and the info card on a deployment that left `dataPage` off are that
+ * case, and it is why the catalog registry answers an offer rather than a
+ * registration.
  *
  * Views travel the other way. Every active pack's views are registered into
  * `ctx.componentViews` as one source, re-registered whenever the pack set

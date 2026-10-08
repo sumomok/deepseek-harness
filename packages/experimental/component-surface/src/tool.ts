@@ -44,6 +44,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   BINDING_KEY,
   catalogLabels,
+  DATA_PAGE_GATED_IDS,
   DATA_PAGE_ID,
   DATA_PAGE_MODEL_PROP_NAMES,
   dataPageNodes,
@@ -68,10 +69,10 @@ import {
   type ComponentNode,
 } from './component-call.ts'
 import {
+  componentNotOffered,
   dataPageApprovalReason,
   dataPageBesideDataSource,
   dataPageLoadedText,
-  dataPageNotOffered,
   dataPageUnreportedText,
   DATA_PAGE_NOT_APPROVED,
   DATA_PAGE_NO_SESSION,
@@ -144,7 +145,8 @@ export interface ShowComponentOptions {
   readonly defaultPageSize: number
   /**
    * Whether a call may open the deployment's own data page (`toy.data-page`)
-   * in the panel. False wherever the deployment composed no approval answerer,
+   * in the panel, and a view may place it and the form page and info card
+   * beside it. False wherever the deployment composed no approval answerer,
    * and the component is then absent from the description — a block nobody
    * can be asked about is one nobody may place.
    */
@@ -239,15 +241,16 @@ function describeDataPage(): string {
  *
  * The data page needs a question answered before it opens, so a composition
  * that cannot ask leaves it out of the list a model reads — the same rule the
- * `dataSource` parameter follows, applied to a component. The one home of that
- * rule: the tool's description reads it through {@link offeredEntries}, and the
- * catalog registry is installed with it so everything else asking what this
- * deployment can draw gets the same answer.
+ * `dataSource` parameter follows, applied to a component. The form page and
+ * the info card go with it: a view places them only beside a data page. The
+ * one home of that rule: the tool's description reads it through
+ * {@link offeredEntries}, and the catalog registry is installed with it so
+ * everything else asking what this deployment can draw gets the same answer.
  * @param options - what this composition offers.
  * @returns the withheld catalog ids, empty for a composition that offers every registered component.
  */
 export function withheldComponents(options: ShowComponentOptions): readonly string[] {
-  return options.dataPage ? [] : [DATA_PAGE_ID]
+  return options.dataPage ? [] : [...DATA_PAGE_GATED_IDS]
 }
 
 /**
@@ -722,8 +725,12 @@ async function runDataSource(
   // deployment that does not offer the page refuses it by name instead, because
   // that is the reason this call cannot open one, and telling the model to move
   // it into a call of its own would send it to write a call refused the same way.
-  if (dataPageNodes(judged.call.spec).length > 0) {
-    throw new Error((options.dataPage ? dataPageBesideDataSource(judged.call.spec) : dataPageNotOffered(catalog, judged.call.spec)).text)
+  const page = dataPageNodes(judged.call.spec)[0]
+  if (page !== undefined) {
+    const refusal = options.dataPage
+      ? dataPageBesideDataSource(judged.call.spec)
+      : componentNotOffered(catalog, judged.call.spec, page)
+    throw new Error(refusal.text)
   }
   const { agent } = exec
   // No session means none of this can happen: nobody to read for, nobody to

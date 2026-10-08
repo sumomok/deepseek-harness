@@ -1735,6 +1735,18 @@ const DATA_PAGE_ROW_OPERATION_HINT = 'This page draws no delete confirmation, so
 /** The sections a written-down page's info card may draw. */
 const DATA_PAGE_INFO_CARD_TABS: readonly string[] = ['wrong-info', 'operation', 'related-stat', 'useage', 'attributes']
 
+/**
+ * Which of {@link DATA_PAGE_INFO_CARD_TABS} one card draws, as the data page's
+ * own card and the info card block both declare it: one list, so a view
+ * arranges either card in the same words.
+ */
+const INFO_CARD_TABS: ArrayFieldSchema = {
+  kind: 'array',
+  minItems: 0,
+  maxItems: DATA_PAGE_INFO_CARD_TABS.length,
+  item: { kind: 'enum', values: DATA_PAGE_INFO_CARD_TABS },
+}
+
 /** Most entries one `pageSizes` list offers. */
 const MAX_DATA_PAGE_PAGE_SIZES = 10
 
@@ -1911,16 +1923,7 @@ const DATA_PAGE_PROPS: PropsSchema = {
     },
     ...DATA_PAGE_ARRANGED,
   },
-  infoCardTabs: {
-    required: false,
-    schema: {
-      kind: 'array',
-      minItems: 0,
-      maxItems: DATA_PAGE_INFO_CARD_TABS.length,
-      item: { kind: 'enum', values: DATA_PAGE_INFO_CARD_TABS },
-    },
-    ...DATA_PAGE_ARRANGED,
-  },
+  infoCardTabs: { required: false, schema: INFO_CARD_TABS, ...DATA_PAGE_ARRANGED },
   readOnly: { required: false, schema: { kind: 'boolean' }, ...DATA_PAGE_ARRANGED },
 }
 
@@ -2374,6 +2377,227 @@ const DATA_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
   },
 ]
 
+/** Output id the data page publishes the record a name or a relation link opened under. */
+export const DATA_PAGE_OPENED_OUTPUT = 'opened'
+
+/** Output id the data page publishes what its add or modify button is editing under. */
+export const DATA_PAGE_EDITING_OUTPUT = 'editing'
+
+/**
+ * Largest record id the data page's outputs carry, in characters.
+ *
+ * The id is published as text whatever the backend typed it as, so one ceiling
+ * covers a numeric key and a textual one; a longer id is not published at all.
+ */
+export const MAX_RECORD_ID_LENGTH = 64
+
+/** One record id, as the data page's outputs carry it. */
+const RECORD_ID: StringFieldSchema = { kind: 'string', maxLength: MAX_RECORD_ID_LENGTH }
+
+/** One record's name, as the data page's outputs and the info card's report carry it: the width of one reported cell. */
+const RECORD_NAME: StringFieldSchema = { kind: 'string', maxLength: MAX_DATA_PAGE_CELL_LENGTH }
+
+/**
+ * The record a name or a relation link on the data page opened.
+ *
+ * `type` is the table the record belongs to, which for a relation link is the
+ * related table rather than the page's own. `name` is absent where the page
+ * has no name to show for the record.
+ */
+export const OPENED_RECORD: ObjectFieldSchema = {
+  kind: 'object',
+  fields: {
+    id: { required: true, schema: RECORD_ID },
+    name: { required: false, schema: RECORD_NAME },
+    type: { required: true, schema: FIELD_NAME },
+  },
+}
+
+/**
+ * What the data page's add or modify button is editing: a new record of the
+ * page's table, which carries no `id`, or one row of it, which carries that
+ * row's `id` and, where the page shows one, its `name`.
+ */
+export const EDITING_RECORD: ObjectFieldSchema = {
+  kind: 'object',
+  fields: {
+    mode: { required: true, schema: { kind: 'enum', values: ['add', 'modify'] } },
+    type: { required: true, schema: FIELD_NAME },
+    id: { required: false, schema: RECORD_ID },
+    name: { required: false, schema: RECORD_NAME },
+  },
+}
+
+/**
+ * The two values another block may read out of a data page.
+ *
+ * Both are what the page is showing now, not a count of presses: `opened` is
+ * the record the user last opened by its name or a relation link, and
+ * `editing` is what the last press of the add button or of a row's modify
+ * button opened for editing. Pressing the same button again publishes the
+ * same value, and a block reading it is handed nothing new.
+ * `opened` is withdrawn — published as `undefined`, which leaves a property
+ * bound to it with no value — when the page closes its card, is cleared or
+ * turns a page, and a query leaves it standing. A value naming a record is
+ * withdrawn when that record is deleted.
+ *
+ * Only a component a view alone places reads either: every property of the
+ * data page itself is {@link PropsField.unbindable}, so the page reads nothing
+ * from another block and a chain through it still runs one way.
+ */
+const DATA_PAGE_OUTPUTS: readonly ComponentOutput[] = [
+  { id: DATA_PAGE_OPENED_OUTPUT, shape: OPENED_RECORD, readers: 'view' },
+  { id: DATA_PAGE_EDITING_OUTPUT, shape: EDITING_RECORD, readers: 'view' },
+]
+
+/** Catalog id of the form page: the add and modify form of one table, beside that table's data page. */
+export const FORM_PAGE_ID = catalogId('toy.form-page')
+
+/** Catalog id of the info card: one record's card, beside the data page that opened it. */
+export const INFO_CARD_ID = catalogId('toy.info-card')
+
+/**
+ * The components a deployment's `dataPage` setting turns on: the data page,
+ * and the two blocks a view places beside one. A deployment that leaves it
+ * off withholds all three.
+ */
+export const DATA_PAGE_GATED_IDS: readonly CatalogId[] = [DATA_PAGE_ID, FORM_PAGE_ID, INFO_CARD_ID]
+
+/** Why a form page's table is written out in the view rather than read from another block. */
+const FORM_PAGE_TABLE_UNBINDABLE = 'the saved record is reported under this table, and before the view is drawn it is '
+  + 'compared with the table of the data page whose buttons the form follows, so it is written out in the view.'
+
+/** What a form page's `request` is, stated wherever a view writes anything else there. */
+const FORM_PAGE_REQUEST_REASON = 'the form saves the record the data page\'s own add and modify buttons name, and '
+  + 'nothing else names one.'
+
+/** What an info card's `record` is, stated wherever a view writes anything else there. */
+const INFO_CARD_RECORD_REASON = 'the card shows the record the data page\'s own names and relation links open, and '
+  + 'nothing else names one.'
+
+/**
+ * The form page's declared properties.
+ *
+ * `request` is optional so that a block whose binding has not resolved yet is
+ * drawn with its own empty form rather than the seat's waiting line; a view
+ * must still write it, as the binding {@link PropsField.bindsFrom} names. What
+ * the visitor may do on the table is not a property: the row that draws the
+ * form reads it from the host, as it does for the data page.
+ */
+const FORM_PAGE_PROPS: PropsSchema = {
+  relatedMeta: { required: true, schema: FIELD_NAME, unbindable: FORM_PAGE_TABLE_UNBINDABLE },
+  request: {
+    required: false,
+    schema: EDITING_RECORD,
+    bindsFrom: { component: DATA_PAGE_ID, output: DATA_PAGE_EDITING_OUTPUT, reason: FORM_PAGE_REQUEST_REASON },
+  },
+}
+
+/**
+ * The info card's declared properties.
+ *
+ * `record` is optional for the reason a form page's `request` is: until the
+ * data page opens a record the card draws itself empty. `infoCardTabs` is the
+ * list the data page's own card is arranged by.
+ */
+const INFO_CARD_PROPS: PropsSchema = {
+  record: {
+    required: false,
+    schema: OPENED_RECORD,
+    bindsFrom: { component: DATA_PAGE_ID, output: DATA_PAGE_OPENED_OUTPUT, reason: INFO_CARD_RECORD_REASON },
+  },
+  infoCardTabs: { required: false, schema: INFO_CARD_TABS },
+}
+
+/**
+ * The table one form page block saves into.
+ *
+ * The cast is what validation proved: `relatedMeta` is required, and a view
+ * cannot read it from another block.
+ * @param node - the drawn node, as validation accepted it.
+ * @returns the table's name in the backend.
+ */
+function formPageMeta(node: ComponentNode): string {
+  return node.props['relatedMeta'] as string
+}
+
+/**
+ * Account for one record a form page saved.
+ *
+ * Reads the payload and the block's table, and never `request`: on the host
+ * that property is the binding the view wrote, not the record it resolved to.
+ * A record carrying no field is reported as saved and nothing more.
+ * @param context - the entry, the node, the catalog entry, and the accepted payload.
+ * @param written - whether the record is new or an edit of one that existed.
+ * @returns the two accounts.
+ */
+function describeFormSave(context: ComponentActionContext, written: 'added' | 'modified'): ComponentActionNotice {
+  const record = context.payload['record'] as Readonly<Record<string, unknown>>
+  const saved = `The user saved ${written === 'added' ? 'a new record' : 'an edit'} of "${formPageMeta(context.node)}" `
+    + `in ${place(context)}`
+  const done = written === 'added' ? '新增' : '改'
+  const fields = Object.entries(record)
+  if (fields.length === 0) {
+    return { text: `${saved}.`, summary: `用户在「${entryName(context)}」里${done}了一条记录` }
+  }
+  const name = nameDataPageRow(record)
+  return {
+    text: `${saved}: ${name.agent} (${fields.map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')}).`,
+    summary: `用户在「${entryName(context)}」里${done}了「${name.user}」`,
+  }
+}
+
+/** The two saves a form page reports, both `context`: the user working in a form is not a question the agent asked. */
+const FORM_PAGE_ACTIONS: readonly ComponentActionDefinition[] = [
+  {
+    id: DATA_PAGE_ADDED_ID,
+    report: 'context',
+    payloadSchema: { record: { required: true, schema: DATA_PAGE_SAVED_RECORD } },
+    describe: context => describeFormSave(context, 'added'),
+  },
+  {
+    id: DATA_PAGE_MODIFIED_ID,
+    report: 'context',
+    payloadSchema: { record: { required: true, schema: DATA_PAGE_SAVED_RECORD } },
+    describe: context => describeFormSave(context, 'modified'),
+  },
+]
+
+/**
+ * What an info card reports, both `context`: which record it now shows, and
+ * that it shows none.
+ *
+ * The card shows what the data page opened and closes when the page withdraws
+ * it, so a close is stated as the card no longer showing a record rather than
+ * as something the user did.
+ */
+const INFO_CARD_ACTIONS: readonly ComponentActionDefinition[] = [
+  {
+    id: DATA_PAGE_CARD_OPEN_ID,
+    report: 'context',
+    payloadSchema: {
+      name: { required: true, schema: RECORD_NAME },
+      type: { required: true, schema: FIELD_NAME },
+    },
+    describe: (context) => {
+      const name = quote(context.payload['name'] as string)
+      return {
+        text: `The card in ${place(context)} shows ${name.agent} (table "${context.payload['type'] as string}").`,
+        summary: `「${entryName(context)}」的信息卡显示了「${name.user}」`,
+      }
+    },
+  },
+  {
+    id: DATA_PAGE_CARD_CLOSE_ID,
+    report: 'context',
+    payloadSchema: {},
+    describe: context => ({
+      text: `The card in ${place(context)} no longer shows a record.`,
+      summary: `「${entryName(context)}」的信息卡已清空`,
+    }),
+  },
+]
+
 /**
  * The six components `@deepseek-ai/dsh-experimental-component-kit` registers.
  *
@@ -2439,6 +2663,37 @@ export const COMPONENT_KIT_ENTRIES = [
       + 'count, the rows they tick, and the row and column of a cell they click — no row they do not touch.',
     propsSchema: DATA_PAGE_PROPS,
     actions: DATA_PAGE_ACTIONS,
+    outputs: DATA_PAGE_OUTPUTS,
+  },
+] as const satisfies readonly ComponentCatalogEntry[]
+
+/**
+ * The two components only a view places, beside a data page: the form page its
+ * add and modify buttons open, and the card its names and relation links open.
+ *
+ * A library value like {@link COMPONENT_KIT_ENTRIES}, and kept apart from it:
+ * the component row registers an entry together with the renderer that draws
+ * it, and it draws neither of these two.
+ */
+export const COMPONENT_KIT_VIEW_ENTRIES = [
+  {
+    id: FORM_PAGE_ID,
+    label: '表单页',
+    placement: 'view',
+    purpose: 'The add and modify form of one table, placed in a written-down view beside that table\'s data page: it '
+      + 'follows the page\'s add and modify buttons and saves with the user\'s own credential.',
+    propsSchema: FORM_PAGE_PROPS,
+    actions: FORM_PAGE_ACTIONS,
+    outputs: [],
+  },
+  {
+    id: INFO_CARD_ID,
+    label: '信息卡',
+    placement: 'view',
+    purpose: 'One record\'s card, placed in a written-down view: it shows the record a data page\'s name or relation '
+      + 'link opened.',
+    propsSchema: INFO_CARD_PROPS,
+    actions: INFO_CARD_ACTIONS,
     outputs: [],
   },
 ] as const satisfies readonly ComponentCatalogEntry[]

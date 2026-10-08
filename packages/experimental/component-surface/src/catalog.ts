@@ -136,11 +136,13 @@ export class ComponentCatalogRegistry extends Service {
    *
    * Registering a component is the contributing plugin's act; offering it is
    * the deployment's, and the two differ wherever a component needs something
-   * the deployment did not turn on — the data page on a deployment that left
-   * `dataPage` off is the one that does today. A reader asking what this
-   * deployment can draw reads this rather than {@link components}, so a
-   * withheld component counts as absent to everyone outside the tool's own
-   * description, which leaves it out by the same rule.
+   * the deployment did not turn on — the data page, and the form page and info
+   * card a view places beside one, on a deployment that left `dataPage` off are
+   * the ones that do today. A reader asking what this deployment can draw reads
+   * this rather than {@link components}, so a withheld component counts as
+   * absent to everyone outside the tool's own description, which leaves it out
+   * by the same rule. A component only a view places is offered here like any
+   * other: a view is what draws it, though the tool's description leaves it out.
    */
   get offered(): readonly CatalogedComponent[] {
     return [...this.registered.values()].filter(one => !this.withheld.has(one.entry.id))

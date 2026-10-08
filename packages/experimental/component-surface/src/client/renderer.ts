@@ -60,8 +60,14 @@ export type ComponentActionHandler = (actionId: string, payload: ComponentAction
  * placement package hands it straight to another block as a property, and a
  * value a publisher goes on mutating would be a property that changed under a
  * component nobody re-rendered.
+ *
+ * Publishing `undefined` withdraws the output: a property bound to it is left
+ * with no value, so a block whose component declares that property optional is
+ * handed its properties without it, and one that requires it is drawn as
+ * waiting again. Publishing a value equal to the one standing hands the blocks
+ * reading it nothing new.
  * @param outputId - the id of the output being published, as the placement package's catalog declares it.
- * @param value - its current value.
+ * @param value - its current value, or `undefined` to withdraw it.
  */
 export type ComponentOutputHandler = (outputId: string, value: unknown) => void
 

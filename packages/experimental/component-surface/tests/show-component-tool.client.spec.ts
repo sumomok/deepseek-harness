@@ -15,32 +15,14 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import {
-  catalogId,
-  COMPONENT_KIT_ENTRIES,
-  DATA_PAGE_ID,
-  describeCatalog,
-  readCatalog,
-  SHOW_COMPONENT_TOOL_NAME,
-  type ComponentCatalogEntry,
-} from '../src/component-call.ts'
+import { COMPONENT_KIT_ENTRIES, DATA_PAGE_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import { PendingLoads } from '../src/data-page.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
-import { KIT_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
 const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, dataPage: false, dataPageLoadTimeoutMs: 1000 }
 
-/** A component only a written-down view may place. */
-const VIEW_PROBE: ComponentCatalogEntry = {
-  id: catalogId('toy.view-probe'),
-  label: '视图探针',
-  purpose: 'Placed by views alone.',
-  placement: 'view',
-  propsSchema: {},
-  actions: [],
-  outputs: [],
-}
 
 let calls = 0
 
@@ -157,15 +139,15 @@ describe('show_component model-visible surface', () => {
     })
   })
 
-  it('describes itself byte for byte the same whether or not components only a view places are registered', () => {
-    // Such a component is refused in any call, so the offer a model reads is
-    // the same offer it would read without one — which is also what keeps the
-    // description's prompt-cache prefix unchanged on a deployment that adds one.
-    const withViewPlaced = readCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE])
+  it('describes itself byte for byte the same whether or not the components only a view places are registered', () => {
+    // Either is refused in any call, and the data page's two outputs are read
+    // by nothing a call places, so the offer a model reads is the same offer it
+    // would read without them — which is also what keeps the description's
+    // prompt-cache prefix unchanged on a deployment that registers them.
     for (const dataSource of [false, true]) {
       for (const dataPage of [false, true]) {
         const options = { ...PLAIN, dataSource, dataPage }
-        expect(describeShowComponent(withViewPlaced, options)).toBe(describeShowComponent(KIT_CATALOG, options))
+        expect(describeShowComponent(KIT_VIEW_CATALOG, options)).toBe(describeShowComponent(KIT_CATALOG, options))
       }
     }
   })

@@ -34,7 +34,7 @@ import {
   validateComponentSpec,
   type ComponentCallFailure,
 } from '../src/validate.ts'
-import { KIT_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 /** One accepted confirmation bar, the shape every rejection case starts from. */
 function confirmBar(props: Record<string, unknown> = { buttons: [{ id: 'ok', label: '确认' }] }): Record<string, unknown> {
@@ -468,6 +468,16 @@ describe('refusing a node', () => {
     expect(failure.text).toBe(
       `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_KIT_ENTRIES)}`,
     )
+  })
+
+  it('hands back no component only a view places, which is no component a call could pick instead', () => {
+    const result = validateComponentCall(KIT_VIEW_CATALOG, call({ nodes: [{ ...confirmBar(), component: 'toy.chart' }] }))
+    if (result.ok) throw new Error('expected a refusal, got an accepted call')
+    expect(result.failure.text).toBe(
+      `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_KIT_ENTRIES)}`,
+    )
+    expect(result.failure.text).not.toContain('toy.form-page')
+    expect(result.failure.text).not.toContain('toy.info-card')
   })
 })
 

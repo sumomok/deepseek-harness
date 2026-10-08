@@ -14,16 +14,24 @@ import { describe, expect, it } from 'vitest'
 import {
   BINDING_KEY,
   COMPONENT_KIT_ENTRIES,
+  DATA_PAGE_ID,
+  DATA_PAGE_MODEL_PROP_NAMES,
+  DATA_PAGE_VIEW_PROP_NAMES,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
   MAX_FLEX,
   MAX_LAYOUT_CHILDREN,
   MAX_LAYOUT_DEPTH,
+  placedOnlyByViews,
+  readByViewsOnly,
   RECORD_DETAIL_ID,
   TABLE_ID,
+  type ComponentCatalog,
   type LayoutStack,
   type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsOutput, validateComponentSpec, type ComponentCallFailure } from '../src/validate.ts'
-import { KIT_CATALOG } from './kit-catalog.client.ts'
+import { KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 /** One table, which is the only component with something to read out of it. */
 function table(id: string, props: Record<string, unknown> = {}): Record<string, unknown> {
@@ -49,15 +57,15 @@ function from(reference: string): Record<string, unknown> {
 }
 
 /** The refusal one spec produced; fails the spec when it was accepted. */
-function refusal(spec: unknown): ComponentCallFailure {
-  const result = validateComponentSpec(KIT_CATALOG, spec)
+function refusal(spec: unknown, catalog: ComponentCatalog = KIT_CATALOG): ComponentCallFailure {
+  const result = validateComponentSpec(catalog, spec)
   if (result.ok) throw new Error('expected a refusal, got an accepted spec')
   return result.failure
 }
 
 /** The spec one document was accepted as; fails the spec when it was refused. */
-function accepted(spec: unknown): ReturnType<typeof validateComponentSpec> & { ok: true } {
-  const result = validateComponentSpec(KIT_CATALOG, spec)
+function accepted(spec: unknown, catalog: ComponentCatalog = KIT_CATALOG): ReturnType<typeof validateComponentSpec> & { ok: true } {
+  const result = validateComponentSpec(catalog, spec)
   if (!result.ok) throw new Error(result.failure.text)
   return result
 }
@@ -466,6 +474,7 @@ describe('which way a value can travel', () => {
       tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] },
       displayValueList: [{ zh_label: 'A-1' }],
     },
+    [DATA_PAGE_ID]: { relatedMeta: 'device', metaLabel: '设备' },
   }
 
   /**
@@ -478,6 +487,7 @@ describe('which way a value can travel', () => {
    */
   const READ_BACK: Readonly<Record<string, readonly string[]>> = {
     [TABLE_ID]: ['tableConfig', 'displayValueList', 'rawValueList'],
+    [DATA_PAGE_ID]: [...DATA_PAGE_MODEL_PROP_NAMES, ...DATA_PAGE_VIEW_PROP_NAMES],
   }
 
   it('refuses every binding into a block that reports something of its own', () => {
@@ -514,6 +524,65 @@ describe('which way a value can travel', () => {
         }
       }
     }
+  })
+})
+
+describe('an output only a view-placed block reads', () => {
+  /** The data page every case here reads from, opened on one table. */
+  const PAGE = { id: 'page', component: DATA_PAGE_ID, props: { relatedMeta: 'device', metaLabel: '设备' } }
+
+  /** One block of `component` whose property `prop` reads `reference`. */
+  function reader(component: string, prop: string, reference: string, props: Record<string, unknown> = {}): Record<string, unknown> {
+    return { id: 'b', component, props: { ...props, [prop]: from(reference) } }
+  }
+
+  it('is declared so exactly where every property accepting it is on a component only a view places', () => {
+    // The declaration is what leaves the output off the lines a model reads,
+    // so it must hold of the catalog rather than of the intent: an output
+    // marked that a call-placed property accepts would be one the model can
+    // bind and is never told about.
+    const entries = KIT_VIEW_CATALOG.entries
+    const outputs = entries.flatMap(source => source.outputs.map(output => ({ source: source.id, output })))
+    expect(outputs.map(one => `${one.source}.${one.output.id}`))
+      .toEqual(['toy.table.selectionDetail', 'toy.data-page.opened', 'toy.data-page.editing'])
+    for (const { source, output } of outputs) {
+      const readers = entries.filter(entry => Object.entries(entry.propsSchema).some(([name, field]) =>
+        field.unbindable === undefined && entry.sanitize?.[name] === undefined && acceptsOutput(output.shape, field.schema)))
+      const label = `${source}.${output.id}`
+      const holds = readByViewsOnly(output)
+        ? readers.length > 0 && readers.every(placedOnlyByViews)
+        : readers.some(entry => !placedOnlyByViews(entry))
+      expect([label, holds]).toEqual([label, true])
+    }
+  })
+
+  it('lets a form page read what the page is editing, and refuses it what the page opened', () => {
+    const form = { relatedMeta: 'device' }
+    expect(accepted({ nodes: [PAGE, reader(FORM_PAGE_ID, 'request', 'node:page.editing', form)] }, KIT_VIEW_CATALOG).ok)
+      .toBe(true)
+    // An opened record may belong to a related table, and carries no mode: a
+    // form reading it would save into a table the view never named.
+    const failure = refusal({ nodes: [PAGE, reader(FORM_PAGE_ID, 'request', 'node:page.opened', form)] }, KIT_VIEW_CATALOG)
+    expect(failure.path).toBe(`spec.nodes[1].props.request.${BINDING_KEY}`)
+    expect(failure.text).toContain('reads {id, name?, type}, and request accepts {mode (add|modify), type, id?, name?}.')
+  })
+
+  it('lets an info card read what the page opened, and refuses it what the page is editing', () => {
+    expect(accepted({ nodes: [PAGE, reader(INFO_CARD_ID, 'record', 'node:page.opened')] }, KIT_VIEW_CATALOG).ok).toBe(true)
+    // A record being added has no id, and a card needs one to read.
+    const failure = refusal({ nodes: [PAGE, reader(INFO_CARD_ID, 'record', 'node:page.editing')] }, KIT_VIEW_CATALOG)
+    expect(failure.path).toBe(`spec.nodes[1].props.record.${BINDING_KEY}`)
+    expect(failure.text).toContain('and record accepts {id, name?, type}.')
+  })
+
+  it('names, for a misspelt output, only what the receiving property could ever read', () => {
+    // A record detail is a block a call places, and nothing it declares reads
+    // either of the page's outputs: naming them would offer the model two
+    // values the tool's description never states.
+    expect(refusal({ nodes: [PAGE, reader(RECORD_DETAIL_ID, 'dataList', 'node:page.rows')] }, KIT_VIEW_CATALOG).text)
+      .toContain('reads "rows" from the 完整数据页 block "page", which reports nothing.')
+    expect(refusal({ nodes: [PAGE, reader(FORM_PAGE_ID, 'request', 'node:page.rows', { relatedMeta: 'device' })] }, KIT_VIEW_CATALOG).text)
+      .toContain('reads "rows" from the 完整数据页 block "page", which reports opened, editing.')
   })
 })
 

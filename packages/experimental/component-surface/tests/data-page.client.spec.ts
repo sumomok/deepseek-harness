@@ -28,8 +28,6 @@ import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import {
-  catalogId,
-  COMPONENT_KIT_ENTRIES,
   DATA_PAGE_ADDED_ID,
   DATA_PAGE_CARD_CLOSE_ID,
   DATA_PAGE_CARD_OPEN_ID,
@@ -43,11 +41,11 @@ import {
   DATA_PAGE_SELECT_ID,
   DATA_PAGE_VIEW_PROP_NAMES,
   formatComponentActionLine,
-  readCatalog,
+  FORM_PAGE_ID,
+  INFO_CARD_ID,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentAction,
   type ComponentCatalog,
-  type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 import {
   dataPageApprovalReason,
@@ -64,7 +62,7 @@ import * as ShowComponent from '../src/index.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 import { validateComponentSpec } from '../src/validate.ts'
 import { indexViews } from '../src/views.ts'
-import { installKitCatalog, KIT_CATALOG } from './kit-catalog.client.ts'
+import { installKitCatalog, KIT_CATALOG, KIT_VIEW_CATALOG } from './kit-catalog.client.ts'
 
 const contexts: Context[] = []
 
@@ -86,22 +84,37 @@ const PAGE = { id: 'page', component: DATA_PAGE_ID, props: { relatedMeta: 'devic
 /** The spec every call in this suite places. */
 const SPEC = { nodes: [PAGE] }
 
-/** A component only a written-down view may place. */
-const VIEW_PROBE: ComponentCatalogEntry = {
-  id: catalogId('toy.view-probe'),
-  label: '视图探针',
-  purpose: 'Placed by views alone.',
-  placement: 'view',
-  propsSchema: {},
-  actions: [],
-  outputs: [],
+/** A form page on {@link PAGE}'s table, reading what that page's add and modify buttons are editing. */
+const FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device', request: { $from: 'node:page.editing' } } }
+
+/** An info card reading the record {@link PAGE} opened. */
+const CARD_BLOCK = { id: 'card', component: INFO_CARD_ID, props: { record: { $from: 'node:page.opened' } } }
+
+/** A form page on its own, reading nothing. */
+const LONE_FORM = { id: 'form', component: FORM_PAGE_ID, props: { relatedMeta: 'device' } }
+
+/**
+ * The three blocks a written-down view places together: the page opened writable
+ * with its own forms and card left out, the form page, and the info card.
+ */
+const CRUD_VIEW = {
+  nodes: [
+    { ...PAGE, props: { ...PAGE.props, readOnly: false, regions: { addForm: false, modifyForm: false, infoCard: false } } },
+    FORM,
+    CARD_BLOCK,
+  ],
+  layout: {
+    node: 'stack',
+    dir: 'row',
+    children: [{ node: 'component', id: 'page' }, { node: 'component', id: 'form' }, { node: 'component', id: 'card' }],
+  },
 }
 
-/** The kit's components and one only a view places. */
-const VIEW_CATALOG: ComponentCatalog = readCatalog([...COMPONENT_KIT_ENTRIES, VIEW_PROBE])
-
-/** One block of {@link VIEW_PROBE}. */
-const VIEW_PLACED = { id: 'form', component: VIEW_PROBE.id, props: {} }
+/**
+ * What a refusal of a withheld component lists as offered: the kit's six less
+ * the data page, the two view-placed blocks withheld with it.
+ */
+const OFFERED_WITHOUT_PAGE = 'Offered components: el.confirm-bar, toy.record, toy.table, el.filter-bar, el.metric.'
 
 /**
  * One legal value per property only a written-down page may set, in the order
@@ -176,6 +189,19 @@ describe('judging the page before the question', () => {
         + 'Offered components: el.confirm-bar, toy.record, toy.table, el.filter-bar, el.metric.',
       oversize: false,
     })
+    // The form page and the info card are withheld with the page, so they are
+    // not among the components named as offered.
+    expect(judgeDataPageNodes(KIT_VIEW_CATALOG, validateSpec(SPEC), false, false)?.text)
+      .toBe(`show_component: spec.nodes[0].component — names toy.data-page, which this deployment does not offer. ${OFFERED_WITHOUT_PAGE}`)
+  })
+
+  it('refuses a form page or an info card by name where the deployment does not offer the page, whichever comes first', () => {
+    const formFirst = validateSpec({ nodes: [LONE_FORM, PAGE] }, KIT_VIEW_CATALOG)
+    expect(judgeDataPageNodes(KIT_VIEW_CATALOG, formFirst, false, true)?.text)
+      .toBe(`show_component: spec.nodes[0].component — names toy.form-page, which this deployment does not offer. ${OFFERED_WITHOUT_PAGE}`)
+    const cardAlone = validateSpec({ nodes: [{ id: 'card', component: INFO_CARD_ID, props: {} }] }, KIT_VIEW_CATALOG)
+    expect(judgeDataPageNodes(KIT_VIEW_CATALOG, cardAlone, false, true)?.path).toBe('spec.nodes[0].component')
+    expect(judgeDataPageNodes(KIT_VIEW_CATALOG, cardAlone, true, true)).toBeUndefined()
   })
 
   it('refuses a second page in one call', () => {
@@ -515,15 +541,15 @@ describe('the tool opening the page', () => {
 })
 
 describe('a block only a view places, sent in a call', () => {
-  /** The refusal every case here ends in, for a view-placed block at the given position. */
+  /** The refusal every case here ends in, for a form page at the given position. */
   const placedByViews = (index: number): string => `show_component: spec.nodes[${index}].component — names `
-    + `${VIEW_PLACED.component}, which is placed only by a view written down for this deployment, never by a call.`
+    + 'toy.form-page, which is placed only by a view written down for this deployment, never by a call.'
 
   it.each([['offers', OPENING], ['does not offer', PLAIN]] as const)(
     'is refused on its own where the deployment %s the data page, before asking and before recording',
     async (_case, options) => {
-      const { asked, session, run } = await bench('allowed-once', options, VIEW_CATALOG)
-      const result = await run({ id: 'form', title: '表单', spec: { nodes: [VIEW_PLACED] } })
+      const { asked, session, run } = await bench('allowed-once', options, KIT_VIEW_CATALOG)
+      const result = await run({ id: 'form', title: '表单', spec: { nodes: [LONE_FORM] } })
       expect(result.isError).toBe(true)
       expect(refusal(result)).toBe(placedByViews(0))
       expect(asked).toEqual([])
@@ -531,9 +557,11 @@ describe('a block only a view places, sent in a call', () => {
     },
   )
 
-  it('is refused beside a data page before the page\'s question is asked', async () => {
-    const { asked, session, run } = await bench('allowed-once', OPENING, VIEW_CATALOG)
-    const result = await run({ id: 'page', title: '设备', spec: { nodes: [PAGE, VIEW_PLACED] } })
+  it('is refused beside the data page it reads before the page\'s question is asked', async () => {
+    // The three blocks a view places together: a call carrying them asks the
+    // user about a read-only page and would draw a form that writes.
+    const { asked, session, run } = await bench('allowed-once', OPENING, KIT_VIEW_CATALOG)
+    const result = await run({ id: 'page', title: '设备', spec: { nodes: [PAGE, FORM, CARD_BLOCK] } })
     expect(refusal(result)).toBe(placedByViews(1))
     expect(asked).toEqual([])
     expect(resolvedEvents(session)).toEqual([])
@@ -545,11 +573,11 @@ describe('a block only a view places, sent in a call', () => {
       // The read's own question is the one a person would answer for this
       // call, and allowing it must not put a block on screen that no call may
       // place.
-      const { asked, session, run } = await bench('allowed-once', { ...options, dataSource: true }, VIEW_CATALOG)
+      const { asked, session, run } = await bench('allowed-once', { ...options, dataSource: true }, KIT_VIEW_CATALOG)
       const result = await run({
         id: 'rows',
         title: '设备',
-        spec: { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] } } }, VIEW_PLACED] },
+        spec: { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] } } }, LONE_FORM] },
         dataSource: [{ nodeId: 'rows', meta: 'device', metaLabel: '设备' }],
       })
       expect(refusal(result)).toBe(placedByViews(1))
@@ -557,6 +585,13 @@ describe('a block only a view places, sent in a call', () => {
       expect(resolvedEvents(session)).toEqual([])
     },
   )
+
+  it('leaves the data page refused by name, in the same words, where the deployment registers both and offers neither', async () => {
+    const { asked, run } = await bench('allowed-once', PLAIN, KIT_VIEW_CATALOG)
+    const result = await run({ id: 'page', title: '设备', spec: SPEC })
+    expect(asked).toEqual([])
+    expect(refusal(result)).toBe(`show_component: spec.nodes[0].component — names toy.data-page, which this deployment does not offer. ${OFFERED_WITHOUT_PAGE}`)
+  })
 })
 
 describe('the row\'s own configuration', () => {
@@ -585,6 +620,23 @@ describe('a configured view', () => {
   it('may not place a page the deployment does not offer, and is refused by name', () => {
     expect(() => indexViews(KIT_CATALOG, [{ id: 'devices', title: '设备', spec: SPEC }], undefined, false)).toThrow(
       'component-surface: views[0] "devices" — spec.nodes[0].component — names toy.data-page, which this deployment does not offer.',
+    )
+  })
+
+  it('may place a form page and an info card beside the page they read', () => {
+    const index = indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '设备管理', spec: CRUD_VIEW }], undefined, true)
+    expect(index.get('crud')?.spec.nodes.map(node => node.component)).toEqual([DATA_PAGE_ID, FORM_PAGE_ID, INFO_CARD_ID])
+    // Held as the bindings the view wrote: what they stand for is the seat's.
+    expect(index.get('crud')?.spec.nodes[1]?.props['request']).toEqual({ $from: 'node:page.editing' })
+  })
+
+  it('may not place a form page where the deployment does not offer the page, and is refused by name', () => {
+    expect(() => indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '设备管理', spec: CRUD_VIEW }], undefined, false)).toThrow(
+      'component-surface: views[0] "crud" — spec.nodes[0].component — names toy.data-page, which this deployment does not offer.',
+    )
+    const formFirst = { ...CRUD_VIEW, nodes: [FORM, ...CRUD_VIEW.nodes.filter(node => node.id !== 'form')] }
+    expect(() => indexViews(KIT_VIEW_CATALOG, [{ id: 'crud', title: '设备管理', spec: formFirst }], undefined, false)).toThrow(
+      `component-surface: views[0] "crud" — spec.nodes[0].component — names toy.form-page, which this deployment does not offer. ${OFFERED_WITHOUT_PAGE}`,
     )
   })
 })
@@ -784,8 +836,8 @@ describe('the page reporting back through the composition', () => {
 })
 
 /** Validate one spec or throw, for the cases that hand a validated spec to the judgement. */
-function validateSpec(spec: unknown) {
-  const result = validateComponentSpec(KIT_CATALOG, spec)
+function validateSpec(spec: unknown, catalog: ComponentCatalog = KIT_CATALOG) {
+  const result = validateComponentSpec(catalog, spec)
   if (!result.ok) throw new Error(result.failure.text)
   return result.spec
 }
