@@ -112,13 +112,12 @@ const METRIC = { id: 'a', component: 'el.metric', props: { process: 50 } }
 const TABLE = { id: 't', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'a' }] }, displayValueList: [{ a: 1 }] } }
 
 /**
- * A record whose `dataList` is the given value.
+ * A record, node `r`, whose `dataList` is the given value.
  * @param dataList - the value, a `$from` reference or a list.
- * @param id - the node id.
  * @returns the node.
  */
-function record(dataList: unknown, id = 'r'): unknown {
-  return { id, component: 'toy.record', props: { dataList } }
+function record(dataList: unknown): unknown {
+  return { id: 'r', component: 'toy.record', props: { dataList } }
 }
 
 /**
