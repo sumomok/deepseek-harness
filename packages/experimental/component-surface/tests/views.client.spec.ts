@@ -382,9 +382,9 @@ describe('a view placing a form page and an info card beside its data page', () 
 
   it.each([
     ['is read-only', { readOnly: undefined }],
-    ['draws no toolbar to hold the add button', { regions: { addForm: false, toolbar: false } }],
-    ['keeps no add button in its toolbar', { regions: { addForm: false }, toolbarButtons: ['exp', 'search', 'clear'] }],
-    ['keeps no modify button on its rows', { regions: { modifyForm: false }, rowOperations: [] }],
+    ['draws no toolbar to hold the add button', { regions: { addForm: false, toolbar: false, infoCard: false } }],
+    ['keeps no add button in its toolbar', { regions: { addForm: false, infoCard: false }, toolbarButtons: ['exp', 'search', 'clear'] }],
+    ['keeps no modify button on its rows', { regions: { modifyForm: false, infoCard: false }, rowOperations: [] }],
   ])('accepts a page leaving out a form without a form page beside it where it %s', (_case, props) => {
     expect(accepted(rewritten(CRUD_PAGE, props), CRUD_CARD)).toBe(true)
   })
@@ -394,5 +394,23 @@ describe('a view placing a form page and an info card beside its data page', () 
       'spec.nodes[3]',
       'is a second toy.info-card reading opened of "page": one click would fill two cards.',
     ))
+  })
+
+  it.each([
+    ['writes no regions at all', [rewritten(CRUD_PAGE, { regions: undefined }), CRUD_CARD], 1],
+    ['leaves its own card to the page', [rewritten(CRUD_PAGE, { regions: { addForm: false, modifyForm: false } }), CRUD_FORM, CRUD_CARD], 2],
+    ['draws its own card', [rewritten(CRUD_PAGE, { regions: { addForm: false, modifyForm: false, infoCard: true } }), CRUD_FORM, CRUD_CARD], 2],
+  ] as const)('refuses an info card beside a page that %s', (_case, nodes, card) => {
+    // The page's own side card opens on the same click that fills the info
+    // card, and each would report the record it shows.
+    expect(refused(nodes)).toEqual(refusal(
+      `spec.nodes[${card}].props.record`,
+      'reads opened of "page", whose own side card is still drawn because regions.infoCard is not false: one click '
+      + 'would open two cards.',
+    ))
+  })
+
+  it('accepts an info card beside a page that writes its own card false and nothing else', () => {
+    expect(accepted(rewritten(CRUD_PAGE, { regions: { infoCard: false } }), CRUD_CARD)).toBe(true)
   })
 })

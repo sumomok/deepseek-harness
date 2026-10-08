@@ -476,6 +476,24 @@ function judgeForms(spec: ComponentSpec, page: ComponentNode): ComponentCallFail
 }
 
 /**
+ * Judge the info card of one view against the data page whose record it shows.
+ * @param spec - the spec, as validation accepted it.
+ * @param page - the view's data page.
+ * @returns the refusal, or `undefined` when the view places no card or one beside a page drawing no card of its own.
+ */
+function judgeCard(spec: ComponentSpec, page: ComponentNode): ComponentCallFailure | undefined {
+  const twice = secondReader(spec, page, INFO_CARD_ID, DATA_PAGE_OPENED_OUTPUT, 'one click would fill two cards.')
+  if (twice !== undefined) return twice
+  const card = spec.nodes.find(node => node.component === INFO_CARD_ID)
+  if (card === undefined || pageRegions(page)?.['infoCard'] === false) return undefined
+  return refuse(
+    `spec.nodes[${spec.nodes.indexOf(card)}].props.record`,
+    `reads ${DATA_PAGE_OPENED_OUTPUT} of "${page.id}", whose own side card is still drawn because regions.infoCard is `
+    + 'not false: one click would open two cards.',
+  )
+}
+
+/**
  * Judge how one written-down view wires a form page and an info card to the
  * data page they read.
  *
@@ -486,7 +504,9 @@ function judgeForms(spec: ComponentSpec, page: ComponentNode): ComponentCallFail
  * at most one, saving into the page's own table, beside a page that is not
  * read-only and draws neither of its own forms; and a page that leaves out a
  * form while keeping the button that opens it needs the form page beside it.
- * Then the info card: at most one.
+ * Then the info card: at most one, beside a page whose own side card is
+ * switched off with `regions.infoCard: false`, so that one click opens one
+ * card and only the info card reports what it shows.
  * @param catalog - the components this deployment offers.
  * @param spec - the spec, as validation accepted it.
  * @returns the refusal, or `undefined` when the view's blocks agree with one another.
@@ -498,8 +518,7 @@ export function judgeDataPageParts(catalog: ComponentCatalog, spec: ComponentSpe
   }
   const page = dataPageNodes(spec)[0]
   if (page === undefined) return undefined
-  return judgeForms(spec, page)
-    ?? secondReader(spec, page, INFO_CARD_ID, DATA_PAGE_OPENED_OUTPUT, 'one click would fill two cards.')
+  return judgeForms(spec, page) ?? judgeCard(spec, page)
 }
 
 /**
