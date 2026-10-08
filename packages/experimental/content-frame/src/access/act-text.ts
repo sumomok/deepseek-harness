@@ -392,14 +392,15 @@ export function labelChangedReason(ref: string, now: string, expected: string): 
  * carries — the mark the listing prints for it, or the class tokens a markup
  * tree prints — where the page names the element. An empty label and a mark
  * name a row the read printed with no name: the element is the one the step
- * meant, and a step names it by its name. Every other name that is not the
+ * meant, and a step names it by its name alone, since a step carrying both a
+ * name and a mark is refused before it runs. Every other name that is not the
  * step's label is answered by {@link labelChangedReason}.
  * @param ref - the ref the step named.
  * @param name - the name the element carries.
  * @returns the reason, without the step prefix.
  */
 export function namedHereReason(ref: string, name: string): string {
-  return `${ref} is named "${name}" here; a step names it by label "${name}".`
+  return `${ref} is named "${name}" here; a step names it by label "${name}" and no mark.`
 }
 
 /**

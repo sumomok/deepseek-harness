@@ -1431,9 +1431,11 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined, root: Doc
  * carries no ref, so no step can name it and no answer here is asked for.
  *
  * An icon a repeated item holds — an element {@link isIconShape} accepts that
- * {@link heldByItem} finds an item around, up to `root` — is named by what the
- * page wrote on it wherever it stands, and every read that prints a row for it
- * prints that name.
+ * {@link heldByItem} finds an item around, up to `root` — is the exception: a
+ * markup read gives every element a ref, and a read scoped at the icon or at an
+ * element around it prints a row for it inside such a `label` too. It is named
+ * by what the page wrote on it wherever it stands, and every read that prints a
+ * row for it prints that name.
  * @param el - the element to name.
  * @param options - the read's own options, for the injections it is computed under.
  * @param root - the document the read that printed the element started from.

@@ -505,13 +505,13 @@ describe('what stops a call', () => {
     const queried = listen(at('#go'), ['click'])
     const byIcon = await run([{ action: 'click', ref: icon, label: '', mark: 'el-icon-edit' }])
     expect(byIcon.steps).toEqual([
-      { index: 1, status: 'failed', message: `${icon} is named "编辑" here; a step names it by label "编辑".` },
+      { index: 1, status: 'failed', message: `${icon} is named "编辑" here; a step names it by label "编辑" and no mark.` },
     ])
     posted = []
     cleanup()
     const byButton = await run([{ action: 'click', ref: button, label: '', mark: 'el-button' }])
     expect(byButton.steps).toEqual([
-      { index: 1, status: 'failed', message: `${button} is named "查询" here; a step names it by label "查询".` },
+      { index: 1, status: 'failed', message: `${button} is named "查询" here; a step names it by label "查询" and no mark.` },
     ])
     expect({ edited, queried }).toEqual({ edited: [], queried: [] })
     posted = []
