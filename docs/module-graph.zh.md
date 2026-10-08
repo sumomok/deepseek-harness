@@ -629,6 +629,7 @@ flowchart TD
   pkg_experimental_console_members --> pkg_client_connection
   pkg_experimental_console_members --> pkg_home_paths
   pkg_experimental_console_members --> pkg_session
+  pkg_experimental_console_members --> pkg_timeout
   pkg_experimental_console_members --> pkg_typert_protocol
   pkg_experimental_console_members --> pkg_util_values
   pkg_experimental_console_members --> pkg_workspace
@@ -1712,7 +1713,7 @@ flowchart TD
 | [`api-workspace-controller`](../packages/api/workspace-controller) | `api` | [`api-gateway`](../packages/api/gateway), [`client-connection`](../packages/client/connection), [`host-directory-picker`](../packages/host/directory-picker), [`session`](../packages/core/session), [`storage-domain`](../packages/storage/storage-domain), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`config-editor`](../packages/boot/config-editor) | `boot` | [`app-boot`](../packages/boot/app-boot), [`hmr`](../packages/boot/hmr) |
 | [`experimental-api-speech-to-text`](../packages/experimental/api-speech-to-text) | `experimental` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text), [`typert-protocol`](../packages/typert/protocol) |
-| [`experimental-console-members`](../packages/experimental/console-members) | `experimental` | [`api-gateway`](../packages/api/gateway), [`atomic-write`](../packages/util/atomic-write), [`brand`](../packages/util/brand), [`client-connection`](../packages/client/connection), [`home-paths`](../packages/util/home-paths), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values), [`workspace`](../packages/workspace/workspace) |
+| [`experimental-console-members`](../packages/experimental/console-members) | `experimental` | [`api-gateway`](../packages/api/gateway), [`atomic-write`](../packages/util/atomic-write), [`brand`](../packages/util/brand), [`client-connection`](../packages/client/connection), [`home-paths`](../packages/util/home-paths), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout), [`typert-protocol`](../packages/typert/protocol), [`util-values`](../packages/util/values), [`workspace`](../packages/workspace/workspace) |
 | [`experimental-ptc-runtime-python`](../packages/experimental/ptc-runtime-python) | `experimental` | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`experimental-speech-to-text-sensevoice`](../packages/experimental/speech-to-text-sensevoice) | `experimental` | [`experimental-speech-to-text`](../packages/experimental/speech-to-text), [`subprocess`](../packages/subprocess/subprocess) |
 | [`lsp-stdio`](../packages/lsp/lsp-stdio) | `lsp` | [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
