@@ -31,7 +31,7 @@
  * same way: ops copies one archive in, this plugin verifies it against the
  * archive's own manifest and makes the pack root equal to what it carries. The
  * directory names the delivery the deployment holds, and nothing here ever
- * writes into it.
+ * writes into it. The status route says what the last read of it did.
  *
  * A deployment that configures an organization root also provides
  * `ctx.skillPackIntake` (`intake.ts`): the plugin handing over an
@@ -54,7 +54,7 @@ import type {
 } from '@deepseek-ai/dsh-skill'
 // Type-only: resolves ctx.webServer for the optional status route.
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { installDelivery, type DeliveryDirectory } from './deliveries.ts'
+import { installDelivery, keepDelivery, type DeliveryDirectory } from './deliveries.ts'
 import { refuseSharedDirectories } from './directories.ts'
 import type { StagedPack, StagedPackRefusal } from './install.ts'
 import { NO_ORGANIZATION_SET, OrganizationPackIntake } from './intake.ts'
@@ -62,7 +62,15 @@ import { admitEveryRequest, placeRequestByMember, reportDirectoryMismatch } from
 import { describeMissing, judgePackAlone, reconcilePacks, undrawableViews, type PackObservation } from './reconcile.ts'
 import { packStatusRoute } from './route.ts'
 import { readPackRoot, type PackSource } from './scan.ts'
-import type { ActivePackView, PackManifest, PackStatus, PartsSource, SkillPackIntake } from './types.ts'
+import type {
+  ActivePackView,
+  DeliveryRecord,
+  PackManifest,
+  PackStatus,
+  PackStatusDocument,
+  PartsSource,
+  SkillPackIntake,
+} from './types.ts'
 
 export type * from './types.ts'
 export { buildPackArchive, PACK_ARCHIVE_EXTENSION, PACK_ARCHIVE_FORMAT } from './archive.ts'
@@ -220,6 +228,8 @@ export class SkillPackRegistry extends Service {
   private installing: Promise<void> = Promise.resolve()
   /** Whether the delivery watch has been given up, so a queued install does not run after it. */
   private stopped = false
+  /** What the status route reports about the delivery directory; absent until a read finds an archive. */
+  private lastDelivery: DeliveryRecord | undefined
 
   /** Subscribers, in registration order, which is the order a change reaches them in. */
   private readonly watchers = new Set<() => void>()
@@ -335,7 +345,7 @@ export class SkillPackRegistry extends Service {
     const place = perMember ? placeRequestByMember(ctx) : admitEveryRequest
     ctx.inject(['webServer'], (serverCtx: Context) => {
       serverCtx.effect(
-        () => serverCtx.webServer.register(packStatusRoute(() => this.statuses(), place)),
+        () => serverCtx.webServer.register(packStatusRoute(() => this.statusDocument(), place)),
         'skill-pack: the pack status route',
       )
     })
@@ -401,11 +411,23 @@ export class SkillPackRegistry extends Service {
       /* v8 ignore next -- only an event dispatched while the watcher was closing reaches a stopped
          row, and no in-process test can make chokidar emit one during close(). */
       if (this.stopped) return
-      const changed = await installDelivery(this.root, delivery, (level, text) => {
+      const read = await installDelivery(this.root, delivery, (level, text) => {
         this.ctx.logger[level](text)
       }, packs => this.refuseUndrawable(packs))
-      if (changed) this.moved()
+      this.lastDelivery = keepDelivery(this.lastDelivery, read)
+      if (read?.result === 'installed') this.moved()
     })
+  }
+
+  /**
+   * The status route's document: every pack's status, and what the last read
+   * of the delivery directory that found an archive did with it.
+   * @returns the document, with no `lastDelivery` until a read has found an archive.
+   */
+  private async statusDocument(): Promise<PackStatusDocument> {
+    const packs = await this.statuses()
+    const lastDelivery = this.lastDelivery
+    return lastDelivery === undefined ? { packs } : { packs, lastDelivery }
   }
 
   /**

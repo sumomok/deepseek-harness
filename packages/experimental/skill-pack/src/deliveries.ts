@@ -1,6 +1,6 @@
 /**
- * The delivery directory: which archive it names, and what installing that
- * archive did.
+ * The delivery directory: which archive it names, what installing that
+ * archive did, and which of those reads the status route reports.
  *
  * The directory is the delivery. Exactly one archive in it is the set this
  * deployment holds; none is a deployment nobody has delivered to; more than
@@ -14,15 +14,15 @@
  * it was handed would be answering a question only that operator can.
  *
  * Installing is idempotent, so reading the same directory again after nothing
- * changed writes nothing and reports nothing.
+ * changed writes nothing and logs nothing; the read answers `unchanged`.
  * @module @deepseek-ai/dsh-experimental-skill-pack/src/deliveries
  */
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { PACK_ARCHIVE_EXTENSION } from './archive.ts'
+import { PACK_ARCHIVE_EXTENSION, readPackArchive } from './archive.ts'
 import { syncPackRoot, type VerifyStagedPacks } from './install.ts'
-import type { PackArchiveLimits } from './types.ts'
+import type { DeliveryRecord, PackArchiveLimits, PackSetIdentity } from './types.ts'
 
 /** Where a deployment's delivery archives are dropped, and the limits one is read under. */
 export interface DeliveryDirectory {
@@ -41,51 +41,91 @@ export type DeliveryReport = (level: 'info' | 'error', text: string) => void
 
 /**
  * Make the pack root equal to the one archive the delivery directory names.
+ *
+ * The archive is read and verified against its own manifest before the pack
+ * root is compared with it, so a refusal after that point still names the set
+ * the archive states.
  * @param root - absolute path of the pack root this deployment offers from.
  * @param delivery - the directory to read, and the limits one archive there is read under.
- * @param report - told what was installed and what was refused; nothing is reported when the
- *   directory names no delivery, or names one this root already holds.
+ * @param report - told what was installed and what was refused, with the line a refusal record carries
+ *   as its `reason`; nothing is reported when the directory names no delivery, or names one this root
+ *   already holds.
  * @param verify - how the delivered views are judged against a composed surface; absent where the caller composes none.
- * @returns whether the pack root changed, which is when a reader of it has to be told.
+ * @returns what this read did with the archive it found, or `undefined` when the directory names no
+ *   delivery; the pack root changed exactly when the result is `installed`.
  */
 export async function installDelivery(
   root: string,
   delivery: DeliveryDirectory,
   report: DeliveryReport,
   verify?: VerifyStagedPacks,
-): Promise<boolean> {
+): Promise<DeliveryRecord | undefined> {
   const names = await listArchives(delivery.directory)
   const [name] = names
-  if (name === undefined) return false
+  if (name === undefined) return undefined
   if (names.length > 1) {
-    report('error', `skill-pack: the delivery directory holds ${String(names.length)} archives `
+    return refused(report, names, undefined, `skill-pack: the delivery directory holds ${String(names.length)} archives `
       + `(${names.join(', ')}); it names one delivery at a time`)
-    return false
   }
   const path = join(delivery.directory, name)
+  let set: PackSetIdentity | undefined
   try {
     // The size is read before the file is, so an archive over the limit is
     // refused without this deployment holding its bytes.
     const { size } = await stat(path)
     if (size > delivery.limits.maxArchiveBytes) {
-      report('error', `skill-pack: refused ${name} — is ${String(size)} bytes, `
+      return refused(report, names, undefined, `skill-pack: refused ${name} — is ${String(size)} bytes, `
         + `over the ${String(delivery.limits.maxArchiveBytes)} it is read under`)
-      return false
     }
-    const result = await syncPackRoot(root, {
-      kind: 'archive',
-      name,
-      bytes: await readFile(path),
-      limits: delivery.limits,
-    }, verify)
-    if (!result.changed) return false
-    report('info', `skill-pack: installed ${result.set.id} ${result.set.version} from ${name}: `
+    const archive = readPackArchive(name, await readFile(path), delivery.limits)
+    set = archive.set
+    const result = await syncPackRoot(root, { kind: 'packs', packs: archive.packs }, verify)
+    if (!result.changed) return { result: 'unchanged', archives: [name], set, at: new Date().toISOString() }
+    report('info', `skill-pack: installed ${set.id} ${set.version} from ${name}: `
       + `packs [${result.packs.join(', ')}], retired [${result.retired.join(', ')}]`)
-    return true
+    return { result: 'installed', archives: [name], set, at: new Date().toISOString() }
   } catch (error) {
-    report('error', `skill-pack: ${name} was not installed: ${String(error)}`)
-    return false
+    return refused(report, names, set, `skill-pack: ${name} was not installed: ${String(error)}`)
   }
+}
+
+/**
+ * Report one refusal and record it with the same line.
+ * @param report - where the line is reported, at error level.
+ * @param archives - every archive the directory held.
+ * @param set - the set the archive states, once it verified against its manifest.
+ * @param reason - the whole line.
+ * @returns the refusal record.
+ */
+function refused(
+  report: DeliveryReport,
+  archives: readonly string[],
+  set: PackSetIdentity | undefined,
+  reason: string,
+): DeliveryRecord {
+  report('error', reason)
+  return { result: 'refused', archives, ...set === undefined ? {} : { set }, reason, at: new Date().toISOString() }
+}
+
+/**
+ * The record the status route keeps once one more read has finished.
+ *
+ * Every event in the delivery directory reads it again, a note or a hidden
+ * file written beside the archive among them. A read that finds no archive
+ * keeps the record. An `unchanged` read of the archive the kept record
+ * installed or found unchanged, under the same name and the same set, is that
+ * delivery read again and keeps the record too, so the read that follows an
+ * install does not report the install as unchanged. Every other read replaces
+ * it.
+ * @param kept - the record kept so far, absent before the first read that found an archive.
+ * @param read - what the read that just finished did, absent when it found no archive.
+ * @returns the record to keep.
+ */
+export function keepDelivery(kept: DeliveryRecord | undefined, read: DeliveryRecord | undefined): DeliveryRecord | undefined {
+  if (read === undefined) return kept
+  if (read.result !== 'unchanged' || kept === undefined || kept.result === 'refused') return read
+  const same = kept.archives[0] === read.archives[0] && kept.set.id === read.set.id && kept.set.version === read.set.version
+  return same ? kept : read
 }
 
 /** Every archive the delivery directory holds, in name order. */

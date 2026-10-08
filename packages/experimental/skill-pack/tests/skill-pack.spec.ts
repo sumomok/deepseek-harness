@@ -24,6 +24,7 @@ import SkillPackRegistry, { buildPackArchive, SKILL_PACK_STATUS_ROUTE } from '..
 import { reportDirectoryMismatch } from '../src/members.ts'
 import type {
   DeliveredPack,
+  DeliveryRecord,
   PackStatusDocument,
   PackView,
   PackViewRefusal,
@@ -241,6 +242,17 @@ async function settlesOn<T>(read: () => Promise<T>, done: (value: T) => boolean)
   return value
 }
 
+/**
+ * Poll the status route until its last delivery names these archives; the
+ * assertion reads the record it found.
+ */
+async function lastDeliverySettlesOn(ctx: Context, archives: string[]): Promise<DeliveryRecord | undefined> {
+  return await settlesOn(
+    async () => ((await (await fetchStatus(ctx)).json()) as PackStatusDocument).lastDelivery,
+    record => record !== undefined && record.archives.join('\n') === archives.join('\n'),
+  )
+}
+
 /** Poll the process log until a line carries the fragment; the assertion reads the lines it found. */
 async function logSettlesOn(fragment: string): Promise<string[]> {
   return await settlesOn(
@@ -328,6 +340,8 @@ describe('a pack root whose parts nothing has registered', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
     const document = await response.json() as PackStatusDocument
+    // No delivery directory is configured, so the document says nothing about one.
+    expect(Object.keys(document)).toEqual(['packs'])
     expect(document.packs).toEqual([
       {
         skill: 'broken-pack',
@@ -533,6 +547,12 @@ describe('a delivery archive copied into the delivery directory', () => {
     expect(await logSettlesOn('holds 2 archives (v1.dshpack, v2.dshpack)'))
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
+    expect(await lastDeliverySettlesOn(ctx, ['v1.dshpack', 'v2.dshpack'])).toEqual({
+      result: 'refused',
+      archives: ['v1.dshpack', 'v2.dshpack'],
+      reason: 'skill-pack: the delivery directory holds 2 archives (v1.dshpack, v2.dshpack); it names one delivery at a time',
+      at: expect.any(String),
+    })
   }, WATCHED_MS)
 
   it('leaves the root as it was when the archive does not verify against its own manifest', async () => {
@@ -568,6 +588,40 @@ describe('a delivery archive copied into the delivery directory', () => {
       .toEqual(expect.arrayContaining([expect.stringContaining('error')]))
     expect(await readdir(root)).toEqual(['plain-note'])
     expect((await ctx.skillPacks.statuses()).map(status => status.skill)).toEqual(['plain-note'])
+    // The route carries the refusal in the words the process log does, with the set the archive states.
+    const refusal = 'skill-pack: v2.dshpack was not installed: PackInstallError: skill-pack: refused '
+      + 'space-data-page/views/space-layer.yml — names no component of this deployment'
+    expect(logLines.map(line => line.text)).toEqual(expect.arrayContaining([expect.stringContaining(refusal)]))
+    expect(await lastDeliverySettlesOn(ctx, ['v2.dshpack'])).toEqual({
+      result: 'refused',
+      archives: ['v2.dshpack'],
+      set: { id: 'space-console', version: '1.0.0' },
+      reason: refusal,
+      at: expect.any(String),
+    })
+  }, WATCHED_MS)
+
+  it('says on its route what the last delivery did, and that one carrying what the root holds changed nothing', async () => {
+    const { ctx, deliveries, root } = await loadDeliveryComposition()
+    expect(Object.keys(await (await fetchStatus(ctx)).json() as PackStatusDocument)).toEqual(['packs'])
+
+    await deliver(deliveries, 'v1.dshpack', deliverySet())
+    expect(await lastDeliverySettlesOn(ctx, ['v1.dshpack'])).toEqual({
+      result: 'installed',
+      archives: ['v1.dshpack'],
+      set: { id: 'space-console', version: '1.0.0' },
+      at: expect.any(String),
+    })
+
+    // The same packs exported again under a new name and a new set version.
+    await deliver(deliveries, 'v1-again.dshpack', deliverySet(), '1.0.1')
+    expect(await lastDeliverySettlesOn(ctx, ['v1-again.dshpack'])).toEqual({
+      result: 'unchanged',
+      archives: ['v1-again.dshpack'],
+      set: { id: 'space-console', version: '1.0.1' },
+      at: expect.any(String),
+    })
+    expect((await readdir(root)).sort()).toEqual(['plain-note', 'space-data-page'])
   }, WATCHED_MS)
 
   it('installs a pack that is waiting for a plugin, whatever this surface makes of the views it cannot draw yet', async () => {

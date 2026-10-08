@@ -161,7 +161,7 @@ A composition with no provider of that key sees an empty part list, which is the
 <a id="reading-what-a-deployment-holds"></a>
 ## Reading what a deployment holds
 
-`ctx.skillPacks` answers two questions, and `GET /skill-pack/status` answers the first over HTTP as `{ "packs": [...] }`.
+`ctx.skillPacks` answers two questions, and `GET /skill-pack/status` answers the first over HTTP as `{ "packs": [...] }`, adding [`lastDelivery`](#the-directory-a-delivery-arrives-in) where a delivery directory is configured.
 
 | Read | Answers |
 |---|---|
@@ -178,7 +178,7 @@ An active organization entry keeps a view id against the pack root: a pack of th
 
 Order is by code unit, not by `localeCompare`: the skill-name order of `statuses()`, the directory-name order a pack root is scanned in, and the path order an archive is written in are all the same on every host, whatever ICU data and default locale it has.
 
-The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions, where each pack is installed, an organization entry's channel and refusal reasons only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it.
+The route exists because a withheld pack is invisible everywhere else by design, and a deployment that installed a pack and cannot find it would otherwise have nothing to read. It carries names, versions, where each pack is installed, an organization entry's channel, refusal reasons and the last delivery only — no file contents, no paths inside a pack, no configuration — and it answers with no caching, because a pack's state flips with the plugins around it. The one exception is the reason of a delivery refusal, which is the line the process log carries: it names the archive entry it refused, and where the file system failed a read or a write it quotes the file system's message, which can name the pack root or the delivery directory.
 
 With `perMember`, the route answers only a request `ctx.consoleMembers` places with a member: 503 while no such service runs, and 401 when it places the request with nobody. Every placed member reads the same document. Once the composition has loaded, a `perMember` setting that disagrees with whether a member directory runs is logged at error: a per-member row with no directory answers every request 503, and a row without `perMember` beside a running directory answers anyone who reaches the route.
 
@@ -271,6 +271,18 @@ The directory names the delivery. Exactly one `.dshpack` file is the set this de
 Nothing here writes into that directory. It belongs to whoever copies into it, so a deployment never consumes, renames or deletes the file it was handed, and it needs no write permission on that volume. Replacing a delivery is removing the old file and copying the new one; installing is idempotent, so the reads either order produces settle on the same root.
 
 The directory is read when the watch is armed and again on every event, and a file is read once it has stopped growing. An archive read half-copied anyway is refused for the digest it was always going to fail, and installed when the copy finishes.
+
+`GET /skill-pack/status` carries `lastDelivery`, what the last read that found an archive did with it:
+
+| Field | Value |
+|---|---|
+| `result` | `installed` when the pack root now holds the set and did not before this read; `unchanged` when the root already held every pack, path and byte of it and nothing was written; `refused` when nothing was written for any other reason. |
+| `archives` | Every archive the directory held at that read, in name order: one, except on a read refused for holding more than one. |
+| `set` | The `id` and `version` the archive's manifest states, present once the archive verified against that manifest. A refusal before that point — for the archive's size, for a manifest the archive does not match, or for more than one archive — carries none. |
+| `reason` | On `refused` only: the line the process log carries for the refusal. |
+| `at` | When the read finished, as an ISO 8601 timestamp in UTC. |
+
+A read that finds no archive keeps the record, and so does an `unchanged` read of the archive the record installed or found unchanged, under the same name and set: every event in the directory reads it again, a note written beside the archive among them, and that read would otherwise report the install as unchanged. Every other read replaces the record. It is held in memory, so it is absent after a start until a read finds an archive, and absent where no delivery directory is configured.
 
 There is no upload route, and this is not an oversight. `dsh` has no authentication of its own and sits behind a reverse proxy that answers its privileged methods with 403; a route that accepted an archive would be an unauthenticated write into the directory this deployment installs its packs from. The delivery directory adds no authority of its own: whoever the host already lets write that directory is who decides what this deployment offers.
 
@@ -367,7 +379,8 @@ The skill registry's consumer owns the durable catalog message and its append-on
 - **Two packs of the root may claim one skill name.** Both are reported by `statuses()`, and the skill registry resolves the duplicate by its own rank and order rules, silently. There is no refusal and no report naming the shadowed pack. Organization entries are reported to the registry by the organization plugin, which reports one version per skill name; an organization skill sharing a name with a pack of the root is resolved by the registry's rules the same way.
 - **A pack's views are judged by whoever provides the parts, and unjudged where nobody does.** Without a provider of `ctx.skillPackParts` a view that parsed is carried through, because nothing could draw it either way; the pack is then offered with views no surface has seen, and a delivery is installed on the structural checks alone. It is the same fail-closed position the part list is in, one step further along.
 - **One pack declaring one view id twice keeps the first of them.** The whole-root rule is about two packs. Inside one pack the order is the `views` list the pack's own author wrote, so the second is dropped where any second claim on an id is — by `ctx.componentViews`, with one error line naming the source twice.
-- **A delivery the root already holds is installed by doing nothing, and checked by nothing.** `syncPackRoot` compares first, so a set that matches the root byte for byte returns unchanged without reading a manifest or a view. A root that holds a pack this build would refuse therefore keeps it until a different set arrives.
+- **A delivery the root already holds is installed by doing nothing, and checked by nothing.** `syncPackRoot` compares first, so a set that matches the root byte for byte returns unchanged without reading a manifest or a view. A root that holds a pack this build would refuse therefore keeps it until a different set arrives. The status route shows such a read as `unchanged`, and the process log has no line for it.
+- **Only the last delivery is reported, and only since the process started.** `lastDelivery` is held in memory and keeps one read. A restart empties it, and the read made when the watch arms records the archive the directory still holds, as `unchanged` when the root already holds its set. Earlier deliveries are in the process log only.
 - **A delivery console cannot pre-check what a deployment will make of its views.** `buildPackArchive` holds a set to the rules about its files and reads none of them; the manifest, the view format and each view file are judged where the surface that draws them is. The trigger for revisiting is a delivery console that composes a catalog of its own.
 - **The anchor formats this build reads are tied to the point-anchor package by a comment.** `PACK_ANCHOR_FORMATS` follows the `ANCHOR_FORMATS_READ` list of the point-anchor package, and no test holds the two together until that package is vendored into the console composition. The trigger is that vendoring, which brings the equivalence test with it.
 - **No test installs an archive the point-anchor package wrote.** The archive cases here build their archives with `buildPackArchive`; an archive exported by point-anchor's own writer becomes a fixture once that package's anchor work is merged and pushed, generated from the pushed commit.
