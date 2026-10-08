@@ -108,7 +108,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-skill-pack-components run component-
 
 每个属性写出：`summary`，工具描述给它写的记法；`required`；`viewOnly`，为真表示只有视图文件能设它；`unbindable`，为真表示它不能写成 `$from` 引用，取自组件表面的 `unbindableReason`，所以组件把它读成路径、颜色或渲染器名的属性，即使没有声明不可绑定，也写为真；`schema`，它的类型和全部上限、名单、字符集，字符集写成带标志位的正则字面量。对象属性里面的字段只写 `summary`、`required` 和 `schema`：对象属性里面的 `$from` 一律被拒，`viewOnly` 也只对组件自己的属性判。`viewFile.fields` 和 `manifest.fields` 的每一项写出 `path`、`required` 和 `summary`，后者是技能包根自己对这个值必须是什么的说明。`deploymentSwitches` 列出部署要打开哪些 `show_component` 开关才会交出这个组件，从组件表面的 `withheldComponents` 读出；某套部署有没有打开它们，文件里不写。每个组件的 `placement` 都是 `call`：目录还没有声明放置方式，所以视图能放的组件，调用也都能放。有一条测试拿文件里的每个组件和它所出自的目录条目逐一核对：`id`、`label`、`purpose` 相同，属性名相同，输出 id 相同，动作按 `id` 和 `report` 相同，`sanitize` 相同，条目没有 `sanitize` 时文件里也没有。这条测试给条目的每个键各写一项核对，放在类型按条目定义的记录里，所以条目新加一个键（比如放置方式），在给这个键写出核对之前类型检查不通过。
 
-组件、所有上限、名单和键都从执行这条规则的模块读出。其余几项没有模块把它们作为值导出，由生成器自己写：`view.nodes`、`layout.children` 和 `layout.flex` 的下限、`layout.flex.integer`、`layout.root`、两个 `otherKeys` 的取值，以及各处的 `rules` 句子，这些句子复述组件表面怎样判视图、技能包根怎样读清单。测试拿这些值复述的判定逐一核对它们；每一句 `rules` 的原文也由测试逐字钉住，旁边核对这句话说的判定，所以改了句子或者改了判定，都会有测试失败。有四处只钉了原文，本包没有核对：没有 layout 的 spec 怎样画、页面怎样解析绑定的值，这两件发生在页面里，不在判定里；今天声明的输出没有哪个的单项能被某个属性接受，所以「下标取列表输出的一项」只在绑定被拒的情形下核对；组织集合怎样处理违反格式规则的技能包，由技能包根自己的测试核对。
+组件、所有上限、名单和键都从执行这条规则的模块读出。其余几项没有模块把它们作为值导出，由生成器自己写：`view.nodes`、`layout.children` 和 `layout.flex` 的下限、`layout.flex.integer`、`layout.root`、两个 `otherKeys` 的取值，以及各处的 `rules` 句子，这些句子复述组件表面怎样判视图、技能包根怎样读清单。测试拿这些值复述的判定逐一核对它们；每一句 `rules` 的原文也由测试逐字钉住，旁边核对这句话说的判定，所以改了句子或者改了判定，都会有测试失败。有三处只钉了原文，本包没有核对：没有 layout 的 spec 怎样画、页面怎样解析绑定的值，这两件发生在页面里，不在判定里；组织集合怎样处理违反格式规则的技能包，由技能包根自己的测试核对。第四处「下标取列表输出的一项」只在绑定被拒的情形下核对，因为今天声明的输出没有哪个的单项能被某个属性接受。
 
 <a id="model-experience"></a>
 ## 模型体验
