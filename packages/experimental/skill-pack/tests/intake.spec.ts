@@ -864,8 +864,8 @@ describe('an entry refused', () => {
   })
 
   it('folds the ligature fi into f and i, and the dotless i into capital I: versions as duplicate, paths of one entry as pack-invalid', async () => {
-    // File systems keep both pairs apart; the key folds them to one name and
-    // refuses them anyway.
+    // APFS already reads the ligature and fi as one name and keeps the dotless
+    // i apart from I; the key folds both pairs to one name and refuses them.
     const pairs = [['\ufb01', 'fi'], ['\u0131', 'I']] as const
     const paths = await newWorld()
     const ctx = await boot(paths)
