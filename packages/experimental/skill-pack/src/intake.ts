@@ -60,8 +60,8 @@ import type {
  * admits: {@link WINDOWS_DEVICE_NAME} refuses `CON`, `nul.1` and the other
  * device names, and the 255-byte limit on `<name>@<version>` still depends
  * on the skill name's length, which the format does not bound. The format
- * covers the version only: a path inside an entry may hold any character,
- * Chinese among them, and `validatePacks` judges it.
+ * covers the version only: a path inside an entry is not bound by it, may
+ * hold Chinese, and `validatePacks` judges it.
  */
 const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]$/u
 
