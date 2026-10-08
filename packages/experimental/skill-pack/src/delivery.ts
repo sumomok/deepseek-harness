@@ -36,7 +36,7 @@ const PACK_FILE_EXTENSIONS: ReadonlySet<string> = new Set([
  * file systems a root lives on, not a deployment choice. ext4 holds a name of
  * at most 255 bytes; APFS and NTFS hold one of at most 255 UTF-16 code units,
  * and a name never has more UTF-16 code units than UTF-8 bytes, so a name
- * within 255 bytes fits all three.
+ * within 255 bytes is within all three limits.
  */
 export const NAME_BYTES_MAX = 255
 
@@ -63,22 +63,24 @@ export function collisionKey(name: string): string {
  * @returns the same packs, once every name and every path has passed.
  * @throws {PackInstallError} when a pack name is not one directory name, a pack or a path is
  *   delivered twice — two names or two paths of one pack whose {@link collisionKey} forms are equal
- *   count as one — a path leaves its pack, a pack name or a path segment is a name no file system
- *   can hold as written, or a file carries an extension a pack may not carry.
+ *   count as one — a path leaves its pack, a pack name or a path segment holds a lone UTF-16
+ *   surrogate or is over {@link NAME_BYTES_MAX} bytes of UTF-8, either of which some file system
+ *   cannot hold as written, or a file carries an extension a pack may not carry. A name a file
+ *   system refuses for another reason passes, and writing it fails.
  */
 export function validatePacks(packs: readonly DeliveredPack[]): DeliveredPack[] {
   const names = new Set<string>()
   return packs.map((pack) => {
     const name = requirePackName(pack.name)
     if (names.has(collisionKey(name))) {
-      throw new PackInstallError('duplicate-entry', name, 'a delivery names each pack once, ignoring letter case and Unicode normalization')
+      throw new PackInstallError('duplicate-entry', name, 'a delivery names each pack once when names are folded the way skill-pack compares them')
     }
     names.add(collisionKey(name))
     const paths = new Set<string>()
     const files = pack.files.map((file) => {
       const checked = checkFile(name, file)
       if (paths.has(collisionKey(checked.path))) {
-        throw new PackInstallError('duplicate-entry', `${name}/${checked.path}`, 'a pack carries each path once, ignoring letter case and Unicode normalization')
+        throw new PackInstallError('duplicate-entry', `${name}/${checked.path}`, 'a pack carries each path once when paths are folded the way skill-pack compares them')
       }
       paths.add(collisionKey(checked.path))
       return checked
@@ -120,7 +122,7 @@ async function readPackFiles(directory: string, prefix: string): Promise<Deliver
   return files
 }
 
-/** Refuse a pack directory name that is not one path segment, or that no file system can hold as written. */
+/** Refuse a pack directory name that is not one path segment, or that holds a lone UTF-16 surrogate or is too long for ext4. */
 function requirePackName(name: string): string {
   if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes(sep) || name.includes('\0')) {
     throw new PackInstallError('path-escape', name, 'a pack name is one directory name')
@@ -130,11 +132,13 @@ function requirePackName(name: string): string {
 }
 
 /**
- * Refuse a name a file system cannot hold as written. Node writes a lone
- * UTF-16 surrogate as U+FFFD, so two names differing only in one would land
- * in one directory entry. A name over {@link NAME_BYTES_MAX} bytes does not
- * fit ext4, and is refused on every platform so that a set installing on one
- * installs on all.
+ * Refuse the two kinds of name some file system cannot hold as written, the
+ * only two this package checks before writing. Node writes a lone UTF-16
+ * surrogate as U+FFFD, so two names differing only in one would land in one
+ * directory entry. A name over {@link NAME_BYTES_MAX} bytes of UTF-8 does not
+ * fit ext4, and is refused on every platform, so the longest name a set may
+ * use is the same everywhere. A name the file system refuses for another
+ * reason, such as one holding a code point APFS refuses, fails the write.
  * @param entry - the entry, as a refusal names it.
  * @param name - one pack name or one path segment.
  * @throws {PackInstallError} `path-escape`, when the name holds a lone surrogate or is too long.

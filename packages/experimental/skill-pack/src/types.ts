@@ -316,11 +316,14 @@ export interface OrgPackInput {
 export type IntakeRefusalCode =
   /**
    * A file, path, extension, frontmatter, manifest or view file breaks the
-   * pack rules, two paths that differ only in letter case or Unicode
-   * normalization among them, and a path segment or `<name>@<version>` that
-   * holds a lone UTF-16 surrogate or is over 255 bytes of UTF-8; or the
-   * frontmatter `name` is not the entry's name, or the version is not one
-   * directory name.
+   * pack rules, two paths that fold to one name, as `duplicate` states for
+   * versions, among them, and a path segment or `<name>@<version>` that holds
+   * a lone UTF-16 surrogate or is over 255 bytes of UTF-8; or the frontmatter
+   * `name` is not the entry's name, or the version is not one directory name.
+   * A name the file system refuses for another reason, such as one holding a
+   * code point APFS refuses, or a path longer than `PATH_MAX`, is not refused:
+   * writing it fails, so the whole `replace` answers `failed`, and the
+   * organization root and the offered set stay as they were.
    */
   | 'pack-invalid'
   /** `metadata.pack.anchorFormat` states an anchor format this build does not read. */

@@ -213,12 +213,20 @@ describe('replacing a pack root', () => {
     const nfd = 've\u0301'
     for (const [first, second] of [['a-guide@RC', 'a-guide@rc'], [`a-guide@${nfc}`, `a-guide@${nfd}`], ['a-guide@stra\u00dfe', 'a-guide@strasse']] as const) {
       await expect(syncPackRoot(root, { kind: 'packs', packs: [pack(first, 'One.'), pack(second, 'Two.')] }))
-        .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: second })
+        .rejects.toMatchObject({
+          refusal: 'duplicate-entry',
+          entry: second,
+          message: `skill-pack: refused ${second} \u2014 a delivery names each pack once when names are folded the way skill-pack compares them`,
+        })
     }
     for (const [first, second] of [['views/a.yml', 'views/A.yml'], [`views/${nfc}.yml`, `views/${nfd}.yml`], ['views/stra\u00dfe.yml', 'views/strasse.yml']] as const) {
       const files = [{ path: first, content: 'id: one\n' }, { path: second, content: 'id: two\n' }]
       await expect(syncPackRoot(root, { kind: 'packs', packs: [{ name: 'b', files }] }))
-        .rejects.toMatchObject({ refusal: 'duplicate-entry', entry: `b/${second}` })
+        .rejects.toMatchObject({
+          refusal: 'duplicate-entry',
+          entry: `b/${second}`,
+          message: `skill-pack: refused b/${second} \u2014 a pack carries each path once when paths are folded the way skill-pack compares them`,
+        })
     }
     expect(await tree(root)).toEqual(['a/SKILL.md', 'a/views/v.yml'])
     expect(await readdir(base)).toEqual(['packs'])

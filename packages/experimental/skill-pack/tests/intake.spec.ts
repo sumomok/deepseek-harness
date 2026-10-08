@@ -80,7 +80,7 @@ const NFD_VE = 've\u0301'
 const FULL_FOLD_PAIRS = [['stra\u00dfe', 'strasse'], ['\u03c3', '\u03c2'], ['\u00b5', '\u03bc'], ['\u017f', 's']] as const
 
 /** The detail a `duplicate` refusal states for an entry key. */
-const DUPLICATED = (key: string): string => `${key} is named more than once in this set, ignoring letter case and Unicode normalization`
+const DUPLICATED = (key: string): string => `${key} is named more than once in this set when names are folded the way skill-pack compares them`
 
 /** Whether this platform's default file systems ignore letter case, so the row compares directories with names folded. */
 const FOLDS_NAMES = process.platform === 'darwin' || process.platform === 'win32'
@@ -814,7 +814,7 @@ describe('an entry refused', () => {
       { name: 'b-guide', code: 'pack-invalid' },
       { name: 'd-guide', code: 'pack-invalid' },
     ])
-    expect(refused[0]?.detail).toContain('refused a-guide@1/views/A.yml — a pack carries each path once, ignoring letter case and Unicode normalization')
+    expect(refused[0]?.detail).toContain('refused a-guide@1/views/A.yml \u2014 a pack carries each path once when paths are folded the way skill-pack compares them')
     expect(refused[1]?.detail).toContain(`refused b-guide@1/views/${NFD_VE}.yml — a pack carries each path once`)
     expect(refused[2]?.detail).toContain('refused d-guide@1/views/strasse.yml \u2014 a pack carries each path once')
     expect(await readdir(paths.organizationRoot)).toEqual(['c-guide@1'])

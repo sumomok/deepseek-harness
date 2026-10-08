@@ -47,10 +47,21 @@ import type {
  * excludes `.` and `..`. A version also holds no lone UTF-16 surrogate,
  * which `isWellFormed` checks beside this pattern, and `<name>@<version>` is
  * held to the pack-name rules of `validatePacks`, among them a limit of
- * `NAME_BYTES_MAX` bytes of UTF-8. The organization contract states no
- * format for a version up to 0.4.0. The planned contract 0.5.0 will state
- * this pattern's format and {@link WINDOWS_DEVICE_NAME}'s, and from then on
- * this check repeats the one the organization plugin makes.
+ * `NAME_BYTES_MAX` bytes of UTF-8.
+ *
+ * The organization contract states no format for a version up to 0.4.0. The
+ * planned contract 0.5.0 limits a skill version to ASCII in the format
+ * `^[A-Za-z0-9](?:[A-Za-z0-9._+-]{0,62}[A-Za-z0-9])?$`, unique under one
+ * skill name ignoring letter case, and the organization refuses any other
+ * version when it is published. A version in that format always passes this
+ * pattern and the surrogate check, and two of one skill never fold to one
+ * `collisionKey`, so under 0.5.0 those checks and the duplicate check only
+ * back up the organization's own. Two checks keep refusing what the format
+ * admits: {@link WINDOWS_DEVICE_NAME} refuses `CON`, `nul.1` and the other
+ * device names, and the 255-byte limit on `<name>@<version>` still depends
+ * on the skill name's length, which the format does not bound. The format
+ * covers the version only: a path inside an entry may hold any character,
+ * Chinese among them, and `validatePacks` judges it.
  */
 const DIRECTORY_NAME = /^[^/\\:*?"<>|\u0000-\u001f]*[^/\\:*?"<>|\u0000-\u001f. ]$/u
 
@@ -319,7 +330,7 @@ export class OrganizationPackIntake extends Service implements SkillPackIntake {
     const judgements: EntryJudgement[] = []
     for (const pack of packs) {
       judgements.push(duplicated.has(collisionKey(keyOf(pack)))
-        ? refusedAs(pack, 'duplicate', `${keyOf(pack)} is named more than once in this set, ignoring letter case and Unicode normalization`)
+        ? refusedAs(pack, 'duplicate', `${keyOf(pack)} is named more than once in this set when names are folded the way skill-pack compares them`)
         : await this.judgeEntry(pack))
     }
     const candidates = judgements.flatMap(judgement => judgement.kind === 'accepted' ? [judgement.entry] : [])

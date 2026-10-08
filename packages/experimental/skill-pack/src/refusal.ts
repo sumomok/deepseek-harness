@@ -14,8 +14,11 @@ export type PackInstallRefusal =
   | 'code-file'
   /**
    * The path leaves the pack directory or names no pack directory at all, or
-   * a pack name or path segment is no name every file system can hold as
-   * written: it holds a lone UTF-16 surrogate, or is over 255 bytes of UTF-8.
+   * a pack name or path segment holds a lone UTF-16 surrogate, or is over 255
+   * bytes of UTF-8, the most ext4 holds in one name. These are the only two
+   * checks a name passes before it is written: a name the file system refuses
+   * for another reason fails the write, and the call rejects with the file
+   * system's error instead of a {@link PackInstallError}.
    */
   | 'path-escape'
   /** The entry is a symbolic link, which would carry the root's contents outside it. */
