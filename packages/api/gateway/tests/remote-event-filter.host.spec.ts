@@ -363,6 +363,26 @@ describe('Remote Event filter', () => {
     ])
   })
 
+  it('withholds, without logging, every delivery the filter answers with anything but true', async () => {
+    const { ctx, source, warnings } = await mount()
+    // A JavaScript installer can return any value; the parsed string is truthy but not `true`.
+    const truthy = JSON.parse('"yes"') as boolean
+    ctx.typertGateway.filterRemoteEvents(delivery => delivery.event === SENTINEL || truthy)
+    const a = await openEventClient(ctx, 'a', 'events-a')
+    const pending = pendingWaterfall(ctx, 'session-a')
+
+    source.push({ event: 'fixture/notice', args: [] })
+    source.push(pending.dispatch)
+    await settle(source, a)
+    const late = await openEventClient(ctx, 'b', 'events-b')
+    await settle(source, a, late)
+
+    expect(eventsOf(a)).toEqual([SENTINEL, SENTINEL])
+    expect(eventsOf(late)).toEqual([SENTINEL])
+    expect(pending.settled()).toBe(false)
+    expect(warnings).toEqual([])
+  })
+
   it('accepts one filter at a time, and its disposer or its Context\'s unload restores delivery to every Client', async () => {
     const { ctx, peers, source } = await mount()
     const a = await openEventClient(ctx, 'a', 'events-a')

@@ -50,7 +50,7 @@ Host 组合可通过 `registerRemoteEvents()` 注册唯一的应用事件 source
 
 每个 `$events` Client 记下打开它的 Peer：WebSocket 的是 Connection 为它准入的 Peer，不点名 Peer 的进程内载体的是操作者。`$events/result` 必须来自同一个 Peer；其他 Peer 为该 Client 发来的结果以 `gateway/forbidden` 拒绝，details 为 `{ endpoint: '$events/result' }`，pending 的 waterfall 保持原样。结果只经 `/api` RPC 载体传送：WebSocket mux 不为 `$events/result` 打开流。没有安装 Peer 准入器时，每个 Client 与每个结果都代表操作者，这项核对不会拒绝。
 
-`filterRemoteEvents(filter)` 把唯一的 `RemoteEventFilter` 安装为调用方 Context 的 effect；第二次安装抛错，返回的 disposer 或该 Context 卸载会移除它。过滤器收到一个 `RemoteEventDelivery`（`{ kind: 'emit', event, args }` 或 `{ kind: 'waterfall', event, agentId, request }`，带的是 Client frame 里同样那份已校验的 JSON）和打开某个 Client 的 Peer，返回 `true` 表示把事件投给这个 Client。Gateway 同步调用它，每个 Client 一次，调用点有三处：广播通知时、scoped waterfall 首次到达时，以及有 pending waterfall 时 Client 连上时。抛错的过滤器按 `false` 处理，Gateway 记一条点名该事件的 warning。没有任何 Client 收到的 waterfall 保持 pending，与没有 Client 连接时相同，之后连上的被接受的 Client 会收到它；它的 pending 生命周期仍随 Agent Context 或取消信号结束，收到它的每个 Client 都以 `next()` 委托之后，Host 链继续执行。没有过滤器时，每个 Client 收到每个事件。
+`filterRemoteEvents(filter)` 把唯一的 `RemoteEventFilter` 安装为调用方 Context 的 effect；第二次安装抛错，返回的 disposer 或该 Context 卸载会移除它。过滤器收到一个 `RemoteEventDelivery`（`{ kind: 'emit', event, args }` 或 `{ kind: 'waterfall', event, agentId, request }`，带的是 Client frame 里同样那份已校验的 JSON）和打开某个 Client 的 Peer，返回 `true` 表示把事件投给这个 Client；返回其他任何值都扣下事件，不记日志。异步过滤器是类型错误：它返回的 promise 让事件被扣下，它产生的 reject 由安装方处理。Gateway 同步调用它，每个 Client 一次，调用点有三处：广播通知时、scoped waterfall 首次到达时，以及有 pending waterfall 时 Client 连上时。抛错的过滤器按 `false` 处理，Gateway 记一条点名该事件的 warning。没有任何 Client 收到的 waterfall 保持 pending，与没有 Client 连接时相同，之后连上的被接受的 Client 会收到它；它的 pending 生命周期仍随 Agent Context 或取消信号结束，收到它的每个 Client 都以 `next()` 委托之后，Host 链继续执行。没有过滤器时，每个 Client 收到每个事件。
 
 `hasLiveClient()` 检查已有 `$events` 记录中是否有未取消的流。已取消的流即使尚未完成 iterator 清理也不计入，单独的 WebSocket 也不计入。这一同步观察不保证后续投递成功或 Client Provider 已就绪。
 
@@ -98,7 +98,7 @@ Client waterfall 的 Context 解析保持同步。解析器可以返回借用的
 - 被转发的事件到达 `$on` 时不做业务载荷投影或脱敏。普通通知在重连后不重放；Agent-scoped waterfall 只投影选择 Client Context 所需的顶层 Agent 身份，并自行携带 pending 生命周期。
 - `websocketHeartbeatIntervalMs` 同时是 Ping 周期和 Pong 截止时间。对端未在下一周期前回复时，Host 会终止连接；如果部署的事件循环或网络可能停顿超过该间隔，必须调大此配置。
 - 上行除了有界的 Host inbox 之外没有流控：Client 发送快于方法读取，或发给从未取用 uplink 的方法时，其流以 `gateway/uplink-overflow` 失败；上行项不会跨载体代际重放，需要恢复上行的领域在重开的请求里自带确认游标。
-- 安装或移除 Remote Event 过滤器不回头处理已入队或已扣下的事件：被过滤器跳过的 Client 只在重连时收到仍然 pending 的 waterfall，没发给它的通知不会重放。`hasLiveClient()` 计入每个打开的 `$events` Client，不管过滤器如何判定。
+- 安装或移除 Remote Event 过滤器不回头处理已入队或已扣下的事件：被过滤器跳过的 Client 只在重连时收到仍然 pending 的 waterfall，没发给它的通知不会重放。`hasLiveClient()` 计入每个打开的 `$events` Client，不管过滤器如何判定。移除从下一次逐 Client 判定起生效，所以过滤器在判定中移除自己时，同一事件余下的 Client 不经过滤。
 - 过滤器只看得到事件名与其 JSON 载荷；判断事件关乎哪位成员（例如 `agentId` 指向的会话归谁）由安装它的插件负责。
 - `remote/invoke` 只覆盖 Remote 方法调用：Gateway 自有的 `$events` 流与 `$events/result`、Connection 的精确 Fetch 路由及其专用 RPC 通道都不经过它。
 - `remote/invoke` 没有上行钩子：`RemoteInvokeCall` 不暴露上行，Client 的上行项不经过监听器。

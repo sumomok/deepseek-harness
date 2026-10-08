@@ -415,7 +415,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
   /**
    * Install the sole Remote Event filter as an effect of the calling Context. For each `$events` Client it decides
    * whether a broadcast notification, the first delivery of a scoped waterfall, or the replay of a pending waterfall
-   * to a connecting Client reaches that Client; a filter that throws withholds the event and is logged.
+   * to a connecting Client reaches that Client; only `true` delivers, and a filter that throws withholds the event
+   * and is logged.
    * @param filter - synchronous decision per event and Client.
    * @returns asynchronous disposer removing the filter; it also leaves with the installing fiber.
    * @throws Error when another filter is installed.
@@ -836,12 +837,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
   }
 
-  /** Ask the installed filter whether `client` receives `delivery`; a throwing filter withholds it. */
+  /** Ask the installed filter whether `client` receives `delivery`; any return other than `true`, or a throw, withholds it. */
   private admitsRemoteEvent(delivery: RemoteEventDelivery, client: RemoteEventClient): boolean {
     const filter = this.remoteEventFilter
     if (filter === undefined) return true
     try {
-      return filter(delivery, client.peer)
+      // oxlint-disable-next-line typescript/no-unnecessary-boolean-literal-compare -- an untyped installer's truthy non-boolean withholds.
+      return filter(delivery, client.peer) === true
     } catch (error) {
       this.gatewayCtx.logger.warn(
         `api-gateway: the Remote event filter threw for ${JSON.stringify(delivery.event)}; the event is withheld`,

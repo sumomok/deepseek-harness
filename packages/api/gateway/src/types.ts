@@ -126,10 +126,12 @@ export type RemoteEventDelivery =
 
 /**
  * Decide whether one `$events` Client receives one forwarded event. The Gateway
- * calls the filter synchronously, once per Client, and never awaits it.
+ * calls the filter synchronously, once per Client, and never awaits it. An
+ * asynchronous filter is a type error: its promise withholds the event, and a
+ * rejection it produces is the installer's to handle.
  * @param delivery - the forwarded event.
  * @param peer - the Peer that opened the Client's `$events` stream.
- * @returns `true` to deliver the event to this Client; `false` to withhold it.
+ * @returns `true` to deliver the event to this Client; any other value withholds it.
  */
 export type RemoteEventFilter = (delivery: RemoteEventDelivery, peer: PeerScope) => boolean
 
