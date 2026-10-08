@@ -5,6 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { HostConnectionService, type HostConnectionPeers, type PeerAdmitter } from '@deepseek-ai/dsh-client-connection'
 import type { PeerScope } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemberPeers } from '../src/peers.ts'
 import { RootRegistry } from '../src/registry.ts'
 import type { ConsoleMemberDirectory } from '../src/types.ts'
 import {
@@ -18,9 +19,10 @@ import {
   requestHeaders,
   rowConfig,
   signPayload,
+  signer,
   type MountedRow,
 } from './fixture.ts'
-import { principal, useTempHome } from './support.ts'
+import { capturedLogger, principal, useTempHome } from './support.ts'
 
 const temp = useTempHome()
 
@@ -216,6 +218,34 @@ describe('a failure inside the admitter', () => {
     expect(rejectionOf(row, assertionFor(ALICE))).toBe(401)
     expect(row.lines.some(line => /admitting a member failed \(E[A-Z]+\)/.test(line))).toBe(true)
     expectNoSecret(row.lines, ALICE)
+  })
+})
+
+describe('a failure after Connection opened the Peer', () => {
+  it('disposes that Peer, leaves the table empty, and refuses with 401', () => {
+    const dispose = vi.fn(() => Promise.resolve())
+    let idReads = 0
+    const opened = {
+      ctx: {},
+      dispose,
+      get id(): string {
+        idReads += 1
+        if (idReads === 1) throw new RangeError('Maximum call stack size exceeded')
+        return 'peer-recording-fails'
+      },
+    }
+    const members = new MemberPeers({
+      peers: { open: () => opened, get: () => opened } as never,
+      assertion: { header: 'x-dsh-member', key: signer.publicKey, deploymentId: DEPLOYMENT_ID },
+      ensureMember: () => temp.base,
+      ensureDefaultWorkspace: () => Promise.resolve(),
+      peerIdleMs: 60_000,
+      logger: capturedLogger().logger,
+    })
+    expect(members.admit({ headers: requestHeaders(assertionFor(ALICE)) })).toBe(401)
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(members.principals()).toEqual([])
+    expect(members.principalOf(opened as never)).toBeUndefined()
   })
 })
 

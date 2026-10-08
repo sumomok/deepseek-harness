@@ -218,22 +218,33 @@ export class MemberPeers {
    * Connection emits `connection/peer-opened` inside `peers.open()`, so a
    * listener that admits the same member records an entry first; the Peer
    * opened here is then disposed and that entry answered, which keeps one
-   * Peer per member.
+   * Peer per member. When recording the Peer throws, for example on a stack
+   * exhausted by listeners that keep re-entering, the Peer is disposed before
+   * the error is rethrown, since neither {@link disposeAll} nor the idle close
+   * reaches a Peer outside the table.
    * @param principal - the member.
    * @returns the member's entry.
-   * @throws {Error} when registering the member's root fails; no Peer is opened then.
+   * @throws {Error} when registering the member's root fails, in which case no Peer is opened, or when recording the
+   *   opened Peer fails.
    */
   private open(principal: PrincipalKey): MemberEntry {
     this.options.ensureMember(principal)
     const peer = this.options.peers.open()
-    const recorded = this.byPrincipal.get(principal)
-    if (recorded !== undefined) {
+    let entry: MemberEntry
+    try {
+      const recorded = this.byPrincipal.get(principal)
+      if (recorded !== undefined) {
+        void peer.dispose()
+        return recorded
+      }
+      entry = { principal, peer, sockets: new Set(), lastActive: performance.now(), idleTimer: undefined }
+      this.byPeer.set(peer.id, entry)
+      this.byPrincipal.set(principal, entry)
+    } catch (failure) {
+      this.byPeer.delete(peer.id)
       void peer.dispose()
-      return recorded
+      throw failure
     }
-    const entry: MemberEntry = { principal, peer, sockets: new Set(), lastActive: performance.now(), idleTimer: undefined }
-    this.byPrincipal.set(principal, entry)
-    this.byPeer.set(peer.id, entry)
     this.announce({ principal, kind: 'opened' })
     return entry
   }
