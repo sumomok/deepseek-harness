@@ -35,6 +35,12 @@ describe('verifyAssertion', () => {
     expect(verifyAssertion({ 'X-Dsh-Member': assertionFor(ALICE, EXP) }, check, NOW)).toEqual({ refusal: 'missing' })
   })
 
+  it('reads no header a plain header record inherits', () => {
+    const inherited = Object.create({ 'x-dsh-member': assertionFor(ALICE, EXP) }) as Record<string, string>
+    expect(inherited['x-dsh-member']).toBe(assertionFor(ALICE, EXP))
+    expect(verifyAssertion(inherited, check, NOW)).toEqual({ refusal: 'missing' })
+  })
+
   it('reads the configured header name', () => {
     const custom = { ...check, header: 'x-console-member' }
     expect(verifyAssertion({ 'x-console-member': assertionFor(ALICE, EXP) }, custom, NOW)).toEqual({ principal: ALICE })

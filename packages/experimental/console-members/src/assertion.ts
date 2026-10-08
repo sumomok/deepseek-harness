@@ -59,7 +59,8 @@ export interface AssertionCheck {
 
 /**
  * Verify the member assertion one request carries. The header is read by its
- * lower-case name only, from a `Headers` object or a plain header record. The
+ * lower-case name only, from a `Headers` object or an own property of a plain
+ * header record, never one the record inherits. The
  * form is checked before anything is decoded, the signature before the
  * payload is parsed, and the payload fields before the expiry.
  * @param headers - the request's headers.
@@ -72,7 +73,7 @@ export function verifyAssertion(
   check: AssertionCheck,
   nowSeconds: number,
 ): AssertionVerdict {
-  const value = headers instanceof Headers ? headers.get(check.header) ?? undefined : headers[check.header]
+  const value = headers instanceof Headers ? headers.get(check.header) ?? undefined : ownHeader(headers, check.header)
   if (Array.isArray(value)) return { refusal: 'repeated' }
   if (typeof value !== 'string') return { refusal: 'missing' }
   if (!ASSERTION_FORM.test(value)) return { refusal: 'malformed' }
@@ -89,6 +90,16 @@ export function verifyAssertion(
   if (fields.get('aud') !== check.deploymentId) return { refusal: 'audience' }
   if (nowSeconds >= expiry) return { refusal: 'expired' }
   return { principal: brandString<PrincipalKey>(principal) }
+}
+
+/**
+ * Read one header from a plain header record.
+ * @param headers - the record.
+ * @param name - the lower-case header name.
+ * @returns the record's own value under that name, or `undefined` when it has none.
+ */
+function ownHeader(headers: Exclude<ConnectionTrustRequest['headers'], Headers>, name: string): string | readonly string[] | undefined {
+  return Object.hasOwn(headers, name) ? headers[name] : undefined
 }
 
 /**
