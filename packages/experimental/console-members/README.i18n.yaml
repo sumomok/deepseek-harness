@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/console-members/README.md
 /:
-  en: aa02cd945ab3c26d
-  zh: 7672f4c43eac1edb
+  en: 18ec744834920386
+  zh: d453de851c6f89d7
 /deepseek-ai-dsh-experimental-console-members:
   en: 04079a8ffb0c1304
   zh: a6b8997b33c07a53
 /deepseek-ai-dsh-experimental-console-members/summary:
-  en: 49267b158b197a92
-  zh: a6a46726774f72ef
+  en: 827a605533244fcb
+  zh: da7e2a64f850f541
 /deepseek-ai-dsh-experimental-console-members/table-of-contents:
   en: d152484eb41ac6b4
   zh: 1db86285abf6c499
@@ -21,23 +21,26 @@
   en: 4452f4353e3767b5
   zh: 93ae835965ff2235
 /deepseek-ai-dsh-experimental-console-members/use-this-package/entry-point:
-  en: 728b24821f09fd6b
-  zh: a3182f650aca7bce
+  en: 5b42ce45662e4ed8
+  zh: 47ff5f5533514d2e
+/deepseek-ai-dsh-experimental-console-members/use-this-package/configure-the-row:
+  en: e1167ad8413b8fa9
+  zh: f846009725c4c8f3
 /deepseek-ai-dsh-experimental-console-members/understand-the-implementation:
-  en: e66cba528403b2f3
-  zh: 07285450bf7f6808
+  en: 6d4a0d2c0c6de968
+  zh: fe2cf27f9cb36238
 /deepseek-ai-dsh-experimental-console-members/further-exploration:
-  en: 8cbeda58691d8de5
-  zh: 5a6c5cd8abcf2ea6
+  en: bf9abf8dfc853250
+  zh: fab54639becd7d05
 /deepseek-ai-dsh-experimental-console-members/model-experience:
-  en: 32d2345f86379135
-  zh: c2f6ee783761f4ee
+  en: a0c61a2d0abec5fd
+  zh: 8a29eaae272f2dd2
 /deepseek-ai-dsh-experimental-console-members/model-experience/kv-cache-effect:
-  en: 2ed74a2a33958543
-  zh: 7d63c3a3801bef13
+  en: 40c3b59a7bb396b4
+  zh: 0f41dcfbfdfc6603
 /deepseek-ai-dsh-experimental-console-members/known-limitations-and-deferred-work:
-  en: fbaeb53f55f48b92
-  zh: d527cb80e5248187
+  en: 6b09a26aff70a08a
+  zh: 31de1460b91c1f39
 /deepseek-ai-dsh-experimental-console-members/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

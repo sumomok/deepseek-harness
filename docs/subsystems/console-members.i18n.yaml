@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/console-members.md
 /console-members:
-  en: ad84cb2a8a567d2a
-  zh: 94f9296abf7c1160
+  en: 0f39d9535b1a0645
+  zh: dacba406b93a7b5d
 /console-members/a-request-s-member-has-one-source:
   en: f5b9f721fb52075f
   zh: 9aaf74caefa39224

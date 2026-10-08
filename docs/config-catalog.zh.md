@@ -1341,6 +1341,64 @@ export interface ServerAuthRequest {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-console-mcp -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-console-members -->
+<a id="deepseek-aidsh-experimental-console-members"></a>
+
+## `@deepseek-ai/dsh-experimental-console-members`
+
+- `inject`: `connection`
+- `source`: [`packages/experimental/console-members/src/config.ts:41`](../packages/experimental/console-members/src/config.ts)
+
+```ts config-catalog
+/** The console member directory row's configuration. */
+export interface Config {
+  /** Name of the request header that carries the signed member assertion; compared in lower case. */
+  assertionHeader: string
+  /** The Ed25519 public key that verifies member assertions, as SPKI PEM (`-----BEGIN PUBLIC KEY-----`). Required. */
+  assertionPublicKey: string
+  /** The deployment id an assertion's `aud` must equal. Required. */
+  deploymentId: string
+  /** The `login_uid` of every member who is an administrator. */
+  admins: string[]
+  /** Absolute path of the directory that holds one root per member, `<membersRoot>/<directory id>`. Required. */
+  membersRoot: string
+  /** Absolute paths every member may read. */
+  sharedReadRoots: string[]
+  /**
+   * Migration seeds merged into the root registry at load: each registers one
+   * absolute path to one member or to no member. A seed that conflicts with
+   * the registry fails the load.
+   */
+  rootSeeds: RootSeed[]
+  /** Absolute path prefixes a read may reach while no member is current. */
+  hostReadPaths: string[]
+  /** Absolute path prefixes a write may reach while no member is current. */
+  hostWritePaths: string[]
+  /** Milliseconds a member Peer with no socket and no HTTP request stays open. */
+  peerIdleMs: number
+}
+
+/** One entry of {@link Config.rootSeeds}. */
+export type RootSeed = MemberRootSeed | UnownedRootSeed
+
+/** A migration seed that registers one root to one member. */
+export interface MemberRootSeed {
+  /** The root's absolute path. */
+  path: string
+  /** The `login_uid` of the member the root is registered to. */
+  principal: string
+}
+
+/** A migration seed that registers one root to no member. */
+export interface UnownedRootSeed {
+  /** The root's absolute path. */
+  path: string
+  /** Marks the root as registered to no member. */
+  owner: 'none'
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-console-members -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-content-frame -->
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
@@ -5445,7 +5503,6 @@ export interface Config {
 | `@deepseek-ai/dsh-experimental-agent-team-profile` | — | [`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-biz-backend` | — | [`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-browser-use-runtime` | — | [`packages/experimental/browser-use-runtime/src/index.ts`](../packages/experimental/browser-use-runtime/src/index.ts) |
-| `@deepseek-ai/dsh-experimental-console-members` | — | [`packages/experimental/console-members/src/index.ts`](../packages/experimental/console-members/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-console-profile` | — | [`packages/experimental/console-profile/src/index.ts`](../packages/experimental/console-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-inspector-profile` | — | [`packages/experimental/inspector-profile/src/index.ts`](../packages/experimental/inspector-profile/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-library-skills` | — | [`packages/experimental/library-skills/src/index.ts`](../packages/experimental/library-skills/src/index.ts) |
