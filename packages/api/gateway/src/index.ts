@@ -932,8 +932,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const filter = this.remoteEventFilter
     if (filter === undefined) return !this.isMemberAdmission()
     try {
-      // oxlint-disable-next-line typescript/no-unnecessary-boolean-literal-compare -- an untyped installer's truthy non-boolean withholds.
-      return filter(delivery, client.peer) === true
+      // A filter installed from untyped code may return a truthy non-boolean, which withholds; only `true` delivers.
+      return Object.is(filter(delivery, client.peer), true)
     } catch (error) {
       this.gatewayCtx.logger.warn(
         `api-gateway: the Remote event filter threw for ${JSON.stringify(delivery.event)}; the event is withheld`,
